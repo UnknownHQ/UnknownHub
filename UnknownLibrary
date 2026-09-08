@@ -1,8 +1,3 @@
---[[
-    ========================================================================
-    ENI Tabbed Hub UI Library - Next-Gen Responsive Ocean Edition
-    ========================================================================
-]]
 
 return function(opts)
     opts = opts or {}
@@ -258,10 +253,9 @@ return function(opts)
 
                 local xOffset = ((elapsed * speed) + ((item.part - 1) * width)) % (width * 2) - width
                 local yOffset = math.sin((elapsed * data.freq) + (item.part * 1.5)) * data.amp
-                local rot = math.cos((elapsed * data.freq * 0.8) + item.part) * data.rotAmp
 
                 item.label.Position = UDim2.new(0, xOffset, 0, yOffset)
-                item.label.Rotation = rot
+                item.label.Rotation = 0
             end
         end)
         trackConnection(waveConn)
@@ -910,6 +904,8 @@ return function(opts)
     -- Notification Center Modal UI
     -- =========================================================================
     local function createNotificationCenterModal(parentFrame)
+        if screenGui:FindFirstChild("NotificationCenterOverlay") then return end
+
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "NotificationCenterOverlay"
         modalOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -917,17 +913,19 @@ return function(opts)
         modalOverlay.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
         modalOverlay.BackgroundTransparency = 1
         modalOverlay.BorderSizePixel = 0
-        modalOverlay.ZIndex = 80
-        modalOverlay.Parent = parentFrame
+        modalOverlay.ZIndex = 250
+        modalOverlay.Active = true
+        modalOverlay.Parent = screenGui
 
         local centerPanel = Instance.new("Frame")
         centerPanel.Name = "CenterPanel"
-        centerPanel.Size = UDim2.new(0.9, 0, 0.88, 0)
-        centerPanel.Position = UDim2.new(0.05, 0, 0.06, 0)
+        centerPanel.Size = UDim2.new(0, 520, 0, 360)
+        centerPanel.Position = UDim2.new(0.5, -260, 0.5, -180)
         centerPanel.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
         centerPanel.BorderSizePixel = 0
-        centerPanel.ZIndex = 81
+        centerPanel.ZIndex = 251
         centerPanel.ClipsDescendants = true
+        centerPanel.Active = true
         centerPanel.Parent = modalOverlay
         applyCorner(centerPanel, 10)
         local centerStroke = applyStroke(centerPanel, currentThemeColor, 1.5, 0.25)
@@ -938,7 +936,7 @@ return function(opts)
         pHeader.Size = UDim2.new(1, 0, 0, 42)
         pHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 34)
         pHeader.BorderSizePixel = 0
-        pHeader.ZIndex = 82
+        pHeader.ZIndex = 252
         pHeader.Parent = centerPanel
 
         local pTitle = Instance.new("TextLabel")
@@ -950,7 +948,7 @@ return function(opts)
         pTitle.Font = Enum.Font.GothamBlack
         pTitle.TextSize = 14
         pTitle.TextXAlignment = Enum.TextXAlignment.Left
-        pTitle.ZIndex = 83
+        pTitle.ZIndex = 253
         pTitle.Parent = pHeader
 
         local closeBtn = Instance.new("TextButton")
@@ -961,7 +959,7 @@ return function(opts)
         closeBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
         closeBtn.Font = Enum.Font.GothamBold
         closeBtn.TextSize = 11
-        closeBtn.ZIndex = 83
+        closeBtn.ZIndex = 253
         closeBtn.Parent = pHeader
         applyCorner(closeBtn, 5)
 
@@ -973,7 +971,7 @@ return function(opts)
         markReadBtn.TextColor3 = Color3.fromRGB(190, 205, 230)
         markReadBtn.Font = Enum.Font.GothamBold
         markReadBtn.TextSize = 10
-        markReadBtn.ZIndex = 83
+        markReadBtn.ZIndex = 253
         markReadBtn.Parent = pHeader
         applyCorner(markReadBtn, 5)
 
@@ -985,7 +983,7 @@ return function(opts)
         clearAllBtn.TextColor3 = Color3.fromRGB(245, 140, 140)
         clearAllBtn.Font = Enum.Font.GothamBold
         clearAllBtn.TextSize = 10
-        clearAllBtn.ZIndex = 83
+        clearAllBtn.ZIndex = 253
         clearAllBtn.Parent = pHeader
         applyCorner(clearAllBtn, 5)
 
@@ -994,7 +992,7 @@ return function(opts)
         filterBar.Size = UDim2.new(1, -24, 0, 30)
         filterBar.Position = UDim2.new(0, 12, 0, 48)
         filterBar.BackgroundTransparency = 1
-        filterBar.ZIndex = 82
+        filterBar.ZIndex = 252
         filterBar.Parent = centerPanel
 
         local filterLayout = Instance.new("UIListLayout")
@@ -1016,7 +1014,7 @@ return function(opts)
         cardScroll.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
         cardScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
         cardScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-        cardScroll.ZIndex = 82
+        cardScroll.ZIndex = 252
         cardScroll.Parent = centerPanel
 
         local cardLayout = Instance.new("UIListLayout")
@@ -1047,7 +1045,7 @@ return function(opts)
                 emptyLabel.Font = Enum.Font.GothamMedium
                 emptyLabel.TextSize = 12
                 emptyLabel.TextXAlignment = Enum.TextXAlignment.Center
-                emptyLabel.ZIndex = 83
+                emptyLabel.ZIndex = 253
                 emptyLabel.Parent = cardScroll
                 return
             end
@@ -1058,7 +1056,7 @@ return function(opts)
                 card.Size = UDim2.new(1, 0, 0, 56)
                 card.BackgroundColor3 = Color3.fromRGB(19, 24, 35)
                 card.BorderSizePixel = 0
-                card.ZIndex = 83
+                card.ZIndex = 253
                 card.Parent = cardScroll
                 applyCorner(card, 6)
                 applyStroke(card, Color3.fromRGB(36, 44, 62), 1, 0.4)
@@ -1067,7 +1065,7 @@ return function(opts)
                 leftBar.Size = UDim2.new(0, 3, 1, 0)
                 leftBar.BackgroundColor3 = notif.color or currentThemeColor
                 leftBar.BorderSizePixel = 0
-                leftBar.ZIndex = 84
+                leftBar.ZIndex = 254
                 leftBar.Parent = card
                 applyCorner(leftBar, 2)
 
@@ -1081,7 +1079,7 @@ return function(opts)
                 cTitle.TextSize = 11
                 cTitle.TextXAlignment = Enum.TextXAlignment.Left
                 cTitle.TextTruncate = Enum.TextTruncate.AtEnd
-                cTitle.ZIndex = 84
+                cTitle.ZIndex = 254
                 cTitle.Parent = card
 
                 local cTime = Instance.new("TextLabel")
@@ -1093,7 +1091,7 @@ return function(opts)
                 cTime.Font = Enum.Font.GothamMedium
                 cTime.TextSize = 10
                 cTime.TextXAlignment = Enum.TextXAlignment.Right
-                cTime.ZIndex = 84
+                cTime.ZIndex = 254
                 cTime.Parent = card
 
                 local cContent = Instance.new("TextLabel")
@@ -1107,7 +1105,7 @@ return function(opts)
                 cContent.TextWrapped = true
                 cContent.TextXAlignment = Enum.TextXAlignment.Left
                 cContent.TextYAlignment = Enum.TextYAlignment.Top
-                cContent.ZIndex = 84
+                cContent.ZIndex = 254
                 cContent.Parent = card
 
                 local delCardBtn = Instance.new("TextButton")
@@ -1118,7 +1116,7 @@ return function(opts)
                 delCardBtn.TextColor3 = Color3.fromRGB(150, 160, 185)
                 delCardBtn.Font = Enum.Font.GothamBold
                 delCardBtn.TextSize = 10
-                delCardBtn.ZIndex = 84
+                delCardBtn.ZIndex = 254
                 delCardBtn.Parent = card
 
                 delCardBtn.MouseButton1Click:Connect(function()
@@ -1145,7 +1143,7 @@ return function(opts)
             tabBtn.TextColor3 = activeNotifFilter == tabName and currentThemeColor or Color3.fromRGB(160, 172, 195)
             tabBtn.Font = Enum.Font.GothamBold
             tabBtn.TextSize = 10
-            tabBtn.ZIndex = 83
+            tabBtn.ZIndex = 253
             tabBtn.Parent = filterBar
             applyCorner(tabBtn, 5)
 
@@ -1209,6 +1207,8 @@ return function(opts)
     -- Feedback Modal UI (Tools / Feedback Square Button Modal)
     -- =========================================================================
     local function createFeedbackModal(parentFrame)
+        if screenGui:FindFirstChild("FeedbackOverlay") then return end
+
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "FeedbackOverlay"
         modalOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -1216,17 +1216,19 @@ return function(opts)
         modalOverlay.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
         modalOverlay.BackgroundTransparency = 1
         modalOverlay.BorderSizePixel = 0
-        modalOverlay.ZIndex = 85
-        modalOverlay.Parent = parentFrame
+        modalOverlay.ZIndex = 250
+        modalOverlay.Active = true
+        modalOverlay.Parent = screenGui
 
         local fbPanel = Instance.new("Frame")
         fbPanel.Name = "FeedbackPanel"
-        fbPanel.Size = UDim2.new(0.88, 0, 0.88, 0)
-        fbPanel.Position = UDim2.new(0.06, 0, 0.06, 0)
+        fbPanel.Size = UDim2.new(0, 500, 0, 370)
+        fbPanel.Position = UDim2.new(0.5, -250, 0.5, -185)
         fbPanel.BackgroundColor3 = Color3.fromRGB(14, 18, 27)
         fbPanel.BorderSizePixel = 0
-        fbPanel.ZIndex = 86
+        fbPanel.ZIndex = 251
         fbPanel.ClipsDescendants = true
+        fbPanel.Active = true
         fbPanel.Parent = modalOverlay
         applyCorner(fbPanel, 10)
         local fbStroke = applyStroke(fbPanel, currentThemeColor, 1.5, 0.25)
@@ -1237,7 +1239,7 @@ return function(opts)
         fbHeader.Size = UDim2.new(1, 0, 0, 40)
         fbHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 35)
         fbHeader.BorderSizePixel = 0
-        fbHeader.ZIndex = 87
+        fbHeader.ZIndex = 252
         fbHeader.Parent = fbPanel
 
         local fbTitle = Instance.new("TextLabel")
@@ -1249,7 +1251,7 @@ return function(opts)
         fbTitle.Font = Enum.Font.GothamBlack
         fbTitle.TextSize = 13
         fbTitle.TextXAlignment = Enum.TextXAlignment.Left
-        fbTitle.ZIndex = 88
+        fbTitle.ZIndex = 253
         fbTitle.Parent = fbHeader
 
         local closeBtn = Instance.new("TextButton")
@@ -1260,7 +1262,7 @@ return function(opts)
         closeBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
         closeBtn.Font = Enum.Font.GothamBold
         closeBtn.TextSize = 11
-        closeBtn.ZIndex = 88
+        closeBtn.ZIndex = 253
         closeBtn.Parent = fbHeader
         applyCorner(closeBtn, 5)
 
@@ -1274,14 +1276,14 @@ return function(opts)
         catLabel.Font = Enum.Font.GothamBold
         catLabel.TextSize = 10
         catLabel.TextXAlignment = Enum.TextXAlignment.Left
-        catLabel.ZIndex = 87
+        catLabel.ZIndex = 252
         catLabel.Parent = fbPanel
 
         local catContainer = Instance.new("Frame")
         catContainer.Size = UDim2.new(1, -28, 0, 28)
         catContainer.Position = UDim2.new(0, 14, 0, 66)
         catContainer.BackgroundTransparency = 1
-        catContainer.ZIndex = 87
+        catContainer.ZIndex = 252
         catContainer.Parent = fbPanel
 
         local catLayout = Instance.new("UIListLayout")
@@ -1307,7 +1309,7 @@ return function(opts)
             catBtn.TextColor3 = selectedCategory == catInfo.name and catInfo.color or Color3.fromRGB(170, 180, 200)
             catBtn.Font = Enum.Font.GothamBold
             catBtn.TextSize = 10
-            catBtn.ZIndex = 88
+            catBtn.ZIndex = 253
             catBtn.Parent = catContainer
             applyCorner(catBtn, 5)
             local btnStroke = applyStroke(catBtn, selectedCategory == catInfo.name and catInfo.color or Color3.fromRGB(38, 46, 66), 1, selectedCategory == catInfo.name and 0.2 or 0.7)
@@ -1334,7 +1336,7 @@ return function(opts)
         textContainer.Position = UDim2.new(0, 14, 0, 102)
         textContainer.BackgroundColor3 = Color3.fromRGB(10, 13, 19)
         textContainer.BorderSizePixel = 0
-        textContainer.ZIndex = 87
+        textContainer.ZIndex = 252
         textContainer.Parent = fbPanel
         applyCorner(textContainer, 6)
         local textStroke = applyStroke(textContainer, Color3.fromRGB(38, 48, 70), 1, 0.4)
@@ -1354,7 +1356,7 @@ return function(opts)
         textBox.TextWrapped = true
         textBox.TextXAlignment = Enum.TextXAlignment.Left
         textBox.TextYAlignment = Enum.TextYAlignment.Top
-        textBox.ZIndex = 88
+        textBox.ZIndex = 253
         textBox.Parent = textContainer
 
         local charCounter = Instance.new("TextLabel")
@@ -1366,7 +1368,7 @@ return function(opts)
         charCounter.Font = Enum.Font.GothamMedium
         charCounter.TextSize = 9
         charCounter.TextXAlignment = Enum.TextXAlignment.Right
-        charCounter.ZIndex = 88
+        charCounter.ZIndex = 253
         charCounter.Parent = textContainer
 
         textBox:GetPropertyChangedSignal("Text"):Connect(function()
@@ -1403,7 +1405,7 @@ return function(opts)
         antiSpamLabel.Font = Enum.Font.GothamMedium
         antiSpamLabel.TextSize = 10
         antiSpamLabel.TextXAlignment = Enum.TextXAlignment.Left
-        antiSpamLabel.ZIndex = 87
+        antiSpamLabel.ZIndex = 252
         antiSpamLabel.Parent = fbPanel
 
         local sendBtn = Instance.new("TextButton")
@@ -1414,7 +1416,7 @@ return function(opts)
         sendBtn.TextColor3 = Color3.fromRGB(10, 14, 22)
         sendBtn.Font = Enum.Font.GothamBlack
         sendBtn.TextSize = 11
-        sendBtn.ZIndex = 88
+        sendBtn.ZIndex = 253
         sendBtn.Parent = fbPanel
         applyCorner(sendBtn, 6)
         registerThemeFrame(sendBtn)
@@ -1471,11 +1473,11 @@ return function(opts)
     end
 
     openNotificationCenterModal = function()
-        createNotificationCenterModal(mainFrame)
+        createNotificationCenterModal(screenGui)
     end
 
     openFeedbackModal = function()
-        createFeedbackModal(mainFrame)
+        createFeedbackModal(screenGui)
     end
 
     -- Loading overlay
@@ -1526,7 +1528,7 @@ return function(opts)
     mainFrame.Visible = false
     mainFrame.Parent = screenGui
     applyCorner(mainFrame, 10)
-    startOceanWaveBackground(mainFrame)
+    local waveBackground = startOceanWaveBackground(mainFrame)
 
     local mainBgGradient = Instance.new("UIGradient")
     mainBgGradient.Color = ColorSequence.new({
@@ -1765,6 +1767,7 @@ return function(opts)
             isWindowCollapsed = true
             minimizeBtn.Text = "+"
             if resizerGrip then resizerGrip.Visible = false end
+            if waveBackground then waveBackground.Visible = false end
             headerCover.Visible = false
             headerDivider.Visible = false
             sidebar.Visible = false
@@ -1779,6 +1782,7 @@ return function(opts)
             isWindowCollapsed = false
             minimizeBtn.Text = "—"
 
+            if waveBackground then waveBackground.Visible = true end
             headerCover.Visible = true
             headerDivider.Visible = true
             sidebar.Visible = true
@@ -2473,13 +2477,13 @@ return function(opts)
 
         local arrow = Instance.new("TextLabel")
         arrow.Name = "Arrow"
-        arrow.Size = UDim2.new(0, 24, 1, 0)
-        arrow.Position = UDim2.new(1, -28, 0, 0)
+        arrow.Size = UDim2.new(0, 32, 1, 0)
+        arrow.Position = UDim2.new(1, -36, 0, 0)
         arrow.BackgroundTransparency = 1
         arrow.Text = "▼"
         arrow.TextColor3 = currentThemeColor
         arrow.Font = Enum.Font.GothamBold
-        arrow.TextSize = 11
+        arrow.TextSize = 16
         arrow.TextXAlignment = Enum.TextXAlignment.Center
         arrow.TextYAlignment = Enum.TextYAlignment.Center
         arrow.Rotation = itemExpanded and 0 or -90
