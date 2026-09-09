@@ -81,6 +81,36 @@ local function loadStoredAnnouncements()
         end)
         if ok and type(data) == "table" then return data end
     end
+    
+    -- Draggable Floating Mobile Quick Action Bubble
+    if UserInputService.TouchEnabled then
+        local mobileBubble = Instance.new("TextButton")
+        mobileBubble.Name = "ENI_MobileBubble"
+        mobileBubble.Size = UDim2.new(0, 42, 0, 42)
+        mobileBubble.Position = UDim2.new(0, 16, 0.5, -21)
+        mobileBubble.BackgroundColor3 = Color3.fromRGB(16, 22, 34)
+        mobileBubble.BackgroundTransparency = 0.2
+        mobileBubble.Text = "🌙"
+        mobileBubble.TextSize = 20
+        mobileBubble.Font = Enum.Font.GothamBold
+        mobileBubble.TextColor3 = hubState.currentThemeColor
+        mobileBubble.ZIndex = 200
+        mobileBubble.Parent = hubState.screenGui
+        applyCorner(mobileBubble, 21)
+        local bStroke = applyStroke(mobileBubble, hubState.currentThemeColor, 1.5, 0.2)
+        hubState.registerThemeStroke(bStroke)
+        hubState.registerThemeText(mobileBubble)
+
+        hubState.makeSmoothDraggable(mobileBubble, mobileBubble)
+
+        mobileBubble.MouseButton1Click:Connect(function()
+            hubState.playSfx()
+            hubState.triggerHaptic(0.5)
+            hubState.isGuiOpen = not hubState.isGuiOpen
+            hubState.mainFrame.Visible = hubState.isGuiOpen
+        end)
+    end
+
     return {}
 end
 
@@ -290,6 +320,13 @@ return function(opts)
         loadingFinished = false,
         lastError = "",
         toggleKeyCode = Enum.KeyCode.RightControl,
+        isChromaEnabled = false,
+        chromaSpeed = 1.0,
+        isSfxEnabled = true,
+        sfxVolume = 0.4,
+        pinnedItemsStore = {},
+        consoleLogs = {},
+        autoLoadConfig = false,
     }
     hubState.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
     hubState.registerThemeBackground = function(frm) return hubState.registerThemeFrame(frm) end
@@ -6018,6 +6055,70 @@ return function(opts)
             end
         end))
 
+        -- Theme Presets Grid (1-Tap Palettes)
+        local presetsHeader = Instance.new("TextLabel")
+        presetsHeader.Size = UDim2.new(1, -16, 0, 18)
+        presetsHeader.Position = UDim2.new(0, 10, 0, 252)
+        presetsHeader.BackgroundTransparency = 1
+        presetsHeader.Text = "CURATED THEME PRESETS"
+        presetsHeader.TextColor3 = Color3.fromRGB(150, 165, 195)
+        presetsHeader.Font = Enum.Font.GothamBlack
+        presetsHeader.TextSize = 10
+        presetsHeader.TextXAlignment = Enum.TextXAlignment.Left
+        presetsHeader.Parent = section
+
+        local presetScroll = Instance.new("ScrollingFrame")
+        presetScroll.Size = UDim2.new(1, -20, 0, 32)
+        presetScroll.Position = UDim2.new(0, 10, 0, 274)
+        presetScroll.BackgroundTransparency = 1
+        presetScroll.BorderSizePixel = 0
+        presetScroll.ScrollBarThickness = 2
+        presetScroll.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
+        presetScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+        presetScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        presetScroll.Parent = section
+
+        local presetLayout = Instance.new("UIListLayout")
+        presetLayout.FillDirection = Enum.FillDirection.Horizontal
+        presetLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        presetLayout.Padding = UDim.new(0, 6)
+        presetLayout.Parent = presetScroll
+
+        local presetsList = {
+            {"🌙 Celestial", Color3.fromRGB(0, 210, 255), Color3.fromRGB(155, 89, 255)},
+            {"⚡ Cyberpunk", Color3.fromRGB(255, 0, 128), Color3.fromRGB(0, 240, 255)},
+            {"🌿 Matrix", Color3.fromRGB(0, 255, 136), Color3.fromRGB(0, 179, 89)},
+            {"🩸 Blood Moon", Color3.fromRGB(255, 42, 42), Color3.fromRGB(255, 119, 0)},
+            {"🌆 Vaporwave", Color3.fromRGB(184, 0, 255), Color3.fromRGB(255, 123, 0)},
+            {"👑 Obsidian Gold", Color3.fromRGB(255, 215, 0), Color3.fromRGB(255, 153, 0)},
+            {"💎 Diamond Frost", Color3.fromRGB(112, 224, 255), Color3.fromRGB(224, 248, 255)},
+        }
+
+        for pIdx, pData in ipairs(presetsList) do
+            local pBtn = Instance.new("TextButton")
+            pBtn.Size = UDim2.new(0, 105, 0, 26)
+            pBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
+            pBtn.Text = pData[1]
+            pBtn.TextColor3 = pData[2]
+            pBtn.Font = Enum.Font.GothamBold
+            pBtn.TextSize = 10
+            pBtn.LayoutOrder = pIdx
+            pBtn.Parent = presetScroll
+            applyCorner(pBtn, 5)
+            applyStroke(pBtn, pData[2], 1, 0.4)
+
+            pBtn.MouseButton1Click:Connect(function()
+                hubState.playSfx()
+                hubState.triggerHaptic(0.5)
+                hubState.isChromaEnabled = false
+                hubState.applyTheme(pData[2], pData[3])
+                color1 = pData[2]
+                color2 = pData[3]
+                refreshUI()
+            end)
+        end
+
+        section.Size = UDim2.new(1, -6, 0, 318)
         refreshUI()
         return section
     end
@@ -6066,9 +6167,146 @@ return function(opts)
         return names
     end
 
-    -- Config & Utilities Tabs
+    -- Favorites, Console, Utilities & Config Tabs
     hubState.ensureConfigTab = function()
         if hubState.configTabPage then return end
+
+        -- ⭐ Favorites Page
+        hubState.favoritesPage = hubState.createTabButton("⭐ Favorites", "Favorites", nil, false)
+        local favHeader = Instance.new("TextLabel")
+        favHeader.Size = UDim2.new(1, -6, 0, 24)
+        favHeader.BackgroundTransparency = 1
+        favHeader.Text = "⭐ PINNED FAVORITES"
+        favHeader.TextColor3 = hubState.currentThemeColor
+        favHeader.Font = Enum.Font.GothamBlack
+        favHeader.TextSize = 11
+        favHeader.TextXAlignment = Enum.TextXAlignment.Left
+        favHeader.Parent = hubState.favoritesPage
+        hubState.registerThemeText(favHeader)
+
+        local favEmpty = Instance.new("TextLabel")
+        favEmpty.Name = "FavEmpty"
+        favEmpty.Size = UDim2.new(1, -6, 0, 60)
+        favEmpty.BackgroundTransparency = 1
+        favEmpty.Text = "No favorites pinned yet!\nRight-click or hold any feature to add it here."
+        favEmpty.TextColor3 = Color3.fromRGB(130, 140, 165)
+        favEmpty.Font = Enum.Font.GothamMedium
+        favEmpty.TextSize = 11
+        favEmpty.TextXAlignment = Enum.TextXAlignment.Center
+        favEmpty.Parent = hubState.favoritesPage
+
+        -- 💻 Luau Live Console Page
+        hubState.consolePage = hubState.createTabButton("💻 Console", "Console", nil, false)
+        hubState.createSection(hubState.consolePage, "Luau Live Script Interpreter")
+
+        local consoleBoxFrame = Instance.new("Frame")
+        consoleBoxFrame.Size = UDim2.new(1, -6, 0, 70)
+        consoleBoxFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+        consoleBoxFrame.BorderSizePixel = 0
+        consoleBoxFrame.Parent = hubState.consolePage
+        applyCorner(consoleBoxFrame, 6)
+        applyStroke(consoleBoxFrame, Color3.fromRGB(34, 44, 62), 1, 0)
+
+        local consoleInput = Instance.new("TextBox")
+        consoleInput.Size = UDim2.new(1, -16, 1, -12)
+        consoleInput.Position = UDim2.new(0, 8, 0, 6)
+        consoleInput.BackgroundTransparency = 1
+        consoleInput.Text = ""
+        consoleInput.PlaceholderText = "-- Enter Luau code snippet to run (e.g. print('Hello'))"
+        consoleInput.PlaceholderColor3 = Color3.fromRGB(110, 125, 150)
+        consoleInput.TextColor3 = Color3.fromRGB(235, 242, 255)
+        consoleInput.Font = Enum.Font.Code
+        consoleInput.TextSize = 11
+        consoleInput.TextXAlignment = Enum.TextXAlignment.Left
+        consoleInput.TextYAlignment = Enum.TextYAlignment.Top
+        consoleInput.ClearTextOnFocus = false
+        consoleInput.Parent = consoleBoxFrame
+
+        local consoleBtnBar = Instance.new("Frame")
+        consoleBtnBar.Size = UDim2.new(1, -6, 0, 28)
+        consoleBtnBar.BackgroundTransparency = 1
+        consoleBtnBar.Parent = hubState.consolePage
+
+        local runCodeBtn = Instance.new("TextButton")
+        runCodeBtn.Size = UDim2.new(0.5, -4, 1, 0)
+        runCodeBtn.Position = UDim2.new(0, 0, 0, 0)
+        runCodeBtn.BackgroundColor3 = Color3.fromRGB(22, 32, 48)
+        runCodeBtn.Text = "⚡ Execute Code"
+        runCodeBtn.TextColor3 = hubState.currentThemeColor
+        runCodeBtn.Font = Enum.Font.GothamBold
+        runCodeBtn.TextSize = 11
+        runCodeBtn.Parent = consoleBtnBar
+        applyCorner(runCodeBtn, 5)
+        applyStroke(runCodeBtn, hubState.currentThemeColor, 1, 0.4)
+
+        local clearLogBtn = Instance.new("TextButton")
+        clearLogBtn.Size = UDim2.new(0.5, -4, 1, 0)
+        clearLogBtn.Position = UDim2.new(0.5, 4, 0, 0)
+        clearLogBtn.BackgroundColor3 = Color3.fromRGB(28, 22, 28)
+        clearLogBtn.Text = "🗑️ Clear Logs"
+        clearLogBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+        clearLogBtn.Font = Enum.Font.GothamBold
+        clearLogBtn.TextSize = 11
+        clearLogBtn.Parent = consoleBtnBar
+        applyCorner(clearLogBtn, 5)
+
+        local consoleLogScroll = Instance.new("ScrollingFrame")
+        consoleLogScroll.Size = UDim2.new(1, -6, 0, 130)
+        consoleLogScroll.BackgroundColor3 = Color3.fromRGB(11, 14, 20)
+        consoleLogScroll.BorderSizePixel = 0
+        consoleLogScroll.ScrollBarThickness = 3
+        consoleLogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        consoleLogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        consoleLogScroll.Parent = hubState.consolePage
+        applyCorner(consoleLogScroll, 6)
+        applyStroke(consoleLogScroll, Color3.fromRGB(28, 36, 50), 1, 0)
+
+        local logLayout = Instance.new("UIListLayout")
+        logLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        logLayout.Padding = UDim.new(0, 3)
+        logLayout.Parent = consoleLogScroll
+
+        local function appendConsoleLog(text, color)
+            local logLbl = Instance.new("TextLabel")
+            logLbl.Size = UDim2.new(1, -12, 0, 16)
+            logLbl.BackgroundTransparency = 1
+            logLbl.Text = "[" .. os.date("%H:%M:%S") .. "] " .. tostring(text)
+            logLbl.TextColor3 = color or Color3.fromRGB(200, 215, 240)
+            logLbl.Font = Enum.Font.Code
+            logLbl.TextSize = 10
+            logLbl.TextWrapped = true
+            logLbl.TextXAlignment = Enum.TextXAlignment.Left
+            logLbl.Parent = consoleLogScroll
+        end
+
+        runCodeBtn.MouseButton1Click:Connect(function()
+            hubState.playSfx()
+            hubState.triggerHaptic(0.4)
+            local code = consoleInput.Text
+            if code and #code > 0 then
+                appendConsoleLog("> " .. code, Color3.fromRGB(140, 180, 255))
+                local chunk, compileErr = loadstring(code)
+                if not chunk then
+                    appendConsoleLog("Compile Error: " .. tostring(compileErr), Color3.fromRGB(255, 100, 100))
+                else
+                    local ok, runtimeErr = pcall(chunk)
+                    if not ok then
+                        appendConsoleLog("Runtime Error: " .. tostring(runtimeErr), Color3.fromRGB(255, 100, 100))
+                    else
+                        appendConsoleLog("✓ Executed Successfully", Color3.fromRGB(100, 255, 160))
+                    end
+                end
+            end
+        end)
+
+        clearLogBtn.MouseButton1Click:Connect(function()
+            for _, child in ipairs(consoleLogScroll:GetChildren()) do
+                if child:IsA("TextLabel") then child:Destroy() end
+            end
+            appendConsoleLog("Console cleared.", Color3.fromRGB(130, 140, 160))
+        end)
+
+        appendConsoleLog("Ready. Enter code above to test.", Color3.fromRGB(100, 220, 255))
 
         hubState.utilityTabPage = hubState.createTabButton("Utilities", "Utilities", nil, false)
         hubState.configTabPage = hubState.createTabButton("Config", "Config", nil, false)
