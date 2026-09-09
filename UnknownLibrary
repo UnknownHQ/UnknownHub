@@ -2316,7 +2316,7 @@ return function(opts)
                 local emptyLabel = Instance.new("TextLabel")
                 emptyLabel.Size = UDim2.new(1, 0, 0, 80)
                 emptyLabel.BackgroundTransparency = 1
-                emptyLabel.Text = "No notifications in '" .. activeNotifFilter .. "'\nYou're all caught up! ✨"
+                emptyLabel.Text = "No notifications in '" .. state.activeNotifFilter .. "'\nYou're all caught up! ✨"
                 emptyLabel.TextColor3 = Color3.fromRGB(140, 150, 175)
                 emptyLabel.Font = Enum.Font.GothamMedium
                 emptyLabel.TextSize = 12
@@ -4580,17 +4580,17 @@ return function(opts)
         knob.Parent = switchTrack
         applyCorner(knob, 9)
 
-        local state = defaultState or false
+        local isToggled = defaultState or false
         local function setState(v)
-            state = (v == true)
-            state.configValues["toggle:" .. tostring(text)] = state
-            local targetPos = state and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-            local targetColor = state and state.currentThemeColor or Color3.fromRGB(42, 48, 64)
-            local targetStrokeColor = state and state.currentThemeColor or Color3.fromRGB(34, 42, 58)
+            isToggled = (v == true)
+            state.configValues["toggle:" .. tostring(text)] = isToggled
+            local targetPos = isToggled and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+            local targetColor = isToggled and state.currentThemeColor or Color3.fromRGB(42, 48, 64)
+            local targetStrokeColor = isToggled and state.currentThemeColor or Color3.fromRGB(34, 42, 58)
             TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
             TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
-            if callback then pcall(callback, state) end
+            if callback then pcall(callback, isToggled) end
         end
 
         local click = Instance.new("TextButton")
@@ -4600,13 +4600,13 @@ return function(opts)
         click.Parent = frame
         click.MouseButton1Click:Connect(function()
             if state.isModalActive then return end
-            setState(not state)
+            setState(not isToggled)
         end)
 
         table.insert(state.allToggleSetters, setState)
         state.configSetters["toggle:" .. tostring(text)] = setState
         state.registerThemeUpdater(function(themeColor)
-            if state and switchTrack.Parent then switchTrack.BackgroundColor3 = themeColor end
+            if isToggled and switchTrack.Parent then switchTrack.BackgroundColor3 = themeColor end
         end)
 
         local itemData = {
@@ -4615,20 +4615,20 @@ return function(opts)
             type = "Toggle",
             tab = state.currentActiveTabName,
             set = setState,
-            get = function() return state end,
+            get = function() return isToggled end,
             action = function()
-                setState(not state)
+                setState(not isToggled)
             end
         }
         state.registerFunctionItem(itemData)
         state.attachContextMenu(frame, itemData)
         state.attachContextMenu(click, itemData)
 
-        setState(state)
+        setState(isToggled)
         return {
             Frame = frame,
             Set = setState,
-            Get = function() return state end,
+            Get = function() return isToggled end,
         }
     end
 
@@ -6148,12 +6148,12 @@ return function(opts)
             if keyCode then
                 state.toggleKeyCode = keyCode
                 if state.toggleKeyButton and state.toggleKeyButton.Parent then
-                    state.toggleKeyButton.Text = "  Toggle GUI Key: " .. toggleKeyCode.Name
+                    state.toggleKeyButton.Text = "  Toggle GUI Key: " .. state.toggleKeyCode.Name
                 end
             end
         end
 
-        state.toggleKeyButton = state.createButton(state.configTabPage, "Toggle GUI Key: " .. toggleKeyCode.Name, function()
+        state.toggleKeyButton = state.createButton(state.configTabPage, "Toggle GUI Key: " .. state.toggleKeyCode.Name, function()
             state.capturingToggleKey = true
             state.toggleKeyButton.Text = "  Press any keyboard key..."
         end)
@@ -6344,9 +6344,9 @@ return function(opts)
                 state.capturingToggleKey = false
                 state.configValues.toggleKey = state.toggleKeyCode.Name
                 if state.toggleKeyButton and state.toggleKeyButton.Parent then
-                    state.toggleKeyButton.Text = "  Toggle GUI Key: " .. toggleKeyCode.Name
+                    state.toggleKeyButton.Text = "  Toggle GUI Key: " .. state.toggleKeyCode.Name
                 end
-                state.notify({ Title = "Keybind Updated", Content = "GUI Toggle set to: " .. toggleKeyCode.Name })
+                state.notify({ Title = "Keybind Updated", Content = "GUI Toggle set to: " .. state.toggleKeyCode.Name })
             end
             return
         end
