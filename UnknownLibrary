@@ -3655,8 +3655,8 @@ return function(opts)
     subTitleLabel.Size = UDim2.new(0, 110, 1, 0)
     subTitleLabel.Position = UDim2.new(0, 182, 0, 0)
     subTitleLabel.BackgroundTransparency = 1
-    subTitleLabel.Text = if isDeveloper then ("👑 DEV: " .. devUsername) else (opts.subTitle or opts.subtitle or "v2.0")
-    subTitleLabel.TextColor3 = if isDeveloper then Color3.fromRGB(190, 130, 255) else Color3.fromRGB(130, 140, 165)
+    subTitleLabel.Text = isDeveloper and ("👑 DEV: " .. devUsername) or (opts.subTitle or opts.subtitle or "v2.0")
+    subTitleLabel.TextColor3 = isDeveloper and Color3.fromRGB(190, 130, 255) or Color3.fromRGB(130, 140, 165)
     subTitleLabel.Font = Enum.Font.GothamBold
     subTitleLabel.TextSize = 11
     subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -4999,23 +4999,23 @@ return function(opts)
 
         local listObject = {
             ParentList = parentListObj,
-            Frame = nil :: any,
-            List = nil :: any,
-            SelectedItem = nil :: any,
+            Frame = nil,
+            List = nil,
+            SelectedItem = nil,
             SelectedItems = {},
-            SelectedRowSetter = nil :: any,
+            SelectedRowSetter = nil,
             MultiSelect = multiSelect,
             Title = itemTitle,
             Items = {},
             SubLists = {},
-            UpdateHeight = nil :: any,
-            SetSelected = nil :: any,
-            SetSelectedItems = nil :: any,
-            ToggleSelected = nil :: any,
-            AddItem = nil :: any,
-            AddList = nil :: any,
-            CreateList = nil :: any,
-            BringSelected = nil :: any,
+            UpdateHeight = nil,
+            SetSelected = nil,
+            SetSelectedItems = nil,
+            ToggleSelected = nil,
+            AddItem = nil,
+            AddList = nil,
+            CreateList = nil,
+            BringSelected = nil,
         }
         scrollingFrameToListMap[list] = listObject
 
@@ -5144,7 +5144,7 @@ return function(opts)
             end
             if listObject.SelectedRowSetter then listObject.SelectedRowSetter(false) end
             listObject.SelectedItem = value
-            configValues["list:" .. tostring(itemTitle)] = if value ~= nil then (if type(value) == "table" then value.Name else tostring(value)) else nil
+            configValues["list:" .. tostring(itemTitle)] = (value ~= nil) and ((type(value) == "table" and value.Name) or tostring(value)) or nil
             listObject.SelectedRowSetter = nil
             for _, entryData in ipairs(listObject.Items) do
                 if entryData == value or entryData.Name == value then
@@ -5184,7 +5184,7 @@ return function(opts)
         end
         listObject.ToggleSelected = function(value)
             if not listObject.MultiSelect then
-                return listObject.SetSelected(if listObject.SelectedItem == value then nil else value)
+                return listObject.SetSelected(listObject.SelectedItem == value and nil or value)
             end
             local values = {}
             for _, entryData in ipairs(listObject.SelectedItems) do
