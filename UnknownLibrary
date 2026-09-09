@@ -1145,11 +1145,12 @@ return function(opts)
     hubState.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     hubState.screenGui.Parent = localParent
 
-    -- Modern Toast Notification Container
+    -- Modern Toast Notification Container (Responsive for PC & Mobile)
+    local notifWidth = hubState.isMobileDevice and 260 or 300
     hubState.notificationContainer = Instance.new("Frame")
     hubState.notificationContainer.Name = "NotificationContainer"
-    hubState.notificationContainer.Size = UDim2.new(0, 290, 1, -20)
-    hubState.notificationContainer.Position = UDim2.new(1, -300, 0, 10)
+    hubState.notificationContainer.Size = UDim2.new(0, notifWidth, 1, -20)
+    hubState.notificationContainer.Position = UDim2.new(1, -(notifWidth + 10), 0, 10)
     hubState.notificationContainer.BackgroundTransparency = 1
     hubState.notificationContainer.ZIndex = 150
     hubState.notificationContainer.Parent = hubState.screenGui
@@ -1198,6 +1199,8 @@ return function(opts)
         end
     end
 
+        local activeToastCards = {}
+
     function hubState.notify(config)
         config = type(config) == "table" and config or { Title = "Notification", Content = tostring(config) }
         local titleText = config.Title or "Notification"
@@ -1206,6 +1209,25 @@ return function(opts)
         local notifColor1 = config.Color or hubState.currentThemeColor
         local notifColor2 = config.SecondaryColor or hubState.secondaryThemeColor
         local category = config.Category or "System"
+
+        -- Sound chime (safe pcall)
+        pcall(function()
+            local sound = Instance.new("Sound")
+            sound.Name = "ENI_NotifChime"
+            sound.SoundId = "rbxassetid://4590662766"
+            sound.Volume = 0.35
+            sound.Parent = game:GetService("SoundService")
+            sound:Play()
+            game:GetService("Debris"):AddItem(sound, 2)
+        end)
+
+        -- Limit simultaneous visible toasts to 4 to prevent screen clutter
+        if #activeToastCards >= 4 then
+            local oldest = table.remove(activeToastCards, 1)
+            if oldest and oldest.Close then
+                pcall(oldest.Close)
+            end
+        end
 
         local categoryIcon = "🔔"
         if titleText:find("👑") or titleText:lower():find("dev") or category == "Developer" then
@@ -1303,7 +1325,7 @@ return function(opts)
         nTitle.ZIndex = 152
         nTitle.Parent = notifCard
 
-        -- Time / Badge
+        -- Time
         local nTime = Instance.new("TextLabel")
         nTime.Size = UDim2.new(0, 40, 0, 14)
         nTime.Position = UDim2.new(1, -64, 0, 8)
@@ -1318,15 +1340,15 @@ return function(opts)
 
         -- Dismiss 'X' Button
         local dismissBtn = Instance.new("TextButton")
-        dismissBtn.Size = UDim2.new(0, 16, 0, 16)
-        dismissBtn.Position = UDim2.new(1, -22, 0, 7)
+        dismissBtn.Size = UDim2.new(0, 18, 0, 18)
+        dismissBtn.Position = UDim2.new(1, -24, 0, 7)
         dismissBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 48)
         dismissBtn.BackgroundTransparency = 0.5
         dismissBtn.Text = "×"
         dismissBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
         dismissBtn.Font = Enum.Font.GothamBold
-        dismissBtn.TextSize = 12
-        dismissBtn.ZIndex = 153
+        dismissBtn.TextSize = 13
+        dismissBtn.ZIndex = 155
         dismissBtn.Parent = notifCard
         applyCorner(dismissBtn, 4)
 
@@ -1368,6 +1390,26 @@ return function(opts)
         tGrad.Rotation = 0
         tGrad.Parent = timerBar
 
+        -- Click overlay to open notification center or action
+        local cardClickBtn = Instance.new("TextButton")
+        cardClickBtn.Size = UDim2.new(1, -26, 1, 0)
+        cardClickBtn.Position = UDim2.new(0, 0, 0, 0)
+        cardClickBtn.BackgroundTransparency = 1
+        cardClickBtn.Text = ""
+        cardClickBtn.ZIndex = 153
+        cardClickBtn.Parent = notifCard
+
+        cardClickBtn.MouseButton1Click:Connect(function()
+            if hubState.openNotificationCenterModal then
+                if category == "Announcements" then
+                    hubState.activeNotifFilter = "Announcements"
+                elseif category == "Feedback" then
+                    hubState.activeNotifFilter = "Feedback"
+                end
+                hubState.openNotificationCenterModal(hubState.screenGui)
+            end
+        end)
+
         -- 1. Smooth Slide-In from the Right
         TweenService:Create(notifCard, TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
             Position = UDim2.new(0, 0, 0, 0),
@@ -1386,8 +1428,15 @@ return function(opts)
             isClosing = true
             timerTween:Cancel()
 
-            -- Slow, smooth fade-out and slide back to the right
-            local fadeInfo = TweenInfo.new(0.65, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+            -- Remove from active list
+            for idx, c in ipairs(activeToastCards) do
+                if c.Card == notifCard then
+                    table.remove(activeToastCards, idx)
+                    break
+                end
+            end
+
+            local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
             TweenService:Create(notifCard, fadeInfo, {
                 Position = UDim2.new(1, 60, 0, 0),
                 BackgroundTransparency = 1
@@ -1403,13 +1452,31 @@ return function(opts)
                 end
             end
 
-            task.delay(0.68, function()
+            task.delay(0.42, function()
                 pcall(function() notifCard:Destroy() end)
             end)
         end
 
+        local toastObj = { Card = notifCard, Close = closeCardSlowly }
+        table.insert(activeToastCards, toastObj)
+
+        -- Hover effects: pause timer and brighten card
+        notifCard.MouseEnter:Connect(function()
+            if isClosing then return end
+            pcall(function() timerTween:Pause() end)
+            TweenService:Create(nStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0 }):Play()
+        end)
+
+        notifCard.MouseLeave:Connect(function()
+            if isClosing then return end
+            pcall(function() timerTween:Play() end)
+            TweenService:Create(nStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0.3 }):Play()
+        end)
+
         dismissBtn.MouseButton1Click:Connect(closeCardSlowly)
-        task.delay(duration, closeCardSlowly)
+        task.delay(duration, function()
+            if not isClosing then closeCardSlowly() end
+        end)
     end
 
     function hubState.sendNotification(config)
@@ -1418,6 +1485,7 @@ return function(opts)
         local contentText = config.Content or config.Text or ""
         local category = config.Category or "System"
         local notifColor = config.Color or hubState.currentThemeColor
+        local secColor = config.SecondaryColor or hubState.secondaryThemeColor
         local timeStr = config.Time or os.date("%H:%M")
 
         local entry = {
@@ -1426,11 +1494,16 @@ return function(opts)
             content = contentText,
             category = category,
             color = notifColor,
+            secondaryColor = secColor,
             time = timeStr,
             read = false
         }
 
         table.insert(hubState.notificationsStore, 1, entry)
+        if #hubState.notificationsStore > 60 then
+            table.remove(hubState.notificationsStore)
+        end
+
         hubState.unreadNotifCount = hubState.unreadNotifCount + 1
         hubState.updateNotifBadge()
 
@@ -1439,7 +1512,9 @@ return function(opts)
                 Title = titleText,
                 Content = contentText,
                 Duration = config.Duration or 3.5,
-                Color = notifColor
+                Color = notifColor,
+                SecondaryColor = secColor,
+                Category = category
             })
         end
 
@@ -2501,6 +2576,7 @@ return function(opts)
         end
 
         closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
     end
 
     -- =========================================================================
@@ -2781,6 +2857,7 @@ return function(opts)
         end)
 
         closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
 
         -- Fade In Animation
         TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -2976,6 +3053,7 @@ return function(opts)
         end
 
         closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
 
         sendReplyBtn.MouseButton1Click:Connect(function()
             local msg = replyBox.Text:match("^%s*(.-)%s*$")
@@ -3469,6 +3547,7 @@ return function(opts)
         end)
 
         closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
 
         -- Fade In Animation
         TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
