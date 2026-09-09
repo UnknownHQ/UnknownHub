@@ -1,8 +1,3 @@
---[[
-    ========================================================================
-    ENI Tabbed Hub UI Library - Next-Gen Responsive Ocean Edition
-    ========================================================================
-]]
 
 return function(opts)
     opts = opts or {}
