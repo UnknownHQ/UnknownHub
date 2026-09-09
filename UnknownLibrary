@@ -454,10 +454,7 @@ return function(opts)
     -- =========================================================================
     -- Enhanced Celestial Ocean & Moon Simulation (Strictly Clipped, CanvasGroup)
     -- =========================================================================
-    function hubState.startOceanWaveBackground(parent)
-        if not parent then return nil end
-
-        -- Use CanvasGroup for absolute pixel-perfect rounded corner GPU clipping
+        function hubState.startOceanWaveBackground(parent)
         local success, cg = pcall(function()
             local c = Instance.new("CanvasGroup")
             c.GroupTransparency = 0
@@ -476,44 +473,58 @@ return function(opts)
         applyCorner(waveContainer, 10)
 
         -- ---------------------------------------------------------------------
-        -- Celestial Starfield Decor (Twinkling Constellations)
+        -- Crisp Geometric Sparkling Starfield (100% Vector Frames, Zero Font Glyphs)
         -- ---------------------------------------------------------------------
         local starNodesData = {
-            { x = 0.06, y = 0.12, char = "✦", size = 11, speed = 2.1, phase = 0.2 },
-            { x = 0.16, y = 0.08, char = "✧", size = 13, speed = 1.7, phase = 1.5 },
-            { x = 0.25, y = 0.20, char = "⋆", size = 10, speed = 2.6, phase = 2.8 },
-            { x = 0.36, y = 0.09, char = "✦", size = 12, speed = 1.9, phase = 3.9 },
-            { x = 0.46, y = 0.16, char = "•", size = 8,  speed = 3.1, phase = 0.8 },
-            { x = 0.58, y = 0.07, char = "✧", size = 14, speed = 1.5, phase = 4.4 },
-            { x = 0.67, y = 0.22, char = "⋆", size = 11, speed = 2.3, phase = 5.2 },
-            { x = 0.77, y = 0.11, char = "✦", size = 13, speed = 1.8, phase = 2.1 },
-            { x = 0.88, y = 0.22, char = "•", size = 9,  speed = 2.8, phase = 3.5 },
-            { x = 0.13, y = 0.32, char = "⋆", size = 10, speed = 2.0, phase = 1.9 },
-            { x = 0.84, y = 0.34, char = "✧", size = 12, speed = 1.6, phase = 4.8 },
-            { x = 0.50, y = 0.30, char = "•", size = 8,  speed = 3.4, phase = 2.6 },
+            { x = 0.08, y = 0.10, size = 5, speed = 2.1, phase = 0.2, isDiamond = true },
+            { x = 0.18, y = 0.07, size = 4, speed = 1.7, phase = 1.5, isDiamond = false },
+            { x = 0.28, y = 0.18, size = 6, speed = 2.4, phase = 2.8, isDiamond = true },
+            { x = 0.38, y = 0.08, size = 4, speed = 1.9, phase = 3.9, isDiamond = false },
+            { x = 0.48, y = 0.15, size = 5, speed = 2.8, phase = 0.8, isDiamond = true },
+            { x = 0.58, y = 0.06, size = 4, speed = 1.5, phase = 4.4, isDiamond = false },
+            { x = 0.68, y = 0.20, size = 6, speed = 2.2, phase = 5.2, isDiamond = true },
+            { x = 0.78, y = 0.10, size = 5, speed = 1.8, phase = 2.1, isDiamond = true },
+            { x = 0.88, y = 0.21, size = 4, speed = 2.6, phase = 3.5, isDiamond = false },
+            { x = 0.14, y = 0.30, size = 4, speed = 2.0, phase = 1.9, isDiamond = false },
+            { x = 0.84, y = 0.32, size = 5, speed = 1.6, phase = 4.8, isDiamond = true },
+            { x = 0.50, y = 0.28, size = 4, speed = 3.0, phase = 2.6, isDiamond = false },
         }
 
-        local activeStarLabels = {}
+        local activeStarElements = {}
         for _, star in ipairs(starNodesData) do
-            local starLbl = Instance.new("TextLabel")
-            starLbl.Name = "CosmicStar"
-            starLbl.Size = UDim2.new(0, 24, 0, 24)
-            starLbl.Position = UDim2.new(star.x, -12, star.y, -12)
-            starLbl.BackgroundTransparency = 1
-            starLbl.Text = star.char
-            starLbl.TextColor3 = hubState.currentThemeColor
-            starLbl.TextTransparency = 0.75
-            starLbl.Font = Enum.Font.GothamBold
-            starLbl.TextSize = star.size
-            starLbl.TextXAlignment = Enum.TextXAlignment.Center
-            starLbl.TextYAlignment = Enum.TextYAlignment.Center
-            starLbl.Active = false
-            starLbl.ZIndex = 0
-            starLbl.Parent = waveContainer
-            hubState.registerThemeText(starLbl)
+            local starHolder = Instance.new("Frame")
+            starHolder.Name = "CosmicStar"
+            starHolder.Size = UDim2.new(0, star.size, 0, star.size)
+            starHolder.Position = UDim2.new(star.x, 0, star.y, 0)
+            starHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+            starHolder.BackgroundColor3 = Color3.fromRGB(240, 250, 255)
+            starHolder.BackgroundTransparency = 0.65
+            starHolder.BorderSizePixel = 0
+            starHolder.Active = false
+            starHolder.ZIndex = 0
+            starHolder.Rotation = star.isDiamond and 45 or 0
+            starHolder.Parent = waveContainer
+            applyCorner(starHolder, star.isDiamond and 1 or math.floor(star.size / 2))
 
-            table.insert(activeStarLabels, {
-                label = starLbl,
+            -- Star Outer Glow Aura
+            local starGlow = Instance.new("Frame")
+            starGlow.Name = "Glow"
+            starGlow.Size = UDim2.new(1.8, 0, 1.8, 0)
+            starGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+            starGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+            starGlow.BackgroundColor3 = hubState.currentThemeColor
+            starGlow.BackgroundTransparency = 0.82
+            starGlow.BorderSizePixel = 0
+            starGlow.Active = false
+            starGlow.ZIndex = 0
+            starGlow.Rotation = 45
+            starGlow.Parent = starHolder
+            applyCorner(starGlow, math.floor(star.size))
+            hubState.registerThemeFrame(starGlow)
+
+            table.insert(activeStarElements, {
+                holder = starHolder,
+                glow = starGlow,
                 speed = star.speed,
                 phase = star.phase,
             })
@@ -524,10 +535,10 @@ return function(opts)
         -- ---------------------------------------------------------------------
         local meteorStreak = Instance.new("Frame")
         meteorStreak.Name = "MeteorStreak"
-        meteorStreak.Size = UDim2.new(0, 65, 0, 2)
+        meteorStreak.Size = UDim2.new(0, 75, 0, 2)
         meteorStreak.Position = UDim2.new(0, -100, 0, 20)
         meteorStreak.AnchorPoint = Vector2.new(1, 0.5)
-        meteorStreak.BackgroundColor3 = Color3.fromRGB(245, 250, 255)
+        meteorStreak.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         meteorStreak.BackgroundTransparency = 1
         meteorStreak.BorderSizePixel = 0
         meteorStreak.Rotation = -24
@@ -540,151 +551,21 @@ return function(opts)
         meteorGrad.Color = hubState.getThemeColorSequence(Color3.fromRGB(255, 255, 255), hubState.secondaryThemeColor)
         meteorGrad.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(0.65, 0.4),
+            NumberSequenceKeypoint.new(0.65, 0.35),
             NumberSequenceKeypoint.new(1, 0)
         })
         meteorGrad.Parent = meteorStreak
         hubState.registerThemeGradient(meteorGrad, 0)
 
         -- ---------------------------------------------------------------------
-        -- Celestial Crescent Moon Decor (Top-Right Horizon)
-        -- ---------------------------------------------------------------------
-        local moonContainer = Instance.new("Frame")
-        moonContainer.Name = "CelestialMoon"
-        moonContainer.Size = UDim2.new(0, 110, 0, 110)
-        moonContainer.Position = UDim2.new(1, -78, 0, 48)
-        moonContainer.AnchorPoint = Vector2.new(0.5, 0.5)
-        moonContainer.BackgroundTransparency = 1
-        moonContainer.BorderSizePixel = 0
-        moonContainer.Active = false
-        moonContainer.ZIndex = 0
-        moonContainer.Parent = waveContainer
-
-        -- Outer soft radial lunar aura
-        local moonAuraOuter = Instance.new("Frame")
-        moonAuraOuter.Name = "MoonAuraOuter"
-        moonAuraOuter.Size = UDim2.new(1, 0, 1, 0)
-        moonAuraOuter.Position = UDim2.new(0.5, 0, 0.5, 0)
-        moonAuraOuter.AnchorPoint = Vector2.new(0.5, 0.5)
-        moonAuraOuter.BackgroundColor3 = hubState.secondaryThemeColor
-        moonAuraOuter.BackgroundTransparency = 0.90
-        moonAuraOuter.BorderSizePixel = 0
-        moonAuraOuter.ZIndex = 0
-        moonAuraOuter.Parent = moonContainer
-        applyCorner(moonAuraOuter, 55)
-        hubState.registerThemeFrame(moonAuraOuter)
-
-        local moonAuraGrad = Instance.new("UIGradient")
-        moonAuraGrad.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.1),
-            NumberSequenceKeypoint.new(0.6, 0.6),
-            NumberSequenceKeypoint.new(1, 1)
-        })
-        moonAuraGrad.Parent = moonAuraOuter
-
-        -- Inner vibrant lunar halo
-        local moonAuraInner = Instance.new("Frame")
-        moonAuraInner.Name = "MoonAuraInner"
-        moonAuraInner.Size = UDim2.new(0, 68, 0, 68)
-        moonAuraInner.Position = UDim2.new(0.5, 0, 0.5, 0)
-        moonAuraInner.AnchorPoint = Vector2.new(0.5, 0.5)
-        moonAuraInner.BackgroundColor3 = hubState.currentThemeColor
-        moonAuraInner.BackgroundTransparency = 0.84
-        moonAuraInner.BorderSizePixel = 0
-        moonAuraInner.ZIndex = 0
-        moonAuraInner.Parent = moonContainer
-        applyCorner(moonAuraInner, 34)
-        hubState.registerThemeFrame(moonAuraInner)
-
-        -- Crisp Luminous Moon Disc
-        local moonDisc = Instance.new("Frame")
-        moonDisc.Name = "MoonDisc"
-        moonDisc.Size = UDim2.new(0, 42, 0, 42)
-        moonDisc.Position = UDim2.new(0.5, 0, 0.5, 0)
-        moonDisc.AnchorPoint = Vector2.new(0.5, 0.5)
-        moonDisc.BackgroundColor3 = Color3.fromRGB(238, 245, 255)
-        moonDisc.BackgroundTransparency = 0.28
-        moonDisc.BorderSizePixel = 0
-        moonDisc.ClipsDescendants = true
-        moonDisc.ZIndex = 0
-        moonDisc.Parent = moonContainer
-        applyCorner(moonDisc, 21)
-
-        local moonDiscGrad = Instance.new("UIGradient")
-        moonDiscGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(0.7, Color3.fromRGB(215, 235, 255)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 205, 245))
-        })
-        moonDiscGrad.Rotation = 45
-        moonDiscGrad.Parent = moonDisc
-
-        -- Shadow Cutout creating the sharp Crescent silhouette
-        local moonShadow = Instance.new("Frame")
-        moonShadow.Name = "MoonShadow"
-        moonShadow.Size = UDim2.new(0, 38, 0, 38)
-        moonShadow.Position = UDim2.new(0, -9, 0, -6)
-        moonShadow.BackgroundColor3 = Color3.fromRGB(11, 14, 21)
-        moonShadow.BackgroundTransparency = 0
-        moonShadow.BorderSizePixel = 0
-        moonShadow.ZIndex = 0
-        moonShadow.Parent = moonDisc
-        applyCorner(moonShadow, 19)
-
-        -- Micro Lunar Crater Accents
-        local crater1 = Instance.new("Frame")
-        crater1.Size = UDim2.new(0, 7, 0, 7)
-        crater1.Position = UDim2.new(0, 24, 0, 14)
-        crater1.BackgroundColor3 = Color3.fromRGB(170, 195, 225)
-        crater1.BackgroundTransparency = 0.55
-        crater1.BorderSizePixel = 0
-        crater1.ZIndex = 0
-        crater1.Parent = moonDisc
-        applyCorner(crater1, 4)
-
-        local crater2 = Instance.new("Frame")
-        crater2.Size = UDim2.new(0, 5, 0, 5)
-        crater2.Position = UDim2.new(0, 27, 0, 26)
-        crater2.BackgroundColor3 = Color3.fromRGB(170, 195, 225)
-        crater2.BackgroundTransparency = 0.60
-        crater2.BorderSizePixel = 0
-        crater2.ZIndex = 0
-        crater2.Parent = moonDisc
-        applyCorner(crater2, 3)
-
-        -- ---------------------------------------------------------------------
-        -- Holographic Cyber Scanline Beam (Tasteful Ambient Glass Reflection)
-        -- ---------------------------------------------------------------------
-        local holoScanBeam = Instance.new("Frame")
-        holoScanBeam.Name = "HoloScanBeam"
-        holoScanBeam.Size = UDim2.new(1, 0, 0, 4)
-        holoScanBeam.Position = UDim2.new(0, 0, 0, -10)
-        holoScanBeam.BackgroundColor3 = Color3.fromRGB(225, 245, 255)
-        holoScanBeam.BackgroundTransparency = 1
-        holoScanBeam.BorderSizePixel = 0
-        holoScanBeam.ZIndex = 0
-        holoScanBeam.Active = false
-        holoScanBeam.Parent = waveContainer
-
-        local holoGrad = Instance.new("UIGradient")
-        holoGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
-        holoGrad.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(0.5, 0.45),
-            NumberSequenceKeypoint.new(1, 1)
-        })
-        holoGrad.Parent = holoScanBeam
-        hubState.registerThemeGradient(holoGrad, 0)
-
-        -- ---------------------------------------------------------------------
-        -- Central Ambient Ocean Glow
+        -- Ambient Ocean Background Glow & Depth Mist
         -- ---------------------------------------------------------------------
         local centerGlow = Instance.new("Frame")
         centerGlow.Name = "OceanCenterGlow"
-        centerGlow.Size = UDim2.new(1, 0, 0, 140)
+        centerGlow.Size = UDim2.new(1, 0, 0, 160)
         centerGlow.Position = UDim2.new(0, 0, 0.5, 0)
         centerGlow.AnchorPoint = Vector2.new(0, 0.5)
-        centerGlow.BackgroundTransparency = 0.94
+        centerGlow.BackgroundTransparency = 0.92
         centerGlow.BackgroundColor3 = hubState.currentThemeColor
         centerGlow.BorderSizePixel = 0
         centerGlow.ZIndex = 0
@@ -694,21 +575,22 @@ return function(opts)
         local glowGradient = Instance.new("UIGradient")
         glowGradient.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(0.5, 0),
+            NumberSequenceKeypoint.new(0.5, 0.1),
             NumberSequenceKeypoint.new(1, 1)
         })
         glowGradient.Rotation = 90
         glowGradient.Parent = centerGlow
 
-        -- Seamless high-density ocean zig-zag ribbons
+        -- ---------------------------------------------------------------------
+        -- Seamless Fully-Synchronized Ocean Wave Ribbons (Harmonic Mesh)
+        -- ---------------------------------------------------------------------
         local wavePattern = "╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲"
 
-        -- Balanced harmonic layers centered across the vertical midpoint
         local waveLayersData = {
-            { name = "AbyssWave", offsetY = -28, speed = 14, amp = 7,  freq = 0.75, trans = 0.93, fontSize = 44 },
-            { name = "DeepWave",  offsetY = -10, speed = 24, amp = 10, freq = 1.15, trans = 0.88, fontSize = 52 },
-            { name = "MidWave",   offsetY =  12, speed = 36, amp = 13, freq = 1.65, trans = 0.82, fontSize = 60 },
-            { name = "CrestWave", offsetY =  32, speed = 50, amp = 16, freq = 2.20, trans = 0.76, fontSize = 66 },
+            { name = "AbyssWave", offsetY = -28, speed = 14, amp = 7,  freq = 0.75, trans = 0.92, fontSize = 44, colorMix = 0.2 },
+            { name = "DeepWave",  offsetY = -10, speed = 24, amp = 10, freq = 1.15, trans = 0.86, fontSize = 52, colorMix = 0.4 },
+            { name = "MidWave",   offsetY =  12, speed = 36, amp = 13, freq = 1.65, trans = 0.80, fontSize = 60, colorMix = 0.7 },
+            { name = "CrestWave", offsetY =  32, speed = 50, amp = 16, freq = 2.20, trans = 0.72, fontSize = 66, colorMix = 1.0 },
         }
 
         local waveLabels = {}
@@ -716,7 +598,7 @@ return function(opts)
         for _, data in ipairs(waveLayersData) do
             local layerFrame = Instance.new("Frame")
             layerFrame.Name = data.name
-            layerFrame.Size = UDim2.new(1, 0, 0, 80)
+            layerFrame.Size = UDim2.new(1, 0, 0, 85)
             layerFrame.Position = UDim2.new(0, 0, 0.5, data.offsetY)
             layerFrame.AnchorPoint = Vector2.new(0, 0.5)
             layerFrame.BackgroundTransparency = 1
@@ -745,15 +627,16 @@ return function(opts)
                 waveLbl.Parent = layerFrame
                 hubState.registerThemeText(waveLbl)
 
-                -- Vertical gradient mask to create deep oceanic luminous fade
                 local waveGradient = Instance.new("UIGradient")
+                waveGradient.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
                 waveGradient.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.5),
+                    NumberSequenceKeypoint.new(0, 0.45),
                     NumberSequenceKeypoint.new(0.5, 0),
-                    NumberSequenceKeypoint.new(1, 0.7)
+                    NumberSequenceKeypoint.new(1, 0.65)
                 })
                 waveGradient.Rotation = 90
                 waveGradient.Parent = waveLbl
+                hubState.registerThemeGradient(waveGradient, 90)
 
                 table.insert(waveLabels, {
                     label = waveLbl,
@@ -773,72 +656,50 @@ return function(opts)
                 return
             end
 
-            -- If collapsed or hidden, skip calculating
             if not waveContainer.Visible or not parent.Visible or (parent.AbsoluteSize and parent.AbsoluteSize.Y < 60) then
                 return
             end
 
             local elapsed = tick() - startTime
 
-            -- 1. Twinkling Starfield Luminosity Animation
-            for _, star in ipairs(activeStarLabels) do
-                local flicker = (math.sin((elapsed * star.speed) + star.phase) * 0.28) + 0.68
-                star.label.TextTransparency = math.clamp(flicker, 0.40, 0.96)
+            -- 1. Twinkling Geometric Starfield (Clean alpha pulsing)
+            for _, star in ipairs(activeStarElements) do
+                local flicker = (math.sin((elapsed * star.speed) + star.phase) * 0.32) + 0.60
+                star.holder.BackgroundTransparency = math.clamp(flicker, 0.25, 0.95)
+                star.glow.BackgroundTransparency = math.clamp(flicker + 0.20, 0.50, 1.0)
             end
 
-            -- 2. Celestial Moon Aura Breathing Loop
-            if moonAuraOuter and moonAuraOuter.Parent then
-                local breath = math.sin(elapsed * 1.2) * 0.05
-                moonAuraOuter.BackgroundTransparency = 0.90 + breath
-            end
-            if moonAuraInner and moonAuraInner.Parent then
-                local breathInner = math.cos(elapsed * 1.5) * 0.04
-                moonAuraInner.BackgroundTransparency = 0.84 + breathInner
-            end
-
-            -- 3. Shooting Star / Meteor Streak Loop (every 8 seconds)
+            -- 2. Shooting Meteor Streak Loop (every 7.5 seconds)
             if meteorStreak and meteorStreak.Parent then
-                local cycleTime = elapsed % 8.0
-                if cycleTime < 1.4 then
-                    local progress = cycleTime / 1.4
+                local cycleTime = elapsed % 7.5
+                if cycleTime < 1.3 then
+                    local progress = cycleTime / 1.3
                     local startX = -60
-                    local endX = 420
+                    local endX = 460
                     local currentX = startX + (endX - startX) * progress
-                    local currentY = 15 + (progress * 130)
+                    local currentY = 15 + (progress * 135)
                     meteorStreak.Position = UDim2.new(0, currentX, 0, currentY)
                     local alpha = math.sin(progress * math.pi)
-                    meteorStreak.BackgroundTransparency = 1 - (alpha * 0.75)
+                    meteorStreak.BackgroundTransparency = 1 - (alpha * 0.80)
                 else
                     meteorStreak.BackgroundTransparency = 1
                 end
             end
 
-            -- 4. Ambient Holographic Scanline Sweep (every 11 seconds)
-            if holoScanBeam and holoScanBeam.Parent then
-                local scanCycle = elapsed % 11.0
-                if scanCycle < 2.5 then
-                    local scanProgress = scanCycle / 2.5
-                    holoScanBeam.Position = UDim2.new(0, 0, scanProgress, 0)
-                    local scanAlpha = math.sin(scanProgress * math.pi)
-                    holoScanBeam.BackgroundTransparency = 0.93 - (scanAlpha * 0.12)
-                else
-                    holoScanBeam.BackgroundTransparency = 1
-                end
-            end
-
-            -- 5. Dynamic Harmonic Ocean Waves Simulation
+            -- 3. Seamless Fully-Synchronized Ocean Waves
             for _, item in ipairs(waveLabels) do
                 local data = item.layerData
                 local speed = data.speed
                 local width = item.width
 
+                -- Seamless cyclic X scrolling across parts
                 local xOffset = ((elapsed * speed) + ((item.part - 1) * width)) % (width * 2) - width
-                -- Dual-harmonic sinusoidal formula for ultra-smooth fluid flow
-                local yOffset = (math.sin((elapsed * data.freq) + (item.part * 1.5)) * data.amp)
-                              + (math.cos((elapsed * data.freq * 0.6) + item.part) * (data.amp * 0.35))
+
+                -- Fully synchronized Y harmonic sine wave (consistent across both parts to eliminate any seam disjoints)
+                local yOffset = (math.sin(elapsed * data.freq) * data.amp)
+                              + (math.cos(elapsed * data.freq * 0.5) * (data.amp * 0.35))
 
                 item.label.Position = UDim2.new(0, xOffset, 0, yOffset)
-                item.label.Rotation = 0
             end
         end)
         hubState.trackConnection(waveConn)
