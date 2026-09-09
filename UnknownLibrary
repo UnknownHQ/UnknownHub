@@ -3664,21 +3664,71 @@ return function(opts)
     headerDivider.ZIndex = 21
     headerDivider.Parent = header
 
+        local titleGroup = Instance.new("Frame")
+    titleGroup.Name = "TitleGroup"
+    titleGroup.Size = UDim2.new(1, -220, 1, 0)
+    titleGroup.Position = UDim2.new(0, 14, 0, 0)
+    titleGroup.BackgroundTransparency = 1
+    titleGroup.ZIndex = 22
+    titleGroup.ClipsDescendants = true
+    titleGroup.Parent = header
+
+    local titleLayout = Instance.new("UIListLayout")
+    titleLayout.FillDirection = Enum.FillDirection.Horizontal
+    titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    titleLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    titleLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    titleLayout.Padding = UDim.new(0, 7)
+    titleLayout.Parent = titleGroup
+
+    -- Celestial Crescent Moon Emblem (LayoutOrder = 1, right beside the name)
+    local moonEmblem = Instance.new("Frame")
+    moonEmblem.Name = "MoonEmblem"
+    moonEmblem.Size = UDim2.new(0, 24, 0, 24)
+    moonEmblem.BackgroundColor3 = Color3.fromRGB(20, 26, 40)
+    moonEmblem.BackgroundTransparency = 0.2
+    moonEmblem.BorderSizePixel = 0
+    moonEmblem.LayoutOrder = 1
+    moonEmblem.ZIndex = 23
+    moonEmblem.Parent = titleGroup
+    applyCorner(moonEmblem, 12)
+    local moonStroke = applyStroke(moonEmblem, hubState.currentThemeColor, 1.2, 0.3)
+    hubState.registerThemeStroke(moonStroke)
+
+    local moonIconLabel = Instance.new("TextLabel")
+    moonIconLabel.Name = "MoonIcon"
+    moonIconLabel.Size = UDim2.new(1, 0, 1, 0)
+    moonIconLabel.BackgroundTransparency = 1
+    moonIconLabel.Text = "🌙"
+    moonIconLabel.TextSize = 13
+    moonIconLabel.Font = Enum.Font.GothamBold
+    moonIconLabel.TextColor3 = hubState.currentThemeColor
+    moonIconLabel.TextXAlignment = Enum.TextXAlignment.Center
+    moonIconLabel.TextYAlignment = Enum.TextYAlignment.Center
+    moonIconLabel.ZIndex = 24
+    moonIconLabel.Parent = moonEmblem
+    hubState.registerThemeText(moonIconLabel)
+
+    -- Dynamic Auto-Sized Title Container (LayoutOrder = 2)
     local titleContainer = Instance.new("Frame")
     titleContainer.Name = "TitleContainer"
-    titleContainer.Size = UDim2.new(0, 160, 1, 0)
-    titleContainer.Position = UDim2.new(0, 16, 0, 0)
+    titleContainer.AutomaticSize = Enum.AutomaticSize.X
+    titleContainer.Size = UDim2.new(0, 0, 1, 0)
     titleContainer.BackgroundTransparency = 1
+    titleContainer.LayoutOrder = 2
     titleContainer.ZIndex = 22
-    titleContainer.Parent = header
+    titleContainer.Parent = titleGroup
+
+    local originalTitleText = opts.title or "ENI HUB"
 
     -- Cyan Chromatic Ghost Layer
     local titleGlitchCyan = Instance.new("TextLabel")
     titleGlitchCyan.Name = "GlitchCyan"
-    titleGlitchCyan.Size = UDim2.new(1, 0, 1, 0)
+    titleGlitchCyan.AutomaticSize = Enum.AutomaticSize.X
+    titleGlitchCyan.Size = UDim2.new(0, 0, 1, 0)
     titleGlitchCyan.Position = UDim2.new(0, -1, 0, 0)
     titleGlitchCyan.BackgroundTransparency = 1
-    titleGlitchCyan.Text = opts.title or "ENI HUB"
+    titleGlitchCyan.Text = originalTitleText
     titleGlitchCyan.Font = Enum.Font.GothamBlack
     titleGlitchCyan.TextSize = 15
     titleGlitchCyan.TextColor3 = Color3.fromRGB(0, 240, 255)
@@ -3690,10 +3740,11 @@ return function(opts)
     -- Magenta Chromatic Ghost Layer
     local titleGlitchMagenta = Instance.new("TextLabel")
     titleGlitchMagenta.Name = "GlitchMagenta"
-    titleGlitchMagenta.Size = UDim2.new(1, 0, 1, 0)
+    titleGlitchMagenta.AutomaticSize = Enum.AutomaticSize.X
+    titleGlitchMagenta.Size = UDim2.new(0, 0, 1, 0)
     titleGlitchMagenta.Position = UDim2.new(0, 1, 0, 0)
     titleGlitchMagenta.BackgroundTransparency = 1
-    titleGlitchMagenta.Text = opts.title or "ENI HUB"
+    titleGlitchMagenta.Text = originalTitleText
     titleGlitchMagenta.Font = Enum.Font.GothamBlack
     titleGlitchMagenta.TextSize = 15
     titleGlitchMagenta.TextColor3 = Color3.fromRGB(255, 60, 180)
@@ -3705,10 +3756,11 @@ return function(opts)
     -- Main Foreground Title Label
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Name = "Title"
-    titleLabel.Size = UDim2.new(1, 0, 1, 0)
+    titleLabel.AutomaticSize = Enum.AutomaticSize.X
+    titleLabel.Size = UDim2.new(0, 0, 1, 0)
     titleLabel.Position = UDim2.new(0, 0, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = opts.title or "ENI HUB"
+    titleLabel.Text = originalTitleText
     titleLabel.Font = Enum.Font.GothamBlack
     titleLabel.TextSize = 15
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -3716,7 +3768,6 @@ return function(opts)
     titleLabel.Parent = titleContainer
     hubState.registerThemeText(titleLabel)
 
-    local originalTitleText = opts.title or "ENI HUB"
     local glitchGlyphs = {"0", "1", "Δ", "Ξ", "Ψ", "◈", "X", "Z", "7"}
     local isGlitching = false
 
@@ -3724,13 +3775,11 @@ return function(opts)
         if isGlitching then return end
         isGlitching = true
         task.spawn(function()
-            -- 1. Chromatic aberration flash
             titleGlitchCyan.TextTransparency = 0.40
             titleGlitchMagenta.TextTransparency = 0.40
             titleGlitchCyan.Position = UDim2.new(0, -2, 0, 0)
             titleGlitchMagenta.Position = UDim2.new(0, 2, 0, 0)
 
-            -- 2. Micro glyph decode flicker
             for frameStep = 1, 3 do
                 local scrambled = ""
                 for charIdx = 1, #originalTitleText do
@@ -3747,7 +3796,6 @@ return function(opts)
                 task.wait(0.035)
             end
 
-            -- 3. Snap back cleanly
             titleLabel.Text = originalTitleText
             titleGlitchCyan.Text = originalTitleText
             titleGlitchMagenta.Text = originalTitleText
@@ -3757,7 +3805,6 @@ return function(opts)
         end)
     end
 
-    -- Interactive title hover & click glitch
     local titleHitbox = Instance.new("TextButton")
     titleHitbox.Size = UDim2.new(1, 0, 1, 0)
     titleHitbox.BackgroundTransparency = 1
@@ -3767,7 +3814,6 @@ return function(opts)
     titleHitbox.MouseEnter:Connect(hubState.triggerTitleCyberGlitch)
     titleHitbox.MouseButton1Click:Connect(hubState.triggerTitleCyberGlitch)
 
-    -- Ambient subtle glitch loop every 16-22s
     task.spawn(function()
         while hubState.screenGui and hubState.screenGui.Parent do
             task.wait(math.random(16, 24))
@@ -3777,28 +3823,30 @@ return function(opts)
         end
     end)
 
+    -- Auto-sorted SubTitle Label (LayoutOrder = 3)
     local subTitleLabel = Instance.new("TextLabel")
     subTitleLabel.Name = "SubTitle"
-    subTitleLabel.Size = UDim2.new(0, 110, 1, 0)
-    subTitleLabel.Position = UDim2.new(0, 182, 0, 0)
+    subTitleLabel.AutomaticSize = Enum.AutomaticSize.X
+    subTitleLabel.Size = UDim2.new(0, 0, 1, 0)
     subTitleLabel.BackgroundTransparency = 1
     subTitleLabel.Text = hubState.isDeveloper and ("👑 DEV: " .. devUsername) or (opts.subTitle or opts.subtitle or "v2.0")
     subTitleLabel.TextColor3 = hubState.isDeveloper and Color3.fromRGB(190, 130, 255) or Color3.fromRGB(130, 140, 165)
     subTitleLabel.Font = Enum.Font.GothamBold
     subTitleLabel.TextSize = 11
     subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    subTitleLabel.LayoutOrder = 3
     subTitleLabel.ZIndex = 22
-    subTitleLabel.Parent = header
+    subTitleLabel.Parent = titleGroup
 
-    -- Live Cyber Status Pill Badge
+    -- Auto-sorted Live Status Pill (LayoutOrder = 4)
     local livePill = Instance.new("Frame")
     livePill.Name = "LivePill"
-    livePill.Size = UDim2.new(0, 68, 0, 20)
-    livePill.Position = UDim2.new(0, 298, 0.5, -10)
+    livePill.Size = UDim2.new(0, 64, 0, 20)
     livePill.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
     livePill.BorderSizePixel = 0
+    livePill.LayoutOrder = 4
     livePill.ZIndex = 22
-    livePill.Parent = header
+    livePill.Parent = titleGroup
     applyCorner(livePill, 10)
     applyStroke(livePill, Color3.fromRGB(44, 56, 80), 1, 0)
 
@@ -3841,6 +3889,7 @@ return function(opts)
     sidebar.Size = UDim2.new(0.26, 0, 1, -47)
     sidebar.Position = UDim2.new(0, 0, 0, 47)
     sidebar.BackgroundColor3 = Color3.fromRGB(13, 16, 24)
+    sidebar.BackgroundTransparency = 0.4
     sidebar.BorderSizePixel = 0
     sidebar.ScrollBarThickness = 3
     sidebar.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
@@ -3848,6 +3897,7 @@ return function(opts)
     sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
     sidebar.ZIndex = 10
     sidebar.Parent = hubState.mainFrame
+    applyCorner(sidebar, 10)
 
     local sidebarPadding = Instance.new("UIPadding")
     sidebarPadding.PaddingTop = UDim.new(0, 8)
