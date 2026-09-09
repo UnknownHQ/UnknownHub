@@ -1,8 +1,3 @@
---[[
-    ========================================================================
-    ENI Tabbed Hub UI Library - Next-Gen Responsive Ocean Edition
-    ========================================================================
-]]
 
 return function(opts)
     opts = opts or {}
@@ -163,18 +158,13 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Enhanced Ocean Wave Simulation (Strictly Clipped, CanvasGroup GPU Mask)
+    -- Enhanced Ocean Wave Simulation (Strictly Clipped, Multi-Depth Shimmer)
     -- =========================================================================
     local function startOceanWaveBackground(parent)
         if not parent then return nil end
 
-        -- Use CanvasGroup for absolute pixel-perfect rounded corner GPU clipping
-        local success, cg = pcall(function()
-            local c = Instance.new("CanvasGroup")
-            c.GroupTransparency = 0
-            return c
-        end)
-        local waveContainer = (success and cg) or Instance.new("Frame")
+        -- Dedicated strictly clipped viewport matching the rounded frame
+        local waveContainer = Instance.new("Frame")
         waveContainer.Name = "OceanWaveViewport"
         waveContainer.Size = UDim2.new(1, 0, 1, 0)
         waveContainer.Position = UDim2.new(0, 0, 0, 0)
@@ -190,10 +180,10 @@ return function(opts)
         local wavePattern = "╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲"
 
         local waveLayersData = {
-            { name = "AbyssWave", baseY = 0.65, speed = 18, amp = 8,  freq = 0.85, trans = 0.94, fontSize = 42 },
-            { name = "DeepWave",  baseY = 0.45, speed = 28, amp = 11, freq = 1.35, trans = 0.89, fontSize = 50 },
-            { name = "MidWave",   baseY = 0.25, speed = 40, amp = 14, freq = 1.85, trans = 0.83, fontSize = 58 },
-            { name = "CrestWave", baseY = 0.06, speed = 56, amp = 18, freq = 2.45, trans = 0.78, fontSize = 64 },
+            { name = "AbyssWave", baseY = 0.78, speed = 18, amp = 10, freq = 0.85, trans = 0.94, fontSize = 46, rotAmp = 2.0 },
+            { name = "DeepWave",  baseY = 0.58, speed = 28, amp = 14, freq = 1.35, trans = 0.89, fontSize = 54, rotAmp = 3.0 },
+            { name = "MidWave",   baseY = 0.36, speed = 40, amp = 18, freq = 1.85, trans = 0.83, fontSize = 62, rotAmp = 4.0 },
+            { name = "CrestWave", baseY = 0.16, speed = 56, amp = 24, freq = 2.45, trans = 0.78, fontSize = 70, rotAmp = 5.0 },
         }
 
         local waveLabels = {}
@@ -201,7 +191,7 @@ return function(opts)
         for _, data in ipairs(waveLayersData) do
             local layerFrame = Instance.new("Frame")
             layerFrame.Name = data.name
-            layerFrame.Size = UDim2.new(1, 0, 0, 80)
+            layerFrame.Size = UDim2.new(1, 0, 0, 100)
             layerFrame.Position = UDim2.new(0, 0, data.baseY, 0)
             layerFrame.BackgroundTransparency = 1
             layerFrame.BorderSizePixel = 0
@@ -224,7 +214,6 @@ return function(opts)
                 waveLbl.TextXAlignment = Enum.TextXAlignment.Left
                 waveLbl.TextYAlignment = Enum.TextYAlignment.Center
                 waveLbl.Active = false
-                waveLbl.ClipsDescendants = true
                 waveLbl.ZIndex = 0
                 waveLbl.Parent = layerFrame
                 registerThemeText(waveLbl)
@@ -254,11 +243,6 @@ return function(opts)
         waveConn = RunService.RenderStepped:Connect(function()
             if not waveContainer or not waveContainer.Parent or not parent or not parent.Parent then
                 if waveConn then waveConn:Disconnect() end
-                return
-            end
-
-            -- If collapsed or hidden, skip calculating
-            if not waveContainer.Visible or not parent.Visible or (parent.AbsoluteSize and parent.AbsoluteSize.Y < 60) then
                 return
             end
 
@@ -292,21 +276,6 @@ return function(opts)
 
         trackConnection(dragHandle.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                -- Guard: Ignore if input falls over any TextButton or ImageButton child of dragHandle
-                local inputX, inputY = input.Position.X, input.Position.Y
-                local clickedButton = false
-                for _, child in ipairs(dragHandle:GetDescendants()) do
-                    if (child:IsA("TextButton") or child:IsA("ImageButton")) and child.Visible then
-                        local cp = child.AbsolutePosition
-                        local cs = child.AbsoluteSize
-                        if inputX >= cp.X and inputX <= (cp.X + cs.X) and inputY >= cp.Y and inputY <= (cp.Y + cs.Y) then
-                            clickedButton = true
-                            break
-                        end
-                    end
-                end
-                if clickedButton then return end
-
                 dragging = true
                 dragStart = input.Position
                 startPos = guiFrame.Position
@@ -1065,10 +1034,7 @@ return function(opts)
     -- Notification Center Modal UI
     -- =========================================================================
     local function createNotificationCenterModal(parentFrame)
-        local existing = screenGui:FindFirstChild("NotificationCenterOverlay")
-        if existing then
-            pcall(function() existing:Destroy() end)
-        end
+        if screenGui:FindFirstChild("NotificationCenterOverlay") then return end
 
         isModalActive = true
 
@@ -1578,10 +1544,7 @@ return function(opts)
     -- Feedback Modal UI (Tools / Feedback Square Button Modal)
     -- =========================================================================
     local function createFeedbackModal(parentFrame)
-        local existing = screenGui:FindFirstChild("FeedbackOverlay")
-        if existing then
-            pcall(function() existing:Destroy() end)
-        end
+        if screenGui:FindFirstChild("FeedbackOverlay") then return end
 
         isModalActive = true
 
@@ -2081,19 +2044,7 @@ return function(opts)
             BackgroundColor3 = Color3.fromRGB(24, 30, 44)
         }):Play()
     end)
-    local function bindHeaderButton(btn, callback)
-        local debounce = false
-        local function trigger()
-            if debounce then return end
-            debounce = true
-            task.delay(0.18, function() debounce = false end)
-            pcall(callback)
-        end
-        trackConnection(btn.Activated:Connect(trigger))
-        trackConnection(btn.MouseButton1Click:Connect(trigger))
-    end
-
-    bindHeaderButton(notifBtn, function()
+    notifBtn.MouseButton1Click:Connect(function()
         if openNotificationCenterModal then openNotificationCenterModal() end
     end)
 
@@ -2122,7 +2073,7 @@ return function(opts)
             BackgroundColor3 = Color3.fromRGB(24, 30, 44)
         }):Play()
     end)
-    bindHeaderButton(feedbackBtn, function()
+    feedbackBtn.MouseButton1Click:Connect(function()
         if openFeedbackModal then openFeedbackModal() end
     end)
 
@@ -2151,7 +2102,7 @@ return function(opts)
         }):Play()
     end)
 
-    bindHeaderButton(minimizeBtn, function()
+    minimizeBtn.MouseButton1Click:Connect(function()
         if not isWindowCollapsed then
             -- Collapse to header size (46px height, leaving only header bar)
             local currentH = mainFrame.AbsoluteSize.Y
@@ -2209,7 +2160,7 @@ return function(opts)
     closeBtn.Parent = header
     applyCorner(closeBtn, 6)
 
-    bindHeaderButton(closeBtn, function()
+    closeBtn.MouseButton1Click:Connect(function()
         createCloseConfirmation(mainFrame, function()
             DisableAllFeatureStates()
             if opts.onClose then pcall(opts.onClose) end
