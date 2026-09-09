@@ -1,3 +1,8 @@
+--[[
+    ========================================================================
+    ENI Tabbed Hub UI Library - Next-Gen Responsive Ocean Edition
+    ========================================================================
+]]
 
 return function(opts)
     opts = opts or {}
@@ -13,11 +18,14 @@ return function(opts)
     local StatsService = game:GetService("Stats")
     local LocalPlayer = Players.LocalPlayer
 
-    -- Developer & Webhook Configuration
+    -- Developer & Webhook Configuration (Customized Bot Gateway)
     local devUsername = opts.devUsername or "iqoooake"
     local defaultWebhook = "https://discord.com/api/webhooks/1546874178391515298/pFNb5b0moAaijqIILkO_orgHQnOnZmYuVwKiVszBPtY9tIEolBqPPEAgYqRzbAHULmXQ"
     local feedbackWebhookUrl = opts.feedbackWebhook or defaultWebhook
+    local webhookBotName = opts.botName or opts.webhookBotName or ("UnknownHub Core [" .. devUsername .. "]")
+    local webhookBotAvatar = opts.botAvatar or opts.webhookBotAvatar or "https://i.imgur.com/8Q5Fq7f.png"
     local isDeveloper = (LocalPlayer and LocalPlayer.Name and LocalPlayer.Name:lower() == devUsername:lower()) or false
+    local isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
     local isModalActive = false
 
     -- State & Theme tracking (Dual-Color Split Theme System)
@@ -187,7 +195,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Enhanced Ocean Wave Simulation (Strictly Clipped, CanvasGroup GPU Mask)
+    -- Enhanced Celestial Ocean & Moon Simulation (Strictly Clipped, CanvasGroup)
     -- =========================================================================
     local function startOceanWaveBackground(parent)
         if not parent then return nil end
@@ -210,7 +218,210 @@ return function(opts)
         waveContainer.Parent = parent
         applyCorner(waveContainer, 10)
 
-        -- Central ambient glow behind waves
+        -- ---------------------------------------------------------------------
+        -- Celestial Starfield Decor (Twinkling Constellations)
+        -- ---------------------------------------------------------------------
+        local starNodesData = {
+            { x = 0.06, y = 0.12, char = "✦", size = 11, speed = 2.1, phase = 0.2 },
+            { x = 0.16, y = 0.08, char = "✧", size = 13, speed = 1.7, phase = 1.5 },
+            { x = 0.25, y = 0.20, char = "⋆", size = 10, speed = 2.6, phase = 2.8 },
+            { x = 0.36, y = 0.09, char = "✦", size = 12, speed = 1.9, phase = 3.9 },
+            { x = 0.46, y = 0.16, char = "•", size = 8,  speed = 3.1, phase = 0.8 },
+            { x = 0.58, y = 0.07, char = "✧", size = 14, speed = 1.5, phase = 4.4 },
+            { x = 0.67, y = 0.22, char = "⋆", size = 11, speed = 2.3, phase = 5.2 },
+            { x = 0.77, y = 0.11, char = "✦", size = 13, speed = 1.8, phase = 2.1 },
+            { x = 0.88, y = 0.22, char = "•", size = 9,  speed = 2.8, phase = 3.5 },
+            { x = 0.13, y = 0.32, char = "⋆", size = 10, speed = 2.0, phase = 1.9 },
+            { x = 0.84, y = 0.34, char = "✧", size = 12, speed = 1.6, phase = 4.8 },
+            { x = 0.50, y = 0.30, char = "•", size = 8,  speed = 3.4, phase = 2.6 },
+        }
+
+        local activeStarLabels = {}
+        for _, star in ipairs(starNodesData) do
+            local starLbl = Instance.new("TextLabel")
+            starLbl.Name = "CosmicStar"
+            starLbl.Size = UDim2.new(0, 24, 0, 24)
+            starLbl.Position = UDim2.new(star.x, -12, star.y, -12)
+            starLbl.BackgroundTransparency = 1
+            starLbl.Text = star.char
+            starLbl.TextColor3 = currentThemeColor
+            starLbl.TextTransparency = 0.75
+            starLbl.Font = Enum.Font.GothamBold
+            starLbl.TextSize = star.size
+            starLbl.TextXAlignment = Enum.TextXAlignment.Center
+            starLbl.TextYAlignment = Enum.TextYAlignment.Center
+            starLbl.Active = false
+            starLbl.ZIndex = 0
+            starLbl.Parent = waveContainer
+            registerThemeText(starLbl)
+
+            table.insert(activeStarLabels, {
+                label = starLbl,
+                speed = star.speed,
+                phase = star.phase,
+            })
+        end
+
+        -- ---------------------------------------------------------------------
+        -- Shooting Meteor Streak Decor
+        -- ---------------------------------------------------------------------
+        local meteorStreak = Instance.new("Frame")
+        meteorStreak.Name = "MeteorStreak"
+        meteorStreak.Size = UDim2.new(0, 65, 0, 2)
+        meteorStreak.Position = UDim2.new(0, -100, 0, 20)
+        meteorStreak.AnchorPoint = Vector2.new(1, 0.5)
+        meteorStreak.BackgroundColor3 = Color3.fromRGB(245, 250, 255)
+        meteorStreak.BackgroundTransparency = 1
+        meteorStreak.BorderSizePixel = 0
+        meteorStreak.Rotation = -24
+        meteorStreak.Active = false
+        meteorStreak.ZIndex = 0
+        meteorStreak.Parent = waveContainer
+        applyCorner(meteorStreak, 1)
+
+        local meteorGrad = Instance.new("UIGradient")
+        meteorGrad.Color = getThemeColorSequence(Color3.fromRGB(255, 255, 255), secondaryThemeColor)
+        meteorGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.65, 0.4),
+            NumberSequenceKeypoint.new(1, 0)
+        })
+        meteorGrad.Parent = meteorStreak
+        registerThemeGradient(meteorGrad, 0)
+
+        -- ---------------------------------------------------------------------
+        -- Celestial Crescent Moon Decor (Top-Right Horizon)
+        -- ---------------------------------------------------------------------
+        local moonContainer = Instance.new("Frame")
+        moonContainer.Name = "CelestialMoon"
+        moonContainer.Size = UDim2.new(0, 110, 0, 110)
+        moonContainer.Position = UDim2.new(1, -78, 0, 48)
+        moonContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+        moonContainer.BackgroundTransparency = 1
+        moonContainer.BorderSizePixel = 0
+        moonContainer.Active = false
+        moonContainer.ZIndex = 0
+        moonContainer.Parent = waveContainer
+
+        -- Outer soft radial lunar aura
+        local moonAuraOuter = Instance.new("Frame")
+        moonAuraOuter.Name = "MoonAuraOuter"
+        moonAuraOuter.Size = UDim2.new(1, 0, 1, 0)
+        moonAuraOuter.Position = UDim2.new(0.5, 0, 0.5, 0)
+        moonAuraOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+        moonAuraOuter.BackgroundColor3 = secondaryThemeColor
+        moonAuraOuter.BackgroundTransparency = 0.90
+        moonAuraOuter.BorderSizePixel = 0
+        moonAuraOuter.ZIndex = 0
+        moonAuraOuter.Parent = moonContainer
+        applyCorner(moonAuraOuter, 55)
+        registerThemeFrame(moonAuraOuter)
+
+        local moonAuraGrad = Instance.new("UIGradient")
+        moonAuraGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.1),
+            NumberSequenceKeypoint.new(0.6, 0.6),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        moonAuraGrad.Parent = moonAuraOuter
+
+        -- Inner vibrant lunar halo
+        local moonAuraInner = Instance.new("Frame")
+        moonAuraInner.Name = "MoonAuraInner"
+        moonAuraInner.Size = UDim2.new(0, 68, 0, 68)
+        moonAuraInner.Position = UDim2.new(0.5, 0, 0.5, 0)
+        moonAuraInner.AnchorPoint = Vector2.new(0.5, 0.5)
+        moonAuraInner.BackgroundColor3 = currentThemeColor
+        moonAuraInner.BackgroundTransparency = 0.84
+        moonAuraInner.BorderSizePixel = 0
+        moonAuraInner.ZIndex = 0
+        moonAuraInner.Parent = moonContainer
+        applyCorner(moonAuraInner, 34)
+        registerThemeFrame(moonAuraInner)
+
+        -- Crisp Luminous Moon Disc
+        local moonDisc = Instance.new("Frame")
+        moonDisc.Name = "MoonDisc"
+        moonDisc.Size = UDim2.new(0, 42, 0, 42)
+        moonDisc.Position = UDim2.new(0.5, 0, 0.5, 0)
+        moonDisc.AnchorPoint = Vector2.new(0.5, 0.5)
+        moonDisc.BackgroundColor3 = Color3.fromRGB(238, 245, 255)
+        moonDisc.BackgroundTransparency = 0.28
+        moonDisc.BorderSizePixel = 0
+        moonDisc.ClipsDescendants = true
+        moonDisc.ZIndex = 0
+        moonDisc.Parent = moonContainer
+        applyCorner(moonDisc, 21)
+
+        local moonDiscGrad = Instance.new("UIGradient")
+        moonDiscGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.7, Color3.fromRGB(215, 235, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 205, 245))
+        })
+        moonDiscGrad.Rotation = 45
+        moonDiscGrad.Parent = moonDisc
+
+        -- Shadow Cutout creating the sharp Crescent silhouette
+        local moonShadow = Instance.new("Frame")
+        moonShadow.Name = "MoonShadow"
+        moonShadow.Size = UDim2.new(0, 38, 0, 38)
+        moonShadow.Position = UDim2.new(0, -9, 0, -6)
+        moonShadow.BackgroundColor3 = Color3.fromRGB(11, 14, 21)
+        moonShadow.BackgroundTransparency = 0
+        moonShadow.BorderSizePixel = 0
+        moonShadow.ZIndex = 0
+        moonShadow.Parent = moonDisc
+        applyCorner(moonShadow, 19)
+
+        -- Micro Lunar Crater Accents
+        local crater1 = Instance.new("Frame")
+        crater1.Size = UDim2.new(0, 7, 0, 7)
+        crater1.Position = UDim2.new(0, 24, 0, 14)
+        crater1.BackgroundColor3 = Color3.fromRGB(170, 195, 225)
+        crater1.BackgroundTransparency = 0.55
+        crater1.BorderSizePixel = 0
+        crater1.ZIndex = 0
+        crater1.Parent = moonDisc
+        applyCorner(crater1, 4)
+
+        local crater2 = Instance.new("Frame")
+        crater2.Size = UDim2.new(0, 5, 0, 5)
+        crater2.Position = UDim2.new(0, 27, 0, 26)
+        crater2.BackgroundColor3 = Color3.fromRGB(170, 195, 225)
+        crater2.BackgroundTransparency = 0.60
+        crater2.BorderSizePixel = 0
+        crater2.ZIndex = 0
+        crater2.Parent = moonDisc
+        applyCorner(crater2, 3)
+
+        -- ---------------------------------------------------------------------
+        -- Holographic Cyber Scanline Beam (Tasteful Ambient Glass Reflection)
+        -- ---------------------------------------------------------------------
+        local holoScanBeam = Instance.new("Frame")
+        holoScanBeam.Name = "HoloScanBeam"
+        holoScanBeam.Size = UDim2.new(1, 0, 0, 4)
+        holoScanBeam.Position = UDim2.new(0, 0, 0, -10)
+        holoScanBeam.BackgroundColor3 = Color3.fromRGB(225, 245, 255)
+        holoScanBeam.BackgroundTransparency = 1
+        holoScanBeam.BorderSizePixel = 0
+        holoScanBeam.ZIndex = 0
+        holoScanBeam.Active = false
+        holoScanBeam.Parent = waveContainer
+
+        local holoGrad = Instance.new("UIGradient")
+        holoGrad.Color = getThemeColorSequence(currentThemeColor, secondaryThemeColor)
+        holoGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0.45),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        holoGrad.Parent = holoScanBeam
+        registerThemeGradient(holoGrad, 0)
+
+        -- ---------------------------------------------------------------------
+        -- Central Ambient Ocean Glow
+        -- ---------------------------------------------------------------------
         local centerGlow = Instance.new("Frame")
         centerGlow.Name = "OceanCenterGlow"
         centerGlow.Size = UDim2.new(1, 0, 0, 140)
@@ -311,6 +522,54 @@ return function(opts)
             end
 
             local elapsed = tick() - startTime
+
+            -- 1. Twinkling Starfield Luminosity Animation
+            for _, star in ipairs(activeStarLabels) do
+                local flicker = (math.sin((elapsed * star.speed) + star.phase) * 0.28) + 0.68
+                star.label.TextTransparency = math.clamp(flicker, 0.40, 0.96)
+            end
+
+            -- 2. Celestial Moon Aura Breathing Loop
+            if moonAuraOuter and moonAuraOuter.Parent then
+                local breath = math.sin(elapsed * 1.2) * 0.05
+                moonAuraOuter.BackgroundTransparency = 0.90 + breath
+            end
+            if moonAuraInner and moonAuraInner.Parent then
+                local breathInner = math.cos(elapsed * 1.5) * 0.04
+                moonAuraInner.BackgroundTransparency = 0.84 + breathInner
+            end
+
+            -- 3. Shooting Star / Meteor Streak Loop (every 8 seconds)
+            if meteorStreak and meteorStreak.Parent then
+                local cycleTime = elapsed % 8.0
+                if cycleTime < 1.4 then
+                    local progress = cycleTime / 1.4
+                    local startX = -60
+                    local endX = 420
+                    local currentX = startX + (endX - startX) * progress
+                    local currentY = 15 + (progress * 130)
+                    meteorStreak.Position = UDim2.new(0, currentX, 0, currentY)
+                    local alpha = math.sin(progress * math.pi)
+                    meteorStreak.BackgroundTransparency = 1 - (alpha * 0.75)
+                else
+                    meteorStreak.BackgroundTransparency = 1
+                end
+            end
+
+            -- 4. Ambient Holographic Scanline Sweep (every 11 seconds)
+            if holoScanBeam and holoScanBeam.Parent then
+                local scanCycle = elapsed % 11.0
+                if scanCycle < 2.5 then
+                    local scanProgress = scanCycle / 2.5
+                    holoScanBeam.Position = UDim2.new(0, 0, scanProgress, 0)
+                    local scanAlpha = math.sin(scanProgress * math.pi)
+                    holoScanBeam.BackgroundTransparency = 0.93 - (scanAlpha * 0.12)
+                else
+                    holoScanBeam.BackgroundTransparency = 1
+                end
+            end
+
+            -- 5. Dynamic Harmonic Ocean Waves Simulation
             for _, item in ipairs(waveLabels) do
                 local data = item.layerData
                 local speed = data.speed
@@ -1493,10 +1752,12 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Persistent 24/7 Global Announcements & Live Alert System
+    -- Persistent 24/7 Global Announcements & Developer Feedback Sync System
     -- =========================================================================
     local ANNOUNCEMENTS_STORAGE_FILE = "ENI_GlobalAnnouncements.json"
     local SEEN_ANNOUNCEMENTS_FILE = "ENI_SeenAnnouncements.json"
+    local FEEDBACKS_STORAGE_FILE = "ENI_DevFeedbackInbox.json"
+    local SEEN_FEEDBACKS_FILE = "ENI_SeenFeedbacks.json"
 
     local function loadStoredAnnouncements()
         if readfile and isfile and isfile(ANNOUNCEMENTS_STORAGE_FILE) then
@@ -1538,6 +1799,47 @@ return function(opts)
         end
     end
 
+    local function loadStoredFeedbacks()
+        if readfile and isfile and isfile(FEEDBACKS_STORAGE_FILE) then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(readfile(FEEDBACKS_STORAGE_FILE))
+            end)
+            if ok and type(data) == "table" then return data end
+        end
+        return {}
+    end
+
+    local function loadSeenFeedbacks()
+        if readfile and isfile and isfile(SEEN_FEEDBACKS_FILE) then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(readfile(SEEN_FEEDBACKS_FILE))
+            end)
+            if ok and type(data) == "table" then return data end
+        end
+        return {}
+    end
+
+    local function persistFeedbackRecord(record)
+        local list = loadStoredFeedbacks()
+        table.insert(list, record)
+        if writefile then
+            pcall(function()
+                writefile(FEEDBACKS_STORAGE_FILE, HttpService:JSONEncode(list))
+            end)
+        end
+    end
+
+    local function markFeedbackAsSeen(id)
+        local seen = loadSeenFeedbacks()
+        seen[tostring(id)] = true
+        if writefile then
+            pcall(function()
+                writefile(SEEN_FEEDBACKS_FILE, HttpService:JSONEncode(seen))
+            end)
+        end
+    end
+
+    -- Sync offline announcements for players upon join / execution
     local function syncOfflineAndPendingAnnouncements()
         local list = loadStoredAnnouncements()
         local seen = loadSeenAnnouncements()
@@ -1550,7 +1852,7 @@ return function(opts)
                 local isForMe = (target == "All") or (target:lower() == myName:lower())
                 if isForMe then
                     markAnnouncementAsSeen(annId)
-                    task.delay(1.2, function()
+                    task.delay(1.5, function()
                         sendNotification({
                             Title = "📢 " .. tostring(ann.title or "Developer Announcement"),
                             Content = tostring(ann.message or ""),
@@ -1561,6 +1863,32 @@ return function(opts)
                         })
                     end)
                 end
+            end
+        end
+    end
+
+    -- Sync offline feedbacks strictly for developer upon join / execution
+    local function syncOfflineAndPendingFeedbacks()
+        if not isDeveloper then return end
+        local list = loadStoredFeedbacks()
+        local seen = loadSeenFeedbacks()
+
+        local unreadCount = 0
+        for _, fb in ipairs(list) do
+            local fbId = fb.id or (tostring(fb.timestamp) .. "_" .. tostring(fb.sender))
+            if not seen[tostring(fbId)] then
+                unreadCount = unreadCount + 1
+                markFeedbackAsSeen(fbId)
+                task.delay(1.2 + (unreadCount * 0.4), function()
+                    sendNotification({
+                        Title = "🛠️ [Offline Feedback] " .. tostring(fb.category or "Feedback") .. " from " .. tostring(fb.sender or "Player"),
+                        Content = "\"" .. tostring(fb.message or ""):sub(1, 80) .. (#tostring(fb.message or "") > 80 and "..." or "") .. "\"",
+                        Category = "Feedback",
+                        Color = Color3.fromRGB(0, 215, 255),
+                        Toast = true,
+                        Duration = 6
+                    })
+                end)
             end
         end
     end
@@ -1580,14 +1908,16 @@ return function(opts)
                     local target = packet.target or "All"
                     local myName = LocalPlayer and LocalPlayer.Name or ""
 
-                    -- Check if local player is sender
+                    -- Ignore if local player is sender
                     if sender:lower() == myName:lower() then return end
 
                     -- Check if packet is targeted to us
                     local isForMe = (target == "All") or (target:lower() == myName:lower())
 
                     if pType == "Feedback" or pType == "FeedbackAlert" then
+                        -- STRICTLY FOR DEVELOPER ONLY (Non-devs never receive feedback notifications)
                         if isDeveloper then
+                            if packet.id then markFeedbackAsSeen(packet.id) end
                             sendNotification({
                                 Title = "🛠️ Live " .. tostring(packet.category or "Feedback") .. " from " .. sender,
                                 Content = "\"" .. tostring(packet.message):sub(1, 80) .. (#tostring(packet.message) > 80 and "..." or "") .. "\"",
@@ -1595,15 +1925,6 @@ return function(opts)
                                 Color = Color3.fromRGB(0, 215, 255),
                                 Toast = true,
                                 Duration = 5
-                            })
-                        else
-                            sendNotification({
-                                Title = "💬 Community Feedback",
-                                Content = sender .. " submitted a " .. tostring(packet.category or "suggestion") .. "!",
-                                Category = "Feedback",
-                                Color = Color3.fromRGB(0, 200, 230),
-                                Toast = true,
-                                Duration = 4
                             })
                         end
                     elseif pType == "Announcement" or pType == "DevBroadcast" then
@@ -1632,6 +1953,7 @@ return function(opts)
 
     task.defer(setupLiveListener)
     task.defer(syncOfflineAndPendingAnnouncements)
+    task.defer(syncOfflineAndPendingFeedbacks)
 
     -- =========================================================================
     -- Anti-Spam Feedback Engine
@@ -1711,14 +2033,25 @@ return function(opts)
         local pPlaceId = game.PlaceId or 0
         local pJobId = game.JobId or "SinglePlayer"
 
-        -- Dispatch across live bus for developer in-game alerts
-        broadcastLivePayload("Feedback", {
+        local fbId = "fb_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999))
+        local fbRecord = {
+            id = fbId,
             category = category,
             message = cleanMsg,
             sender = pName,
             userId = pUserId,
-            target = devUsername
-        })
+            placeId = pPlaceId,
+            jobId = pJobId,
+            target = devUsername,
+            timestamp = os.time(),
+            time = os.date("%H:%M")
+        }
+
+        -- 1. Persist to Global 24/7 Developer Feedback Storage
+        persistFeedbackRecord(fbRecord)
+
+        -- 2. Dispatch across live bus for developer in-game alerts
+        broadcastLivePayload("Feedback", fbRecord)
 
         -- Webhook & Custom Callback
         if opts.onFeedback then
@@ -1740,25 +2073,28 @@ return function(opts)
             local avatarHeadshot = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(pUserId) .. "&width=150&height=150&format=png"
             local profileLink = "https://www.roblox.com/users/" .. tostring(pUserId) .. "/profile"
             local gameLink = "https://www.roblox.com/games/" .. tostring(pPlaceId)
+            local devicePlatform = isMobileDevice and "📱 Mobile (Touch)" or "💻 PC (Desktop)"
 
             local payload = {
-                username = "ENI Feedback Center",
-                avatar_url = "https://i.imgur.com/8Q5Fq7f.png",
-                content = "🔔 **[Alert for " .. devUsername .. "]** New feedback received from `" .. pName .. "`!",
+                username = webhookBotName,
+                avatar_url = webhookBotAvatar,
+                content = "🔔 **[Alert for " .. devUsername .. "]** New " .. category .. " received from `" .. pName .. "` (" .. devicePlatform .. ")!",
                 embeds = {{
                     title = "🛠️ New " .. category .. " Received",
-                    description = "**Message:**\n>>> " .. cleanMsg,
+                    description = "**User Message:**\n>>> " .. cleanMsg,
                     color = catColor,
                     thumbnail = {
                         url = avatarHeadshot
                     },
                     fields = {
                         { name = "👤 Sender", value = "[" .. pName .. " (" .. tostring(pUserId) .. ")](" .. profileLink .. ")", inline = true },
+                        { name = "📱 Platform", value = "`" .. devicePlatform .. "`", inline = true },
                         { name = "🎮 Place ID", value = "[" .. tostring(pPlaceId) .. "](" .. gameLink .. ")", inline = true },
                         { name = "🕒 Submitted At", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true },
-                        { name = "🎯 Targeted Owner", value = "`" .. devUsername .. "`", inline = true }
+                        { name = "🎯 Targeted Owner", value = "`" .. devUsername .. "`", inline = true },
+                        { name = "🆔 Feedback ID", value = "`" .. fbId .. "`", inline = true }
                     },
-                    footer = { text = "ENI Anti-Spam Feedback Protocol • Direct Webhook Pipeline" }
+                    footer = { text = "UnknownHub Anti-Spam Protocol • Direct Webhook Pipeline" }
                 }}
             }
             dispatchHttpRequest(targetWebhook, "POST", nil, payload)
@@ -2600,31 +2936,41 @@ return function(opts)
                 return
             end
 
-            -- 1. Live broadcast packet to target
-            broadcastLivePayload("Announcement", {
+            local replyRecord = {
+                id = "rep_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999)),
                 title = "💬 Developer Reply from " .. devUsername,
                 message = msg,
                 target = targetUser,
-                category = "Feedback"
-            })
+                sender = devUsername,
+                category = "Feedback",
+                timestamp = os.time(),
+                time = os.date("%H:%M")
+            }
 
-            -- 2. Discord Webhook notification of the reply
+            -- 1. Live broadcast packet to target
+            broadcastLivePayload("Announcement", replyRecord)
+
+            -- 2. Persist to 24/7 Global Store (so target gets reply even if offline)
+            persistAnnouncementRecord(replyRecord)
+
+            -- 3. Discord Webhook notification of the reply (Interactive Reply Bot)
             local targetWebhook = opts.feedbackWebhook or defaultWebhook
             if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
+                local replyBotName = "UnknownHub Reply Bot [" .. devUsername .. "]"
                 local payload = {
-                    username = "ENI Feedback Center",
-                    avatar_url = "https://i.imgur.com/8Q5Fq7f.png",
-                    content = "💬 **[Developer Reply from " .. devUsername .. " to " .. targetUser .. "]**",
+                    username = replyBotName,
+                    avatar_url = webhookBotAvatar,
+                    content = "💬 **[Developer Reply Bot]** Official response dispatched from `" .. devUsername .. "` to `@" .. tostring(targetUser) .. "`!",
                     embeds = {{
-                        title = "💬 Feedback Resolution / Reply",
-                        description = "**Reply Message:**\n>>> " .. msg .. "\n\n*Original Feedback:*\n> " .. origText:sub(1, 200),
-                        color = 3447003,
+                        title = "💬 Developer Direct Response",
+                        description = "**Official Developer Reply:**\n>>> " .. msg .. "\n\n**Original Feedback Inquiry:**\n> " .. origText:sub(1, 280),
+                        color = 65535,
                         fields = {
-                            { name = "👑 Developer", value = "`" .. devUsername .. "`", inline = true },
-                            { name = "👤 Target Recipient", value = "`" .. targetUser .. "`", inline = true },
-                            { name = "🕒 Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true },
+                            { name = "👑 Lead Developer", value = "`" .. devUsername .. "`", inline = true },
+                            { name = "👤 Target Recipient", value = "`@" .. tostring(targetUser) .. "`", inline = true },
+                            { name = "🕒 Response Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true },
                         },
-                        footer = { text = "ENI Developer Feedback Reply Protocol" }
+                        footer = { text = "UnknownHub Reply Bot Protocol • Direct Two-Way Communication" }
                     }}
                 }
                 dispatchHttpRequest(targetWebhook, "POST", nil, payload)
@@ -3032,23 +3378,24 @@ return function(opts)
             -- 2. Persist to Global 24/7 Offline Storage (so offline players receive it when they run script)
             persistAnnouncementRecord(annRecord)
 
-            -- 3. Discord Webhook Broadcast
+            -- 3. Discord Webhook Broadcast (Broadcast Gateway Bot)
             local targetWebhook = opts.feedbackWebhook or defaultWebhook
             if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
+                local broadcastBotName = "UnknownHub Broadcast Gateway [" .. devUsername .. "]"
                 local payload = {
-                    username = "ENI Broadcast Protocol",
-                    avatar_url = "https://i.imgur.com/8Q5Fq7f.png",
-                    content = "📢 **[Developer Broadcast from " .. devUsername .. "]**",
+                    username = broadcastBotName,
+                    avatar_url = webhookBotAvatar,
+                    content = "📢 **[Official Developer Broadcast from " .. devUsername .. "]**",
                     embeds = {{
                         title = "📢 " .. titleVal,
                         description = "**Broadcast Content:**\n>>> " .. msgVal,
                         color = 10181046,
                         fields = {
-                            { name = "👑 Sender", value = "`" .. devUsername .. "`", inline = true },
+                            { name = "👑 Author", value = "`" .. devUsername .. "`", inline = true },
                             { name = "🎯 Target Scope", value = "`" .. targetVal .. "`", inline = true },
                             { name = "🕒 Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true },
                         },
-                        footer = { text = "ENI Developer Announcement Protocol" }
+                        footer = { text = "UnknownHub Broadcast Protocol • Global Dispatch" }
                     }}
                 }
                 dispatchHttpRequest(targetWebhook, "POST", nil, payload)
@@ -3130,10 +3477,16 @@ return function(opts)
     -- =========================================================================
     -- Main Window Frame (Fluid Proportional Responsive Obsidian Glass)
     -- =========================================================================
+    local isTouchScreen = UserInputService.TouchEnabled
+    local defaultFrameSize = isTouchScreen and UDim2.new(0.92, 0, 0.84, 0) or UDim2.new(0, 580, 0, 390)
+    local defaultFramePos = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
+    local defaultAnchor = isTouchScreen and Vector2.new(0.5, 0.5) or Vector2.new(0, 0)
+
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 580, 0, 390)
-    mainFrame.Position = UDim2.new(0.5, -290, 0.5, -195)
+    mainFrame.AnchorPoint = defaultAnchor
+    mainFrame.Size = defaultFrameSize
+    mainFrame.Position = defaultFramePos
     mainFrame.BackgroundColor3 = Color3.fromRGB(11, 14, 21)
     mainFrame.BorderSizePixel = 0
     mainFrame.Active = true
@@ -3184,23 +3537,123 @@ return function(opts)
     headerDivider.ZIndex = 21
     headerDivider.Parent = header
 
+    local titleContainer = Instance.new("Frame")
+    titleContainer.Name = "TitleContainer"
+    titleContainer.Size = UDim2.new(0, 160, 1, 0)
+    titleContainer.Position = UDim2.new(0, 16, 0, 0)
+    titleContainer.BackgroundTransparency = 1
+    titleContainer.ZIndex = 22
+    titleContainer.Parent = header
+
+    -- Cyan Chromatic Ghost Layer
+    local titleGlitchCyan = Instance.new("TextLabel")
+    titleGlitchCyan.Name = "GlitchCyan"
+    titleGlitchCyan.Size = UDim2.new(1, 0, 1, 0)
+    titleGlitchCyan.Position = UDim2.new(0, -1, 0, 0)
+    titleGlitchCyan.BackgroundTransparency = 1
+    titleGlitchCyan.Text = opts.title or "ENI HUB"
+    titleGlitchCyan.Font = Enum.Font.GothamBlack
+    titleGlitchCyan.TextSize = 15
+    titleGlitchCyan.TextColor3 = Color3.fromRGB(0, 240, 255)
+    titleGlitchCyan.TextTransparency = 1
+    titleGlitchCyan.TextXAlignment = Enum.TextXAlignment.Left
+    titleGlitchCyan.ZIndex = 22
+    titleGlitchCyan.Parent = titleContainer
+
+    -- Magenta Chromatic Ghost Layer
+    local titleGlitchMagenta = Instance.new("TextLabel")
+    titleGlitchMagenta.Name = "GlitchMagenta"
+    titleGlitchMagenta.Size = UDim2.new(1, 0, 1, 0)
+    titleGlitchMagenta.Position = UDim2.new(0, 1, 0, 0)
+    titleGlitchMagenta.BackgroundTransparency = 1
+    titleGlitchMagenta.Text = opts.title or "ENI HUB"
+    titleGlitchMagenta.Font = Enum.Font.GothamBlack
+    titleGlitchMagenta.TextSize = 15
+    titleGlitchMagenta.TextColor3 = Color3.fromRGB(255, 60, 180)
+    titleGlitchMagenta.TextTransparency = 1
+    titleGlitchMagenta.TextXAlignment = Enum.TextXAlignment.Left
+    titleGlitchMagenta.ZIndex = 22
+    titleGlitchMagenta.Parent = titleContainer
+
+    -- Main Foreground Title Label
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Name = "Title"
-    titleLabel.Size = UDim2.new(0.35, 0, 1, 0)
-    titleLabel.Position = UDim2.new(0, 16, 0, 0)
+    titleLabel.Size = UDim2.new(1, 0, 1, 0)
+    titleLabel.Position = UDim2.new(0, 0, 0, 0)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Text = opts.title or "ENI HUB"
     titleLabel.Font = Enum.Font.GothamBlack
     titleLabel.TextSize = 15
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.ZIndex = 22
-    titleLabel.Parent = header
+    titleLabel.ZIndex = 23
+    titleLabel.Parent = titleContainer
     registerThemeText(titleLabel)
+
+    local originalTitleText = opts.title or "ENI HUB"
+    local glitchGlyphs = {"0", "1", "Δ", "Ξ", "Ψ", "◈", "X", "Z", "7"}
+    local isGlitching = false
+
+    local function triggerTitleCyberGlitch()
+        if isGlitching then return end
+        isGlitching = true
+        task.spawn(function()
+            -- 1. Chromatic aberration flash
+            titleGlitchCyan.TextTransparency = 0.40
+            titleGlitchMagenta.TextTransparency = 0.40
+            titleGlitchCyan.Position = UDim2.new(0, -2, 0, 0)
+            titleGlitchMagenta.Position = UDim2.new(0, 2, 0, 0)
+
+            -- 2. Micro glyph decode flicker
+            for frameStep = 1, 3 do
+                local scrambled = ""
+                for charIdx = 1, #originalTitleText do
+                    local ch = originalTitleText:sub(charIdx, charIdx)
+                    if ch ~= " " and math.random() > 0.40 then
+                        scrambled = scrambled .. glitchGlyphs[math.random(1, #glitchGlyphs)]
+                    else
+                        scrambled = scrambled .. ch
+                    end
+                end
+                titleLabel.Text = scrambled
+                titleGlitchCyan.Text = scrambled
+                titleGlitchMagenta.Text = scrambled
+                task.wait(0.035)
+            end
+
+            -- 3. Snap back cleanly
+            titleLabel.Text = originalTitleText
+            titleGlitchCyan.Text = originalTitleText
+            titleGlitchMagenta.Text = originalTitleText
+            titleGlitchCyan.TextTransparency = 1
+            titleGlitchMagenta.TextTransparency = 1
+            isGlitching = false
+        end)
+    end
+
+    -- Interactive title hover & click glitch
+    local titleHitbox = Instance.new("TextButton")
+    titleHitbox.Size = UDim2.new(1, 0, 1, 0)
+    titleHitbox.BackgroundTransparency = 1
+    titleHitbox.Text = ""
+    titleHitbox.ZIndex = 25
+    titleHitbox.Parent = titleContainer
+    titleHitbox.MouseEnter:Connect(triggerTitleCyberGlitch)
+    titleHitbox.MouseButton1Click:Connect(triggerTitleCyberGlitch)
+
+    -- Ambient subtle glitch loop every 16-22s
+    task.spawn(function()
+        while screenGui and screenGui.Parent do
+            task.wait(math.random(16, 24))
+            if isGuiOpen and not isModalActive and math.random() > 0.35 then
+                triggerTitleCyberGlitch()
+            end
+        end
+    end)
 
     local subTitleLabel = Instance.new("TextLabel")
     subTitleLabel.Name = "SubTitle"
-    subTitleLabel.Size = UDim2.new(0.28, 0, 1, 0)
-    subTitleLabel.Position = UDim2.new(0, 135, 0, 0)
+    subTitleLabel.Size = UDim2.new(0, 110, 1, 0)
+    subTitleLabel.Position = UDim2.new(0, 182, 0, 0)
     subTitleLabel.BackgroundTransparency = 1
     subTitleLabel.Text = if isDeveloper then ("👑 DEV: " .. devUsername) else (opts.subTitle or opts.subtitle or "v2.0")
     subTitleLabel.TextColor3 = if isDeveloper then Color3.fromRGB(190, 130, 255) else Color3.fromRGB(130, 140, 165)
@@ -3209,6 +3662,51 @@ return function(opts)
     subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
     subTitleLabel.ZIndex = 22
     subTitleLabel.Parent = header
+
+    -- Live Cyber Status Pill Badge
+    local livePill = Instance.new("Frame")
+    livePill.Name = "LivePill"
+    livePill.Size = UDim2.new(0, 68, 0, 20)
+    livePill.Position = UDim2.new(0, 298, 0.5, -10)
+    livePill.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
+    livePill.BorderSizePixel = 0
+    livePill.ZIndex = 22
+    livePill.Parent = header
+    applyCorner(livePill, 10)
+    applyStroke(livePill, Color3.fromRGB(44, 56, 80), 1, 0)
+
+    local liveDot = Instance.new("Frame")
+    liveDot.Name = "LiveDot"
+    liveDot.Size = UDim2.new(0, 6, 0, 6)
+    liveDot.Position = UDim2.new(0, 7, 0.5, -3)
+    liveDot.BackgroundColor3 = Color3.fromRGB(50, 230, 140)
+    liveDot.BorderSizePixel = 0
+    liveDot.ZIndex = 23
+    liveDot.Parent = livePill
+    applyCorner(liveDot, 3)
+
+    local liveText = Instance.new("TextLabel")
+    liveText.Size = UDim2.new(1, -18, 1, 0)
+    liveText.Position = UDim2.new(0, 17, 0, 0)
+    liveText.BackgroundTransparency = 1
+    liveText.Text = "ONLINE"
+    liveText.TextColor3 = Color3.fromRGB(170, 240, 200)
+    liveText.Font = Enum.Font.GothamBold
+    liveText.TextSize = 9
+    liveText.TextXAlignment = Enum.TextXAlignment.Left
+    liveText.ZIndex = 23
+    liveText.Parent = livePill
+
+    -- Live Dot Breathing animation
+    task.spawn(function()
+        local dotStart = tick()
+        while liveDot and liveDot.Parent do
+            local dotElapsed = tick() - dotStart
+            local dotAlpha = (math.sin(dotElapsed * 3) * 0.3) + 0.7
+            liveDot.BackgroundTransparency = 1 - dotAlpha
+            task.wait(0.08)
+        end
+    end)
 
     -- Responsive Proportional Sidebar (26% window width)
     local sidebar = Instance.new("ScrollingFrame")
@@ -3875,7 +4373,7 @@ return function(opts)
         return secFrame
     end
 
-    -- UI Component: Button (Responsive)
+    -- UI Component: Button (Responsive & Holographic Click FX)
     local function createButton(parent, text, callback)
         if not parent then parent = contentArea end
         local item = Instance.new("TextButton")
@@ -3888,9 +4386,32 @@ return function(opts)
         item.TextSize = 12
         item.TextTruncate = Enum.TextTruncate.AtEnd
         item.TextXAlignment = Enum.TextXAlignment.Left
+        item.ClipsDescendants = true
         item.Parent = parent
         applyCorner(item, 7)
         local btnStroke = applyStroke(item, Color3.fromRGB(36, 46, 66), 1, 0)
+
+        -- Holographic click flash overlay
+        local sheen = Instance.new("Frame")
+        sheen.Name = "SheenRipple"
+        sheen.Size = UDim2.new(0, 0, 1, 0)
+        sheen.Position = UDim2.new(0, 0, 0, 0)
+        sheen.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        sheen.BackgroundTransparency = 1
+        sheen.BorderSizePixel = 0
+        sheen.ZIndex = 2
+        sheen.Parent = item
+        applyCorner(sheen, 7)
+
+        local sheenGrad = Instance.new("UIGradient")
+        sheenGrad.Color = getThemeColorSequence(currentThemeColor, secondaryThemeColor)
+        sheenGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0.4),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        sheenGrad.Parent = sheen
+        registerThemeGradient(sheenGrad, 0)
 
         local normalColor = Color3.fromRGB(20, 25, 36)
         local hoverColor = Color3.fromRGB(28, 36, 52)
@@ -3898,7 +4419,7 @@ return function(opts)
 
         item.MouseEnter:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hoverColor}):Play()
-            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = Color3.fromRGB(56, 68, 96)}):Play()
+            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = currentThemeColor}):Play()
         end)
         item.MouseLeave:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = normalColor}):Play()
@@ -3912,6 +4433,14 @@ return function(opts)
         end)
         item.MouseButton1Click:Connect(function()
             if isModalActive then return end
+            -- Holographic ripple sweep
+            sheen.Size = UDim2.new(0, 0, 1, 0)
+            sheen.Position = UDim2.new(0, 0, 0, 0)
+            sheen.BackgroundTransparency = 0.5
+            TweenService:Create(sheen, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1
+            }):Play()
             if callback then pcall(callback) end
         end)
 
@@ -3964,7 +4493,7 @@ return function(opts)
         return box
     end
 
-    -- UI Component: Toggle (Responsive)
+    -- UI Component: Toggle (Responsive & Smooth Spring Knob)
     local function createToggle(parent, text, defaultState, callback)
         if not parent then parent = contentArea end
         local frame = Instance.new("Frame")
@@ -3973,7 +4502,7 @@ return function(opts)
         frame.BorderSizePixel = 0
         frame.Parent = parent
         applyCorner(frame, 7)
-        applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        local toggleStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
 
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(1, -70, 1, 0)
@@ -4009,8 +4538,10 @@ return function(opts)
             configValues["toggle:" .. tostring(text)] = state
             local targetPos = state and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
             local targetColor = state and currentThemeColor or Color3.fromRGB(42, 48, 64)
-            TweenService:Create(knob, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+            local targetStrokeColor = state and currentThemeColor or Color3.fromRGB(34, 42, 58)
+            TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
+            TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
             if callback then pcall(callback, state) end
         end
 
@@ -5844,35 +6375,87 @@ return function(opts)
         end
     end))
 
-    -- Mobile Toggle Float Button
-    if opts.mobileToggle or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
+    -- =========================================================================
+    -- Dedicated Mobile Floating Action Button (Always Accessible on Touch)
+    -- =========================================================================
+    local mobileToggleBtn = nil
+    if opts.mobileToggle ~= false and (UserInputService.TouchEnabled or opts.mobileToggle == true) then
         local mobBtn = Instance.new("ImageButton")
-        mobBtn.Name = "ENI_MobileToggle"
-        mobBtn.Size = UDim2.new(0, 42, 0, 42)
-        mobBtn.Position = UDim2.new(0, 15, 0.5, -21)
-        mobBtn.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+        mobBtn.Name = "ENI_MobileToggleBtn"
+        mobBtn.Size = UDim2.new(0, 48, 0, 48)
+        mobBtn.Position = UDim2.new(0, 18, 0.45, -24)
+        mobBtn.BackgroundColor3 = Color3.fromRGB(14, 18, 28)
+        mobBtn.BackgroundTransparency = 0.15
         mobBtn.BorderSizePixel = 0
-        mobBtn.ZIndex = 200
+        mobBtn.AutoButtonColor = false
+        mobBtn.Active = true
+        mobBtn.ZIndex = 300
         mobBtn.Parent = screenGui
-        applyCorner(mobBtn, 21)
-        local mobStroke = applyStroke(mobBtn, currentThemeColor, 1.5, 0)
-        registerThemeStroke(mobStroke)
+        applyCorner(mobBtn, 24)
+
+        local mobStroke = applyStroke(mobBtn, currentThemeColor, 2, 0.1)
+        local mobStrokeGrad = Instance.new("UIGradient")
+        mobStrokeGrad.Color = getThemeColorSequence(currentThemeColor, secondaryThemeColor)
+        mobStrokeGrad.Rotation = 45
+        mobStrokeGrad.Parent = mobStroke
+        registerThemeGradient(mobStrokeGrad, 45)
 
         local mobIcon = Instance.new("TextLabel")
+        mobIcon.Name = "Icon"
         mobIcon.Size = UDim2.new(1, 0, 1, 0)
         mobIcon.BackgroundTransparency = 1
         mobIcon.Text = "⚡"
-        mobIcon.TextSize = 18
+        mobIcon.TextSize = 20
         mobIcon.TextColor3 = currentThemeColor
         mobIcon.Font = Enum.Font.GothamBlack
+        mobIcon.ZIndex = 301
         mobIcon.Parent = mobBtn
         registerThemeText(mobIcon)
 
-        makeSmoothDraggable(mobBtn, mobBtn)
-        mobBtn.MouseButton1Click:Connect(function()
-            screenGui.Enabled = not screenGui.Enabled
-            isGuiOpen = screenGui.Enabled
+        -- Subtle rotation on the gradient border
+        task.spawn(function()
+            local r = 0
+            while mobBtn and mobBtn.Parent do
+                r = (r + 2) % 360
+                mobStrokeGrad.Rotation = r
+                task.wait(0.04)
+            end
         end)
+
+        makeSmoothDraggable(mobBtn, mobBtn)
+
+        local isToggling = false
+        mobBtn.MouseButton1Click:Connect(function()
+            if isToggling then return end
+            isToggling = true
+
+            -- Button tap squash & pop animation
+            TweenService:Create(mobBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0, 42, 0, 42)
+            }):Play()
+            task.delay(0.1, function()
+                TweenService:Create(mobBtn, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, 48, 0, 48)
+                }):Play()
+            end)
+
+            local nextState = not mainFrame.Visible
+            mainFrame.Visible = nextState
+            isGuiOpen = nextState
+
+            if nextState then
+                mainFrame.Position = isTouchScreen and UDim2.new(0.5, 0, 0.52, 0) or UDim2.new(0.5, -290, 0.52, -195)
+                TweenService:Create(mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Position = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
+                }):Play()
+            end
+
+            task.delay(0.25, function()
+                isToggling = false
+            end)
+        end)
+
+        mobileToggleBtn = mobBtn
     end
 
     -- Auto finish loading defer
