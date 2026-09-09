@@ -4211,6 +4211,29 @@ return function(opts)
         table.insert(hubState.tabPages, page)
         return page
     end
+    
+    function hubState.resolveTabName(parentObj)
+        if not parentObj then return hubState.currentActiveTabName or "Main" end
+        if typeof(parentObj) == "Instance" then
+            if parentObj.Parent == contentArea then
+                return parentObj.Name
+            end
+            local cur = parentObj
+            while cur and cur ~= contentArea and cur.Parent do
+                if cur.Parent == contentArea then
+                    return cur.Name
+                end
+                cur = cur.Parent
+            end
+        elseif type(parentObj) == "table" then
+            if parentObj.Frame then
+                return hubState.resolveTabName(parentObj.Frame)
+            elseif parentObj.List then
+                return hubState.resolveTabName(parentObj.List)
+            end
+        end
+        return hubState.currentActiveTabName or "Main"
+    end
 
     function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
         local page = hubState.createPage(name)
@@ -4726,7 +4749,7 @@ return function(opts)
             id = "btn_" .. tostring(text or "Button") .. "_" .. tostring(math.random(1000, 9999)),
             title = text or "Button",
             type = "Button",
-            tab = hubState.currentActiveTabName,
+            tab = hubState.resolveTabName(parent),
             parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
             element = item,
             action = function()
@@ -4845,7 +4868,7 @@ return function(opts)
             id = "toggle_" .. tostring(text or "Toggle"),
             title = text or "Toggle",
             type = "Toggle",
-            tab = hubState.currentActiveTabName,
+            tab = hubState.resolveTabName(parent),
             parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
             element = frame,
             set = setState,
@@ -4992,7 +5015,7 @@ return function(opts)
             id = "slider_" .. tostring(titleText or "Slider"),
             title = titleText or "Slider",
             type = "Slider",
-            tab = hubState.currentActiveTabName,
+            tab = hubState.resolveTabName(parent),
             parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
             element = frame,
             min = minValue,
@@ -5139,7 +5162,7 @@ return function(opts)
             title = titleText or "Item",
             subtitle = subtitleText or "",
             type = "ListItem",
-            tab = hubState.currentActiveTabName,
+            tab = hubState.resolveTabName(parent),
             parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
             element = item,
             action = function()
@@ -5541,7 +5564,7 @@ return function(opts)
             id = "list_" .. tostring(itemTitle) .. "_" .. tostring(math.random(1000, 9999)),
             title = itemTitle or "List",
             type = isNestedList and "SubList" or "List",
-            tab = hubState.currentActiveTabName,
+            tab = hubState.resolveTabName(parentTarget or parent),
             parentList = parentListObj,
             element = frame,
             listObject = listObject,
@@ -5759,7 +5782,7 @@ return function(opts)
             id = "dropdown_" .. tostring(titleText or "Dropdown"),
             title = titleText or "Dropdown",
             type = "Dropdown",
-            tab = hubState.currentActiveTabName,
+            tab = hubState.resolveTabName(parent),
             parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
             element = frame,
             action = toggleDropdown
