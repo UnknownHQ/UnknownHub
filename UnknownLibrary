@@ -247,7 +247,7 @@ return function(opts)
     local isDeveloper = (LocalPlayer and LocalPlayer.Name and LocalPlayer.Name:lower() == devUsername:lower()) or false
     local isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
-    local state = {
+    local hubState = {
         devUsername = devUsername,
         defaultWebhook = defaultWebhook,
         feedbackWebhookUrl = opts.feedbackWebhook or defaultWebhook,
@@ -291,19 +291,19 @@ return function(opts)
         lastError = "",
         toggleKeyCode = Enum.KeyCode.RightControl,
     }
-    state.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
-    state.registerThemeBackground = function(frm) return state.registerThemeFrame(frm) end
+    hubState.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
+    hubState.registerThemeBackground = function(frm) return hubState.registerThemeFrame(frm) end
 
     if typeof(opts.toggleKey) == "EnumItem" then
-        state.toggleKeyCode = opts.toggleKey
+        hubState.toggleKeyCode = opts.toggleKey
     elseif type(opts.toggleKey) == "string" and Enum.KeyCode[opts.toggleKey] then
-        state.toggleKeyCode = Enum.KeyCode[opts.toggleKey]
+        hubState.toggleKeyCode = Enum.KeyCode[opts.toggleKey]
     end
 
 
-    function state.getThemeColorSequence(color1, color2)
-        color1 = color1 or state.currentThemeColor
-        color2 = color2 or state.secondaryThemeColor
+    function hubState.getThemeColorSequence(color1, color2)
+        color1 = color1 or hubState.currentThemeColor
+        color2 = color2 or hubState.secondaryThemeColor
         return ColorSequence.new({
             ColorSequenceKeypoint.new(0, color1),
             ColorSequenceKeypoint.new(0.5, color1:Lerp(color2, 0.5)),
@@ -312,7 +312,7 @@ return function(opts)
     end
 
     -- Cleanup utility for old GUIs
-    function state.destroyOldGui()
+    function hubState.destroyOldGui()
         local parents = {CoreGui, LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")}
         if gethui then pcall(function() table.insert(parents, gethui()) end) end
         local targetName = opts.name or "ENI_TabbedHub_UI"
@@ -329,51 +329,51 @@ return function(opts)
         if oldBlur then pcall(function() oldBlur:Destroy() end) end
     end
 
-    state.destroyOldGui()
+    hubState.destroyOldGui()
 
     -- Helper: safe connection tracking
-    function state.trackConnection(conn)
-        if conn then table.insert(state.activeConnections, conn) end
+    function hubState.trackConnection(conn)
+        if conn then table.insert(hubState.activeConnections, conn) end
         return conn
     end
 
 
     -- Theme registration functions
-    function state.registerThemeText(lbl)
+    function hubState.registerThemeText(lbl)
         if not lbl then return end
-        table.insert(state.themeLabels, lbl)
-        lbl.TextColor3 = state.currentThemeColor
+        table.insert(hubState.themeLabels, lbl)
+        lbl.TextColor3 = hubState.currentThemeColor
     end
 
-    function state.registerThemeStroke(stroke)
+    function hubState.registerThemeStroke(stroke)
         if not stroke then return end
-        table.insert(state.themeStrokes, stroke)
-        stroke.Color = state.currentThemeColor
+        table.insert(hubState.themeStrokes, stroke)
+        stroke.Color = hubState.currentThemeColor
     end
 
-    function state.registerThemeFrame(frm)
+    function hubState.registerThemeFrame(frm)
         if not frm then return end
-        table.insert(state.themeFrames, frm)
-        frm.BackgroundColor3 = state.currentThemeColor
+        table.insert(hubState.themeFrames, frm)
+        frm.BackgroundColor3 = hubState.currentThemeColor
     end
 
-    state.registerThemeBackground = state.registerThemeFrame
+    hubState.registerThemeBackground = hubState.registerThemeFrame
 
-    function state.registerThemeGradient(grad, rotation)
+    function hubState.registerThemeGradient(grad, rotation)
         if not grad then return end
-        table.insert(state.themeGradients, grad)
-        grad.Color = state.getThemeColorSequence(state.currentThemeColor, state.secondaryThemeColor)
+        table.insert(hubState.themeGradients, grad)
+        grad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         if rotation ~= nil then grad.Rotation = rotation end
     end
 
-    function state.registerThemeUpdater(callback)
+    function hubState.registerThemeUpdater(callback)
         if type(callback) == "function" then
-            table.insert(state.themeUpdaters, callback)
-            pcall(callback, state.currentThemeColor, state.secondaryThemeColor)
+            table.insert(hubState.themeUpdaters, callback)
+            pcall(callback, hubState.currentThemeColor, hubState.secondaryThemeColor)
         end
     end
 
-    function state.pruneDeadThemeReferences()
+    function hubState.pruneDeadThemeReferences()
         local function pruneList(tbl, checkParent)
             local i = 1
             while i <= #tbl do
@@ -385,39 +385,39 @@ return function(opts)
                 end
             end
         end
-        pruneList(state.themeLabels, true)
-        pruneList(state.themeStrokes, true)
-        pruneList(state.themeFrames, true)
-        pruneList(state.themeGradients, true)
+        pruneList(hubState.themeLabels, true)
+        pruneList(hubState.themeStrokes, true)
+        pruneList(hubState.themeFrames, true)
+        pruneList(hubState.themeGradients, true)
     end
 
-    function state.applyTheme(color1, color2)
-        if color1 then state.currentThemeColor = color1 end
-        if color2 then state.secondaryThemeColor = color2 end
-        state.pruneDeadThemeReferences()
+    function hubState.applyTheme(color1, color2)
+        if color1 then hubState.currentThemeColor = color1 end
+        if color2 then hubState.secondaryThemeColor = color2 end
+        hubState.pruneDeadThemeReferences()
 
-        for _, label in ipairs(state.themeLabels) do
-            if label and label.Parent then label.TextColor3 = state.currentThemeColor end
+        for _, label in ipairs(hubState.themeLabels) do
+            if label and label.Parent then label.TextColor3 = hubState.currentThemeColor end
         end
-        for _, stroke in ipairs(state.themeStrokes) do
-            if stroke and stroke.Parent then stroke.Color = state.currentThemeColor end
+        for _, stroke in ipairs(hubState.themeStrokes) do
+            if stroke and stroke.Parent then stroke.Color = hubState.currentThemeColor end
         end
-        for _, frame in ipairs(state.themeFrames) do
-            if frame and frame.Parent then frame.BackgroundColor3 = state.currentThemeColor end
+        for _, frame in ipairs(hubState.themeFrames) do
+            if frame and frame.Parent then frame.BackgroundColor3 = hubState.currentThemeColor end
         end
-        local seq = state.getThemeColorSequence(state.currentThemeColor, state.secondaryThemeColor)
-        for _, grad in ipairs(state.themeGradients) do
+        local seq = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        for _, grad in ipairs(hubState.themeGradients) do
             if grad and grad.Parent then grad.Color = seq end
         end
-        for _, updater in ipairs(state.themeUpdaters) do
-            pcall(updater, state.currentThemeColor, state.secondaryThemeColor)
+        for _, updater in ipairs(hubState.themeUpdaters) do
+            pcall(updater, hubState.currentThemeColor, hubState.secondaryThemeColor)
         end
     end
 
     -- =========================================================================
     -- Enhanced Celestial Ocean & Moon Simulation (Strictly Clipped, CanvasGroup)
     -- =========================================================================
-    function state.startOceanWaveBackground(parent)
+    function hubState.startOceanWaveBackground(parent)
         if not parent then return nil end
 
         -- Use CanvasGroup for absolute pixel-perfect rounded corner GPU clipping
@@ -464,7 +464,7 @@ return function(opts)
             starLbl.Position = UDim2.new(star.x, -12, star.y, -12)
             starLbl.BackgroundTransparency = 1
             starLbl.Text = star.char
-            starLbl.TextColor3 = state.currentThemeColor
+            starLbl.TextColor3 = hubState.currentThemeColor
             starLbl.TextTransparency = 0.75
             starLbl.Font = Enum.Font.GothamBold
             starLbl.TextSize = star.size
@@ -473,7 +473,7 @@ return function(opts)
             starLbl.Active = false
             starLbl.ZIndex = 0
             starLbl.Parent = waveContainer
-            state.registerThemeText(starLbl)
+            hubState.registerThemeText(starLbl)
 
             table.insert(activeStarLabels, {
                 label = starLbl,
@@ -500,14 +500,14 @@ return function(opts)
         applyCorner(meteorStreak, 1)
 
         local meteorGrad = Instance.new("UIGradient")
-        meteorGrad.Color = state.getThemeColorSequence(Color3.fromRGB(255, 255, 255), state.secondaryThemeColor)
+        meteorGrad.Color = hubState.getThemeColorSequence(Color3.fromRGB(255, 255, 255), hubState.secondaryThemeColor)
         meteorGrad.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 1),
             NumberSequenceKeypoint.new(0.65, 0.4),
             NumberSequenceKeypoint.new(1, 0)
         })
         meteorGrad.Parent = meteorStreak
-        state.registerThemeGradient(meteorGrad, 0)
+        hubState.registerThemeGradient(meteorGrad, 0)
 
         -- ---------------------------------------------------------------------
         -- Celestial Crescent Moon Decor (Top-Right Horizon)
@@ -529,13 +529,13 @@ return function(opts)
         moonAuraOuter.Size = UDim2.new(1, 0, 1, 0)
         moonAuraOuter.Position = UDim2.new(0.5, 0, 0.5, 0)
         moonAuraOuter.AnchorPoint = Vector2.new(0.5, 0.5)
-        moonAuraOuter.BackgroundColor3 = state.secondaryThemeColor
+        moonAuraOuter.BackgroundColor3 = hubState.secondaryThemeColor
         moonAuraOuter.BackgroundTransparency = 0.90
         moonAuraOuter.BorderSizePixel = 0
         moonAuraOuter.ZIndex = 0
         moonAuraOuter.Parent = moonContainer
         applyCorner(moonAuraOuter, 55)
-        state.registerThemeFrame(moonAuraOuter)
+        hubState.registerThemeFrame(moonAuraOuter)
 
         local moonAuraGrad = Instance.new("UIGradient")
         moonAuraGrad.Transparency = NumberSequence.new({
@@ -551,13 +551,13 @@ return function(opts)
         moonAuraInner.Size = UDim2.new(0, 68, 0, 68)
         moonAuraInner.Position = UDim2.new(0.5, 0, 0.5, 0)
         moonAuraInner.AnchorPoint = Vector2.new(0.5, 0.5)
-        moonAuraInner.BackgroundColor3 = state.currentThemeColor
+        moonAuraInner.BackgroundColor3 = hubState.currentThemeColor
         moonAuraInner.BackgroundTransparency = 0.84
         moonAuraInner.BorderSizePixel = 0
         moonAuraInner.ZIndex = 0
         moonAuraInner.Parent = moonContainer
         applyCorner(moonAuraInner, 34)
-        state.registerThemeFrame(moonAuraInner)
+        hubState.registerThemeFrame(moonAuraInner)
 
         -- Crisp Luminous Moon Disc
         local moonDisc = Instance.new("Frame")
@@ -630,14 +630,14 @@ return function(opts)
         holoScanBeam.Parent = waveContainer
 
         local holoGrad = Instance.new("UIGradient")
-        holoGrad.Color = state.getThemeColorSequence(state.currentThemeColor, state.secondaryThemeColor)
+        holoGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         holoGrad.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 1),
             NumberSequenceKeypoint.new(0.5, 0.45),
             NumberSequenceKeypoint.new(1, 1)
         })
         holoGrad.Parent = holoScanBeam
-        state.registerThemeGradient(holoGrad, 0)
+        hubState.registerThemeGradient(holoGrad, 0)
 
         -- ---------------------------------------------------------------------
         -- Central Ambient Ocean Glow
@@ -648,11 +648,11 @@ return function(opts)
         centerGlow.Position = UDim2.new(0, 0, 0.5, 0)
         centerGlow.AnchorPoint = Vector2.new(0, 0.5)
         centerGlow.BackgroundTransparency = 0.94
-        centerGlow.BackgroundColor3 = state.currentThemeColor
+        centerGlow.BackgroundColor3 = hubState.currentThemeColor
         centerGlow.BorderSizePixel = 0
         centerGlow.ZIndex = 0
         centerGlow.Parent = waveContainer
-        state.registerThemeBackground(centerGlow)
+        hubState.registerThemeBackground(centerGlow)
 
         local glowGradient = Instance.new("UIGradient")
         glowGradient.Transparency = NumberSequence.new({
@@ -696,7 +696,7 @@ return function(opts)
                 waveLbl.Position = UDim2.new(0, (part - 1) * 1600, 0, 0)
                 waveLbl.BackgroundTransparency = 1
                 waveLbl.Text = wavePattern
-                waveLbl.TextColor3 = state.currentThemeColor
+                waveLbl.TextColor3 = hubState.currentThemeColor
                 waveLbl.TextTransparency = data.trans
                 waveLbl.Font = Enum.Font.GothamBold
                 waveLbl.TextSize = data.fontSize
@@ -706,7 +706,7 @@ return function(opts)
                 waveLbl.ClipsDescendants = true
                 waveLbl.ZIndex = 0
                 waveLbl.Parent = layerFrame
-                state.registerThemeText(waveLbl)
+                hubState.registerThemeText(waveLbl)
 
                 -- Vertical gradient mask to create deep oceanic luminous fade
                 local waveGradient = Instance.new("UIGradient")
@@ -804,13 +804,13 @@ return function(opts)
                 item.label.Rotation = 0
             end
         end)
-        state.trackConnection(waveConn)
+        hubState.trackConnection(waveConn)
 
         return waveContainer
     end
 
     -- Smooth Dragging system
-    function state.makeSmoothDraggable(guiFrame, dragHandle)
+    function hubState.makeSmoothDraggable(guiFrame, dragHandle)
         dragHandle = dragHandle or guiFrame
         if not guiFrame or not dragHandle then return end
 
@@ -819,7 +819,7 @@ return function(opts)
         local dragStart = nil
         local startPos = nil
 
-        state.trackConnection(dragHandle.InputBegan:Connect(function(input)
+        hubState.trackConnection(dragHandle.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 -- Guard: Ignore if input falls over any TextButton or ImageButton child of dragHandle
                 local inputX, inputY = input.Position.X, input.Position.Y
@@ -842,13 +842,13 @@ return function(opts)
             end
         end))
 
-        state.trackConnection(dragHandle.InputChanged:Connect(function(input)
+        hubState.trackConnection(dragHandle.InputChanged:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
                 dragInput = input
             end
         end))
 
-        state.trackConnection(UserInputService.InputChanged:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
             if input == dragInput and dragging and startPos then
                 local delta = input.Position - dragStart
                 local targetPos = UDim2.new(
@@ -861,7 +861,7 @@ return function(opts)
             end
         end))
 
-        state.trackConnection(UserInputService.InputEnded:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
                 dragInput = nil
@@ -872,9 +872,9 @@ return function(opts)
     -- =========================================================================
     -- Dynamic Resizable System (Responsive Proportional Scaling)
     -- =========================================================================
-    state.onResizeEvent = Instance.new("BindableEvent")
+    hubState.onResizeEvent = Instance.new("BindableEvent")
 
-    function state.makeResizable(targetFrame, minW, minH, maxW, maxH)
+    function hubState.makeResizable(targetFrame, minW, minH, maxW, maxH)
         minW = minW or 460
         minH = minH or 300
         maxW = maxW or 1200
@@ -895,7 +895,7 @@ return function(opts)
         gripIcon.Position = UDim2.new(0, 0, 0, 0)
         gripIcon.BackgroundTransparency = 1
         gripIcon.Text = "◢"
-        gripIcon.TextColor3 = state.currentThemeColor
+        gripIcon.TextColor3 = hubState.currentThemeColor
         gripIcon.TextTransparency = 0.35
         gripIcon.Font = Enum.Font.GothamBold
         gripIcon.TextSize = 16
@@ -903,7 +903,7 @@ return function(opts)
         gripIcon.TextYAlignment = Enum.TextYAlignment.Bottom
         gripIcon.ZIndex = 31
         gripIcon.Parent = resizer
-        state.registerThemeText(gripIcon)
+        hubState.registerThemeText(gripIcon)
 
         local gripBtn = Instance.new("TextButton")
         gripBtn.Name = "GripHitbox"
@@ -933,7 +933,7 @@ return function(opts)
             end
         end)
 
-        state.trackConnection(gripBtn.InputBegan:Connect(function(input)
+        hubState.trackConnection(gripBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 resizing = true
                 resizeStart = input.Position
@@ -945,17 +945,17 @@ return function(opts)
             end
         end))
 
-        state.trackConnection(UserInputService.InputChanged:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
             if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                 local delta = input.Position - resizeStart
                 local newW = math.clamp(startSize.X + delta.X, minW, maxW)
                 local newH = math.clamp(startSize.Y + delta.Y, minH, maxH)
                 targetFrame.Size = UDim2.new(0, newW, 0, newH)
-                state.onResizeEvent:Fire(newW, newH)
+                hubState.onResizeEvent:Fire(newW, newH)
             end
         end))
 
-        state.trackConnection(UserInputService.InputEnded:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 resizing = false
                 TweenService:Create(gripIcon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -969,11 +969,11 @@ return function(opts)
     end
 
     -- Close confirmation modal
-    function state.createCloseConfirmation(container, onConfirm)
+    function hubState.createCloseConfirmation(container, onConfirm)
         if not container then return end
         if container:FindFirstChild("ENI_CloseConfirmOverlay") then return end
 
-        state.isModalActive = true
+        hubState.isModalActive = true
 
         local blur = Lighting:FindFirstChild("ENI_HubBlur")
         if not blur then
@@ -1085,7 +1085,7 @@ return function(opts)
         local function closeOverlay()
             if overlayClosed then return end
             overlayClosed = true
-            state.isModalActive = false
+            hubState.isModalActive = false
             cancelBtn.Active = false
             confirmBtn.Active = false
             if blur and blur.Parent then
@@ -1107,9 +1107,9 @@ return function(opts)
     end
 
     -- Disable all features safely
-    function state.DisableAllFeatureStates()
-        if state.disablingAll then return end
-        state.disablingAll = true
+    function hubState.DisableAllFeatureStates()
+        if hubState.disablingAll then return end
+        hubState.disablingAll = true
         pcall(function()
             for key, _ in pairs(getgenv()) do
                 if type(key) == "string" and (key:sub(1, 4) == "ENI_" or key:sub(1, 4) == "HUB_") then
@@ -1118,13 +1118,13 @@ return function(opts)
             end
         end)
 
-        for _, stopper in ipairs(state.featureStoppers) do
+        for _, stopper in ipairs(hubState.featureStoppers) do
             pcall(function()
                 if stopper then stopper() end
             end)
         end
 
-        for _, setter in ipairs(state.allToggleSetters) do
+        for _, setter in ipairs(hubState.allToggleSetters) do
             pcall(function()
                 if setter then setter(false) end
             end)
@@ -1134,77 +1134,77 @@ return function(opts)
         if cleanup then
             pcall(cleanup)
         end
-        state.disablingAll = false
+        hubState.disablingAll = false
     end
 
     -- Root ScreenGui setup
     local localParent = opts.parent or (gethui and gethui()) or CoreGui or (LocalPlayer and LocalPlayer:WaitForChild("PlayerGui"))
-    state.screenGui = Instance.new("ScreenGui")
-    state.screenGui.Name = opts.name or "ENI_TabbedHub_UI"
-    state.screenGui.ResetOnSpawn = false
-    state.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    state.screenGui.Parent = localParent
+    hubState.screenGui = Instance.new("ScreenGui")
+    hubState.screenGui.Name = opts.name or "ENI_TabbedHub_UI"
+    hubState.screenGui.ResetOnSpawn = false
+    hubState.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    hubState.screenGui.Parent = localParent
 
     -- Modern Toast Notification Container
-    state.notificationContainer = Instance.new("Frame")
-    state.notificationContainer.Name = "NotificationContainer"
-    state.notificationContainer.Size = UDim2.new(0, 290, 1, -20)
-    state.notificationContainer.Position = UDim2.new(1, -300, 0, 10)
-    state.notificationContainer.BackgroundTransparency = 1
-    state.notificationContainer.ZIndex = 150
-    state.notificationContainer.Parent = state.screenGui
+    hubState.notificationContainer = Instance.new("Frame")
+    hubState.notificationContainer.Name = "NotificationContainer"
+    hubState.notificationContainer.Size = UDim2.new(0, 290, 1, -20)
+    hubState.notificationContainer.Position = UDim2.new(1, -300, 0, 10)
+    hubState.notificationContainer.BackgroundTransparency = 1
+    hubState.notificationContainer.ZIndex = 150
+    hubState.notificationContainer.Parent = hubState.screenGui
 
-    state.notifLayout = Instance.new("UIListLayout")
-    state.notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    state.notifLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
-    state.notifLayout.Padding = UDim.new(0, 8)
-    state.notifLayout.Parent = state.notificationContainer
+    hubState.notifLayout = Instance.new("UIListLayout")
+    hubState.notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    hubState.notifLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    hubState.notifLayout.Padding = UDim.new(0, 8)
+    hubState.notifLayout.Parent = hubState.notificationContainer
 
     -- =========================================================================
     -- Notification Store & Center System
     -- =========================================================================
-    state.notificationsStore = {}
-    state.unreadNotifCount = 0
-    state.notifBadgeContainer = nil
-    state.notifBadgeLabel = nil
-    state.refreshNotifCenterUI = nil
-    state.activeNotifFilter = "All"
-    state.openNotificationCenterModal = nil
-    state.openFeedbackModal = nil
-    state.openAnnouncementModal = nil
-    state.openFeedbackReplyModal = nil
-    state.openBindContextMenu = nil
-    state.setHudVisible = nil
-    state.setHudOpacity = nil
-    state.isHudEnabled = false
-    state.hudOpacity = 0.35
-    state.currentActiveTabName = "Main"
-    state.registeredFunctions = {}
-    state.featureKeybinds = {}
-    state.attachContextMenu = nil
-    state.searchBox = nil
+    hubState.notificationsStore = {}
+    hubState.unreadNotifCount = 0
+    hubState.notifBadgeContainer = nil
+    hubState.notifBadgeLabel = nil
+    hubState.refreshNotifCenterUI = nil
+    hubState.activeNotifFilter = "All"
+    hubState.openNotificationCenterModal = nil
+    hubState.openFeedbackModal = nil
+    hubState.openAnnouncementModal = nil
+    hubState.openFeedbackReplyModal = nil
+    hubState.openBindContextMenu = nil
+    hubState.setHudVisible = nil
+    hubState.setHudOpacity = nil
+    hubState.isHudEnabled = false
+    hubState.hudOpacity = 0.35
+    hubState.currentActiveTabName = "Main"
+    hubState.registeredFunctions = {}
+    hubState.featureKeybinds = {}
+    hubState.attachContextMenu = nil
+    hubState.searchBox = nil
 
-    function state.updateNotifBadge()
-        if state.notifBadgeContainer and state.notifBadgeLabel then
-            if state.unreadNotifCount > 0 then
-                state.notifBadgeContainer.Visible = true
-                state.notifBadgeLabel.Text = state.unreadNotifCount > 9 and "9+" or tostring(state.unreadNotifCount)
-                TweenService:Create(state.notifBadgeContainer, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    function hubState.updateNotifBadge()
+        if hubState.notifBadgeContainer and hubState.notifBadgeLabel then
+            if hubState.unreadNotifCount > 0 then
+                hubState.notifBadgeContainer.Visible = true
+                hubState.notifBadgeLabel.Text = hubState.unreadNotifCount > 9 and "9+" or tostring(hubState.unreadNotifCount)
+                TweenService:Create(hubState.notifBadgeContainer, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                     Size = UDim2.new(0, 16, 0, 16)
                 }):Play()
             else
-                state.notifBadgeContainer.Visible = false
+                hubState.notifBadgeContainer.Visible = false
             end
         end
     end
 
-    function state.notify(config)
+    function hubState.notify(config)
         config = type(config) == "table" and config or { Title = "Notification", Content = tostring(config) }
         local titleText = config.Title or "Notification"
         local contentText = config.Content or config.Text or ""
         local duration = tonumber(config.Duration) or 4.0
-        local notifColor1 = config.Color or state.currentThemeColor
-        local notifColor2 = config.SecondaryColor or state.secondaryThemeColor
+        local notifColor1 = config.Color or hubState.currentThemeColor
+        local notifColor2 = config.SecondaryColor or hubState.secondaryThemeColor
         local category = config.Category or "System"
 
         local categoryIcon = "🔔"
@@ -1232,7 +1232,7 @@ return function(opts)
         notifCard.BorderSizePixel = 0
         notifCard.Position = UDim2.new(1, 60, 0, 0)
         notifCard.ZIndex = 151
-        notifCard.Parent = state.notificationContainer
+        notifCard.Parent = hubState.notificationContainer
         applyCorner(notifCard, 9)
 
         local nStroke = applyStroke(notifCard, notifColor1, 1.2, 0.3)
@@ -1412,16 +1412,16 @@ return function(opts)
         task.delay(duration, closeCardSlowly)
     end
 
-    function state.sendNotification(config)
+    function hubState.sendNotification(config)
         config = type(config) == "table" and config or { Title = "Notification", Content = tostring(config) }
         local titleText = config.Title or "Notification"
         local contentText = config.Content or config.Text or ""
         local category = config.Category or "System"
-        local notifColor = config.Color or state.currentThemeColor
+        local notifColor = config.Color or hubState.currentThemeColor
         local timeStr = config.Time or os.date("%H:%M")
 
         local entry = {
-            id = #state.notificationsStore + 1,
+            id = #hubState.notificationsStore + 1,
             title = titleText,
             content = contentText,
             category = category,
@@ -1430,12 +1430,12 @@ return function(opts)
             read = false
         }
 
-        table.insert(state.notificationsStore, 1, entry)
-        state.unreadNotifCount = state.unreadNotifCount + 1
-        state.updateNotifBadge()
+        table.insert(hubState.notificationsStore, 1, entry)
+        hubState.unreadNotifCount = hubState.unreadNotifCount + 1
+        hubState.updateNotifBadge()
 
         if config.Toast ~= false then
-            state.notify({
+            hubState.notify({
                 Title = titleText,
                 Content = contentText,
                 Duration = config.Duration or 3.5,
@@ -1443,16 +1443,16 @@ return function(opts)
             })
         end
 
-        if state.refreshNotifCenterUI then
-            pcall(state.refreshNotifCenterUI)
+        if hubState.refreshNotifCenterUI then
+            pcall(hubState.refreshNotifCenterUI)
         end
         return entry
     end
 
     -- Initial welcome notification
     task.defer(function()
-        if state.isDeveloper then
-            state.sendNotification({
+        if hubState.isDeveloper then
+            hubState.sendNotification({
                 Title = "👑 Developer Authenticated",
                 Content = "Welcome back, " .. devUsername .. "! All feedback and notifications are active.",
                 Category = "System",
@@ -1460,11 +1460,11 @@ return function(opts)
                 Toast = true
             })
         else
-            state.sendNotification({
+            hubState.sendNotification({
                 Title = "Welcome to " .. (opts.title or "ENI HUB"),
                 Content = "Hub initialized successfully. Press RightControl to toggle visibility.",
                 Category = "System",
-                Color = state.currentThemeColor,
+                Color = hubState.currentThemeColor,
                 Toast = true
             })
         end
@@ -1486,7 +1486,7 @@ return function(opts)
     local function saveKeybindsConfig()
         if not writefile then return end
         local map = {}
-        for key, item in pairs(state.featureKeybinds) do
+        for key, item in pairs(hubState.featureKeybinds) do
             if item and item.id then
                 map[item.id] = (typeof(key) == "EnumItem" and key.Name) or tostring(key)
             end
@@ -1496,22 +1496,22 @@ return function(opts)
         end)
     end
 
-    function state.registerFunctionItem(itemData)
+    function hubState.registerFunctionItem(itemData)
         if not itemData or not itemData.id then return end
-        state.registeredFunctions[itemData.id] = itemData
+        hubState.registeredFunctions[itemData.id] = itemData
 
         local savedMap = loadSavedKeybinds()
         local savedKeyName = savedMap[itemData.id]
         if savedKeyName and Enum.KeyCode[savedKeyName] then
             local kc = Enum.KeyCode[savedKeyName]
             itemData.bind = savedKeyName
-            state.featureKeybinds[kc] = itemData
+            hubState.featureKeybinds[kc] = itemData
         end
     end
 
-    state.openBindContextMenu = function(itemData, mousePos)
+    hubState.openBindContextMenu = function(itemData, mousePos)
         if not itemData then return end
-        local existing = state.screenGui:FindFirstChild("BindContextMenuOverlay")
+        local existing = hubState.screenGui:FindFirstChild("BindContextMenuOverlay")
         if existing then pcall(function() existing:Destroy() end) end
 
         local overlay = Instance.new("Frame")
@@ -1519,7 +1519,7 @@ return function(opts)
         overlay.Size = UDim2.new(1, 0, 1, 0)
         overlay.BackgroundTransparency = 1
         overlay.ZIndex = 280
-        overlay.Parent = state.screenGui
+        overlay.Parent = hubState.screenGui
 
         local blocker = Instance.new("TextButton")
         blocker.Size = UDim2.new(1, 0, 1, 0)
@@ -1529,10 +1529,10 @@ return function(opts)
         blocker.ZIndex = 280
         blocker.Parent = overlay
 
-        local posX = mousePos and mousePos.X or (state.screenGui.AbsoluteSize.X / 2 - 120)
-        local posY = mousePos and mousePos.Y or (state.screenGui.AbsoluteSize.Y / 2 - 100)
-        posX = math.clamp(posX, 10, math.max(10, state.screenGui.AbsoluteSize.X - 250))
-        posY = math.clamp(posY, 10, math.max(10, state.screenGui.AbsoluteSize.Y - 210))
+        local posX = mousePos and mousePos.X or (hubState.screenGui.AbsoluteSize.X / 2 - 120)
+        local posY = mousePos and mousePos.Y or (hubState.screenGui.AbsoluteSize.Y / 2 - 100)
+        posX = math.clamp(posX, 10, math.max(10, hubState.screenGui.AbsoluteSize.X - 250))
+        posY = math.clamp(posY, 10, math.max(10, hubState.screenGui.AbsoluteSize.Y - 210))
 
         local menu = Instance.new("Frame")
         menu.Name = "ContextMenu"
@@ -1544,8 +1544,8 @@ return function(opts)
         menu.ClipsDescendants = true
         menu.Parent = overlay
         applyCorner(menu, 8)
-        local mStroke = applyStroke(menu, state.currentThemeColor, 1.5, 0.2)
-        state.registerThemeStroke(mStroke)
+        local mStroke = applyStroke(menu, hubState.currentThemeColor, 1.5, 0.2)
+        hubState.registerThemeStroke(mStroke)
 
         local mHeader = Instance.new("Frame")
         mHeader.Size = UDim2.new(1, 0, 0, 32)
@@ -1595,7 +1595,7 @@ return function(opts)
         currentBindLabel.Size = UDim2.new(1, 0, 0, 20)
         currentBindLabel.BackgroundTransparency = 1
         currentBindLabel.Text = "Current Bind: " .. (itemData.bind and ("[" .. itemData.bind .. "]") or "[ None ]")
-        currentBindLabel.TextColor3 = itemData.bind and state.currentThemeColor or Color3.fromRGB(150, 160, 185)
+        currentBindLabel.TextColor3 = itemData.bind and hubState.currentThemeColor or Color3.fromRGB(150, 160, 185)
         currentBindLabel.Font = Enum.Font.GothamBold
         currentBindLabel.TextSize = 11
         currentBindLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -1629,7 +1629,7 @@ return function(opts)
         triggerBtn.Size = UDim2.new(1, 0, 0, 28)
         triggerBtn.BackgroundColor3 = Color3.fromRGB(20, 28, 42)
         triggerBtn.Text = "⚡ Trigger / Toggle Now"
-        triggerBtn.TextColor3 = state.currentThemeColor
+        triggerBtn.TextColor3 = hubState.currentThemeColor
         triggerBtn.Font = Enum.Font.GothamBold
         triggerBtn.TextSize = 11
         triggerBtn.ZIndex = 283
@@ -1660,25 +1660,25 @@ return function(opts)
                 if input.UserInputType == Enum.UserInputType.Keyboard then
                     local kc = input.KeyCode
                     if kc ~= Enum.KeyCode.Unknown and kc ~= Enum.KeyCode.Escape then
-                        for oldKc, oldItem in pairs(state.featureKeybinds) do
+                        for oldKc, oldItem in pairs(hubState.featureKeybinds) do
                             if oldItem.id == itemData.id then
-                                state.featureKeybinds[oldKc] = nil
+                                hubState.featureKeybinds[oldKc] = nil
                             end
                         end
 
                         itemData.bind = kc.Name
-                        state.featureKeybinds[kc] = itemData
+                        hubState.featureKeybinds[kc] = itemData
                         saveKeybindsConfig()
 
                         currentBindLabel.Text = "Current Bind: [" .. kc.Name .. "]"
-                        currentBindLabel.TextColor3 = state.currentThemeColor
+                        currentBindLabel.TextColor3 = hubState.currentThemeColor
                         setBindBtn.Text = "⌨️ Bind: [" .. kc.Name .. "]"
                         setBindBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
 
-                        state.notify({
+                        hubState.notify({
                             Title = "Keybind Set",
                             Content = "Bound [" .. kc.Name .. "] to '" .. tostring(itemData.title) .. "'",
-                            Color = state.currentThemeColor,
+                            Color = hubState.currentThemeColor,
                             Duration = 3
                         })
                     end
@@ -1692,9 +1692,9 @@ return function(opts)
         end)
 
         clearBindBtn.MouseButton1Click:Connect(function()
-            for oldKc, oldItem in pairs(state.featureKeybinds) do
+            for oldKc, oldItem in pairs(hubState.featureKeybinds) do
                 if oldItem.id == itemData.id then
-                    state.featureKeybinds[oldKc] = nil
+                    hubState.featureKeybinds[oldKc] = nil
                 end
             end
             itemData.bind = nil
@@ -1702,7 +1702,7 @@ return function(opts)
             currentBindLabel.Text = "Current Bind: [ None ]"
             currentBindLabel.TextColor3 = Color3.fromRGB(150, 160, 185)
             setBindBtn.Text = "⌨️ Set Keybind"
-            state.notify({
+            hubState.notify({
                 Title = "Keybind Cleared",
                 Content = "Unbound '" .. tostring(itemData.title) .. "'",
                 Color = Color3.fromRGB(255, 140, 140),
@@ -1716,11 +1716,11 @@ return function(opts)
         end)
     end
 
-    state.attachContextMenu = function(guiObj, itemData)
+    hubState.attachContextMenu = function(guiObj, itemData)
         if not guiObj then return end
-        state.trackConnection(guiObj.InputBegan:Connect(function(input)
+        hubState.trackConnection(guiObj.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton2 then
-                state.openBindContextMenu(itemData, input.Position)
+                hubState.openBindContextMenu(itemData, input.Position)
             end
         end))
     end
@@ -1728,44 +1728,44 @@ return function(opts)
     -- =========================================================================
     -- Draggable Semi-Transparent HUD Performance Stats Window
     -- =========================================================================
-    state.hudFrame = nil
+    hubState.hudFrame = nil
     local hudFpsLabel, hudPingLabel, hudMemLabel, hudSessionLabel
 
-    function state.createHudStatsWindow()
-        if state.hudFrame then return state.hudFrame end
+    function hubState.createHudStatsWindow()
+        if hubState.hudFrame then return hubState.hudFrame end
 
-        state.hudFrame = Instance.new("Frame")
-        state.hudFrame.Name = "ENI_StatsHUD"
-        state.hudFrame.Size = UDim2.new(0, 190, 0, 115)
-        state.hudFrame.Position = UDim2.new(0, 20, 0, 90)
-        state.hudFrame.BackgroundColor3 = Color3.fromRGB(11, 15, 22)
-        state.hudFrame.BackgroundTransparency = state.hudOpacity
-        state.hudFrame.BorderSizePixel = 0
-        state.hudFrame.ZIndex = 80
-        state.hudFrame.Visible = state.isHudEnabled
-        state.hudFrame.Active = true
-        state.hudFrame.Parent = state.screenGui
-        applyCorner(state.hudFrame, 8)
-        local hudStroke = applyStroke(state.hudFrame, state.currentThemeColor, 1.2, 0.4)
-        state.registerThemeStroke(hudStroke)
+        hubState.hudFrame = Instance.new("Frame")
+        hubState.hudFrame.Name = "ENI_StatsHUD"
+        hubState.hudFrame.Size = UDim2.new(0, 190, 0, 115)
+        hubState.hudFrame.Position = UDim2.new(0, 20, 0, 90)
+        hubState.hudFrame.BackgroundColor3 = Color3.fromRGB(11, 15, 22)
+        hubState.hudFrame.BackgroundTransparency = hubState.hudOpacity
+        hubState.hudFrame.BorderSizePixel = 0
+        hubState.hudFrame.ZIndex = 80
+        hubState.hudFrame.Visible = hubState.isHudEnabled
+        hubState.hudFrame.Active = true
+        hubState.hudFrame.Parent = hubState.screenGui
+        applyCorner(hubState.hudFrame, 8)
+        local hudStroke = applyStroke(hubState.hudFrame, hubState.currentThemeColor, 1.2, 0.4)
+        hubState.registerThemeStroke(hudStroke)
 
-        state.makeSmoothDraggable(state.hudFrame, state.hudFrame)
+        hubState.makeSmoothDraggable(hubState.hudFrame, hubState.hudFrame)
 
         local hudTitleBar = Instance.new("Frame")
         hudTitleBar.Size = UDim2.new(1, 0, 0, 22)
         hudTitleBar.BackgroundTransparency = 1
         hudTitleBar.ZIndex = 81
-        hudTitleBar.Parent = state.hudFrame
+        hudTitleBar.Parent = hubState.hudFrame
 
         local dot = Instance.new("Frame")
         dot.Size = UDim2.new(0, 6, 0, 6)
         dot.Position = UDim2.new(0, 8, 0.5, -3)
-        dot.BackgroundColor3 = state.currentThemeColor
+        dot.BackgroundColor3 = hubState.currentThemeColor
         dot.BorderSizePixel = 0
         dot.ZIndex = 82
         dot.Parent = hudTitleBar
         applyCorner(dot, 3)
-        state.registerThemeFrame(dot)
+        hubState.registerThemeFrame(dot)
 
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -22, 1, 0)
@@ -1784,7 +1784,7 @@ return function(opts)
         statsContainer.Position = UDim2.new(0, 8, 0, 24)
         statsContainer.BackgroundTransparency = 1
         statsContainer.ZIndex = 81
-        statsContainer.Parent = state.hudFrame
+        statsContainer.Parent = hubState.hudFrame
 
         local sLayout = Instance.new("UIListLayout")
         sLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -1841,7 +1841,7 @@ return function(opts)
                 frameCount = 0
                 lastTime = now
 
-                if state.hudFrame and state.hudFrame.Visible then
+                if hubState.hudFrame and hubState.hudFrame.Visible then
                     hudFpsLabel.Text = tostring(fps) .. " FPS"
                     if fps >= 50 then
                         hudFpsLabel.TextColor3 = Color3.fromRGB(50, 225, 130)
@@ -1871,27 +1871,27 @@ return function(opts)
                 end
             end
         end)
-        state.trackConnection(hudConn)
+        hubState.trackConnection(hudConn)
 
-        return state.hudFrame
+        return hubState.hudFrame
     end
 
-    state.setHudVisible = function(visible)
-        state.isHudEnabled = (visible == true)
-        state.configValues.hudEnabled = state.isHudEnabled
-        if not state.hudFrame then state.createHudStatsWindow() end
-        if state.hudFrame then state.hudFrame.Visible = state.isHudEnabled end
+    hubState.setHudVisible = function(visible)
+        hubState.isHudEnabled = (visible == true)
+        hubState.configValues.hudEnabled = hubState.isHudEnabled
+        if not hubState.hudFrame then hubState.createHudStatsWindow() end
+        if hubState.hudFrame then hubState.hudFrame.Visible = hubState.isHudEnabled end
     end
 
-    state.setHudOpacity = function(opacity)
-        state.hudOpacity = math.clamp(opacity or 0.35, 0.05, 0.95)
-        state.configValues.hudOpacity = state.hudOpacity
-        if state.hudFrame then state.hudFrame.BackgroundTransparency = state.hudOpacity end
+    hubState.setHudOpacity = function(opacity)
+        hubState.hudOpacity = math.clamp(opacity or 0.35, 0.05, 0.95)
+        hubState.configValues.hudOpacity = hubState.hudOpacity
+        if hubState.hudFrame then hubState.hudFrame.BackgroundTransparency = hubState.hudOpacity end
     end
 
     -- Cross-Client Real-Time Live Bus
     -- Sync offline announcements for players upon join / execution
-    function state.syncOfflineAndPendingAnnouncements()
+    function hubState.syncOfflineAndPendingAnnouncements()
         local list = loadStoredAnnouncements()
         local seen = loadSeenAnnouncements()
         local myName = LocalPlayer and LocalPlayer.Name or ""
@@ -1904,7 +1904,7 @@ return function(opts)
                 if isForMe then
                     markAnnouncementAsSeen(annId)
                     task.delay(1.5, function()
-                        state.sendNotification({
+                        hubState.sendNotification({
                             Title = "📢 " .. tostring(ann.title or "Developer Announcement"),
                             Content = tostring(ann.message or ""),
                             Category = "Announcements",
@@ -1919,8 +1919,8 @@ return function(opts)
     end
 
     -- Sync offline feedbacks strictly for developer upon join / execution
-    function state.syncOfflineAndPendingFeedbacks()
-        if not state.isDeveloper then return end
+    function hubState.syncOfflineAndPendingFeedbacks()
+        if not hubState.isDeveloper then return end
         local list = loadStoredFeedbacks()
         local seen = loadSeenFeedbacks()
 
@@ -1931,7 +1931,7 @@ return function(opts)
                 unreadCount = unreadCount + 1
                 markFeedbackAsSeen(fbId)
                 task.delay(1.2 + (unreadCount * 0.4), function()
-                    state.sendNotification({
+                    hubState.sendNotification({
                         Title = "🛠️ [Offline Feedback] " .. tostring(fb.category or "Feedback") .. " from " .. tostring(fb.sender or "Player"),
                         Content = "\"" .. tostring(fb.message or ""):sub(1, 80) .. (#tostring(fb.message or "") > 80 and "..." or "") .. "\"",
                         Category = "Feedback",
@@ -1944,7 +1944,7 @@ return function(opts)
         end
     end
 
-    function state.setupLiveListener()
+    function hubState.setupLiveListener()
         local bus = getLiveBusFolder()
         if not bus then return end
 
@@ -1967,9 +1967,9 @@ return function(opts)
 
                     if pType == "Feedback" or pType == "FeedbackAlert" then
                         -- STRICTLY FOR DEVELOPER ONLY (Non-devs never receive feedback notifications)
-                        if state.isDeveloper then
+                        if hubState.isDeveloper then
                             if packet.id then markFeedbackAsSeen(packet.id) end
-                            state.sendNotification({
+                            hubState.sendNotification({
                                 Title = "🛠️ Live " .. tostring(packet.category or "Feedback") .. " from " .. sender,
                                 Content = "\"" .. tostring(packet.message):sub(1, 80) .. (#tostring(packet.message) > 80 and "..." or "") .. "\"",
                                 Category = "Feedback",
@@ -1982,7 +1982,7 @@ return function(opts)
                         if isForMe then
                             -- Mark as seen in offline store so it's not re-notified
                             if packet.id then markAnnouncementAsSeen(packet.id) end
-                            state.sendNotification({
+                            hubState.sendNotification({
                                 Title = "📢 " .. tostring(packet.title or "Developer Announcement"),
                                 Content = tostring(packet.message or ""),
                                 Category = "Announcements",
@@ -1999,27 +1999,27 @@ return function(opts)
         for _, child in ipairs(bus:GetChildren()) do
             onPacketAdded(child)
         end
-        state.trackConnection(bus.ChildAdded:Connect(onPacketAdded))
+        hubState.trackConnection(bus.ChildAdded:Connect(onPacketAdded))
     end
 
-    task.defer(state.setupLiveListener)
-    task.defer(state.syncOfflineAndPendingAnnouncements)
-    task.defer(state.syncOfflineAndPendingFeedbacks)
+    task.defer(hubState.setupLiveListener)
+    task.defer(hubState.syncOfflineAndPendingAnnouncements)
+    task.defer(hubState.syncOfflineAndPendingFeedbacks)
 
     -- =========================================================================
     -- Anti-Spam Feedback Engine
     -- =========================================================================
-    state.lastFeedbackTime = 0
-    state.lastFeedbackText = ""
-        state.feedbackSessionCount = 0
-        function state.processFeedbackDispatch(category, message, callback)
+    hubState.lastFeedbackTime = 0
+    hubState.lastFeedbackText = ""
+        hubState.feedbackSessionCount = 0
+        function hubState.processFeedbackDispatch(category, message, callback)
         local now = tick()
-        local elapsed = now - state.lastFeedbackTime
+        local elapsed = now - hubState.lastFeedbackTime
 
         -- 1. Anti-Spam Cooldown check
         if elapsed < feedbackCooldownSec then
             local remain = math.ceil(feedbackCooldownSec - elapsed)
-            state.notify({
+            hubState.notify({
                 Title = "Cooldown Active",
                 Content = "Please wait " .. remain .. "s before sending feedback again.",
                 Color = Color3.fromRGB(255, 170, 50)
@@ -2029,8 +2029,8 @@ return function(opts)
         end
 
         -- 2. Anti-Spam Session limit
-        if state.feedbackSessionCount >= MAX_FEEDBACK_PER_SESSION then
-            state.notify({
+        if hubState.feedbackSessionCount >= MAX_FEEDBACK_PER_SESSION then
+            hubState.notify({
                 Title = "Session Limit Reached",
                 Content = "You have reached the maximum feedback submissions for this session.",
                 Color = Color3.fromRGB(245, 75, 75)
@@ -2042,7 +2042,7 @@ return function(opts)
         -- 3. Length Validations
         local cleanMsg = message:match("^%s*(.-)%s*$") or ""
         if #cleanMsg < 6 then
-            state.notify({
+            hubState.notify({
                 Title = "Message Too Short",
                 Content = "Please enter at least 6 characters for your feedback.",
                 Color = Color3.fromRGB(255, 170, 50)
@@ -2052,7 +2052,7 @@ return function(opts)
         end
 
         if #cleanMsg > 500 then
-            state.notify({
+            hubState.notify({
                 Title = "Message Too Long",
                 Content = "Feedback exceeds maximum character limit of 500.",
                 Color = Color3.fromRGB(255, 170, 50)
@@ -2062,8 +2062,8 @@ return function(opts)
         end
 
         -- 4. Duplicate Check
-        if cleanMsg:lower() == state.lastFeedbackText:lower() then
-            state.notify({
+        if cleanMsg:lower() == hubState.lastFeedbackText:lower() then
+            hubState.notify({
                 Title = "Duplicate Feedback",
                 Content = "You cannot send the exact same feedback twice!",
                 Color = Color3.fromRGB(255, 170, 50)
@@ -2072,9 +2072,9 @@ return function(opts)
             return false
         end
 
-        state.lastFeedbackTime = now
-        state.lastFeedbackText = cleanMsg
-        state.feedbackSessionCount = state.feedbackSessionCount + 1
+        hubState.lastFeedbackTime = now
+        hubState.lastFeedbackText = cleanMsg
+        hubState.feedbackSessionCount = hubState.feedbackSessionCount + 1
 
         local pName = LocalPlayer and LocalPlayer.Name or "Player"
         local pUserId = LocalPlayer and LocalPlayer.UserId or 0
@@ -2090,7 +2090,7 @@ return function(opts)
             userId = pUserId,
             placeId = pPlaceId,
             jobId = pJobId,
-            target = state.devUsername,
+            target = hubState.devUsername,
             timestamp = os.time(),
             time = os.date("%H:%M")
         }
@@ -2110,22 +2110,22 @@ return function(opts)
                     placeId = pPlaceId,
                     jobId = pJobId,
                     time = os.date("%Y-%m-%d %H:%M:%S"),
-                    developer = state.devUsername
+                    developer = hubState.devUsername
                 })
             end)
         end
 
-        local targetWebhook = opts.feedbackWebhook or state.defaultWebhook
+        local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
         if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
             local catColor = category == "Bug Report" and 15158332 or (category == "Suggestions" and 3447003 or 10181046)
             local avatarHeadshot = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(pUserId) .. "&width=150&height=150&format=png"
             local profileLink = "https://www.roblox.com/users/" .. tostring(pUserId) .. "/profile"
             local gameLink = "https://www.roblox.com/games/" .. tostring(pPlaceId)
-            local devicePlatform = state.isMobileDevice and "📱 Mobile (Touch)" or "💻 PC (Desktop)"
+            local devicePlatform = hubState.isMobileDevice and "📱 Mobile (Touch)" or "💻 PC (Desktop)"
 
             local payload = {
-                username = state.webhookBotName,
-                avatar_url = state.webhookBotAvatar,
+                username = hubState.webhookBotName,
+                avatar_url = hubState.webhookBotAvatar,
                 content = "🔔 **[Alert for " .. devUsername .. "]** New " .. category .. " received from `" .. pName .. "` (" .. devicePlatform .. ")!",
                 embeds = {{
                     title = "🛠️ New " .. category .. " Received",
@@ -2149,7 +2149,7 @@ return function(opts)
         end
 
         -- Record into user's notification center
-        state.sendNotification({
+        hubState.sendNotification({
             Title = "Feedback Sent (" .. category .. ")",
             Content = "Thank you! Your submission: \"" .. (cleanMsg:sub(1, 35) .. (#cleanMsg > 35 and "..." or "")) .. "\" was received.",
             Category = "Feedback",
@@ -2164,13 +2164,13 @@ return function(opts)
     -- =========================================================================
     -- Notification Center Modal UI
     -- =========================================================================
-    function state.createNotificationCenterModal(parentFrame)
-        local existing = state.screenGui:FindFirstChild("NotificationCenterOverlay")
+    function hubState.createNotificationCenterModal(parentFrame)
+        local existing = hubState.screenGui:FindFirstChild("NotificationCenterOverlay")
         if existing then
             pcall(function() existing:Destroy() end)
         end
 
-        state.isModalActive = true
+        hubState.isModalActive = true
 
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "NotificationCenterOverlay"
@@ -2181,7 +2181,7 @@ return function(opts)
         modalOverlay.BorderSizePixel = 0
         modalOverlay.ZIndex = 250
         modalOverlay.Active = true
-        modalOverlay.Parent = state.screenGui
+        modalOverlay.Parent = hubState.screenGui
 
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
@@ -2204,8 +2204,8 @@ return function(opts)
         centerPanel.Active = true
         centerPanel.Parent = modalOverlay
         applyCorner(centerPanel, 10)
-        local centerStroke = applyStroke(centerPanel, state.currentThemeColor, 1.5, 0.25)
-        state.registerThemeStroke(centerStroke)
+        local centerStroke = applyStroke(centerPanel, hubState.currentThemeColor, 1.5, 0.25)
+        hubState.registerThemeStroke(centerStroke)
 
         -- Panel Header
         local pHeader = Instance.new("Frame")
@@ -2306,8 +2306,8 @@ return function(opts)
             end
 
             local filtered = {}
-            for _, notif in ipairs(state.notificationsStore) do
-                if state.activeNotifFilter == "All" or notif.category == state.activeNotifFilter then
+            for _, notif in ipairs(hubState.notificationsStore) do
+                if hubState.activeNotifFilter == "All" or notif.category == hubState.activeNotifFilter then
                     table.insert(filtered, notif)
                 end
             end
@@ -2316,7 +2316,7 @@ return function(opts)
                 local emptyLabel = Instance.new("TextLabel")
                 emptyLabel.Size = UDim2.new(1, 0, 0, 80)
                 emptyLabel.BackgroundTransparency = 1
-                emptyLabel.Text = "No notifications in '" .. state.activeNotifFilter .. "'\nYou're all caught up! ✨"
+                emptyLabel.Text = "No notifications in '" .. hubState.activeNotifFilter .. "'\nYou're all caught up! ✨"
                 emptyLabel.TextColor3 = Color3.fromRGB(140, 150, 175)
                 emptyLabel.Font = Enum.Font.GothamMedium
                 emptyLabel.TextSize = 12
@@ -2339,7 +2339,7 @@ return function(opts)
 
                 local leftBar = Instance.new("Frame")
                 leftBar.Size = UDim2.new(0, 3, 1, 0)
-                leftBar.BackgroundColor3 = notif.color or state.currentThemeColor
+                leftBar.BackgroundColor3 = notif.color or hubState.currentThemeColor
                 leftBar.BorderSizePixel = 0
                 leftBar.ZIndex = 254
                 leftBar.Parent = card
@@ -2412,20 +2412,20 @@ return function(opts)
                     applyStroke(replyCardBtn, Color3.fromRGB(0, 160, 220), 1, 0.4)
 
                     replyCardBtn.MouseButton1Click:Connect(function()
-                        if state.openFeedbackReplyModal then
-                            state.openFeedbackReplyModal(notif)
+                        if hubState.openFeedbackReplyModal then
+                            hubState.openFeedbackReplyModal(notif)
                         end
                     end)
                 end
 
                 delCardBtn.MouseButton1Click:Connect(function()
-                    for idx, item in ipairs(state.notificationsStore) do
+                    for idx, item in ipairs(hubState.notificationsStore) do
                         if item.id == notif.id then
                             if not item.read then
-                                state.unreadNotifCount = math.max(0, state.unreadNotifCount - 1)
-                                state.updateNotifBadge()
+                                hubState.unreadNotifCount = math.max(0, hubState.unreadNotifCount - 1)
+                                hubState.updateNotifBadge()
                             end
-                            table.remove(state.notificationsStore, idx)
+                            table.remove(hubState.notificationsStore, idx)
                             break
                         end
                     end
@@ -2437,9 +2437,9 @@ return function(opts)
         for _, tabName in ipairs(filterTabs) do
             local tabBtn = Instance.new("TextButton")
             tabBtn.Size = UDim2.new(0, tabName == "Announcements" and 95 or (tabName == "Dev Broadcast" and 100 or 68), 1, 0)
-            tabBtn.BackgroundColor3 = state.activeNotifFilter == tabName and Color3.fromRGB(32, 42, 62) or Color3.fromRGB(20, 25, 36)
+            tabBtn.BackgroundColor3 = hubState.activeNotifFilter == tabName and Color3.fromRGB(32, 42, 62) or Color3.fromRGB(20, 25, 36)
             tabBtn.Text = tabName
-            tabBtn.TextColor3 = state.activeNotifFilter == tabName and state.currentThemeColor or Color3.fromRGB(160, 172, 195)
+            tabBtn.TextColor3 = hubState.activeNotifFilter == tabName and hubState.currentThemeColor or Color3.fromRGB(160, 172, 195)
             tabBtn.Font = Enum.Font.GothamBold
             tabBtn.TextSize = 10
             tabBtn.ZIndex = 253
@@ -2449,12 +2449,12 @@ return function(opts)
             filterButtons[tabName] = tabBtn
 
             tabBtn.MouseButton1Click:Connect(function()
-                state.activeNotifFilter = tabName
+                hubState.activeNotifFilter = tabName
                 for name, btn in pairs(filterButtons) do
                     local isActive = (name == tabName)
                     TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                         BackgroundColor3 = isActive and Color3.fromRGB(32, 42, 62) or Color3.fromRGB(20, 25, 36),
-                        TextColor3 = isActive and state.currentThemeColor or Color3.fromRGB(160, 172, 195)
+                        TextColor3 = isActive and hubState.currentThemeColor or Color3.fromRGB(160, 172, 195)
                     }):Play()
                 end
                 renderCards()
@@ -2462,22 +2462,22 @@ return function(opts)
         end
 
         markReadBtn.MouseButton1Click:Connect(function()
-            for _, item in ipairs(state.notificationsStore) do
+            for _, item in ipairs(hubState.notificationsStore) do
                 item.read = true
             end
-            state.unreadNotifCount = 0
-            state.updateNotifBadge()
+            hubState.unreadNotifCount = 0
+            hubState.updateNotifBadge()
             renderCards()
         end)
 
         clearAllBtn.MouseButton1Click:Connect(function()
-            state.notificationsStore = {}
-            state.unreadNotifCount = 0
-            state.updateNotifBadge()
+            hubState.notificationsStore = {}
+            hubState.unreadNotifCount = 0
+            hubState.updateNotifBadge()
             renderCards()
         end)
 
-        state.refreshNotifCenterUI = renderCards
+        hubState.refreshNotifCenterUI = renderCards
         renderCards()
 
         -- Fade In Animation
@@ -2489,8 +2489,8 @@ return function(opts)
         local function closeModal()
             if isClosing then return end
             isClosing = true
-            state.isModalActive = false
-            state.refreshNotifCenterUI = nil
+            hubState.isModalActive = false
+            hubState.refreshNotifCenterUI = nil
             local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
                 BackgroundTransparency = 1
             })
@@ -2506,13 +2506,13 @@ return function(opts)
     -- =========================================================================
     -- Feedback Modal UI (Tools / Feedback Square Button Modal)
     -- =========================================================================
-    function state.createFeedbackModal(parentFrame)
-        local existing = state.screenGui:FindFirstChild("FeedbackOverlay")
+    function hubState.createFeedbackModal(parentFrame)
+        local existing = hubState.screenGui:FindFirstChild("FeedbackOverlay")
         if existing then
             pcall(function() existing:Destroy() end)
         end
 
-        state.isModalActive = true
+        hubState.isModalActive = true
 
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "FeedbackOverlay"
@@ -2523,7 +2523,7 @@ return function(opts)
         modalOverlay.BorderSizePixel = 0
         modalOverlay.ZIndex = 250
         modalOverlay.Active = true
-        modalOverlay.Parent = state.screenGui
+        modalOverlay.Parent = hubState.screenGui
 
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
@@ -2546,8 +2546,8 @@ return function(opts)
         fbPanel.Active = true
         fbPanel.Parent = modalOverlay
         applyCorner(fbPanel, 10)
-        local fbStroke = applyStroke(fbPanel, state.currentThemeColor, 1.5, 0.25)
-        state.registerThemeStroke(fbStroke)
+        local fbStroke = applyStroke(fbPanel, hubState.currentThemeColor, 1.5, 0.25)
+        hubState.registerThemeStroke(fbStroke)
 
         -- Modal Header
         local fbHeader = Instance.new("Frame")
@@ -2698,7 +2698,7 @@ return function(opts)
 
         textBox.Focused:Connect(function()
             TweenService:Create(textStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Color = state.currentThemeColor,
+                Color = hubState.currentThemeColor,
                 Transparency = 0.2
             }):Play()
         end)
@@ -2726,7 +2726,7 @@ return function(opts)
         local sendBtn = Instance.new("TextButton")
         sendBtn.Size = UDim2.new(0, 120, 0, 30)
         sendBtn.Position = UDim2.new(1, -134, 1, -44)
-        sendBtn.BackgroundColor3 = state.currentThemeColor
+        sendBtn.BackgroundColor3 = hubState.currentThemeColor
         sendBtn.Text = "Send Feedback"
         sendBtn.TextColor3 = Color3.fromRGB(10, 14, 22)
         sendBtn.Font = Enum.Font.GothamBlack
@@ -2734,13 +2734,13 @@ return function(opts)
         sendBtn.ZIndex = 253
         sendBtn.Parent = fbPanel
         applyCorner(sendBtn, 6)
-        state.registerThemeFrame(sendBtn)
+        hubState.registerThemeFrame(sendBtn)
 
         local isClosing = false
         local function closeModal()
             if isClosing then return end
             isClosing = true
-            state.isModalActive = false
+            hubState.isModalActive = false
             local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
                 BackgroundTransparency = 1
             })
@@ -2756,7 +2756,7 @@ return function(opts)
             local msg = textBox.Text
 
             -- Live cooldown feedback
-            local elapsed = tick() - state.lastFeedbackTime
+            local elapsed = tick() - hubState.lastFeedbackTime
             if elapsed < feedbackCooldownSec then
                 local waitTime = math.ceil(feedbackCooldownSec - elapsed)
                 sendBtn.Text = "Wait " .. waitTime .. "s..."
@@ -2766,7 +2766,7 @@ return function(opts)
             end
 
             isSending = true
-            state.processFeedbackDispatch(selectedCategory, msg, function(success, err)
+            hubState.processFeedbackDispatch(selectedCategory, msg, function(success, err)
                 isSending = false
                 if success then
                     sendBtn.Text = "✓ Sent!"
@@ -2791,12 +2791,12 @@ return function(opts)
     -- =========================================================================
     -- Feedback Direct Reply Modal UI (Live Developer Broadcast & Webhook Sync)
     -- =========================================================================
-    function state.createFeedbackReplyModal(targetNotif)
+    function hubState.createFeedbackReplyModal(targetNotif)
         if not targetNotif then return end
-        local existing = state.screenGui:FindFirstChild("FeedbackReplyOverlay")
+        local existing = hubState.screenGui:FindFirstChild("FeedbackReplyOverlay")
         if existing then pcall(function() existing:Destroy() end) end
 
-        state.isModalActive = true
+        hubState.isModalActive = true
 
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "FeedbackReplyOverlay"
@@ -2807,7 +2807,7 @@ return function(opts)
         modalOverlay.BorderSizePixel = 0
         modalOverlay.ZIndex = 260
         modalOverlay.Active = true
-        modalOverlay.Parent = state.screenGui
+        modalOverlay.Parent = hubState.screenGui
 
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Size = UDim2.new(1, 0, 1, 0)
@@ -2830,7 +2830,7 @@ return function(opts)
         panel.Parent = modalOverlay
         applyCorner(panel, 10)
         local panelStroke = applyStroke(panel, Color3.fromRGB(0, 215, 255), 1.5, 0.25)
-        state.registerThemeStroke(panelStroke)
+        hubState.registerThemeStroke(panelStroke)
 
         -- Header
         local pHeader = Instance.new("Frame")
@@ -2889,13 +2889,13 @@ return function(opts)
         infoLabel.Size = UDim2.new(1, 0, 0, 18)
         infoLabel.BackgroundTransparency = 1
         infoLabel.Text = "REPLYING TO: @" .. tostring(targetUser) .. " (" .. tostring(targetNotif.category or "Feedback") .. ")"
-        infoLabel.TextColor3 = state.currentThemeColor
+        infoLabel.TextColor3 = hubState.currentThemeColor
         infoLabel.Font = Enum.Font.GothamBold
         infoLabel.TextSize = 10
         infoLabel.TextXAlignment = Enum.TextXAlignment.Left
         infoLabel.ZIndex = 263
         infoLabel.Parent = scroll
-        state.registerThemeText(infoLabel)
+        hubState.registerThemeText(infoLabel)
 
         -- Original snippet container
         local origContainer = Instance.new("Frame")
@@ -2963,13 +2963,13 @@ return function(opts)
         sendReplyBtn.ZIndex = 264
         sendReplyBtn.Parent = scroll
         applyCorner(sendReplyBtn, 6)
-        state.registerThemeFrame(sendReplyBtn)
+        hubState.registerThemeFrame(sendReplyBtn)
 
         local isClosing = false
         local function closeModal()
             if isClosing then return end
             isClosing = true
-            state.isModalActive = false
+            hubState.isModalActive = false
             local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { BackgroundTransparency = 1 })
             t:Play()
             t.Completed:Connect(function() pcall(function() modalOverlay:Destroy() end) end)
@@ -2980,7 +2980,7 @@ return function(opts)
         sendReplyBtn.MouseButton1Click:Connect(function()
             local msg = replyBox.Text:match("^%s*(.-)%s*$")
             if not msg or #msg < 3 then
-                state.notify({ Title = "Invalid Reply", Content = "Please enter at least 3 characters.", Color = Color3.fromRGB(255, 170, 50) })
+                hubState.notify({ Title = "Invalid Reply", Content = "Please enter at least 3 characters.", Color = Color3.fromRGB(255, 170, 50) })
                 return
             end
 
@@ -2989,7 +2989,7 @@ return function(opts)
                 title = "💬 Developer Reply from " .. devUsername,
                 message = msg,
                 target = targetUser,
-                sender = state.devUsername,
+                sender = hubState.devUsername,
                 category = "Feedback",
                 timestamp = os.time(),
                 time = os.date("%H:%M")
@@ -3002,12 +3002,12 @@ return function(opts)
             persistAnnouncementRecord(replyRecord)
 
             -- 3. Discord Webhook notification of the reply (Interactive Reply Bot)
-            local targetWebhook = opts.feedbackWebhook or state.defaultWebhook
+            local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
             if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
                 local replyBotName = "UnknownHub Reply Bot [" .. devUsername .. "]"
                 local payload = {
                     username = replyBotName,
-                    avatar_url = state.webhookBotAvatar,
+                    avatar_url = hubState.webhookBotAvatar,
                     content = "💬 **[Developer Reply Bot]** Official response dispatched from `" .. devUsername .. "` to `@" .. tostring(targetUser) .. "`!",
                     embeds = {{
                         title = "💬 Developer Direct Response",
@@ -3024,7 +3024,7 @@ return function(opts)
                 dispatchHttpRequest(targetWebhook, "POST", nil, payload)
             end
 
-            state.sendNotification({
+            hubState.sendNotification({
                 Title = "Reply Sent to @" .. targetUser,
                 Content = "\"" .. (msg:sub(1, 40) .. (#msg > 40 and "..." or "")) .. "\"",
                 Category = "Feedback",
@@ -3040,20 +3040,20 @@ return function(opts)
         TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 0.35 }):Play()
     end
 
-    state.openFeedbackReplyModal = function(notif)
-        state.createFeedbackReplyModal(notif)
+    hubState.openFeedbackReplyModal = function(notif)
+        hubState.createFeedbackReplyModal(notif)
     end
 
     -- =========================================================================
     -- Dedicated Developer Announcement Modal UI (With Dynamic Target Ping Selector)
     -- =========================================================================
-    function state.createAnnouncementModal(parentFrame)
-        local existing = state.screenGui:FindFirstChild("AnnouncementOverlay")
+    function hubState.createAnnouncementModal(parentFrame)
+        local existing = hubState.screenGui:FindFirstChild("AnnouncementOverlay")
         if existing then
             pcall(function() existing:Destroy() end)
         end
 
-        state.isModalActive = true
+        hubState.isModalActive = true
 
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "AnnouncementOverlay"
@@ -3064,7 +3064,7 @@ return function(opts)
         modalOverlay.BorderSizePixel = 0
         modalOverlay.ZIndex = 250
         modalOverlay.Active = true
-        modalOverlay.Parent = state.screenGui
+        modalOverlay.Parent = hubState.screenGui
 
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
@@ -3088,7 +3088,7 @@ return function(opts)
         annPanel.Parent = modalOverlay
         applyCorner(annPanel, 10)
         local annStroke = applyStroke(annPanel, Color3.fromRGB(175, 105, 255), 1.5, 0.25)
-        state.registerThemeStroke(annStroke)
+        hubState.registerThemeStroke(annStroke)
 
         -- Modal Header
         local annHeader = Instance.new("Frame")
@@ -3380,7 +3380,7 @@ return function(opts)
         local function closeModal()
             if isClosing then return end
             isClosing = true
-            state.isModalActive = false
+            hubState.isModalActive = false
             local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
                 BackgroundTransparency = 1
             })
@@ -3414,7 +3414,7 @@ return function(opts)
                 title = titleVal,
                 message = msgVal,
                 target = targetVal,
-                sender = state.devUsername,
+                sender = hubState.devUsername,
                 category = "Announcements",
                 timestamp = os.time(),
                 time = os.date("%H:%M")
@@ -3427,12 +3427,12 @@ return function(opts)
             persistAnnouncementRecord(annRecord)
 
             -- 3. Discord Webhook Broadcast (Broadcast Gateway Bot)
-            local targetWebhook = opts.feedbackWebhook or state.defaultWebhook
+            local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
             if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
                 local broadcastBotName = "UnknownHub Broadcast Gateway [" .. devUsername .. "]"
                 local payload = {
                     username = broadcastBotName,
-                    avatar_url = state.webhookBotAvatar,
+                    avatar_url = hubState.webhookBotAvatar,
                     content = "📢 **[Official Developer Broadcast from " .. devUsername .. "]**",
                     embeds = {{
                         title = "📢 " .. titleVal,
@@ -3450,7 +3450,7 @@ return function(opts)
             end
 
             -- 4. Dev Local Notification & Toast
-            state.sendNotification({
+            hubState.sendNotification({
                 Title = "Broadcast Sent (" .. targetVal .. ")",
                 Content = titleVal .. ": \"" .. (msgVal:sub(1, 40) .. (#msgVal > 40 and "..." or "")) .. "\"",
                 Category = "Announcements",
@@ -3476,16 +3476,16 @@ return function(opts)
         }):Play()
     end
 
-    state.openNotificationCenterModal = function()
-        state.createNotificationCenterModal(state.screenGui)
+    hubState.openNotificationCenterModal = function()
+        hubState.createNotificationCenterModal(hubState.screenGui)
     end
 
-    state.openFeedbackModal = function()
-        state.createFeedbackModal(state.screenGui)
+    hubState.openFeedbackModal = function()
+        hubState.createFeedbackModal(hubState.screenGui)
     end
 
-    state.openAnnouncementModal = function()
-        state.createAnnouncementModal(state.screenGui)
+    hubState.openAnnouncementModal = function()
+        hubState.createAnnouncementModal(hubState.screenGui)
     end
 
     -- Loading overlay
@@ -3495,20 +3495,20 @@ return function(opts)
     loadingOverlay.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
     loadingOverlay.BorderSizePixel = 0
     loadingOverlay.ZIndex = 100
-    loadingOverlay.Parent = state.screenGui
+    loadingOverlay.Parent = hubState.screenGui
 
     local loadingTitle = Instance.new("TextLabel")
     loadingTitle.Size = UDim2.new(1, -40, 0, 28)
     loadingTitle.Position = UDim2.new(0, 20, 0.5, -22)
     loadingTitle.BackgroundTransparency = 1
     loadingTitle.Text = opts.loadingText or "Loading Hub..."
-    loadingTitle.TextColor3 = state.currentThemeColor
+    loadingTitle.TextColor3 = hubState.currentThemeColor
     loadingTitle.Font = Enum.Font.GothamBlack
     loadingTitle.TextSize = 18
     loadingTitle.TextXAlignment = Enum.TextXAlignment.Center
     loadingTitle.ZIndex = 101
     loadingTitle.Parent = loadingOverlay
-    state.registerThemeText(loadingTitle)
+    hubState.registerThemeText(loadingTitle)
 
     local loadingStatus = Instance.new("TextLabel")
     loadingStatus.Size = UDim2.new(1, -40, 0, 20)
@@ -3530,19 +3530,19 @@ return function(opts)
     local defaultFramePos = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
     local defaultAnchor = isTouchScreen and Vector2.new(0.5, 0.5) or Vector2.new(0, 0)
 
-    state.mainFrame = Instance.new("Frame")
-    state.mainFrame.Name = "MainFrame"
-    state.mainFrame.AnchorPoint = defaultAnchor
-    state.mainFrame.Size = defaultFrameSize
-    state.mainFrame.Position = defaultFramePos
-    state.mainFrame.BackgroundColor3 = Color3.fromRGB(11, 14, 21)
-    state.mainFrame.BorderSizePixel = 0
-    state.mainFrame.Active = true
-    state.mainFrame.ClipsDescendants = true
-    state.mainFrame.Visible = false
-    state.mainFrame.Parent = state.screenGui
-    applyCorner(state.mainFrame, 10)
-    local waveBackground = state.startOceanWaveBackground(state.mainFrame)
+    hubState.mainFrame = Instance.new("Frame")
+    hubState.mainFrame.Name = "MainFrame"
+    hubState.mainFrame.AnchorPoint = defaultAnchor
+    hubState.mainFrame.Size = defaultFrameSize
+    hubState.mainFrame.Position = defaultFramePos
+    hubState.mainFrame.BackgroundColor3 = Color3.fromRGB(11, 14, 21)
+    hubState.mainFrame.BorderSizePixel = 0
+    hubState.mainFrame.Active = true
+    hubState.mainFrame.ClipsDescendants = true
+    hubState.mainFrame.Visible = false
+    hubState.mainFrame.Parent = hubState.screenGui
+    applyCorner(hubState.mainFrame, 10)
+    local waveBackground = hubState.startOceanWaveBackground(hubState.mainFrame)
 
     local mainBgGradient = Instance.new("UIGradient")
     mainBgGradient.Color = ColorSequence.new({
@@ -3550,13 +3550,13 @@ return function(opts)
         ColorSequenceKeypoint.new(1, Color3.fromRGB(9, 11, 17))
     })
     mainBgGradient.Rotation = 45
-    mainBgGradient.Parent = state.mainFrame
+    mainBgGradient.Parent = hubState.mainFrame
 
-    local mainStroke = applyStroke(state.mainFrame, state.currentThemeColor, 1.5, 0.2)
-    state.registerThemeStroke(mainStroke)
+    local mainStroke = applyStroke(hubState.mainFrame, hubState.currentThemeColor, 1.5, 0.2)
+    hubState.registerThemeStroke(mainStroke)
 
     -- Attach Bottom-Right Resizer Triangle Grip
-    local resizerGrip = state.makeResizable(state.mainFrame, 460, 300, 1200, 900)
+    local resizerGrip = hubState.makeResizable(hubState.mainFrame, 460, 300, 1200, 900)
 
     -- Header Bar
     local header = Instance.new("Frame")
@@ -3565,9 +3565,9 @@ return function(opts)
     header.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
     header.BorderSizePixel = 0
     header.ZIndex = 20
-    header.Parent = state.mainFrame
+    header.Parent = hubState.mainFrame
     applyCorner(header, 10)
-    state.makeSmoothDraggable(state.mainFrame, header)
+    hubState.makeSmoothDraggable(hubState.mainFrame, header)
 
     local headerCover = Instance.new("Frame")
     headerCover.Size = UDim2.new(1, 0, 0, 10)
@@ -3635,13 +3635,13 @@ return function(opts)
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.ZIndex = 23
     titleLabel.Parent = titleContainer
-    state.registerThemeText(titleLabel)
+    hubState.registerThemeText(titleLabel)
 
     local originalTitleText = opts.title or "ENI HUB"
     local glitchGlyphs = {"0", "1", "Δ", "Ξ", "Ψ", "◈", "X", "Z", "7"}
     local isGlitching = false
 
-    function state.triggerTitleCyberGlitch()
+    function hubState.triggerTitleCyberGlitch()
         if isGlitching then return end
         isGlitching = true
         task.spawn(function()
@@ -3685,15 +3685,15 @@ return function(opts)
     titleHitbox.Text = ""
     titleHitbox.ZIndex = 25
     titleHitbox.Parent = titleContainer
-    titleHitbox.MouseEnter:Connect(state.triggerTitleCyberGlitch)
-    titleHitbox.MouseButton1Click:Connect(state.triggerTitleCyberGlitch)
+    titleHitbox.MouseEnter:Connect(hubState.triggerTitleCyberGlitch)
+    titleHitbox.MouseButton1Click:Connect(hubState.triggerTitleCyberGlitch)
 
     -- Ambient subtle glitch loop every 16-22s
     task.spawn(function()
-        while state.screenGui and state.screenGui.Parent do
+        while hubState.screenGui and hubState.screenGui.Parent do
             task.wait(math.random(16, 24))
-            if state.isGuiOpen and not state.isModalActive and math.random() > 0.35 then
-                state.triggerTitleCyberGlitch()
+            if hubState.isGuiOpen and not hubState.isModalActive and math.random() > 0.35 then
+                hubState.triggerTitleCyberGlitch()
             end
         end
     end)
@@ -3703,8 +3703,8 @@ return function(opts)
     subTitleLabel.Size = UDim2.new(0, 110, 1, 0)
     subTitleLabel.Position = UDim2.new(0, 182, 0, 0)
     subTitleLabel.BackgroundTransparency = 1
-    subTitleLabel.Text = state.isDeveloper and ("👑 DEV: " .. devUsername) or (opts.subTitle or opts.subtitle or "v2.0")
-    subTitleLabel.TextColor3 = state.isDeveloper and Color3.fromRGB(190, 130, 255) or Color3.fromRGB(130, 140, 165)
+    subTitleLabel.Text = hubState.isDeveloper and ("👑 DEV: " .. devUsername) or (opts.subTitle or opts.subtitle or "v2.0")
+    subTitleLabel.TextColor3 = hubState.isDeveloper and Color3.fromRGB(190, 130, 255) or Color3.fromRGB(130, 140, 165)
     subTitleLabel.Font = Enum.Font.GothamBold
     subTitleLabel.TextSize = 11
     subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -3768,7 +3768,7 @@ return function(opts)
     sidebar.AutomaticCanvasSize = Enum.AutomaticSize.Y
     sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
     sidebar.ZIndex = 10
-    sidebar.Parent = state.mainFrame
+    sidebar.Parent = hubState.mainFrame
 
     local sidebarPadding = Instance.new("UIPadding")
     sidebarPadding.PaddingTop = UDim.new(0, 8)
@@ -3789,7 +3789,7 @@ return function(opts)
     sidebarDivider.BackgroundColor3 = Color3.fromRGB(32, 40, 58)
     sidebarDivider.BorderSizePixel = 0
     sidebarDivider.ZIndex = 11
-    sidebarDivider.Parent = state.mainFrame
+    sidebarDivider.Parent = hubState.mainFrame
 
     -- Responsive Content Area (74% window width, auto-resizing with mainFrame)
     local contentArea = Instance.new("Frame")
@@ -3798,13 +3798,13 @@ return function(opts)
     contentArea.Position = UDim2.new(0.26, 1, 0, 47)
     contentArea.BackgroundTransparency = 1
     contentArea.ZIndex = 10
-    contentArea.Parent = state.mainFrame
+    contentArea.Parent = hubState.mainFrame
 
     -- =========================================================================
     -- Header Buttons (Close, Collapse, Feedback, Notifications)
     -- =========================================================================
-    state.isWindowCollapsed = false
-    state.uncollapsedWindowHeight = 390
+    hubState.isWindowCollapsed = false
+    hubState.uncollapsedWindowHeight = 390
 
     -- Square Notification Bell Button
     local notifBtn = Instance.new("TextButton")
@@ -3821,27 +3821,27 @@ return function(opts)
     applyCorner(notifBtn, 6)
     applyStroke(notifBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
 
-    state.notifBadgeContainer = Instance.new("Frame")
-    state.notifBadgeContainer.Name = "NotifBadge"
-    state.notifBadgeContainer.Size = UDim2.new(0, 16, 0, 16)
-    state.notifBadgeContainer.Position = UDim2.new(1, -6, 0, -4)
-    state.notifBadgeContainer.BackgroundColor3 = Color3.fromRGB(250, 60, 75)
-    state.notifBadgeContainer.BorderSizePixel = 0
-    state.notifBadgeContainer.ZIndex = 32
-    state.notifBadgeContainer.Visible = false
-    state.notifBadgeContainer.Parent = notifBtn
-    applyCorner(state.notifBadgeContainer, 8)
+    hubState.notifBadgeContainer = Instance.new("Frame")
+    hubState.notifBadgeContainer.Name = "NotifBadge"
+    hubState.notifBadgeContainer.Size = UDim2.new(0, 16, 0, 16)
+    hubState.notifBadgeContainer.Position = UDim2.new(1, -6, 0, -4)
+    hubState.notifBadgeContainer.BackgroundColor3 = Color3.fromRGB(250, 60, 75)
+    hubState.notifBadgeContainer.BorderSizePixel = 0
+    hubState.notifBadgeContainer.ZIndex = 32
+    hubState.notifBadgeContainer.Visible = false
+    hubState.notifBadgeContainer.Parent = notifBtn
+    applyCorner(hubState.notifBadgeContainer, 8)
 
-    state.notifBadgeLabel = Instance.new("TextLabel")
-    state.notifBadgeLabel.Size = UDim2.new(1, 0, 1, 0)
-    state.notifBadgeLabel.BackgroundTransparency = 1
-    state.notifBadgeLabel.Text = "0"
-    state.notifBadgeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    state.notifBadgeLabel.Font = Enum.Font.GothamBlack
-    state.notifBadgeLabel.TextSize = 9
-    state.notifBadgeLabel.TextXAlignment = Enum.TextXAlignment.Center
-    state.notifBadgeLabel.ZIndex = 33
-    state.notifBadgeLabel.Parent = state.notifBadgeContainer
+    hubState.notifBadgeLabel = Instance.new("TextLabel")
+    hubState.notifBadgeLabel.Size = UDim2.new(1, 0, 1, 0)
+    hubState.notifBadgeLabel.BackgroundTransparency = 1
+    hubState.notifBadgeLabel.Text = "0"
+    hubState.notifBadgeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hubState.notifBadgeLabel.Font = Enum.Font.GothamBlack
+    hubState.notifBadgeLabel.TextSize = 9
+    hubState.notifBadgeLabel.TextXAlignment = Enum.TextXAlignment.Center
+    hubState.notifBadgeLabel.ZIndex = 33
+    hubState.notifBadgeLabel.Parent = hubState.notifBadgeContainer
 
     notifBtn.MouseEnter:Connect(function()
         TweenService:Create(notifBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -3853,7 +3853,7 @@ return function(opts)
             BackgroundColor3 = Color3.fromRGB(24, 30, 44)
         }):Play()
     end)
-    function state.bindHeaderButton(btn, callback)
+    function hubState.bindHeaderButton(btn, callback)
         local debounce = false
         local function trigger()
             if debounce then return end
@@ -3861,12 +3861,12 @@ return function(opts)
             task.delay(0.18, function() debounce = false end)
             pcall(callback)
         end
-        state.trackConnection(btn.Activated:Connect(trigger))
-        state.trackConnection(btn.MouseButton1Click:Connect(trigger))
+        hubState.trackConnection(btn.Activated:Connect(trigger))
+        hubState.trackConnection(btn.MouseButton1Click:Connect(trigger))
     end
 
-    state.bindHeaderButton(notifBtn, function()
-        if state.openNotificationCenterModal then state.openNotificationCenterModal() end
+    hubState.bindHeaderButton(notifBtn, function()
+        if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end
     end)
 
     -- Dedicated Developer Announcement Broadcast Button
@@ -3874,28 +3874,28 @@ return function(opts)
     announceBtn.Name = "AnnounceBtn"
     announceBtn.Size = UDim2.new(0, 26, 0, 26)
     announceBtn.Position = UDim2.new(1, -130, 0.5, -13)
-    announceBtn.BackgroundColor3 = state.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
+    announceBtn.BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
     announceBtn.Text = "📢"
-    announceBtn.TextColor3 = state.isDeveloper and Color3.fromRGB(220, 160, 255) or Color3.fromRGB(210, 220, 240)
+    announceBtn.TextColor3 = hubState.isDeveloper and Color3.fromRGB(220, 160, 255) or Color3.fromRGB(210, 220, 240)
     announceBtn.Font = Enum.Font.GothamBold
     announceBtn.TextSize = 12
     announceBtn.ZIndex = 30
     announceBtn.Parent = header
     applyCorner(announceBtn, 6)
-    applyStroke(announceBtn, state.isDeveloper and Color3.fromRGB(160, 95, 240) or Color3.fromRGB(45, 55, 80), 1, 0.4)
+    applyStroke(announceBtn, hubState.isDeveloper and Color3.fromRGB(160, 95, 240) or Color3.fromRGB(45, 55, 80), 1, 0.4)
 
     announceBtn.MouseEnter:Connect(function()
         TweenService:Create(announceBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = state.isDeveloper and Color3.fromRGB(50, 36, 75) or Color3.fromRGB(34, 44, 66)
+            BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(50, 36, 75) or Color3.fromRGB(34, 44, 66)
         }):Play()
     end)
     announceBtn.MouseLeave:Connect(function()
         TweenService:Create(announceBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = state.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
+            BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
         }):Play()
     end)
-    state.bindHeaderButton(announceBtn, function()
-        if state.openAnnouncementModal then state.openAnnouncementModal() end
+    hubState.bindHeaderButton(announceBtn, function()
+        if hubState.openAnnouncementModal then hubState.openAnnouncementModal() end
     end)
 
     -- Square Feedback Tools Button (Right next to collapse button)
@@ -3923,8 +3923,8 @@ return function(opts)
             BackgroundColor3 = Color3.fromRGB(24, 30, 44)
         }):Play()
     end)
-    state.bindHeaderButton(feedbackBtn, function()
-        if state.openFeedbackModal then state.openFeedbackModal() end
+    hubState.bindHeaderButton(feedbackBtn, function()
+        if hubState.openFeedbackModal then hubState.openFeedbackModal() end
     end)
 
     -- Collapse / Minimize Window Button (Collapses to Header Only)
@@ -3952,19 +3952,19 @@ return function(opts)
         }):Play()
     end)
 
-    state.bindHeaderButton(minimizeBtn, function()
-        if not state.isWindowCollapsed then
+    hubState.bindHeaderButton(minimizeBtn, function()
+        if not hubState.isWindowCollapsed then
             -- Collapse to header size (46px height, leaving only header bar)
-            local currentH = state.mainFrame.AbsoluteSize.Y
+            local currentH = hubState.mainFrame.AbsoluteSize.Y
             if currentH > 60 then
-                state.uncollapsedWindowHeight = currentH
-            elseif state.mainFrame.Size.Y.Offset > 60 then
-                state.uncollapsedWindowHeight = state.mainFrame.Size.Y.Offset
+                hubState.uncollapsedWindowHeight = currentH
+            elseif hubState.mainFrame.Size.Y.Offset > 60 then
+                hubState.uncollapsedWindowHeight = hubState.mainFrame.Size.Y.Offset
             else
-                state.uncollapsedWindowHeight = 390
+                hubState.uncollapsedWindowHeight = 390
             end
 
-            state.isWindowCollapsed = true
+            hubState.isWindowCollapsed = true
             minimizeBtn.Text = "+"
             if resizerGrip then resizerGrip.Visible = false end
             if waveBackground then waveBackground.Visible = false end
@@ -3974,12 +3974,12 @@ return function(opts)
             sidebarDivider.Visible = false
             contentArea.Visible = false
 
-            TweenService:Create(state.mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Size = UDim2.new(state.mainFrame.Size.X.Scale, state.mainFrame.Size.X.Offset, 0, 46)
+            TweenService:Create(hubState.mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, 46)
             }):Play()
         else
             -- Expand window back to saved height
-            state.isWindowCollapsed = false
+            hubState.isWindowCollapsed = false
             minimizeBtn.Text = "-"
 
             if waveBackground then waveBackground.Visible = true end
@@ -3990,8 +3990,8 @@ return function(opts)
             contentArea.Visible = true
             if resizerGrip then resizerGrip.Visible = true end
 
-            TweenService:Create(state.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                Size = UDim2.new(state.mainFrame.Size.X.Scale, state.mainFrame.Size.X.Offset, 0, state.uncollapsedWindowHeight)
+            TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, hubState.uncollapsedWindowHeight)
             }):Play()
         end
     end)
@@ -4010,24 +4010,24 @@ return function(opts)
     closeBtn.Parent = header
     applyCorner(closeBtn, 6)
 
-    state.bindHeaderButton(closeBtn, function()
-        state.createCloseConfirmation(state.mainFrame, function()
-            state.DisableAllFeatureStates()
+    hubState.bindHeaderButton(closeBtn, function()
+        hubState.createCloseConfirmation(hubState.mainFrame, function()
+            hubState.DisableAllFeatureStates()
             if opts.onClose then pcall(opts.onClose) end
-            if state.screenGui then state.screenGui:Destroy() end
+            if hubState.screenGui then hubState.screenGui:Destroy() end
         end)
     end)
 
     -- Tab Switching Mechanism
-    function state.setTabVisible(tabName)
-        for _, page in ipairs(state.tabPages) do
+    function hubState.setTabVisible(tabName)
+        for _, page in ipairs(hubState.tabPages) do
             if page and page.Name == tabName then
                 page.Visible = true
             else
                 if page then page.Visible = false end
             end
         end
-        for _, btn in ipairs(state.tabButtons) do
+        for _, btn in ipairs(hubState.tabButtons) do
             if btn and btn.Name == tabName then
                 TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                     BackgroundColor3 = Color3.fromRGB(30, 38, 56)
@@ -4056,7 +4056,7 @@ return function(opts)
         end
     end
 
-    function state.createPage(name)
+    function hubState.createPage(name)
         local page = Instance.new("ScrollingFrame")
         page.Name = name
         page.Size = UDim2.new(1, 0, 1, 0)
@@ -4079,12 +4079,12 @@ return function(opts)
         layout.SortOrder = Enum.SortOrder.LayoutOrder
         layout.Padding = UDim.new(0, 8)
         layout.Parent = page
-        table.insert(state.tabPages, page)
+        table.insert(hubState.tabPages, page)
         return page
     end
 
-    function state.createTabButton(name, text, iconAssetId, defaultVisible)
-        local page = state.createPage(name)
+    function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
+        local page = hubState.createPage(name)
         local btn = Instance.new("TextButton")
         btn.Name = name
         btn.Size = UDim2.new(1, 0, 0, 34)
@@ -4097,7 +4097,7 @@ return function(opts)
         elseif name == "Utilities" then
             btn.LayoutOrder = 99999
         else
-            btn.LayoutOrder = #state.tabButtons + 1
+            btn.LayoutOrder = #hubState.tabButtons + 1
         end
 
         btn.Parent = sidebar
@@ -4107,12 +4107,12 @@ return function(opts)
         indicator.Name = "ActiveIndicator"
         indicator.Size = UDim2.new(0, 3, 0, 12)
         indicator.Position = UDim2.new(0, 0, 0.5, -6)
-        indicator.BackgroundColor3 = state.currentThemeColor
+        indicator.BackgroundColor3 = hubState.currentThemeColor
         indicator.BorderSizePixel = 0
         indicator.BackgroundTransparency = 1
         indicator.Parent = btn
         applyCorner(indicator, 2)
-        state.registerThemeFrame(indicator)
+        hubState.registerThemeFrame(indicator)
 
         local icon
         local textOffset = 12
@@ -4141,22 +4141,22 @@ return function(opts)
         lbl.Parent = btn
 
         btn.MouseButton1Click:Connect(function()
-            if state.searchBox and state.searchBox.Text ~= "" then
-                state.searchBox.Text = ""
+            if hubState.searchBox and hubState.searchBox.Text ~= "" then
+                hubState.searchBox.Text = ""
             end
-            state.currentActiveTabName = name
-            state.setTabVisible(name)
+            hubState.currentActiveTabName = name
+            hubState.setTabVisible(name)
         end)
-        table.insert(state.tabButtons, btn)
+        table.insert(hubState.tabButtons, btn)
 
         if defaultVisible then
-            state.currentActiveTabName = name
-            task.defer(function() state.setTabVisible(name) end)
+            hubState.currentActiveTabName = name
+            task.defer(function() hubState.setTabVisible(name) end)
         end
 
-        if name ~= "Config" and name ~= "Utilities" and state.ensureConfigTab then
+        if name ~= "Config" and name ~= "Utilities" and hubState.ensureConfigTab then
             task.defer(function()
-                pcall(state.ensureConfigTab)
+                pcall(hubState.ensureConfigTab)
             end)
         end
 
@@ -4200,25 +4200,25 @@ return function(opts)
     clearSearchBtn.Parent = searchContainer
     applyCorner(clearSearchBtn, 4)
 
-    state.searchBox = Instance.new("TextBox")
-    state.searchBox.Size = UDim2.new(1, -52, 1, 0)
-    state.searchBox.Position = UDim2.new(0, 26, 0, 0)
-    state.searchBox.BackgroundTransparency = 1
-    state.searchBox.PlaceholderText = "Search functions..."
-    state.searchBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
-    state.searchBox.Text = ""
-    state.searchBox.TextColor3 = Color3.fromRGB(240, 245, 255)
-    state.searchBox.Font = Enum.Font.GothamMedium
-    state.searchBox.TextSize = 11
-    state.searchBox.ClearTextOnFocus = false
-    state.searchBox.TextXAlignment = Enum.TextXAlignment.Left
-    state.searchBox.ZIndex = 13
-    state.searchBox.Parent = searchContainer
+    hubState.searchBox = Instance.new("TextBox")
+    hubState.searchBox.Size = UDim2.new(1, -52, 1, 0)
+    hubState.searchBox.Position = UDim2.new(0, 26, 0, 0)
+    hubState.searchBox.BackgroundTransparency = 1
+    hubState.searchBox.PlaceholderText = "Search functions..."
+    hubState.searchBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+    hubState.searchBox.Text = ""
+    hubState.searchBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+    hubState.searchBox.Font = Enum.Font.GothamMedium
+    hubState.searchBox.TextSize = 11
+    hubState.searchBox.ClearTextOnFocus = false
+    hubState.searchBox.TextXAlignment = Enum.TextXAlignment.Left
+    hubState.searchBox.ZIndex = 13
+    hubState.searchBox.Parent = searchContainer
 
-    state.searchResultsPage = state.createPage("__SearchResults__")
+    hubState.searchResultsPage = hubState.createPage("__SearchResults__")
 
-    function state.renderSearchResults(query)
-        for _, child in ipairs(state.searchResultsPage:GetChildren()) do
+    function hubState.renderSearchResults(query)
+        for _, child in ipairs(hubState.searchResultsPage:GetChildren()) do
             if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
                 child:Destroy()
             end
@@ -4226,15 +4226,15 @@ return function(opts)
 
         local cleanQ = query:match("^%s*(.-)%s*$"):lower()
         if cleanQ == "" then
-            state.setTabVisible(state.currentActiveTabName)
+            hubState.setTabVisible(hubState.currentActiveTabName)
             return
         end
 
         -- Make search page active
-        for _, page in ipairs(state.tabPages) do
-            page.Visible = (page == state.searchResultsPage)
+        for _, page in ipairs(hubState.tabPages) do
+            page.Visible = (page == hubState.searchResultsPage)
         end
-        for _, btn in ipairs(state.tabButtons) do
+        for _, btn in ipairs(hubState.tabButtons) do
             btn.BackgroundColor3 = Color3.fromRGB(19, 23, 34)
             local ind = btn:FindFirstChild("ActiveIndicator")
             if ind then ind.BackgroundTransparency = 1 end
@@ -4244,22 +4244,22 @@ return function(opts)
         local resHeader = Instance.new("Frame")
         resHeader.Size = UDim2.new(1, -4, 0, 26)
         resHeader.BackgroundTransparency = 1
-        resHeader.Parent = state.searchResultsPage
+        resHeader.Parent = hubState.searchResultsPage
 
         local resTitle = Instance.new("TextLabel")
         resTitle.Size = UDim2.new(1, 0, 1, 0)
         resTitle.BackgroundTransparency = 1
         resTitle.Text = "SEARCH RESULTS FOR: \"" .. cleanQ .. "\""
-        resTitle.TextColor3 = state.currentThemeColor
+        resTitle.TextColor3 = hubState.currentThemeColor
         resTitle.Font = Enum.Font.GothamBlack
         resTitle.TextSize = 10
         resTitle.TextXAlignment = Enum.TextXAlignment.Left
         resTitle.Parent = resHeader
-        state.registerThemeText(resTitle)
+        hubState.registerThemeText(resTitle)
 
         local matchedCount = 0
 
-        for id, itemData in pairs(state.registeredFunctions) do
+        for id, itemData in pairs(hubState.registeredFunctions) do
             local titleMatch = itemData.title and tostring(itemData.title):lower():find(cleanQ, 1, true)
             local subMatch = itemData.subtitle and tostring(itemData.subtitle):lower():find(cleanQ, 1, true)
             local tabMatch = itemData.tab and tostring(itemData.tab):lower():find(cleanQ, 1, true)
@@ -4272,7 +4272,7 @@ return function(opts)
                 card.Size = UDim2.new(1, -6, 0, 44)
                 card.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
                 card.BorderSizePixel = 0
-                card.Parent = state.searchResultsPage
+                card.Parent = hubState.searchResultsPage
                 applyCorner(card, 7)
                 local cStroke = applyStroke(card, Color3.fromRGB(36, 46, 66), 1, 0)
 
@@ -4306,7 +4306,7 @@ return function(opts)
                     switch.Size = UDim2.new(0, 44, 0, 22)
                     switch.Position = UDim2.new(1, -54, 0.5, -11)
                     local curState = itemData.get()
-                    switch.BackgroundColor3 = curState and state.currentThemeColor or Color3.fromRGB(42, 48, 64)
+                    switch.BackgroundColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
                     switch.Text = ""
                     switch.Parent = card
                     applyCorner(switch, 11)
@@ -4323,7 +4323,7 @@ return function(opts)
                         local nextState = not itemData.get()
                         itemData.set(nextState)
                         local targetPos = nextState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-                        local targetColor = nextState and state.currentThemeColor or Color3.fromRGB(42, 48, 64)
+                        local targetColor = nextState and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
                         TweenService:Create(sKnob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = targetPos}):Play()
                         TweenService:Create(switch, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
                     end)
@@ -4333,7 +4333,7 @@ return function(opts)
                     sValBtn.Position = UDim2.new(1, -80, 0.5, -12)
                     sValBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
                     sValBtn.Text = tostring(itemData.get()) .. (itemData.suffix or "")
-                    sValBtn.TextColor3 = state.currentThemeColor
+                    sValBtn.TextColor3 = hubState.currentThemeColor
                     sValBtn.Font = Enum.Font.GothamBold
                     sValBtn.TextSize = 11
                     sValBtn.Parent = card
@@ -4351,7 +4351,7 @@ return function(opts)
                     actBtn.Position = UDim2.new(1, -74, 0.5, -12)
                     actBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
                     actBtn.Text = "Trigger ⚡"
-                    actBtn.TextColor3 = state.currentThemeColor
+                    actBtn.TextColor3 = hubState.currentThemeColor
                     actBtn.Font = Enum.Font.GothamBold
                     actBtn.TextSize = 10
                     actBtn.Parent = card
@@ -4363,7 +4363,7 @@ return function(opts)
                 end
 
                 -- Right-click context keybind support on search result cards
-                state.attachContextMenu(card, itemData)
+                hubState.attachContextMenu(card, itemData)
             end
         end
 
@@ -4376,22 +4376,22 @@ return function(opts)
             emptyLabel.Font = Enum.Font.GothamMedium
             emptyLabel.TextSize = 11
             emptyLabel.TextXAlignment = Enum.TextXAlignment.Center
-            emptyLabel.Parent = state.searchResultsPage
+            emptyLabel.Parent = hubState.searchResultsPage
         end
     end
 
-    state.searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-        local q = state.searchBox.Text
+    hubState.searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local q = hubState.searchBox.Text
         clearSearchBtn.Visible = (#q > 0)
-        state.renderSearchResults(q)
+        hubState.renderSearchResults(q)
     end)
 
     clearSearchBtn.MouseButton1Click:Connect(function()
-        state.searchBox.Text = ""
+        hubState.searchBox.Text = ""
     end)
 
     -- UI Component: Section Label / Divider
-    function state.createSection(parent, sectionText)
+    function hubState.createSection(parent, sectionText)
         if not parent then parent = contentArea end
         local secFrame = Instance.new("Frame")
         secFrame.Name = "SectionHeader"
@@ -4404,12 +4404,12 @@ return function(opts)
         secLabel.Position = UDim2.new(0, 4, 0, 0)
         secLabel.BackgroundTransparency = 1
         secLabel.Text = string.upper(tostring(sectionText or "SECTION"))
-        secLabel.TextColor3 = state.currentThemeColor
+        secLabel.TextColor3 = hubState.currentThemeColor
         secLabel.Font = Enum.Font.GothamBlack
         secLabel.TextSize = 10
         secLabel.TextXAlignment = Enum.TextXAlignment.Left
         secLabel.Parent = secFrame
-        state.registerThemeText(secLabel)
+        hubState.registerThemeText(secLabel)
 
         local divider = Instance.new("Frame")
         divider.Size = UDim2.new(1, 0, 0, 1)
@@ -4422,7 +4422,7 @@ return function(opts)
     end
 
     -- UI Component: Button (Responsive & Holographic Click FX)
-    function state.createButton(parent, text, callback)
+    function hubState.createButton(parent, text, callback)
         if not parent then parent = contentArea end
         local item = Instance.new("TextButton")
         item.Size = UDim2.new(1, -6, 0, 36)
@@ -4452,14 +4452,14 @@ return function(opts)
         applyCorner(sheen, 7)
 
         local sheenGrad = Instance.new("UIGradient")
-        sheenGrad.Color = state.getThemeColorSequence(state.currentThemeColor, state.secondaryThemeColor)
+        sheenGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         sheenGrad.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 1),
             NumberSequenceKeypoint.new(0.5, 0.4),
             NumberSequenceKeypoint.new(1, 1)
         })
         sheenGrad.Parent = sheen
-        state.registerThemeGradient(sheenGrad, 0)
+        hubState.registerThemeGradient(sheenGrad, 0)
 
         local normalColor = Color3.fromRGB(20, 25, 36)
         local hoverColor = Color3.fromRGB(28, 36, 52)
@@ -4467,7 +4467,7 @@ return function(opts)
 
         item.MouseEnter:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hoverColor}):Play()
-            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = state.currentThemeColor}):Play()
+            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = hubState.currentThemeColor}):Play()
         end)
         item.MouseLeave:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = normalColor}):Play()
@@ -4480,7 +4480,7 @@ return function(opts)
             TweenService:Create(item, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hoverColor}):Play()
         end)
         item.MouseButton1Click:Connect(function()
-            if state.isModalActive then return end
+            if hubState.isModalActive then return end
             -- Holographic ripple sweep
             sheen.Size = UDim2.new(0, 0, 1, 0)
             sheen.Position = UDim2.new(0, 0, 0, 0)
@@ -4496,19 +4496,19 @@ return function(opts)
             id = "btn_" .. tostring(text or "Button") .. "_" .. tostring(math.random(1000, 9999)),
             title = text or "Button",
             type = "Button",
-            tab = state.currentActiveTabName,
+            tab = hubState.currentActiveTabName,
             action = function()
                 if callback then pcall(callback) end
             end
         }
-        state.registerFunctionItem(itemData)
-        state.attachContextMenu(item, itemData)
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(item, itemData)
 
         return item
     end
 
     -- UI Component: Text Box (Responsive)
-    function state.createTextBox(parent, placeholderText, defaultText, callback)
+    function hubState.createTextBox(parent, placeholderText, defaultText, callback)
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 38)
         frame.BackgroundColor3 = Color3.fromRGB(17, 21, 31)
@@ -4542,7 +4542,7 @@ return function(opts)
     end
 
     -- UI Component: Toggle (Responsive & Smooth Spring Knob)
-    function state.createToggle(parent, text, defaultState, callback)
+    function hubState.createToggle(parent, text, defaultState, callback)
         if not parent then parent = contentArea end
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
@@ -4567,7 +4567,7 @@ return function(opts)
         local switchTrack = Instance.new("Frame")
         switchTrack.Size = UDim2.new(0, 48, 0, 24)
         switchTrack.Position = UDim2.new(1, -58, 0.5, -12)
-        switchTrack.BackgroundColor3 = (defaultState == true) and state.currentThemeColor or Color3.fromRGB(42, 48, 64)
+        switchTrack.BackgroundColor3 = (defaultState == true) and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
         switchTrack.BorderSizePixel = 0
         switchTrack.Parent = frame
         applyCorner(switchTrack, 12)
@@ -4583,10 +4583,10 @@ return function(opts)
         local isToggled = defaultState or false
         local function setState(v)
             isToggled = (v == true)
-            state.configValues["toggle:" .. tostring(text)] = isToggled
+            hubState.configValues["toggle:" .. tostring(text)] = isToggled
             local targetPos = isToggled and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-            local targetColor = isToggled and state.currentThemeColor or Color3.fromRGB(42, 48, 64)
-            local targetStrokeColor = isToggled and state.currentThemeColor or Color3.fromRGB(34, 42, 58)
+            local targetColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
+            local targetStrokeColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(34, 42, 58)
             TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
             TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
@@ -4599,13 +4599,13 @@ return function(opts)
         click.Text = ""
         click.Parent = frame
         click.MouseButton1Click:Connect(function()
-            if state.isModalActive then return end
+            if hubState.isModalActive then return end
             setState(not isToggled)
         end)
 
-        table.insert(state.allToggleSetters, setState)
-        state.configSetters["toggle:" .. tostring(text)] = setState
-        state.registerThemeUpdater(function(themeColor)
+        table.insert(hubState.allToggleSetters, setState)
+        hubState.configSetters["toggle:" .. tostring(text)] = setState
+        hubState.registerThemeUpdater(function(themeColor)
             if isToggled and switchTrack.Parent then switchTrack.BackgroundColor3 = themeColor end
         end)
 
@@ -4613,16 +4613,16 @@ return function(opts)
             id = "toggle_" .. tostring(text or "Toggle"),
             title = text or "Toggle",
             type = "Toggle",
-            tab = state.currentActiveTabName,
+            tab = hubState.currentActiveTabName,
             set = setState,
             get = function() return isToggled end,
             action = function()
                 setState(not isToggled)
             end
         }
-        state.registerFunctionItem(itemData)
-        state.attachContextMenu(frame, itemData)
-        state.attachContextMenu(click, itemData)
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(frame, itemData)
+        hubState.attachContextMenu(click, itemData)
 
         setState(isToggled)
         return {
@@ -4633,7 +4633,7 @@ return function(opts)
     end
 
     -- UI Component: Slider (Responsive)
-    function state.createSlider(parent, titleText, minValue, maxValue, defaultValue, suffix, callback)
+    function hubState.createSlider(parent, titleText, minValue, maxValue, defaultValue, suffix, callback)
         if not parent then parent = contentArea end
         minValue = tonumber(minValue) or 0
         maxValue = tonumber(maxValue) or 100
@@ -4665,12 +4665,12 @@ return function(opts)
         valueLabel.Size = UDim2.new(0.3, 0, 0, 20)
         valueLabel.Position = UDim2.new(0.68, 0, 0, 6)
         valueLabel.BackgroundTransparency = 1
-        valueLabel.TextColor3 = state.currentThemeColor
+        valueLabel.TextColor3 = hubState.currentThemeColor
         valueLabel.Font = Enum.Font.GothamBold
         valueLabel.TextSize = 11
         valueLabel.TextXAlignment = Enum.TextXAlignment.Right
         valueLabel.Parent = frame
-        state.registerThemeText(valueLabel)
+        hubState.registerThemeText(valueLabel)
 
         local track = Instance.new("TextButton")
         track.Size = UDim2.new(1, -28, 0, 8)
@@ -4684,12 +4684,12 @@ return function(opts)
         applyCorner(track, 4)
 
         local fill = Instance.new("Frame")
-        fill.BackgroundColor3 = state.currentThemeColor
+        fill.BackgroundColor3 = hubState.currentThemeColor
         fill.BorderSizePixel = 0
         fill.Active = false
         fill.Parent = track
         applyCorner(fill, 4)
-        state.registerThemeFrame(fill)
+        hubState.registerThemeFrame(fill)
 
         local knob = Instance.new("Frame")
         knob.Size = UDim2.new(0, 14, 0, 14)
@@ -4710,7 +4710,7 @@ return function(opts)
 
         local function setValue(newValue, fireCallback)
             value = math.clamp(tonumber(newValue) or value, minValue, maxValue)
-            state.configValues["slider:" .. tostring(titleText)] = value
+            hubState.configValues["slider:" .. tostring(titleText)] = value
             local percent = math.clamp((value - minValue) / range, 0, 1)
             valueLabel.Text = formatValue(value)
             fill.Size = UDim2.new(percent, 0, 1, 0)
@@ -4718,7 +4718,7 @@ return function(opts)
             if fireCallback and callback then pcall(callback, value) end
         end
 
-        state.configSetters["slider:" .. tostring(titleText)] = function(newValue)
+        hubState.configSetters["slider:" .. tostring(titleText)] = function(newValue)
             setValue(newValue, true)
         end
 
@@ -4729,7 +4729,7 @@ return function(opts)
         end
 
         track.InputBegan:Connect(function(input)
-            if state.isModalActive then return end
+            if hubState.isModalActive then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
                 updateFromInput(input)
@@ -4742,13 +4742,13 @@ return function(opts)
             end
         end)
 
-        state.trackConnection(UserInputService.InputEnded:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
             end
         end))
 
-        state.trackConnection(UserInputService.InputChanged:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
             if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                 updateFromInput(input)
             end
@@ -4758,7 +4758,7 @@ return function(opts)
             id = "slider_" .. tostring(titleText or "Slider"),
             title = titleText or "Slider",
             type = "Slider",
-            tab = state.currentActiveTabName,
+            tab = hubState.currentActiveTabName,
             min = minValue,
             max = maxValue,
             suffix = suffix,
@@ -4773,8 +4773,8 @@ return function(opts)
                 end
             end
         }
-        state.registerFunctionItem(itemData)
-        state.attachContextMenu(frame, itemData)
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(frame, itemData)
 
         setValue(value, false)
         return {
@@ -4787,7 +4787,7 @@ return function(opts)
     -- =========================================================================
     -- Refined UI Component: List Item (Responsive)
     -- =========================================================================
-    function state.createListItem(parent, titleText, subtitleText, callback)
+    function hubState.createListItem(parent, titleText, subtitleText, callback)
         if not parent then parent = contentArea end
         local item = Instance.new("TextButton")
         item.Size = UDim2.new(1, -2, 0, 42)
@@ -4810,12 +4810,12 @@ return function(opts)
         accent.Name = "LeftAccent"
         accent.Size = UDim2.new(0, 3, 0, 16)
         accent.Position = UDim2.new(0, 0, 0.5, -8)
-        accent.BackgroundColor3 = state.currentThemeColor
+        accent.BackgroundColor3 = hubState.currentThemeColor
         accent.BorderSizePixel = 0
         accent.BackgroundTransparency = 0.6
         accent.Parent = item
         applyCorner(accent, 2)
-        state.registerThemeFrame(accent)
+        hubState.registerThemeFrame(accent)
 
         local checkbox = Instance.new("Frame")
         checkbox.Name = "Checkbox"
@@ -4871,14 +4871,14 @@ return function(opts)
 
         local function paint(isHovered)
             local targetBg = selected and (isHovered and selectedHoverColor or selectedColor) or (isHovered and hoverColor or normalColor)
-            local targetStroke = selected and state.currentThemeColor or (isHovered and Color3.fromRGB(56, 68, 96) or Color3.fromRGB(36, 44, 64))
+            local targetStroke = selected and hubState.currentThemeColor or (isHovered and Color3.fromRGB(56, 68, 96) or Color3.fromRGB(36, 44, 64))
             
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
             TweenService:Create(itemStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStroke}):Play()
             
             checkImage.Visible = selected
-            checkbox.BackgroundColor3 = selected and state.currentThemeColor or Color3.fromRGB(14, 17, 25)
-            cbStroke.Color = selected and state.currentThemeColor or Color3.fromRGB(56, 68, 92)
+            checkbox.BackgroundColor3 = selected and hubState.currentThemeColor or Color3.fromRGB(14, 17, 25)
+            cbStroke.Color = selected and hubState.currentThemeColor or Color3.fromRGB(56, 68, 92)
 
             local targetAccentSize = selected and UDim2.new(0, 4, 1, -12) or (isHovered and UDim2.new(0, 3, 0, 22) or UDim2.new(0, 3, 0, 16))
             local targetAccentPos = selected and UDim2.new(0, 0, 0, 6) or (isHovered and UDim2.new(0, 0, 0.5, -11) or UDim2.new(0, 0, 0.5, -8))
@@ -4894,7 +4894,7 @@ return function(opts)
         item.MouseEnter:Connect(function() paint(true) end)
         item.MouseLeave:Connect(function() paint(false) end)
         item.MouseButton1Click:Connect(function()
-            if state.isModalActive then return end
+            if hubState.isModalActive then return end
             if callback then pcall(callback) end
         end)
 
@@ -4903,13 +4903,13 @@ return function(opts)
             title = titleText or "Item",
             subtitle = subtitleText or "",
             type = "ListItem",
-            tab = state.currentActiveTabName,
+            tab = hubState.currentActiveTabName,
             action = function()
                 if callback then pcall(callback) end
             end
         }
-        state.registerFunctionItem(itemData)
-        state.attachContextMenu(item, itemData)
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(item, itemData)
 
         return item, function(isSelected)
             selected = (isSelected == true)
@@ -4920,13 +4920,13 @@ return function(opts)
     -- Forward declaration for recursive nested list support
 
     -- UI Component: List Container (Supports recursive nested lists & sub-lists, auto-resizing)
-    function state.BringSelectedItem(list)
+    function hubState.BringSelectedItem(list)
         if not list then return nil end
         if list.SelectedItem ~= nil then return list.SelectedItem end
         return nil
     end
 
-    state.CreateList = function(parent, title, items, height, expanded, selectionOptions)
+    hubState.CreateList = function(parent, title, items, height, expanded, selectionOptions)
         local parentTarget = parent
         local itemTitle = title or "List"
         local itemValues = items or {}
@@ -4943,8 +4943,8 @@ return function(opts)
             itemValues = items or {}
             itemExpanded = expanded ~= false
         elseif typeof(parentTarget) == "Instance" and parentTarget:IsA("ScrollingFrame") then
-            if state.scrollingFrameToListMap[parentTarget] then
-                parentListObj = state.scrollingFrameToListMap[parentTarget]
+            if hubState.scrollingFrameToListMap[parentTarget] then
+                parentListObj = hubState.scrollingFrameToListMap[parentTarget]
                 isNestedList = true
             elseif type(selectionOptions) == "table" and selectionOptions.isNested == true then
                 isNestedList = true
@@ -5018,14 +5018,14 @@ return function(opts)
         arrow.Position = UDim2.new(1, -36, 0, 0)
         arrow.BackgroundTransparency = 1
         arrow.Text = "▼"
-        arrow.TextColor3 = state.currentThemeColor
+        arrow.TextColor3 = hubState.currentThemeColor
         arrow.Font = Enum.Font.GothamBold
         arrow.TextSize = 16
         arrow.TextXAlignment = Enum.TextXAlignment.Center
         arrow.TextYAlignment = Enum.TextYAlignment.Center
         arrow.Rotation = itemExpanded and 0 or -90
         arrow.Parent = titleBtn
-        state.registerThemeText(arrow)
+        hubState.registerThemeText(arrow)
 
         local list = Instance.new("ScrollingFrame")
         list.Position = UDim2.new(0, 4, 0, isNestedList and 32 or 34)
@@ -5064,7 +5064,7 @@ return function(opts)
             CreateList = nil,
             BringSelected = nil,
         }
-        state.scrollingFrameToListMap[list] = listObject
+        hubState.scrollingFrameToListMap[list] = listObject
 
         local function calculateDesiredHeight()
             local contentH = 0
@@ -5156,7 +5156,7 @@ return function(opts)
         end)
 
         titleBtn.MouseButton1Click:Connect(function()
-            if state.isModalActive then return end
+            if hubState.isModalActive then return end
             open = not open
             TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = open and 0 or -90}):Play()
             updateListHeight(true)
@@ -5191,7 +5191,7 @@ return function(opts)
             end
             if listObject.SelectedRowSetter then listObject.SelectedRowSetter(false) end
             listObject.SelectedItem = value
-            state.configValues["list:" .. tostring(itemTitle)] = (value ~= nil) and ((type(value) == "table" and value.Name) or tostring(value)) or nil
+            hubState.configValues["list:" .. tostring(itemTitle)] = (value ~= nil) and ((type(value) == "table" and value.Name) or tostring(value)) or nil
             listObject.SelectedRowSetter = nil
             for _, entryData in ipairs(listObject.Items) do
                 if entryData == value or entryData.Name == value then
@@ -5226,7 +5226,7 @@ return function(opts)
                 end
             end
             listObject.SelectedItem = listObject.SelectedItems[1]
-            state.configValues["list:" .. tostring(itemTitle)] = table.concat(selectedNames, "\t")
+            hubState.configValues["list:" .. tostring(itemTitle)] = table.concat(selectedNames, "\t")
             return listObject.SelectedItems
         end
         listObject.ToggleSelected = function(value)
@@ -5250,11 +5250,11 @@ return function(opts)
             return listObject.SetSelectedItems(values)
         end
         listObject.BringSelected = function()
-            return listObject.MultiSelect and listObject.SelectedItems or state.BringSelectedItem(listObject)
+            return listObject.MultiSelect and listObject.SelectedItems or hubState.BringSelectedItem(listObject)
         end
 
-        state.listRegistry[tostring(itemTitle)] = listObject
-        state.configSetters["list:" .. tostring(itemTitle)] = function(value)
+        hubState.listRegistry[tostring(itemTitle)] = listObject
+        hubState.configSetters["list:" .. tostring(itemTitle)] = function(value)
             if listObject.MultiSelect then
                 local values = {}
                 for name in string.gmatch(tostring(value), "[^\t]+") do
@@ -5279,7 +5279,7 @@ return function(opts)
             end
             if not entryData then return end
 
-            local row, setRowSelected = state.createListItem(list, entryData.Name, entryData.Desc, function()
+            local row, setRowSelected = hubState.createListItem(list, entryData.Name, entryData.Desc, function()
                 if listObject.MultiSelect then
                     listObject.ToggleSelected(entryData)
                 elseif listObject.SelectedItem == entryData then
@@ -5307,7 +5307,7 @@ return function(opts)
                     subExpanded = subExpandedOrOptions
                     subOpts = subOptions
                 end
-                local subList = state.CreateList(list, subTitle, subItems, subHeight or 130, subExpanded, subOpts)
+                local subList = hubState.CreateList(list, subTitle, subItems, subHeight or 130, subExpanded, subOpts)
                 subList.ParentList = listObject
                 table.insert(listObject.SubLists, subList)
                 return subList
@@ -5348,7 +5348,7 @@ return function(opts)
                 subExpanded = expandedOrOptions
                 subOpts = options
             end
-            local subList = state.CreateList(list, subTitle, subItems, subHeight or 130, subExpanded, subOpts)
+            local subList = hubState.CreateList(list, subTitle, subItems, subHeight or 130, subExpanded, subOpts)
             subList.ParentList = listObject
             table.insert(listObject.SubLists, subList)
             return subList
@@ -5367,7 +5367,7 @@ return function(opts)
     end
 
     -- UI Component: Dropdown (Responsive)
-    function state.createDropdown(parent, titleText, options, defaultOption, callback)
+    function hubState.createDropdown(parent, titleText, options, defaultOption, callback)
         if not parent then parent = contentArea end
         options = options or {}
         local selected = defaultOption or options[1] or "Select Option"
@@ -5398,13 +5398,13 @@ return function(opts)
         selectedBtn.Position = UDim2.new(0.52, 0, 0, 7)
         selectedBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
         selectedBtn.Text = tostring(selected) .. "  ▼"
-        selectedBtn.TextColor3 = state.currentThemeColor
+        selectedBtn.TextColor3 = hubState.currentThemeColor
         selectedBtn.Font = Enum.Font.GothamBold
         selectedBtn.TextSize = 11
         selectedBtn.TextTruncate = Enum.TextTruncate.AtEnd
         selectedBtn.Parent = frame
         applyCorner(selectedBtn, 6)
-        state.registerThemeText(selectedBtn)
+        hubState.registerThemeText(selectedBtn)
 
         local dropList = Instance.new("ScrollingFrame")
         dropList.Size = UDim2.new(1, -16, 0, 100)
@@ -5445,7 +5445,7 @@ return function(opts)
                 optBtn.Size = UDim2.new(1, -6, 0, 26)
                 optBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
                 optBtn.Text = "  " .. tostring(opt)
-                optBtn.TextColor3 = (opt == selected) and state.currentThemeColor or Color3.fromRGB(220, 225, 240)
+                optBtn.TextColor3 = (opt == selected) and hubState.currentThemeColor or Color3.fromRGB(220, 225, 240)
                 optBtn.Font = Enum.Font.GothamMedium
                 optBtn.TextSize = 11
                 optBtn.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5454,7 +5454,7 @@ return function(opts)
                 applyCorner(optBtn, 4)
 
                 optBtn.MouseButton1Click:Connect(function()
-                    if state.isModalActive then return end
+                    if hubState.isModalActive then return end
                     selected = opt
                     selectedBtn.Text = tostring(selected) .. "  ▼"
                     toggleDropdown()
@@ -5464,7 +5464,7 @@ return function(opts)
         end
 
         selectedBtn.MouseButton1Click:Connect(function()
-            if state.isModalActive then return end
+            if hubState.isModalActive then return end
             toggleDropdown()
         end)
         populateOptions(options)
@@ -5473,11 +5473,11 @@ return function(opts)
             id = "dropdown_" .. tostring(titleText or "Dropdown"),
             title = titleText or "Dropdown",
             type = "Dropdown",
-            tab = state.currentActiveTabName,
+            tab = hubState.currentActiveTabName,
             action = toggleDropdown
         }
-        state.registerFunctionItem(itemData)
-        state.attachContextMenu(frame, itemData)
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(frame, itemData)
 
         return {
             Frame = frame,
@@ -5492,7 +5492,7 @@ return function(opts)
     end
 
     -- Theme Editor Component (Responsive Dual-Color Palette & 16 Split Presets)
-    function state.createThemeEditor(parent)
+    function hubState.createThemeEditor(parent)
         local section = Instance.new("Frame")
         section.Size = UDim2.new(1, -6, 0, 340)
         section.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
@@ -5510,7 +5510,7 @@ return function(opts)
         title.TextSize = 12
         title.TextXAlignment = Enum.TextXAlignment.Left
         title.Parent = section
-        state.registerThemeText(title)
+        hubState.registerThemeText(title)
 
         -- Color 1 / Color 2 Editing Tab Switcher
         local colorTarget = 1 -- 1 for Primary (Left Half), 2 for Secondary (Right Half)
@@ -5526,7 +5526,7 @@ return function(opts)
         local c1Btn = Instance.new("TextButton")
         c1Btn.Size = UDim2.new(0.5, -2, 1, -2)
         c1Btn.Position = UDim2.new(0, 1, 0, 1)
-        c1Btn.BackgroundColor3 = state.currentThemeColor
+        c1Btn.BackgroundColor3 = hubState.currentThemeColor
         c1Btn.Text = "1st Color (Left)"
         c1Btn.TextColor3 = Color3.fromRGB(10, 15, 24)
         c1Btn.Font = Enum.Font.GothamBold
@@ -5548,7 +5548,7 @@ return function(opts)
         local picker = Instance.new("TextButton")
         picker.Size = UDim2.new(0, 180, 0, 180)
         picker.Position = UDim2.new(0, 10, 0, 64)
-        picker.BackgroundColor3 = state.currentThemeColor
+        picker.BackgroundColor3 = hubState.currentThemeColor
         picker.BorderSizePixel = 0
         picker.Text = ""
         picker.AutoButtonColor = false
@@ -5654,7 +5654,7 @@ return function(opts)
         applyCorner(previewSplitBox, 5)
 
         local previewGrad = Instance.new("UIGradient")
-        previewGrad.Color = state.getThemeColorSequence(state.currentThemeColor, state.secondaryThemeColor)
+        previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         previewGrad.Rotation = 0
         previewGrad.Parent = previewSplitBox
 
@@ -5688,39 +5688,39 @@ return function(opts)
             { "Acid Lime",       Color3.fromRGB(112, 224, 0),   Color3.fromRGB(0, 229, 255) },
         }
 
-        local hue, saturation, brightness = Color3.toHSV(state.currentThemeColor)
+        local hue, saturation, brightness = Color3.toHSV(hubState.currentThemeColor)
 
         local function refreshUI()
-            local activeCol = (colorTarget == 1) and state.currentThemeColor or state.secondaryThemeColor
+            local activeCol = (colorTarget == 1) and hubState.currentThemeColor or hubState.secondaryThemeColor
             hue, saturation, brightness = Color3.toHSV(activeCol)
             picker.BackgroundColor3 = Color3.fromHSV(hue, 1, 1)
             valueKnob.Position = UDim2.new(saturation, 0, 1 - brightness, 0)
             hueKnob.Position = UDim2.new(hue, 0, 0.5, 0)
 
-            c1Btn.BackgroundColor3 = (colorTarget == 1) and state.currentThemeColor or Color3.fromRGB(22, 28, 40)
+            c1Btn.BackgroundColor3 = (colorTarget == 1) and hubState.currentThemeColor or Color3.fromRGB(22, 28, 40)
             c1Btn.TextColor3 = (colorTarget == 1) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
-            c2Btn.BackgroundColor3 = (colorTarget == 2) and state.secondaryThemeColor or Color3.fromRGB(22, 28, 40)
+            c2Btn.BackgroundColor3 = (colorTarget == 2) and hubState.secondaryThemeColor or Color3.fromRGB(22, 28, 40)
             c2Btn.TextColor3 = (colorTarget == 2) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
 
             rgbLabel.Text = string.format("Left Half: #%02X%02X%02X  |  Right Half: #%02X%02X%02X\nEditing: %s Color",
-                math.floor(state.currentThemeColor.R * 255 + 0.5), math.floor(state.currentThemeColor.G * 255 + 0.5), math.floor(state.currentThemeColor.B * 255 + 0.5),
-                math.floor(state.secondaryThemeColor.R * 255 + 0.5), math.floor(state.secondaryThemeColor.G * 255 + 0.5), math.floor(state.secondaryThemeColor.B * 255 + 0.5),
+                math.floor(hubState.currentThemeColor.R * 255 + 0.5), math.floor(hubState.currentThemeColor.G * 255 + 0.5), math.floor(hubState.currentThemeColor.B * 255 + 0.5),
+                math.floor(hubState.secondaryThemeColor.R * 255 + 0.5), math.floor(hubState.secondaryThemeColor.G * 255 + 0.5), math.floor(hubState.secondaryThemeColor.B * 255 + 0.5),
                 (colorTarget == 1 and "1st (Left)" or "2nd (Right)")
             )
-            previewGrad.Color = state.getThemeColorSequence(state.currentThemeColor, state.secondaryThemeColor)
+            previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         end
 
         local function updatePicker()
             local color = Color3.fromHSV(hue, saturation, brightness)
             if colorTarget == 1 then
-                state.currentThemeColor = color
+                hubState.currentThemeColor = color
             else
-                state.secondaryThemeColor = color
+                hubState.secondaryThemeColor = color
             end
-            state.applyTheme(state.currentThemeColor, state.secondaryThemeColor)
-            state.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
-                state.currentThemeColor.R, state.currentThemeColor.G, state.currentThemeColor.B,
-                state.secondaryThemeColor.R, state.secondaryThemeColor.G, state.secondaryThemeColor.B
+            hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
+            hubState.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
+                hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
+                hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
             )
             refreshUI()
         end
@@ -5776,32 +5776,32 @@ return function(opts)
             pGrad.Parent = pBtn
 
             pBtn.MouseButton1Click:Connect(function()
-                state.currentThemeColor = preset[2]
-                state.secondaryThemeColor = preset[3]
-                state.applyTheme(state.currentThemeColor, state.secondaryThemeColor)
-                state.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
-                    state.currentThemeColor.R, state.currentThemeColor.G, state.currentThemeColor.B,
-                    state.secondaryThemeColor.R, state.secondaryThemeColor.G, state.secondaryThemeColor.B
+                hubState.currentThemeColor = preset[2]
+                hubState.secondaryThemeColor = preset[3]
+                hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
+                hubState.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
+                    hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
+                    hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
                 )
                 refreshUI()
             end)
         end
 
-        state.configSetters.theme = function(value)
+        hubState.configSetters.theme = function(value)
             local str = tostring(value)
             local c1Str, c2Str = str:match("^(.-)|(.*)$")
             if not c1Str then c1Str = str end
             local r1, g1, b1 = c1Str:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
             if r1 and g1 and b1 then
-                state.currentThemeColor = Color3.new(tonumber(r1), tonumber(g1), tonumber(b1))
+                hubState.currentThemeColor = Color3.new(tonumber(r1), tonumber(g1), tonumber(b1))
             end
             if c2Str then
                 local r2, g2, b2 = c2Str:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
                 if r2 and g2 and b2 then
-                    state.secondaryThemeColor = Color3.new(tonumber(r2), tonumber(g2), tonumber(b2))
+                    hubState.secondaryThemeColor = Color3.new(tonumber(r2), tonumber(g2), tonumber(b2))
                 end
             end
-            state.applyTheme(state.currentThemeColor, state.secondaryThemeColor)
+            hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
             refreshUI()
         end
 
@@ -5830,13 +5830,13 @@ return function(opts)
         picker.InputBegan:Connect(function(input) beginDrag(picker, input) end)
         hueTrack.InputBegan:Connect(function(input) beginDrag(hueTrack, input) end)
 
-        state.trackConnection(UserInputService.InputChanged:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
             if draggingTarget and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                 updateFromInput(input, draggingTarget)
             end
         end))
 
-        state.trackConnection(UserInputService.InputEnded:Connect(function(input)
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 draggingTarget = nil
             end
@@ -5848,20 +5848,20 @@ return function(opts)
 
     -- Config File & System Helpers
 
-                function state.serializeConfig()
+                function hubState.serializeConfig()
         local lines = {"UnknownHubConfigV1"}
-        for key, value in pairs(state.configValues) do
+        for key, value in pairs(hubState.configValues) do
             local valueType = type(value) == "boolean" and "B" or (type(value) == "number" and "N" or "S")
             table.insert(lines, valueType .. "|" .. encodeConfigKey(key) .. "|" .. tostring(value))
         end
         return table.concat(lines, "\n")
     end
 
-    function state.applyConfig(contents)
+    function hubState.applyConfig(contents)
         for line in string.gmatch(contents or "", "[^\r\n]+") do
             local valueType, encodedKey, rawValue = line:match("^([BNS])|([^|]+)|(.+)$")
             if valueType and encodedKey and rawValue then
-                local setter = state.configSetters[decodeConfigKey(encodedKey)]
+                local setter = hubState.configSetters[decodeConfigKey(encodedKey)]
                 if setter then
                     local value
                     if valueType == "B" then
@@ -5877,7 +5877,7 @@ return function(opts)
         end
     end
 
-    function state.getConfigNames()
+    function hubState.getConfigNames()
         local names = {}
         if not ensureConfigFolders() then return names end
         pcall(function()
@@ -5891,14 +5891,14 @@ return function(opts)
     end
 
     -- Config & Utilities Tabs
-    state.ensureConfigTab = function()
-        if state.configTabPage then return end
+    hubState.ensureConfigTab = function()
+        if hubState.configTabPage then return end
 
-        state.utilityTabPage = state.createTabButton("Utilities", "Utilities", nil, false)
-        state.configTabPage = state.createTabButton("Config", "Config", nil, false)
+        hubState.utilityTabPage = hubState.createTabButton("Utilities", "Utilities", nil, false)
+        hubState.configTabPage = hubState.createTabButton("Config", "Config", nil, false)
 
         -- Utilities Tab implementation
-        state.createSection(state.utilityTabPage, "Character & Movement")
+        hubState.createSection(hubState.utilityTabPage, "Character & Movement")
         local utilityStatus = Instance.new("TextLabel")
         utilityStatus.Size = UDim2.new(1, -6, 0, 20)
         utilityStatus.BackgroundTransparency = 1
@@ -5907,7 +5907,7 @@ return function(opts)
         utilityStatus.Font = Enum.Font.GothamMedium
         utilityStatus.TextSize = 10
         utilityStatus.TextXAlignment = Enum.TextXAlignment.Left
-        utilityStatus.Parent = state.utilityTabPage
+        utilityStatus.Parent = hubState.utilityTabPage
 
         local function setUtilityStatus(message, isError)
             utilityStatus.Text = "Status: " .. message
@@ -5919,7 +5919,7 @@ return function(opts)
             return character and character:FindFirstChildOfClass("Humanoid")
         end
 
-        state.createButton(state.utilityTabPage, "Reset Character", function()
+        hubState.createButton(hubState.utilityTabPage, "Reset Character", function()
             local humanoid = getCharacterHumanoid()
             if humanoid then
                 humanoid.Health = 0
@@ -5929,12 +5929,12 @@ return function(opts)
             end
         end)
 
-        local speedBox = state.createTextBox(state.utilityTabPage, "WalkSpeed Value (e.g. 32)", "32")
-        local jumpBox = state.createTextBox(state.utilityTabPage, "JumpPower Value (e.g. 75)", "75")
+        local speedBox = hubState.createTextBox(hubState.utilityTabPage, "WalkSpeed Value (e.g. 32)", "32")
+        local jumpBox = hubState.createTextBox(hubState.utilityTabPage, "JumpPower Value (e.g. 75)", "75")
         local speedOriginal, jumpOriginal
         local speedRun, jumpRun = 0, 0
 
-        state.createToggle(state.utilityTabPage, "Lock WalkSpeed", false, function(enabled)
+        hubState.createToggle(hubState.utilityTabPage, "Lock WalkSpeed", false, function(enabled)
             speedRun = speedRun + 1
             local runId = speedRun
             local value = math.clamp(tonumber(speedBox.Text) or 16, 0, 500)
@@ -5942,7 +5942,7 @@ return function(opts)
                 local humanoid = getCharacterHumanoid()
                 speedOriginal = humanoid and humanoid.WalkSpeed or 16
                 task.spawn(function()
-                    while runId == speedRun and enabled and state.screenGui.Parent do
+                    while runId == speedRun and enabled and hubState.screenGui.Parent do
                         local character = LocalPlayer.Character
                         local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
                         if currentHumanoid then currentHumanoid.WalkSpeed = value end
@@ -5957,7 +5957,7 @@ return function(opts)
             end
         end)
 
-        state.createToggle(state.utilityTabPage, "Lock JumpPower", false, function(enabled)
+        hubState.createToggle(hubState.utilityTabPage, "Lock JumpPower", false, function(enabled)
             jumpRun = jumpRun + 1
             local runId = jumpRun
             local value = math.clamp(tonumber(jumpBox.Text) or 50, 0, 500)
@@ -5965,7 +5965,7 @@ return function(opts)
                 local humanoid = getCharacterHumanoid()
                 jumpOriginal = humanoid and humanoid.JumpPower or 50
                 task.spawn(function()
-                    while runId == jumpRun and enabled and state.screenGui.Parent do
+                    while runId == jumpRun and enabled and hubState.screenGui.Parent do
                         local character = LocalPlayer.Character
                         local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
                         if currentHumanoid then
@@ -5986,14 +5986,14 @@ return function(opts)
             end
         end)
 
-        state.createSection(state.utilityTabPage, "Server & Teleport")
+        hubState.createSection(hubState.utilityTabPage, "Server & Teleport")
 
-        state.createButton(state.utilityTabPage, "Rejoin Server", function()
+        hubState.createButton(hubState.utilityTabPage, "Rejoin Server", function()
             setUtilityStatus("Rejoining server...", false)
             pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
         end)
 
-        state.createButton(state.utilityTabPage, "Server Hop", function()
+        hubState.createButton(hubState.utilityTabPage, "Server Hop", function()
             task.spawn(function()
                 setUtilityStatus("Searching for alternate servers...", false)
                 local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
@@ -6020,8 +6020,8 @@ return function(opts)
             end)
         end)
 
-        state.createSection(state.utilityTabPage, "Third-Party Tools")
-        state.createButton(state.utilityTabPage, "Execute Infinite Yield", function()
+        hubState.createSection(hubState.utilityTabPage, "Third-Party Tools")
+        hubState.createButton(hubState.utilityTabPage, "Execute Infinite Yield", function()
             task.spawn(function()
                 setUtilityStatus("Loading Infinite Yield...", false)
                 local ok, err = pcall(function()
@@ -6031,12 +6031,12 @@ return function(opts)
                     execute()
                 end)
                 setUtilityStatus(ok and "Infinite Yield loaded!" or ("Infinite Yield failed: " .. tostring(err)), not ok)
-                if ok then state.notify({ Title = "Infinite Yield", Content = "Script executed successfully." }) end
+                if ok then hubState.notify({ Title = "Infinite Yield", Content = "Script executed successfully." }) end
             end)
         end)
 
         -- Config Tab implementation
-        state.createSection(state.configTabPage, "Configuration Profiles")
+        hubState.createSection(hubState.configTabPage, "Configuration Profiles")
         local status = Instance.new("TextLabel")
         status.Size = UDim2.new(1, -6, 0, 20)
         status.BackgroundTransparency = 1
@@ -6045,9 +6045,9 @@ return function(opts)
         status.Font = Enum.Font.GothamMedium
         status.TextSize = 10
         status.TextXAlignment = Enum.TextXAlignment.Left
-        status.Parent = state.configTabPage
+        status.Parent = hubState.configTabPage
 
-        local configList = state.CreateList(state.configTabPage, "Saved Configs", {}, 140, true)
+        local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, true)
         local selectedName
         local saveNameBox
         local renameNameBox
@@ -6064,7 +6064,7 @@ return function(opts)
             configList.Items = {}
             configList.SelectedItem = nil
             configList.SelectedRowSetter = nil
-            for _, name in ipairs(state.getConfigNames()) do
+            for _, name in ipairs(hubState.getConfigNames()) do
                 configList:AddItem(name, "Click to select", function()
                     selectedName = name
                     if saveNameBox then saveNameBox.Text = name end
@@ -6078,13 +6078,13 @@ return function(opts)
             local row = Instance.new("Frame")
             row.Size = UDim2.new(1, -6, 0, 38)
             row.BackgroundTransparency = 1
-            row.Parent = state.configTabPage
+            row.Parent = hubState.configTabPage
 
-            local button = state.createButton(row, buttonText, callback)
+            local button = hubState.createButton(row, buttonText, callback)
             button.Size = UDim2.new(0.48, -4, 1, 0)
             button.Position = boxOnLeft and UDim2.new(0.52, 4, 0, 0) or UDim2.new(0, 0, 0, 0)
 
-            local box = state.createTextBox(row, boxPlaceholder)
+            local box = hubState.createTextBox(row, boxPlaceholder)
             local boxFrame = box.Parent
             boxFrame.Size = UDim2.new(0.52, -4, 1, 0)
             boxFrame.Position = boxOnLeft and UDim2.new(0, 0, 0, 0) or UDim2.new(0.48, 4, 0, 0)
@@ -6106,30 +6106,30 @@ return function(opts)
                 setStatus("Config already exists; use Overwrite", true)
                 return
             end
-            local ok = pcall(writefile, path, state.serializeConfig())
+            local ok = pcall(writefile, path, hubState.serializeConfig())
             setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. name) or "Failed to write config", not ok)
             if ok then
                 selectedName = name
                 refreshConfigs()
-                state.notify({ Title = "Config", Content = "Profile '" .. name .. "' saved." })
+                hubState.notify({ Title = "Config", Content = "Profile '" .. name .. "' saved." })
             end
         end
 
         saveNameBox = createConfigActionRow("Save Config", "Profile name", false, function() saveConfig(false) end)
-        state.createButton(state.configTabPage, "Overwrite Selected", function() saveConfig(true) end)
-        state.createButton(state.configTabPage, "Load Selected", function()
+        hubState.createButton(hubState.configTabPage, "Overwrite Selected", function() saveConfig(true) end)
+        hubState.createButton(hubState.configTabPage, "Load Selected", function()
             local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok, contents = pcall(readfile, configPath(name))
             if ok and contents then
-                state.applyConfig(contents)
+                hubState.applyConfig(contents)
                 setStatus("Loaded profile: " .. name, false)
-                state.notify({ Title = "Config Loaded", Content = "Profile '" .. name .. "' applied." })
+                hubState.notify({ Title = "Config Loaded", Content = "Profile '" .. name .. "' applied." })
             else
                 setStatus("Config file not found", true)
             end
         end)
-        state.createButton(state.configTabPage, "Delete Selected", function()
+        hubState.createButton(hubState.configTabPage, "Delete Selected", function()
             local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok = pcall(delfile, configPath(name))
@@ -6140,22 +6140,22 @@ return function(opts)
             setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
         end)
 
-        state.createSection(state.configTabPage, "Keybinds & Controls")
-        state.configValues.toggleKey = state.toggleKeyCode.Name
-        state.configSetters.toggleKey = function(value)
+        hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
+        hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
+        hubState.configSetters.toggleKey = function(value)
             local keyName = tostring(value)
             local keyCode = Enum.KeyCode[keyName]
             if keyCode then
-                state.toggleKeyCode = keyCode
-                if state.toggleKeyButton and state.toggleKeyButton.Parent then
-                    state.toggleKeyButton.Text = "  Toggle GUI Key: " .. state.toggleKeyCode.Name
+                hubState.toggleKeyCode = keyCode
+                if hubState.toggleKeyButton and hubState.toggleKeyButton.Parent then
+                    hubState.toggleKeyButton.Text = "  Toggle GUI Key: " .. hubState.toggleKeyCode.Name
                 end
             end
         end
 
-        state.toggleKeyButton = state.createButton(state.configTabPage, "Toggle GUI Key: " .. state.toggleKeyCode.Name, function()
-            state.capturingToggleKey = true
-            state.toggleKeyButton.Text = "  Press any keyboard key..."
+        hubState.toggleKeyButton = hubState.createButton(hubState.configTabPage, "Toggle GUI Key: " .. hubState.toggleKeyCode.Name, function()
+            hubState.capturingToggleKey = true
+            hubState.toggleKeyButton.Text = "  Press any keyboard key..."
         end)
 
         renameNameBox = createConfigActionRow("Rename Config", "New profile name", true, function()
@@ -6182,33 +6182,33 @@ return function(opts)
             setStatus(wrote and ("Renamed to: " .. newName) or "Rename failed", not wrote)
         end)
 
-        state.createSection(state.configTabPage, "HUD & Performance Display")
-        state.createToggle(state.configTabPage, "Show HUD Stats Overlay", state.isHudEnabled, function(enabled)
-            state.setHudVisible(enabled)
+        hubState.createSection(hubState.configTabPage, "HUD & Performance Display")
+        hubState.createToggle(hubState.configTabPage, "Show HUD Stats Overlay", hubState.isHudEnabled, function(enabled)
+            hubState.setHudVisible(enabled)
         end)
-        state.createSlider(state.configTabPage, "HUD Background Opacity", 5, 95, math.floor(state.hudOpacity * 100), "%", function(val)
-            state.setHudOpacity(val / 100)
+        hubState.createSlider(hubState.configTabPage, "HUD Background Opacity", 5, 95, math.floor(hubState.hudOpacity * 100), "%", function(val)
+            hubState.setHudOpacity(val / 100)
         end)
 
-        state.createSection(state.configTabPage, "Visual Customization")
-        state.createThemeEditor(state.configTabPage)
+        hubState.createSection(hubState.configTabPage, "Visual Customization")
+        hubState.createThemeEditor(hubState.configTabPage)
         refreshConfigs()
     end
 
     -- GUI-Specific Internal Error Reporting Modal (Never hooks global game logs)
-    state.loadingFinished = false
-    state.errorOverlay = nil
-    state.lastError = ""
+    hubState.loadingFinished = false
+    hubState.errorOverlay = nil
+    hubState.lastError = ""
 
 
-    function state.finishLoading(message)
-        if state.loadingFinished then return end
-        state.loadingFinished = true
+    function hubState.finishLoading(message)
+        if hubState.loadingFinished then return end
+        hubState.loadingFinished = true
         if message then loadingStatus.Text = tostring(message) end
-        state.mainFrame.Visible = true
+        hubState.mainFrame.Visible = true
         
-        state.mainFrame.Position = UDim2.new(0.5, -290, 0.5, -180)
-        TweenService:Create(state.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        hubState.mainFrame.Position = UDim2.new(0.5, -290, 0.5, -180)
+        TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
             Position = UDim2.new(0.5, -290, 0.5, -195)
         }):Play()
 
@@ -6220,25 +6220,25 @@ return function(opts)
         end)
     end
 
-    function state.reportGuiError(message)
-        state.lastError = tostring(message or "Unknown GUI error")
-        copyText(state.lastError)
-        state.finishLoading("Loaded")
+    function hubState.reportGuiError(message)
+        hubState.lastError = tostring(message or "Unknown GUI error")
+        copyText(hubState.lastError)
+        hubState.finishLoading("Loaded")
 
-        if state.errorOverlay and state.errorOverlay.Parent then
-            local messageLabel = state.errorOverlay:FindFirstChild("ErrorMessage", true)
-            if messageLabel then messageLabel.Text = state.lastError end
+        if hubState.errorOverlay and hubState.errorOverlay.Parent then
+            local messageLabel = hubState.errorOverlay:FindFirstChild("ErrorMessage", true)
+            if messageLabel then messageLabel.Text = hubState.lastError end
             return
         end
 
-        state.errorOverlay = Instance.new("Frame")
-        state.errorOverlay.Name = "ErrorOverlay"
-        state.errorOverlay.Size = UDim2.new(1, 0, 1, 0)
-        state.errorOverlay.BackgroundColor3 = Color3.fromRGB(5, 7, 12)
-        state.errorOverlay.BackgroundTransparency = 0.25
+        hubState.errorOverlay = Instance.new("Frame")
+        hubState.errorOverlay.Name = "ErrorOverlay"
+        hubState.errorOverlay.Size = UDim2.new(1, 0, 1, 0)
+        hubState.errorOverlay.BackgroundColor3 = Color3.fromRGB(5, 7, 12)
+        hubState.errorOverlay.BackgroundTransparency = 0.25
         errorOverlay.BorderSizePixel = 0
-        state.errorOverlay.ZIndex = 120
-        state.errorOverlay.Parent = state.screenGui
+        hubState.errorOverlay.ZIndex = 120
+        hubState.errorOverlay.Parent = hubState.screenGui
 
         local panel = Instance.new("Frame")
         panel.Size = UDim2.new(0, 440, 0, 200)
@@ -6246,7 +6246,7 @@ return function(opts)
         panel.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
         panel.BorderSizePixel = 0
         panel.ZIndex = 121
-        panel.Parent = state.errorOverlay
+        panel.Parent = hubState.errorOverlay
         applyCorner(panel, 8)
         applyStroke(panel, Color3.fromRGB(235, 75, 85), 1.5, 0)
 
@@ -6268,7 +6268,7 @@ return function(opts)
         messageLabel.Position = UDim2.new(0, 12, 0, 40)
         messageLabel.BackgroundColor3 = Color3.fromRGB(12, 15, 22)
         messageLabel.BorderSizePixel = 0
-        messageLabel.Text = state.lastError
+        messageLabel.Text = hubState.lastError
         messageLabel.TextColor3 = Color3.fromRGB(235, 238, 245)
         messageLabel.Font = Enum.Font.Code
         messageLabel.TextSize = 11
@@ -6306,21 +6306,21 @@ return function(opts)
         applyCorner(closeButton, 6)
 
         copyButton.MouseButton1Click:Connect(function()
-            copyButton.Text = copyText(state.lastError) and "Copied!" or "Clipboard Error"
+            copyButton.Text = copyText(hubState.lastError) and "Copied!" or "Clipboard Error"
             task.delay(1.2, function()
                 if copyButton and copyButton.Parent then copyButton.Text = "Copy Error" end
             end)
         end)
 
         closeButton.MouseButton1Click:Connect(function()
-            if state.errorOverlay then state.errorOverlay:Destroy() end
-            state.errorOverlay = nil
+            if hubState.errorOverlay then hubState.errorOverlay:Destroy() end
+            hubState.errorOverlay = nil
         end)
     end
 
-    function state.checkFunction(name, callback, ...)
+    function hubState.checkFunction(name, callback, ...)
         if type(callback) ~= "function" then
-            state.reportGuiError(tostring(name or "Function") .. " is not a callable function")
+            hubState.reportGuiError(tostring(name or "Function") .. " is not a callable function")
             return false, "not a function"
         end
         local arguments = {...}
@@ -6328,45 +6328,45 @@ return function(opts)
             return callback(table.unpack(arguments))
         end, function(err)
             local message = tostring(err)
-            state.reportGuiError(tostring(name or "Function") .. ": " .. message)
+            hubState.reportGuiError(tostring(name or "Function") .. ": " .. message)
             return message
         end)
         return ok, result
     end
 
     -- Keybind Listener
-    state.trackConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    hubState.trackConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
-        if state.capturingToggleKey then
+        if hubState.capturingToggleKey then
             if input.KeyCode ~= Enum.KeyCode.Unknown then
-                state.toggleKeyCode = input.KeyCode
-                state.capturingToggleKey = false
-                state.configValues.toggleKey = state.toggleKeyCode.Name
-                if state.toggleKeyButton and state.toggleKeyButton.Parent then
-                    state.toggleKeyButton.Text = "  Toggle GUI Key: " .. state.toggleKeyCode.Name
+                hubState.toggleKeyCode = input.KeyCode
+                hubState.capturingToggleKey = false
+                hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
+                if hubState.toggleKeyButton and hubState.toggleKeyButton.Parent then
+                    hubState.toggleKeyButton.Text = "  Toggle GUI Key: " .. hubState.toggleKeyCode.Name
                 end
-                state.notify({ Title = "Keybind Updated", Content = "GUI Toggle set to: " .. state.toggleKeyCode.Name })
+                hubState.notify({ Title = "Keybind Updated", Content = "GUI Toggle set to: " .. hubState.toggleKeyCode.Name })
             end
             return
         end
 
         if not gameProcessed then
-            if input.KeyCode == state.toggleKeyCode then
-                state.screenGui.Enabled = not state.screenGui.Enabled
-                state.isGuiOpen = state.screenGui.Enabled
+            if input.KeyCode == hubState.toggleKeyCode then
+                hubState.screenGui.Enabled = not hubState.screenGui.Enabled
+                hubState.isGuiOpen = hubState.screenGui.Enabled
                 return
             end
 
             -- Feature Keybind Trigger
-            if state.featureKeybinds[input.KeyCode] then
-                local item = state.featureKeybinds[input.KeyCode]
+            if hubState.featureKeybinds[input.KeyCode] then
+                local item = hubState.featureKeybinds[input.KeyCode]
                 if item and item.action then
                     pcall(item.action)
-                    state.notify({
+                    hubState.notify({
                         Title = "Keybind Triggered",
                         Content = "[" .. input.KeyCode.Name .. "] -> " .. tostring(item.title),
-                        Color = state.currentThemeColor,
+                        Color = hubState.currentThemeColor,
                         Duration = 1.8
                     })
                 end
@@ -6377,7 +6377,7 @@ return function(opts)
     -- =========================================================================
     -- Dedicated Mobile Floating Action Button (Always Accessible on Touch)
     -- =========================================================================
-    state.mobileToggleBtn = nil
+    hubState.mobileToggleBtn = nil
     if opts.mobileToggle ~= false and (UserInputService.TouchEnabled or opts.mobileToggle == true) then
         local mobBtn = Instance.new("ImageButton")
         mobBtn.Name = "ENI_MobileToggleBtn"
@@ -6389,15 +6389,15 @@ return function(opts)
         mobBtn.AutoButtonColor = false
         mobBtn.Active = true
         mobBtn.ZIndex = 300
-        mobBtn.Parent = state.screenGui
+        mobBtn.Parent = hubState.screenGui
         applyCorner(mobBtn, 24)
 
-        local mobStroke = applyStroke(mobBtn, state.currentThemeColor, 2, 0.1)
+        local mobStroke = applyStroke(mobBtn, hubState.currentThemeColor, 2, 0.1)
         local mobStrokeGrad = Instance.new("UIGradient")
-        mobStrokeGrad.Color = state.getThemeColorSequence(state.currentThemeColor, state.secondaryThemeColor)
+        mobStrokeGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         mobStrokeGrad.Rotation = 45
         mobStrokeGrad.Parent = mobStroke
-        state.registerThemeGradient(mobStrokeGrad, 45)
+        hubState.registerThemeGradient(mobStrokeGrad, 45)
 
         local mobIcon = Instance.new("TextLabel")
         mobIcon.Name = "Icon"
@@ -6405,11 +6405,11 @@ return function(opts)
         mobIcon.BackgroundTransparency = 1
         mobIcon.Text = "⚡"
         mobIcon.TextSize = 20
-        mobIcon.TextColor3 = state.currentThemeColor
+        mobIcon.TextColor3 = hubState.currentThemeColor
         mobIcon.Font = Enum.Font.GothamBlack
         mobIcon.ZIndex = 301
         mobIcon.Parent = mobBtn
-        state.registerThemeText(mobIcon)
+        hubState.registerThemeText(mobIcon)
 
         -- Subtle rotation on the gradient border
         task.spawn(function()
@@ -6421,7 +6421,7 @@ return function(opts)
             end
         end)
 
-        state.makeSmoothDraggable(mobBtn, mobBtn)
+        hubState.makeSmoothDraggable(mobBtn, mobBtn)
 
         local isToggling = false
         mobBtn.MouseButton1Click:Connect(function()
@@ -6438,13 +6438,13 @@ return function(opts)
                 }):Play()
             end)
 
-            local nextState = not state.mainFrame.Visible
-            state.mainFrame.Visible = nextState
-            state.isGuiOpen = nextState
+            local nextState = not hubState.mainFrame.Visible
+            hubState.mainFrame.Visible = nextState
+            hubState.isGuiOpen = nextState
 
             if nextState then
-                state.mainFrame.Position = isTouchScreen and UDim2.new(0.5, 0, 0.52, 0) or UDim2.new(0.5, -290, 0.52, -195)
-                TweenService:Create(state.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                hubState.mainFrame.Position = isTouchScreen and UDim2.new(0.5, 0, 0.52, 0) or UDim2.new(0.5, -290, 0.52, -195)
+                TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                     Position = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
                 }):Play()
             end
@@ -6454,93 +6454,93 @@ return function(opts)
             end)
         end)
 
-        state.mobileToggleBtn = mobBtn
+        hubState.mobileToggleBtn = mobBtn
     end
 
     -- Auto finish loading defer
     task.defer(function()
-        state.finishLoading()
+        hubState.finishLoading()
     end)
 
-    function state.GetItemFromList(listName, parent, createIfMissing)
+    function hubState.GetItemFromList(listName, parent, createIfMissing)
         local name = tostring(listName or "List")
-        local existing = state.listRegistry[name]
+        local existing = hubState.listRegistry[name]
         if existing then return existing end
         if createIfMissing == false then return nil end
-        return state.CreateList(parent or contentArea, name, {})
+        return hubState.CreateList(parent or contentArea, name, {})
     end
 
     -- Returned Library API
     return {
-        gui = state.screenGui,
-        frame = state.mainFrame,
+        gui = hubState.screenGui,
+        frame = hubState.mainFrame,
         content = contentArea,
-        Notify = state.notify,
-        notify = state.notify,
+        Notify = hubState.notify,
+        notify = hubState.notify,
         addItem = function(titleText, subtitleText, callback)
-            return state.createListItem(contentArea, titleText, subtitleText, callback)
+            return hubState.createListItem(contentArea, titleText, subtitleText, callback)
         end,
         addToggle = function(titleText, defaultState, callback)
-            return state.createToggle(contentArea, titleText, defaultState, callback)
+            return hubState.createToggle(contentArea, titleText, defaultState, callback)
         end,
         registerToggle = function(setter)
-            if setter then table.insert(state.allToggleSetters, setter) end
+            if setter then table.insert(hubState.allToggleSetters, setter) end
         end,
         registerFeatureStopper = function(stopper)
-            if stopper then table.insert(state.featureStoppers, stopper) end
+            if stopper then table.insert(hubState.featureStoppers, stopper) end
         end,
         RegisterFeatureStopper = function(stopper)
-            if stopper then table.insert(state.featureStoppers, stopper) end
+            if stopper then table.insert(hubState.featureStoppers, stopper) end
         end,
         destroy = function()
-            state.DisableAllFeatureStates()
-            for _, conn in ipairs(state.activeConnections) do
+            hubState.DisableAllFeatureStates()
+            for _, conn in ipairs(hubState.activeConnections) do
                 pcall(function() conn:Disconnect() end)
             end
             local blur = Lighting:FindFirstChild("ENI_HubBlur")
             if blur then pcall(function() blur:Destroy() end) end
-            if state.screenGui then state.screenGui:Destroy() end
+            if hubState.screenGui then hubState.screenGui:Destroy() end
         end,
-        finishLoading = state.finishLoading,
-        FinishLoading = state.finishLoading,
-        reportError = state.reportGuiError,
-        ReportError = state.reportGuiError,
-        checkFunction = state.checkFunction,
-        CheckFunction = state.checkFunction,
-        disableAll = state.DisableAllFeatureStates,
-        CreateButton = state.createButton,
-        createButton = state.createButton,
-        CreateToggle = state.createToggle,
-        createToggle = state.createToggle,
-        CreateSlider = state.createSlider,
-        createSlider = state.createSlider,
-        CreateDropdown = state.createDropdown,
-        createDropdown = state.createDropdown,
-        CreateSection = state.createSection,
-        createSection = state.createSection,
-        addSection = state.createSection,
-        CreateList = state.CreateList,
-        createList = state.CreateList,
-        GetItemFromList = state.GetItemFromList,
-        createTabButton = state.createTabButton,
-        BringSelectedItem = state.BringSelectedItem,
-        createPage = state.createPage,
-        createSliderToggle = state.createToggle,
-        createValueSlider = state.createSlider,
+        finishLoading = hubState.finishLoading,
+        FinishLoading = hubState.finishLoading,
+        reportError = hubState.reportGuiError,
+        ReportError = hubState.reportGuiError,
+        checkFunction = hubState.checkFunction,
+        CheckFunction = hubState.checkFunction,
+        disableAll = hubState.DisableAllFeatureStates,
+        CreateButton = hubState.createButton,
+        createButton = hubState.createButton,
+        CreateToggle = hubState.createToggle,
+        createToggle = hubState.createToggle,
+        CreateSlider = hubState.createSlider,
+        createSlider = hubState.createSlider,
+        CreateDropdown = hubState.createDropdown,
+        createDropdown = hubState.createDropdown,
+        CreateSection = hubState.createSection,
+        createSection = hubState.createSection,
+        addSection = hubState.createSection,
+        CreateList = hubState.CreateList,
+        createList = hubState.CreateList,
+        GetItemFromList = hubState.GetItemFromList,
+        createTabButton = hubState.createTabButton,
+        BringSelectedItem = hubState.BringSelectedItem,
+        createPage = hubState.createPage,
+        createSliderToggle = hubState.createToggle,
+        createValueSlider = hubState.createSlider,
         addSectionDivider = function(parent)
-            return state.createSection(parent, "")
+            return hubState.createSection(parent, "")
         end,
-        createTextBox = state.createTextBox,
-        CreateTextBox = state.createTextBox,
-        SendNotification = state.sendNotification,
-        sendNotification = state.sendNotification,
-        AddNotification = state.sendNotification,
-        addNotification = state.sendNotification,
-        OpenNotifications = function() if state.openNotificationCenterModal then state.openNotificationCenterModal() end end,
-        openNotifications = function() if state.openNotificationCenterModal then state.openNotificationCenterModal() end end,
-        OpenFeedbackModal = function() if state.openFeedbackModal then state.openFeedbackModal() end end,
-        openFeedbackModal = function() if state.openFeedbackModal then state.openFeedbackModal() end end,
-        OpenAnnouncementModal = function() if state.openAnnouncementModal then state.openAnnouncementModal() end end,
-        openAnnouncementModal = function() if state.openAnnouncementModal then state.openAnnouncementModal() end end,
+        createTextBox = hubState.createTextBox,
+        CreateTextBox = hubState.createTextBox,
+        SendNotification = hubState.sendNotification,
+        sendNotification = hubState.sendNotification,
+        AddNotification = hubState.sendNotification,
+        addNotification = hubState.sendNotification,
+        OpenNotifications = function() if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end end,
+        openNotifications = function() if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end end,
+        OpenFeedbackModal = function() if hubState.openFeedbackModal then hubState.openFeedbackModal() end end,
+        openFeedbackModal = function() if hubState.openFeedbackModal then hubState.openFeedbackModal() end end,
+        OpenAnnouncementModal = function() if hubState.openAnnouncementModal then hubState.openAnnouncementModal() end end,
+        openAnnouncementModal = function() if hubState.openAnnouncementModal then hubState.openAnnouncementModal() end end,
     }
 end
