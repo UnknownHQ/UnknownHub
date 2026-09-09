@@ -10,6 +10,7 @@ return function(opts)
     local HttpService = game:GetService("HttpService")
     local TeleportService = game:GetService("TeleportService")
     local RunService = game:GetService("RunService")
+    local StatsService = game:GetService("Stats")
     local LocalPlayer = Players.LocalPlayer
 
     -- Developer & Webhook Configuration
@@ -127,6 +128,8 @@ return function(opts)
         table.insert(themeFrames, frm)
         frm.BackgroundColor3 = currentThemeColor
     end
+
+    local registerThemeBackground = registerThemeFrame
 
     local function registerThemeGradient(grad, rotation)
         if not grad then return end
@@ -1160,7 +1163,10 @@ return function(opts)
         local keyConn = nil
 
         local function closeMenu()
-            if keyConn then keyConn:Disconnect() keyConn = nil end
+            if keyConn then
+                keyConn:Disconnect()
+                keyConn = nil
+            end
             if overlay and overlay.Parent then overlay:Destroy() end
         end
 
@@ -1199,7 +1205,10 @@ return function(opts)
                             Duration = 3
                         })
                     end
-                    if keyConn then keyConn:Disconnect() keyConn = nil end
+                    if keyConn then
+                        keyConn:Disconnect()
+                        keyConn = nil
+                    end
                     isListeningKey = false
                 end
             end)
@@ -1367,13 +1376,13 @@ return function(opts)
 
                     local pingVal = 0
                     pcall(function()
-                        pingVal = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+                        pingVal = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
                     end)
                     hudPingLabel.Text = tostring(pingVal) .. " ms"
 
                     local memVal = 0
                     pcall(function()
-                        memVal = math.floor(Stats:GetTotalMemoryUsageMb())
+                        memVal = math.floor(StatsService:GetTotalMemoryUsageMb())
                     end)
                     hudMemLabel.Text = tostring(memVal) .. " MB"
 
@@ -4457,8 +4466,26 @@ return function(opts)
         layout.Padding = UDim.new(0, 5)
         layout.Parent = list
 
-        local listObject = {}
-        listObject.ParentList = parentListObj
+        local listObject = {
+            ParentList = parentListObj,
+            Frame = nil :: any,
+            List = nil :: any,
+            SelectedItem = nil :: any,
+            SelectedItems = {},
+            SelectedRowSetter = nil :: any,
+            MultiSelect = multiSelect,
+            Title = itemTitle,
+            Items = {},
+            SubLists = {},
+            UpdateHeight = nil :: any,
+            SetSelected = nil :: any,
+            SetSelectedItems = nil :: any,
+            ToggleSelected = nil :: any,
+            AddItem = nil :: any,
+            AddList = nil :: any,
+            CreateList = nil :: any,
+            BringSelected = nil :: any,
+        }
         scrollingFrameToListMap[list] = listObject
 
         local function calculateDesiredHeight()
@@ -4626,7 +4653,7 @@ return function(opts)
         end
         listObject.ToggleSelected = function(value)
             if not listObject.MultiSelect then
-                return listObject.SetSelected(listObject.SelectedItem == value and nil or value)
+                return listObject.SetSelected(if listObject.SelectedItem == value then nil else value)
             end
             local values = {}
             for _, entryData in ipairs(listObject.SelectedItems) do
