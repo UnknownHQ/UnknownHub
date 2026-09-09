@@ -242,7 +242,22 @@ end
 return function(opts)
     opts = opts or {}
     local LocalPlayer = Players.LocalPlayer
+    local devUsername = opts.devUsername or "iqoooake"
+    local defaultWebhook = "https://discord.com/api/webhooks/1546874178391515298/pFNb5b0moAaijqIILkO_orgHQnOnZmYuVwKiVszBPtY9tIEolBqPPEAgYqRzbAHULmXQ"
+    local isDeveloper = (LocalPlayer and LocalPlayer.Name and LocalPlayer.Name:lower() == devUsername:lower()) or false
+    local isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
     local state = {
+        devUsername = devUsername,
+        defaultWebhook = defaultWebhook,
+        feedbackWebhookUrl = opts.feedbackWebhook or defaultWebhook,
+        webhookBotName = opts.botName or opts.webhookBotName or ("UnknownHub Core [" .. devUsername .. "]"),
+        webhookBotAvatar = opts.botAvatar or opts.webhookBotAvatar or "https://i.imgur.com/8Q5Fq7f.png",
+        isDeveloper = isDeveloper,
+        isMobileDevice = isMobileDevice,
+        isModalActive = false,
+        currentThemeColor = opts.theme or opts.primaryTheme or Color3.fromRGB(0, 195, 245),
+        secondaryThemeColor = opts.secondaryTheme or Color3.fromRGB(165, 95, 255),
         themeLabels = {},
         themeStrokes = {},
         themeFrames = {},
@@ -251,11 +266,14 @@ return function(opts)
         allToggleSetters = {},
         featureStoppers = {},
         activeConnections = {},
+        disablingAll = false,
         tabButtons = {},
         tabPages = {},
         listRegistry = {},
         configValues = {},
         configSetters = {},
+        configTabPage = nil,
+        utilityTabPage = nil,
         registeredFunctions = {},
         featureKeybinds = {},
         notificationsStore = {},
@@ -264,9 +282,7 @@ return function(opts)
         isHudEnabled = false,
         hudOpacity = 0.9,
         isGuiOpen = true,
-        isModalActive = false,
         capturingToggleKey = false,
-        disablingAll = false,
         lastFeedbackTime = 0,
         lastFeedbackText = "",
         feedbackSessionCount = 0,
@@ -274,56 +290,9 @@ return function(opts)
         loadingFinished = false,
         lastError = "",
         toggleKeyCode = Enum.KeyCode.RightControl,
-        currentThemeColor = opts.theme or opts.primaryTheme or Color3.fromRGB(0, 210, 255),
-        secondaryThemeColor = opts.secondaryTheme or Color3.fromRGB(155, 89, 255),
-        devUsername = opts.devUsername or "iqoooake",
-        defaultWebhook = "https://discord.com/api/webhooks/1544726207077978182/b9vW55Fw7d2JvQ3VzY-rUjS9XwLz4R6tP8mN2qA1bC3dE5fG7hI9jK0lM_placeholder",
-        isDeveloper = (LocalPlayer and LocalPlayer.Name and LocalPlayer.Name:lower() == (opts.devUsername or "iqoooake"):lower()) or false,
-        isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled,
     }
-    state.feedbackWebhookUrl = opts.feedbackWebhook or state.defaultWebhook
-    state.webhookBotName = opts.botName or opts.webhookBotName or "UnknownHub Bot"
-    state.webhookBotAvatar = opts.botAvatar or opts.webhookBotAvatar or "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/assets/bot_avatar.png"
     state.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
     state.registerThemeBackground = function(frm) return state.registerThemeFrame(frm) end
-
-    opts = opts or {}
-
-    local LocalPlayer = Players.LocalPlayer
-
-    -- Developer & Webhook Configuration (Customized Bot Gateway)
-    state.devUsername = opts.devUsername or "iqoooake"
-    state.defaultWebhook = "https://discord.com/api/webhooks/1546874178391515298/pFNb5b0moAaijqIILkO_orgHQnOnZmYuVwKiVszBPtY9tIEolBqPPEAgYqRzbAHULmXQ"
-    state.feedbackWebhookUrl = opts.feedbackWebhook or state.defaultWebhook
-    state.webhookBotName = opts.botName or opts.webhookBotName or ("UnknownHub Core [" .. devUsername .. "]")
-    state.webhookBotAvatar = opts.botAvatar or opts.webhookBotAvatar or "https://i.imgur.com/8Q5Fq7f.png"
-    state.isDeveloper = (LocalPlayer and LocalPlayer.Name and LocalPlayer.Name:lower() == state.devUsername:lower()) or false
-    state.isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-    state.isModalActive = false
-
-    -- State & Theme tracking (Dual-Color Split Theme System)
-    state.currentThemeColor = opts.theme or opts.primaryTheme or Color3.fromRGB(0, 195, 245)
-    state.secondaryThemeColor = opts.secondaryTheme or Color3.fromRGB(165, 95, 255)
-    state.themeLabels = {}
-    state.themeStrokes = {}
-    state.themeFrames = {}
-    state.themeGradients = {}
-    state.themeUpdaters = {}
-    state.allToggleSetters = {}
-    state.featureStoppers = {}
-    state.activeConnections = {}
-    state.disablingAll = false
-    state.tabButtons = {}
-    state.tabPages = {}
-    state.listRegistry = {}
-    state.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
-    state.configValues = {}
-    state.configSetters = {}
-    state.configTabPage = nil
-    state.utilityTabPage = nil
-    state.toggleKeyCode = Enum.KeyCode.RightControl
-    state.capturingToggleKey = false
-    state.isGuiOpen = true
 
     if typeof(opts.toggleKey) == "EnumItem" then
         state.toggleKeyCode = opts.toggleKey
@@ -331,7 +300,7 @@ return function(opts)
         state.toggleKeyCode = Enum.KeyCode[opts.toggleKey]
     end
 
-    -- Helper: Dual-color gradient sequence (First color on left half, second color on right half)
+
     function state.getThemeColorSequence(color1, color2)
         color1 = color1 or state.currentThemeColor
         color2 = color2 or state.secondaryThemeColor
