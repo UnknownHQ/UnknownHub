@@ -4211,29 +4211,6 @@ return function(opts)
         table.insert(hubState.tabPages, page)
         return page
     end
-    
-    function hubState.resolveTabName(parentObj)
-        if not parentObj then return hubState.currentActiveTabName or "Main" end
-        if typeof(parentObj) == "Instance" then
-            if parentObj.Parent == contentArea then
-                return parentObj.Name
-            end
-            local cur = parentObj
-            while cur and cur ~= contentArea and cur.Parent do
-                if cur.Parent == contentArea then
-                    return cur.Name
-                end
-                cur = cur.Parent
-            end
-        elseif type(parentObj) == "table" then
-            if parentObj.Frame then
-                return hubState.resolveTabName(parentObj.Frame)
-            elseif parentObj.List then
-                return hubState.resolveTabName(parentObj.List)
-            end
-        end
-        return hubState.currentActiveTabName or "Main"
-    end
 
     function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
         local page = hubState.createPage(name)
@@ -4369,86 +4346,7 @@ return function(opts)
 
     hubState.searchResultsPage = hubState.createPage("__SearchResults__")
 
-    local function jumpToFunction(itemData)
-        if not itemData then return end
-
-        local targetTab = itemData.tab or "Main"
-
-        -- 1. Clear search box to restore normal tab view
-        if hubState.searchBox then
-            hubState.searchBox.Text = ""
-        end
-
-        -- 2. Switch to target Tab
-        if hubState.setTabVisible then
-            hubState.setTabVisible(targetTab)
-        end
-
-        -- 3. If item is inside a List or nested sub-lists, expand all ancestor lists
-        local pList = itemData.parentList
-        local ancestors = {}
-        while pList do
-            table.insert(ancestors, pList)
-            pList = pList.ParentList
-        end
-        for i = #ancestors, 1, -1 do
-            local listObj = ancestors[i]
-            if listObj and listObj.Open then
-                listObj.Open(false)
-            end
-        end
-
-        -- 4. Smoothly scroll to the target element and flash highlight
-        task.delay(0.08, function()
-            local el = itemData.element
-            if not el or not el.Parent then return end
-
-            local targetPage
-            for _, page in ipairs(hubState.tabPages) do
-                if page.Name == targetTab then
-                    targetPage = page
-                    break
-                end
-            end
-            if not targetPage and el:FindFirstAncestorWhichIsA("ScrollingFrame") then
-                targetPage = el:FindFirstAncestorWhichIsA("ScrollingFrame")
-            end
-
-            if targetPage and targetPage:IsA("ScrollingFrame") then
-                local relY = el.AbsolutePosition.Y - targetPage.AbsolutePosition.Y + targetPage.CanvasPosition.Y
-                TweenService:Create(targetPage, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    CanvasPosition = Vector2.new(0, math.max(0, relY - 40))
-                }):Play()
-            end
-
-            -- Flash highlight border
-            local existingStroke = el:FindFirstChildOfClass("UIStroke")
-            local originalColor = existingStroke and existingStroke.Color or Color3.fromRGB(34, 42, 58)
-            local origThickness = existingStroke and existingStroke.Thickness or 1
-            local flashStroke = existingStroke or applyStroke(el, hubState.currentThemeColor, 2, 0)
-
-            task.spawn(function()
-                for _ = 1, 2 do
-                    TweenService:Create(flashStroke, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        Color = Color3.fromRGB(255, 255, 255),
-                        Thickness = 2.5
-                    }):Play()
-                    task.wait(0.2)
-                    TweenService:Create(flashStroke, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                        Color = hubState.currentThemeColor,
-                        Thickness = 2
-                    }):Play()
-                    task.wait(0.25)
-                end
-                TweenService:Create(flashStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    Color = originalColor,
-                    Thickness = origThickness
-                }):Play()
-            end)
-        end)
-    end
-
-    function hubState.renderSearchResults(query)
+        function hubState.renderSearchResults(query)
         for _, child in ipairs(hubState.searchResultsPage:GetChildren()) do
             if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
                 child:Destroy()
@@ -4480,10 +4378,10 @@ return function(opts)
         local resTitle = Instance.new("TextLabel")
         resTitle.Size = UDim2.new(1, 0, 1, 0)
         resTitle.BackgroundTransparency = 1
-        resTitle.Text = "SEARCH RESULTS FOR: \"" .. cleanQ .. "\""
+        resTitle.Text = '🔍 SEARCH RESULTS: "' .. cleanQ .. '"'
         resTitle.TextColor3 = hubState.currentThemeColor
         resTitle.Font = Enum.Font.GothamBlack
-        resTitle.TextSize = 10
+        resTitle.TextSize = 11
         resTitle.TextXAlignment = Enum.TextXAlignment.Left
         resTitle.Parent = resHeader
         hubState.registerThemeText(resTitle)
@@ -4494,10 +4392,11 @@ return function(opts)
             local titleMatch = itemData.title and tostring(itemData.title):lower():find(cleanQ, 1, true)
             local subMatch = itemData.subtitle and tostring(itemData.subtitle):lower():find(cleanQ, 1, true)
             local tabMatch = itemData.tab and tostring(itemData.tab):lower():find(cleanQ, 1, true)
-            local parentMatch = itemData.parentList and itemData.parentList.Title and tostring(itemData.parentList.Title):lower():find(cleanQ, 1, true)
 
-            if titleMatch or subMatch or tabMatch or parentMatch then
+            if titleMatch or subMatch or tabMatch then
                 matchedCount = matchedCount + 1
+
+                local isToggle = (itemData.type == "Toggle" and itemData.get and itemData.set)
 
                 local card = Instance.new("Frame")
                 card.Name = "ResultCard_" .. tostring(id)
@@ -4509,8 +4408,8 @@ return function(opts)
                 local cStroke = applyStroke(card, Color3.fromRGB(36, 46, 66), 1, 0)
 
                 local cTitle = Instance.new("TextLabel")
-                cTitle.Size = UDim2.new(0.48, 0, 0, 20)
-                cTitle.Position = UDim2.new(0, 12, 0, 4)
+                cTitle.Size = UDim2.new(0.60, 0, 0, 20)
+                cTitle.Position = UDim2.new(0, 14, 0, 5)
                 cTitle.BackgroundTransparency = 1
                 cTitle.Text = tostring(itemData.title or "Function")
                 cTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
@@ -4521,14 +4420,10 @@ return function(opts)
                 cTitle.Parent = card
 
                 local cTabBadge = Instance.new("TextLabel")
-                cTabBadge.Size = UDim2.new(0.48, 0, 0, 16)
-                cTabBadge.Position = UDim2.new(0, 12, 0, 24)
+                cTabBadge.Size = UDim2.new(0.60, 0, 0, 16)
+                cTabBadge.Position = UDim2.new(0, 14, 0, 25)
                 cTabBadge.BackgroundTransparency = 1
-                local locationText = "📁 " .. tostring(itemData.tab or "Main")
-                if itemData.parentList and itemData.parentList.Title then
-                    locationText = locationText .. " › " .. tostring(itemData.parentList.Title)
-                end
-                cTabBadge.Text = locationText .. (itemData.bind and (" • ⌨️ [" .. itemData.bind .. "]") or "")
+                cTabBadge.Text = "📁 " .. tostring(itemData.tab or "Main") .. (itemData.bind and (" • ⌨️ [" .. itemData.bind .. "]") or "")
                 cTabBadge.TextColor3 = Color3.fromRGB(130, 145, 175)
                 cTabBadge.Font = Enum.Font.GothamMedium
                 cTabBadge.TextSize = 10
@@ -4536,31 +4431,26 @@ return function(opts)
                 cTabBadge.TextXAlignment = Enum.TextXAlignment.Left
                 cTabBadge.Parent = card
 
-                -- Navigation "Go to" button
-                local gotoBtn = Instance.new("TextButton")
-                gotoBtn.Size = UDim2.new(0, 60, 0, 24)
-                gotoBtn.Position = UDim2.new(1, -126, 0.5, -12)
-                gotoBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
-                gotoBtn.Text = "📍 Go to"
-                gotoBtn.TextColor3 = Color3.fromRGB(180, 205, 245)
-                gotoBtn.Font = Enum.Font.GothamBold
-                gotoBtn.TextSize = 10
-                gotoBtn.Parent = card
-                applyCorner(gotoBtn, 5)
-                applyStroke(gotoBtn, Color3.fromRGB(44, 56, 82), 1, 0)
+                -- Interactive Full-Card Click & Direct Toggle Controls
+                if isToggle then
+                    local curState = itemData.get() == true
 
-                gotoBtn.MouseButton1Click:Connect(function()
-                    jumpToFunction(itemData)
-                end)
+                    local statusLabel = Instance.new("TextLabel")
+                    statusLabel.Size = UDim2.new(0, 36, 0, 22)
+                    statusLabel.Position = UDim2.new(1, -100, 0.5, -11)
+                    statusLabel.BackgroundTransparency = 1
+                    statusLabel.Text = curState and "ON" or "OFF"
+                    statusLabel.TextColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
+                    statusLabel.Font = Enum.Font.GothamBlack
+                    statusLabel.TextSize = 10
+                    statusLabel.TextXAlignment = Enum.TextXAlignment.Right
+                    statusLabel.Parent = card
 
-                -- Interactive right action container
-                if itemData.type == "Toggle" and itemData.get and itemData.set then
-                    local switch = Instance.new("TextButton")
-                    switch.Size = UDim2.new(0, 48, 0, 24)
+                    local switch = Instance.new("Frame")
+                    switch.Size = UDim2.new(0, 46, 0, 24)
                     switch.Position = UDim2.new(1, -58, 0.5, -12)
-                    local curState = itemData.get()
-                    switch.BackgroundColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
-                    switch.Text = ""
+                    switch.BackgroundColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
+                    switch.BorderSizePixel = 0
                     switch.Parent = card
                     applyCorner(switch, 12)
 
@@ -4572,23 +4462,35 @@ return function(opts)
                     sKnob.Parent = switch
                     applyCorner(sKnob, 9)
 
-                    switch.MouseButton1Click:Connect(function()
-                        local nextState = not itemData.get()
+                    local function toggleFeature()
+                        local nextState = not (itemData.get() == true)
                         itemData.set(nextState)
+                        statusLabel.Text = nextState and "ON" or "OFF"
+                        statusLabel.TextColor3 = nextState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
                         local targetPos = nextState and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-                        local targetColor = nextState and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
-                        TweenService:Create(sKnob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+                        local targetColor = nextState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
+                        TweenService:Create(sKnob, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
                         TweenService:Create(switch, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
-                    end)
+                        TweenService:Create(cStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = nextState and hubState.currentThemeColor or Color3.fromRGB(36, 46, 66)}):Play()
+                    end
+
+                    local cardHitbox = Instance.new("TextButton")
+                    cardHitbox.Size = UDim2.new(1, 0, 1, 0)
+                    cardHitbox.BackgroundTransparency = 1
+                    cardHitbox.Text = ""
+                    cardHitbox.ZIndex = 25
+                    cardHitbox.Parent = card
+                    cardHitbox.MouseButton1Click:Connect(toggleFeature)
                 elseif itemData.type == "Slider" and itemData.get and itemData.set then
                     local sValBtn = Instance.new("TextButton")
-                    sValBtn.Size = UDim2.new(0, 52, 0, 24)
-                    sValBtn.Position = UDim2.new(1, -58, 0.5, -12)
+                    sValBtn.Size = UDim2.new(0, 74, 0, 24)
+                    sValBtn.Position = UDim2.new(1, -84, 0.5, -12)
                     sValBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
                     sValBtn.Text = tostring(itemData.get()) .. (itemData.suffix or "")
                     sValBtn.TextColor3 = hubState.currentThemeColor
                     sValBtn.Font = Enum.Font.GothamBold
                     sValBtn.TextSize = 11
+                    sValBtn.ZIndex = 25
                     sValBtn.Parent = card
                     applyCorner(sValBtn, 5)
 
@@ -4599,23 +4501,39 @@ return function(opts)
                         end
                     end)
                 else
-                    local actBtn = Instance.new("TextButton")
-                    actBtn.Size = UDim2.new(0, 52, 0, 24)
-                    actBtn.Position = UDim2.new(1, -58, 0.5, -12)
-                    actBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
-                    actBtn.Text = (itemData.type == "List" or itemData.type == "ListItem") and "Open ›" or "⚡ Run"
-                    actBtn.TextColor3 = hubState.currentThemeColor
-                    actBtn.Font = Enum.Font.GothamBold
-                    actBtn.TextSize = 10
-                    actBtn.Parent = card
-                    applyCorner(actBtn, 5)
+                    local trigBtn = Instance.new("TextButton")
+                    trigBtn.Size = UDim2.new(0, 68, 0, 24)
+                    trigBtn.Position = UDim2.new(1, -78, 0.5, -12)
+                    trigBtn.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
+                    trigBtn.Text = "Trigger ⚡"
+                    trigBtn.TextColor3 = hubState.currentThemeColor
+                    trigBtn.Font = Enum.Font.GothamBold
+                    trigBtn.TextSize = 10
+                    trigBtn.ZIndex = 25
+                    trigBtn.Parent = card
+                    applyCorner(trigBtn, 5)
 
-                    actBtn.MouseButton1Click:Connect(function()
+                    local function triggerAction()
+                        TweenService:Create(trigBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hubState.currentThemeColor, TextColor3 = Color3.fromRGB(15, 20, 30)}):Play()
                         if itemData.action then pcall(itemData.action) end
-                    end)
+                        task.delay(0.15, function()
+                            if trigBtn and trigBtn.Parent then
+                                TweenService:Create(trigBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = Color3.fromRGB(28, 36, 52), TextColor3 = hubState.currentThemeColor}):Play()
+                            end
+                        end)
+                    end
+
+                    trigBtn.MouseButton1Click:Connect(triggerAction)
+
+                    local cardHitbox = Instance.new("TextButton")
+                    cardHitbox.Size = UDim2.new(1, -85, 1, 0)
+                    cardHitbox.BackgroundTransparency = 1
+                    cardHitbox.Text = ""
+                    cardHitbox.ZIndex = 24
+                    cardHitbox.Parent = card
+                    cardHitbox.MouseButton1Click:Connect(triggerAction)
                 end
 
-                -- Right-click context keybind support on search result cards
                 hubState.attachContextMenu(card, itemData)
             end
         end
@@ -4749,9 +4667,7 @@ return function(opts)
             id = "btn_" .. tostring(text or "Button") .. "_" .. tostring(math.random(1000, 9999)),
             title = text or "Button",
             type = "Button",
-            tab = hubState.resolveTabName(parent),
-            parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
-            element = item,
+            tab = hubState.currentActiveTabName,
             action = function()
                 if callback then pcall(callback) end
             end
@@ -4868,9 +4784,7 @@ return function(opts)
             id = "toggle_" .. tostring(text or "Toggle"),
             title = text or "Toggle",
             type = "Toggle",
-            tab = hubState.resolveTabName(parent),
-            parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
-            element = frame,
+            tab = hubState.currentActiveTabName,
             set = setState,
             get = function() return isToggled end,
             action = function()
@@ -5015,9 +4929,7 @@ return function(opts)
             id = "slider_" .. tostring(titleText or "Slider"),
             title = titleText or "Slider",
             type = "Slider",
-            tab = hubState.resolveTabName(parent),
-            parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
-            element = frame,
+            tab = hubState.currentActiveTabName,
             min = minValue,
             max = maxValue,
             suffix = suffix,
@@ -5162,9 +5074,7 @@ return function(opts)
             title = titleText or "Item",
             subtitle = subtitleText or "",
             type = "ListItem",
-            tab = hubState.resolveTabName(parent),
-            parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
-            element = item,
+            tab = hubState.currentActiveTabName,
             action = function()
                 if callback then pcall(callback) end
             end
@@ -5235,13 +5145,13 @@ return function(opts)
             end
         end
 
-        local maxAllowedHeight = tonumber(height) or (isNestedList and 360 or 520)
+        local maxAllowedHeight = tonumber(height) or (isNestedList and 240 or 380)
         local selectionCallback = type(height) == "function" and height or nil
         local itemBuilder = type(items) == "function" and items or nil
 
         if itemBuilder then itemValues = {} end
         if selectionCallback then
-            maxAllowedHeight = 360
+            maxAllowedHeight = 300
             itemExpanded = true
         end
 
@@ -5317,10 +5227,6 @@ return function(opts)
             Items = {},
             SubLists = {},
             UpdateHeight = nil,
-            Open = nil,
-            Close = nil,
-            Toggle = nil,
-            IsOpen = nil,
             SetSelected = nil,
             SetSelectedItems = nil,
             ToggleSelected = nil,
@@ -5331,34 +5237,49 @@ return function(opts)
         }
         hubState.scrollingFrameToListMap[list] = listObject
 
-        local function calculateDesiredHeight()
+                local function calculateDesiredHeight()
             local contentH = 0
+            local visibleCount = 0
             for _, child in ipairs(list:GetChildren()) do
                 if child:IsA("GuiObject") and child.Visible and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+                    visibleCount = visibleCount + 1
                     local chH = child.Size.Y.Offset
                     if chH <= 0 and child.AbsoluteSize.Y > 0 then chH = child.AbsoluteSize.Y end
-                    if chH <= 0 then chH = 36 end
+                    if chH <= 0 then chH = 38 end
                     contentH = contentH + chH + layout.Padding.Offset
                 end
             end
             if layout.AbsoluteContentSize.Y > contentH then
                 contentH = layout.AbsoluteContentSize.Y
             end
-            local extraPadding = isNestedList and 8 or 10
+            if contentH <= 0 and #listObject.Items > 0 then
+                contentH = #listObject.Items * (38 + layout.Padding.Offset)
+            end
+            local extraPadding = isNestedList and 8 or 12
             local totalH = titleBtnHeight + contentH + extraPadding
             return math.clamp(totalH, titleBtnHeight + 20, maxAllowedHeight)
         end
 
+        local isUpdatingHeight = false
         local function updateListHeight(animate)
-            if not frame or not frame.Parent then return end
+            if not frame or not frame.Parent or isUpdatingHeight then return end
+            isUpdatingHeight = true
+
             if not open then
                 local targetSize = UDim2.new(1, -6, 0, titleBtnHeight)
                 if animate then
                     TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+                    TweenService:Create(list, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -8, 0, 0)}):Play()
                 else
                     frame.Size = targetSize
+                    list.Size = UDim2.new(1, -8, 0, 0)
                 end
-                list.Size = UDim2.new(1, -8, 0, 0)
+                task.delay(0.22, function()
+                    if not open and list and list.Parent then
+                        list.Visible = false
+                    end
+                    isUpdatingHeight = false
+                end)
                 if listObject and listObject.ParentList and listObject.ParentList.UpdateHeight then
                     task.defer(function()
                         listObject.ParentList.UpdateHeight(animate)
@@ -5367,17 +5288,23 @@ return function(opts)
                 return
             end
 
-            local targetH = calculateDesiredHeight()
-            local targetSize = UDim2.new(1, -6, 0, targetH)
-            local innerH = math.max(0, targetH - titleBtnHeight - (isNestedList and 4 or 6))
-            list.Size = UDim2.new(1, -8, 0, innerH)
             list.Visible = true
+            local targetH = calculateDesiredHeight()
+            local listTargetH = math.max(10, targetH - titleBtnHeight - (isNestedList and 6 or 8))
+            local targetSize = UDim2.new(1, -6, 0, targetH)
+            local listSize = UDim2.new(1, -8, 0, listTargetH)
 
             if animate then
-                TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+                TweenService:Create(frame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+                TweenService:Create(list, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = listSize}):Play()
             else
                 frame.Size = targetSize
+                list.Size = listSize
             end
+
+            task.delay(0.25, function()
+                isUpdatingHeight = false
+            end)
 
             if listObject and listObject.ParentList and listObject.ParentList.UpdateHeight then
                 task.defer(function()
@@ -5386,31 +5313,18 @@ return function(opts)
             end
         end
 
-        local function bindChildListeners(child)
-            if not child:IsA("GuiObject") or child:IsA("UIListLayout") or child:IsA("UIPadding") then return end
-            child:GetPropertyChangedSignal("Size"):Connect(function()
-                if open then updateListHeight(false) end
-            end)
-            child:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-                if open then updateListHeight(false) end
-            end)
-            child:GetPropertyChangedSignal("Visible"):Connect(function()
-                if open then updateListHeight(false) end
-            end)
-        end
-
-        for _, child in ipairs(list:GetChildren()) do
-            bindChildListeners(child)
-        end
-
+        local layoutDebounce = false
         layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            if open then
-                updateListHeight(false)
+            if open and not layoutDebounce and not isUpdatingHeight then
+                layoutDebounce = true
+                task.delay(0.08, function()
+                    layoutDebounce = false
+                    if open then updateListHeight(false) end
+                end)
             end
         end)
 
         list.ChildAdded:Connect(function(child)
-            bindChildListeners(child)
             task.defer(function()
                 if open then updateListHeight(false) end
             end)
@@ -5422,31 +5336,11 @@ return function(opts)
             end)
         end)
 
-        local function setOpenState(state, animate)
-            if open == state then return end
-            open = state
-            if animate ~= false then
-                TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = open and 0 or -90}):Play()
-            else
-                arrow.Rotation = open and 0 or -90
-            end
-            updateListHeight(animate ~= false)
-            if not open then
-                if animate ~= false then
-                    task.delay(0.2, function()
-                        if not open and list.Parent then list.Visible = false end
-                    end)
-                else
-                    list.Visible = false
-                end
-            else
-                list.Visible = true
-            end
-        end
-
         titleBtn.MouseButton1Click:Connect(function()
             if hubState.isModalActive then return end
-            setOpenState(not open, true)
+            open = not open
+            TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = open and 0 or -90}):Play()
+            updateListHeight(true)
         end)
 
         -- Initial sizing setup
@@ -5463,18 +5357,6 @@ return function(opts)
         listObject.Items = {}
         listObject.SubLists = {}
         listObject.UpdateHeight = updateListHeight
-        listObject.Open = function(animate)
-            setOpenState(true, animate)
-        end
-        listObject.Close = function(animate)
-            setOpenState(false, animate)
-        end
-        listObject.Toggle = function(animate)
-            setOpenState(not open, animate)
-        end
-        listObject.IsOpen = function()
-            return open
-        end
         listObject.SetSelected = function(value)
             if listObject.MultiSelect then
                 local values = {}
@@ -5520,7 +5402,7 @@ return function(opts)
                 end
             end
             listObject.SelectedItem = listObject.SelectedItems[1]
-            hubState.configValues["list:" .. tostring(itemTitle)] = table.concat(selectedNames, "\t")
+            hubState.configValues["list:" .. tostring(itemTitle)] = table.concat(selectedNames, "	")
             return listObject.SelectedItems
         end
         listObject.ToggleSelected = function(value)
@@ -5559,21 +5441,6 @@ return function(opts)
                 listObject.SetSelected(value)
             end
         end
-
-        local itemData = {
-            id = "list_" .. tostring(itemTitle) .. "_" .. tostring(math.random(1000, 9999)),
-            title = itemTitle or "List",
-            type = isNestedList and "SubList" or "List",
-            tab = hubState.resolveTabName(parentTarget or parent),
-            parentList = parentListObj,
-            element = frame,
-            listObject = listObject,
-            action = function()
-                listObject.Toggle(true)
-            end
-        }
-        hubState.registerFunctionItem(itemData)
-        hubState.attachContextMenu(frame, itemData)
 
         local function addEntry(entry)
             local entryData = nil
@@ -5782,9 +5649,7 @@ return function(opts)
             id = "dropdown_" .. tostring(titleText or "Dropdown"),
             title = titleText or "Dropdown",
             type = "Dropdown",
-            tab = hubState.resolveTabName(parent),
-            parentList = typeof(parent) == "Instance" and hubState.scrollingFrameToListMap[parent] or nil,
-            element = frame,
+            tab = hubState.currentActiveTabName,
             action = toggleDropdown
         }
         hubState.registerFunctionItem(itemData)
