@@ -1092,6 +1092,72 @@ return function(opts)
     hubState.featureKeybinds = {}
     hubState.attachContextMenu = nil
     hubState.searchBox = nil
+    hubState.favoriteItemIds = {}
+    hubState.favoriteItems = {}
+    hubState.functionItemMap = {}
+    hubState.activeContextMenuClose = nil
+
+    local FAVORITES_FILE = "UnknownHub/Favorites.json"
+    local function saveFavoritesConfig()
+        pcall(function()
+            if writefile then
+                local favIds = {}
+                for id, isFav in pairs(hubState.favoriteItemIds) do
+                    if isFav then
+                        table.insert(favIds, id)
+                    end
+                end
+                writefile(FAVORITES_FILE, HttpService:JSONEncode(favIds))
+            end
+        end)
+    end
+
+    local function loadFavoritesConfig()
+        pcall(function()
+            if isfile and readfile and isfile(FAVORITES_FILE) then
+                local raw = readfile(FAVORITES_FILE)
+                local data = HttpService:JSONDecode(raw)
+                if type(data) == "table" then
+                    for _, id in ipairs(data) do
+                        hubState.favoriteItemIds[id] = true
+                    end
+                end
+            end
+        end)
+    end
+    loadFavoritesConfig()
+
+    function hubState.isFavorite(itemId)
+        return hubState.favoriteItemIds[itemId] == true
+    end
+
+    function hubState.toggleFavorite(itemData)
+        if not itemData or not itemData.id then return end
+        local isFav = hubState.favoriteItemIds[itemData.id] == true
+        if isFav then
+            hubState.favoriteItemIds[itemData.id] = nil
+            hubState.favoriteItems[itemData.id] = nil
+            hubState.notify({
+                Title = "Favorites",
+                Content = "Removed '" .. tostring(itemData.title) .. "' from Favorites",
+                Color = Color3.fromRGB(255, 140, 140),
+                Duration = 2.5
+            })
+        else
+            hubState.favoriteItemIds[itemData.id] = true
+            hubState.favoriteItems[itemData.id] = itemData
+            hubState.notify({
+                Title = "Favorites",
+                Content = "Added '" .. tostring(itemData.title) .. "' to Favorites ⭐",
+                Color = Color3.fromRGB(255, 215, 0),
+                Duration = 2.5
+            })
+        end
+        saveFavoritesConfig()
+        if hubState.refreshFavoritesPage then
+            hubState.refreshFavoritesPage()
+        end
+    end
 
     function hubState.updateNotifBadge()
         if hubState.notifBadgeContainer and hubState.notifBadgeLabel then
@@ -1494,6 +1560,13 @@ return function(opts)
 
     hubState.openBindContextMenu = function(itemData, mousePos)
         if not itemData then return end
+
+        -- Close any currently active RMB context menu immediately
+        if hubState.activeContextMenuClose then
+            pcall(hubState.activeContextMenuClose)
+            hubState.activeContextMenuClose = nil
+        end
+
         local existing = hubState.screenGui:FindFirstChild("BindContextMenuOverlay")
         if existing then pcall(function() existing:Destroy() end) end
 
@@ -1504,22 +1577,14 @@ return function(opts)
         overlay.ZIndex = 280
         overlay.Parent = hubState.screenGui
 
-        local blocker = Instance.new("TextButton")
-        blocker.Size = UDim2.new(1, 0, 1, 0)
-        blocker.BackgroundTransparency = 1
-        blocker.Text = ""
-        blocker.AutoButtonColor = false
-        blocker.ZIndex = 280
-        blocker.Parent = overlay
-
         local posX = mousePos and mousePos.X or (hubState.screenGui.AbsoluteSize.X / 2 - 120)
         local posY = mousePos and mousePos.Y or (hubState.screenGui.AbsoluteSize.Y / 2 - 100)
         posX = math.clamp(posX, 10, math.max(10, hubState.screenGui.AbsoluteSize.X - 250))
-        posY = math.clamp(posY, 10, math.max(10, hubState.screenGui.AbsoluteSize.Y - 210))
+        posY = math.clamp(posY, 10, math.max(10, hubState.screenGui.AbsoluteSize.Y - 245))
 
         local menu = Instance.new("Frame")
         menu.Name = "ContextMenu"
-        menu.Size = UDim2.new(0, 240, 0, 195)
+        menu.Size = UDim2.new(0, 240, 0, 230)
         menu.Position = UDim2.new(0, posX, 0, posY)
         menu.BackgroundColor3 = Color3.fromRGB(15, 19, 28)
         menu.BorderSizePixel = 0
@@ -1571,11 +1636,11 @@ return function(opts)
 
         local mLayout = Instance.new("UIListLayout")
         mLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        mLayout.Padding = UDim.new(0, 6)
+        mLayout.Padding = UDim.new(0, 5)
         mLayout.Parent = mBody
 
         local currentBindLabel = Instance.new("TextLabel")
-        currentBindLabel.Size = UDim2.new(1, 0, 0, 20)
+        currentBindLabel.Size = UDim2.new(1, 0, 0, 18)
         currentBindLabel.BackgroundTransparency = 1
         currentBindLabel.Text = "Current Bind: " .. (itemData.bind and ("[" .. itemData.bind .. "]") or "[ None ]")
         currentBindLabel.TextColor3 = itemData.bind and hubState.currentThemeColor or Color3.fromRGB(150, 160, 185)
@@ -1585,8 +1650,32 @@ return function(opts)
         currentBindLabel.ZIndex = 283
         currentBindLabel.Parent = mBody
 
+        -- ⭐ Add / Remove Favorites Button
+        local favBtn = Instance.new("TextButton")
+        favBtn.Size = UDim2.new(1, 0, 0, 26)
+        favBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 48)
+        favBtn.Font = Enum.Font.GothamBold
+        favBtn.TextSize = 11
+        favBtn.ZIndex = 283
+        favBtn.Parent = mBody
+        applyCorner(favBtn, 5)
+        local favStroke = applyStroke(favBtn, Color3.fromRGB(255, 215, 0), 1, 0.4)
+
+        local function updateFavBtn()
+            local isFav = hubState.isFavorite(itemData.id)
+            favBtn.Text = isFav and "⭐ In Favorites (Click to Remove)" or "⭐ Add in Favorites"
+            favBtn.TextColor3 = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(225, 235, 255)
+            favBtn.BackgroundColor3 = isFav and Color3.fromRGB(42, 36, 20) or Color3.fromRGB(28, 34, 48)
+        end
+        updateFavBtn()
+
+        favBtn.MouseButton1Click:Connect(function()
+            hubState.toggleFavorite(itemData)
+            updateFavBtn()
+        end)
+
         local setBindBtn = Instance.new("TextButton")
-        setBindBtn.Size = UDim2.new(1, 0, 0, 28)
+        setBindBtn.Size = UDim2.new(1, 0, 0, 26)
         setBindBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
         setBindBtn.Text = "⌨️ Set Keybind"
         setBindBtn.TextColor3 = Color3.fromRGB(225, 235, 255)
@@ -1598,7 +1687,7 @@ return function(opts)
         applyStroke(setBindBtn, Color3.fromRGB(40, 52, 76), 1, 0)
 
         local clearBindBtn = Instance.new("TextButton")
-        clearBindBtn.Size = UDim2.new(1, 0, 0, 28)
+        clearBindBtn.Size = UDim2.new(1, 0, 0, 26)
         clearBindBtn.BackgroundColor3 = Color3.fromRGB(32, 24, 28)
         clearBindBtn.Text = "❌ Clear Keybind"
         clearBindBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
@@ -1609,7 +1698,7 @@ return function(opts)
         applyCorner(clearBindBtn, 5)
 
         local triggerBtn = Instance.new("TextButton")
-        triggerBtn.Size = UDim2.new(1, 0, 0, 28)
+        triggerBtn.Size = UDim2.new(1, 0, 0, 26)
         triggerBtn.BackgroundColor3 = Color3.fromRGB(20, 28, 42)
         triggerBtn.Text = "⚡ Trigger / Toggle Now"
         triggerBtn.TextColor3 = hubState.currentThemeColor
@@ -1621,17 +1710,39 @@ return function(opts)
 
         local isListeningKey = false
         local keyConn = nil
+        local outsideClickConn = nil
 
         local function closeMenu()
             if keyConn then
                 keyConn:Disconnect()
                 keyConn = nil
             end
-            if overlay and overlay.Parent then overlay:Destroy() end
+            if outsideClickConn then
+                outsideClickConn:Disconnect()
+                outsideClickConn = nil
+            end
+            if hubState.activeContextMenuClose == closeMenu then
+                hubState.activeContextMenuClose = nil
+            end
+            if overlay and overlay.Parent then
+                overlay:Destroy()
+            end
         end
 
-        blocker.MouseButton1Click:Connect(closeMenu)
+        hubState.activeContextMenuClose = closeMenu
         mClose.MouseButton1Click:Connect(closeMenu)
+
+        -- Outside click listener: allows seamless clicking/right-clicking other UI elements while closing this menu
+        outsideClickConn = UserInputService.InputBegan:Connect(function(input, gpe)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                local mouseLocation = UserInputService:GetMouseLocation()
+                local mPos = menu.AbsolutePosition
+                local mSize = menu.AbsoluteSize
+                if mouseLocation.X < mPos.X or mouseLocation.X > (mPos.X + mSize.X) or mouseLocation.Y < mPos.Y or mouseLocation.Y > (mPos.Y + mSize.Y) then
+                    closeMenu()
+                end
+            end
+        end)
 
         setBindBtn.MouseButton1Click:Connect(function()
             if isListeningKey then return end
@@ -3741,8 +3852,8 @@ return function(opts)
     subTitleLabel.AutomaticSize = Enum.AutomaticSize.X
     subTitleLabel.Size = UDim2.new(0, 0, 1, 0)
     subTitleLabel.BackgroundTransparency = 1
-    subTitleLabel.Text = hubState.isDeveloper and ("👑 DEV: " .. devUsername) or (opts.subTitle or opts.subtitle or "v2.0")
-    subTitleLabel.TextColor3 = hubState.isDeveloper and Color3.fromRGB(190, 130, 255) or Color3.fromRGB(130, 140, 165)
+    subTitleLabel.Text = opts.subTitle or opts.subtitle or "v2.0"
+    subTitleLabel.TextColor3 = Color3.fromRGB(130, 140, 165)
     subTitleLabel.Font = Enum.Font.GothamBold
     subTitleLabel.TextSize = 11
     subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -6239,16 +6350,152 @@ return function(opts)
         favHeader.Parent = hubState.favoritesPage
         hubState.registerThemeText(favHeader)
 
+        local favContainer = Instance.new("Frame")
+        favContainer.Name = "FavContainer"
+        favContainer.Size = UDim2.new(1, 0, 0, 0)
+        favContainer.AutomaticSize = Enum.AutomaticSize.Y
+        favContainer.BackgroundTransparency = 1
+        favContainer.BorderSizePixel = 0
+        favContainer.Parent = hubState.favoritesPage
+
+        local favLayout = Instance.new("UIListLayout")
+        favLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        favLayout.Padding = UDim.new(0, 6)
+        favLayout.Parent = favContainer
+
         local favEmpty = Instance.new("TextLabel")
         favEmpty.Name = "FavEmpty"
         favEmpty.Size = UDim2.new(1, -6, 0, 60)
         favEmpty.BackgroundTransparency = 1
-        favEmpty.Text = "No favorites pinned yet!\nRight-click or hold any feature to add it here."
+        favEmpty.Text = "No favorites pinned yet!\nRight-click any feature to add it to Favorites ⭐"
         favEmpty.TextColor3 = Color3.fromRGB(130, 140, 165)
         favEmpty.Font = Enum.Font.GothamMedium
         favEmpty.TextSize = 11
         favEmpty.TextXAlignment = Enum.TextXAlignment.Center
         favEmpty.Parent = hubState.favoritesPage
+
+        function hubState.refreshFavoritesPage()
+            if not hubState.favoritesPage then return end
+            local container = hubState.favoritesPage:FindFirstChild("FavContainer")
+            local emptyLabel = hubState.favoritesPage:FindFirstChild("FavEmpty")
+            if not container then return end
+
+            for _, child in ipairs(container:GetChildren()) do
+                if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+                    child:Destroy()
+                end
+            end
+
+            local count = 0
+            for id, isFav in pairs(hubState.favoriteItemIds) do
+                if isFav then
+                    local itemData = hubState.favoriteItems[id] or hubState.functionItemMap[id]
+                    if itemData then
+                        count = count + 1
+                        local card = Instance.new("Frame")
+                        card.Name = "FavCard_" .. tostring(id)
+                        card.Size = UDim2.new(1, -6, 0, 38)
+                        card.BackgroundColor3 = Color3.fromRGB(18, 24, 35)
+                        card.BorderSizePixel = 0
+                        card.Parent = container
+                        applyCorner(card, 6)
+                        applyStroke(card, Color3.fromRGB(38, 48, 70), 1, 0.4)
+
+                        local icon = Instance.new("TextLabel")
+                        icon.Size = UDim2.new(0, 24, 1, 0)
+                        icon.Position = UDim2.new(0, 8, 0, 0)
+                        icon.BackgroundTransparency = 1
+                        icon.Text = itemData.type == "Toggle" and "🔘" or (itemData.type == "Slider" and "🎚️" or "⚡")
+                        icon.TextSize = 13
+                        icon.Parent = card
+
+                        local title = Instance.new("TextLabel")
+                        title.Size = UDim2.new(1, -160, 0, 18)
+                        title.Position = UDim2.new(0, 36, 0, 3)
+                        title.BackgroundTransparency = 1
+                        title.Text = tostring(itemData.title or "Feature")
+                        title.TextColor3 = Color3.fromRGB(240, 245, 255)
+                        title.Font = Enum.Font.GothamBold
+                        title.TextSize = 12
+                        title.TextTruncate = Enum.TextTruncate.AtEnd
+                        title.TextXAlignment = Enum.TextXAlignment.Left
+                        title.Parent = card
+
+                        local sub = Instance.new("TextLabel")
+                        sub.Size = UDim2.new(1, -160, 0, 14)
+                        sub.Position = UDim2.new(0, 36, 0, 20)
+                        sub.BackgroundTransparency = 1
+                        sub.Text = "[" .. tostring(itemData.tab or "Main") .. "] • " .. tostring(itemData.type or "Feature") .. (itemData.bind and (" • [" .. itemData.bind .. "]") or "")
+                        sub.TextColor3 = Color3.fromRGB(120, 135, 160)
+                        sub.Font = Enum.Font.GothamMedium
+                        sub.TextSize = 10
+                        sub.TextTruncate = Enum.TextTruncate.AtEnd
+                        sub.TextXAlignment = Enum.TextXAlignment.Left
+                        sub.Parent = card
+
+                        local unpinBtn = Instance.new("TextButton")
+                        unpinBtn.Size = UDim2.new(0, 24, 0, 24)
+                        unpinBtn.Position = UDim2.new(1, -30, 0.5, -12)
+                        unpinBtn.BackgroundColor3 = Color3.fromRGB(30, 38, 54)
+                        unpinBtn.Text = "⭐"
+                        unpinBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
+                        unpinBtn.Font = Enum.Font.GothamBold
+                        unpinBtn.TextSize = 11
+                        unpinBtn.Parent = card
+                        applyCorner(unpinBtn, 4)
+
+                        unpinBtn.MouseButton1Click:Connect(function()
+                            hubState.toggleFavorite(itemData)
+                        end)
+
+                        if itemData.type == "Toggle" then
+                            local tBtn = Instance.new("TextButton")
+                            tBtn.Size = UDim2.new(0, 60, 0, 24)
+                            tBtn.Position = UDim2.new(1, -98, 0.5, -12)
+                            tBtn.Font = Enum.Font.GothamBold
+                            tBtn.TextSize = 11
+                            tBtn.Parent = card
+                            applyCorner(tBtn, 4)
+
+                            local function updateTBtn()
+                                local cur = itemData.get and itemData.get() or false
+                                tBtn.Text = cur and "ON" or "OFF"
+                                tBtn.BackgroundColor3 = cur and hubState.currentThemeColor or Color3.fromRGB(34, 42, 60)
+                                tBtn.TextColor3 = cur and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 170, 195)
+                            end
+                            updateTBtn()
+
+                            tBtn.MouseButton1Click:Connect(function()
+                                if itemData.action then pcall(itemData.action) end
+                                updateTBtn()
+                            end)
+                        else
+                            local eBtn = Instance.new("TextButton")
+                            eBtn.Size = UDim2.new(0, 60, 0, 24)
+                            eBtn.Position = UDim2.new(1, -98, 0.5, -12)
+                            eBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
+                            eBtn.Text = "Run"
+                            eBtn.TextColor3 = hubState.currentThemeColor
+                            eBtn.Font = Enum.Font.GothamBold
+                            eBtn.TextSize = 11
+                            eBtn.Parent = card
+                            applyCorner(eBtn, 4)
+
+                            eBtn.MouseButton1Click:Connect(function()
+                                if itemData.action then pcall(itemData.action) end
+                            end)
+                        end
+
+                        hubState.attachContextMenu(card, itemData)
+                    end
+                end
+            end
+
+            if emptyLabel then
+                emptyLabel.Visible = (count == 0)
+            end
+        end
+        hubState.refreshFavoritesPage()
 
         -- 📦 Script Repository & Cloud Scripts Page (Header Quick-Access Only)
         hubState.repoPage = hubState.createPage("Repository")
