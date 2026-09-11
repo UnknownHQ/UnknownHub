@@ -429,169 +429,79 @@ end)
 -- =========================================================================
 Hub.CreateSection(badgeTab, "One-Click Instant Badge Solvers")
 
--- Auto-Elude Solver (Keypad in Arena OR Relics in Elude Maze)
-Hub.CreateButton(badgeTab, "🚪 Auto-Get Elude Glove (Keypad & Relics)", function()
+-- Auto-Elude Solver (Teleport to Place 9426795465 -> Sweep 4 Relics)
+Hub.CreateButton(badgeTab, "🚪 Auto-Get Elude Glove (Teleport & Solve)", function()
     task.spawn(function()
         local isEludeMaze = (game.PlaceId == 9426795465) or (Workspace:FindFirstChild("Maze") ~= nil)
 
-        if isEludeMaze then
-            -- We are inside the Elude Maze Realm! Collect the 4 relics!
+        if not isEludeMaze then
             Hub.notify({
-                Title = "Elude Maze Active",
-                Content = "Scanning for 4 maze relics...",
-                Duration = 4
-            })
-            local collected = 0
-            for _, relic in ipairs(Workspace:GetDescendants()) do
-                if relic:IsA("BasePart") and (relic.Name:lower():find("relic") or relic.Name:lower():find("key") or relic.Name == "Item") then
-                    local myRoot = getRoot()
-                    if myRoot then
-                        myRoot.CFrame = relic.CFrame + Vector3.new(0, 2, 0)
-                        collected = collected + 1
-                        task.wait(0.8)
-                    end
-                end
-            end
-
-            local pedestal = Workspace:FindFirstChild("EludePedestal", true) or Workspace:FindFirstChild("EludeGlove", true) or Workspace:FindFirstChild("Pedestal", true)
-            if pedestal and pedestal:IsA("BasePart") then
-                local myRoot = getRoot()
-                if myRoot then
-                    myRoot.CFrame = pedestal.CFrame + Vector3.new(0, 3, 0)
-                end
-            end
-
-            Hub.notify({
-                Title = "Elude Maze Done",
-                Content = "Collected " .. tostring(collected) .. " relics and touched pedestal!",
+                Title = "Teleporting to Elude Maze...",
+                Content = "Teleporting directly to Place ID 9426795465. Re-execute script when loaded!",
                 Duration = 6
             })
-        else
-            -- We are in Main Arena / Lobby: Calculate and solve the Keypad
-            local pCount = #Players:GetPlayers()
-            local code = (pCount * 25) + 1100 - 7
-            
-            Hub.notify({
-                Title = "Elude Keypad Solver",
-                Content = "Calculated Code: " .. tostring(code) .. " (Players: " .. tostring(pCount) .. ")",
-                Duration = 5
-            })
+            task.wait(0.5)
+            pcall(function()
+                TeleportService:Teleport(9426795465, LocalPlayer)
+            end)
+            if ReplicatedStorage:FindFirstChild("TeleportElude") then
+                pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
+            end
+            return
+        end
 
-            local keypad = Workspace:FindFirstChild("Keypad")
-            if keypad and keypad:FindFirstChild("Buttons") then
-                local root = getRoot()
-                if root and keypad:FindFirstChild("Display") then
-                    root.CFrame = keypad.Display.CFrame + Vector3.new(0, 0, -4)
-                    task.wait(0.5)
+        -- Inside Elude Maze Place (9426795465): Sweep all 4 relics
+        Hub.notify({
+            Title = "Elude Maze Active",
+            Content = "Collecting 4 hidden relics in maze...",
+            Duration = 4
+        })
+
+        local collected = 0
+        for _, relic in ipairs(Workspace:GetDescendants()) do
+            if relic:IsA("BasePart") and (relic.Name:lower():find("relic") or relic.Name:lower():find("key") or relic.Name == "Item") and relic.Parent and relic.Parent.Name ~= "Lobby" then
+                local myRoot = getRoot()
+                if myRoot then
+                    myRoot.CFrame = relic.CFrame + Vector3.new(0, 2, 0)
+                    collected = collected + 1
+                    task.wait(0.8)
                 end
-
-                local buttons = keypad.Buttons
-                -- Reset first
-                if buttons:FindFirstChild("Reset") and buttons.Reset:FindFirstChildWhichIsA("ClickDetector") then
-                    fireclickdetector(buttons.Reset:FindFirstChildWhichIsA("ClickDetector"))
-                    task.wait(0.3)
-                end
-
-                -- Enter each digit
-                for digit in tostring(code):gmatch(".") do
-                    local btn = buttons:FindFirstChild(digit)
-                    if btn and btn:FindFirstChildWhichIsA("ClickDetector") then
-                        fireclickdetector(btn:FindFirstChildWhichIsA("ClickDetector"))
-                        task.wait(0.25)
-                    end
-                end
-
-                -- Enter button
-                if buttons:FindFirstChild("Enter") and buttons.Enter:FindFirstChildWhichIsA("ClickDetector") then
-                    fireclickdetector(buttons.Enter:FindFirstChildWhichIsA("ClickDetector"))
-                end
-
-                if ReplicatedStorage:FindFirstChild("TeleportElude") then
-                    pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
-                end
-
-                Hub.notify({
-                    Title = "Keypad Solved!",
-                    Content = "Code entered! Teleporting to Elude Maze... Once loaded, run this button again to sweep relics!",
-                    Duration = 7
-                })
-            else
-                Hub.notify({
-                    Title = "Keypad Not Found",
-                    Content = "No Keypad model active in current server.",
-                    Duration = 4
-                })
             end
         end
+
+        local pedestal = Workspace:FindFirstChild("EludePedestal", true) or Workspace:FindFirstChild("EludeGlove", true) or Workspace:FindFirstChild("Pedestal", true)
+        if pedestal and pedestal:IsA("BasePart") then
+            local myRoot = getRoot()
+            if myRoot then
+                myRoot.CFrame = pedestal.CFrame + Vector3.new(0, 3, 0)
+            end
+        end
+
+        Hub.notify({
+            Title = "🏆 Elude Glove Done!",
+            Content = "Collected relics (" .. tostring(collected) .. ") and touched pedestal!",
+            Duration = 8
+        })
     end)
 end)
 
--- Auto-Counter Glove Solver (Teleport to Maze -> Auto-Solve in Maze)
+-- Auto-Counter Glove Solver (Teleport to Place 9426795465 -> Pull Lever & Claim)
 Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Teleport & Solve)", function()
     task.spawn(function()
         local isEludeMaze = (game.PlaceId == 9426795465) or (Workspace:FindFirstChild("Maze") ~= nil) or (Workspace:FindFirstChild("Pim") ~= nil) or (Workspace:FindFirstChild("RoomsFolder") ~= nil)
 
         if not isEludeMaze then
-            -- In Main Arena: Teleport the player directly to the Elude Maze place
-            local pCount = #Players:GetPlayers()
-            local code = (pCount * 25) + 1100 - 7
-
             Hub.notify({
-                Title = "Counter Solver (Phase 1)",
-                Content = "Solving Keypad (" .. tostring(code) .. ") to teleport you into the Elude Maze...",
-                Duration = 5
+                Title = "Teleporting to Elude Maze...",
+                Content = "Teleporting directly to Place ID 9426795465. Re-execute script when loaded!",
+                Duration = 6
             })
-
-            local keypad = Workspace:FindFirstChild("Keypad")
-            if keypad and keypad:FindFirstChild("Buttons") then
-                local root = getRoot()
-                if root and keypad:FindFirstChild("Display") then
-                    root.CFrame = keypad.Display.CFrame + Vector3.new(0, 0, -4)
-                    task.wait(0.4)
-                end
-
-                local buttons = keypad.Buttons
-                if buttons:FindFirstChild("Reset") and buttons.Reset:FindFirstChildWhichIsA("ClickDetector") then
-                    fireclickdetector(buttons.Reset:FindFirstChildWhichIsA("ClickDetector"))
-                    task.wait(0.25)
-                end
-
-                for digit in tostring(code):gmatch(".") do
-                    local btn = buttons:FindFirstChild(digit)
-                    if btn and btn:FindFirstChildWhichIsA("ClickDetector") then
-                        fireclickdetector(btn:FindFirstChildWhichIsA("ClickDetector"))
-                        task.wait(0.2)
-                    end
-                end
-
-                if buttons:FindFirstChild("Enter") and buttons.Enter:FindFirstChildWhichIsA("ClickDetector") then
-                    fireclickdetector(buttons.Enter:FindFirstChildWhichIsA("ClickDetector"))
-                end
-
-                if ReplicatedStorage:FindFirstChild("TeleportElude") then
-                    pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
-                end
-
-                Hub.notify({
-                    Title = "Teleporting to Elude Maze...",
-                    Content = "When you load into the Elude Maze place, execute the script again for full Auto-Counter!",
-                    Duration = 8
-                })
-            else
-                if ReplicatedStorage:FindFirstChild("TeleportElude") then
-                    pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
-                    Hub.notify({
-                        Title = "Teleporting...",
-                        Content = "Dispatched TeleportElude to send you to the maze.",
-                        Duration = 5
-                    })
-                else
-                    Hub.notify({
-                        Title = "Counter Solver",
-                        Content = "Keypad not ready. Please try again in a moment.",
-                        Duration = 4
-                    })
-                end
+            task.wait(0.5)
+            pcall(function()
+                TeleportService:Teleport(9426795465, LocalPlayer)
+            end)
+            if ReplicatedStorage:FindFirstChild("TeleportElude") then
+                pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
             end
             return
         end
