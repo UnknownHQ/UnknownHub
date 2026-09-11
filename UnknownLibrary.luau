@@ -1,0 +1,7157 @@
+--[[
+    ========================================================================
+    ENI Tabbed Hub UI Library - Next-Gen Responsive Ocean Edition
+    ========================================================================
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
+local StatsService = game:GetService("Stats")
+
+local function applyCorner(obj, radius)
+    if not obj then return nil end
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 8)
+    c.Parent = obj
+    return c
+end
+
+local function applyStroke(obj, color, thickness, transparency)
+    if not obj then return nil end
+    local s = Instance.new("UIStroke")
+    s.Color = color or Color3.fromRGB(42, 52, 74)
+    s.Thickness = thickness or 1
+    s.Transparency = transparency or 0
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = obj
+    return s
+end
+
+local function copyText(value)
+    local copier = type(setclipboard) == "function" and setclipboard or (type(toclipboard) == "function" and toclipboard or nil)
+    if not copier then return false end
+    return pcall(copier, tostring(value))
+end
+
+local function dispatchHttpRequest(url, method, headers, body)
+    if not url or type(url) ~= "string" or not url:find("http") then return end
+    task.spawn(function()
+        local httpRequestFn = (syn and syn.request)
+            or (http and http.request)
+            or http_request
+            or (fluxus and fluxus.request)
+            or (krnl and krnl.request)
+            or request
+
+        local payloadBody = (type(body) == "table") and HttpService:JSONEncode(body) or tostring(body or "")
+        local headersMap = headers or { ["Content-Type"] = "application/json" }
+
+        if httpRequestFn then
+            pcall(function()
+                httpRequestFn({
+                    Url = url,
+                    Method = method or "POST",
+                    Headers = headersMap,
+                    Body = payloadBody
+                })
+            end)
+        elseif typeof(game) == "Instance" and game.HttpPost then
+            pcall(function()
+                game:HttpPost(url, payloadBody, true, "application/json")
+            end)
+        end
+    end)
+end
+
+local ANNOUNCEMENTS_STORAGE_FILE = "ENI_GlobalAnnouncements.json"
+local SEEN_ANNOUNCEMENTS_FILE = "ENI_SeenAnnouncements.json"
+local FEEDBACKS_STORAGE_FILE = "ENI_DevFeedbackInbox.json"
+local SEEN_FEEDBACKS_FILE = "ENI_SeenFeedbacks.json"
+
+local function loadStoredAnnouncements()
+    if readfile and isfile and isfile(ANNOUNCEMENTS_STORAGE_FILE) then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(ANNOUNCEMENTS_STORAGE_FILE))
+        end)
+        if ok and type(data) == "table" then return data end
+    end
+    return {}
+end
+
+local function loadSeenAnnouncements()
+    if readfile and isfile and isfile(SEEN_ANNOUNCEMENTS_FILE) then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(SEEN_ANNOUNCEMENTS_FILE))
+        end)
+        if ok and type(data) == "table" then return data end
+    end
+    return {}
+end
+
+local function persistAnnouncementRecord(record)
+    local list = loadStoredAnnouncements()
+    table.insert(list, record)
+    if writefile then
+        pcall(function()
+            writefile(ANNOUNCEMENTS_STORAGE_FILE, HttpService:JSONEncode(list))
+        end)
+    end
+end
+
+local function markAnnouncementAsSeen(id)
+    local seen = loadSeenAnnouncements()
+    seen[tostring(id)] = true
+    if writefile then
+        pcall(function()
+            writefile(SEEN_ANNOUNCEMENTS_FILE, HttpService:JSONEncode(seen))
+        end)
+    end
+end
+
+local function loadStoredFeedbacks()
+    if readfile and isfile and isfile(FEEDBACKS_STORAGE_FILE) then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(FEEDBACKS_STORAGE_FILE))
+        end)
+        if ok and type(data) == "table" then return data end
+    end
+    return {}
+end
+
+local function loadSeenFeedbacks()
+    if readfile and isfile and isfile(SEEN_FEEDBACKS_FILE) then
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(readfile(SEEN_FEEDBACKS_FILE))
+        end)
+        if ok and type(data) == "table" then return data end
+    end
+    return {}
+end
+
+local function persistFeedbackRecord(record)
+    local list = loadStoredFeedbacks()
+    table.insert(list, record)
+    if writefile then
+        pcall(function()
+            writefile(FEEDBACKS_STORAGE_FILE, HttpService:JSONEncode(list))
+        end)
+    end
+end
+
+local function markFeedbackAsSeen(id)
+    local seen = loadSeenFeedbacks()
+    seen[tostring(id)] = true
+    if writefile then
+        pcall(function()
+            writefile(SEEN_FEEDBACKS_FILE, HttpService:JSONEncode(seen))
+        end)
+    end
+end
+
+
+
+local configRoot = "UnknownHub"
+
+local function sanitizeName(value)
+    local name = tostring(value or "Unknown")
+    name = name:gsub("[^%w%-%s_]", ""):gsub("%s+", "_")
+    return name ~= "" and name or "Unknown"
+end
+
+local function getGameFolderName()
+    local gameName = tostring(game.PlaceId or "UnknownGame")
+    pcall(function()
+        local MarketplaceService = game:GetService("MarketplaceService")
+        local info = MarketplaceService:GetProductInfo(game.PlaceId)
+        if info and info.Name then gameName = info.Name end
+    end)
+    return sanitizeName(gameName)
+end
+
+local configGameFolder = configRoot .. "/" .. getGameFolderName()
+
+local function fileApiAvailable()
+    return type(isfolder) == "function" and type(makefolder) == "function" and type(listfiles) == "function" and type(readfile) == "function" and type(writefile) == "function" and type(delfile) == "function"
+end
+
+local function ensureConfigFolders()
+    if not fileApiAvailable() then return false end
+    pcall(function()
+        if not isfolder(configRoot) then makefolder(configRoot) end
+        if not isfolder(configGameFolder) then makefolder(configGameFolder) end
+    end)
+    return isfolder(configGameFolder)
+end
+
+local function configPath(name)
+    return configGameFolder .. "/" .. sanitizeName(name) .. ".cfg"
+end
+
+local function encodeConfigKey(value)
+    return tostring(value):gsub("%%", "%%25"):gsub("|", "%%7C"):gsub("\n", "%%0A")
+end
+
+local function decodeConfigKey(value)
+    return tostring(value):gsub("%%0A", "\n"):gsub("%%7C", "|"):gsub("%%25", "%%")
+end
+
+local KEYBINDS_STORAGE_FILE = "ENI_FeatureKeybinds.json"
+local feedbackCooldownSec = 25
+local MAX_FEEDBACK_PER_SESSION = 6
+
+local function getLiveBusFolder()
+    local parents = {game:GetService("ReplicatedStorage"), CoreGui}
+    for _, parent in ipairs(parents) do
+        if parent then
+            local existing = parent:FindFirstChild("ENI_LiveEventBus")
+            if existing then return existing end
+            local created = nil
+            pcall(function()
+                created = Instance.new("Folder")
+                created.Name = "ENI_LiveEventBus"
+                created.Parent = parent
+            end)
+            if created then return created end
+        end
+    end
+    return nil
+end
+
+local function broadcastLivePayload(payloadType, data)
+    local bus = getLiveBusFolder()
+    if not bus then return end
+    pcall(function()
+        local eventVal = Instance.new("StringValue")
+        eventVal.Name = payloadType .. "_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
+        eventVal.Value = HttpService:JSONEncode(data or {})
+        eventVal.Parent = bus
+        task.delay(10, function()
+            if eventVal and eventVal.Parent then
+                eventVal:Destroy()
+            end
+        end)
+    end)
+end
+
+return function(opts)
+    opts = opts or {}
+    local LocalPlayer = Players.LocalPlayer
+    local devUsername = opts.devUsername or "iqoooake"
+    local defaultWebhook = "https://discord.com/api/webhooks/1546874178391515298/pFNb5b0moAaijqIILkO_orgHQnOnZmYuVwKiVszBPtY9tIEolBqPPEAgYqRzbAHULmXQ"
+    local isDeveloper = (LocalPlayer and LocalPlayer.Name and LocalPlayer.Name:lower() == devUsername:lower()) or false
+    local isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+    local hubState = {
+        devUsername = devUsername,
+        defaultWebhook = defaultWebhook,
+        feedbackWebhookUrl = opts.feedbackWebhook or defaultWebhook,
+        webhookBotName = opts.botName or opts.webhookBotName or "Unknown Hub",
+        webhookBotAvatar = opts.botAvatar or opts.webhookBotAvatar or "https://i.imgur.com/8Q5Fq7f.png",
+        isDeveloper = isDeveloper,
+        isMobileDevice = isMobileDevice,
+        isModalActive = false,
+        currentThemeColor = opts.theme or opts.primaryTheme or Color3.fromRGB(0, 195, 245),
+        secondaryThemeColor = opts.secondaryTheme or Color3.fromRGB(165, 95, 255),
+        themeLabels = {},
+        themeStrokes = {},
+        themeFrames = {},
+        themeGradients = {},
+        themeUpdaters = {},
+        allToggleSetters = {},
+        featureStoppers = {},
+        activeConnections = {},
+        disablingAll = false,
+        tabButtons = {},
+        tabPages = {},
+        listRegistry = {},
+        configValues = {},
+        configSetters = {},
+        configTabPage = nil,
+        utilityTabPage = nil,
+        registeredFunctions = {},
+        featureKeybinds = {},
+        notificationsStore = {},
+        unreadNotifCount = 0,
+        activeNotifFilter = "all",
+        isHudEnabled = false,
+        hudOpacity = 0.9,
+        isGuiOpen = true,
+        capturingToggleKey = false,
+        lastFeedbackTime = 0,
+        lastFeedbackText = "",
+        feedbackSessionCount = 0,
+        isWindowCollapsed = false,
+        loadingFinished = false,
+        lastError = "",
+        toggleKeyCode = Enum.KeyCode.RightControl,
+        isChromaEnabled = false,
+        chromaSpeed = 1.0,
+        isSfxEnabled = true,
+        sfxVolume = 0.4,
+        currentSoundPack = "Modern",
+        pinnedItemsStore = {},
+        consoleLogs = {},
+        autoLoadConfig = false,
+    }
+    hubState.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
+
+    local soundPackIds = {
+        Modern = "rbxassetid://4590662766",
+        Mechanical = "rbxassetid://9114223171",
+        Cyberpunk = "rbxassetid://138090596",
+        Bubble = "rbxassetid://9114486337",
+        Mute = ""
+    }
+
+    function hubState.playSfx(overrideSoundId)
+        if not hubState.isSfxEnabled or hubState.currentSoundPack == "Mute" then return end
+        pcall(function()
+            local soundId = overrideSoundId or soundPackIds[hubState.currentSoundPack] or soundPackIds.Modern
+            if not soundId or soundId == "" then return end
+            local s = Instance.new("Sound")
+            s.Name = "ENI_UI_Sfx"
+            s.SoundId = soundId
+            s.Volume = hubState.sfxVolume or 0.35
+            s.Parent = game:GetService("SoundService")
+            s:Play()
+            game:GetService("Debris"):AddItem(s, 2)
+        end)
+    end
+    hubState.registerThemeBackground = function(frm) return hubState.registerThemeFrame(frm) end
+
+    if typeof(opts.toggleKey) == "EnumItem" then
+        hubState.toggleKeyCode = opts.toggleKey
+    elseif type(opts.toggleKey) == "string" and Enum.KeyCode[opts.toggleKey] then
+        hubState.toggleKeyCode = Enum.KeyCode[opts.toggleKey]
+    end
+
+
+    function hubState.getThemeColorSequence(color1, color2)
+        color1 = color1 or hubState.currentThemeColor
+        color2 = color2 or hubState.secondaryThemeColor
+        return ColorSequence.new({
+            ColorSequenceKeypoint.new(0, color1),
+            ColorSequenceKeypoint.new(0.5, color1:Lerp(color2, 0.5)),
+            ColorSequenceKeypoint.new(1, color2)
+        })
+    end
+
+    -- Cleanup utility for old GUIs
+    function hubState.destroyOldGui()
+        local parents = {CoreGui, LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")}
+        if gethui then pcall(function() table.insert(parents, gethui()) end) end
+        local targetName = opts.name or "ENI_TabbedHub_UI"
+        for _, parent in ipairs(parents) do
+            if parent then
+                for _, child in ipairs(parent:GetChildren()) do
+                    if child:IsA("ScreenGui") and child.Name == targetName then
+                        pcall(function() child:Destroy() end)
+                    end
+                end
+            end
+        end
+        local oldBlur = Lighting:FindFirstChild("ENI_HubBlur")
+        if oldBlur then pcall(function() oldBlur:Destroy() end) end
+    end
+
+    hubState.destroyOldGui()
+
+    -- Helper: safe connection tracking
+    function hubState.trackConnection(conn)
+        if conn then table.insert(hubState.activeConnections, conn) end
+        return conn
+    end
+
+
+    -- Theme registration functions
+    function hubState.registerThemeText(lbl)
+        if not lbl then return end
+        table.insert(hubState.themeLabels, lbl)
+        lbl.TextColor3 = hubState.currentThemeColor
+    end
+
+    function hubState.registerThemeStroke(stroke)
+        if not stroke then return end
+        table.insert(hubState.themeStrokes, stroke)
+        stroke.Color = hubState.currentThemeColor
+    end
+
+    function hubState.registerThemeFrame(frm)
+        if not frm then return end
+        table.insert(hubState.themeFrames, frm)
+        frm.BackgroundColor3 = hubState.currentThemeColor
+    end
+
+    hubState.registerThemeBackground = hubState.registerThemeFrame
+
+    function hubState.registerThemeGradient(grad, rotation)
+        if not grad then return end
+        table.insert(hubState.themeGradients, grad)
+        grad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        if rotation ~= nil then grad.Rotation = rotation end
+    end
+
+    function hubState.registerThemeUpdater(callback)
+        if type(callback) == "function" then
+            table.insert(hubState.themeUpdaters, callback)
+            pcall(callback, hubState.currentThemeColor, hubState.secondaryThemeColor)
+        end
+    end
+
+    function hubState.pruneDeadThemeReferences()
+        local function pruneList(tbl, checkParent)
+            local i = 1
+            while i <= #tbl do
+                local item = tbl[i]
+                if not item or (checkParent and not item.Parent) then
+                    table.remove(tbl, i)
+                else
+                    i = i + 1
+                end
+            end
+        end
+        pruneList(hubState.themeLabels, true)
+        pruneList(hubState.themeStrokes, true)
+        pruneList(hubState.themeFrames, true)
+        pruneList(hubState.themeGradients, true)
+    end
+
+    function hubState.applyTheme(color1, color2)
+        if color1 then hubState.currentThemeColor = color1 end
+        if color2 then hubState.secondaryThemeColor = color2 end
+        hubState.pruneDeadThemeReferences()
+
+        for _, label in ipairs(hubState.themeLabels) do
+            if label and label.Parent then label.TextColor3 = hubState.currentThemeColor end
+        end
+        for _, stroke in ipairs(hubState.themeStrokes) do
+            if stroke and stroke.Parent then stroke.Color = hubState.currentThemeColor end
+        end
+        for _, frame in ipairs(hubState.themeFrames) do
+            if frame and frame.Parent then frame.BackgroundColor3 = hubState.currentThemeColor end
+        end
+        local seq = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        for _, grad in ipairs(hubState.themeGradients) do
+            if grad and grad.Parent then grad.Color = seq end
+        end
+        for _, updater in ipairs(hubState.themeUpdaters) do
+            pcall(updater, hubState.currentThemeColor, hubState.secondaryThemeColor)
+        end
+    end
+
+    -- =========================================================================
+    -- Enhanced Celestial Ocean & Moon Simulation (Strictly Clipped, CanvasGroup)
+    -- =========================================================================
+        function hubState.startOceanWaveBackground(parent)
+        local success, cg = pcall(function()
+            local c = Instance.new("CanvasGroup")
+            c.GroupTransparency = 0
+            return c
+        end)
+        local waveContainer = (success and cg) or Instance.new("Frame")
+        waveContainer.Name = "OceanWaveViewport"
+        waveContainer.Size = UDim2.new(1, 0, 1, 0)
+        waveContainer.Position = UDim2.new(0, 0, 0, 0)
+        waveContainer.BackgroundTransparency = 1
+        waveContainer.BorderSizePixel = 0
+        waveContainer.ClipsDescendants = true
+        waveContainer.Active = false
+        waveContainer.ZIndex = 0
+        waveContainer.Parent = parent
+        applyCorner(waveContainer, 10)
+
+        -- ---------------------------------------------------------------------
+        -- Crisp Geometric Sparkling Starfield (100% Vector Frames, Zero Font Glyphs)
+        -- ---------------------------------------------------------------------
+        local starNodesData = {
+            { x = 0.08, y = 0.10, size = 5, speed = 2.1, phase = 0.2, isDiamond = true },
+            { x = 0.18, y = 0.07, size = 4, speed = 1.7, phase = 1.5, isDiamond = false },
+            { x = 0.28, y = 0.18, size = 6, speed = 2.4, phase = 2.8, isDiamond = true },
+            { x = 0.38, y = 0.08, size = 4, speed = 1.9, phase = 3.9, isDiamond = false },
+            { x = 0.48, y = 0.15, size = 5, speed = 2.8, phase = 0.8, isDiamond = true },
+            { x = 0.58, y = 0.06, size = 4, speed = 1.5, phase = 4.4, isDiamond = false },
+            { x = 0.68, y = 0.20, size = 6, speed = 2.2, phase = 5.2, isDiamond = true },
+            { x = 0.78, y = 0.10, size = 5, speed = 1.8, phase = 2.1, isDiamond = true },
+            { x = 0.88, y = 0.21, size = 4, speed = 2.6, phase = 3.5, isDiamond = false },
+            { x = 0.14, y = 0.30, size = 4, speed = 2.0, phase = 1.9, isDiamond = false },
+            { x = 0.84, y = 0.32, size = 5, speed = 1.6, phase = 4.8, isDiamond = true },
+            { x = 0.50, y = 0.28, size = 4, speed = 3.0, phase = 2.6, isDiamond = false },
+        }
+
+        local activeStarElements = {}
+        for _, star in ipairs(starNodesData) do
+            local starHolder = Instance.new("Frame")
+            starHolder.Name = "CosmicStar"
+            starHolder.Size = UDim2.new(0, star.size, 0, star.size)
+            starHolder.Position = UDim2.new(star.x, 0, star.y, 0)
+            starHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+            starHolder.BackgroundColor3 = Color3.fromRGB(240, 250, 255)
+            starHolder.BackgroundTransparency = 0.65
+            starHolder.BorderSizePixel = 0
+            starHolder.Active = false
+            starHolder.ZIndex = 0
+            starHolder.Rotation = star.isDiamond and 45 or 0
+            starHolder.Parent = waveContainer
+            applyCorner(starHolder, star.isDiamond and 1 or math.floor(star.size / 2))
+
+            -- Star Outer Glow Aura
+            local starGlow = Instance.new("Frame")
+            starGlow.Name = "Glow"
+            starGlow.Size = UDim2.new(1.8, 0, 1.8, 0)
+            starGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+            starGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+            starGlow.BackgroundColor3 = hubState.currentThemeColor
+            starGlow.BackgroundTransparency = 0.82
+            starGlow.BorderSizePixel = 0
+            starGlow.Active = false
+            starGlow.ZIndex = 0
+            starGlow.Rotation = 45
+            starGlow.Parent = starHolder
+            applyCorner(starGlow, math.floor(star.size))
+            hubState.registerThemeFrame(starGlow)
+
+            table.insert(activeStarElements, {
+                holder = starHolder,
+                glow = starGlow,
+                speed = star.speed,
+                phase = star.phase,
+            })
+        end
+
+        -- ---------------------------------------------------------------------
+        -- Shooting Meteor Streak Decor
+        -- ---------------------------------------------------------------------
+        local meteorStreak = Instance.new("Frame")
+        meteorStreak.Name = "MeteorStreak"
+        meteorStreak.Size = UDim2.new(0, 75, 0, 2)
+        meteorStreak.Position = UDim2.new(0, -100, 0, 20)
+        meteorStreak.AnchorPoint = Vector2.new(1, 0.5)
+        meteorStreak.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        meteorStreak.BackgroundTransparency = 1
+        meteorStreak.BorderSizePixel = 0
+        meteorStreak.Rotation = -24
+        meteorStreak.Active = false
+        meteorStreak.ZIndex = 0
+        meteorStreak.Parent = waveContainer
+        applyCorner(meteorStreak, 1)
+
+        local meteorGrad = Instance.new("UIGradient")
+        meteorGrad.Color = hubState.getThemeColorSequence(Color3.fromRGB(255, 255, 255), hubState.secondaryThemeColor)
+        meteorGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.65, 0.35),
+            NumberSequenceKeypoint.new(1, 0)
+        })
+        meteorGrad.Parent = meteorStreak
+        hubState.registerThemeGradient(meteorGrad, 0)
+
+        -- ---------------------------------------------------------------------
+        -- Ambient Ocean Background Glow & Depth Mist
+        -- ---------------------------------------------------------------------
+        local centerGlow = Instance.new("Frame")
+        centerGlow.Name = "OceanCenterGlow"
+        centerGlow.Size = UDim2.new(1, 0, 0, 160)
+        centerGlow.Position = UDim2.new(0, 0, 0.5, 0)
+        centerGlow.AnchorPoint = Vector2.new(0, 0.5)
+        centerGlow.BackgroundTransparency = 0.92
+        centerGlow.BackgroundColor3 = hubState.currentThemeColor
+        centerGlow.BorderSizePixel = 0
+        centerGlow.ZIndex = 0
+        centerGlow.Parent = waveContainer
+        hubState.registerThemeBackground(centerGlow)
+
+        local glowGradient = Instance.new("UIGradient")
+        glowGradient.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0.1),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        glowGradient.Rotation = 90
+        glowGradient.Parent = centerGlow
+
+        -- ---------------------------------------------------------------------
+        -- Seamless Fully-Synchronized Ocean Wave Ribbons (Harmonic Mesh)
+        -- ---------------------------------------------------------------------
+        local wavePattern = "╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲"
+
+        local waveLayersData = {
+            { name = "AbyssWave", offsetY = -28, speed = 14, amp = 7,  freq = 0.75, trans = 0.92, fontSize = 44, colorMix = 0.2 },
+            { name = "DeepWave",  offsetY = -10, speed = 24, amp = 10, freq = 1.15, trans = 0.86, fontSize = 52, colorMix = 0.4 },
+            { name = "MidWave",   offsetY =  12, speed = 36, amp = 13, freq = 1.65, trans = 0.80, fontSize = 60, colorMix = 0.7 },
+            { name = "CrestWave", offsetY =  32, speed = 50, amp = 16, freq = 2.20, trans = 0.72, fontSize = 66, colorMix = 1.0 },
+        }
+
+        local waveLabels = {}
+
+        for _, data in ipairs(waveLayersData) do
+            local layerFrame = Instance.new("Frame")
+            layerFrame.Name = data.name
+            layerFrame.Size = UDim2.new(1, 0, 0, 85)
+            layerFrame.Position = UDim2.new(0, 0, 0.5, data.offsetY)
+            layerFrame.AnchorPoint = Vector2.new(0, 0.5)
+            layerFrame.BackgroundTransparency = 1
+            layerFrame.BorderSizePixel = 0
+            layerFrame.ClipsDescendants = true
+            layerFrame.Active = false
+            layerFrame.ZIndex = 0
+            layerFrame.Parent = waveContainer
+
+            for part = 1, 2 do
+                local waveLbl = Instance.new("TextLabel")
+                waveLbl.Name = "WavePart_" .. tostring(part)
+                waveLbl.Size = UDim2.new(0, 1600, 1, 0)
+                waveLbl.Position = UDim2.new(0, (part - 1) * 1600, 0, 0)
+                waveLbl.BackgroundTransparency = 1
+                waveLbl.Text = wavePattern
+                waveLbl.TextColor3 = hubState.currentThemeColor
+                waveLbl.TextTransparency = data.trans
+                waveLbl.Font = Enum.Font.GothamBold
+                waveLbl.TextSize = data.fontSize
+                waveLbl.TextXAlignment = Enum.TextXAlignment.Left
+                waveLbl.TextYAlignment = Enum.TextYAlignment.Center
+                waveLbl.Active = false
+                waveLbl.ClipsDescendants = true
+                waveLbl.ZIndex = 0
+                waveLbl.Parent = layerFrame
+                hubState.registerThemeText(waveLbl)
+
+                local waveGradient = Instance.new("UIGradient")
+                waveGradient.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+                waveGradient.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0.45),
+                    NumberSequenceKeypoint.new(0.5, 0),
+                    NumberSequenceKeypoint.new(1, 0.65)
+                })
+                waveGradient.Rotation = 90
+                waveGradient.Parent = waveLbl
+                hubState.registerThemeGradient(waveGradient, 90)
+
+                table.insert(waveLabels, {
+                    label = waveLbl,
+                    layerFrame = layerFrame,
+                    layerData = data,
+                    part = part,
+                    width = 1600,
+                })
+            end
+        end
+
+        local startTime = tick()
+        local waveConn
+        waveConn = RunService.RenderStepped:Connect(function()
+            if not waveContainer or not waveContainer.Parent or not parent or not parent.Parent then
+                if waveConn then waveConn:Disconnect() end
+                return
+            end
+
+            if not waveContainer.Visible or not parent.Visible or (parent.AbsoluteSize and parent.AbsoluteSize.Y < 60) then
+                return
+            end
+
+            local elapsed = tick() - startTime
+
+            -- 1. Twinkling Geometric Starfield (Clean alpha pulsing)
+            for _, star in ipairs(activeStarElements) do
+                local flicker = (math.sin((elapsed * star.speed) + star.phase) * 0.32) + 0.60
+                star.holder.BackgroundTransparency = math.clamp(flicker, 0.25, 0.95)
+                star.glow.BackgroundTransparency = math.clamp(flicker + 0.20, 0.50, 1.0)
+            end
+
+            -- 2. Shooting Meteor Streak Loop (every 7.5 seconds)
+            if meteorStreak and meteorStreak.Parent then
+                local cycleTime = elapsed % 7.5
+                if cycleTime < 1.3 then
+                    local progress = cycleTime / 1.3
+                    local startX = -60
+                    local endX = 460
+                    local currentX = startX + (endX - startX) * progress
+                    local currentY = 15 + (progress * 135)
+                    meteorStreak.Position = UDim2.new(0, currentX, 0, currentY)
+                    local alpha = math.sin(progress * math.pi)
+                    meteorStreak.BackgroundTransparency = 1 - (alpha * 0.80)
+                else
+                    meteorStreak.BackgroundTransparency = 1
+                end
+            end
+
+            -- 3. Seamless Fully-Synchronized Ocean Waves
+            for _, item in ipairs(waveLabels) do
+                local data = item.layerData
+                local speed = data.speed
+                local width = item.width
+
+                -- Seamless cyclic X scrolling across parts
+                local xOffset = ((elapsed * speed) + ((item.part - 1) * width)) % (width * 2) - width
+
+                -- Fully synchronized Y harmonic sine wave (consistent across both parts to eliminate any seam disjoints)
+                local yOffset = (math.sin(elapsed * data.freq) * data.amp)
+                              + (math.cos(elapsed * data.freq * 0.5) * (data.amp * 0.35))
+
+                item.label.Position = UDim2.new(0, xOffset, 0, yOffset)
+            end
+        end)
+        hubState.trackConnection(waveConn)
+
+        return waveContainer
+    end
+
+    -- Smooth Dragging system
+    function hubState.makeSmoothDraggable(guiFrame, dragHandle)
+        dragHandle = dragHandle or guiFrame
+        if not guiFrame or not dragHandle then return end
+
+        local dragging = false
+        local dragInput = nil
+        local dragStart = nil
+        local startPos = nil
+
+        hubState.trackConnection(dragHandle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                -- Guard: Ignore if input falls over any TextButton or ImageButton child of dragHandle
+                local inputX, inputY = input.Position.X, input.Position.Y
+                local clickedButton = false
+                for _, child in ipairs(dragHandle:GetDescendants()) do
+                    if (child:IsA("TextButton") or child:IsA("ImageButton")) and child.Visible then
+                        local cp = child.AbsolutePosition
+                        local cs = child.AbsoluteSize
+                        if inputX >= cp.X and inputX <= (cp.X + cs.X) and inputY >= cp.Y and inputY <= (cp.Y + cs.Y) then
+                            clickedButton = true
+                            break
+                        end
+                    end
+                end
+                if clickedButton then return end
+
+                dragging = true
+                dragStart = input.Position
+                startPos = guiFrame.Position
+            end
+        end))
+
+        hubState.trackConnection(dragHandle.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                dragInput = input
+            end
+        end))
+
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
+            if input == dragInput and dragging and startPos then
+                local delta = input.Position - dragStart
+                local targetPos = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+                TweenService:Create(guiFrame, TweenInfo.new(0.06, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+            end
+        end))
+
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+                dragInput = nil
+            end
+        end))
+    end
+
+    -- =========================================================================
+    -- Dynamic Resizable System (Responsive Proportional Scaling)
+    -- =========================================================================
+    hubState.onResizeEvent = Instance.new("BindableEvent")
+
+    function hubState.makeResizable(targetFrame, minW, minH, maxW, maxH)
+        minW = minW or 460
+        minH = minH or 300
+        maxW = maxW or 1200
+        maxH = maxH or 900
+
+        local resizer = Instance.new("Frame")
+        resizer.Name = "ResizeGripContainer"
+        resizer.Size = UDim2.new(0, 22, 0, 22)
+        resizer.Position = UDim2.new(1, -22, 1, -22)
+        resizer.BackgroundTransparency = 1
+        resizer.ZIndex = 30
+        resizer.Parent = targetFrame
+
+        -- Triangle Graphic (◢)
+        local gripIcon = Instance.new("TextLabel")
+        gripIcon.Name = "GripIcon"
+        gripIcon.Size = UDim2.new(1, 0, 1, 0)
+        gripIcon.Position = UDim2.new(0, 0, 0, 0)
+        gripIcon.BackgroundTransparency = 1
+        gripIcon.Text = "◢"
+        gripIcon.TextColor3 = hubState.currentThemeColor
+        gripIcon.TextTransparency = 0.35
+        gripIcon.Font = Enum.Font.GothamBold
+        gripIcon.TextSize = 16
+        gripIcon.TextXAlignment = Enum.TextXAlignment.Right
+        gripIcon.TextYAlignment = Enum.TextYAlignment.Bottom
+        gripIcon.ZIndex = 31
+        gripIcon.Parent = resizer
+        hubState.registerThemeText(gripIcon)
+
+        local gripBtn = Instance.new("TextButton")
+        gripBtn.Name = "GripHitbox"
+        gripBtn.Size = UDim2.new(1, 0, 1, 0)
+        gripBtn.BackgroundTransparency = 1
+        gripBtn.Text = ""
+        gripBtn.ZIndex = 32
+        gripBtn.Parent = resizer
+
+        local resizing = false
+        local resizeStart = nil
+        local startSize = nil
+
+        gripBtn.MouseEnter:Connect(function()
+            TweenService:Create(gripIcon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                TextTransparency = 0,
+                TextSize = 18
+            }):Play()
+        end)
+
+        gripBtn.MouseLeave:Connect(function()
+            if not resizing then
+                TweenService:Create(gripIcon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    TextTransparency = 0.35,
+                    TextSize = 16
+                }):Play()
+            end
+        end)
+
+        hubState.trackConnection(gripBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                resizing = true
+                resizeStart = input.Position
+                startSize = targetFrame.AbsoluteSize
+                TweenService:Create(gripIcon, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    TextTransparency = 0,
+                    TextSize = 19
+                }):Play()
+            end
+        end))
+
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
+            if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - resizeStart
+                local newW = math.clamp(startSize.X + delta.X, minW, maxW)
+                local newH = math.clamp(startSize.Y + delta.Y, minH, maxH)
+                targetFrame.Size = UDim2.new(0, newW, 0, newH)
+                hubState.onResizeEvent:Fire(newW, newH)
+            end
+        end))
+
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                resizing = false
+                TweenService:Create(gripIcon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    TextTransparency = 0.35,
+                    TextSize = 16
+                }):Play()
+            end
+        end))
+
+        return resizer
+    end
+
+    -- Close confirmation modal
+    function hubState.createCloseConfirmation(container, onConfirm)
+        if not container then return end
+        if container:FindFirstChild("ENI_CloseConfirmOverlay") then return end
+
+        hubState.isModalActive = true
+
+        local blur = Lighting:FindFirstChild("ENI_HubBlur")
+        if not blur then
+            blur = Instance.new("BlurEffect")
+            blur.Name = "ENI_HubBlur"
+            blur.Size = 0
+            blur.Parent = Lighting
+        end
+        TweenService:Create(blur, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 14}):Play()
+
+        local overlay = Instance.new("Frame")
+        overlay.Name = "ENI_CloseConfirmOverlay"
+        overlay.Size = UDim2.new(1, 0, 1, 0)
+        overlay.BackgroundColor3 = Color3.fromRGB(6, 8, 14)
+        overlay.BackgroundTransparency = 1
+        overlay.BorderSizePixel = 0
+        overlay.Active = true
+        overlay.ZIndex = 40
+        overlay.Parent = container
+
+        local modalBlocker = Instance.new("TextButton")
+        modalBlocker.Name = "ModalBlocker"
+        modalBlocker.Size = UDim2.new(1, 0, 1, 0)
+        modalBlocker.BackgroundTransparency = 1
+        modalBlocker.Text = ""
+        modalBlocker.Active = true
+        modalBlocker.AutoButtonColor = false
+        modalBlocker.ZIndex = 40
+        modalBlocker.Parent = overlay
+
+        local panel = Instance.new("Frame")
+        panel.Name = "ConfirmPanel"
+        panel.Size = UDim2.new(0, 270, 0, 140)
+        panel.Position = UDim2.new(0.5, -135, 0.5, -70)
+        panel.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+        panel.BorderSizePixel = 0
+        panel.ZIndex = 41
+        panel.Parent = overlay
+        applyCorner(panel, 10)
+        applyStroke(panel, Color3.fromRGB(255, 175, 75), 1.5, 0)
+
+        local warnIcon = Instance.new("TextLabel")
+        warnIcon.Name = "WarningIcon"
+        warnIcon.Size = UDim2.new(0, 32, 0, 32)
+        warnIcon.Position = UDim2.new(0.5, -16, 0, 10)
+        warnIcon.BackgroundTransparency = 1
+        warnIcon.Text = "⚠"
+        warnIcon.TextSize = 22
+        warnIcon.Font = Enum.Font.GothamBold
+        warnIcon.TextColor3 = Color3.fromRGB(255, 190, 80)
+        warnIcon.TextXAlignment = Enum.TextXAlignment.Center
+        warnIcon.ZIndex = 42
+        warnIcon.Parent = panel
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -24, 0, 20)
+        title.Position = UDim2.new(0, 12, 0, 44)
+        title.BackgroundTransparency = 1
+        title.Text = "Confirm Close"
+        title.TextColor3 = Color3.fromRGB(255, 255, 255)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 14
+        title.TextXAlignment = Enum.TextXAlignment.Center
+        title.ZIndex = 42
+        title.Parent = panel
+
+        local msg = Instance.new("TextLabel")
+        msg.Size = UDim2.new(1, -26, 0, 24)
+        msg.Position = UDim2.new(0, 13, 0, 66)
+        msg.BackgroundTransparency = 1
+        msg.Text = "This stops all active scripts and destroys the UI."
+        msg.TextColor3 = Color3.fromRGB(190, 198, 215)
+        msg.Font = Enum.Font.GothamMedium
+        msg.TextSize = 11
+        msg.TextWrapped = true
+        msg.TextXAlignment = Enum.TextXAlignment.Center
+        msg.ZIndex = 42
+        msg.Parent = panel
+
+        local cancelBtn = Instance.new("TextButton")
+        cancelBtn.Size = UDim2.new(0, 88, 0, 28)
+        cancelBtn.Position = UDim2.new(0.5, -98, 1, -38)
+        cancelBtn.BackgroundColor3 = Color3.fromRGB(36, 44, 60)
+        cancelBtn.Text = "Cancel"
+        cancelBtn.TextColor3 = Color3.fromRGB(240, 244, 250)
+        cancelBtn.Font = Enum.Font.GothamBold
+        cancelBtn.TextSize = 12
+        cancelBtn.ZIndex = 42
+        cancelBtn.Parent = panel
+        applyCorner(cancelBtn, 6)
+
+        local confirmBtn = Instance.new("TextButton")
+        confirmBtn.Size = UDim2.new(0, 88, 0, 28)
+        confirmBtn.Position = UDim2.new(0.5, 10, 1, -38)
+        confirmBtn.BackgroundColor3 = Color3.fromRGB(225, 55, 65)
+        confirmBtn.Text = "Close Hub"
+        confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        confirmBtn.Font = Enum.Font.GothamBold
+        confirmBtn.TextSize = 12
+        confirmBtn.ZIndex = 42
+        confirmBtn.Parent = panel
+        applyCorner(confirmBtn, 6)
+
+        TweenService:Create(overlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.35}):Play()
+        panel.Position = UDim2.new(0.5, -135, 0.5, -50)
+        TweenService:Create(panel, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, -135, 0.5, -70)}):Play()
+
+        local overlayClosed = false
+        local function closeOverlay()
+            if overlayClosed then return end
+            overlayClosed = true
+            hubState.isModalActive = false
+            cancelBtn.Active = false
+            confirmBtn.Active = false
+            if blur and blur.Parent then
+                TweenService:Create(blur, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 0}):Play()
+                task.delay(0.16, function() pcall(function() blur:Destroy() end) end)
+            end
+            if overlay and overlay.Parent then
+                TweenService:Create(overlay, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+                TweenService:Create(panel, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0.5, -135, 0.5, -50)}):Play()
+                task.delay(0.16, function() pcall(function() overlay:Destroy() end) end)
+            end
+        end
+
+        cancelBtn.MouseButton1Click:Connect(closeOverlay)
+        confirmBtn.MouseButton1Click:Connect(function()
+            closeOverlay()
+            if onConfirm then pcall(onConfirm) end
+        end)
+    end
+
+    -- Disable all features safely
+    function hubState.DisableAllFeatureStates()
+        if hubState.disablingAll then return end
+        hubState.disablingAll = true
+        pcall(function()
+            for key, _ in pairs(getgenv()) do
+                if type(key) == "string" and (key:sub(1, 4) == "ENI_" or key:sub(1, 4) == "HUB_") then
+                    getgenv()[key] = false
+                end
+            end
+        end)
+
+        for _, stopper in ipairs(hubState.featureStoppers) do
+            pcall(function()
+                if stopper then stopper() end
+            end)
+        end
+
+        for _, setter in ipairs(hubState.allToggleSetters) do
+            pcall(function()
+                if setter then setter(false) end
+            end)
+        end
+
+        local cleanup = getgenv().ENI_Cleanup or _G.ENI_Cleanup
+        if cleanup then
+            pcall(cleanup)
+        end
+        hubState.disablingAll = false
+    end
+
+    -- Root ScreenGui setup
+    local localParent = opts.parent or (gethui and gethui()) or CoreGui or (LocalPlayer and LocalPlayer:WaitForChild("PlayerGui"))
+    hubState.screenGui = Instance.new("ScreenGui")
+    hubState.screenGui.Name = opts.name or "ENI_TabbedHub_UI"
+    hubState.screenGui.ResetOnSpawn = false
+    hubState.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    hubState.screenGui.Parent = localParent
+
+    -- Modern Toast Notification Container (Responsive for PC & Mobile)
+    local notifWidth = hubState.isMobileDevice and 260 or 300
+    hubState.notificationContainer = Instance.new("Frame")
+    hubState.notificationContainer.Name = "NotificationContainer"
+    hubState.notificationContainer.Size = UDim2.new(0, notifWidth, 1, -20)
+    hubState.notificationContainer.Position = UDim2.new(1, -(notifWidth + 10), 0, 10)
+    hubState.notificationContainer.BackgroundTransparency = 1
+    hubState.notificationContainer.ZIndex = 150
+    hubState.notificationContainer.Parent = hubState.screenGui
+
+    hubState.notifLayout = Instance.new("UIListLayout")
+    hubState.notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    hubState.notifLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    hubState.notifLayout.Padding = UDim.new(0, 8)
+    hubState.notifLayout.Parent = hubState.notificationContainer
+
+    -- =========================================================================
+    -- Notification Store & Center System
+    -- =========================================================================
+    hubState.notificationsStore = {}
+    hubState.unreadNotifCount = 0
+    hubState.notifBadgeContainer = nil
+    hubState.notifBadgeLabel = nil
+    hubState.refreshNotifCenterUI = nil
+    hubState.activeNotifFilter = "All"
+    hubState.openNotificationCenterModal = nil
+    hubState.openFeedbackModal = nil
+    hubState.openAnnouncementModal = nil
+    hubState.openFeedbackReplyModal = nil
+    hubState.openBindContextMenu = nil
+    hubState.setHudVisible = nil
+    hubState.setHudOpacity = nil
+    hubState.isHudEnabled = false
+    hubState.hudOpacity = 0.35
+    hubState.currentActiveTabName = "Main"
+    hubState.registeredFunctions = {}
+    hubState.featureKeybinds = {}
+    hubState.attachContextMenu = nil
+    hubState.searchBox = nil
+
+    function hubState.updateNotifBadge()
+        if hubState.notifBadgeContainer and hubState.notifBadgeLabel then
+            if hubState.unreadNotifCount > 0 then
+                hubState.notifBadgeContainer.Visible = true
+                hubState.notifBadgeLabel.Text = hubState.unreadNotifCount > 9 and "9+" or tostring(hubState.unreadNotifCount)
+                TweenService:Create(hubState.notifBadgeContainer, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, 16, 0, 16)
+                }):Play()
+            else
+                hubState.notifBadgeContainer.Visible = false
+            end
+        end
+    end
+
+        local activeToastCards = {}
+
+    function hubState.notify(config)
+        config = type(config) == "table" and config or { Title = "Notification", Content = tostring(config) }
+        local titleText = config.Title or "Notification"
+        local contentText = config.Content or config.Text or ""
+        local duration = tonumber(config.Duration) or 4.0
+        local notifColor1 = config.Color or hubState.currentThemeColor
+        local notifColor2 = config.SecondaryColor or hubState.secondaryThemeColor
+        local category = config.Category or "System"
+
+        -- Sound chime (safe pcall)
+        pcall(function()
+            local sound = Instance.new("Sound")
+            sound.Name = "ENI_NotifChime"
+            sound.SoundId = "rbxassetid://4590662766"
+            sound.Volume = 0.35
+            sound.Parent = game:GetService("SoundService")
+            sound:Play()
+            game:GetService("Debris"):AddItem(sound, 2)
+        end)
+
+        -- Limit simultaneous visible toasts to 4 to prevent screen clutter
+        if #activeToastCards >= 4 then
+            local oldest = table.remove(activeToastCards, 1)
+            if oldest and oldest.Close then
+                pcall(oldest.Close)
+            end
+        end
+
+        local categoryIcon = "🔔"
+        if titleText:find("👑") or titleText:lower():find("dev") or category == "Developer" then
+            categoryIcon = "👑"
+        elseif titleText:find("📢") or category == "Announcements" then
+            categoryIcon = "📢"
+        elseif titleText:find("🛠") or category == "Feedback" then
+            categoryIcon = "🛠️"
+        elseif titleText:find("💬") or category == "Reply" then
+            categoryIcon = "💬"
+        elseif titleText:find("⚡") or titleText:lower():find("keybind") then
+            categoryIcon = "⚡"
+        elseif titleText:find("✓") or titleText:lower():find("success") then
+            categoryIcon = "✓"
+        elseif titleText:find("❌") or titleText:find("⚠") or titleText:lower():find("error") then
+            categoryIcon = "⚠"
+        end
+
+        local notifCard = Instance.new("Frame")
+        notifCard.Name = "NotificationCard"
+        notifCard.Size = UDim2.new(1, 0, 0, 74)
+        notifCard.BackgroundColor3 = Color3.fromRGB(12, 16, 24)
+        notifCard.BackgroundTransparency = 1
+        notifCard.BorderSizePixel = 0
+        notifCard.Position = UDim2.new(1, 60, 0, 0)
+        notifCard.ZIndex = 151
+        notifCard.Parent = hubState.notificationContainer
+        applyCorner(notifCard, 9)
+
+        local nStroke = applyStroke(notifCard, notifColor1, 1.2, 0.3)
+        local nStrokeGrad = Instance.new("UIGradient")
+        nStrokeGrad.Color = ColorSequence.new(notifColor1, notifColor2)
+        nStrokeGrad.Rotation = 0
+        nStrokeGrad.Parent = nStroke
+
+        -- Acrylic Dual-Color Background Gradient
+        local bgGrad = Instance.new("UIGradient")
+        bgGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(16, 22, 34)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(13, 17, 26)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 16, 32))
+        })
+        bgGrad.Rotation = 45
+        bgGrad.Parent = notifCard
+
+        -- Glowing Left Accent Ribbon
+        local accentBar = Instance.new("Frame")
+        accentBar.Name = "AccentBar"
+        accentBar.Size = UDim2.new(0, 4, 1, -16)
+        accentBar.Position = UDim2.new(0, 6, 0.5, -29)
+        accentBar.BackgroundColor3 = notifColor1
+        accentBar.BorderSizePixel = 0
+        accentBar.ZIndex = 152
+        accentBar.Parent = notifCard
+        applyCorner(accentBar, 2)
+
+        local accentGrad = Instance.new("UIGradient")
+        accentGrad.Color = ColorSequence.new(notifColor1, notifColor2)
+        accentGrad.Rotation = 90
+        accentGrad.Parent = accentBar
+
+        -- Category Icon Container
+        local iconBox = Instance.new("Frame")
+        iconBox.Size = UDim2.new(0, 26, 0, 26)
+        iconBox.Position = UDim2.new(0, 16, 0, 10)
+        iconBox.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
+        iconBox.BorderSizePixel = 0
+        iconBox.ZIndex = 152
+        iconBox.Parent = notifCard
+        applyCorner(iconBox, 6)
+
+        local iconLbl = Instance.new("TextLabel")
+        iconLbl.Size = UDim2.new(1, 0, 1, 0)
+        iconLbl.BackgroundTransparency = 1
+        iconLbl.Text = categoryIcon
+        iconLbl.TextSize = 13
+        iconLbl.Font = Enum.Font.GothamBold
+        iconLbl.TextColor3 = notifColor1
+        iconLbl.TextXAlignment = Enum.TextXAlignment.Center
+        iconLbl.TextYAlignment = Enum.TextYAlignment.Center
+        iconLbl.ZIndex = 153
+        iconLbl.Parent = iconBox
+
+        -- Title Label
+        local nTitle = Instance.new("TextLabel")
+        nTitle.Size = UDim2.new(1, -78, 0, 18)
+        nTitle.Position = UDim2.new(0, 48, 0, 8)
+        nTitle.BackgroundTransparency = 1
+        nTitle.Text = titleText
+        nTitle.TextColor3 = Color3.fromRGB(250, 252, 255)
+        nTitle.Font = Enum.Font.GothamBlack
+        nTitle.TextSize = 12
+        nTitle.TextTruncate = Enum.TextTruncate.AtEnd
+        nTitle.TextXAlignment = Enum.TextXAlignment.Left
+        nTitle.ZIndex = 152
+        nTitle.Parent = notifCard
+
+        -- Time
+        local nTime = Instance.new("TextLabel")
+        nTime.Size = UDim2.new(0, 40, 0, 14)
+        nTime.Position = UDim2.new(1, -64, 0, 8)
+        nTime.BackgroundTransparency = 1
+        nTime.Text = os.date("%H:%M")
+        nTime.TextColor3 = Color3.fromRGB(120, 135, 160)
+        nTime.Font = Enum.Font.GothamMedium
+        nTime.TextSize = 9
+        nTime.TextXAlignment = Enum.TextXAlignment.Right
+        nTime.ZIndex = 152
+        nTime.Parent = notifCard
+
+        -- Dismiss 'X' Button
+        local dismissBtn = Instance.new("TextButton")
+        dismissBtn.Size = UDim2.new(0, 18, 0, 18)
+        dismissBtn.Position = UDim2.new(1, -24, 0, 7)
+        dismissBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 48)
+        dismissBtn.BackgroundTransparency = 0.5
+        dismissBtn.Text = "×"
+        dismissBtn.TextColor3 = Color3.fromRGB(160, 175, 200)
+        dismissBtn.Font = Enum.Font.GothamBold
+        dismissBtn.TextSize = 13
+        dismissBtn.ZIndex = 155
+        dismissBtn.Parent = notifCard
+        applyCorner(dismissBtn, 4)
+
+        -- Content Message Label
+        local nContent = Instance.new("TextLabel")
+        nContent.Size = UDim2.new(1, -56, 0, 34)
+        nContent.Position = UDim2.new(0, 48, 0, 28)
+        nContent.BackgroundTransparency = 1
+        nContent.Text = contentText
+        nContent.TextColor3 = Color3.fromRGB(190, 200, 220)
+        nContent.Font = Enum.Font.GothamMedium
+        nContent.TextSize = 11
+        nContent.TextWrapped = true
+        nContent.TextXAlignment = Enum.TextXAlignment.Left
+        nContent.TextYAlignment = Enum.TextYAlignment.Top
+        nContent.ZIndex = 152
+        nContent.Parent = notifCard
+
+        -- Glowing Progress Timer Bar (Bottom)
+        local timerTrack = Instance.new("Frame")
+        timerTrack.Size = UDim2.new(1, -12, 0, 2)
+        timerTrack.Position = UDim2.new(0, 6, 1, -4)
+        timerTrack.BackgroundColor3 = Color3.fromRGB(30, 38, 56)
+        timerTrack.BorderSizePixel = 0
+        timerTrack.ZIndex = 153
+        timerTrack.Parent = notifCard
+        applyCorner(timerTrack, 1)
+
+        local timerBar = Instance.new("Frame")
+        timerBar.Size = UDim2.new(1, 0, 1, 0)
+        timerBar.BackgroundColor3 = notifColor1
+        timerBar.BorderSizePixel = 0
+        timerBar.ZIndex = 154
+        timerBar.Parent = timerTrack
+        applyCorner(timerBar, 1)
+
+        local tGrad = Instance.new("UIGradient")
+        tGrad.Color = ColorSequence.new(notifColor1, notifColor2)
+        tGrad.Rotation = 0
+        tGrad.Parent = timerBar
+
+        -- Click overlay to open notification center or action
+        local cardClickBtn = Instance.new("TextButton")
+        cardClickBtn.Size = UDim2.new(1, -26, 1, 0)
+        cardClickBtn.Position = UDim2.new(0, 0, 0, 0)
+        cardClickBtn.BackgroundTransparency = 1
+        cardClickBtn.Text = ""
+        cardClickBtn.ZIndex = 153
+        cardClickBtn.Parent = notifCard
+
+        cardClickBtn.MouseButton1Click:Connect(function()
+            if hubState.openNotificationCenterModal then
+                if category == "Announcements" then
+                    hubState.activeNotifFilter = "Announcements"
+                elseif category == "Feedback" then
+                    hubState.activeNotifFilter = "Feedback"
+                end
+                hubState.openNotificationCenterModal(hubState.screenGui)
+            end
+        end)
+
+        -- 1. Smooth Slide-In from the Right
+        TweenService:Create(notifCard, TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 0),
+            BackgroundTransparency = 0.05
+        }):Play()
+
+        -- 2. Timer Bar Countdown
+        local timerTween = TweenService:Create(timerBar, TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 0, 1, 0)
+        })
+        timerTween:Play()
+
+        local isClosing = false
+        local function closeCardSlowly()
+            if isClosing then return end
+            isClosing = true
+            timerTween:Cancel()
+
+            -- Remove from active list
+            for idx, c in ipairs(activeToastCards) do
+                if c.Card == notifCard then
+                    table.remove(activeToastCards, idx)
+                    break
+                end
+            end
+
+            local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+            TweenService:Create(notifCard, fadeInfo, {
+                Position = UDim2.new(1, 60, 0, 0),
+                BackgroundTransparency = 1
+            }):Play()
+
+            for _, desc in ipairs(notifCard:GetDescendants()) do
+                if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+                    TweenService:Create(desc, fadeInfo, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+                elseif desc:IsA("Frame") then
+                    TweenService:Create(desc, fadeInfo, { BackgroundTransparency = 1 }):Play()
+                elseif desc:IsA("UIStroke") then
+                    TweenService:Create(desc, fadeInfo, { Transparency = 1 }):Play()
+                end
+            end
+
+            task.delay(0.42, function()
+                pcall(function() notifCard:Destroy() end)
+            end)
+        end
+
+        local toastObj = { Card = notifCard, Close = closeCardSlowly }
+        table.insert(activeToastCards, toastObj)
+
+        -- Hover effects: pause timer and brighten card
+        notifCard.MouseEnter:Connect(function()
+            if isClosing then return end
+            pcall(function() timerTween:Pause() end)
+            TweenService:Create(nStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0 }):Play()
+        end)
+
+        notifCard.MouseLeave:Connect(function()
+            if isClosing then return end
+            pcall(function() timerTween:Play() end)
+            TweenService:Create(nStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0.3 }):Play()
+        end)
+
+        dismissBtn.MouseButton1Click:Connect(closeCardSlowly)
+        task.delay(duration, function()
+            if not isClosing then closeCardSlowly() end
+        end)
+    end
+
+    function hubState.sendNotification(config)
+        config = type(config) == "table" and config or { Title = "Notification", Content = tostring(config) }
+        local titleText = config.Title or "Notification"
+        local contentText = config.Content or config.Text or ""
+        local category = config.Category or "System"
+        local notifColor = config.Color or hubState.currentThemeColor
+        local secColor = config.SecondaryColor or hubState.secondaryThemeColor
+        local timeStr = config.Time or os.date("%H:%M")
+
+        local entry = {
+            id = #hubState.notificationsStore + 1,
+            title = titleText,
+            content = contentText,
+            category = category,
+            color = notifColor,
+            secondaryColor = secColor,
+            time = timeStr,
+            read = false
+        }
+
+        table.insert(hubState.notificationsStore, 1, entry)
+        if #hubState.notificationsStore > 60 then
+            table.remove(hubState.notificationsStore)
+        end
+
+        hubState.unreadNotifCount = hubState.unreadNotifCount + 1
+        hubState.updateNotifBadge()
+
+        if config.Toast ~= false then
+            hubState.notify({
+                Title = titleText,
+                Content = contentText,
+                Duration = config.Duration or 3.5,
+                Color = notifColor,
+                SecondaryColor = secColor,
+                Category = category
+            })
+        end
+
+        if hubState.refreshNotifCenterUI then
+            pcall(hubState.refreshNotifCenterUI)
+        end
+        return entry
+    end
+
+    -- Initial welcome notification
+    task.defer(function()
+        if hubState.isDeveloper then
+            hubState.sendNotification({
+                Title = "👑 Developer Authenticated",
+                Content = "Welcome back, " .. devUsername .. "! All feedback and notifications are active.",
+                Category = "System",
+                Color = Color3.fromRGB(185, 100, 255),
+                Toast = true
+            })
+        else
+            hubState.sendNotification({
+                Title = "Welcome to " .. (opts.title or "ENI HUB"),
+                Content = "Hub initialized successfully. Press RightControl to toggle visibility.",
+                Category = "System",
+                Color = hubState.currentThemeColor,
+                Toast = true
+            })
+        end
+    end)
+
+    -- =========================================================================
+    -- Dynamic Keybinding & Context Menu Engine (Right-Click Bind Manager)
+    -- =========================================================================
+        local function loadSavedKeybinds()
+        if readfile and isfile and isfile(KEYBINDS_STORAGE_FILE) then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(readfile(KEYBINDS_STORAGE_FILE))
+            end)
+            if ok and type(data) == "table" then return data end
+        end
+        return {}
+    end
+
+    local function saveKeybindsConfig()
+        if not writefile then return end
+        local map = {}
+        for key, item in pairs(hubState.featureKeybinds) do
+            if item and item.id then
+                map[item.id] = (typeof(key) == "EnumItem" and key.Name) or tostring(key)
+            end
+        end
+        pcall(function()
+            writefile(KEYBINDS_STORAGE_FILE, HttpService:JSONEncode(map))
+        end)
+    end
+
+    function hubState.registerFunctionItem(itemData)
+        if not itemData or not itemData.id then return end
+        hubState.registeredFunctions[itemData.id] = itemData
+
+        local savedMap = loadSavedKeybinds()
+        local savedKeyName = savedMap[itemData.id]
+        if savedKeyName and Enum.KeyCode[savedKeyName] then
+            local kc = Enum.KeyCode[savedKeyName]
+            itemData.bind = savedKeyName
+            hubState.featureKeybinds[kc] = itemData
+        end
+    end
+
+    hubState.openBindContextMenu = function(itemData, mousePos)
+        if not itemData then return end
+        local existing = hubState.screenGui:FindFirstChild("BindContextMenuOverlay")
+        if existing then pcall(function() existing:Destroy() end) end
+
+        local overlay = Instance.new("Frame")
+        overlay.Name = "BindContextMenuOverlay"
+        overlay.Size = UDim2.new(1, 0, 1, 0)
+        overlay.BackgroundTransparency = 1
+        overlay.ZIndex = 280
+        overlay.Parent = hubState.screenGui
+
+        local blocker = Instance.new("TextButton")
+        blocker.Size = UDim2.new(1, 0, 1, 0)
+        blocker.BackgroundTransparency = 1
+        blocker.Text = ""
+        blocker.AutoButtonColor = false
+        blocker.ZIndex = 280
+        blocker.Parent = overlay
+
+        local posX = mousePos and mousePos.X or (hubState.screenGui.AbsoluteSize.X / 2 - 120)
+        local posY = mousePos and mousePos.Y or (hubState.screenGui.AbsoluteSize.Y / 2 - 100)
+        posX = math.clamp(posX, 10, math.max(10, hubState.screenGui.AbsoluteSize.X - 250))
+        posY = math.clamp(posY, 10, math.max(10, hubState.screenGui.AbsoluteSize.Y - 210))
+
+        local menu = Instance.new("Frame")
+        menu.Name = "ContextMenu"
+        menu.Size = UDim2.new(0, 240, 0, 195)
+        menu.Position = UDim2.new(0, posX, 0, posY)
+        menu.BackgroundColor3 = Color3.fromRGB(15, 19, 28)
+        menu.BorderSizePixel = 0
+        menu.ZIndex = 281
+        menu.ClipsDescendants = true
+        menu.Parent = overlay
+        applyCorner(menu, 8)
+        local mStroke = applyStroke(menu, hubState.currentThemeColor, 1.5, 0.2)
+        hubState.registerThemeStroke(mStroke)
+
+        local mHeader = Instance.new("Frame")
+        mHeader.Size = UDim2.new(1, 0, 0, 32)
+        mHeader.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
+        mHeader.BorderSizePixel = 0
+        mHeader.ZIndex = 282
+        mHeader.Parent = menu
+
+        local mTitle = Instance.new("TextLabel")
+        mTitle.Size = UDim2.new(1, -30, 1, 0)
+        mTitle.Position = UDim2.new(0, 10, 0, 0)
+        mTitle.BackgroundTransparency = 1
+        mTitle.Text = "⚙️ " .. tostring(itemData.title or "Feature Settings")
+        mTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+        mTitle.Font = Enum.Font.GothamBold
+        mTitle.TextSize = 11
+        mTitle.TextTruncate = Enum.TextTruncate.AtEnd
+        mTitle.TextXAlignment = Enum.TextXAlignment.Left
+        mTitle.ZIndex = 283
+        mTitle.Parent = mHeader
+
+        local mClose = Instance.new("TextButton")
+        mClose.Size = UDim2.new(0, 20, 0, 20)
+        mClose.Position = UDim2.new(1, -25, 0.5, -10)
+        mClose.BackgroundColor3 = Color3.fromRGB(34, 40, 56)
+        mClose.Text = "X"
+        mClose.TextColor3 = Color3.fromRGB(200, 210, 230)
+        mClose.Font = Enum.Font.GothamBold
+        mClose.TextSize = 10
+        mClose.ZIndex = 283
+        mClose.Parent = mHeader
+        applyCorner(mClose, 4)
+
+        local mBody = Instance.new("Frame")
+        mBody.Size = UDim2.new(1, -16, 1, -40)
+        mBody.Position = UDim2.new(0, 8, 0, 36)
+        mBody.BackgroundTransparency = 1
+        mBody.ZIndex = 282
+        mBody.Parent = menu
+
+        local mLayout = Instance.new("UIListLayout")
+        mLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        mLayout.Padding = UDim.new(0, 6)
+        mLayout.Parent = mBody
+
+        local currentBindLabel = Instance.new("TextLabel")
+        currentBindLabel.Size = UDim2.new(1, 0, 0, 20)
+        currentBindLabel.BackgroundTransparency = 1
+        currentBindLabel.Text = "Current Bind: " .. (itemData.bind and ("[" .. itemData.bind .. "]") or "[ None ]")
+        currentBindLabel.TextColor3 = itemData.bind and hubState.currentThemeColor or Color3.fromRGB(150, 160, 185)
+        currentBindLabel.Font = Enum.Font.GothamBold
+        currentBindLabel.TextSize = 11
+        currentBindLabel.TextXAlignment = Enum.TextXAlignment.Left
+        currentBindLabel.ZIndex = 283
+        currentBindLabel.Parent = mBody
+
+        local setBindBtn = Instance.new("TextButton")
+        setBindBtn.Size = UDim2.new(1, 0, 0, 28)
+        setBindBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
+        setBindBtn.Text = "⌨️ Set Keybind"
+        setBindBtn.TextColor3 = Color3.fromRGB(225, 235, 255)
+        setBindBtn.Font = Enum.Font.GothamBold
+        setBindBtn.TextSize = 11
+        setBindBtn.ZIndex = 283
+        setBindBtn.Parent = mBody
+        applyCorner(setBindBtn, 5)
+        applyStroke(setBindBtn, Color3.fromRGB(40, 52, 76), 1, 0)
+
+        local clearBindBtn = Instance.new("TextButton")
+        clearBindBtn.Size = UDim2.new(1, 0, 0, 28)
+        clearBindBtn.BackgroundColor3 = Color3.fromRGB(32, 24, 28)
+        clearBindBtn.Text = "❌ Clear Keybind"
+        clearBindBtn.TextColor3 = Color3.fromRGB(255, 140, 140)
+        clearBindBtn.Font = Enum.Font.GothamBold
+        clearBindBtn.TextSize = 11
+        clearBindBtn.ZIndex = 283
+        clearBindBtn.Parent = mBody
+        applyCorner(clearBindBtn, 5)
+
+        local triggerBtn = Instance.new("TextButton")
+        triggerBtn.Size = UDim2.new(1, 0, 0, 28)
+        triggerBtn.BackgroundColor3 = Color3.fromRGB(20, 28, 42)
+        triggerBtn.Text = "⚡ Trigger / Toggle Now"
+        triggerBtn.TextColor3 = hubState.currentThemeColor
+        triggerBtn.Font = Enum.Font.GothamBold
+        triggerBtn.TextSize = 11
+        triggerBtn.ZIndex = 283
+        triggerBtn.Parent = mBody
+        applyCorner(triggerBtn, 5)
+
+        local isListeningKey = false
+        local keyConn = nil
+
+        local function closeMenu()
+            if keyConn then
+                keyConn:Disconnect()
+                keyConn = nil
+            end
+            if overlay and overlay.Parent then overlay:Destroy() end
+        end
+
+        blocker.MouseButton1Click:Connect(closeMenu)
+        mClose.MouseButton1Click:Connect(closeMenu)
+
+        setBindBtn.MouseButton1Click:Connect(function()
+            if isListeningKey then return end
+            isListeningKey = true
+            setBindBtn.Text = "⌨️ Press any key..."
+            setBindBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+
+            keyConn = UserInputService.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    local kc = input.KeyCode
+                    if kc ~= Enum.KeyCode.Unknown and kc ~= Enum.KeyCode.Escape then
+                        for oldKc, oldItem in pairs(hubState.featureKeybinds) do
+                            if oldItem.id == itemData.id then
+                                hubState.featureKeybinds[oldKc] = nil
+                            end
+                        end
+
+                        itemData.bind = kc.Name
+                        hubState.featureKeybinds[kc] = itemData
+                        saveKeybindsConfig()
+
+                        currentBindLabel.Text = "Current Bind: [" .. kc.Name .. "]"
+                        currentBindLabel.TextColor3 = hubState.currentThemeColor
+                        setBindBtn.Text = "⌨️ Bind: [" .. kc.Name .. "]"
+                        setBindBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
+
+                        hubState.notify({
+                            Title = "Keybind Set",
+                            Content = "Bound [" .. kc.Name .. "] to '" .. tostring(itemData.title) .. "'",
+                            Color = hubState.currentThemeColor,
+                            Duration = 3
+                        })
+                    end
+                    if keyConn then
+                        keyConn:Disconnect()
+                        keyConn = nil
+                    end
+                    isListeningKey = false
+                end
+            end)
+        end)
+
+        clearBindBtn.MouseButton1Click:Connect(function()
+            for oldKc, oldItem in pairs(hubState.featureKeybinds) do
+                if oldItem.id == itemData.id then
+                    hubState.featureKeybinds[oldKc] = nil
+                end
+            end
+            itemData.bind = nil
+            saveKeybindsConfig()
+            currentBindLabel.Text = "Current Bind: [ None ]"
+            currentBindLabel.TextColor3 = Color3.fromRGB(150, 160, 185)
+            setBindBtn.Text = "⌨️ Set Keybind"
+            hubState.notify({
+                Title = "Keybind Cleared",
+                Content = "Unbound '" .. tostring(itemData.title) .. "'",
+                Color = Color3.fromRGB(255, 140, 140),
+                Duration = 2.5
+            })
+        end)
+
+        triggerBtn.MouseButton1Click:Connect(function()
+            if itemData.action then pcall(itemData.action) end
+            closeMenu()
+        end)
+    end
+
+    hubState.attachContextMenu = function(guiObj, itemData)
+        if not guiObj then return end
+        hubState.trackConnection(guiObj.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then
+                hubState.openBindContextMenu(itemData, input.Position)
+            end
+        end))
+    end
+
+    -- =========================================================================
+    -- Draggable Semi-Transparent HUD Performance Stats Window
+    -- =========================================================================
+    hubState.hudFrame = nil
+    local hudFpsLabel, hudPingLabel, hudMemLabel, hudSessionLabel
+
+    function hubState.createHudStatsWindow()
+        if hubState.hudFrame then return hubState.hudFrame end
+
+        hubState.hudFrame = Instance.new("Frame")
+        hubState.hudFrame.Name = "ENI_StatsHUD"
+        hubState.hudFrame.Size = UDim2.new(0, 190, 0, 115)
+        hubState.hudFrame.Position = UDim2.new(0, 20, 0, 90)
+        hubState.hudFrame.BackgroundColor3 = Color3.fromRGB(11, 15, 22)
+        hubState.hudFrame.BackgroundTransparency = hubState.hudOpacity
+        hubState.hudFrame.BorderSizePixel = 0
+        hubState.hudFrame.ZIndex = 80
+        hubState.hudFrame.Visible = hubState.isHudEnabled
+        hubState.hudFrame.Active = true
+        hubState.hudFrame.Parent = hubState.screenGui
+        applyCorner(hubState.hudFrame, 8)
+        local hudStroke = applyStroke(hubState.hudFrame, hubState.currentThemeColor, 1.2, 0.4)
+        hubState.registerThemeStroke(hudStroke)
+
+        hubState.makeSmoothDraggable(hubState.hudFrame, hubState.hudFrame)
+
+        local hudTitleBar = Instance.new("Frame")
+        hudTitleBar.Size = UDim2.new(1, 0, 0, 22)
+        hudTitleBar.BackgroundTransparency = 1
+        hudTitleBar.ZIndex = 81
+        hudTitleBar.Parent = hubState.hudFrame
+
+        local dot = Instance.new("Frame")
+        dot.Size = UDim2.new(0, 6, 0, 6)
+        dot.Position = UDim2.new(0, 8, 0.5, -3)
+        dot.BackgroundColor3 = hubState.currentThemeColor
+        dot.BorderSizePixel = 0
+        dot.ZIndex = 82
+        dot.Parent = hudTitleBar
+        applyCorner(dot, 3)
+        hubState.registerThemeFrame(dot)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -22, 1, 0)
+        title.Position = UDim2.new(0, 18, 0, 0)
+        title.BackgroundTransparency = 1
+        title.Text = "PERFORMANCE HUD"
+        title.TextColor3 = Color3.fromRGB(210, 220, 240)
+        title.Font = Enum.Font.GothamBlack
+        title.TextSize = 9
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.ZIndex = 82
+        title.Parent = hudTitleBar
+
+        local statsContainer = Instance.new("Frame")
+        statsContainer.Size = UDim2.new(1, -16, 1, -28)
+        statsContainer.Position = UDim2.new(0, 8, 0, 24)
+        statsContainer.BackgroundTransparency = 1
+        statsContainer.ZIndex = 81
+        statsContainer.Parent = hubState.hudFrame
+
+        local sLayout = Instance.new("UIListLayout")
+        sLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        sLayout.Padding = UDim.new(0, 3)
+        sLayout.Parent = statsContainer
+
+        local function createStatRow(icon, labelText)
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, 0, 0, 16)
+            row.BackgroundTransparency = 1
+            row.ZIndex = 82
+            row.Parent = statsContainer
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(0.5, 0, 1, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = icon .. " " .. labelText
+            lbl.TextColor3 = Color3.fromRGB(150, 162, 185)
+            lbl.Font = Enum.Font.GothamMedium
+            lbl.TextSize = 10
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.ZIndex = 83
+            lbl.Parent = row
+
+            local val = Instance.new("TextLabel")
+            val.Size = UDim2.new(0.5, 0, 1, 0)
+            val.Position = UDim2.new(0.5, 0, 0, 0)
+            val.BackgroundTransparency = 1
+            val.Text = "--"
+            val.TextColor3 = Color3.fromRGB(240, 245, 255)
+            val.Font = Enum.Font.GothamBold
+            val.TextSize = 10
+            val.TextXAlignment = Enum.TextXAlignment.Right
+            val.ZIndex = 83
+            val.Parent = row
+
+            return val
+        end
+
+        hudFpsLabel = createStatRow("⚡", "FPS:")
+        hudPingLabel = createStatRow("📶", "Ping:")
+        hudMemLabel = createStatRow("💾", "Memory:")
+        hudSessionLabel = createStatRow("⏱️", "Session:")
+
+        local frameCount = 0
+        local lastTime = tick()
+        local sessionStart = tick()
+
+        local hudConn = RunService.RenderStepped:Connect(function()
+            frameCount = frameCount + 1
+            local now = tick()
+            if now - lastTime >= 0.5 then
+                local fps = math.floor(frameCount / (now - lastTime))
+                frameCount = 0
+                lastTime = now
+
+                if hubState.hudFrame and hubState.hudFrame.Visible then
+                    hudFpsLabel.Text = tostring(fps) .. " FPS"
+                    if fps >= 50 then
+                        hudFpsLabel.TextColor3 = Color3.fromRGB(50, 225, 130)
+                    elseif fps >= 30 then
+                        hudFpsLabel.TextColor3 = Color3.fromRGB(255, 195, 50)
+                    else
+                        hudFpsLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+                    end
+
+                    local pingVal = 0
+                    pcall(function()
+                        pingVal = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
+                    end)
+                    hudPingLabel.Text = tostring(pingVal) .. " ms"
+
+                    local memVal = 0
+                    pcall(function()
+                        memVal = math.floor(StatsService:GetTotalMemoryUsageMb())
+                    end)
+                    hudMemLabel.Text = tostring(memVal) .. " MB"
+
+                    local elapsedSec = math.floor(now - sessionStart)
+                    local hrs = math.floor(elapsedSec / 3600)
+                    local mins = math.floor((elapsedSec % 3600) / 60)
+                    local secs = elapsedSec % 60
+                    hudSessionLabel.Text = string.format("%02d:%02d:%02d", hrs, mins, secs)
+                end
+            end
+        end)
+        hubState.trackConnection(hudConn)
+
+        return hubState.hudFrame
+    end
+
+    hubState.setHudVisible = function(visible)
+        hubState.isHudEnabled = (visible == true)
+        hubState.configValues.hudEnabled = hubState.isHudEnabled
+        if not hubState.hudFrame then hubState.createHudStatsWindow() end
+        if hubState.hudFrame then hubState.hudFrame.Visible = hubState.isHudEnabled end
+    end
+
+    hubState.setHudOpacity = function(opacity)
+        hubState.hudOpacity = math.clamp(opacity or 0.35, 0.05, 0.95)
+        hubState.configValues.hudOpacity = hubState.hudOpacity
+        if hubState.hudFrame then hubState.hudFrame.BackgroundTransparency = hubState.hudOpacity end
+    end
+
+    -- Cross-Client Real-Time Live Bus
+    -- Sync offline announcements for players upon join / execution
+    function hubState.syncOfflineAndPendingAnnouncements()
+        local list = loadStoredAnnouncements()
+        local seen = loadSeenAnnouncements()
+        local myName = LocalPlayer and LocalPlayer.Name or ""
+
+        for _, ann in ipairs(list) do
+            local annId = ann.id or (tostring(ann.timestamp) .. "_" .. tostring(ann.title))
+            if not seen[tostring(annId)] then
+                local target = ann.target or "All"
+                local isForMe = (target == "All") or (target:lower() == myName:lower())
+                if isForMe then
+                    markAnnouncementAsSeen(annId)
+                    task.delay(1.5, function()
+                        hubState.sendNotification({
+                            Title = "📢 " .. tostring(ann.title or "Developer Announcement"),
+                            Content = tostring(ann.message or ""),
+                            Category = "Announcements",
+                            Color = Color3.fromRGB(190, 100, 255),
+                            Toast = true,
+                            Duration = 6
+                        })
+                    end)
+                end
+            end
+        end
+    end
+
+    -- Sync offline feedbacks strictly for developer upon join / execution
+    function hubState.syncOfflineAndPendingFeedbacks()
+        if not hubState.isDeveloper then return end
+        local list = loadStoredFeedbacks()
+        local seen = loadSeenFeedbacks()
+
+        local unreadCount = 0
+        for _, fb in ipairs(list) do
+            local fbId = fb.id or (tostring(fb.timestamp) .. "_" .. tostring(fb.sender))
+            if not seen[tostring(fbId)] then
+                unreadCount = unreadCount + 1
+                markFeedbackAsSeen(fbId)
+                task.delay(1.2 + (unreadCount * 0.4), function()
+                    hubState.sendNotification({
+                        Title = "🛠️ [Offline Feedback] " .. tostring(fb.category or "Feedback") .. " from " .. tostring(fb.sender or "Player"),
+                        Content = "\"" .. tostring(fb.message or ""):sub(1, 80) .. (#tostring(fb.message or "") > 80 and "..." or "") .. "\"",
+                        Category = "Feedback",
+                        Color = Color3.fromRGB(0, 215, 255),
+                        Toast = true,
+                        Duration = 6
+                    })
+                end)
+            end
+        end
+    end
+
+    function hubState.setupLiveListener()
+        local bus = getLiveBusFolder()
+        if not bus then return end
+
+        local function onPacketAdded(child)
+            if child:IsA("StringValue") and child.Name:sub(1, 8) == "ENI_Pkt_" then
+                task.spawn(function()
+                    local ok, packet = pcall(function() return HttpService:JSONDecode(child.Value) end)
+                    if not ok or not packet or type(packet) ~= "table" then return end
+
+                    local pType = packet.type
+                    local sender = packet.sender or "Unknown"
+                    local target = packet.target or "All"
+                    local myName = LocalPlayer and LocalPlayer.Name or ""
+
+                    -- Ignore if local player is sender
+                    if sender:lower() == myName:lower() then return end
+
+                    -- Check if packet is targeted to us
+                    local isForMe = (target == "All") or (target:lower() == myName:lower())
+
+                    if pType == "Feedback" or pType == "FeedbackAlert" then
+                        -- STRICTLY FOR DEVELOPER ONLY (Non-devs never receive feedback notifications)
+                        if hubState.isDeveloper then
+                            if packet.id then markFeedbackAsSeen(packet.id) end
+                            hubState.sendNotification({
+                                Title = "🛠️ Live " .. tostring(packet.category or "Feedback") .. " from " .. sender,
+                                Content = "\"" .. tostring(packet.message):sub(1, 80) .. (#tostring(packet.message) > 80 and "..." or "") .. "\"",
+                                Category = "Feedback",
+                                Color = Color3.fromRGB(0, 215, 255),
+                                Toast = true,
+                                Duration = 5
+                            })
+                        end
+                    elseif pType == "Announcement" or pType == "DevBroadcast" then
+                        if isForMe then
+                            -- Mark as seen in offline store so it's not re-notified
+                            if packet.id then markAnnouncementAsSeen(packet.id) end
+                            hubState.sendNotification({
+                                Title = "📢 " .. tostring(packet.title or "Developer Announcement"),
+                                Content = tostring(packet.message or ""),
+                                Category = "Announcements",
+                                Color = Color3.fromRGB(190, 100, 255),
+                                Toast = true,
+                                Duration = 6
+                            })
+                        end
+                    end
+                end)
+            end
+        end
+
+        for _, child in ipairs(bus:GetChildren()) do
+            onPacketAdded(child)
+        end
+        hubState.trackConnection(bus.ChildAdded:Connect(onPacketAdded))
+    end
+
+    task.defer(hubState.setupLiveListener)
+    task.defer(hubState.syncOfflineAndPendingAnnouncements)
+    task.defer(hubState.syncOfflineAndPendingFeedbacks)
+
+    -- =========================================================================
+    -- Anti-Spam Feedback Engine
+    -- =========================================================================
+    hubState.lastFeedbackTime = 0
+    hubState.lastFeedbackText = ""
+        hubState.feedbackSessionCount = 0
+        function hubState.processFeedbackDispatch(category, message, callback)
+        local now = tick()
+        local elapsed = now - hubState.lastFeedbackTime
+
+        -- 1. Anti-Spam Cooldown check
+        if elapsed < feedbackCooldownSec then
+            local remain = math.ceil(feedbackCooldownSec - elapsed)
+            hubState.notify({
+                Title = "Cooldown Active",
+                Content = "Please wait " .. remain .. "s before sending feedback again.",
+                Color = Color3.fromRGB(255, 170, 50)
+            })
+            if callback then callback(false, "Cooldown: " .. remain .. "s remaining") end
+            return false
+        end
+
+        -- 2. Anti-Spam Session limit
+        if hubState.feedbackSessionCount >= MAX_FEEDBACK_PER_SESSION then
+            hubState.notify({
+                Title = "Session Limit Reached",
+                Content = "You have reached the maximum feedback submissions for this session.",
+                Color = Color3.fromRGB(245, 75, 75)
+            })
+            if callback then callback(false, "Session limit reached") end
+            return false
+        end
+
+        -- 3. Length Validations
+        local cleanMsg = message:match("^%s*(.-)%s*$") or ""
+        if #cleanMsg < 6 then
+            hubState.notify({
+                Title = "Message Too Short",
+                Content = "Please enter at least 6 characters for your feedback.",
+                Color = Color3.fromRGB(255, 170, 50)
+            })
+            if callback then callback(false, "Message too short (min 6 characters)") end
+            return false
+        end
+
+        if #cleanMsg > 500 then
+            hubState.notify({
+                Title = "Message Too Long",
+                Content = "Feedback exceeds maximum character limit of 500.",
+                Color = Color3.fromRGB(255, 170, 50)
+            })
+            if callback then callback(false, "Message too long (max 500 characters)") end
+            return false
+        end
+
+        -- 4. Duplicate Check
+        if cleanMsg:lower() == hubState.lastFeedbackText:lower() then
+            hubState.notify({
+                Title = "Duplicate Feedback",
+                Content = "You cannot send the exact same feedback twice!",
+                Color = Color3.fromRGB(255, 170, 50)
+            })
+            if callback then callback(false, "Duplicate message detected") end
+            return false
+        end
+
+        hubState.lastFeedbackTime = now
+        hubState.lastFeedbackText = cleanMsg
+        hubState.feedbackSessionCount = hubState.feedbackSessionCount + 1
+
+        local pName = LocalPlayer and LocalPlayer.Name or "Player"
+        local pUserId = LocalPlayer and LocalPlayer.UserId or 0
+        local pPlaceId = game.PlaceId or 0
+        local pJobId = game.JobId or "SinglePlayer"
+
+        local fbId = "fb_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999))
+        local fbRecord = {
+            id = fbId,
+            category = category,
+            message = cleanMsg,
+            sender = pName,
+            userId = pUserId,
+            placeId = pPlaceId,
+            jobId = pJobId,
+            target = hubState.devUsername,
+            timestamp = os.time(),
+            time = os.date("%H:%M")
+        }
+
+        -- 1. Persist to Global 24/7 Developer Feedback Storage
+        persistFeedbackRecord(fbRecord)
+
+        -- 2. Dispatch across live bus for developer in-game alerts
+        broadcastLivePayload("Feedback", fbRecord)
+
+        -- Webhook & Custom Callback
+        if opts.onFeedback then
+            pcall(function()
+                opts.onFeedback(category, cleanMsg, {
+                    player = pName,
+                    userId = pUserId,
+                    placeId = pPlaceId,
+                    jobId = pJobId,
+                    time = os.date("%Y-%m-%d %H:%M:%S"),
+                    developer = hubState.devUsername
+                })
+            end)
+        end
+
+        local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
+        if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
+            local catColor = category == "Bug Report" and 15158332 or (category == "Suggestions" and 3447003 or 10181046)
+            local avatarHeadshot = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(pUserId) .. "&width=150&height=150&format=png"
+            local profileLink = "https://www.roblox.com/users/" .. tostring(pUserId) .. "/profile"
+            local gameLink = "https://www.roblox.com/games/" .. tostring(pPlaceId)
+            local devicePlatform = hubState.isMobileDevice and "📱 Mobile (Touch)" or "💻 PC (Desktop)"
+
+            local payload = {
+                username = hubState.webhookBotName,
+                avatar_url = hubState.webhookBotAvatar,
+                content = "🔔 **[Alert for " .. devUsername .. "]** New " .. category .. " received from `" .. pName .. "` (" .. devicePlatform .. ")!",
+                embeds = {{
+                    title = "🛠️ New " .. category .. " Received",
+                    description = "**User Message:**\n>>> " .. cleanMsg,
+                    color = catColor,
+                    thumbnail = {
+                        url = avatarHeadshot
+                    },
+                    fields = {
+                        { name = "👤 Sender", value = "[" .. pName .. " (" .. tostring(pUserId) .. ")](" .. profileLink .. ")", inline = true },
+                        { name = "📱 Platform", value = "`" .. devicePlatform .. "`", inline = true },
+                        { name = "🎮 Place ID", value = "[" .. tostring(pPlaceId) .. "](" .. gameLink .. ")", inline = true },
+                        { name = "🕒 Submitted At", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true },
+                        { name = "🎯 Targeted Owner", value = "`" .. devUsername .. "`", inline = true },
+                        { name = "🆔 Feedback ID", value = "`" .. fbId .. "`", inline = true }
+                    },
+                    footer = { text = "UnknownHub Anti-Spam Protocol • Direct Webhook Pipeline" }
+                }}
+            }
+            dispatchHttpRequest(targetWebhook, "POST", nil, payload)
+        end
+
+        -- Record into user's notification center
+        hubState.sendNotification({
+            Title = "Feedback Sent (" .. category .. ")",
+            Content = "Thank you! Your submission: \"" .. (cleanMsg:sub(1, 35) .. (#cleanMsg > 35 and "..." or "")) .. "\" was received.",
+            Category = "Feedback",
+            Color = Color3.fromRGB(0, 215, 125),
+            Toast = true
+        })
+
+        if callback then callback(true) end
+        return true
+    end
+
+    -- =========================================================================
+    -- Notification Center Modal UI
+    -- =========================================================================
+    function hubState.createNotificationCenterModal(parentFrame)
+        local existing = hubState.screenGui:FindFirstChild("NotificationCenterOverlay")
+        if existing then
+            pcall(function() existing:Destroy() end)
+        end
+
+        hubState.isModalActive = true
+
+        local modalOverlay = Instance.new("Frame")
+        modalOverlay.Name = "NotificationCenterOverlay"
+        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
+        modalOverlay.Position = UDim2.new(0, 0, 0, 0)
+        modalOverlay.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+        modalOverlay.BackgroundTransparency = 1
+        modalOverlay.BorderSizePixel = 0
+        modalOverlay.ZIndex = 250
+        modalOverlay.Active = true
+        modalOverlay.Parent = hubState.screenGui
+
+        local modalBlocker = Instance.new("TextButton")
+        modalBlocker.Name = "ModalBlocker"
+        modalBlocker.Size = UDim2.new(1, 0, 1, 0)
+        modalBlocker.BackgroundTransparency = 1
+        modalBlocker.Text = ""
+        modalBlocker.Active = true
+        modalBlocker.AutoButtonColor = false
+        modalBlocker.ZIndex = 250
+        modalBlocker.Parent = modalOverlay
+
+        local centerPanel = Instance.new("Frame")
+        centerPanel.Name = "CenterPanel"
+        centerPanel.Size = UDim2.new(0, 540, 0, 380)
+        centerPanel.Position = UDim2.new(0.5, -270, 0.5, -190)
+        centerPanel.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+        centerPanel.BorderSizePixel = 0
+        centerPanel.ZIndex = 251
+        centerPanel.ClipsDescendants = true
+        centerPanel.Active = true
+        centerPanel.Parent = modalOverlay
+        applyCorner(centerPanel, 10)
+        local centerStroke = applyStroke(centerPanel, hubState.currentThemeColor, 1.5, 0.25)
+        hubState.registerThemeStroke(centerStroke)
+
+        -- Panel Header
+        local pHeader = Instance.new("Frame")
+        pHeader.Size = UDim2.new(1, 0, 0, 42)
+        pHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 34)
+        pHeader.BorderSizePixel = 0
+        pHeader.ZIndex = 252
+        pHeader.Parent = centerPanel
+
+        local pTitle = Instance.new("TextLabel")
+        pTitle.Size = UDim2.new(0.4, 0, 1, 0)
+        pTitle.Position = UDim2.new(0, 14, 0, 0)
+        pTitle.BackgroundTransparency = 1
+        pTitle.Text = "🔔 Notifications"
+        pTitle.TextColor3 = Color3.fromRGB(245, 250, 255)
+        pTitle.Font = Enum.Font.GothamBlack
+        pTitle.TextSize = 14
+        pTitle.TextXAlignment = Enum.TextXAlignment.Left
+        pTitle.ZIndex = 253
+        pTitle.Parent = pHeader
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 24, 0, 24)
+        closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
+        closeBtn.Text = "X"
+        closeBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextSize = 11
+        closeBtn.ZIndex = 253
+        closeBtn.Parent = pHeader
+        applyCorner(closeBtn, 5)
+
+        local markReadBtn = Instance.new("TextButton")
+        markReadBtn.Size = UDim2.new(0, 80, 0, 24)
+        markReadBtn.Position = UDim2.new(1, -118, 0.5, -12)
+        markReadBtn.BackgroundColor3 = Color3.fromRGB(26, 33, 48)
+        markReadBtn.Text = "Mark Read"
+        markReadBtn.TextColor3 = Color3.fromRGB(190, 205, 230)
+        markReadBtn.Font = Enum.Font.GothamBold
+        markReadBtn.TextSize = 10
+        markReadBtn.ZIndex = 253
+        markReadBtn.Parent = pHeader
+        applyCorner(markReadBtn, 5)
+
+        local clearAllBtn = Instance.new("TextButton")
+        clearAllBtn.Size = UDim2.new(0, 68, 0, 24)
+        clearAllBtn.Position = UDim2.new(1, -192, 0.5, -12)
+        clearAllBtn.BackgroundColor3 = Color3.fromRGB(36, 26, 30)
+        clearAllBtn.Text = "Clear All"
+        clearAllBtn.TextColor3 = Color3.fromRGB(245, 140, 140)
+        clearAllBtn.Font = Enum.Font.GothamBold
+        clearAllBtn.TextSize = 10
+        clearAllBtn.ZIndex = 253
+        clearAllBtn.Parent = pHeader
+        applyCorner(clearAllBtn, 5)
+
+        -- Category Filter Tabs
+        local filterBar = Instance.new("Frame")
+        filterBar.Size = UDim2.new(1, -24, 0, 30)
+        filterBar.Position = UDim2.new(0, 12, 0, 48)
+        filterBar.BackgroundTransparency = 1
+        filterBar.ZIndex = 252
+        filterBar.Parent = centerPanel
+
+        local filterLayout = Instance.new("UIListLayout")
+        filterLayout.FillDirection = Enum.FillDirection.Horizontal
+        filterLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        filterLayout.Padding = UDim.new(0, 6)
+        filterLayout.Parent = filterBar
+
+        local filterButtons = {}
+        local filterTabs = {"All", "System", "Feedback", "Announcements"}
+
+        -- Scrollable Card Container
+        local cardScroll = Instance.new("ScrollingFrame")
+        cardScroll.Size = UDim2.new(1, -24, 1, -90)
+        cardScroll.Position = UDim2.new(0, 12, 0, 84)
+        cardScroll.BackgroundTransparency = 1
+        cardScroll.BorderSizePixel = 0
+        cardScroll.ScrollBarThickness = 3
+        cardScroll.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
+        cardScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        cardScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        cardScroll.ZIndex = 252
+        cardScroll.Parent = centerPanel
+
+        local cardLayout = Instance.new("UIListLayout")
+        cardLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        cardLayout.Padding = UDim.new(0, 6)
+        cardLayout.Parent = cardScroll
+
+        local function renderCards()
+            for _, child in ipairs(cardScroll:GetChildren()) do
+                if child:IsA("Frame") or child:IsA("TextLabel") then
+                    child:Destroy()
+                end
+            end
+
+            local filtered = {}
+            for _, notif in ipairs(hubState.notificationsStore) do
+                if hubState.activeNotifFilter == "All" or notif.category == hubState.activeNotifFilter then
+                    table.insert(filtered, notif)
+                end
+            end
+
+            if #filtered == 0 then
+                local emptyLabel = Instance.new("TextLabel")
+                emptyLabel.Size = UDim2.new(1, 0, 0, 80)
+                emptyLabel.BackgroundTransparency = 1
+                emptyLabel.Text = "No notifications in '" .. hubState.activeNotifFilter .. "'\nYou're all caught up! ✨"
+                emptyLabel.TextColor3 = Color3.fromRGB(140, 150, 175)
+                emptyLabel.Font = Enum.Font.GothamMedium
+                emptyLabel.TextSize = 12
+                emptyLabel.TextXAlignment = Enum.TextXAlignment.Center
+                emptyLabel.ZIndex = 253
+                emptyLabel.Parent = cardScroll
+                return
+            end
+
+            for _, notif in ipairs(filtered) do
+                local card = Instance.new("Frame")
+                card.Name = "NotifItem_" .. notif.id
+                card.Size = UDim2.new(1, 0, 0, 56)
+                card.BackgroundColor3 = Color3.fromRGB(19, 24, 35)
+                card.BorderSizePixel = 0
+                card.ZIndex = 253
+                card.Parent = cardScroll
+                applyCorner(card, 6)
+                applyStroke(card, Color3.fromRGB(36, 44, 62), 1, 0.4)
+
+                local leftBar = Instance.new("Frame")
+                leftBar.Size = UDim2.new(0, 3, 1, 0)
+                leftBar.BackgroundColor3 = notif.color or hubState.currentThemeColor
+                leftBar.BorderSizePixel = 0
+                leftBar.ZIndex = 254
+                leftBar.Parent = card
+                applyCorner(leftBar, 2)
+
+                local cTitle = Instance.new("TextLabel")
+                cTitle.Size = UDim2.new(1, -90, 0, 18)
+                cTitle.Position = UDim2.new(0, 12, 0, 6)
+                cTitle.BackgroundTransparency = 1
+                cTitle.Text = notif.title
+                cTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+                cTitle.Font = Enum.Font.GothamBold
+                cTitle.TextSize = 11
+                cTitle.TextXAlignment = Enum.TextXAlignment.Left
+                cTitle.TextTruncate = Enum.TextTruncate.AtEnd
+                cTitle.ZIndex = 254
+                cTitle.Parent = card
+
+                local cTime = Instance.new("TextLabel")
+                cTime.Size = UDim2.new(0, 45, 0, 18)
+                cTime.Position = UDim2.new(1, -70, 0, 6)
+                cTime.BackgroundTransparency = 1
+                cTime.Text = notif.time or ""
+                cTime.TextColor3 = Color3.fromRGB(120, 130, 155)
+                cTime.Font = Enum.Font.GothamMedium
+                cTime.TextSize = 10
+                cTime.TextXAlignment = Enum.TextXAlignment.Right
+                cTime.ZIndex = 254
+                cTime.Parent = card
+
+                local cContent = Instance.new("TextLabel")
+                cContent.Size = UDim2.new(1, -40, 0, 24)
+                cContent.Position = UDim2.new(0, 12, 0, 24)
+                cContent.BackgroundTransparency = 1
+                cContent.Text = notif.content
+                cContent.TextColor3 = Color3.fromRGB(170, 180, 202)
+                cContent.Font = Enum.Font.GothamMedium
+                cContent.TextSize = 10
+                cContent.TextWrapped = true
+                cContent.TextXAlignment = Enum.TextXAlignment.Left
+                cContent.TextYAlignment = Enum.TextYAlignment.Top
+                cContent.ZIndex = 254
+                cContent.Parent = card
+
+                local delCardBtn = Instance.new("TextButton")
+                delCardBtn.Size = UDim2.new(0, 18, 0, 18)
+                delCardBtn.Position = UDim2.new(1, -22, 0, 6)
+                delCardBtn.BackgroundTransparency = 1
+                delCardBtn.Text = "X"
+                delCardBtn.TextColor3 = Color3.fromRGB(150, 160, 185)
+                delCardBtn.Font = Enum.Font.GothamBold
+                delCardBtn.TextSize = 10
+                delCardBtn.ZIndex = 254
+                delCardBtn.Parent = card
+
+                local isFeedbackItem = (notif.category == "Feedback") or tostring(notif.title):find("Feedback") or tostring(notif.title):find("Report") or tostring(notif.title):find("Suggestion")
+                if isFeedbackItem then
+                    card.Size = UDim2.new(1, 0, 0, 68)
+                    local replyCardBtn = Instance.new("TextButton")
+                    replyCardBtn.Size = UDim2.new(0, 64, 0, 20)
+                    replyCardBtn.Position = UDim2.new(1, -74, 1, -24)
+                    replyCardBtn.BackgroundColor3 = Color3.fromRGB(28, 38, 56)
+                    replyCardBtn.Text = "💬 Reply"
+                    replyCardBtn.TextColor3 = Color3.fromRGB(0, 215, 255)
+                    replyCardBtn.Font = Enum.Font.GothamBold
+                    replyCardBtn.TextSize = 10
+                    replyCardBtn.ZIndex = 254
+                    replyCardBtn.Parent = card
+                    applyCorner(replyCardBtn, 4)
+                    applyStroke(replyCardBtn, Color3.fromRGB(0, 160, 220), 1, 0.4)
+
+                    replyCardBtn.MouseButton1Click:Connect(function()
+                        if hubState.openFeedbackReplyModal then
+                            hubState.openFeedbackReplyModal(notif)
+                        end
+                    end)
+                end
+
+                delCardBtn.MouseButton1Click:Connect(function()
+                    for idx, item in ipairs(hubState.notificationsStore) do
+                        if item.id == notif.id then
+                            if not item.read then
+                                hubState.unreadNotifCount = math.max(0, hubState.unreadNotifCount - 1)
+                                hubState.updateNotifBadge()
+                            end
+                            table.remove(hubState.notificationsStore, idx)
+                            break
+                        end
+                    end
+                    renderCards()
+                end)
+            end
+        end
+
+        for _, tabName in ipairs(filterTabs) do
+            local tabBtn = Instance.new("TextButton")
+            tabBtn.Size = UDim2.new(0, tabName == "Announcements" and 95 or (tabName == "Dev Broadcast" and 100 or 68), 1, 0)
+            tabBtn.BackgroundColor3 = hubState.activeNotifFilter == tabName and Color3.fromRGB(32, 42, 62) or Color3.fromRGB(20, 25, 36)
+            tabBtn.Text = tabName
+            tabBtn.TextColor3 = hubState.activeNotifFilter == tabName and hubState.currentThemeColor or Color3.fromRGB(160, 172, 195)
+            tabBtn.Font = Enum.Font.GothamBold
+            tabBtn.TextSize = 10
+            tabBtn.ZIndex = 253
+            tabBtn.Parent = filterBar
+            applyCorner(tabBtn, 5)
+
+            filterButtons[tabName] = tabBtn
+
+            tabBtn.MouseButton1Click:Connect(function()
+                hubState.activeNotifFilter = tabName
+                for name, btn in pairs(filterButtons) do
+                    local isActive = (name == tabName)
+                    TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundColor3 = isActive and Color3.fromRGB(32, 42, 62) or Color3.fromRGB(20, 25, 36),
+                        TextColor3 = isActive and hubState.currentThemeColor or Color3.fromRGB(160, 172, 195)
+                    }):Play()
+                end
+                renderCards()
+            end)
+        end
+
+        markReadBtn.MouseButton1Click:Connect(function()
+            for _, item in ipairs(hubState.notificationsStore) do
+                item.read = true
+            end
+            hubState.unreadNotifCount = 0
+            hubState.updateNotifBadge()
+            renderCards()
+        end)
+
+        clearAllBtn.MouseButton1Click:Connect(function()
+            hubState.notificationsStore = {}
+            hubState.unreadNotifCount = 0
+            hubState.updateNotifBadge()
+            renderCards()
+        end)
+
+        hubState.refreshNotifCenterUI = renderCards
+        renderCards()
+
+        -- Fade In Animation
+        TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 0.35
+        }):Play()
+
+        local isClosing = false
+        local function closeModal()
+            if isClosing then return end
+            isClosing = true
+            hubState.isModalActive = false
+            hubState.refreshNotifCenterUI = nil
+            local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                BackgroundTransparency = 1
+            })
+            t:Play()
+            t.Completed:Connect(function()
+                pcall(function() modalOverlay:Destroy() end)
+            end)
+        end
+
+        closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
+    end
+
+    -- =========================================================================
+    -- Feedback Modal UI (Tools / Feedback Square Button Modal)
+    -- =========================================================================
+    function hubState.createFeedbackModal(parentFrame)
+        local existing = hubState.screenGui:FindFirstChild("FeedbackOverlay")
+        if existing then
+            pcall(function() existing:Destroy() end)
+        end
+
+        hubState.isModalActive = true
+
+        local modalOverlay = Instance.new("Frame")
+        modalOverlay.Name = "FeedbackOverlay"
+        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
+        modalOverlay.Position = UDim2.new(0, 0, 0, 0)
+        modalOverlay.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+        modalOverlay.BackgroundTransparency = 1
+        modalOverlay.BorderSizePixel = 0
+        modalOverlay.ZIndex = 250
+        modalOverlay.Active = true
+        modalOverlay.Parent = hubState.screenGui
+
+        local modalBlocker = Instance.new("TextButton")
+        modalBlocker.Name = "ModalBlocker"
+        modalBlocker.Size = UDim2.new(1, 0, 1, 0)
+        modalBlocker.BackgroundTransparency = 1
+        modalBlocker.Text = ""
+        modalBlocker.Active = true
+        modalBlocker.AutoButtonColor = false
+        modalBlocker.ZIndex = 250
+        modalBlocker.Parent = modalOverlay
+
+        local fbPanel = Instance.new("Frame")
+        fbPanel.Name = "FeedbackPanel"
+        fbPanel.Size = UDim2.new(0, 500, 0, 370)
+        fbPanel.Position = UDim2.new(0.5, -250, 0.5, -185)
+        fbPanel.BackgroundColor3 = Color3.fromRGB(14, 18, 27)
+        fbPanel.BorderSizePixel = 0
+        fbPanel.ZIndex = 251
+        fbPanel.ClipsDescendants = true
+        fbPanel.Active = true
+        fbPanel.Parent = modalOverlay
+        applyCorner(fbPanel, 10)
+        local fbStroke = applyStroke(fbPanel, hubState.currentThemeColor, 1.5, 0.25)
+        hubState.registerThemeStroke(fbStroke)
+
+        -- Modal Header
+        local fbHeader = Instance.new("Frame")
+        fbHeader.Size = UDim2.new(1, 0, 0, 40)
+        fbHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 35)
+        fbHeader.BorderSizePixel = 0
+        fbHeader.ZIndex = 252
+        fbHeader.Parent = fbPanel
+
+        local fbTitle = Instance.new("TextLabel")
+        fbTitle.Size = UDim2.new(0.7, 0, 1, 0)
+        fbTitle.Position = UDim2.new(0, 14, 0, 0)
+        fbTitle.BackgroundTransparency = 1
+        fbTitle.Text = "🛠️ Feedback & Report Center"
+        fbTitle.TextColor3 = Color3.fromRGB(245, 250, 255)
+        fbTitle.Font = Enum.Font.GothamBlack
+        fbTitle.TextSize = 13
+        fbTitle.TextXAlignment = Enum.TextXAlignment.Left
+        fbTitle.ZIndex = 253
+        fbTitle.Parent = fbHeader
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 24, 0, 24)
+        closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(32, 38, 54)
+        closeBtn.Text = "X"
+        closeBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextSize = 11
+        closeBtn.ZIndex = 253
+        closeBtn.Parent = fbHeader
+        applyCorner(closeBtn, 5)
+
+        -- Category Selector
+        local catLabel = Instance.new("TextLabel")
+        catLabel.Size = UDim2.new(1, -28, 0, 18)
+        catLabel.Position = UDim2.new(0, 14, 0, 46)
+        catLabel.BackgroundTransparency = 1
+        catLabel.Text = "SELECT CATEGORY:"
+        catLabel.TextColor3 = Color3.fromRGB(150, 162, 185)
+        catLabel.Font = Enum.Font.GothamBold
+        catLabel.TextSize = 10
+        catLabel.TextXAlignment = Enum.TextXAlignment.Left
+        catLabel.ZIndex = 252
+        catLabel.Parent = fbPanel
+
+        local catContainer = Instance.new("Frame")
+        catContainer.Size = UDim2.new(1, -28, 0, 28)
+        catContainer.Position = UDim2.new(0, 14, 0, 66)
+        catContainer.BackgroundTransparency = 1
+        catContainer.ZIndex = 252
+        catContainer.Parent = fbPanel
+
+        local catLayout = Instance.new("UIListLayout")
+        catLayout.FillDirection = Enum.FillDirection.Horizontal
+        catLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        catLayout.Padding = UDim.new(0, 6)
+        catLayout.Parent = catContainer
+
+        local categories = {
+            { name = "Bug Report", icon = "🐛", color = Color3.fromRGB(250, 90, 90) },
+            { name = "Suggestions", icon = "💡", color = Color3.fromRGB(0, 210, 255) },
+            { name = "Question & Answer", icon = "❓", color = Color3.fromRGB(180, 110, 255) }
+        }
+
+        local selectedCategory = "Bug Report"
+        local catButtons = {}
+
+        for _, catInfo in ipairs(categories) do
+            local catBtn = Instance.new("TextButton")
+            catBtn.Size = UDim2.new(0, catInfo.name == "Question & Answer" and 130 or 105, 1, 0)
+            catBtn.BackgroundColor3 = selectedCategory == catInfo.name and Color3.fromRGB(30, 40, 60) or Color3.fromRGB(20, 25, 36)
+            catBtn.Text = catInfo.icon .. " " .. catInfo.name
+            catBtn.TextColor3 = selectedCategory == catInfo.name and catInfo.color or Color3.fromRGB(170, 180, 200)
+            catBtn.Font = Enum.Font.GothamBold
+            catBtn.TextSize = 10
+            catBtn.ZIndex = 253
+            catBtn.Parent = catContainer
+            applyCorner(catBtn, 5)
+            local btnStroke = applyStroke(catBtn, selectedCategory == catInfo.name and catInfo.color or Color3.fromRGB(38, 46, 66), 1, selectedCategory == catInfo.name and 0.2 or 0.7)
+
+            catButtons[catInfo.name] = { btn = catBtn, stroke = btnStroke, info = catInfo }
+
+            catBtn.MouseButton1Click:Connect(function()
+                selectedCategory = catInfo.name
+                for name, item in pairs(catButtons) do
+                    local active = (name == catInfo.name)
+                    TweenService:Create(item.btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundColor3 = active and Color3.fromRGB(30, 40, 60) or Color3.fromRGB(20, 25, 36),
+                        TextColor3 = active and item.info.color or Color3.fromRGB(170, 180, 200)
+                    }):Play()
+                    item.stroke.Color = active and item.info.color or Color3.fromRGB(38, 46, 66)
+                    item.stroke.Transparency = active and 0.2 or 0.7
+                end
+            end)
+        end
+
+        -- Feedback Textbox Container
+        local textContainer = Instance.new("Frame")
+        textContainer.Size = UDim2.new(1, -28, 1, -156)
+        textContainer.Position = UDim2.new(0, 14, 0, 102)
+        textContainer.BackgroundColor3 = Color3.fromRGB(10, 13, 19)
+        textContainer.BorderSizePixel = 0
+        textContainer.ZIndex = 252
+        textContainer.Parent = fbPanel
+        applyCorner(textContainer, 6)
+        local textStroke = applyStroke(textContainer, Color3.fromRGB(38, 48, 70), 1, 0.4)
+
+        local textBox = Instance.new("TextBox")
+        textBox.Size = UDim2.new(1, -16, 1, -24)
+        textBox.Position = UDim2.new(0, 8, 0, 6)
+        textBox.BackgroundTransparency = 1
+        textBox.Text = ""
+        textBox.PlaceholderText = "Describe the bug, suggestion, or question in detail (min 6 chars)..."
+        textBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+        textBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+        textBox.Font = Enum.Font.GothamMedium
+        textBox.TextSize = 11
+        textBox.ClearTextOnFocus = false
+        textBox.MultiLine = true
+        textBox.TextWrapped = true
+        textBox.TextXAlignment = Enum.TextXAlignment.Left
+        textBox.TextYAlignment = Enum.TextYAlignment.Top
+        textBox.ZIndex = 253
+        textBox.Parent = textContainer
+
+        local charCounter = Instance.new("TextLabel")
+        charCounter.Size = UDim2.new(0, 70, 0, 16)
+        charCounter.Position = UDim2.new(1, -76, 1, -18)
+        charCounter.BackgroundTransparency = 1
+        charCounter.Text = "0 / 500"
+        charCounter.TextColor3 = Color3.fromRGB(120, 132, 155)
+        charCounter.Font = Enum.Font.GothamMedium
+        charCounter.TextSize = 9
+        charCounter.TextXAlignment = Enum.TextXAlignment.Right
+        charCounter.ZIndex = 253
+        charCounter.Parent = textContainer
+
+        textBox:GetPropertyChangedSignal("Text"):Connect(function()
+            local len = #textBox.Text
+            if len > 500 then
+                textBox.Text = textBox.Text:sub(1, 500)
+                len = 500
+            end
+            charCounter.Text = tostring(len) .. " / 500"
+            charCounter.TextColor3 = len >= 450 and Color3.fromRGB(250, 110, 110) or Color3.fromRGB(120, 132, 155)
+        end)
+
+        textBox.Focused:Connect(function()
+            TweenService:Create(textStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Color = hubState.currentThemeColor,
+                Transparency = 0.2
+            }):Play()
+        end)
+
+        textBox.FocusLost:Connect(function()
+            TweenService:Create(textStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Color = Color3.fromRGB(38, 48, 70),
+                Transparency = 0.4
+            }):Play()
+        end)
+
+        -- Footer Controls
+        local antiSpamLabel = Instance.new("TextLabel")
+        antiSpamLabel.Size = UDim2.new(0.55, 0, 0, 32)
+        antiSpamLabel.Position = UDim2.new(0, 14, 1, -44)
+        antiSpamLabel.BackgroundTransparency = 1
+        antiSpamLabel.Text = "🛡️ Anti-Spam Protected • 25s Cooldown"
+        antiSpamLabel.TextColor3 = Color3.fromRGB(120, 135, 160)
+        antiSpamLabel.Font = Enum.Font.GothamMedium
+        antiSpamLabel.TextSize = 10
+        antiSpamLabel.TextXAlignment = Enum.TextXAlignment.Left
+        antiSpamLabel.ZIndex = 252
+        antiSpamLabel.Parent = fbPanel
+
+        local sendBtn = Instance.new("TextButton")
+        sendBtn.Size = UDim2.new(0, 120, 0, 30)
+        sendBtn.Position = UDim2.new(1, -134, 1, -44)
+        sendBtn.BackgroundColor3 = hubState.currentThemeColor
+        sendBtn.Text = "Send Feedback"
+        sendBtn.TextColor3 = Color3.fromRGB(10, 14, 22)
+        sendBtn.Font = Enum.Font.GothamBlack
+        sendBtn.TextSize = 11
+        sendBtn.ZIndex = 253
+        sendBtn.Parent = fbPanel
+        applyCorner(sendBtn, 6)
+        hubState.registerThemeFrame(sendBtn)
+
+        local isClosing = false
+        local function closeModal()
+            if isClosing then return end
+            isClosing = true
+            hubState.isModalActive = false
+            local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                BackgroundTransparency = 1
+            })
+            t:Play()
+            t.Completed:Connect(function()
+                pcall(function() modalOverlay:Destroy() end)
+            end)
+        end
+
+        local isSending = false
+        sendBtn.MouseButton1Click:Connect(function()
+            if isSending then return end
+            local msg = textBox.Text
+
+            -- Live cooldown feedback
+            local elapsed = tick() - hubState.lastFeedbackTime
+            if elapsed < feedbackCooldownSec then
+                local waitTime = math.ceil(feedbackCooldownSec - elapsed)
+                sendBtn.Text = "Wait " .. waitTime .. "s..."
+                task.delay(1.5, function()
+                    if sendBtn and sendBtn.Parent then sendBtn.Text = "Send Feedback" end
+                end)
+            end
+
+            isSending = true
+            hubState.processFeedbackDispatch(selectedCategory, msg, function(success, err)
+                isSending = false
+                if success then
+                    sendBtn.Text = "✓ Sent!"
+                    sendBtn.BackgroundColor3 = Color3.fromRGB(0, 215, 120)
+                    task.delay(0.6, function()
+                        closeModal()
+                    end)
+                else
+                    sendBtn.Text = "Send Feedback"
+                end
+            end)
+        end)
+
+        closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
+
+        -- Fade In Animation
+        TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 0.35
+        }):Play()
+    end
+
+    -- =========================================================================
+    -- Feedback Direct Reply Modal UI (Live Developer Broadcast & Webhook Sync)
+    -- =========================================================================
+    function hubState.createFeedbackReplyModal(targetNotif)
+        if not targetNotif then return end
+        local existing = hubState.screenGui:FindFirstChild("FeedbackReplyOverlay")
+        if existing then pcall(function() existing:Destroy() end) end
+
+        hubState.isModalActive = true
+
+        local modalOverlay = Instance.new("Frame")
+        modalOverlay.Name = "FeedbackReplyOverlay"
+        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
+        modalOverlay.Position = UDim2.new(0, 0, 0, 0)
+        modalOverlay.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+        modalOverlay.BackgroundTransparency = 1
+        modalOverlay.BorderSizePixel = 0
+        modalOverlay.ZIndex = 260
+        modalOverlay.Active = true
+        modalOverlay.Parent = hubState.screenGui
+
+        local modalBlocker = Instance.new("TextButton")
+        modalBlocker.Size = UDim2.new(1, 0, 1, 0)
+        modalBlocker.BackgroundTransparency = 1
+        modalBlocker.Text = ""
+        modalBlocker.Active = true
+        modalBlocker.AutoButtonColor = false
+        modalBlocker.ZIndex = 260
+        modalBlocker.Parent = modalOverlay
+
+        local panel = Instance.new("Frame")
+        panel.Name = "ReplyPanel"
+        panel.Size = UDim2.new(0, 480, 0, 360)
+        panel.Position = UDim2.new(0.5, -240, 0.5, -180)
+        panel.BackgroundColor3 = Color3.fromRGB(14, 18, 27)
+        panel.BorderSizePixel = 0
+        panel.ZIndex = 261
+        panel.ClipsDescendants = true
+        panel.Active = true
+        panel.Parent = modalOverlay
+        applyCorner(panel, 10)
+        local panelStroke = applyStroke(panel, Color3.fromRGB(0, 215, 255), 1.5, 0.25)
+        hubState.registerThemeStroke(panelStroke)
+
+        -- Header
+        local pHeader = Instance.new("Frame")
+        pHeader.Size = UDim2.new(1, 0, 0, 40)
+        pHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 35)
+        pHeader.BorderSizePixel = 0
+        pHeader.ZIndex = 262
+        pHeader.Parent = panel
+
+        local pTitle = Instance.new("TextLabel")
+        pTitle.Size = UDim2.new(0.7, 0, 1, 0)
+        pTitle.Position = UDim2.new(0, 14, 0, 0)
+        pTitle.BackgroundTransparency = 1
+        pTitle.Text = "💬 Reply to Feedback / Report"
+        pTitle.TextColor3 = Color3.fromRGB(245, 250, 255)
+        pTitle.Font = Enum.Font.GothamBlack
+        pTitle.TextSize = 13
+        pTitle.TextXAlignment = Enum.TextXAlignment.Left
+        pTitle.ZIndex = 263
+        pTitle.Parent = pHeader
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 24, 0, 24)
+        closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(32, 38, 54)
+        closeBtn.Text = "X"
+        closeBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextSize = 11
+        closeBtn.ZIndex = 263
+        closeBtn.Parent = pHeader
+        applyCorner(closeBtn, 5)
+
+        -- Scrollable Content
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -24, 1, -52)
+        scroll.Position = UDim2.new(0, 12, 0, 46)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 3
+        scroll.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
+        scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        scroll.ZIndex = 262
+        scroll.Parent = panel
+
+        local layout = Instance.new("UIListLayout")
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 8)
+        layout.Parent = scroll
+
+        -- Sender target info
+        local targetUser = targetNotif.sender or (tostring(targetNotif.title):match("from%s+([%w_]+)") or "All")
+        local origText = targetNotif.content or targetNotif.message or ""
+
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(1, 0, 0, 18)
+        infoLabel.BackgroundTransparency = 1
+        infoLabel.Text = "REPLYING TO: @" .. tostring(targetUser) .. " (" .. tostring(targetNotif.category or "Feedback") .. ")"
+        infoLabel.TextColor3 = hubState.currentThemeColor
+        infoLabel.Font = Enum.Font.GothamBold
+        infoLabel.TextSize = 10
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.ZIndex = 263
+        infoLabel.Parent = scroll
+        hubState.registerThemeText(infoLabel)
+
+        -- Original snippet container
+        local origContainer = Instance.new("Frame")
+        origContainer.Size = UDim2.new(1, 0, 0, 52)
+        origContainer.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
+        origContainer.ZIndex = 263
+        origContainer.Parent = scroll
+        applyCorner(origContainer, 6)
+        applyStroke(origContainer, Color3.fromRGB(36, 46, 68), 1, 0.4)
+
+        local origContent = Instance.new("TextLabel")
+        origContent.Size = UDim2.new(1, -16, 1, -8)
+        origContent.Position = UDim2.new(0, 8, 0, 4)
+        origContent.BackgroundTransparency = 1
+        origContent.Text = "Original: \"" .. origText:sub(1, 140) .. (#origText > 140 and "..." or "") .. "\""
+        origContent.TextColor3 = Color3.fromRGB(160, 172, 195)
+        origContent.Font = Enum.Font.GothamMedium
+        origContent.TextSize = 10
+        origContent.TextWrapped = true
+        origContent.TextXAlignment = Enum.TextXAlignment.Left
+        origContent.TextYAlignment = Enum.TextYAlignment.Top
+        origContent.ZIndex = 264
+        origContent.Parent = origContainer
+
+        -- Response textbox
+        local replyLabel = Instance.new("TextLabel")
+        replyLabel.Size = UDim2.new(1, 0, 0, 18)
+        replyLabel.BackgroundTransparency = 1
+        replyLabel.Text = "YOUR RESPONSE / RESOLUTION:"
+        replyLabel.TextColor3 = Color3.fromRGB(150, 162, 185)
+        replyLabel.Font = Enum.Font.GothamBold
+        replyLabel.TextSize = 10
+        replyLabel.TextXAlignment = Enum.TextXAlignment.Left
+        replyLabel.ZIndex = 263
+        replyLabel.Parent = scroll
+
+        local replyBox = Instance.new("TextBox")
+        replyBox.Size = UDim2.new(1, 0, 0, 80)
+        replyBox.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
+        replyBox.BorderSizePixel = 0
+        replyBox.PlaceholderText = "Type developer reply (sent live & logged)..."
+        replyBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+        replyBox.Text = ""
+        replyBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+        replyBox.Font = Enum.Font.GothamMedium
+        replyBox.TextSize = 11
+        replyBox.MultiLine = true
+        replyBox.TextWrapped = true
+        replyBox.TextXAlignment = Enum.TextXAlignment.Left
+        replyBox.TextYAlignment = Enum.TextYAlignment.Top
+        replyBox.ClearTextOnFocus = false
+        replyBox.ZIndex = 264
+        replyBox.Parent = scroll
+        applyCorner(replyBox, 6)
+        applyStroke(replyBox, Color3.fromRGB(45, 55, 80), 1, 0)
+
+        -- Action Buttons
+        local sendReplyBtn = Instance.new("TextButton")
+        sendReplyBtn.Size = UDim2.new(1, 0, 0, 32)
+        sendReplyBtn.BackgroundColor3 = Color3.fromRGB(0, 195, 245)
+        sendReplyBtn.Text = "🚀 Send Direct Reply to @" .. tostring(targetUser)
+        sendReplyBtn.TextColor3 = Color3.fromRGB(10, 15, 24)
+        sendReplyBtn.Font = Enum.Font.GothamBlack
+        sendReplyBtn.TextSize = 11
+        sendReplyBtn.ZIndex = 264
+        sendReplyBtn.Parent = scroll
+        applyCorner(sendReplyBtn, 6)
+        hubState.registerThemeFrame(sendReplyBtn)
+
+        local isClosing = false
+        local function closeModal()
+            if isClosing then return end
+            isClosing = true
+            hubState.isModalActive = false
+            local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { BackgroundTransparency = 1 })
+            t:Play()
+            t.Completed:Connect(function() pcall(function() modalOverlay:Destroy() end) end)
+        end
+
+        closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
+
+        sendReplyBtn.MouseButton1Click:Connect(function()
+            local msg = replyBox.Text:match("^%s*(.-)%s*$")
+            if not msg or #msg < 3 then
+                hubState.notify({ Title = "Invalid Reply", Content = "Please enter at least 3 characters.", Color = Color3.fromRGB(255, 170, 50) })
+                return
+            end
+
+            local replyRecord = {
+                id = "rep_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999)),
+                title = "💬 Developer Reply from " .. devUsername,
+                message = msg,
+                target = targetUser,
+                sender = hubState.devUsername,
+                category = "Feedback",
+                timestamp = os.time(),
+                time = os.date("%H:%M")
+            }
+
+            -- 1. Live broadcast packet to target
+            broadcastLivePayload("Announcement", replyRecord)
+
+            -- 2. Persist to 24/7 Global Store (so target gets reply even if offline)
+            persistAnnouncementRecord(replyRecord)
+
+            -- 3. Discord Webhook notification of the reply (Interactive Reply Bot)
+            local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
+            if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
+                local replyBotName = "UnknownHub Reply Bot [" .. devUsername .. "]"
+                local payload = {
+                    username = replyBotName,
+                    avatar_url = hubState.webhookBotAvatar,
+                    content = "💬 **[Developer Reply Bot]** Official response dispatched from `" .. devUsername .. "` to `@" .. tostring(targetUser) .. "`!",
+                    embeds = {{
+                        title = "💬 Developer Direct Response",
+                        description = "**Official Developer Reply:**\n>>> " .. msg .. "\n\n**Original Feedback Inquiry:**\n> " .. origText:sub(1, 280),
+                        color = 65535,
+                        fields = {
+                            { name = "👑 Lead Developer", value = "`" .. devUsername .. "`", inline = true },
+                            { name = "👤 Target Recipient", value = "`@" .. tostring(targetUser) .. "`", inline = true },
+                            { name = "🕒 Response Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true },
+                        },
+                        footer = { text = "UnknownHub Reply Bot Protocol • Direct Two-Way Communication" }
+                    }}
+                }
+                dispatchHttpRequest(targetWebhook, "POST", nil, payload)
+            end
+
+            hubState.sendNotification({
+                Title = "Reply Sent to @" .. targetUser,
+                Content = "\"" .. (msg:sub(1, 40) .. (#msg > 40 and "..." or "")) .. "\"",
+                Category = "Feedback",
+                Color = Color3.fromRGB(0, 215, 120),
+                Toast = true
+            })
+
+            sendReplyBtn.Text = "✓ Sent!"
+            sendReplyBtn.BackgroundColor3 = Color3.fromRGB(0, 215, 120)
+            task.delay(0.8, closeModal)
+        end)
+
+        TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 0.35 }):Play()
+    end
+
+    hubState.openFeedbackReplyModal = function(notif)
+        hubState.createFeedbackReplyModal(notif)
+    end
+
+    -- =========================================================================
+    -- Dedicated Developer Announcement Modal UI (With Dynamic Target Ping Selector)
+    -- =========================================================================
+    function hubState.createAnnouncementModal(parentFrame)
+        local existing = hubState.screenGui:FindFirstChild("AnnouncementOverlay")
+        if existing then
+            pcall(function() existing:Destroy() end)
+        end
+
+        hubState.isModalActive = true
+
+        local modalOverlay = Instance.new("Frame")
+        modalOverlay.Name = "AnnouncementOverlay"
+        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
+        modalOverlay.Position = UDim2.new(0, 0, 0, 0)
+        modalOverlay.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+        modalOverlay.BackgroundTransparency = 1
+        modalOverlay.BorderSizePixel = 0
+        modalOverlay.ZIndex = 250
+        modalOverlay.Active = true
+        modalOverlay.Parent = hubState.screenGui
+
+        local modalBlocker = Instance.new("TextButton")
+        modalBlocker.Name = "ModalBlocker"
+        modalBlocker.Size = UDim2.new(1, 0, 1, 0)
+        modalBlocker.BackgroundTransparency = 1
+        modalBlocker.Text = ""
+        modalBlocker.Active = true
+        modalBlocker.AutoButtonColor = false
+        modalBlocker.ZIndex = 250
+        modalBlocker.Parent = modalOverlay
+
+        local annPanel = Instance.new("Frame")
+        annPanel.Name = "AnnouncementPanel"
+        annPanel.Size = UDim2.new(0, 520, 0, 440)
+        annPanel.Position = UDim2.new(0.5, -260, 0.5, -220)
+        annPanel.BackgroundColor3 = Color3.fromRGB(14, 18, 27)
+        annPanel.BorderSizePixel = 0
+        annPanel.ZIndex = 251
+        annPanel.ClipsDescendants = true
+        annPanel.Active = true
+        annPanel.Parent = modalOverlay
+        applyCorner(annPanel, 10)
+        local annStroke = applyStroke(annPanel, Color3.fromRGB(175, 105, 255), 1.5, 0.25)
+        hubState.registerThemeStroke(annStroke)
+
+        -- Modal Header
+        local annHeader = Instance.new("Frame")
+        annHeader.Size = UDim2.new(1, 0, 0, 42)
+        annHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 35)
+        annHeader.BorderSizePixel = 0
+        annHeader.ZIndex = 252
+        annHeader.Parent = annPanel
+
+        local annTitle = Instance.new("TextLabel")
+        annTitle.Size = UDim2.new(0.75, 0, 1, 0)
+        annTitle.Position = UDim2.new(0, 14, 0, 0)
+        annTitle.BackgroundTransparency = 1
+        annTitle.Text = "📢 Developer Broadcast & Announcements"
+        annTitle.TextColor3 = Color3.fromRGB(245, 250, 255)
+        annTitle.Font = Enum.Font.GothamBlack
+        annTitle.TextSize = 13
+        annTitle.TextXAlignment = Enum.TextXAlignment.Left
+        annTitle.ZIndex = 253
+        annTitle.Parent = annHeader
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 24, 0, 24)
+        closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
+        closeBtn.Text = "X"
+        closeBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextSize = 11
+        closeBtn.ZIndex = 253
+        closeBtn.Parent = annHeader
+        applyCorner(closeBtn, 5)
+
+        local contentScroll = Instance.new("ScrollingFrame")
+        contentScroll.Size = UDim2.new(1, -24, 1, -54)
+        contentScroll.Position = UDim2.new(0, 12, 0, 48)
+        contentScroll.BackgroundTransparency = 1
+        contentScroll.BorderSizePixel = 0
+        contentScroll.ScrollBarThickness = 3
+        contentScroll.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
+        contentScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        contentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        contentScroll.ZIndex = 252
+        contentScroll.Parent = annPanel
+
+        local contentLayout = Instance.new("UIListLayout")
+        contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        contentLayout.Padding = UDim.new(0, 10)
+        contentLayout.Parent = contentScroll
+
+        -- 1. Audience / Ping Scope Section
+        local scopeLabel = Instance.new("TextLabel")
+        scopeLabel.Size = UDim2.new(1, 0, 0, 18)
+        scopeLabel.BackgroundTransparency = 1
+        scopeLabel.Text = "TARGET AUDIENCE / PING SCOPE"
+        scopeLabel.TextColor3 = Color3.fromRGB(150, 160, 185)
+        scopeLabel.Font = Enum.Font.GothamBold
+        scopeLabel.TextSize = 10
+        scopeLabel.TextXAlignment = Enum.TextXAlignment.Left
+        scopeLabel.ZIndex = 253
+        scopeLabel.Parent = contentScroll
+
+        local scopeButtonsContainer = Instance.new("Frame")
+        scopeButtonsContainer.Size = UDim2.new(1, 0, 0, 32)
+        scopeButtonsContainer.BackgroundTransparency = 1
+        scopeButtonsContainer.ZIndex = 253
+        scopeButtonsContainer.Parent = contentScroll
+
+        local scopeButtonsLayout = Instance.new("UIListLayout")
+        scopeButtonsLayout.FillDirection = Enum.FillDirection.Horizontal
+        scopeButtonsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        scopeButtonsLayout.Padding = UDim.new(0, 8)
+        scopeButtonsLayout.Parent = scopeButtonsContainer
+
+        local selectedPingScope = "All" -- "All" or "Custom"
+
+        local allBtn = Instance.new("TextButton")
+        allBtn.Size = UDim2.new(0.48, 0, 1, 0)
+        allBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+        allBtn.Text = "🌐 All Players"
+        allBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        allBtn.Font = Enum.Font.GothamBold
+        allBtn.TextSize = 11
+        allBtn.ZIndex = 254
+        allBtn.Parent = scopeButtonsContainer
+        applyCorner(allBtn, 6)
+
+        local customBtn = Instance.new("TextButton")
+        customBtn.Size = UDim2.new(0.48, 0, 1, 0)
+        customBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
+        customBtn.Text = "🎯 Custom Username"
+        customBtn.TextColor3 = Color3.fromRGB(170, 180, 205)
+        customBtn.Font = Enum.Font.GothamBold
+        customBtn.TextSize = 11
+        customBtn.ZIndex = 254
+        customBtn.Parent = scopeButtonsContainer
+        applyCorner(customBtn, 6)
+        applyStroke(customBtn, Color3.fromRGB(40, 50, 75), 1, 0.4)
+
+        -- Custom Username Container (Appears when Custom Username is selected)
+        local customTargetContainer = Instance.new("Frame")
+        customTargetContainer.Name = "CustomTargetContainer"
+        customTargetContainer.Size = UDim2.new(1, 0, 0, 68)
+        customTargetContainer.BackgroundTransparency = 1
+        customTargetContainer.Visible = false
+        customTargetContainer.ZIndex = 253
+        customTargetContainer.Parent = contentScroll
+
+        local customTargetBox = Instance.new("TextBox")
+        customTargetBox.Size = UDim2.new(1, 0, 0, 32)
+        customTargetBox.Position = UDim2.new(0, 0, 0, 0)
+        customTargetBox.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
+        customTargetBox.BorderSizePixel = 0
+        customTargetBox.PlaceholderText = "Type target username (e.g. iqoooake)..."
+        customTargetBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+        customTargetBox.Text = ""
+        customTargetBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+        customTargetBox.Font = Enum.Font.GothamBold
+        customTargetBox.TextSize = 11
+        customTargetBox.ClearTextOnFocus = false
+        customTargetBox.ZIndex = 254
+        customTargetBox.Parent = customTargetContainer
+        applyCorner(customTargetBox, 6)
+        applyStroke(customTargetBox, Color3.fromRGB(45, 55, 80), 1, 0)
+
+        -- Quick-select server player suggestions
+        local suggestionsScroll = Instance.new("ScrollingFrame")
+        suggestionsScroll.Size = UDim2.new(1, 0, 0, 28)
+        suggestionsScroll.Position = UDim2.new(0, 0, 0, 38)
+        suggestionsScroll.BackgroundTransparency = 1
+        suggestionsScroll.BorderSizePixel = 0
+        suggestionsScroll.ScrollBarThickness = 0
+        suggestionsScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+        suggestionsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        suggestionsScroll.ZIndex = 254
+        suggestionsScroll.Parent = customTargetContainer
+
+        local suggLayout = Instance.new("UIListLayout")
+        suggLayout.FillDirection = Enum.FillDirection.Horizontal
+        suggLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        suggLayout.Padding = UDim.new(0, 6)
+        suggLayout.Parent = suggestionsScroll
+
+        local function populatePlayerSuggestions()
+            for _, c in ipairs(suggestionsScroll:GetChildren()) do
+                if c:IsA("TextButton") then c:Destroy() end
+            end
+            for _, plr in ipairs(Players:GetPlayers()) do
+                local pPill = Instance.new("TextButton")
+                pPill.Size = UDim2.new(0, 0, 1, 0)
+                pPill.AutomaticSize = Enum.AutomaticSize.X
+                pPill.BackgroundColor3 = Color3.fromRGB(26, 32, 48)
+                pPill.Text = " @" .. plr.Name .. " "
+                pPill.TextColor3 = Color3.fromRGB(190, 205, 235)
+                pPill.Font = Enum.Font.GothamMedium
+                pPill.TextSize = 10
+                pPill.ZIndex = 255
+                pPill.Parent = suggestionsScroll
+                applyCorner(pPill, 4)
+                applyStroke(pPill, Color3.fromRGB(45, 55, 80), 1, 0.3)
+
+                pPill.MouseButton1Click:Connect(function()
+                    customTargetBox.Text = plr.Name
+                end)
+            end
+        end
+
+        populatePlayerSuggestions()
+
+        local function updateScopeUI()
+            if selectedPingScope == "All" then
+                allBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+                allBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                customBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
+                customBtn.TextColor3 = Color3.fromRGB(170, 180, 205)
+                customTargetContainer.Visible = false
+            else
+                customBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+                customBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                allBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
+                allBtn.TextColor3 = Color3.fromRGB(170, 180, 205)
+                customTargetContainer.Visible = true
+                populatePlayerSuggestions()
+            end
+        end
+
+        allBtn.MouseButton1Click:Connect(function()
+            selectedPingScope = "All"
+            updateScopeUI()
+        end)
+
+        customBtn.MouseButton1Click:Connect(function()
+            selectedPingScope = "Custom"
+            updateScopeUI()
+        end)
+
+        -- 2. Announcement Title Section
+        local titleHdrLabel = Instance.new("TextLabel")
+        titleHdrLabel.Size = UDim2.new(1, 0, 0, 18)
+        titleHdrLabel.BackgroundTransparency = 1
+        titleHdrLabel.Text = "ANNOUNCEMENT TITLE"
+        titleHdrLabel.TextColor3 = Color3.fromRGB(150, 160, 185)
+        titleHdrLabel.Font = Enum.Font.GothamBold
+        titleHdrLabel.TextSize = 10
+        titleHdrLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleHdrLabel.ZIndex = 253
+        titleHdrLabel.Parent = contentScroll
+
+        local titleBox = Instance.new("TextBox")
+        titleBox.Size = UDim2.new(1, 0, 0, 32)
+        titleBox.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
+        titleBox.BorderSizePixel = 0
+        titleBox.PlaceholderText = "Announcement Title (e.g. Update v2.5 / Maintenance)..."
+        titleBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+        titleBox.Text = "Developer Announcement"
+        titleBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+        titleBox.Font = Enum.Font.GothamBold
+        titleBox.TextSize = 11
+        titleBox.ClearTextOnFocus = false
+        titleBox.ZIndex = 254
+        titleBox.Parent = contentScroll
+        applyCorner(titleBox, 6)
+        applyStroke(titleBox, Color3.fromRGB(45, 55, 80), 1, 0)
+
+        -- 3. Announcement Body Message
+        local bodyHdrLabel = Instance.new("TextLabel")
+        bodyHdrLabel.Size = UDim2.new(1, 0, 0, 18)
+        bodyHdrLabel.BackgroundTransparency = 1
+        bodyHdrLabel.Text = "ANNOUNCEMENT MESSAGE BODY"
+        bodyHdrLabel.TextColor3 = Color3.fromRGB(150, 160, 185)
+        bodyHdrLabel.Font = Enum.Font.GothamBold
+        bodyHdrLabel.TextSize = 10
+        bodyHdrLabel.TextXAlignment = Enum.TextXAlignment.Left
+        bodyHdrLabel.ZIndex = 253
+        bodyHdrLabel.Parent = contentScroll
+
+        local bodyBox = Instance.new("TextBox")
+        bodyBox.Size = UDim2.new(1, 0, 0, 84)
+        bodyBox.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
+        bodyBox.BorderSizePixel = 0
+        bodyBox.PlaceholderText = "Type announcement message here (broadcasts in live-mode & offline 24/7 store)..."
+        bodyBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+        bodyBox.Text = ""
+        bodyBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+        bodyBox.Font = Enum.Font.GothamMedium
+        bodyBox.TextSize = 11
+        bodyBox.MultiLine = true
+        bodyBox.TextWrapped = true
+        bodyBox.TextXAlignment = Enum.TextXAlignment.Left
+        bodyBox.TextYAlignment = Enum.TextYAlignment.Top
+        bodyBox.ClearTextOnFocus = false
+        bodyBox.ZIndex = 254
+        bodyBox.Parent = contentScroll
+        applyCorner(bodyBox, 6)
+        applyStroke(bodyBox, Color3.fromRGB(45, 55, 80), 1, 0)
+
+        -- 4. Status Bar & Broadcast Button
+        local bottomContainer = Instance.new("Frame")
+        bottomContainer.Size = UDim2.new(1, 0, 0, 36)
+        bottomContainer.BackgroundTransparency = 1
+        bottomContainer.ZIndex = 253
+        bottomContainer.Parent = contentScroll
+
+        local statusLbl = Instance.new("TextLabel")
+        statusLbl.Size = UDim2.new(1, -170, 1, 0)
+        statusLbl.Position = UDim2.new(0, 0, 0, 0)
+        statusLbl.BackgroundTransparency = 1
+        statusLbl.Text = "📡 Live 24/7 & cross-client sync ready"
+        statusLbl.TextColor3 = Color3.fromRGB(130, 145, 175)
+        statusLbl.Font = Enum.Font.GothamMedium
+        statusLbl.TextSize = 10
+        statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+        statusLbl.ZIndex = 254
+        statusLbl.Parent = bottomContainer
+
+        local broadcastBtn = Instance.new("TextButton")
+        broadcastBtn.Size = UDim2.new(0, 160, 0, 34)
+        broadcastBtn.Position = UDim2.new(1, -160, 0, 0)
+        broadcastBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+        broadcastBtn.Text = "🚀 Send Broadcast"
+        broadcastBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        broadcastBtn.Font = Enum.Font.GothamBlack
+        broadcastBtn.TextSize = 11
+        broadcastBtn.ZIndex = 254
+        broadcastBtn.Parent = bottomContainer
+        applyCorner(broadcastBtn, 6)
+
+        local isClosing = false
+        local function closeModal()
+            if isClosing then return end
+            isClosing = true
+            hubState.isModalActive = false
+            local t = TweenService:Create(modalOverlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                BackgroundTransparency = 1
+            })
+            t:Play()
+            t.Completed:Connect(function()
+                pcall(function() modalOverlay:Destroy() end)
+            end)
+        end
+
+        local isBroadcasting = false
+        broadcastBtn.MouseButton1Click:Connect(function()
+            if isBroadcasting then return end
+            local targetVal = selectedPingScope == "All" and "All" or customTargetBox.Text:match("^%s*(.-)%s*$")
+            local titleVal = titleBox.Text:match("^%s*(.-)%s*$")
+            local msgVal = bodyBox.Text:match("^%s*(.-)%s*$")
+
+            if not targetVal or targetVal == "" then targetVal = "All" end
+            if not titleVal or titleVal == "" then titleVal = "Developer Announcement" end
+
+            if not msgVal or #msgVal < 3 then
+                statusLbl.Text = "⚠️ Please enter at least 3 characters for the message."
+                statusLbl.TextColor3 = Color3.fromRGB(255, 170, 60)
+                return
+            end
+
+            isBroadcasting = true
+            broadcastBtn.Text = "Broadcasting..."
+
+            local annRecord = {
+                id = "ann_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999)),
+                title = titleVal,
+                message = msgVal,
+                target = targetVal,
+                sender = hubState.devUsername,
+                category = "Announcements",
+                timestamp = os.time(),
+                time = os.date("%H:%M")
+            }
+
+            -- 1. Dispatch Live Bus Packet (Instant in-game delivery)
+            broadcastLivePayload("Announcement", annRecord)
+
+            -- 2. Persist to Global 24/7 Offline Storage (so offline players receive it when they run script)
+            persistAnnouncementRecord(annRecord)
+
+            -- 3. Discord Webhook Broadcast (Broadcast Gateway Bot)
+            local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
+            if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
+                local broadcastBotName = "UnknownHub Broadcast Gateway [" .. devUsername .. "]"
+                local payload = {
+                    username = broadcastBotName,
+                    avatar_url = hubState.webhookBotAvatar,
+                    content = "📢 **[Official Developer Broadcast from " .. devUsername .. "]**",
+                    embeds = {{
+                        title = "📢 " .. titleVal,
+                        description = "**Broadcast Content:**\n>>> " .. msgVal,
+                        color = 10181046,
+                        fields = {
+                            { name = "👑 Author", value = "`" .. devUsername .. "`", inline = true },
+                            { name = "🎯 Target Scope", value = "`" .. targetVal .. "`", inline = true },
+                            { name = "🕒 Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true },
+                        },
+                        footer = { text = "UnknownHub Broadcast Protocol • Global Dispatch" }
+                    }}
+                }
+                dispatchHttpRequest(targetWebhook, "POST", nil, payload)
+            end
+
+            -- 4. Dev Local Notification & Toast
+            hubState.sendNotification({
+                Title = "Broadcast Sent (" .. targetVal .. ")",
+                Content = titleVal .. ": \"" .. (msgVal:sub(1, 40) .. (#msgVal > 40 and "..." or "")) .. "\"",
+                Category = "Announcements",
+                Color = Color3.fromRGB(180, 100, 255),
+                Toast = true
+            })
+
+            broadcastBtn.Text = "✓ Dispatched!"
+            broadcastBtn.BackgroundColor3 = Color3.fromRGB(0, 210, 120)
+            statusLbl.Text = "✓ Successfully dispatched live & saved to 24/7 sync!"
+            statusLbl.TextColor3 = Color3.fromRGB(0, 215, 130)
+
+            task.delay(1.2, function()
+                closeModal()
+            end)
+        end)
+
+        closeBtn.MouseButton1Click:Connect(closeModal)
+        modalBlocker.MouseButton1Click:Connect(closeModal)
+
+        -- Fade In Animation
+        TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 0.35
+        }):Play()
+    end
+
+    hubState.openNotificationCenterModal = function()
+        hubState.createNotificationCenterModal(hubState.screenGui)
+    end
+
+    hubState.openFeedbackModal = function()
+        hubState.createFeedbackModal(hubState.screenGui)
+    end
+
+    hubState.openAnnouncementModal = function()
+        hubState.createAnnouncementModal(hubState.screenGui)
+    end
+
+    -- Loading overlay
+    local loadingOverlay = Instance.new("Frame")
+    loadingOverlay.Name = "LoadingOverlay"
+    loadingOverlay.Size = UDim2.new(1, 0, 1, 0)
+    loadingOverlay.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+    loadingOverlay.BorderSizePixel = 0
+    loadingOverlay.ZIndex = 100
+    loadingOverlay.Parent = hubState.screenGui
+
+    local loadingTitle = Instance.new("TextLabel")
+    loadingTitle.Size = UDim2.new(1, -40, 0, 28)
+    loadingTitle.Position = UDim2.new(0, 20, 0.5, -22)
+    loadingTitle.BackgroundTransparency = 1
+    loadingTitle.Text = opts.loadingText or "Loading Hub..."
+    loadingTitle.TextColor3 = hubState.currentThemeColor
+    loadingTitle.Font = Enum.Font.GothamBlack
+    loadingTitle.TextSize = 18
+    loadingTitle.TextXAlignment = Enum.TextXAlignment.Center
+    loadingTitle.ZIndex = 101
+    loadingTitle.Parent = loadingOverlay
+    hubState.registerThemeText(loadingTitle)
+
+    local loadingStatus = Instance.new("TextLabel")
+    loadingStatus.Size = UDim2.new(1, -40, 0, 20)
+    loadingStatus.Position = UDim2.new(0, 20, 0.5, 12)
+    loadingStatus.BackgroundTransparency = 1
+    loadingStatus.Text = "Initializing components..."
+    loadingStatus.TextColor3 = Color3.fromRGB(165, 175, 195)
+    loadingStatus.Font = Enum.Font.GothamMedium
+    loadingStatus.TextSize = 11
+    loadingStatus.TextXAlignment = Enum.TextXAlignment.Center
+    loadingStatus.ZIndex = 101
+    loadingStatus.Parent = loadingOverlay
+
+    -- =========================================================================
+    -- Main Window Frame (Fluid Proportional Responsive Obsidian Glass)
+    -- =========================================================================
+    local isTouchScreen = UserInputService.TouchEnabled
+    local defaultFrameSize = isTouchScreen and UDim2.new(0.92, 0, 0.84, 0) or UDim2.new(0, 580, 0, 390)
+    local defaultFramePos = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
+    local defaultAnchor = isTouchScreen and Vector2.new(0.5, 0.5) or Vector2.new(0, 0)
+
+    hubState.mainFrame = Instance.new("Frame")
+    hubState.mainFrame.Name = "MainFrame"
+    hubState.mainFrame.AnchorPoint = defaultAnchor
+    hubState.mainFrame.Size = defaultFrameSize
+    hubState.mainFrame.Position = defaultFramePos
+    hubState.mainFrame.BackgroundColor3 = Color3.fromRGB(11, 14, 21)
+    hubState.mainFrame.BorderSizePixel = 0
+    hubState.mainFrame.Active = true
+    hubState.mainFrame.ClipsDescendants = true
+    hubState.mainFrame.Visible = false
+    hubState.mainFrame.Parent = hubState.screenGui
+    applyCorner(hubState.mainFrame, 10)
+    local waveBackground = hubState.startOceanWaveBackground(hubState.mainFrame)
+
+    local mainBgGradient = Instance.new("UIGradient")
+    mainBgGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 18, 27)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(9, 11, 17))
+    })
+    mainBgGradient.Rotation = 45
+    mainBgGradient.Parent = hubState.mainFrame
+
+    local mainStroke = applyStroke(hubState.mainFrame, hubState.currentThemeColor, 1.5, 0.2)
+    hubState.registerThemeStroke(mainStroke)
+
+    -- Attach Bottom-Right Resizer Triangle Grip
+    local resizerGrip = hubState.makeResizable(hubState.mainFrame, 460, 300, 1200, 900)
+
+    -- Header Bar
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 46)
+    header.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+    header.BorderSizePixel = 0
+    header.ZIndex = 20
+    header.Parent = hubState.mainFrame
+    applyCorner(header, 10)
+    hubState.makeSmoothDraggable(hubState.mainFrame, header)
+
+    local headerCover = Instance.new("Frame")
+    headerCover.Size = UDim2.new(1, 0, 0, 10)
+    headerCover.Position = UDim2.new(0, 0, 1, -10)
+    headerCover.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+    headerCover.BorderSizePixel = 0
+    headerCover.ZIndex = 21
+    headerCover.Parent = header
+
+    local headerDivider = Instance.new("Frame")
+    headerDivider.Size = UDim2.new(1, 0, 0, 1)
+    headerDivider.Position = UDim2.new(0, 0, 1, 0)
+    headerDivider.BackgroundColor3 = Color3.fromRGB(36, 45, 66)
+    headerDivider.BorderSizePixel = 0
+    headerDivider.ZIndex = 21
+    headerDivider.Parent = header
+
+        local titleGroup = Instance.new("Frame")
+    titleGroup.Name = "TitleGroup"
+    titleGroup.Size = UDim2.new(1, -220, 1, 0)
+    titleGroup.Position = UDim2.new(0, 14, 0, 0)
+    titleGroup.BackgroundTransparency = 1
+    titleGroup.ZIndex = 22
+    titleGroup.ClipsDescendants = true
+    titleGroup.Parent = header
+
+    local titleLayout = Instance.new("UIListLayout")
+    titleLayout.FillDirection = Enum.FillDirection.Horizontal
+    titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    titleLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    titleLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    titleLayout.Padding = UDim.new(0, 7)
+    titleLayout.Parent = titleGroup
+
+    -- Celestial Crescent Moon Emblem (LayoutOrder = 1, right beside the name)
+    local moonEmblem = Instance.new("Frame")
+    moonEmblem.Name = "MoonEmblem"
+    moonEmblem.Size = UDim2.new(0, 24, 0, 24)
+    moonEmblem.BackgroundColor3 = Color3.fromRGB(20, 26, 40)
+    moonEmblem.BackgroundTransparency = 0.2
+    moonEmblem.BorderSizePixel = 0
+    moonEmblem.LayoutOrder = 1
+    moonEmblem.ZIndex = 23
+    moonEmblem.Parent = titleGroup
+    applyCorner(moonEmblem, 12)
+    local moonStroke = applyStroke(moonEmblem, hubState.currentThemeColor, 1.2, 0.3)
+    hubState.registerThemeStroke(moonStroke)
+
+    local moonIconLabel = Instance.new("TextLabel")
+    moonIconLabel.Name = "MoonIcon"
+    moonIconLabel.Size = UDim2.new(1, 0, 1, 0)
+    moonIconLabel.BackgroundTransparency = 1
+    moonIconLabel.Text = "🌙"
+    moonIconLabel.TextSize = 13
+    moonIconLabel.Font = Enum.Font.GothamBold
+    moonIconLabel.TextColor3 = hubState.currentThemeColor
+    moonIconLabel.TextXAlignment = Enum.TextXAlignment.Center
+    moonIconLabel.TextYAlignment = Enum.TextYAlignment.Center
+    moonIconLabel.ZIndex = 24
+    moonIconLabel.Parent = moonEmblem
+    hubState.registerThemeText(moonIconLabel)
+
+    -- Dynamic Auto-Sized Title Container (LayoutOrder = 2)
+    local titleContainer = Instance.new("Frame")
+    titleContainer.Name = "TitleContainer"
+    titleContainer.AutomaticSize = Enum.AutomaticSize.X
+    titleContainer.Size = UDim2.new(0, 0, 1, 0)
+    titleContainer.BackgroundTransparency = 1
+    titleContainer.LayoutOrder = 2
+    titleContainer.ZIndex = 22
+    titleContainer.Parent = titleGroup
+
+    local originalTitleText = opts.title or "ENI HUB"
+
+    -- Cyan Chromatic Ghost Layer
+    local titleGlitchCyan = Instance.new("TextLabel")
+    titleGlitchCyan.Name = "GlitchCyan"
+    titleGlitchCyan.AutomaticSize = Enum.AutomaticSize.X
+    titleGlitchCyan.Size = UDim2.new(0, 0, 1, 0)
+    titleGlitchCyan.Position = UDim2.new(0, -1, 0, 0)
+    titleGlitchCyan.BackgroundTransparency = 1
+    titleGlitchCyan.Text = originalTitleText
+    titleGlitchCyan.Font = Enum.Font.GothamBlack
+    titleGlitchCyan.TextSize = 15
+    titleGlitchCyan.TextColor3 = Color3.fromRGB(0, 240, 255)
+    titleGlitchCyan.TextTransparency = 1
+    titleGlitchCyan.TextXAlignment = Enum.TextXAlignment.Left
+    titleGlitchCyan.ZIndex = 22
+    titleGlitchCyan.Parent = titleContainer
+
+    -- Magenta Chromatic Ghost Layer
+    local titleGlitchMagenta = Instance.new("TextLabel")
+    titleGlitchMagenta.Name = "GlitchMagenta"
+    titleGlitchMagenta.AutomaticSize = Enum.AutomaticSize.X
+    titleGlitchMagenta.Size = UDim2.new(0, 0, 1, 0)
+    titleGlitchMagenta.Position = UDim2.new(0, 1, 0, 0)
+    titleGlitchMagenta.BackgroundTransparency = 1
+    titleGlitchMagenta.Text = originalTitleText
+    titleGlitchMagenta.Font = Enum.Font.GothamBlack
+    titleGlitchMagenta.TextSize = 15
+    titleGlitchMagenta.TextColor3 = Color3.fromRGB(255, 60, 180)
+    titleGlitchMagenta.TextTransparency = 1
+    titleGlitchMagenta.TextXAlignment = Enum.TextXAlignment.Left
+    titleGlitchMagenta.ZIndex = 22
+    titleGlitchMagenta.Parent = titleContainer
+
+    -- Main Foreground Title Label
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "Title"
+    titleLabel.AutomaticSize = Enum.AutomaticSize.X
+    titleLabel.Size = UDim2.new(0, 0, 1, 0)
+    titleLabel.Position = UDim2.new(0, 0, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = originalTitleText
+    titleLabel.Font = Enum.Font.GothamBlack
+    titleLabel.TextSize = 15
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.ZIndex = 23
+    titleLabel.Parent = titleContainer
+    hubState.registerThemeText(titleLabel)
+
+    local glitchGlyphs = {"0", "1", "Δ", "Ξ", "Ψ", "◈", "X", "Z", "7"}
+    local isGlitching = false
+
+    function hubState.triggerTitleCyberGlitch()
+        if isGlitching then return end
+        isGlitching = true
+        task.spawn(function()
+            titleGlitchCyan.TextTransparency = 0.40
+            titleGlitchMagenta.TextTransparency = 0.40
+            titleGlitchCyan.Position = UDim2.new(0, -2, 0, 0)
+            titleGlitchMagenta.Position = UDim2.new(0, 2, 0, 0)
+
+            for frameStep = 1, 3 do
+                local scrambled = ""
+                for charIdx = 1, #originalTitleText do
+                    local ch = originalTitleText:sub(charIdx, charIdx)
+                    if ch ~= " " and math.random() > 0.40 then
+                        scrambled = scrambled .. glitchGlyphs[math.random(1, #glitchGlyphs)]
+                    else
+                        scrambled = scrambled .. ch
+                    end
+                end
+                titleLabel.Text = scrambled
+                titleGlitchCyan.Text = scrambled
+                titleGlitchMagenta.Text = scrambled
+                task.wait(0.035)
+            end
+
+            titleLabel.Text = originalTitleText
+            titleGlitchCyan.Text = originalTitleText
+            titleGlitchMagenta.Text = originalTitleText
+            titleGlitchCyan.TextTransparency = 1
+            titleGlitchMagenta.TextTransparency = 1
+            isGlitching = false
+        end)
+    end
+
+    local titleHitbox = Instance.new("TextButton")
+    titleHitbox.Size = UDim2.new(1, 0, 1, 0)
+    titleHitbox.BackgroundTransparency = 1
+    titleHitbox.Text = ""
+    titleHitbox.ZIndex = 25
+    titleHitbox.Parent = titleContainer
+    titleHitbox.MouseEnter:Connect(hubState.triggerTitleCyberGlitch)
+    titleHitbox.MouseButton1Click:Connect(hubState.triggerTitleCyberGlitch)
+
+    task.spawn(function()
+        while hubState.screenGui and hubState.screenGui.Parent do
+            task.wait(math.random(16, 24))
+            if hubState.isGuiOpen and not hubState.isModalActive and math.random() > 0.35 then
+                hubState.triggerTitleCyberGlitch()
+            end
+        end
+    end)
+
+    -- Auto-sorted SubTitle Label (LayoutOrder = 3)
+    local subTitleLabel = Instance.new("TextLabel")
+    subTitleLabel.Name = "SubTitle"
+    subTitleLabel.AutomaticSize = Enum.AutomaticSize.X
+    subTitleLabel.Size = UDim2.new(0, 0, 1, 0)
+    subTitleLabel.BackgroundTransparency = 1
+    subTitleLabel.Text = hubState.isDeveloper and ("👑 DEV: " .. devUsername) or (opts.subTitle or opts.subtitle or "v2.0")
+    subTitleLabel.TextColor3 = hubState.isDeveloper and Color3.fromRGB(190, 130, 255) or Color3.fromRGB(130, 140, 165)
+    subTitleLabel.Font = Enum.Font.GothamBold
+    subTitleLabel.TextSize = 11
+    subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    subTitleLabel.LayoutOrder = 3
+    subTitleLabel.ZIndex = 22
+    subTitleLabel.Parent = titleGroup
+
+    -- Auto-sorted Live Status Pill (LayoutOrder = 4)
+    local livePill = Instance.new("Frame")
+    livePill.Name = "LivePill"
+    livePill.Size = UDim2.new(0, 64, 0, 20)
+    livePill.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
+    livePill.BorderSizePixel = 0
+    livePill.LayoutOrder = 4
+    livePill.ZIndex = 22
+    livePill.Parent = titleGroup
+    applyCorner(livePill, 10)
+    applyStroke(livePill, Color3.fromRGB(44, 56, 80), 1, 0)
+
+    local liveDot = Instance.new("Frame")
+    liveDot.Name = "LiveDot"
+    liveDot.Size = UDim2.new(0, 6, 0, 6)
+    liveDot.Position = UDim2.new(0, 7, 0.5, -3)
+    liveDot.BackgroundColor3 = Color3.fromRGB(50, 230, 140)
+    liveDot.BorderSizePixel = 0
+    liveDot.ZIndex = 23
+    liveDot.Parent = livePill
+    applyCorner(liveDot, 3)
+
+    local liveText = Instance.new("TextLabel")
+    liveText.Size = UDim2.new(1, -18, 1, 0)
+    liveText.Position = UDim2.new(0, 17, 0, 0)
+    liveText.BackgroundTransparency = 1
+    liveText.Text = "ONLINE"
+    liveText.TextColor3 = Color3.fromRGB(170, 240, 200)
+    liveText.Font = Enum.Font.GothamBold
+    liveText.TextSize = 9
+    liveText.TextXAlignment = Enum.TextXAlignment.Left
+    liveText.ZIndex = 23
+    liveText.Parent = livePill
+
+    -- Live Dot Breathing animation
+    task.spawn(function()
+        local dotStart = tick()
+        while liveDot and liveDot.Parent do
+            local dotElapsed = tick() - dotStart
+            local dotAlpha = (math.sin(dotElapsed * 3) * 0.3) + 0.7
+            liveDot.BackgroundTransparency = 1 - dotAlpha
+            task.wait(0.08)
+        end
+    end)
+
+    -- Responsive Proportional Sidebar (26% window width)
+    local sidebar = Instance.new("ScrollingFrame")
+    sidebar.Name = "Sidebar"
+    sidebar.Size = UDim2.new(0.26, 0, 1, -47)
+    sidebar.Position = UDim2.new(0, 0, 0, 47)
+    sidebar.BackgroundColor3 = Color3.fromRGB(13, 16, 24)
+    sidebar.BackgroundTransparency = 0.4
+    sidebar.BorderSizePixel = 0
+    sidebar.ScrollBarThickness = 3
+    sidebar.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
+    sidebar.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
+    sidebar.ZIndex = 10
+    sidebar.Parent = hubState.mainFrame
+    applyCorner(sidebar, 10)
+
+    local sidebarPadding = Instance.new("UIPadding")
+    sidebarPadding.PaddingTop = UDim.new(0, 8)
+    sidebarPadding.PaddingBottom = UDim.new(0, 8)
+    sidebarPadding.PaddingLeft = UDim.new(0, 8)
+    sidebarPadding.PaddingRight = UDim.new(0, 8)
+    sidebarPadding.Parent = sidebar
+
+    local sidebarLayout = Instance.new("UIListLayout")
+    sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    sidebarLayout.Padding = UDim.new(0, 6)
+    sidebarLayout.Parent = sidebar
+
+    -- Proportional Sidebar Right Divider Line
+    local sidebarDivider = Instance.new("Frame")
+    sidebarDivider.Size = UDim2.new(0, 1, 1, -47)
+    sidebarDivider.Position = UDim2.new(0.26, 0, 0, 47)
+    sidebarDivider.BackgroundColor3 = Color3.fromRGB(32, 40, 58)
+    sidebarDivider.BorderSizePixel = 0
+    sidebarDivider.ZIndex = 11
+    sidebarDivider.Parent = hubState.mainFrame
+
+    -- Responsive Content Area (74% window width, auto-resizing with mainFrame)
+    local contentArea = Instance.new("Frame")
+    contentArea.Name = "ContentArea"
+    contentArea.Size = UDim2.new(0.74, -1, 1, -47)
+    contentArea.Position = UDim2.new(0.26, 1, 0, 47)
+    contentArea.BackgroundTransparency = 1
+    contentArea.ZIndex = 10
+    contentArea.Parent = hubState.mainFrame
+
+    -- =========================================================================
+    -- Header Buttons (Close, Collapse, Feedback, Notifications)
+    -- =========================================================================
+    hubState.isWindowCollapsed = false
+    hubState.uncollapsedWindowHeight = 390
+
+    -- Square Notification Bell Button
+    local notifBtn = Instance.new("TextButton")
+    notifBtn.Name = "NotificationBtn"
+    notifBtn.Size = UDim2.new(0, 26, 0, 26)
+    notifBtn.Position = UDim2.new(1, -162, 0.5, -13)
+    notifBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+    notifBtn.Text = "🔔"
+    notifBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
+    notifBtn.Font = Enum.Font.GothamBold
+    notifBtn.TextSize = 12
+    notifBtn.ZIndex = 30
+    notifBtn.Parent = header
+    applyCorner(notifBtn, 6)
+    applyStroke(notifBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
+
+    hubState.notifBadgeContainer = Instance.new("Frame")
+    hubState.notifBadgeContainer.Name = "NotifBadge"
+    hubState.notifBadgeContainer.Size = UDim2.new(0, 16, 0, 16)
+    hubState.notifBadgeContainer.Position = UDim2.new(1, -6, 0, -4)
+    hubState.notifBadgeContainer.BackgroundColor3 = Color3.fromRGB(250, 60, 75)
+    hubState.notifBadgeContainer.BorderSizePixel = 0
+    hubState.notifBadgeContainer.ZIndex = 32
+    hubState.notifBadgeContainer.Visible = false
+    hubState.notifBadgeContainer.Parent = notifBtn
+    applyCorner(hubState.notifBadgeContainer, 8)
+
+    hubState.notifBadgeLabel = Instance.new("TextLabel")
+    hubState.notifBadgeLabel.Size = UDim2.new(1, 0, 1, 0)
+    hubState.notifBadgeLabel.BackgroundTransparency = 1
+    hubState.notifBadgeLabel.Text = "0"
+    hubState.notifBadgeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hubState.notifBadgeLabel.Font = Enum.Font.GothamBlack
+    hubState.notifBadgeLabel.TextSize = 9
+    hubState.notifBadgeLabel.TextXAlignment = Enum.TextXAlignment.Center
+    hubState.notifBadgeLabel.ZIndex = 33
+    hubState.notifBadgeLabel.Parent = hubState.notifBadgeContainer
+
+    notifBtn.MouseEnter:Connect(function()
+        TweenService:Create(notifBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(34, 44, 66)
+        }):Play()
+    end)
+    notifBtn.MouseLeave:Connect(function()
+        TweenService:Create(notifBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        }):Play()
+    end)
+    function hubState.bindHeaderButton(btn, callback)
+        local debounce = false
+        local function trigger()
+            if debounce then return end
+            debounce = true
+            task.delay(0.18, function() debounce = false end)
+            pcall(callback)
+        end
+        hubState.trackConnection(btn.Activated:Connect(trigger))
+        hubState.trackConnection(btn.MouseButton1Click:Connect(trigger))
+    end
+
+    hubState.bindHeaderButton(notifBtn, function()
+        if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end
+    end)
+
+    -- Dedicated Developer Announcement Broadcast Button
+    local announceBtn = Instance.new("TextButton")
+    announceBtn.Name = "AnnounceBtn"
+    announceBtn.Size = UDim2.new(0, 26, 0, 26)
+    announceBtn.Position = UDim2.new(1, -130, 0.5, -13)
+    announceBtn.BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
+    announceBtn.Text = "📢"
+    announceBtn.TextColor3 = hubState.isDeveloper and Color3.fromRGB(220, 160, 255) or Color3.fromRGB(210, 220, 240)
+    announceBtn.Font = Enum.Font.GothamBold
+    announceBtn.TextSize = 12
+    announceBtn.ZIndex = 30
+    announceBtn.Parent = header
+    applyCorner(announceBtn, 6)
+    applyStroke(announceBtn, hubState.isDeveloper and Color3.fromRGB(160, 95, 240) or Color3.fromRGB(45, 55, 80), 1, 0.4)
+
+    announceBtn.MouseEnter:Connect(function()
+        TweenService:Create(announceBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(50, 36, 75) or Color3.fromRGB(34, 44, 66)
+        }):Play()
+    end)
+    announceBtn.MouseLeave:Connect(function()
+        TweenService:Create(announceBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
+        }):Play()
+    end)
+    hubState.bindHeaderButton(announceBtn, function()
+        if hubState.openAnnouncementModal then hubState.openAnnouncementModal() end
+    end)
+
+    -- Square Feedback Tools Button (Right next to collapse button)
+    local feedbackBtn = Instance.new("TextButton")
+    feedbackBtn.Name = "FeedbackBtn"
+    feedbackBtn.Size = UDim2.new(0, 26, 0, 26)
+    feedbackBtn.Position = UDim2.new(1, -98, 0.5, -13)
+    feedbackBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+    feedbackBtn.Text = "🛠"
+    feedbackBtn.TextColor3 = Color3.fromRGB(220, 230, 250)
+    feedbackBtn.Font = Enum.Font.GothamBold
+    feedbackBtn.TextSize = 12
+    feedbackBtn.ZIndex = 30
+    feedbackBtn.Parent = header
+    applyCorner(feedbackBtn, 6)
+    applyStroke(feedbackBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
+
+    feedbackBtn.MouseEnter:Connect(function()
+        TweenService:Create(feedbackBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(34, 44, 66)
+        }):Play()
+    end)
+    feedbackBtn.MouseLeave:Connect(function()
+        TweenService:Create(feedbackBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        }):Play()
+    end)
+    hubState.bindHeaderButton(feedbackBtn, function()
+        if hubState.openFeedbackModal then hubState.openFeedbackModal() end
+    end)
+
+    -- Collapse / Minimize Window Button (Collapses to Header Only)
+    local minimizeBtn = Instance.new("TextButton")
+    minimizeBtn.Name = "MinimizeBtn"
+    minimizeBtn.Size = UDim2.new(0, 26, 0, 26)
+    minimizeBtn.Position = UDim2.new(1, -66, 0.5, -13)
+    minimizeBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 52)
+    minimizeBtn.Text = "-"
+    minimizeBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
+    minimizeBtn.Font = Enum.Font.GothamBold
+    minimizeBtn.TextSize = 11
+    minimizeBtn.ZIndex = 30
+    minimizeBtn.Parent = header
+    applyCorner(minimizeBtn, 6)
+
+    minimizeBtn.MouseEnter:Connect(function()
+        TweenService:Create(minimizeBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(40, 50, 72)
+        }):Play()
+    end)
+    minimizeBtn.MouseLeave:Connect(function()
+        TweenService:Create(minimizeBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(30, 36, 52)
+        }):Play()
+    end)
+
+    hubState.bindHeaderButton(minimizeBtn, function()
+        if not hubState.isWindowCollapsed then
+            -- Collapse to header size (46px height, leaving only header bar)
+            local currentH = hubState.mainFrame.AbsoluteSize.Y
+            if currentH > 60 then
+                hubState.uncollapsedWindowHeight = currentH
+            elseif hubState.mainFrame.Size.Y.Offset > 60 then
+                hubState.uncollapsedWindowHeight = hubState.mainFrame.Size.Y.Offset
+            else
+                hubState.uncollapsedWindowHeight = 390
+            end
+
+            hubState.isWindowCollapsed = true
+            minimizeBtn.Text = "+"
+            if resizerGrip then resizerGrip.Visible = false end
+            if waveBackground then waveBackground.Visible = false end
+            headerCover.Visible = false
+            headerDivider.Visible = false
+            sidebar.Visible = false
+            sidebarDivider.Visible = false
+            contentArea.Visible = false
+
+            TweenService:Create(hubState.mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, 46)
+            }):Play()
+        else
+            -- Expand window back to saved height
+            hubState.isWindowCollapsed = false
+            minimizeBtn.Text = "-"
+
+            if waveBackground then waveBackground.Visible = true end
+            headerCover.Visible = true
+            headerDivider.Visible = true
+            sidebar.Visible = true
+            sidebarDivider.Visible = true
+            contentArea.Visible = true
+            if resizerGrip then resizerGrip.Visible = true end
+
+            TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, hubState.uncollapsedWindowHeight)
+            }):Play()
+        end
+    end)
+
+    -- Close Button
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Name = "CloseBtn"
+    closeBtn.Size = UDim2.new(0, 26, 0, 26)
+    closeBtn.Position = UDim2.new(1, -34, 0.5, -13)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(225, 50, 65)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 12
+    closeBtn.ZIndex = 30
+    closeBtn.Parent = header
+    applyCorner(closeBtn, 6)
+
+    hubState.bindHeaderButton(closeBtn, function()
+        hubState.createCloseConfirmation(hubState.mainFrame, function()
+            hubState.DisableAllFeatureStates()
+            if opts.onClose then pcall(opts.onClose) end
+            if hubState.screenGui then hubState.screenGui:Destroy() end
+        end)
+    end)
+
+    -- Tab Switching Mechanism
+    function hubState.setTabVisible(tabName)
+        for _, page in ipairs(hubState.tabPages) do
+            if page and page.Name == tabName then
+                page.Visible = true
+            else
+                if page then page.Visible = false end
+            end
+        end
+        for _, btn in ipairs(hubState.tabButtons) do
+            if btn and btn.Name == tabName then
+                TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    BackgroundColor3 = Color3.fromRGB(30, 38, 56)
+                }):Play()
+                local indicator = btn:FindFirstChild("ActiveIndicator")
+                if indicator then
+                    TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundTransparency = 0,
+                        Size = UDim2.new(0, 3, 0, 20)
+                    }):Play()
+                end
+            else
+                if btn then
+                    TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundColor3 = Color3.fromRGB(19, 23, 34)
+                    }):Play()
+                    local indicator = btn:FindFirstChild("ActiveIndicator")
+                    if indicator then
+                        TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            BackgroundTransparency = 1,
+                            Size = UDim2.new(0, 3, 0, 10)
+                        }):Play()
+                    end
+                end
+            end
+        end
+    end
+
+    function hubState.createPage(name)
+        local page = Instance.new("ScrollingFrame")
+        page.Name = name
+        page.Size = UDim2.new(1, 0, 1, 0)
+        page.BackgroundTransparency = 1
+        page.ScrollBarThickness = 4
+        page.ScrollBarImageColor3 = Color3.fromRGB(56, 68, 92)
+        page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        page.CanvasSize = UDim2.new(0, 0, 0, 0)
+        page.Visible = false
+        page.Parent = contentArea
+
+        local pad = Instance.new("UIPadding")
+        pad.PaddingTop = UDim.new(0, 10)
+        pad.PaddingBottom = UDim.new(0, 24)
+        pad.PaddingLeft = UDim.new(0, 10)
+        pad.PaddingRight = UDim.new(0, 12)
+        pad.Parent = page
+
+        local layout = Instance.new("UIListLayout")
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 8)
+        layout.Parent = page
+        table.insert(hubState.tabPages, page)
+        return page
+    end
+
+    function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
+        local page = hubState.createPage(name)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(1, 0, 0, 34)
+        btn.BackgroundColor3 = Color3.fromRGB(19, 23, 34)
+        btn.Text = ""
+        btn.AutoButtonColor = false
+        
+        if name == "Config" then
+            btn.LayoutOrder = 100000
+        elseif name == "Universal" or name == "Utilities" then
+            btn.LayoutOrder = 99999
+        else
+            btn.LayoutOrder = #hubState.tabButtons + 1
+        end
+
+        btn.Parent = sidebar
+        applyCorner(btn, 6)
+
+        local indicator = Instance.new("Frame")
+        indicator.Name = "ActiveIndicator"
+        indicator.Size = UDim2.new(0, 3, 0, 12)
+        indicator.Position = UDim2.new(0, 0, 0.5, -6)
+        indicator.BackgroundColor3 = hubState.currentThemeColor
+        indicator.BorderSizePixel = 0
+        indicator.BackgroundTransparency = 1
+        indicator.Parent = btn
+        applyCorner(indicator, 2)
+        hubState.registerThemeFrame(indicator)
+
+        local icon
+        local textOffset = 12
+        if iconAssetId then
+            icon = Instance.new("ImageLabel")
+            icon.Name = "TabIcon"
+            icon.Size = UDim2.new(0, 16, 0, 16)
+            icon.Position = UDim2.new(0, 8, 0.5, -8)
+            icon.BackgroundTransparency = 1
+            icon.Image = tostring(iconAssetId):find("rbxassetid://") and iconAssetId or ("rbxassetid://" .. tostring(iconAssetId))
+            icon.ImageColor3 = Color3.fromRGB(210, 220, 240)
+            icon.Parent = btn
+            textOffset = 30
+        end
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -(textOffset + 6), 1, 0)
+        lbl.Position = UDim2.new(0, textOffset, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text or name
+        lbl.TextColor3 = Color3.fromRGB(225, 232, 245)
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 12
+        lbl.TextTruncate = Enum.TextTruncate.AtEnd
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Parent = btn
+
+        btn.MouseButton1Click:Connect(function()
+            if hubState.searchBox and hubState.searchBox.Text ~= "" then
+                hubState.searchBox.Text = ""
+            end
+            hubState.currentActiveTabName = name
+            hubState.setTabVisible(name)
+        end)
+        table.insert(hubState.tabButtons, btn)
+
+        if defaultVisible then
+            hubState.currentActiveTabName = name
+            task.defer(function() hubState.setTabVisible(name) end)
+        end
+
+        if name ~= "Config" and name ~= "Universal" and name ~= "Utilities" and hubState.ensureConfigTab then
+            task.defer(function()
+                pcall(hubState.ensureConfigTab)
+            end)
+        end
+
+        return page
+    end
+
+    -- =========================================================================
+    -- Search & Discovery System (Instant Interactive Functions Filter)
+    -- =========================================================================
+    local searchContainer = Instance.new("Frame")
+    searchContainer.Name = "SidebarSearchContainer"
+    searchContainer.Size = UDim2.new(1, 0, 0, 32)
+    searchContainer.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+    searchContainer.LayoutOrder = -100
+    searchContainer.ZIndex = 12
+    searchContainer.Parent = sidebar
+    applyCorner(searchContainer, 6)
+    local searchStroke = applyStroke(searchContainer, Color3.fromRGB(38, 48, 70), 1, 0.4)
+
+    local searchIcon = Instance.new("TextLabel")
+    searchIcon.Size = UDim2.new(0, 24, 1, 0)
+    searchIcon.Position = UDim2.new(0, 4, 0, 0)
+    searchIcon.BackgroundTransparency = 1
+    searchIcon.Text = "🔍"
+    searchIcon.TextColor3 = Color3.fromRGB(140, 150, 175)
+    searchIcon.Font = Enum.Font.GothamBold
+    searchIcon.TextSize = 11
+    searchIcon.ZIndex = 13
+    searchIcon.Parent = searchContainer
+
+    local clearSearchBtn = Instance.new("TextButton")
+    clearSearchBtn.Size = UDim2.new(0, 20, 0, 20)
+    clearSearchBtn.Position = UDim2.new(1, -24, 0.5, -10)
+    clearSearchBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+    clearSearchBtn.Text = "X"
+    clearSearchBtn.TextColor3 = Color3.fromRGB(180, 190, 210)
+    clearSearchBtn.Font = Enum.Font.GothamBold
+    clearSearchBtn.TextSize = 10
+    clearSearchBtn.Visible = false
+    clearSearchBtn.ZIndex = 14
+    clearSearchBtn.Parent = searchContainer
+    applyCorner(clearSearchBtn, 4)
+
+    hubState.searchBox = Instance.new("TextBox")
+    hubState.searchBox.Size = UDim2.new(1, -52, 1, 0)
+    hubState.searchBox.Position = UDim2.new(0, 26, 0, 0)
+    hubState.searchBox.BackgroundTransparency = 1
+    hubState.searchBox.PlaceholderText = "Search functions..."
+    hubState.searchBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+    hubState.searchBox.Text = ""
+    hubState.searchBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+    hubState.searchBox.Font = Enum.Font.GothamMedium
+    hubState.searchBox.TextSize = 11
+    hubState.searchBox.ClearTextOnFocus = false
+    hubState.searchBox.TextXAlignment = Enum.TextXAlignment.Left
+    hubState.searchBox.ZIndex = 13
+    hubState.searchBox.Parent = searchContainer
+
+    hubState.searchResultsPage = hubState.createPage("__SearchResults__")
+
+        function hubState.renderSearchResults(query)
+        for _, child in ipairs(hubState.searchResultsPage:GetChildren()) do
+            if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+                child:Destroy()
+            end
+        end
+
+        local cleanQ = query:match("^%s*(.-)%s*$"):lower()
+        if cleanQ == "" then
+            hubState.setTabVisible(hubState.currentActiveTabName)
+            return
+        end
+
+        -- Make search page active
+        for _, page in ipairs(hubState.tabPages) do
+            page.Visible = (page == hubState.searchResultsPage)
+        end
+        for _, btn in ipairs(hubState.tabButtons) do
+            btn.BackgroundColor3 = Color3.fromRGB(19, 23, 34)
+            local ind = btn:FindFirstChild("ActiveIndicator")
+            if ind then ind.BackgroundTransparency = 1 end
+        end
+
+        -- Results Section Header
+        local resHeader = Instance.new("Frame")
+        resHeader.Size = UDim2.new(1, -4, 0, 26)
+        resHeader.BackgroundTransparency = 1
+        resHeader.Parent = hubState.searchResultsPage
+
+        local resTitle = Instance.new("TextLabel")
+        resTitle.Size = UDim2.new(1, 0, 1, 0)
+        resTitle.BackgroundTransparency = 1
+        resTitle.Text = '🔍 SEARCH RESULTS: "' .. cleanQ .. '"'
+        resTitle.TextColor3 = hubState.currentThemeColor
+        resTitle.Font = Enum.Font.GothamBlack
+        resTitle.TextSize = 11
+        resTitle.TextXAlignment = Enum.TextXAlignment.Left
+        resTitle.Parent = resHeader
+        hubState.registerThemeText(resTitle)
+
+        local matchedCount = 0
+
+        for id, itemData in pairs(hubState.registeredFunctions) do
+            local titleMatch = itemData.title and tostring(itemData.title):lower():find(cleanQ, 1, true)
+            local subMatch = itemData.subtitle and tostring(itemData.subtitle):lower():find(cleanQ, 1, true)
+            local tabMatch = itemData.tab and tostring(itemData.tab):lower():find(cleanQ, 1, true)
+
+            if titleMatch or subMatch or tabMatch then
+                matchedCount = matchedCount + 1
+
+                local isToggle = (itemData.type == "Toggle" and itemData.get and itemData.set)
+
+                local card = Instance.new("Frame")
+                card.Name = "ResultCard_" .. tostring(id)
+                card.Size = UDim2.new(1, -6, 0, 46)
+                card.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+                card.BorderSizePixel = 0
+                card.Parent = hubState.searchResultsPage
+                applyCorner(card, 7)
+                local cStroke = applyStroke(card, Color3.fromRGB(36, 46, 66), 1, 0)
+
+                local cTitle = Instance.new("TextLabel")
+                cTitle.Size = UDim2.new(0.60, 0, 0, 20)
+                cTitle.Position = UDim2.new(0, 14, 0, 5)
+                cTitle.BackgroundTransparency = 1
+                cTitle.Text = tostring(itemData.title or "Function")
+                cTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+                cTitle.Font = Enum.Font.GothamBold
+                cTitle.TextSize = 12
+                cTitle.TextTruncate = Enum.TextTruncate.AtEnd
+                cTitle.TextXAlignment = Enum.TextXAlignment.Left
+                cTitle.Parent = card
+
+                local cTabBadge = Instance.new("TextLabel")
+                cTabBadge.Size = UDim2.new(0.60, 0, 0, 16)
+                cTabBadge.Position = UDim2.new(0, 14, 0, 25)
+                cTabBadge.BackgroundTransparency = 1
+                cTabBadge.Text = "📁 " .. tostring(itemData.tab or "Main") .. (itemData.bind and (" • ⌨️ [" .. itemData.bind .. "]") or "")
+                cTabBadge.TextColor3 = Color3.fromRGB(130, 145, 175)
+                cTabBadge.Font = Enum.Font.GothamMedium
+                cTabBadge.TextSize = 10
+                cTabBadge.TextTruncate = Enum.TextTruncate.AtEnd
+                cTabBadge.TextXAlignment = Enum.TextXAlignment.Left
+                cTabBadge.Parent = card
+
+                -- Interactive Full-Card Click & Direct Toggle Controls
+                if isToggle then
+                    local curState = itemData.get() == true
+
+                    local statusLabel = Instance.new("TextLabel")
+                    statusLabel.Size = UDim2.new(0, 36, 0, 22)
+                    statusLabel.Position = UDim2.new(1, -100, 0.5, -11)
+                    statusLabel.BackgroundTransparency = 1
+                    statusLabel.Text = curState and "ON" or "OFF"
+                    statusLabel.TextColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
+                    statusLabel.Font = Enum.Font.GothamBlack
+                    statusLabel.TextSize = 10
+                    statusLabel.TextXAlignment = Enum.TextXAlignment.Right
+                    statusLabel.Parent = card
+
+                    local switch = Instance.new("Frame")
+                    switch.Size = UDim2.new(0, 46, 0, 24)
+                    switch.Position = UDim2.new(1, -58, 0.5, -12)
+                    switch.BackgroundColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
+                    switch.BorderSizePixel = 0
+                    switch.Parent = card
+                    applyCorner(switch, 12)
+
+                    local sKnob = Instance.new("Frame")
+                    sKnob.Size = UDim2.new(0, 18, 0, 18)
+                    sKnob.Position = curState and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+                    sKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                    sKnob.BorderSizePixel = 0
+                    sKnob.Parent = switch
+                    applyCorner(sKnob, 9)
+
+                    local function toggleFeature()
+                        local nextState = not (itemData.get() == true)
+                        itemData.set(nextState)
+                        statusLabel.Text = nextState and "ON" or "OFF"
+                        statusLabel.TextColor3 = nextState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
+                        local targetPos = nextState and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+                        local targetColor = nextState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
+                        TweenService:Create(sKnob, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+                        TweenService:Create(switch, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
+                        TweenService:Create(cStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = nextState and hubState.currentThemeColor or Color3.fromRGB(36, 46, 66)}):Play()
+                    end
+
+                    local cardHitbox = Instance.new("TextButton")
+                    cardHitbox.Size = UDim2.new(1, 0, 1, 0)
+                    cardHitbox.BackgroundTransparency = 1
+                    cardHitbox.Text = ""
+                    cardHitbox.ZIndex = 25
+                    cardHitbox.Parent = card
+                    cardHitbox.MouseButton1Click:Connect(toggleFeature)
+                elseif itemData.type == "Slider" and itemData.get and itemData.set then
+                    local sValBtn = Instance.new("TextButton")
+                    sValBtn.Size = UDim2.new(0, 74, 0, 24)
+                    sValBtn.Position = UDim2.new(1, -84, 0.5, -12)
+                    sValBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
+                    sValBtn.Text = tostring(itemData.get()) .. (itemData.suffix or "")
+                    sValBtn.TextColor3 = hubState.currentThemeColor
+                    sValBtn.Font = Enum.Font.GothamBold
+                    sValBtn.TextSize = 11
+                    sValBtn.ZIndex = 25
+                    sValBtn.Parent = card
+                    applyCorner(sValBtn, 5)
+
+                    sValBtn.MouseButton1Click:Connect(function()
+                        if itemData.action then
+                            itemData.action()
+                            sValBtn.Text = tostring(itemData.get()) .. (itemData.suffix or "")
+                        end
+                    end)
+                else
+                    local trigBtn = Instance.new("TextButton")
+                    trigBtn.Size = UDim2.new(0, 68, 0, 24)
+                    trigBtn.Position = UDim2.new(1, -78, 0.5, -12)
+                    trigBtn.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
+                    trigBtn.Text = "Trigger ⚡"
+                    trigBtn.TextColor3 = hubState.currentThemeColor
+                    trigBtn.Font = Enum.Font.GothamBold
+                    trigBtn.TextSize = 10
+                    trigBtn.ZIndex = 25
+                    trigBtn.Parent = card
+                    applyCorner(trigBtn, 5)
+
+                    local function triggerAction()
+                        TweenService:Create(trigBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hubState.currentThemeColor, TextColor3 = Color3.fromRGB(15, 20, 30)}):Play()
+                        if itemData.action then pcall(itemData.action) end
+                        task.delay(0.15, function()
+                            if trigBtn and trigBtn.Parent then
+                                TweenService:Create(trigBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = Color3.fromRGB(28, 36, 52), TextColor3 = hubState.currentThemeColor}):Play()
+                            end
+                        end)
+                    end
+
+                    trigBtn.MouseButton1Click:Connect(triggerAction)
+
+                    local cardHitbox = Instance.new("TextButton")
+                    cardHitbox.Size = UDim2.new(1, -85, 1, 0)
+                    cardHitbox.BackgroundTransparency = 1
+                    cardHitbox.Text = ""
+                    cardHitbox.ZIndex = 24
+                    cardHitbox.Parent = card
+                    cardHitbox.MouseButton1Click:Connect(triggerAction)
+                end
+
+                hubState.attachContextMenu(card, itemData)
+            end
+        end
+
+        if matchedCount == 0 then
+            local emptyLabel = Instance.new("TextLabel")
+            emptyLabel.Size = UDim2.new(1, 0, 0, 60)
+            emptyLabel.BackgroundTransparency = 1
+            emptyLabel.Text = "No functions matching '" .. cleanQ .. "' found."
+            emptyLabel.TextColor3 = Color3.fromRGB(140, 150, 175)
+            emptyLabel.Font = Enum.Font.GothamMedium
+            emptyLabel.TextSize = 11
+            emptyLabel.TextXAlignment = Enum.TextXAlignment.Center
+            emptyLabel.Parent = hubState.searchResultsPage
+        end
+    end
+
+    hubState.searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local q = hubState.searchBox.Text
+        clearSearchBtn.Visible = (#q > 0)
+        hubState.renderSearchResults(q)
+    end)
+
+    clearSearchBtn.MouseButton1Click:Connect(function()
+        hubState.searchBox.Text = ""
+    end)
+
+    -- UI Component: Section Label / Divider
+    function hubState.createSection(parent, sectionText)
+        if not parent then parent = contentArea end
+        local secFrame = Instance.new("Frame")
+        secFrame.Name = "SectionHeader"
+        secFrame.Size = UDim2.new(1, -4, 0, 26)
+        secFrame.BackgroundTransparency = 1
+        secFrame.Parent = parent
+
+        local secLabel = Instance.new("TextLabel")
+        secLabel.Size = UDim2.new(1, -8, 1, 0)
+        secLabel.Position = UDim2.new(0, 4, 0, 0)
+        secLabel.BackgroundTransparency = 1
+        secLabel.Text = string.upper(tostring(sectionText or "SECTION"))
+        secLabel.TextColor3 = hubState.currentThemeColor
+        secLabel.Font = Enum.Font.GothamBlack
+        secLabel.TextSize = 10
+        secLabel.TextXAlignment = Enum.TextXAlignment.Left
+        secLabel.Parent = secFrame
+        hubState.registerThemeText(secLabel)
+
+        local divider = Instance.new("Frame")
+        divider.Size = UDim2.new(1, 0, 0, 1)
+        divider.Position = UDim2.new(0, 0, 1, -1)
+        divider.BackgroundColor3 = Color3.fromRGB(32, 40, 56)
+        divider.BorderSizePixel = 0
+        divider.Parent = secFrame
+
+        return secFrame
+    end
+
+    -- UI Component: Button (Responsive & Holographic Click FX)
+    function hubState.createButton(parent, text, callback)
+        if not parent then parent = contentArea end
+        local item = Instance.new("TextButton")
+        item.Size = UDim2.new(1, -6, 0, 36)
+        item.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
+        item.AutoButtonColor = false
+        item.Text = "  " .. tostring(text or "Button")
+        item.TextColor3 = Color3.fromRGB(235, 240, 252)
+        item.Font = Enum.Font.GothamBold
+        item.TextSize = 12
+        item.TextTruncate = Enum.TextTruncate.AtEnd
+        item.TextXAlignment = Enum.TextXAlignment.Left
+        item.ClipsDescendants = true
+        item.Parent = parent
+        applyCorner(item, 7)
+        local btnStroke = applyStroke(item, Color3.fromRGB(36, 46, 66), 1, 0)
+
+        -- Holographic click flash overlay
+        local sheen = Instance.new("Frame")
+        sheen.Name = "SheenRipple"
+        sheen.Size = UDim2.new(0, 0, 1, 0)
+        sheen.Position = UDim2.new(0, 0, 0, 0)
+        sheen.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        sheen.BackgroundTransparency = 1
+        sheen.BorderSizePixel = 0
+        sheen.ZIndex = 2
+        sheen.Parent = item
+        applyCorner(sheen, 7)
+
+        local sheenGrad = Instance.new("UIGradient")
+        sheenGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        sheenGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0.4),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        sheenGrad.Parent = sheen
+        hubState.registerThemeGradient(sheenGrad, 0)
+
+        local normalColor = Color3.fromRGB(20, 25, 36)
+        local hoverColor = Color3.fromRGB(28, 36, 52)
+        local clickColor = Color3.fromRGB(38, 48, 70)
+
+        item.MouseEnter:Connect(function()
+            TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hoverColor}):Play()
+            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = hubState.currentThemeColor}):Play()
+        end)
+        item.MouseLeave:Connect(function()
+            TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = normalColor}):Play()
+            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = Color3.fromRGB(36, 46, 66)}):Play()
+        end)
+        item.MouseButton1Down:Connect(function()
+            TweenService:Create(item, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = clickColor}):Play()
+        end)
+        item.MouseButton1Up:Connect(function()
+            TweenService:Create(item, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hoverColor}):Play()
+        end)
+        item.MouseButton1Click:Connect(function()
+            if hubState.isModalActive then return end
+            -- Holographic ripple sweep
+            sheen.Size = UDim2.new(0, 0, 1, 0)
+            sheen.Position = UDim2.new(0, 0, 0, 0)
+            sheen.BackgroundTransparency = 0.5
+            TweenService:Create(sheen, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1
+            }):Play()
+            if callback then pcall(callback) end
+        end)
+
+        local itemData = {
+            id = "btn_" .. tostring(text or "Button") .. "_" .. tostring(math.random(1000, 9999)),
+            title = text or "Button",
+            type = "Button",
+            tab = hubState.currentActiveTabName,
+            action = function()
+                if callback then pcall(callback) end
+            end
+        }
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(item, itemData)
+
+        return item
+    end
+
+    -- UI Component: Text Box (Responsive)
+    function hubState.createTextBox(parent, placeholderText, defaultText, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -6, 0, 38)
+        frame.BackgroundColor3 = Color3.fromRGB(17, 21, 31)
+        frame.BorderSizePixel = 0
+        frame.Parent = parent or contentArea
+        applyCorner(frame, 7)
+        applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(1, -16, 1, -8)
+        box.Position = UDim2.new(0, 8, 0, 4)
+        box.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        box.BorderSizePixel = 0
+        box.ClearTextOnFocus = false
+        box.Font = Enum.Font.GothamMedium
+        box.PlaceholderText = placeholderText or "Enter text..."
+        box.PlaceholderColor3 = Color3.fromRGB(120, 132, 155)
+        box.Text = defaultText or ""
+        box.TextColor3 = Color3.fromRGB(235, 240, 250)
+        box.TextSize = 12
+        box.TextXAlignment = Enum.TextXAlignment.Left
+        box.Parent = frame
+        applyCorner(box, 5)
+
+        if callback then
+            box.FocusLost:Connect(function(enterPressed)
+                pcall(callback, box.Text, enterPressed)
+            end)
+        end
+        return box
+    end
+
+    -- UI Component: Toggle (Responsive & Smooth Spring Knob)
+    function hubState.createToggle(parent, text, defaultState, callback)
+        if not parent then parent = contentArea end
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -6, 0, 42)
+        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        frame.BorderSizePixel = 0
+        frame.Parent = parent
+        applyCorner(frame, 7)
+        local toggleStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -70, 1, 0)
+        label.Position = UDim2.new(0, 14, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text or "Toggle"
+        label.TextColor3 = Color3.fromRGB(230, 235, 245)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 12
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+
+        local switchTrack = Instance.new("Frame")
+        switchTrack.Size = UDim2.new(0, 48, 0, 24)
+        switchTrack.Position = UDim2.new(1, -58, 0.5, -12)
+        switchTrack.BackgroundColor3 = (defaultState == true) and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
+        switchTrack.BorderSizePixel = 0
+        switchTrack.Parent = frame
+        applyCorner(switchTrack, 12)
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 18, 0, 18)
+        knob.Position = (defaultState == true) and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+        knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        knob.BorderSizePixel = 0
+        knob.Parent = switchTrack
+        applyCorner(knob, 9)
+
+        local isToggled = defaultState or false
+        local function setState(v)
+            isToggled = (v == true)
+            hubState.configValues["toggle:" .. tostring(text)] = isToggled
+            local targetPos = isToggled and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+            local targetColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
+            local targetStrokeColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(34, 42, 58)
+            TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+            TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
+            TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
+            if callback then pcall(callback, isToggled) end
+        end
+
+        local click = Instance.new("TextButton")
+        click.Size = UDim2.new(1, 0, 1, 0)
+        click.BackgroundTransparency = 1
+        click.Text = ""
+        click.Parent = frame
+        click.MouseButton1Click:Connect(function()
+            if hubState.isModalActive then return end
+            setState(not isToggled)
+        end)
+
+        table.insert(hubState.allToggleSetters, setState)
+        hubState.configSetters["toggle:" .. tostring(text)] = setState
+        hubState.registerThemeUpdater(function(themeColor)
+            if isToggled and switchTrack.Parent then switchTrack.BackgroundColor3 = themeColor end
+        end)
+
+        local itemData = {
+            id = "toggle_" .. tostring(text or "Toggle"),
+            title = text or "Toggle",
+            type = "Toggle",
+            tab = hubState.currentActiveTabName,
+            set = setState,
+            get = function() return isToggled end,
+            action = function()
+                setState(not isToggled)
+            end
+        }
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(frame, itemData)
+        hubState.attachContextMenu(click, itemData)
+
+        setState(isToggled)
+        return {
+            Frame = frame,
+            Set = setState,
+            Get = function() return isToggled end,
+        }
+    end
+
+    -- UI Component: Slider (Responsive)
+    function hubState.createSlider(parent, titleText, minValue, maxValue, defaultValue, suffix, callback)
+        if not parent then parent = contentArea end
+        minValue = tonumber(minValue) or 0
+        maxValue = tonumber(maxValue) or 100
+        if maxValue < minValue then minValue, maxValue = maxValue, minValue end
+        local value = math.clamp(tonumber(defaultValue) or minValue, minValue, maxValue)
+        local range = math.max(0.0001, maxValue - minValue)
+
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -6, 0, 52)
+        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        frame.BorderSizePixel = 0
+        frame.Parent = parent
+        applyCorner(frame, 7)
+        applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.65, 0, 0, 20)
+        label.Position = UDim2.new(0, 14, 0, 6)
+        label.BackgroundTransparency = 1
+        label.Text = titleText or "Slider"
+        label.TextColor3 = Color3.fromRGB(230, 235, 245)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 12
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+
+        local valueLabel = Instance.new("TextLabel")
+        valueLabel.Size = UDim2.new(0.3, 0, 0, 20)
+        valueLabel.Position = UDim2.new(0.68, 0, 0, 6)
+        valueLabel.BackgroundTransparency = 1
+        valueLabel.TextColor3 = hubState.currentThemeColor
+        valueLabel.Font = Enum.Font.GothamBold
+        valueLabel.TextSize = 11
+        valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+        valueLabel.Parent = frame
+        hubState.registerThemeText(valueLabel)
+
+        local track = Instance.new("TextButton")
+        track.Size = UDim2.new(1, -28, 0, 8)
+        track.Position = UDim2.new(0, 14, 0, 34)
+        track.BackgroundColor3 = Color3.fromRGB(42, 48, 64)
+        track.Text = ""
+        track.AutoButtonColor = false
+        track.Active = true
+        track.BorderSizePixel = 0
+        track.Parent = frame
+        applyCorner(track, 4)
+
+        local fill = Instance.new("Frame")
+        fill.BackgroundColor3 = hubState.currentThemeColor
+        fill.BorderSizePixel = 0
+        fill.Active = false
+        fill.Parent = track
+        applyCorner(fill, 4)
+        hubState.registerThemeFrame(fill)
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 14, 0, 14)
+        knob.AnchorPoint = Vector2.new(0.5, 0.5)
+        knob.Position = UDim2.new(0, 0, 0.5, 0)
+        knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        knob.Active = false
+        knob.BorderSizePixel = 0
+        knob.Parent = track
+        applyCorner(knob, 7)
+
+        local function formatValue(val)
+            if val % 1 == 0 then
+                return tostring(math.floor(val)) .. (suffix or "")
+            end
+            return string.format("%.2f", val) .. (suffix or "")
+        end
+
+        local function setValue(newValue, fireCallback)
+            value = math.clamp(tonumber(newValue) or value, minValue, maxValue)
+            hubState.configValues["slider:" .. tostring(titleText)] = value
+            local percent = math.clamp((value - minValue) / range, 0, 1)
+            valueLabel.Text = formatValue(value)
+            fill.Size = UDim2.new(percent, 0, 1, 0)
+            knob.Position = UDim2.new(percent, 0, 0.5, 0)
+            if fireCallback and callback then pcall(callback, value) end
+        end
+
+        hubState.configSetters["slider:" .. tostring(titleText)] = function(newValue)
+            setValue(newValue, true)
+        end
+
+        local dragging = false
+        local function updateFromInput(input)
+            local percent = (input.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X)
+            setValue(minValue + math.clamp(percent, 0, 1) * range, true)
+        end
+
+        track.InputBegan:Connect(function(input)
+            if hubState.isModalActive then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                updateFromInput(input)
+            end
+        end)
+
+        track.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end))
+
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                updateFromInput(input)
+            end
+        end))
+
+        local itemData = {
+            id = "slider_" .. tostring(titleText or "Slider"),
+            title = titleText or "Slider",
+            type = "Slider",
+            tab = hubState.currentActiveTabName,
+            min = minValue,
+            max = maxValue,
+            suffix = suffix,
+            set = function(v) setValue(v, true) end,
+            get = function() return value end,
+            action = function()
+                local mid = (minValue + maxValue) / 2
+                if value >= maxValue - 0.001 then
+                    setValue(minValue, true)
+                else
+                    setValue(value + (maxValue - minValue) * 0.25, true)
+                end
+            end
+        }
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(frame, itemData)
+
+        setValue(value, false)
+        return {
+            Frame = frame,
+            Set = function(newVal) setValue(newVal, true) end,
+            Get = function() return value end,
+        }
+    end
+
+    -- =========================================================================
+    -- Refined UI Component: List Item (Responsive)
+    -- =========================================================================
+    function hubState.createListItem(parent, titleText, subtitleText, callback)
+        if not parent then parent = contentArea end
+        local item = Instance.new("TextButton")
+        item.Size = UDim2.new(1, -2, 0, 42)
+        item.BackgroundColor3 = Color3.fromRGB(20, 24, 35)
+        item.AutoButtonColor = false
+        item.Text = ""
+        item.Parent = parent
+        applyCorner(item, 7)
+        local itemStroke = applyStroke(item, Color3.fromRGB(36, 44, 64), 1, 0)
+
+        local selected = false
+        local normalColor = Color3.fromRGB(20, 24, 35)
+        local hoverColor = Color3.fromRGB(28, 35, 52)
+        local selectedColor = Color3.fromRGB(25, 42, 62)
+        local selectedHoverColor = Color3.fromRGB(32, 54, 78)
+
+        local hasSubtitle = subtitleText and subtitleText ~= "" and tostring(subtitleText):lower() ~= "nope"
+
+        local accent = Instance.new("Frame")
+        accent.Name = "LeftAccent"
+        accent.Size = UDim2.new(0, 3, 0, 16)
+        accent.Position = UDim2.new(0, 0, 0.5, -8)
+        accent.BackgroundColor3 = hubState.currentThemeColor
+        accent.BorderSizePixel = 0
+        accent.BackgroundTransparency = 0.6
+        accent.Parent = item
+        applyCorner(accent, 2)
+        hubState.registerThemeFrame(accent)
+
+        local checkbox = Instance.new("Frame")
+        checkbox.Name = "Checkbox"
+        checkbox.Size = UDim2.new(0, 20, 0, 20)
+        checkbox.AnchorPoint = Vector2.new(1, 0.5)
+        checkbox.Position = UDim2.new(1, -12, 0.5, 0)
+        checkbox.BackgroundColor3 = Color3.fromRGB(14, 17, 25)
+        checkbox.BorderSizePixel = 0
+        checkbox.Parent = item
+        applyCorner(checkbox, 6)
+        local cbStroke = applyStroke(checkbox, Color3.fromRGB(56, 68, 92), 1.5, 0)
+
+        local checkImage = Instance.new("TextLabel")
+        checkImage.Name = "CheckImage"
+        checkImage.Size = UDim2.new(1, 0, 1, 0)
+        checkImage.BackgroundTransparency = 1
+        checkImage.Text = "✓"
+        checkImage.TextColor3 = Color3.fromRGB(255, 255, 255)
+        checkImage.Font = Enum.Font.GothamBlack
+        checkImage.TextSize = 13
+        checkImage.TextXAlignment = Enum.TextXAlignment.Center
+        checkImage.TextYAlignment = Enum.TextYAlignment.Center
+        checkImage.Visible = false
+        checkImage.Parent = checkbox
+
+        local title = Instance.new("TextLabel")
+        title.Name = "ItemTitle"
+        title.Size = hasSubtitle and UDim2.new(1, -64, 0, 18) or UDim2.new(1, -64, 1, 0)
+        title.Position = hasSubtitle and UDim2.new(0, 14, 0, 4) or UDim2.new(0, 14, 0, 0)
+        title.BackgroundTransparency = 1
+        title.Text = titleText or "Item"
+        title.TextColor3 = Color3.fromRGB(238, 243, 252)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 12
+        title.TextTruncate = Enum.TextTruncate.AtEnd
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.TextYAlignment = hasSubtitle and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
+        title.Parent = item
+
+        local subtitle = Instance.new("TextLabel")
+        subtitle.Name = "ItemSubtitle"
+        subtitle.Size = UDim2.new(1, -64, 0, 15)
+        subtitle.Position = UDim2.new(0, 14, 0, 22)
+        subtitle.BackgroundTransparency = 1
+        subtitle.Text = hasSubtitle and subtitleText or ""
+        subtitle.TextColor3 = Color3.fromRGB(145, 156, 180)
+        subtitle.Font = Enum.Font.GothamMedium
+        subtitle.TextSize = 10
+        subtitle.TextTruncate = Enum.TextTruncate.AtEnd
+        subtitle.TextXAlignment = Enum.TextXAlignment.Left
+        subtitle.Visible = hasSubtitle
+        subtitle.Parent = item
+
+        local function paint(isHovered)
+            local targetBg = selected and (isHovered and selectedHoverColor or selectedColor) or (isHovered and hoverColor or normalColor)
+            local targetStroke = selected and hubState.currentThemeColor or (isHovered and Color3.fromRGB(56, 68, 96) or Color3.fromRGB(36, 44, 64))
+            
+            TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
+            TweenService:Create(itemStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStroke}):Play()
+            
+            checkImage.Visible = selected
+            checkbox.BackgroundColor3 = selected and hubState.currentThemeColor or Color3.fromRGB(14, 17, 25)
+            cbStroke.Color = selected and hubState.currentThemeColor or Color3.fromRGB(56, 68, 92)
+
+            local targetAccentSize = selected and UDim2.new(0, 4, 1, -12) or (isHovered and UDim2.new(0, 3, 0, 22) or UDim2.new(0, 3, 0, 16))
+            local targetAccentPos = selected and UDim2.new(0, 0, 0, 6) or (isHovered and UDim2.new(0, 0, 0.5, -11) or UDim2.new(0, 0, 0.5, -8))
+            local targetAccentTrans = selected and 0 or (isHovered and 0.2 or 0.6)
+            
+            TweenService:Create(accent, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = targetAccentSize,
+                Position = targetAccentPos,
+                BackgroundTransparency = targetAccentTrans
+            }):Play()
+        end
+
+        item.MouseEnter:Connect(function() paint(true) end)
+        item.MouseLeave:Connect(function() paint(false) end)
+        item.MouseButton1Click:Connect(function()
+            if hubState.isModalActive then return end
+            if callback then pcall(callback) end
+        end)
+
+        local itemData = {
+            id = "item_" .. tostring(titleText or "Item") .. "_" .. tostring(subtitleText or ""),
+            title = titleText or "Item",
+            subtitle = subtitleText or "",
+            type = "ListItem",
+            tab = hubState.currentActiveTabName,
+            action = function()
+                if callback then pcall(callback) end
+            end
+        }
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(item, itemData)
+
+        return item, function(isSelected)
+            selected = (isSelected == true)
+            paint(false)
+        end
+    end
+
+    -- Forward declaration for recursive nested list support
+
+    -- UI Component: List Container (Supports recursive nested lists & sub-lists, auto-resizing)
+    function hubState.BringSelectedItem(list)
+        if not list then return nil end
+        if list.SelectedItem ~= nil then return list.SelectedItem end
+        return nil
+    end
+
+    hubState.CreateList = function(parent, title, items, height, expanded, selectionOptions)
+        local parentTarget = parent
+        local itemTitle = title or "List"
+        local itemValues = items or {}
+        local itemExpanded = expanded ~= false
+        local multiSelect = selectionOptions == true or (type(selectionOptions) == "table" and (selectionOptions.MultiSelect == true or selectionOptions.multiSelect == true))
+        local parentListObj = nil
+        local isNestedList = false
+
+        if type(parentTarget) == "table" and parentTarget.List then
+            parentListObj = parentTarget
+            parentTarget = parentListObj.List
+            isNestedList = true
+            itemTitle = title or "Sub-List"
+            itemValues = items or {}
+            itemExpanded = expanded ~= false
+        elseif typeof(parentTarget) == "Instance" and parentTarget:IsA("ScrollingFrame") then
+            if hubState.scrollingFrameToListMap[parentTarget] then
+                parentListObj = hubState.scrollingFrameToListMap[parentTarget]
+                isNestedList = true
+            elseif type(selectionOptions) == "table" and selectionOptions.isNested == true then
+                isNestedList = true
+            end
+        elseif type(parentTarget) == "table" then
+            itemValues = parentTarget
+            parentTarget = contentArea
+            itemTitle = "List"
+            itemExpanded = items ~= false
+        elseif type(parentTarget) == "string" then
+            if type(title) == "table" then
+                itemTitle = parentTarget
+                itemValues = title
+                parentTarget = contentArea
+                itemExpanded = height ~= false
+            else
+                itemTitle = parentTarget
+                parentTarget = title or contentArea
+                itemValues = items or {}
+                itemExpanded = expanded ~= false
+            end
+        elseif typeof(parentTarget) == "Instance" then
+            if type(title) == "table" then
+                itemValues = title
+                itemTitle = "List"
+                itemExpanded = height ~= false
+            end
+        end
+
+        local maxAllowedHeight = tonumber(height) or (isNestedList and 240 or 380)
+        local selectionCallback = type(height) == "function" and height or nil
+        local itemBuilder = type(items) == "function" and items or nil
+
+        if itemBuilder then itemValues = {} end
+        if selectionCallback then
+            maxAllowedHeight = 300
+            itemExpanded = true
+        end
+
+        if type(itemValues) ~= "table" then itemValues = {} end
+        if not parentTarget then parentTarget = contentArea end
+
+        local titleBtnHeight = isNestedList and 30 or 32
+        local open = itemExpanded
+
+        local frame = Instance.new("Frame")
+        frame.Name = "List_" .. tostring(itemTitle)
+        frame.Size = UDim2.new(1, -6, 0, titleBtnHeight)
+        frame.BackgroundColor3 = isNestedList and Color3.fromRGB(13, 17, 26) or Color3.fromRGB(16, 20, 30)
+        frame.BorderSizePixel = 0
+        frame.ClipsDescendants = true
+        frame.Parent = parentTarget
+        applyCorner(frame, isNestedList and 6 or 7)
+        applyStroke(frame, isNestedList and Color3.fromRGB(44, 54, 76) or Color3.fromRGB(34, 42, 58), 1, 0)
+
+        local titleBtn = Instance.new("TextButton")
+        titleBtn.Size = UDim2.new(1, 0, 0, titleBtnHeight)
+        titleBtn.Text = (isNestedList and "  › " or "  ") .. tostring(itemTitle)
+        titleBtn.TextColor3 = isNestedList and Color3.fromRGB(215, 225, 240) or Color3.fromRGB(235, 242, 252)
+        titleBtn.BackgroundColor3 = isNestedList and Color3.fromRGB(19, 25, 38) or Color3.fromRGB(22, 28, 42)
+        titleBtn.Font = Enum.Font.GothamBold
+        titleBtn.TextSize = isNestedList and 11 or 12
+        titleBtn.TextTruncate = Enum.TextTruncate.AtEnd
+        titleBtn.TextXAlignment = Enum.TextXAlignment.Left
+        titleBtn.Parent = frame
+        applyCorner(titleBtn, isNestedList and 6 or 7)
+
+        local arrow = Instance.new("TextLabel")
+        arrow.Name = "Arrow"
+        arrow.Size = UDim2.new(0, 32, 1, 0)
+        arrow.Position = UDim2.new(1, -36, 0, 0)
+        arrow.BackgroundTransparency = 1
+        arrow.Text = "▼"
+        arrow.TextColor3 = hubState.currentThemeColor
+        arrow.Font = Enum.Font.GothamBold
+        arrow.TextSize = 16
+        arrow.TextXAlignment = Enum.TextXAlignment.Center
+        arrow.TextYAlignment = Enum.TextYAlignment.Center
+        arrow.Rotation = itemExpanded and 0 or -90
+        arrow.Parent = titleBtn
+        hubState.registerThemeText(arrow)
+
+        local list = Instance.new("ScrollingFrame")
+        list.Position = UDim2.new(0, 4, 0, isNestedList and 32 or 34)
+        list.Size = UDim2.new(1, -8, 0, 0)
+        list.BackgroundTransparency = 1
+        list.ScrollBarThickness = 3
+        list.ScrollBarImageColor3 = Color3.fromRGB(50, 62, 84)
+        list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        list.CanvasSize = UDim2.new(0, 0, 0, 0)
+        list.ClipsDescendants = true
+        list.Visible = itemExpanded
+        list.Parent = frame
+
+        local layout = Instance.new("UIListLayout")
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 5)
+        layout.Parent = list
+
+        local listObject = {
+            ParentList = parentListObj,
+            Frame = nil,
+            List = nil,
+            SelectedItem = nil,
+            SelectedItems = {},
+            SelectedRowSetter = nil,
+            MultiSelect = multiSelect,
+            Title = itemTitle,
+            Items = {},
+            SubLists = {},
+            UpdateHeight = nil,
+            SetSelected = nil,
+            SetSelectedItems = nil,
+            ToggleSelected = nil,
+            AddItem = nil,
+            AddList = nil,
+            CreateList = nil,
+            BringSelected = nil,
+        }
+        hubState.scrollingFrameToListMap[list] = listObject
+
+                local function calculateDesiredHeight()
+            local contentH = 0
+            local visibleCount = 0
+            for _, child in ipairs(list:GetChildren()) do
+                if child:IsA("GuiObject") and child.Visible and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+                    visibleCount = visibleCount + 1
+                    local chH = child.Size.Y.Offset
+                    if chH <= 0 and child.AbsoluteSize.Y > 0 then chH = child.AbsoluteSize.Y end
+                    if chH <= 0 then chH = 38 end
+                    contentH = contentH + chH + layout.Padding.Offset
+                end
+            end
+            if layout.AbsoluteContentSize.Y > contentH then
+                contentH = layout.AbsoluteContentSize.Y
+            end
+            if contentH <= 0 and #listObject.Items > 0 then
+                contentH = #listObject.Items * (38 + layout.Padding.Offset)
+            end
+            local extraPadding = isNestedList and 8 or 12
+            local totalH = titleBtnHeight + contentH + extraPadding
+            return math.clamp(totalH, titleBtnHeight + 20, maxAllowedHeight)
+        end
+
+        local isUpdatingHeight = false
+        local function updateListHeight(animate)
+            if not frame or not frame.Parent or isUpdatingHeight then return end
+            isUpdatingHeight = true
+
+            if not open then
+                local targetSize = UDim2.new(1, -6, 0, titleBtnHeight)
+                if animate then
+                    TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+                    TweenService:Create(list, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, -8, 0, 0)}):Play()
+                else
+                    frame.Size = targetSize
+                    list.Size = UDim2.new(1, -8, 0, 0)
+                end
+                task.delay(0.22, function()
+                    if not open and list and list.Parent then
+                        list.Visible = false
+                    end
+                    isUpdatingHeight = false
+                end)
+                if listObject and listObject.ParentList and listObject.ParentList.UpdateHeight then
+                    task.defer(function()
+                        listObject.ParentList.UpdateHeight(animate)
+                    end)
+                end
+                return
+            end
+
+            list.Visible = true
+            local targetH = calculateDesiredHeight()
+            local listTargetH = math.max(10, targetH - titleBtnHeight - (isNestedList and 6 or 8))
+            local targetSize = UDim2.new(1, -6, 0, targetH)
+            local listSize = UDim2.new(1, -8, 0, listTargetH)
+
+            if animate then
+                TweenService:Create(frame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+                TweenService:Create(list, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = listSize}):Play()
+            else
+                frame.Size = targetSize
+                list.Size = listSize
+            end
+
+            task.delay(0.25, function()
+                isUpdatingHeight = false
+            end)
+
+            if listObject and listObject.ParentList and listObject.ParentList.UpdateHeight then
+                task.defer(function()
+                    listObject.ParentList.UpdateHeight(animate)
+                end)
+            end
+        end
+
+        local layoutDebounce = false
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            if open and not layoutDebounce and not isUpdatingHeight then
+                layoutDebounce = true
+                task.delay(0.08, function()
+                    layoutDebounce = false
+                    if open then updateListHeight(false) end
+                end)
+            end
+        end)
+
+        list.ChildAdded:Connect(function(child)
+            task.defer(function()
+                if open then updateListHeight(false) end
+            end)
+        end)
+
+        list.ChildRemoved:Connect(function()
+            task.defer(function()
+                if open then updateListHeight(false) end
+            end)
+        end)
+
+        titleBtn.MouseButton1Click:Connect(function()
+            if hubState.isModalActive then return end
+            open = not open
+            TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = open and 0 or -90}):Play()
+            updateListHeight(true)
+        end)
+
+        -- Initial sizing setup
+        task.defer(function()
+            updateListHeight(false)
+        end)
+
+        listObject.Frame = frame
+        listObject.List = list
+        listObject.SelectedItem = nil
+        listObject.SelectedItems = {}
+        listObject.MultiSelect = multiSelect
+        listObject.Title = itemTitle
+        listObject.Items = {}
+        listObject.SubLists = {}
+        listObject.UpdateHeight = updateListHeight
+        listObject.SetSelected = function(value)
+            if listObject.MultiSelect then
+                local values = {}
+                if value ~= nil then
+                    values = (type(value) == "table" and value.Name == nil) and value or {value}
+                end
+                return listObject.SetSelectedItems(values)
+            end
+            if listObject.SelectedRowSetter then listObject.SelectedRowSetter(false) end
+            listObject.SelectedItem = value
+            hubState.configValues["list:" .. tostring(itemTitle)] = (value ~= nil) and ((type(value) == "table" and value.Name) or tostring(value)) or nil
+            listObject.SelectedRowSetter = nil
+            for _, entryData in ipairs(listObject.Items) do
+                if entryData == value or entryData.Name == value then
+                    listObject.SelectedRowSetter = entryData.RowSetter
+                    if listObject.SelectedRowSetter then listObject.SelectedRowSetter(true) end
+                    break
+                end
+            end
+            return value
+        end
+        listObject.SetSelectedItems = function(values)
+            if not listObject.MultiSelect then
+                local value = type(values) == "table" and values[1] or values
+                return listObject.SetSelected(value)
+            end
+            values = type(values) == "table" and values or {}
+            listObject.SelectedItem = nil
+            listObject.SelectedItems = {}
+            local selectedNames = {}
+            for _, entryData in ipairs(listObject.Items) do
+                local isSelected = false
+                for _, value in ipairs(values) do
+                    if entryData == value or entryData.Name == value or (type(value) == "table" and entryData.Name == value.Name) then
+                        isSelected = true
+                        break
+                    end
+                end
+                if entryData.RowSetter then entryData.RowSetter(isSelected) end
+                if isSelected then
+                    table.insert(listObject.SelectedItems, entryData)
+                    table.insert(selectedNames, entryData.Name)
+                end
+            end
+            listObject.SelectedItem = listObject.SelectedItems[1]
+            hubState.configValues["list:" .. tostring(itemTitle)] = table.concat(selectedNames, "	")
+            return listObject.SelectedItems
+        end
+        listObject.ToggleSelected = function(value)
+            if not listObject.MultiSelect then
+                return listObject.SetSelected(listObject.SelectedItem == value and nil or value)
+            end
+            local values = {}
+            for _, entryData in ipairs(listObject.SelectedItems) do
+                if entryData ~= value and entryData.Name ~= value then
+                    table.insert(values, entryData)
+                end
+            end
+            local alreadySelected = false
+            for _, entryData in ipairs(listObject.SelectedItems) do
+                if entryData == value or entryData.Name == value then
+                    alreadySelected = true
+                    break
+                end
+            end
+            if not alreadySelected then table.insert(values, value) end
+            return listObject.SetSelectedItems(values)
+        end
+        listObject.BringSelected = function()
+            return listObject.MultiSelect and listObject.SelectedItems or hubState.BringSelectedItem(listObject)
+        end
+
+        hubState.listRegistry[tostring(itemTitle)] = listObject
+        hubState.configSetters["list:" .. tostring(itemTitle)] = function(value)
+            if listObject.MultiSelect then
+                local values = {}
+                for name in string.gmatch(tostring(value), "[^\t]+") do
+                    table.insert(values, name)
+                end
+                listObject.SetSelectedItems(values)
+            else
+                listObject.SetSelected(value)
+            end
+        end
+
+        local function addEntry(entry)
+            local entryData = nil
+            if type(entry) == "string" then
+                entryData = { Name = entry, Desc = "", Callback = nil }
+            elseif type(entry) == "table" then
+                entryData = {
+                    Name = entry.Name or entry[1] or entry.text or "Item",
+                    Desc = entry.Desc or entry[2] or entry.desc or entry.subtitle or "",
+                    Callback = entry.Callback or entry[3] or entry.callback,
+                }
+            end
+            if not entryData then return end
+
+            local row, setRowSelected = hubState.createListItem(list, entryData.Name, entryData.Desc, function()
+                if listObject.MultiSelect then
+                    listObject.ToggleSelected(entryData)
+                elseif listObject.SelectedItem == entryData then
+                    listObject.SetSelected(nil)
+                else
+                    listObject.SetSelected(entryData)
+                end
+                if selectionCallback then pcall(selectionCallback, entryData.Name, entryData) end
+                if entryData.Callback then pcall(entryData.Callback, entryData) end
+            end)
+
+            entryData.Row = row
+            entryData.RowSetter = setRowSelected
+
+            entryData.AddList = function(selfOrTitle, subTitleOrItems, subItemsOrHeight, subHeightOrExpanded, subExpandedOrOptions, subOptions)
+                local subTitle = selfOrTitle
+                local subItems = subTitleOrItems
+                local subHeight = subItemsOrHeight
+                local subExpanded = subHeightOrExpanded
+                local subOpts = subExpandedOrOptions
+                if selfOrTitle == entryData then
+                    subTitle = subTitleOrItems
+                    subItems = subItemsOrHeight
+                    subHeight = subHeightOrExpanded
+                    subExpanded = subExpandedOrOptions
+                    subOpts = subOptions
+                end
+                local subList = hubState.CreateList(list, subTitle, subItems, subHeight or 130, subExpanded, subOpts)
+                subList.ParentList = listObject
+                table.insert(listObject.SubLists, subList)
+                return subList
+            end
+            entryData.CreateList = entryData.AddList
+
+            table.insert(listObject.Items, entryData)
+            return row, entryData
+        end
+
+        listObject.AddItem = function(selfOrName, nameOrSubtitle, subtitleOrCallback, callback)
+            local name = selfOrName
+            local subtitle = nameOrSubtitle
+            if selfOrName == listObject then
+                name = nameOrSubtitle
+                subtitle = subtitleOrCallback
+            else
+                callback = subtitleOrCallback
+            end
+            if type(name) == "table" then return addEntry(name) end
+            if type(subtitle) == "function" and callback == nil then
+                callback = subtitle
+                subtitle = nil
+            end
+            return addEntry({ Name = name, Desc = subtitle, Callback = callback })
+        end
+
+        listObject.AddList = function(selfOrTitle, titleOrItems, itemsOrHeight, heightOrExpanded, expandedOrOptions, options)
+            local subTitle = selfOrTitle
+            local subItems = titleOrItems
+            local subHeight = itemsOrHeight
+            local subExpanded = heightOrExpanded
+            local subOpts = expandedOrOptions
+            if selfOrTitle == listObject then
+                subTitle = titleOrItems
+                subItems = itemsOrHeight
+                subHeight = heightOrExpanded
+                subExpanded = expandedOrOptions
+                subOpts = options
+            end
+            local subList = hubState.CreateList(list, subTitle, subItems, subHeight or 130, subExpanded, subOpts)
+            subList.ParentList = listObject
+            table.insert(listObject.SubLists, subList)
+            return subList
+        end
+        listObject.CreateList = listObject.AddList
+
+        if itemBuilder then
+            pcall(itemBuilder, listObject)
+        else
+            for _, entry in ipairs(itemValues) do
+                addEntry(entry)
+            end
+        end
+
+        return listObject
+    end
+
+    -- UI Component: Dropdown (Responsive)
+    function hubState.createDropdown(parent, titleText, options, defaultOption, callback)
+        if not parent then parent = contentArea end
+        options = options or {}
+        local selected = defaultOption or options[1] or "Select Option"
+
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -6, 0, 42)
+        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        frame.BorderSizePixel = 0
+        frame.ClipsDescendants = true
+        frame.Parent = parent
+        applyCorner(frame, 7)
+        applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(0.5, 0, 0, 42)
+        title.Position = UDim2.new(0, 14, 0, 0)
+        title.BackgroundTransparency = 1
+        title.Text = titleText or "Dropdown"
+        title.TextColor3 = Color3.fromRGB(230, 235, 245)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 12
+        title.TextTruncate = Enum.TextTruncate.AtEnd
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.Parent = frame
+
+        local selectedBtn = Instance.new("TextButton")
+        selectedBtn.Size = UDim2.new(0.44, 0, 0, 28)
+        selectedBtn.Position = UDim2.new(0.52, 0, 0, 7)
+        selectedBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+        selectedBtn.Text = tostring(selected) .. "  ▼"
+        selectedBtn.TextColor3 = hubState.currentThemeColor
+        selectedBtn.Font = Enum.Font.GothamBold
+        selectedBtn.TextSize = 11
+        selectedBtn.TextTruncate = Enum.TextTruncate.AtEnd
+        selectedBtn.Parent = frame
+        applyCorner(selectedBtn, 6)
+        hubState.registerThemeText(selectedBtn)
+
+        local dropList = Instance.new("ScrollingFrame")
+        dropList.Size = UDim2.new(1, -16, 0, 100)
+        dropList.Position = UDim2.new(0, 8, 0, 46)
+        dropList.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+        dropList.BorderSizePixel = 0
+        dropList.ScrollBarThickness = 3
+        dropList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        dropList.CanvasSize = UDim2.new(0, 0, 0, 0)
+        dropList.Visible = false
+        dropList.Parent = frame
+        applyCorner(dropList, 6)
+
+        local dropLayout = Instance.new("UIListLayout")
+        dropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        dropLayout.Padding = UDim.new(0, 4)
+        dropLayout.Parent = dropList
+
+        local isOpen = false
+        local function toggleDropdown()
+            isOpen = not isOpen
+            local targetHeight = isOpen and 156 or 42
+            if isOpen then dropList.Visible = true end
+            TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(1, -6, 0, targetHeight)
+            }):Play()
+            if not isOpen then
+                task.delay(0.2, function() if not isOpen then dropList.Visible = false end end)
+            end
+        end
+
+        local function populateOptions(optsList)
+            for _, child in ipairs(dropList:GetChildren()) do
+                if child:IsA("TextButton") then child:Destroy() end
+            end
+            for _, opt in ipairs(optsList) do
+                local optBtn = Instance.new("TextButton")
+                optBtn.Size = UDim2.new(1, -6, 0, 26)
+                optBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
+                optBtn.Text = "  " .. tostring(opt)
+                optBtn.TextColor3 = (opt == selected) and hubState.currentThemeColor or Color3.fromRGB(220, 225, 240)
+                optBtn.Font = Enum.Font.GothamMedium
+                optBtn.TextSize = 11
+                optBtn.TextTruncate = Enum.TextTruncate.AtEnd
+                optBtn.TextXAlignment = Enum.TextXAlignment.Left
+                optBtn.Parent = dropList
+                applyCorner(optBtn, 4)
+
+                optBtn.MouseButton1Click:Connect(function()
+                    if hubState.isModalActive then return end
+                    selected = opt
+                    selectedBtn.Text = tostring(selected) .. "  ▼"
+                    toggleDropdown()
+                    if callback then pcall(callback, selected) end
+                end)
+            end
+        end
+
+        selectedBtn.MouseButton1Click:Connect(function()
+            if hubState.isModalActive then return end
+            toggleDropdown()
+        end)
+        populateOptions(options)
+
+        local itemData = {
+            id = "dropdown_" .. tostring(titleText or "Dropdown"),
+            title = titleText or "Dropdown",
+            type = "Dropdown",
+            tab = hubState.currentActiveTabName,
+            action = toggleDropdown
+        }
+        hubState.registerFunctionItem(itemData)
+        hubState.attachContextMenu(frame, itemData)
+
+        return {
+            Frame = frame,
+            Set = function(opt)
+                selected = opt
+                selectedBtn.Text = tostring(selected) .. "  ▼"
+                if callback then pcall(callback, selected) end
+            end,
+            Get = function() return selected end,
+            Refresh = populateOptions
+        }
+    end
+
+    -- Theme Editor Component (Responsive Dual-Color Palette & 16 Split Presets)
+    function hubState.createThemeEditor(parent)
+        local section = Instance.new("Frame")
+        section.Size = UDim2.new(1, -6, 0, 340)
+        section.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        section.BorderSizePixel = 0
+        section.Parent = parent or contentArea
+        applyCorner(section, 8)
+        applyStroke(section, Color3.fromRGB(34, 42, 58), 1, 0)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -16, 0, 22)
+        title.Position = UDim2.new(0, 10, 0, 6)
+        title.BackgroundTransparency = 1
+        title.Text = "Dual-Tone Split Theme & Live Palette Editor"
+        title.Font = Enum.Font.GothamBlack
+        title.TextSize = 12
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.Parent = section
+        hubState.registerThemeText(title)
+
+        -- Color 1 / Color 2 Editing Tab Switcher
+        local colorTarget = 1 -- 1 for Primary (Left Half), 2 for Secondary (Right Half)
+
+        local tabSwitchContainer = Instance.new("Frame")
+        tabSwitchContainer.Size = UDim2.new(0, 180, 0, 26)
+        tabSwitchContainer.Position = UDim2.new(0, 10, 0, 32)
+        tabSwitchContainer.BackgroundColor3 = Color3.fromRGB(14, 17, 26)
+        tabSwitchContainer.BorderSizePixel = 0
+        tabSwitchContainer.Parent = section
+        applyCorner(tabSwitchContainer, 5)
+
+        local c1Btn = Instance.new("TextButton")
+        c1Btn.Size = UDim2.new(0.5, -2, 1, -2)
+        c1Btn.Position = UDim2.new(0, 1, 0, 1)
+        c1Btn.BackgroundColor3 = hubState.currentThemeColor
+        c1Btn.Text = "1st Color (Left)"
+        c1Btn.TextColor3 = Color3.fromRGB(10, 15, 24)
+        c1Btn.Font = Enum.Font.GothamBold
+        c1Btn.TextSize = 10
+        c1Btn.Parent = tabSwitchContainer
+        applyCorner(c1Btn, 4)
+
+        local c2Btn = Instance.new("TextButton")
+        c2Btn.Size = UDim2.new(0.5, -2, 1, -2)
+        c2Btn.Position = UDim2.new(0.5, 1, 0, 1)
+        c2Btn.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
+        c2Btn.Text = "2nd Color (Right)"
+        c2Btn.TextColor3 = Color3.fromRGB(180, 195, 220)
+        c2Btn.Font = Enum.Font.GothamBold
+        c2Btn.TextSize = 10
+        c2Btn.Parent = tabSwitchContainer
+        applyCorner(c2Btn, 4)
+
+        local picker = Instance.new("TextButton")
+        picker.Size = UDim2.new(0, 180, 0, 180)
+        picker.Position = UDim2.new(0, 10, 0, 64)
+        picker.BackgroundColor3 = hubState.currentThemeColor
+        picker.BorderSizePixel = 0
+        picker.Text = ""
+        picker.AutoButtonColor = false
+        picker.Active = true
+        picker.ZIndex = 1
+        picker.Parent = section
+        applyCorner(picker, 6)
+
+        local whiteLayer = Instance.new("Frame")
+        whiteLayer.Size = UDim2.new(1, 0, 1, 0)
+        whiteLayer.BackgroundColor3 = Color3.new(1, 1, 1)
+        whiteLayer.BorderSizePixel = 0
+        whiteLayer.Active = false
+        whiteLayer.ZIndex = 2
+        whiteLayer.Parent = picker
+        applyCorner(whiteLayer, 6)
+
+        local whiteGradient = Instance.new("UIGradient")
+        whiteGradient.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1))
+        whiteGradient.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        whiteGradient.Rotation = 0
+        whiteGradient.Parent = whiteLayer
+
+        local blackOverlay = Instance.new("Frame")
+        blackOverlay.Size = UDim2.new(1, 0, 1, 0)
+        blackOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
+        blackOverlay.BorderSizePixel = 0
+        blackOverlay.Active = false
+        blackOverlay.ZIndex = 3
+        blackOverlay.Parent = picker
+        applyCorner(blackOverlay, 6)
+
+        local blackGradient = Instance.new("UIGradient")
+        blackGradient.Color = ColorSequence.new(Color3.new(0, 0, 0), Color3.new(0, 0, 0))
+        blackGradient.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(1, 0),
+        })
+        blackGradient.Rotation = 90
+        blackGradient.Parent = blackOverlay
+
+        local valueKnob = Instance.new("Frame")
+        valueKnob.Size = UDim2.new(0, 14, 0, 14)
+        valueKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+        valueKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        valueKnob.BorderSizePixel = 0
+        valueKnob.ZIndex = 4
+        valueKnob.Parent = picker
+        applyCorner(valueKnob, 7)
+        applyStroke(valueKnob, Color3.fromRGB(20, 24, 32), 2, 0)
+
+        local hueTrack = Instance.new("TextButton")
+        hueTrack.Size = UDim2.new(0, 180, 0, 14)
+        hueTrack.Position = UDim2.new(0, 10, 0, 252)
+        hueTrack.Text = ""
+        hueTrack.AutoButtonColor = false
+        hueTrack.BorderSizePixel = 0
+        hueTrack.Active = true
+        hueTrack.Parent = section
+        applyCorner(hueTrack, 4)
+
+        local hueGradient = Instance.new("UIGradient")
+        hueGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+            ColorSequenceKeypoint.new(0.166, Color3.fromRGB(255, 255, 0)),
+            ColorSequenceKeypoint.new(0.333, Color3.fromRGB(0, 255, 0)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 255, 255)),
+            ColorSequenceKeypoint.new(0.666, Color3.fromRGB(0, 0, 255)),
+            ColorSequenceKeypoint.new(0.833, Color3.fromRGB(255, 0, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
+        })
+        hueGradient.Parent = hueTrack
+
+        local hueKnob = Instance.new("Frame")
+        hueKnob.Size = UDim2.new(0, 6, 1, 4)
+        hueKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+        hueKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        hueKnob.BorderSizePixel = 0
+        hueKnob.ZIndex = 2
+        hueKnob.Parent = hueTrack
+        applyCorner(hueKnob, 3)
+        applyStroke(hueKnob, Color3.fromRGB(20, 24, 32), 1, 0)
+
+        -- Live Preview & Status Display
+        local rgbLabel = Instance.new("TextLabel")
+        rgbLabel.Size = UDim2.new(1, -210, 0, 36)
+        rgbLabel.Position = UDim2.new(0, 200, 0, 32)
+        rgbLabel.BackgroundTransparency = 1
+        rgbLabel.TextColor3 = Color3.fromRGB(220, 228, 240)
+        rgbLabel.Font = Enum.Font.GothamBold
+        rgbLabel.TextSize = 11
+        rgbLabel.TextXAlignment = Enum.TextXAlignment.Left
+        rgbLabel.Parent = section
+
+        local previewSplitBox = Instance.new("Frame")
+        previewSplitBox.Size = UDim2.new(1, -210, 0, 22)
+        previewSplitBox.Position = UDim2.new(0, 200, 0, 72)
+        previewSplitBox.BorderSizePixel = 0
+        previewSplitBox.Parent = section
+        applyCorner(previewSplitBox, 5)
+
+        local previewGrad = Instance.new("UIGradient")
+        previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        previewGrad.Rotation = 0
+        previewGrad.Parent = previewSplitBox
+
+        local presetLabel = Instance.new("TextLabel")
+        presetLabel.Size = UDim2.new(1, -210, 0, 16)
+        presetLabel.Position = UDim2.new(0, 200, 0, 100)
+        presetLabel.BackgroundTransparency = 1
+        presetLabel.Text = "Dual Split Presets (16 Themes):"
+        presetLabel.TextColor3 = Color3.fromRGB(150, 160, 180)
+        presetLabel.Font = Enum.Font.GothamBold
+        presetLabel.TextSize = 10
+        presetLabel.TextXAlignment = Enum.TextXAlignment.Left
+        presetLabel.Parent = section
+
+        local presetThemes = {
+            { "Cyber Ocean",     Color3.fromRGB(0, 195, 245),   Color3.fromRGB(0, 95, 255) },
+            { "Neon Cyberpunk",   Color3.fromRGB(0, 240, 255),   Color3.fromRGB(255, 0, 135) },
+            { "Vaporwave Dream", Color3.fromRGB(255, 113, 206), Color3.fromRGB(1, 205, 254) },
+            { "Sunset Mirage",   Color3.fromRGB(255, 94, 54),   Color3.fromRGB(255, 185, 30) },
+            { "Tokyo Midnight",  Color3.fromRGB(160, 60, 255),  Color3.fromRGB(90, 100, 245) },
+            { "Sakura Bloom",    Color3.fromRGB(255, 133, 161), Color3.fromRGB(255, 190, 210) },
+            { "Emerald Matrix",  Color3.fromRGB(0, 255, 135),   Color3.fromRGB(0, 170, 110) },
+            { "Blood Moon",      Color3.fromRGB(255, 42, 85),   Color3.fromRGB(140, 0, 30) },
+            { "Ice Glacier",     Color3.fromRGB(168, 240, 255), Color3.fromRGB(0, 153, 255) },
+            { "Solar Flare",     Color3.fromRGB(255, 120, 0),   Color3.fromRGB(255, 205, 0) },
+            { "Royal Amethyst",  Color3.fromRGB(180, 135, 255), Color3.fromRGB(100, 30, 255) },
+            { "Synthwave 80s",   Color3.fromRGB(255, 20, 147),  Color3.fromRGB(0, 191, 255) },
+            { "Phantom Void",    Color3.fromRGB(157, 78, 221),  Color3.fromRGB(6, 214, 160) },
+            { "Golden Hour",     Color3.fromRGB(255, 215, 0),   Color3.fromRGB(255, 140, 0) },
+            { "Cosmic Nebula",   Color3.fromRGB(255, 71, 126),  Color3.fromRGB(114, 9, 183) },
+            { "Acid Lime",       Color3.fromRGB(112, 224, 0),   Color3.fromRGB(0, 229, 255) },
+        }
+
+        local hue, saturation, brightness = Color3.toHSV(hubState.currentThemeColor)
+
+        local function refreshUI()
+            local activeCol = (colorTarget == 1) and hubState.currentThemeColor or hubState.secondaryThemeColor
+            hue, saturation, brightness = Color3.toHSV(activeCol)
+            picker.BackgroundColor3 = Color3.fromHSV(hue, 1, 1)
+            valueKnob.Position = UDim2.new(saturation, 0, 1 - brightness, 0)
+            hueKnob.Position = UDim2.new(hue, 0, 0.5, 0)
+
+            c1Btn.BackgroundColor3 = (colorTarget == 1) and hubState.currentThemeColor or Color3.fromRGB(22, 28, 40)
+            c1Btn.TextColor3 = (colorTarget == 1) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
+            c2Btn.BackgroundColor3 = (colorTarget == 2) and hubState.secondaryThemeColor or Color3.fromRGB(22, 28, 40)
+            c2Btn.TextColor3 = (colorTarget == 2) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
+
+            rgbLabel.Text = string.format("Left Half: #%02X%02X%02X  |  Right Half: #%02X%02X%02X\nEditing: %s Color",
+                math.floor(hubState.currentThemeColor.R * 255 + 0.5), math.floor(hubState.currentThemeColor.G * 255 + 0.5), math.floor(hubState.currentThemeColor.B * 255 + 0.5),
+                math.floor(hubState.secondaryThemeColor.R * 255 + 0.5), math.floor(hubState.secondaryThemeColor.G * 255 + 0.5), math.floor(hubState.secondaryThemeColor.B * 255 + 0.5),
+                (colorTarget == 1 and "1st (Left)" or "2nd (Right)")
+            )
+            previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        end
+
+        local function updatePicker()
+            local color = Color3.fromHSV(hue, saturation, brightness)
+            if colorTarget == 1 then
+                hubState.currentThemeColor = color
+            else
+                hubState.secondaryThemeColor = color
+            end
+            hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
+            hubState.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
+                hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
+                hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
+            )
+            refreshUI()
+        end
+
+        c1Btn.MouseButton1Click:Connect(function()
+            colorTarget = 1
+            refreshUI()
+        end)
+
+        c2Btn.MouseButton1Click:Connect(function()
+            colorTarget = 2
+            refreshUI()
+        end)
+
+        local presetContainer = Instance.new("ScrollingFrame")
+        presetContainer.Size = UDim2.new(1, -210, 0, 185)
+        presetContainer.Position = UDim2.new(0, 200, 0, 120)
+        presetContainer.BackgroundTransparency = 1
+        presetContainer.BorderSizePixel = 0
+        presetContainer.ScrollBarThickness = 3
+        presetContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        presetContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+        presetContainer.Parent = section
+
+        local pLayout = Instance.new("UIGridLayout")
+        pLayout.CellSize = UDim2.new(0.48, -4, 0, 32)
+        pLayout.CellPadding = UDim2.new(0, 6, 0, 6)
+        pLayout.Parent = presetContainer
+
+        for _, preset in ipairs(presetThemes) do
+            local pBtn = Instance.new("TextButton")
+            pBtn.Size = UDim2.new(1, 0, 1, 0)
+            pBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn.Text = "  " .. tostring(preset[1])
+            pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn.Font = Enum.Font.GothamBold
+            pBtn.TextSize = 10
+            pBtn.TextTruncate = Enum.TextTruncate.AtEnd
+            pBtn.TextXAlignment = Enum.TextXAlignment.Left
+            pBtn.AutoButtonColor = false
+            pBtn.Parent = presetContainer
+            applyCorner(pBtn, 6)
+            applyStroke(pBtn, Color3.fromRGB(15, 18, 26), 1, 0)
+
+            local pGrad = Instance.new("UIGradient")
+            pGrad.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, preset[2]),
+                ColorSequenceKeypoint.new(0.48, preset[2]),
+                ColorSequenceKeypoint.new(0.52, preset[3]),
+                ColorSequenceKeypoint.new(1, preset[3]),
+            })
+            pGrad.Rotation = 0
+            pGrad.Parent = pBtn
+
+            pBtn.MouseButton1Click:Connect(function()
+                hubState.currentThemeColor = preset[2]
+                hubState.secondaryThemeColor = preset[3]
+                hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
+                hubState.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
+                    hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
+                    hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
+                )
+                refreshUI()
+            end)
+        end
+
+        hubState.configSetters.theme = function(value)
+            local str = tostring(value)
+            local c1Str, c2Str = str:match("^(.-)|(.*)$")
+            if not c1Str then c1Str = str end
+            local r1, g1, b1 = c1Str:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
+            if r1 and g1 and b1 then
+                hubState.currentThemeColor = Color3.new(tonumber(r1), tonumber(g1), tonumber(b1))
+            end
+            if c2Str then
+                local r2, g2, b2 = c2Str:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
+                if r2 and g2 and b2 then
+                    hubState.secondaryThemeColor = Color3.new(tonumber(r2), tonumber(g2), tonumber(b2))
+                end
+            end
+            hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
+            refreshUI()
+        end
+
+        local draggingTarget = nil
+        local function updateFromInput(input, target)
+            local absolutePosition = target.AbsolutePosition
+            local absoluteSize = target.AbsoluteSize
+            local x = math.clamp((input.Position.X - absolutePosition.X) / math.max(1, absoluteSize.X), 0, 1)
+            local y = math.clamp((input.Position.Y - absolutePosition.Y) / math.max(1, absoluteSize.Y), 0, 1)
+            if target == picker then
+                saturation = x
+                brightness = 1 - y
+            else
+                hue = x
+            end
+            updatePicker()
+        end
+
+        local function beginDrag(target, input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                draggingTarget = target
+                updateFromInput(input, target)
+            end
+        end
+
+        picker.InputBegan:Connect(function(input) beginDrag(picker, input) end)
+        hueTrack.InputBegan:Connect(function(input) beginDrag(hueTrack, input) end)
+
+        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
+            if draggingTarget and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                updateFromInput(input, draggingTarget)
+            end
+        end))
+
+        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                draggingTarget = nil
+            end
+        end))
+
+        -- Theme Presets Grid (1-Tap Palettes)
+        local presetsHeader = Instance.new("TextLabel")
+        presetsHeader.Size = UDim2.new(1, -16, 0, 18)
+        presetsHeader.Position = UDim2.new(0, 10, 0, 252)
+        presetsHeader.BackgroundTransparency = 1
+        presetsHeader.Text = "CURATED THEME PRESETS"
+        presetsHeader.TextColor3 = Color3.fromRGB(150, 165, 195)
+        presetsHeader.Font = Enum.Font.GothamBlack
+        presetsHeader.TextSize = 10
+        presetsHeader.TextXAlignment = Enum.TextXAlignment.Left
+        presetsHeader.Parent = section
+
+        local presetScroll = Instance.new("ScrollingFrame")
+        presetScroll.Size = UDim2.new(1, -20, 0, 32)
+        presetScroll.Position = UDim2.new(0, 10, 0, 274)
+        presetScroll.BackgroundTransparency = 1
+        presetScroll.BorderSizePixel = 0
+        presetScroll.ScrollBarThickness = 2
+        presetScroll.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
+        presetScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+        presetScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        presetScroll.Parent = section
+
+        local presetLayout = Instance.new("UIListLayout")
+        presetLayout.FillDirection = Enum.FillDirection.Horizontal
+        presetLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        presetLayout.Padding = UDim.new(0, 6)
+        presetLayout.Parent = presetScroll
+
+        local presetsList = {
+            {"🌙 Celestial", Color3.fromRGB(0, 210, 255), Color3.fromRGB(155, 89, 255)},
+            {"⚡ Cyberpunk", Color3.fromRGB(255, 0, 128), Color3.fromRGB(0, 240, 255)},
+            {"🌿 Matrix", Color3.fromRGB(0, 255, 136), Color3.fromRGB(0, 179, 89)},
+            {"🩸 Blood Moon", Color3.fromRGB(255, 42, 42), Color3.fromRGB(255, 119, 0)},
+            {"🌆 Vaporwave", Color3.fromRGB(184, 0, 255), Color3.fromRGB(255, 123, 0)},
+            {"👑 Obsidian Gold", Color3.fromRGB(255, 215, 0), Color3.fromRGB(255, 153, 0)},
+            {"💎 Diamond Frost", Color3.fromRGB(112, 224, 255), Color3.fromRGB(224, 248, 255)},
+        }
+
+        for pIdx, pData in ipairs(presetsList) do
+            local pBtn = Instance.new("TextButton")
+            pBtn.Size = UDim2.new(0, 105, 0, 26)
+            pBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
+            pBtn.Text = pData[1]
+            pBtn.TextColor3 = pData[2]
+            pBtn.Font = Enum.Font.GothamBold
+            pBtn.TextSize = 10
+            pBtn.LayoutOrder = pIdx
+            pBtn.Parent = presetScroll
+            applyCorner(pBtn, 5)
+            applyStroke(pBtn, pData[2], 1, 0.4)
+
+            pBtn.MouseButton1Click:Connect(function()
+                hubState.playSfx()
+                hubState.triggerHaptic(0.5)
+                hubState.isChromaEnabled = false
+                hubState.currentThemeColor = pData[2]
+                hubState.secondaryThemeColor = pData[3]
+                hubState.applyTheme(pData[2], pData[3])
+                hubState.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
+                    hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
+                    hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
+                )
+                refreshUI()
+            end)
+        end
+
+        section.Size = UDim2.new(1, -6, 0, 318)
+        refreshUI()
+        return section
+    end
+
+    -- Config File & System Helpers
+
+                function hubState.serializeConfig()
+        local lines = {"UnknownHubConfigV1"}
+        for key, value in pairs(hubState.configValues) do
+            local valueType = type(value) == "boolean" and "B" or (type(value) == "number" and "N" or "S")
+            table.insert(lines, valueType .. "|" .. encodeConfigKey(key) .. "|" .. tostring(value))
+        end
+        return table.concat(lines, "\n")
+    end
+
+    function hubState.applyConfig(contents)
+        for line in string.gmatch(contents or "", "[^\r\n]+") do
+            local valueType, encodedKey, rawValue = line:match("^([BNS])|([^|]+)|(.+)$")
+            if valueType and encodedKey and rawValue then
+                local setter = hubState.configSetters[decodeConfigKey(encodedKey)]
+                if setter then
+                    local value
+                    if valueType == "B" then
+                        value = (rawValue == "true")
+                    elseif valueType == "N" then
+                        value = tonumber(rawValue)
+                    else
+                        value = rawValue
+                    end
+                    if value ~= nil then pcall(setter, value) end
+                end
+            end
+        end
+    end
+
+    function hubState.getConfigNames()
+        local names = {}
+        if not ensureConfigFolders() then return names end
+        pcall(function()
+            for _, path in ipairs(listfiles(configGameFolder)) do
+                local name = tostring(path):match("([^/\\]+)%.cfg$")
+                if name then table.insert(names, name) end
+            end
+        end)
+        table.sort(names)
+        return names
+    end
+
+    -- Favorites, Console, Utilities & Config Tabs
+    hubState.ensureConfigTab = function()
+        if hubState.configTabPage then return end
+
+        -- ⭐ Favorites Page
+        hubState.favoritesPage = hubState.createTabButton("⭐ Favorites", "Favorites", nil, false)
+        local favHeader = Instance.new("TextLabel")
+        favHeader.Size = UDim2.new(1, -6, 0, 24)
+        favHeader.BackgroundTransparency = 1
+        favHeader.Text = "⭐ PINNED FAVORITES"
+        favHeader.TextColor3 = hubState.currentThemeColor
+        favHeader.Font = Enum.Font.GothamBlack
+        favHeader.TextSize = 11
+        favHeader.TextXAlignment = Enum.TextXAlignment.Left
+        favHeader.Parent = hubState.favoritesPage
+        hubState.registerThemeText(favHeader)
+
+        local favEmpty = Instance.new("TextLabel")
+        favEmpty.Name = "FavEmpty"
+        favEmpty.Size = UDim2.new(1, -6, 0, 60)
+        favEmpty.BackgroundTransparency = 1
+        favEmpty.Text = "No favorites pinned yet!\nRight-click or hold any feature to add it here."
+        favEmpty.TextColor3 = Color3.fromRGB(130, 140, 165)
+        favEmpty.Font = Enum.Font.GothamMedium
+        favEmpty.TextSize = 11
+        favEmpty.TextXAlignment = Enum.TextXAlignment.Center
+        favEmpty.Parent = hubState.favoritesPage
+
+        -- 💻 Luau Live Console Page
+        hubState.consolePage = hubState.createTabButton("💻 Console", "Console", nil, false)
+        hubState.createSection(hubState.consolePage, "Luau Live Script Interpreter")
+
+        local consoleBoxFrame = Instance.new("Frame")
+        consoleBoxFrame.Size = UDim2.new(1, -6, 0, 70)
+        consoleBoxFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+        consoleBoxFrame.BorderSizePixel = 0
+        consoleBoxFrame.Parent = hubState.consolePage
+        applyCorner(consoleBoxFrame, 6)
+        applyStroke(consoleBoxFrame, Color3.fromRGB(34, 44, 62), 1, 0)
+
+        local consoleInput = Instance.new("TextBox")
+        consoleInput.Size = UDim2.new(1, -16, 1, -12)
+        consoleInput.Position = UDim2.new(0, 8, 0, 6)
+        consoleInput.BackgroundTransparency = 1
+        consoleInput.Text = ""
+        consoleInput.PlaceholderText = "-- Enter Luau code snippet to run (e.g. print('Hello'))"
+        consoleInput.PlaceholderColor3 = Color3.fromRGB(110, 125, 150)
+        consoleInput.TextColor3 = Color3.fromRGB(235, 242, 255)
+        consoleInput.Font = Enum.Font.Code
+        consoleInput.TextSize = 11
+        consoleInput.TextXAlignment = Enum.TextXAlignment.Left
+        consoleInput.TextYAlignment = Enum.TextYAlignment.Top
+        consoleInput.ClearTextOnFocus = false
+        consoleInput.Parent = consoleBoxFrame
+
+        local consoleBtnBar = Instance.new("Frame")
+        consoleBtnBar.Size = UDim2.new(1, -6, 0, 28)
+        consoleBtnBar.BackgroundTransparency = 1
+        consoleBtnBar.Parent = hubState.consolePage
+
+        local runCodeBtn = Instance.new("TextButton")
+        runCodeBtn.Size = UDim2.new(0.5, -4, 1, 0)
+        runCodeBtn.Position = UDim2.new(0, 0, 0, 0)
+        runCodeBtn.BackgroundColor3 = Color3.fromRGB(22, 32, 48)
+        runCodeBtn.Text = "⚡ Execute Code"
+        runCodeBtn.TextColor3 = hubState.currentThemeColor
+        runCodeBtn.Font = Enum.Font.GothamBold
+        runCodeBtn.TextSize = 11
+        runCodeBtn.Parent = consoleBtnBar
+        applyCorner(runCodeBtn, 5)
+        applyStroke(runCodeBtn, hubState.currentThemeColor, 1, 0.4)
+
+        local clearLogBtn = Instance.new("TextButton")
+        clearLogBtn.Size = UDim2.new(0.5, -4, 1, 0)
+        clearLogBtn.Position = UDim2.new(0.5, 4, 0, 0)
+        clearLogBtn.BackgroundColor3 = Color3.fromRGB(28, 22, 28)
+        clearLogBtn.Text = "🗑️ Clear Logs"
+        clearLogBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
+        clearLogBtn.Font = Enum.Font.GothamBold
+        clearLogBtn.TextSize = 11
+        clearLogBtn.Parent = consoleBtnBar
+        applyCorner(clearLogBtn, 5)
+
+        local consoleLogScroll = Instance.new("ScrollingFrame")
+        consoleLogScroll.Size = UDim2.new(1, -6, 0, 130)
+        consoleLogScroll.BackgroundColor3 = Color3.fromRGB(11, 14, 20)
+        consoleLogScroll.BorderSizePixel = 0
+        consoleLogScroll.ScrollBarThickness = 3
+        consoleLogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        consoleLogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        consoleLogScroll.Parent = hubState.consolePage
+        applyCorner(consoleLogScroll, 6)
+        applyStroke(consoleLogScroll, Color3.fromRGB(28, 36, 50), 1, 0)
+
+        local logLayout = Instance.new("UIListLayout")
+        logLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        logLayout.Padding = UDim.new(0, 3)
+        logLayout.Parent = consoleLogScroll
+
+        local function appendConsoleLog(text, color)
+            local logLbl = Instance.new("TextLabel")
+            logLbl.Size = UDim2.new(1, -12, 0, 16)
+            logLbl.BackgroundTransparency = 1
+            logLbl.Text = "[" .. os.date("%H:%M:%S") .. "] " .. tostring(text)
+            logLbl.TextColor3 = color or Color3.fromRGB(200, 215, 240)
+            logLbl.Font = Enum.Font.Code
+            logLbl.TextSize = 10
+            logLbl.TextWrapped = true
+            logLbl.TextXAlignment = Enum.TextXAlignment.Left
+            logLbl.Parent = consoleLogScroll
+        end
+
+        runCodeBtn.MouseButton1Click:Connect(function()
+            hubState.playSfx()
+            hubState.triggerHaptic(0.4)
+            local code = consoleInput.Text
+            if code and #code > 0 then
+                appendConsoleLog("> " .. code, Color3.fromRGB(140, 180, 255))
+                local chunk, compileErr = loadstring(code)
+                if not chunk then
+                    appendConsoleLog("Compile Error: " .. tostring(compileErr), Color3.fromRGB(255, 100, 100))
+                else
+                    local ok, runtimeErr = pcall(chunk)
+                    if not ok then
+                        appendConsoleLog("Runtime Error: " .. tostring(runtimeErr), Color3.fromRGB(255, 100, 100))
+                    else
+                        appendConsoleLog("✓ Executed Successfully", Color3.fromRGB(100, 255, 160))
+                    end
+                end
+            end
+        end)
+
+        clearLogBtn.MouseButton1Click:Connect(function()
+            for _, child in ipairs(consoleLogScroll:GetChildren()) do
+                if child:IsA("TextLabel") then child:Destroy() end
+            end
+            appendConsoleLog("Console cleared.", Color3.fromRGB(130, 140, 160))
+        end)
+
+        appendConsoleLog("Ready. Enter code above to test.", Color3.fromRGB(100, 220, 255))
+
+        hubState.universalTabPage = hubState.createTabButton("🌐 Universal", "Universal", nil, false)
+        hubState.utilityTabPage = hubState.universalTabPage -- Alias for full backward compatibility
+        hubState.configTabPage = hubState.createTabButton("⚙️ Config", "Config", nil, false)
+
+        -- =========================================================================
+        -- Universal Tab: Session & AFK Protection, Potato Mode, Movement, Server
+        -- =========================================================================
+        hubState.createSection(hubState.universalTabPage, "Session & Anti-AFK")
+        local universalStatus = Instance.new("TextLabel")
+        universalStatus.Size = UDim2.new(1, -6, 0, 20)
+        universalStatus.BackgroundTransparency = 1
+        universalStatus.Text = "Status: Universal Core Ready"
+        universalStatus.TextColor3 = Color3.fromRGB(155, 165, 185)
+        universalStatus.Font = Enum.Font.GothamMedium
+        universalStatus.TextSize = 10
+        universalStatus.TextXAlignment = Enum.TextXAlignment.Left
+        universalStatus.Parent = hubState.universalTabPage
+
+        local function setUniversalStatus(message, isError)
+            universalStatus.Text = "Status: " .. message
+            universalStatus.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
+        end
+
+        -- 1. 24/7 Anti-AFK Protection
+        local antiAfkConn = nil
+        local antiAfkHeartbeat = false
+        local function toggleAntiAfk(enabled)
+            if enabled then
+                if not antiAfkConn then
+                    local VirtualUser = game:GetService("VirtualUser")
+                    antiAfkConn = LocalPlayer.Idled:Connect(function()
+                        pcall(function()
+                            VirtualUser:CaptureController()
+                            VirtualUser:ClickButton2(Vector2.new(0, 0))
+                        end)
+                    end)
+                end
+                antiAfkHeartbeat = true
+                task.spawn(function()
+                    local VirtualUser = game:GetService("VirtualUser")
+                    while antiAfkHeartbeat and hubState.screenGui.Parent do
+                        task.wait(300)
+                        if antiAfkHeartbeat then
+                            pcall(function()
+                                VirtualUser:CaptureController()
+                                VirtualUser:ClickButton2(Vector2.new(0, 0))
+                            end)
+                        end
+                    end
+                end)
+                setUniversalStatus("24/7 Anti-AFK Active", false)
+            else
+                antiAfkHeartbeat = false
+                if antiAfkConn then
+                    pcall(function() antiAfkConn:Disconnect() end)
+                    antiAfkConn = nil
+                end
+                setUniversalStatus("Anti-AFK Disabled", false)
+            end
+        end
+
+        hubState.createToggle(hubState.universalTabPage, "24/7 Anti-AFK (No 20-Min Kick)", true, function(enabled)
+            toggleAntiAfk(enabled)
+        end)
+        toggleAntiAfk(true)
+
+        -- 2. Persistent Auto-Rejoin on Kick / Disconnect / Error
+        local autoRejoinActive = false
+        local rejoinConnections = {}
+        local isTeleporting = false
+
+        local function attemptRejoinLoop()
+            if isTeleporting then return end
+            isTeleporting = true
+            setUniversalStatus("Disconnect/Error detected! Retrying rejoin...", true)
+            task.spawn(function()
+                while autoRejoinActive do
+                    pcall(function()
+                        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                    end)
+                    task.wait(3.5)
+                end
+            end)
+        end
+
+        local function toggleAutoRejoin(enabled)
+            autoRejoinActive = enabled
+            for _, conn in ipairs(rejoinConnections) do
+                pcall(function() conn:Disconnect() end)
+            end
+            rejoinConnections = {}
+
+            if enabled then
+                local GuiService = game:GetService("GuiService")
+                local errConn = GuiService.ErrorMessageChanged:Connect(function(msg)
+                    if msg and #msg > 0 then
+                        attemptRejoinLoop()
+                    end
+                end)
+                table.insert(rejoinConnections, errConn)
+
+                local pCallPrompt, promptGui = pcall(function() return CoreGui:FindFirstChild("RobloxPromptGui") end)
+                if pCallPrompt and promptGui then
+                    local overlay = promptGui:FindFirstChild("promptOverlay")
+                    if overlay then
+                        local childConn = overlay.ChildAdded:Connect(function(child)
+                            if child.Name == "ErrorPrompt" or child.Name:find("Error") or child.Name:find("Prompt") then
+                                attemptRejoinLoop()
+                            end
+                        end)
+                        table.insert(rejoinConnections, childConn)
+                    end
+                end
+
+                local tpFailConn = TeleportService.TeleportInitFailed:Connect(function()
+                    task.wait(2.5)
+                    if autoRejoinActive then
+                        attemptRejoinLoop()
+                    end
+                end)
+                table.insert(rejoinConnections, tpFailConn)
+
+                setUniversalStatus("Persistent Auto-Rejoin Active", false)
+            else
+                setUniversalStatus("Auto-Rejoin Disabled", false)
+            end
+        end
+
+        hubState.createToggle(hubState.universalTabPage, "Persistent Auto-Rejoin (Retry on Kick/Error)", true, function(enabled)
+            toggleAutoRejoin(enabled)
+        end)
+        toggleAutoRejoin(true)
+
+        -- 3. Performance & Potato Mode
+        hubState.createSection(hubState.universalTabPage, "Performance & Potato Mode")
+
+        local potatoOriginals = {
+            shadows = Lighting.GlobalShadows,
+            fogEnd = Lighting.FogEnd,
+            brightness = Lighting.Brightness,
+            disabledEffects = {}
+        }
+        local potatoActive = false
+
+        local function togglePotatoMode(enabled)
+            potatoActive = enabled
+            if enabled then
+                pcall(function()
+                    if settings and settings().Rendering then
+                        settings().Rendering.QualityLevel = 1
+                    end
+                    Lighting.GlobalShadows = false
+                    Lighting.FogEnd = 9e9
+                    Lighting.Brightness = 1
+                    
+                    for _, v in ipairs(Lighting:GetChildren()) do
+                        if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") then
+                            if v.Enabled then
+                                table.insert(potatoOriginals.disabledEffects, v)
+                                v.Enabled = false
+                            end
+                        end
+                    end
+
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                            obj.Enabled = false
+                        end
+                    end
+                end)
+                setUniversalStatus("Potato Mode Active (Max FPS)", false)
+            else
+                pcall(function()
+                    Lighting.GlobalShadows = potatoOriginals.shadows
+                    Lighting.FogEnd = potatoOriginals.fogEnd
+                    Lighting.Brightness = potatoOriginals.brightness
+                    for _, effect in ipairs(potatoOriginals.disabledEffects) do
+                        if effect and effect.Parent then effect.Enabled = true end
+                    end
+                    potatoOriginals.disabledEffects = {}
+                end)
+                setUniversalStatus("Potato Mode Disabled", false)
+            end
+        end
+
+        hubState.createToggle(hubState.universalTabPage, "Potato Mode (Low CPU/GPU & Shadows Off)", false, function(enabled)
+            togglePotatoMode(enabled)
+        end)
+
+        hubState.createToggle(hubState.universalTabPage, "Disable 3D Rendering (AFK GPU 0%)", false, function(enabled)
+            pcall(function()
+                RunService:Set3dRenderingEnabled(not enabled)
+            end)
+            setUniversalStatus(enabled and "3D Rendering OFF (GPU ~0%)" or "3D Rendering ON", false)
+        end)
+
+        -- 4. Character & Movement
+        hubState.createSection(hubState.universalTabPage, "Character & Movement")
+
+        local function getCharacterHumanoid()
+            local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            return character and character:FindFirstChildOfClass("Humanoid")
+        end
+
+        hubState.createButton(hubState.universalTabPage, "Reset Character", function()
+            local humanoid = getCharacterHumanoid()
+            if humanoid then
+                humanoid.Health = 0
+                setUniversalStatus("Character reset", false)
+            else
+                setUniversalStatus("Humanoid not found", true)
+            end
+        end)
+
+        local speedBox = hubState.createTextBox(hubState.universalTabPage, "WalkSpeed Value (e.g. 32)", "32")
+        local jumpBox = hubState.createTextBox(hubState.universalTabPage, "JumpPower Value (e.g. 75)", "75")
+        local speedOriginal, jumpOriginal
+        local speedRun, jumpRun = 0, 0
+
+        hubState.createToggle(hubState.universalTabPage, "Lock WalkSpeed", false, function(enabled)
+            speedRun = speedRun + 1
+            local runId = speedRun
+            local value = math.clamp(tonumber(speedBox.Text) or 16, 0, 500)
+            if enabled then
+                local humanoid = getCharacterHumanoid()
+                speedOriginal = humanoid and humanoid.WalkSpeed or 16
+                task.spawn(function()
+                    while runId == speedRun and enabled and hubState.screenGui.Parent do
+                        local character = LocalPlayer.Character
+                        local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+                        if currentHumanoid then currentHumanoid.WalkSpeed = value end
+                        task.wait(0.15)
+                    end
+                end)
+                setUniversalStatus("WalkSpeed locked at " .. tostring(value), false)
+            elseif speedOriginal then
+                local humanoid = getCharacterHumanoid()
+                if humanoid then humanoid.WalkSpeed = speedOriginal end
+                setUniversalStatus("WalkSpeed restored", false)
+            end
+        end)
+
+        hubState.createToggle(hubState.universalTabPage, "Lock JumpPower", false, function(enabled)
+            jumpRun = jumpRun + 1
+            local runId = jumpRun
+            local value = math.clamp(tonumber(jumpBox.Text) or 50, 0, 500)
+            if enabled then
+                local humanoid = getCharacterHumanoid()
+                jumpOriginal = humanoid and humanoid.JumpPower or 50
+                task.spawn(function()
+                    while runId == jumpRun and enabled and hubState.screenGui.Parent do
+                        local character = LocalPlayer.Character
+                        local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+                        if currentHumanoid then
+                            currentHumanoid.UseJumpPower = true
+                            currentHumanoid.JumpPower = value
+                        end
+                        task.wait(0.15)
+                    end
+                end)
+                setUniversalStatus("JumpPower locked at " .. tostring(value), false)
+            elseif jumpOriginal then
+                local humanoid = getCharacterHumanoid()
+                if humanoid then
+                    humanoid.UseJumpPower = true
+                    humanoid.JumpPower = jumpOriginal
+                end
+                setUniversalStatus("JumpPower restored", false)
+            end
+        end)
+
+        -- 5. Server & Teleport
+        hubState.createSection(hubState.universalTabPage, "Server & Teleport")
+
+        hubState.createButton(hubState.universalTabPage, "Rejoin Server", function()
+            setUniversalStatus("Rejoining server...", false)
+            pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
+        end)
+
+        hubState.createButton(hubState.universalTabPage, "Server Hop", function()
+            task.spawn(function()
+                setUniversalStatus("Searching for alternate servers...", false)
+                local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
+                local ok, response = pcall(function() return game:HttpGet(url) end)
+                if not ok or not response then
+                    setUniversalStatus("Could not fetch server list", true)
+                    return
+                end
+                local decodedOk, result = pcall(function() return HttpService:JSONDecode(response) end)
+                if not decodedOk or not result or not result.data then
+                    setUniversalStatus("Invalid server response", true)
+                    return
+                end
+                for _, server in ipairs(result.data) do
+                    if server.id and server.id ~= game.JobId and server.playing < server.maxPlayers then
+                        setUniversalStatus("Found server (" .. server.playing .. "/" .. server.maxPlayers .. "), hopping...", false)
+                        pcall(function()
+                            TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
+                        end)
+                        return
+                    end
+                end
+                setUniversalStatus("No suitable server found", true)
+            end)
+        end)
+
+        -- 6. Third-Party Tools
+        hubState.createSection(hubState.universalTabPage, "Third-Party Tools")
+        hubState.createButton(hubState.universalTabPage, "Execute Infinite Yield", function()
+            task.spawn(function()
+                setUniversalStatus("Loading Infinite Yield...", false)
+                local ok, err = pcall(function()
+                    local source = game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source")
+                    local execute = loadstring(source)
+                    assert(execute, "Infinite Yield compilation failed")
+                    execute()
+                end)
+                setUniversalStatus(ok and "Infinite Yield loaded!" or ("Infinite Yield failed: " .. tostring(err)), not ok)
+                if ok then hubState.notify({ Title = "Infinite Yield", Content = "Script executed successfully." }) end
+            end)
+        end)
+
+        -- =========================================================================
+        -- Config Tab: Profiles, Keybinds, Sound Packs, Webhook Progression, Themes
+        -- =========================================================================
+        hubState.createSection(hubState.configTabPage, "Configuration Profiles")
+        local status = Instance.new("TextLabel")
+        status.Size = UDim2.new(1, -6, 0, 20)
+        status.BackgroundTransparency = 1
+        status.Text = fileApiAvailable() and ("Folder: " .. configGameFolder) or "Executor file APIs unavailable"
+        status.TextColor3 = Color3.fromRGB(155, 165, 185)
+        status.Font = Enum.Font.GothamMedium
+        status.TextSize = 10
+        status.TextXAlignment = Enum.TextXAlignment.Left
+        status.Parent = hubState.configTabPage
+
+        local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, true)
+        local selectedName
+        local saveNameBox
+        local renameNameBox
+
+        local function setStatus(message, isError)
+            status.Text = message
+            status.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
+        end
+
+        local function refreshConfigs()
+            for _, entry in ipairs(configList.Items) do
+                if entry.Row and entry.Row.Parent then entry.Row:Destroy() end
+            end
+            configList.Items = {}
+            configList.SelectedItem = nil
+            configList.SelectedRowSetter = nil
+            for _, name in ipairs(hubState.getConfigNames()) do
+                configList:AddItem(name, "Click to select", function()
+                    selectedName = name
+                    if saveNameBox then saveNameBox.Text = name end
+                    if renameNameBox then renameNameBox.Text = name end
+                    setStatus("Selected: " .. name, false)
+                end)
+            end
+        end
+
+        local function createConfigActionRow(buttonText, boxPlaceholder, boxOnLeft, callback)
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, -6, 0, 38)
+            row.BackgroundTransparency = 1
+            row.Parent = hubState.configTabPage
+
+            local button = hubState.createButton(row, buttonText, callback)
+            button.Size = UDim2.new(0.48, -4, 1, 0)
+            button.Position = boxOnLeft and UDim2.new(0.52, 4, 0, 0) or UDim2.new(0, 0, 0, 0)
+
+            local box = hubState.createTextBox(row, boxPlaceholder)
+            local boxFrame = box.Parent
+            boxFrame.Size = UDim2.new(0.52, -4, 1, 0)
+            boxFrame.Position = boxOnLeft and UDim2.new(0, 0, 0, 0) or UDim2.new(0.48, 4, 0, 0)
+            return box
+        end
+
+        local function saveConfig(overwrite)
+            local name = sanitizeName(saveNameBox and saveNameBox.Text or "")
+            if name == "" or name == "Unknown" then
+                setStatus("Enter a valid config name first", true)
+                return
+            end
+            if not ensureConfigFolders() then
+                setStatus("Executor file APIs unavailable", true)
+                return
+            end
+            local path = configPath(name)
+            if not overwrite and type(isfile) == "function" and isfile(path) then
+                setStatus("Config already exists; use Overwrite", true)
+                return
+            end
+            local ok = pcall(writefile, path, hubState.serializeConfig())
+            setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. name) or "Failed to write config", not ok)
+            if ok then
+                selectedName = name
+                refreshConfigs()
+                hubState.notify({ Title = "Config", Content = "Profile '" .. name .. "' saved." })
+            end
+        end
+
+        saveNameBox = createConfigActionRow("Save Config", "Profile name", false, function() saveConfig(false) end)
+        hubState.createButton(hubState.configTabPage, "Overwrite Selected", function() saveConfig(true) end)
+        hubState.createButton(hubState.configTabPage, "Load Selected", function()
+            local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
+            if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
+            local ok, contents = pcall(readfile, configPath(name))
+            if ok and contents then
+                hubState.applyConfig(contents)
+                setStatus("Loaded profile: " .. name, false)
+                hubState.notify({ Title = "Config Loaded", Content = "Profile '" .. name .. "' applied." })
+            else
+                setStatus("Config file not found", true)
+            end
+        end)
+        hubState.createButton(hubState.configTabPage, "Delete Selected", function()
+            local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
+            if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
+            local ok = pcall(delfile, configPath(name))
+            selectedName = nil
+            if saveNameBox then saveNameBox.Text = "" end
+            if renameNameBox then renameNameBox.Text = "" end
+            refreshConfigs()
+            setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
+        end)
+
+        renameNameBox = createConfigActionRow("Rename Config", "New profile name", true, function()
+            local oldName = selectedName
+            local newName = sanitizeName(renameNameBox and renameNameBox.Text or "")
+            if not oldName or newName == "" or oldName == newName then
+                setStatus("Select a profile and enter a new name", true)
+                return
+            end
+            if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
+            local ok, contents = pcall(readfile, configPath(oldName))
+            if not ok or not contents or (type(isfile) == "function" and isfile(configPath(newName))) then
+                setStatus("Target already exists or source missing", true)
+                return
+            end
+            local wrote = pcall(writefile, configPath(newName), contents)
+            if wrote then
+                pcall(delfile, configPath(oldName))
+                selectedName = newName
+                if saveNameBox then saveNameBox.Text = newName end
+                if renameNameBox then renameNameBox.Text = newName end
+                refreshConfigs()
+            end
+            setStatus(wrote and ("Renamed to: " .. newName) or "Rename failed", not wrote)
+        end)
+
+        hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
+        hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
+        hubState.configSetters.toggleKey = function(value)
+            local keyName = tostring(value)
+            local keyCode = Enum.KeyCode[keyName]
+            if keyCode then
+                hubState.toggleKeyCode = keyCode
+                if hubState.toggleKeyButton and hubState.toggleKeyButton.Parent then
+                    hubState.toggleKeyButton.Text = "  Toggle GUI Key: " .. hubState.toggleKeyCode.Name
+                end
+            end
+        end
+
+        hubState.toggleKeyButton = hubState.createButton(hubState.configTabPage, "Toggle GUI Key: " .. hubState.toggleKeyCode.Name, function()
+            hubState.capturingToggleKey = true
+            hubState.toggleKeyButton.Text = "  Press any keyboard key..."
+        end)
+
+        -- Sound Pack Switcher
+        hubState.createSection(hubState.configTabPage, "Sound & Audio Effects")
+        local soundPackOptions = { "Modern", "Mechanical", "Cyberpunk", "Bubble", "Mute" }
+        hubState.CreateDropdown(hubState.configTabPage, "UI Sound Pack", soundPackOptions, hubState.currentSoundPack, function(selected)
+            hubState.currentSoundPack = selected
+            hubState.playSfx()
+            hubState.notify({ Title = "Sound Pack", Content = "Active SFX set to: " .. selected })
+        end)
+
+        -- Discord Webhook & Live Progression Section
+        hubState.createSection(hubState.configTabPage, "Discord Webhook & Progression")
+        local webhookBox = hubState.createTextBox(hubState.configTabPage, "Discord Webhook URL", hubState.defaultWebhook)
+        local autoReportToggle = false
+        local reportInterval = 60
+        local reportThread = nil
+
+        hubState.createSlider(hubState.configTabPage, "Report Interval (Seconds)", 15, 300, 60, "s", function(val)
+            reportInterval = val
+        end)
+
+        hubState.createToggle(hubState.configTabPage, "Auto-Send Live Progression Stats", false, function(enabled)
+            autoReportToggle = enabled
+            if reportThread then pcall(function() task.cancel(reportThread) end); reportThread = nil end
+            if enabled then
+                reportThread = task.spawn(function()
+                    while autoReportToggle and hubState.screenGui.Parent do
+                        local url = webhookBox.Text ~= "" and webhookBox.Text or hubState.defaultWebhook
+                        local stats = {
+                            { name = "👤 Player", value = LocalPlayer.Name .. " (" .. LocalPlayer.DisplayName .. ")", inline = true },
+                            { name = "🎮 Place ID", value = tostring(game.PlaceId), inline = true },
+                            { name = "⏱️ Server Uptime", value = math.floor(workspace.DistributedGameTime) .. "s", inline = true },
+                            { name = "⚡ Live FPS", value = tostring(math.floor(1 / math.max(RunService.RenderStepped:Wait(), 0.001))), inline = true }
+                        }
+                        local payload = {
+                            username = hubState.webhookBotName,
+                            avatar_url = hubState.webhookBotAvatar,
+                            embeds = {{
+                                title = "📊 UnknownHub Universal Progression",
+                                description = "Automated live farming session report from client.",
+                                color = 0x00D4FF,
+                                fields = stats,
+                                footer = { text = "UnknownHub Universal Bot • " .. os.date("%X") },
+                                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+                            }}
+                        }
+                        dispatchHttpRequest(url, "POST", nil, payload)
+                        task.wait(reportInterval)
+                    end
+                end)
+                hubState.notify({ Title = "Webhook Auto-Report", Content = "Live reporting enabled (" .. tostring(reportInterval) .. "s interval)" })
+            else
+                hubState.notify({ Title = "Webhook Auto-Report", Content = "Live reporting stopped." })
+            end
+        end)
+
+        hubState.createButton(hubState.configTabPage, "🚀 Send Test Webhook Message", function()
+            local url = webhookBox.Text ~= "" and webhookBox.Text or hubState.defaultWebhook
+            local payload = {
+                username = hubState.webhookBotName,
+                avatar_url = hubState.webhookBotAvatar,
+                embeds = {{
+                    title = "✅ UnknownHub Webhook Test",
+                    description = "Webhook connection established successfully from **" .. LocalPlayer.Name .. "**!",
+                    color = 0x38EF7D,
+                    fields = {
+                        { name = "Game", value = tostring(game.PlaceId), inline = true },
+                        { name = "Ping / FPS", value = "Healthy", inline = true }
+                    },
+                    footer = { text = "UnknownHub Webhook Pipeline • " .. os.date("%X") },
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+                }}
+            }
+            dispatchHttpRequest(url, "POST", nil, payload)
+            hubState.notify({ Title = "Webhook Test", Content = "Dispatched test embed to Discord!" })
+        end)
+
+        hubState.createSection(hubState.configTabPage, "HUD & Performance Display")
+        hubState.createToggle(hubState.configTabPage, "Show HUD Stats Overlay", hubState.isHudEnabled, function(enabled)
+            hubState.setHudVisible(enabled)
+        end)
+        hubState.createSlider(hubState.configTabPage, "HUD Background Opacity", 5, 95, math.floor(hubState.hudOpacity * 100), "%", function(val)
+            hubState.setHudOpacity(val / 100)
+        end)
+
+        hubState.createSection(hubState.configTabPage, "Visual Customization")
+        hubState.createThemeEditor(hubState.configTabPage)
+        refreshConfigs()
+    end
+
+    -- GUI-Specific Internal Error Reporting Modal (Never hooks global game logs)
+    hubState.loadingFinished = false
+    hubState.errorOverlay = nil
+    hubState.lastError = ""
+
+
+    function hubState.finishLoading(message)
+        if hubState.loadingFinished then return end
+        hubState.loadingFinished = true
+        if message then loadingStatus.Text = tostring(message) end
+        hubState.mainFrame.Visible = true
+        
+        hubState.mainFrame.Position = UDim2.new(0.5, -290, 0.5, -180)
+        TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, -290, 0.5, -195)
+        }):Play()
+
+        TweenService:Create(loadingOverlay, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 1}):Play()
+        TweenService:Create(loadingTitle, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}):Play()
+        TweenService:Create(loadingStatus, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}):Play()
+        task.delay(0.3, function()
+            if loadingOverlay and loadingOverlay.Parent then loadingOverlay:Destroy() end
+        end)
+    end
+
+    function hubState.reportGuiError(message)
+        hubState.lastError = tostring(message or "Unknown GUI error")
+        copyText(hubState.lastError)
+        hubState.finishLoading("Loaded")
+
+        if hubState.errorOverlay and hubState.errorOverlay.Parent then
+            local messageLabel = hubState.errorOverlay:FindFirstChild("ErrorMessage", true)
+            if messageLabel then messageLabel.Text = hubState.lastError end
+            return
+        end
+
+        hubState.errorOverlay = Instance.new("Frame")
+        hubState.errorOverlay.Name = "ErrorOverlay"
+        hubState.errorOverlay.Size = UDim2.new(1, 0, 1, 0)
+        hubState.errorOverlay.BackgroundColor3 = Color3.fromRGB(5, 7, 12)
+        hubState.errorOverlay.BackgroundTransparency = 0.25
+        hubState.errorOverlay.BorderSizePixel = 0
+        hubState.errorOverlay.ZIndex = 120
+        hubState.errorOverlay.Parent = hubState.screenGui
+
+        local panel = Instance.new("Frame")
+        panel.Size = UDim2.new(0, 440, 0, 200)
+        panel.Position = UDim2.new(0.5, -220, 0.5, -100)
+        panel.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+        panel.BorderSizePixel = 0
+        panel.ZIndex = 121
+        panel.Parent = hubState.errorOverlay
+        applyCorner(panel, 8)
+        applyStroke(panel, Color3.fromRGB(235, 75, 85), 1.5, 0)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -24, 0, 28)
+        title.Position = UDim2.new(0, 12, 0, 8)
+        title.BackgroundTransparency = 1
+        title.Text = "❌ GUI Library Error"
+        title.TextColor3 = Color3.fromRGB(255, 105, 115)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 14
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.ZIndex = 122
+        title.Parent = panel
+
+        local messageLabel = Instance.new("TextLabel")
+        messageLabel.Name = "ErrorMessage"
+        messageLabel.Size = UDim2.new(1, -24, 0, 84)
+        messageLabel.Position = UDim2.new(0, 12, 0, 40)
+        messageLabel.BackgroundColor3 = Color3.fromRGB(12, 15, 22)
+        messageLabel.BorderSizePixel = 0
+        messageLabel.Text = hubState.lastError
+        messageLabel.TextColor3 = Color3.fromRGB(235, 238, 245)
+        messageLabel.Font = Enum.Font.Code
+        messageLabel.TextSize = 11
+        messageLabel.TextWrapped = true
+        messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+        messageLabel.TextYAlignment = Enum.TextYAlignment.Top
+        messageLabel.ZIndex = 122
+        messageLabel.Parent = panel
+        applyCorner(messageLabel, 6)
+
+        local copyButton = Instance.new("TextButton")
+        copyButton.Size = UDim2.new(0, 120, 0, 28)
+        copyButton.Position = UDim2.new(1, -132, 1, -38)
+        copyButton.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+        copyButton.Text = "Copy Error"
+        copyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        copyButton.Font = Enum.Font.GothamBold
+        copyButton.TextSize = 11
+        copyButton.AutoButtonColor = false
+        copyButton.ZIndex = 122
+        copyButton.Parent = panel
+        applyCorner(copyButton, 6)
+
+        local closeButton = Instance.new("TextButton")
+        closeButton.Size = UDim2.new(0, 80, 0, 28)
+        closeButton.Position = UDim2.new(0, 12, 1, -38)
+        closeButton.BackgroundColor3 = Color3.fromRGB(40, 46, 60)
+        closeButton.Text = "Dismiss"
+        closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        closeButton.Font = Enum.Font.GothamBold
+        closeButton.TextSize = 11
+        closeButton.AutoButtonColor = false
+        closeButton.ZIndex = 122
+        closeButton.Parent = panel
+        applyCorner(closeButton, 6)
+
+        copyButton.MouseButton1Click:Connect(function()
+            copyButton.Text = copyText(hubState.lastError) and "Copied!" or "Clipboard Error"
+            task.delay(1.2, function()
+                if copyButton and copyButton.Parent then copyButton.Text = "Copy Error" end
+            end)
+        end)
+
+        closeButton.MouseButton1Click:Connect(function()
+            if hubState.errorOverlay then hubState.errorOverlay:Destroy() end
+            hubState.errorOverlay = nil
+        end)
+    end
+
+    function hubState.checkFunction(name, callback, ...)
+        if type(callback) ~= "function" then
+            hubState.reportGuiError(tostring(name or "Function") .. " is not a callable function")
+            return false, "not a function"
+        end
+        local arguments = {...}
+        local ok, result = xpcall(function()
+            return callback(table.unpack(arguments))
+        end, function(err)
+            local message = tostring(err)
+            hubState.reportGuiError(tostring(name or "Function") .. ": " .. message)
+            return message
+        end)
+        return ok, result
+    end
+
+    -- Keybind Listener
+    hubState.trackConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+        if hubState.capturingToggleKey then
+            if input.KeyCode ~= Enum.KeyCode.Unknown then
+                hubState.toggleKeyCode = input.KeyCode
+                hubState.capturingToggleKey = false
+                hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
+                if hubState.toggleKeyButton and hubState.toggleKeyButton.Parent then
+                    hubState.toggleKeyButton.Text = "  Toggle GUI Key: " .. hubState.toggleKeyCode.Name
+                end
+                hubState.notify({ Title = "Keybind Updated", Content = "GUI Toggle set to: " .. hubState.toggleKeyCode.Name })
+            end
+            return
+        end
+
+        if not gameProcessed then
+            if input.KeyCode == hubState.toggleKeyCode then
+                hubState.screenGui.Enabled = not hubState.screenGui.Enabled
+                hubState.isGuiOpen = hubState.screenGui.Enabled
+                return
+            end
+
+            -- Feature Keybind Trigger
+            if hubState.featureKeybinds[input.KeyCode] then
+                local item = hubState.featureKeybinds[input.KeyCode]
+                if item and item.action then
+                    pcall(item.action)
+                    hubState.notify({
+                        Title = "Keybind Triggered",
+                        Content = "[" .. input.KeyCode.Name .. "] -> " .. tostring(item.title),
+                        Color = hubState.currentThemeColor,
+                        Duration = 1.8
+                    })
+                end
+            end
+        end
+    end))
+
+    -- =========================================================================
+    -- Dedicated Mobile Floating Action Button (Always Accessible on Touch)
+    -- =========================================================================
+    hubState.mobileToggleBtn = nil
+    if opts.mobileToggle ~= false and (UserInputService.TouchEnabled or opts.mobileToggle == true) then
+        local mobBtn = Instance.new("ImageButton")
+        mobBtn.Name = "ENI_MobileToggleBtn"
+        mobBtn.Size = UDim2.new(0, 48, 0, 48)
+        mobBtn.Position = UDim2.new(0, 18, 0.45, -24)
+        mobBtn.BackgroundColor3 = Color3.fromRGB(14, 18, 28)
+        mobBtn.BackgroundTransparency = 0.15
+        mobBtn.BorderSizePixel = 0
+        mobBtn.AutoButtonColor = false
+        mobBtn.Active = true
+        mobBtn.ZIndex = 300
+        mobBtn.Parent = hubState.screenGui
+        applyCorner(mobBtn, 24)
+
+        local mobStroke = applyStroke(mobBtn, hubState.currentThemeColor, 2, 0.1)
+        local mobStrokeGrad = Instance.new("UIGradient")
+        mobStrokeGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        mobStrokeGrad.Rotation = 45
+        mobStrokeGrad.Parent = mobStroke
+        hubState.registerThemeGradient(mobStrokeGrad, 45)
+
+        local mobIcon = Instance.new("TextLabel")
+        mobIcon.Name = "Icon"
+        mobIcon.Size = UDim2.new(1, 0, 1, 0)
+        mobIcon.BackgroundTransparency = 1
+        mobIcon.Text = "⚡"
+        mobIcon.TextSize = 20
+        mobIcon.TextColor3 = hubState.currentThemeColor
+        mobIcon.Font = Enum.Font.GothamBlack
+        mobIcon.ZIndex = 301
+        mobIcon.Parent = mobBtn
+        hubState.registerThemeText(mobIcon)
+
+        -- Subtle rotation on the gradient border
+        task.spawn(function()
+            local r = 0
+            while mobBtn and mobBtn.Parent do
+                r = (r + 2) % 360
+                mobStrokeGrad.Rotation = r
+                task.wait(0.04)
+            end
+        end)
+
+        hubState.makeSmoothDraggable(mobBtn, mobBtn)
+
+        local isToggling = false
+        mobBtn.MouseButton1Click:Connect(function()
+            if isToggling then return end
+            isToggling = true
+
+            -- Button tap squash & pop animation
+            TweenService:Create(mobBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0, 42, 0, 42)
+            }):Play()
+            task.delay(0.1, function()
+                TweenService:Create(mobBtn, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, 48, 0, 48)
+                }):Play()
+            end)
+
+            local nextState = not hubState.mainFrame.Visible
+            hubState.mainFrame.Visible = nextState
+            hubState.isGuiOpen = nextState
+
+            if nextState then
+                hubState.mainFrame.Position = isTouchScreen and UDim2.new(0.5, 0, 0.52, 0) or UDim2.new(0.5, -290, 0.52, -195)
+                TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Position = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
+                }):Play()
+            end
+
+            task.delay(0.25, function()
+                isToggling = false
+            end)
+        end)
+
+        hubState.mobileToggleBtn = mobBtn
+    end
+
+    -- Auto finish loading defer
+    task.defer(function()
+        hubState.finishLoading()
+    end)
+
+    function hubState.GetItemFromList(listName, parent, createIfMissing)
+        local name = tostring(listName or "List")
+        local existing = hubState.listRegistry[name]
+        if existing then return existing end
+        if createIfMissing == false then return nil end
+        return hubState.CreateList(parent or contentArea, name, {})
+    end
+
+    function hubState.createWebhook(config)
+        local webhookUrl = (type(config) == "string") and config or (type(config) == "table" and (config.Url or config.Webhook or config.url or config.webhook) or hubState.defaultWebhook)
+        local botName = (type(config) == "table" and (config.BotName or config.Username or config.username)) or hubState.webhookBotName
+        local botAvatar = (type(config) == "table" and (config.BotAvatar or config.AvatarUrl or config.avatar_url)) or hubState.webhookBotAvatar
+
+        local hook = {}
+        local autoActive = false
+        local loopThread = nil
+
+        function hook:Send(payloadOrTitle, description, fields, color)
+            local embed = {}
+            if type(payloadOrTitle) == "table" and payloadOrTitle.title then
+                embed = payloadOrTitle
+            elseif type(payloadOrTitle) == "table" and (payloadOrTitle.embeds or payloadOrTitle.content) then
+                dispatchHttpRequest(webhookUrl, "POST", nil, payloadOrTitle)
+                return
+            else
+                embed.title = tostring(payloadOrTitle or "UnknownHub Progression")
+                embed.description = tostring(description or "")
+                embed.color = (type(color) == "number") and color or 0x00A2FF
+                if type(fields) == "table" then
+                    embed.fields = fields
+                end
+                embed.footer = { text = "UnknownHub • " .. os.date("%X") }
+                embed.timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+            end
+
+            local payload = {
+                username = botName,
+                avatar_url = botAvatar,
+                embeds = { embed }
+            }
+            dispatchHttpRequest(webhookUrl, "POST", nil, payload)
+        end
+
+        function hook:SendSimple(text)
+            dispatchHttpRequest(webhookUrl, "POST", nil, {
+                username = botName,
+                avatar_url = botAvatar,
+                content = tostring(text)
+            })
+        end
+
+        function hook:StartAutoReport(intervalSec, dataCallback)
+            hook:StopAutoReport()
+            autoActive = true
+            local sec = math.max(tonumber(intervalSec) or 60, 5)
+            loopThread = task.spawn(function()
+                while autoActive and hubState.screenGui.Parent do
+                    task.wait(sec)
+                    if not autoActive then break end
+                    if type(dataCallback) == "function" then
+                        local ok, res = pcall(dataCallback)
+                        if ok and type(res) == "table" then
+                            hook:Send(res.Title or res.title or "Live Progression Update", res.Description or res.description or "", res.Fields or res.fields or {}, res.Color or res.color)
+                        end
+                    end
+                end
+            end)
+        end
+
+        function hook:StopAutoReport()
+            autoActive = false
+            if loopThread then
+                pcall(function() task.cancel(loopThread) end)
+                loopThread = nil
+            end
+        end
+
+        hook.send = hook.Send
+        hook.sendSimple = hook.SendSimple
+        hook.startAutoReport = hook.StartAutoReport
+        hook.stopAutoReport = hook.StopAutoReport
+
+        return hook
+    end
+
+    -- Returned Library API
+    return {
+        createWebhook = hubState.createWebhook,
+        CreateWebhook = hubState.createWebhook,
+        gui = hubState.screenGui,
+        frame = hubState.mainFrame,
+        content = contentArea,
+        Notify = hubState.notify,
+        notify = hubState.notify,
+        addItem = function(titleText, subtitleText, callback)
+            return hubState.createListItem(contentArea, titleText, subtitleText, callback)
+        end,
+        addToggle = function(titleText, defaultState, callback)
+            return hubState.createToggle(contentArea, titleText, defaultState, callback)
+        end,
+        registerToggle = function(setter)
+            if setter then table.insert(hubState.allToggleSetters, setter) end
+        end,
+        registerFeatureStopper = function(stopper)
+            if stopper then table.insert(hubState.featureStoppers, stopper) end
+        end,
+        RegisterFeatureStopper = function(stopper)
+            if stopper then table.insert(hubState.featureStoppers, stopper) end
+        end,
+        destroy = function()
+            hubState.DisableAllFeatureStates()
+            for _, conn in ipairs(hubState.activeConnections) do
+                pcall(function() conn:Disconnect() end)
+            end
+            local blur = Lighting:FindFirstChild("ENI_HubBlur")
+            if blur then pcall(function() blur:Destroy() end) end
+            if hubState.screenGui then hubState.screenGui:Destroy() end
+        end,
+        finishLoading = hubState.finishLoading,
+        FinishLoading = hubState.finishLoading,
+        reportError = hubState.reportGuiError,
+        ReportError = hubState.reportGuiError,
+        checkFunction = hubState.checkFunction,
+        CheckFunction = hubState.checkFunction,
+        disableAll = hubState.DisableAllFeatureStates,
+        CreateButton = hubState.createButton,
+        createButton = hubState.createButton,
+        CreateToggle = hubState.createToggle,
+        createToggle = hubState.createToggle,
+        CreateSlider = hubState.createSlider,
+        createSlider = hubState.createSlider,
+        CreateDropdown = hubState.createDropdown,
+        createDropdown = hubState.createDropdown,
+        CreateSection = hubState.createSection,
+        createSection = hubState.createSection,
+        addSection = hubState.createSection,
+        CreateList = hubState.CreateList,
+        createList = hubState.CreateList,
+        GetItemFromList = hubState.GetItemFromList,
+        createTabButton = hubState.createTabButton,
+        BringSelectedItem = hubState.BringSelectedItem,
+        createPage = hubState.createPage,
+        createSliderToggle = hubState.createToggle,
+        createValueSlider = hubState.createSlider,
+        addSectionDivider = function(parent)
+            return hubState.createSection(parent, "")
+        end,
+        createTextBox = hubState.createTextBox,
+        CreateTextBox = hubState.createTextBox,
+        SendNotification = hubState.sendNotification,
+        sendNotification = hubState.sendNotification,
+        AddNotification = hubState.sendNotification,
+        addNotification = hubState.sendNotification,
+        OpenNotifications = function() if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end end,
+        openNotifications = function() if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end end,
+        OpenFeedbackModal = function() if hubState.openFeedbackModal then hubState.openFeedbackModal() end end,
+        openFeedbackModal = function() if hubState.openFeedbackModal then hubState.openFeedbackModal() end end,
+        OpenAnnouncementModal = function() if hubState.openAnnouncementModal then hubState.openAnnouncementModal() end end,
+        openAnnouncementModal = function() if hubState.openAnnouncementModal then hubState.openAnnouncementModal() end end,
+    }
+end
