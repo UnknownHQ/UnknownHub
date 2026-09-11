@@ -4381,6 +4381,7 @@ return function(opts)
         layout.SortOrder = Enum.SortOrder.LayoutOrder
         layout.Padding = UDim.new(0, 8)
         layout.Parent = page
+        if not hubState.tabPages then hubState.tabPages = {} end
         table.insert(hubState.tabPages, page)
         return page
     end
@@ -4487,6 +4488,7 @@ return function(opts)
                 hubState.currentActiveTabName = name
                 hubState.setTabVisible(name)
             end)
+            if not hubState.tabButtons then hubState.tabButtons = {} end
             table.insert(hubState.tabButtons, btn)
         end
 
