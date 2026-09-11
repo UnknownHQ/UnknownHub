@@ -6613,6 +6613,13 @@ return function(opts)
 
         local hubGamesData = {
             {
+                name = "🥊 Slap Battles",
+                desc = "Slap aura, anti-ragdoll, godmode, badges & glove farm",
+                placeIds = { 6403373529, 9431156611, 11520107397, 9426795465 },
+                teleportPlaceId = 6403373529,
+                url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/SlapBattles.luau"
+            },
+            {
                 name = "🐝 Bee Swarm Simulator",
                 desc = "Auto-farm fields, tokens, vicious bee, sprouts & quests",
                 placeIds = { 1537690962 },

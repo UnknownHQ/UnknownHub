@@ -24,6 +24,13 @@ local LIBRARY_URL = BASE_URL .. "/UnknownLibrary"
 -- =========================================================================
 local SupportedGames = {
     {
+        name = "Slap Battles",
+        icon = "🥊",
+        placeIds = { 6403373529, 9431156611, 11520107397, 9426795465 },
+        scriptUrl = BASE_URL .. "/Games/SlapBattles.luau",
+        desc = "Slap aura, anti-ragdoll, godmode, badges & glove farm"
+    },
+    {
         name = "Bee Swarm Simulator",
         icon = "🐝",
         placeIds = { 1537690962 },
