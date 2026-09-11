@@ -261,6 +261,8 @@ return function(opts)
         themeLabels = {},
         themeStrokes = {},
         themeFrames = {},
+        themeSectionFrames = {},
+        themeButtonFrames = {},
         themeGradients = {},
         themeUpdaters = {},
         allToggleSetters = {},
@@ -4876,6 +4878,7 @@ return function(opts)
                 if callback then pcall(callback) end
             end
         }
+        if not hubState.themeButtonFrames then hubState.themeButtonFrames = {} end
         table.insert(hubState.themeButtonFrames, item)
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(item, itemData)
