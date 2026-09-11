@@ -4117,6 +4117,12 @@ return function(opts)
             btn.LayoutOrder = 100000
         elseif name == "Universal" or name == "Utilities" then
             btn.LayoutOrder = 99999
+        elseif name == "Repository" then
+            btn.LayoutOrder = 99998
+        elseif name == "Console" then
+            btn.LayoutOrder = 99997
+        elseif name == "Favorites" then
+            btn.LayoutOrder = 99996
         else
             btn.LayoutOrder = #hubState.tabButtons + 1
         end
@@ -4175,7 +4181,7 @@ return function(opts)
             task.defer(function() hubState.setTabVisible(name) end)
         end
 
-        if name ~= "Config" and name ~= "Universal" and name ~= "Utilities" and hubState.ensureConfigTab then
+        if name ~= "Config" and name ~= "Universal" and name ~= "Utilities" and name ~= "Repository" and name ~= "Console" and name ~= "Favorites" and hubState.ensureConfigTab then
             task.defer(function()
                 pcall(hubState.ensureConfigTab)
             end)
@@ -6167,6 +6173,90 @@ return function(opts)
 
         appendConsoleLog("Ready. Enter code above to test.", Color3.fromRGB(100, 220, 255))
 
+        -- 📦 Script Repository & Cloud Scripts Page
+        hubState.repoPage = hubState.createTabButton("📦 Repository", "Repository", nil, false)
+        hubState.createSection(hubState.repoPage, "Community & Verified Script Cloud")
+
+        local repoStatus = Instance.new("TextLabel")
+        repoStatus.Size = UDim2.new(1, -6, 0, 20)
+        repoStatus.BackgroundTransparency = 1
+        repoStatus.Text = "Status: Script Repository Ready"
+        repoStatus.TextColor3 = Color3.fromRGB(155, 165, 185)
+        repoStatus.Font = Enum.Font.GothamMedium
+        repoStatus.TextSize = 10
+        repoStatus.TextXAlignment = Enum.TextXAlignment.Left
+        repoStatus.Parent = hubState.repoPage
+
+        local function setRepoStatus(message, isError)
+            repoStatus.Text = "Status: " .. message
+            repoStatus.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
+        end
+
+        local repoSearchBox = hubState.createTextBox(hubState.repoPage, "🔍 Search 12+ Cloud Scripts...")
+        local repoListContainer = hubState.CreateList(hubState.repoPage, "Verified Cloud Scripts", {}, 200, false)
+
+        local verifiedScripts = {
+            { name = "Dark Dex V3", desc = "Hierarchy explorer, property inspector & decompiler", url = "https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/BypassedDarkDexV3.luau" },
+            { name = "SimpleSpy V3", desc = "Real-time RemoteEvent & RemoteFunction logger", url = "https://raw.githubusercontent.com/infyiff/backup/main/SimpleSpyV3/main.lua" },
+            { name = "Hydroxide", desc = "Dynamic analysis, closure spy & method hooker", url = "https://raw.githubusercontent.com/Upbolt/Hydroxide/revision/init.lua" },
+            { name = "Infinite Yield", desc = "Premier admin script with 500+ commands", url = "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source" },
+            { name = "Fly GUI V3", desc = "Smooth mobile & PC flight with speed control", url = "https://raw.githubusercontent.com/XNEOFF/FlyGuiV3/main/FlyGuiV3.lua" },
+            { name = "Unnamed ESP", desc = "Universal boxes, tracers, health & names", url = "https://raw.githubusercontent.com/ic3w0lf22/Unnamed-ESP/master/UnnamedESP.lua" },
+            { name = "Universal Aimbot", desc = "Custom FOV circle, smoothness & target lock", url = "https://raw.githubusercontent.com/Exunys/Aimbot-V2/main/Resources/Scripts/Raw/Main.lua" },
+            { name = "RTX Shaders", desc = "Cinematic lighting, dynamic sunbeams & colors", url = "https://raw.githubusercontent.com/MZEEN/Shaders/main/Shader.lua" },
+            { name = "Unknown Bee Swarm Hub", desc = "Auto-field farm, token gatherer & vicious bee", url = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Games/BeeSwarm.luau" },
+            { name = "Unknown Blox Fruits Hub", desc = "Auto-farm levels, quests, stats, boss & fruit", url = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Games/BloxFruits.luau" },
+            { name = "Unknown Ink Game Hub", desc = "Mini-game automation, ESP & godmode triggers", url = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Games/InkGame.luau" },
+        }
+
+        local function executeScriptUrl(name, url)
+            setRepoStatus("Downloading " .. name .. "...", false)
+            task.spawn(function()
+                local ok, src = pcall(function() return game:HttpGet(url) end)
+                if not ok or not src or src == "" then
+                    setRepoStatus("Failed to download " .. name, true)
+                    hubState.notify({ Title = "Repository Error", Content = "Failed to download " .. name })
+                    return
+                end
+                local chunk, compileErr = loadstring(src)
+                if not chunk then
+                    setRepoStatus("Compile error in " .. name, true)
+                    hubState.notify({ Title = "Repository Error", Content = "Compile error in " .. name })
+                    return
+                end
+                local execOk, runtimeErr = pcall(chunk)
+                if execOk then
+                    setRepoStatus(name .. " executed successfully!", false)
+                    hubState.notify({ Title = "Repository", Content = name .. " executed!" })
+                else
+                    setRepoStatus("Runtime error in " .. name .. ": " .. tostring(runtimeErr), true)
+                end
+            end)
+        end
+
+        local function populateRepo(filter)
+            filter = filter and filter:lower() or ""
+            for _, entry in ipairs(repoListContainer.Items) do
+                if entry.Row and entry.Row.Parent then entry.Row:Destroy() end
+            end
+            repoListContainer.Items = {}
+            for _, s in ipairs(verifiedScripts) do
+                if filter == "" or s.name:lower():find(filter) or s.desc:lower():find(filter) then
+                    repoListContainer:AddItem(s.name, s.desc, function()
+                        executeScriptUrl(s.name, s.url)
+                    end)
+                end
+            end
+        end
+
+        populateRepo("")
+
+        if repoSearchBox then
+            repoSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+                populateRepo(repoSearchBox.Text)
+            end)
+        end
+
         hubState.universalTabPage = hubState.createTabButton("🌐 Universal", "Universal", nil, false)
         hubState.utilityTabPage = hubState.universalTabPage -- Alias for full backward compatibility
         hubState.configTabPage = hubState.createTabButton("⚙️ Config", "Config", nil, false)
@@ -6720,6 +6810,35 @@ return function(opts)
         end)
         hubState.createSlider(hubState.configTabPage, "HUD Background Opacity", 5, 95, math.floor(hubState.hudOpacity * 100), "%", function(val)
             hubState.setHudOpacity(val / 100)
+        end)
+
+        hubState.createSection(hubState.configTabPage, "Official GitHub Repository & Updates")
+        hubState.createButton(hubState.configTabPage, "📋 Copy GitHub Repository Link", function()
+            copyText("https://github.com/dontknow228xd-bot/UnknownHub")
+            hubState.notify({ Title = "GitHub Repo", Content = "Repository link copied to clipboard!" })
+        end)
+        hubState.createButton(hubState.configTabPage, "📋 Copy Universal Smart Loadstring", function()
+            copyText('loadstring(game:HttpGet("https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Loader.luau"))()')
+            hubState.notify({ Title = "Smart Loader", Content = "Loadstring copied to clipboard!" })
+        end)
+        hubState.createButton(hubState.configTabPage, "🔄 Reload Hub From GitHub (Live Update)", function()
+            hubState.notify({ Title = "Updating...", Content = "Fetching latest script from GitHub..." })
+            task.spawn(function()
+                local ok, src = pcall(function()
+                    return game:HttpGet("https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/UnknownLibrary?t=" .. tostring(os.time()))
+                end)
+                if ok and src then
+                    local factory = loadstring(src)
+                    if factory then
+                        hubState.destroyOldGui()
+                        factory()({
+                            title = "UNKNOWN HUB",
+                            theme = hubState.currentThemeColor,
+                            secondaryTheme = hubState.secondaryThemeColor
+                        })
+                    end
+                end
+            end)
         end)
 
         hubState.createSection(hubState.configTabPage, "Visual Customization")
