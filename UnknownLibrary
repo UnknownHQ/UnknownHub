@@ -251,7 +251,7 @@ return function(opts)
         devUsername = devUsername,
         defaultWebhook = defaultWebhook,
         feedbackWebhookUrl = opts.feedbackWebhook or defaultWebhook,
-        webhookBotName = opts.botName or opts.webhookBotName or ("UnknownHub Core [" .. devUsername .. "]"),
+        webhookBotName = opts.botName or opts.webhookBotName or "Unknown Hub",
         webhookBotAvatar = opts.botAvatar or opts.webhookBotAvatar or "https://i.imgur.com/8Q5Fq7f.png",
         isDeveloper = isDeveloper,
         isMobileDevice = isMobileDevice,
