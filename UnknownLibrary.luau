@@ -443,21 +443,51 @@ return function(opts)
         if color2 then hubState.secondaryThemeColor = color2 end
         hubState.pruneDeadThemeReferences()
 
+        local c1 = hubState.currentThemeColor
+        local c2 = hubState.secondaryThemeColor
+
+        -- 1. Main Frames & Backgrounds (2nd color is blacker/darker tint)
+        local mainBg = Color3.fromRGB(math.floor(c2.R * 26 + 8), math.floor(c2.G * 26 + 10), math.floor(c2.B * 26 + 14))
+        local sidebarBg = Color3.fromRGB(math.floor(c2.R * 34 + 10), math.floor(c2.G * 34 + 12), math.floor(c2.B * 34 + 18))
+        local headerBg = Color3.fromRGB(math.floor(c2.R * 30 + 9), math.floor(c2.G * 30 + 11), math.floor(c2.B * 30 + 16))
+        local sectionBg = Color3.fromRGB(math.floor(c2.R * 42 + 12), math.floor(c2.G * 42 + 15), math.floor(c2.B * 42 + 22))
+
+        if hubState.mainFrame and hubState.mainFrame.Parent then hubState.mainFrame.BackgroundColor3 = mainBg end
+        if hubState.sidebar and hubState.sidebar.Parent then hubState.sidebar.BackgroundColor3 = sidebarBg end
+        if hubState.header and hubState.header.Parent then hubState.header.BackgroundColor3 = headerBg end
+
+        -- 2. Button surfaces (2nd color is whiter/lighter tint)
+        local buttonBg = Color3.fromRGB(math.floor(c2.R * 85 + 24), math.floor(c2.G * 85 + 30), math.floor(c2.B * 85 + 42))
+
         for _, label in ipairs(hubState.themeLabels) do
-            if label and label.Parent then label.TextColor3 = hubState.currentThemeColor end
+            if label and label.Parent then label.TextColor3 = c1 end
         end
         for _, stroke in ipairs(hubState.themeStrokes) do
-            if stroke and stroke.Parent then stroke.Color = hubState.currentThemeColor end
+            if stroke and stroke.Parent then stroke.Color = c1 end
         end
         for _, frame in ipairs(hubState.themeFrames) do
-            if frame and frame.Parent then frame.BackgroundColor3 = hubState.currentThemeColor end
+            if frame and frame.Parent then frame.BackgroundColor3 = c1 end
         end
-        local seq = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        for _, sFrame in ipairs(hubState.themeSectionFrames or {}) do
+            if sFrame and sFrame.Parent then sFrame.BackgroundColor3 = sectionBg end
+        end
+        for _, bFrame in ipairs(hubState.themeButtonFrames or {}) do
+            if bFrame and bFrame.Parent then bFrame.BackgroundColor3 = buttonBg end
+        end
+
+        local seq = hubState.getThemeColorSequence(c1, c2)
         for _, grad in ipairs(hubState.themeGradients) do
             if grad and grad.Parent then grad.Color = seq end
         end
         for _, updater in ipairs(hubState.themeUpdaters) do
-            pcall(updater, hubState.currentThemeColor, hubState.secondaryThemeColor)
+            pcall(updater, c1, c2)
+        end
+
+        -- Refresh active tab styling with the new picked theme colors
+        if hubState.currentActiveTabName and hubState.setTabVisible then
+            task.defer(function()
+                hubState.setTabVisible(hubState.currentActiveTabName)
+            end)
         end
     end
 
@@ -4261,13 +4291,19 @@ return function(opts)
                 if page then page.Visible = false end
             end
         end
+        local c1 = hubState.currentThemeColor
+        local c2 = hubState.secondaryThemeColor
+        local activeTabBg = Color3.fromRGB(math.floor(c2.R * 130 + 26), math.floor(c2.G * 130 + 32), math.floor(c2.B * 130 + 46))
+        local inactiveTabBg = Color3.fromRGB(math.floor(c2.R * 36 + 14), math.floor(c2.G * 36 + 17), math.floor(c2.B * 36 + 24))
+
         for _, btn in ipairs(hubState.tabButtons) do
             if btn and btn.Name == tabName then
                 TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    BackgroundColor3 = Color3.fromRGB(30, 38, 56)
+                    BackgroundColor3 = activeTabBg
                 }):Play()
                 local indicator = btn:FindFirstChild("ActiveIndicator")
                 if indicator then
+                    indicator.BackgroundColor3 = c1
                     TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                         BackgroundTransparency = 0,
                         Size = UDim2.new(0, 3, 0, 20)
@@ -4276,7 +4312,7 @@ return function(opts)
             else
                 if btn then
                     TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(19, 23, 34)
+                        BackgroundColor3 = inactiveTabBg
                     }):Play()
                     local indicator = btn:FindFirstChild("ActiveIndicator")
                     if indicator then
@@ -4840,6 +4876,7 @@ return function(opts)
                 if callback then pcall(callback) end
             end
         }
+        table.insert(hubState.themeButtonFrames, item)
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(item, itemData)
 
@@ -6984,6 +7021,55 @@ return function(opts)
                     end
                 end
                 setUniversalStatus("No suitable server found", true)
+            end)
+        end)
+
+        hubState.createButton(hubState.universalTabPage, "📋 Copy Current Job ID", function()
+            local jId = tostring(game.JobId)
+            if setclipboard then
+                pcall(function() setclipboard(jId) end)
+            elseif toclipboard then
+                pcall(function() toclipboard(jId) end)
+            end
+            setUniversalStatus("Job ID copied to clipboard!", false)
+            hubState.notify({
+                Title = "Job ID Copied",
+                Content = jId ~= "" and ("Copied: " .. jId) or "Job ID is empty (Studio/Singleplayer)",
+                Color = hubState.currentThemeColor,
+                Duration = 3
+            })
+        end)
+
+        local targetJobId = ""
+        local jobIdBox = hubState.createTextBox(hubState.universalTabPage, "Paste Job ID here...", "")
+        if jobIdBox then
+            jobIdBox:GetPropertyChangedSignal("Text"):Connect(function()
+                targetJobId = jobIdBox.Text:match("^%s*(.-)%s*$")
+            end)
+        end
+
+        hubState.createButton(hubState.universalTabPage, "🚀 Join by Job ID", function()
+            local cleanId = targetJobId ~= "" and targetJobId or (jobIdBox and jobIdBox.Text:match("^%s*(.-)%s*$") or "")
+            if not cleanId or cleanId == "" then
+                setUniversalStatus("Please enter a valid Job ID first!", true)
+                hubState.notify({
+                    Title = "Job ID Required",
+                    Content = "Please paste or type a Job ID in the text box above.",
+                    Color = Color3.fromRGB(255, 120, 120),
+                    Duration = 3
+                })
+                return
+            end
+
+            setUniversalStatus("Joining server: " .. cleanId:sub(1, 14) .. "...", false)
+            hubState.notify({
+                Title = "Teleporting",
+                Content = "Attempting to join server: " .. cleanId:sub(1, 16) .. "...",
+                Color = hubState.currentThemeColor,
+                Duration = 3.5
+            })
+            pcall(function()
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, cleanId, LocalPlayer)
             end)
         end)
 
