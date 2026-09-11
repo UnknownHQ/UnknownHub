@@ -2,13 +2,13 @@
 
 <div align="center">
 
-![Unknown Hub Banner](https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/unknown_hub_avatar.jpg)
+![Unknown Hub Banner](https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/unknown_hub_avatar.jpg)
 
 **Next-Generation Responsive Ocean UI Library & Universal Game Automation Framework for Roblox**
 
 [![Lua 5.1 / Luau](https://img.shields.io/badge/Language-Luau%20%7C%20Lua%205.1-00A2FF?style=for-the-badge&logo=lua)](https://luau-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-PC%20%2F%20Mobile-7B2CBF?style=for-the-badge)](https://roblox.com)
-[![Status](https://img.shields.io/badge/Status-Active%20%26%20Protected-38EF7D?style=for-the-badge)](https://github.com/dontknow228xd-bot/UnknownHub)
+[![Status](https://img.shields.io/badge/Status-Active%20%26%20Protected-38EF7D?style=for-the-badge)](https://github.com/UnknownHQ/UnknownHub)
 [![License](https://img.shields.io/badge/License-MIT-FFB703?style=for-the-badge)](LICENSE)
 
 </div>
@@ -20,13 +20,13 @@
 ### 🌐 1. Universal Smart Loader (Auto Game Detection)
 Loads game-tailored scripts if supported (e.g. *Bee Swarm Simulator*), otherwise launches the **Universal Core Suite**:
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Loader.luau"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Loader.luau"))()
 ```
 
 ### 📦 2. Raw UI Library (For Developers)
 Use Unknown Hub as a high-performance UI library in your own custom scripts:
 ```lua
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/UnknownLibrary"))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"))()
 ```
 
 ---
@@ -57,7 +57,7 @@ local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/dontk
 
 ### 1. Creating the Window
 ```lua
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/UnknownLibrary"))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"))()
 
 local Hub = Library({
     name = "MyCustomHub",

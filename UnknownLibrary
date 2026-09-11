@@ -6204,9 +6204,9 @@ return function(opts)
             { name = "Unnamed ESP", desc = "Universal boxes, tracers, health & names", url = "https://raw.githubusercontent.com/ic3w0lf22/Unnamed-ESP/master/UnnamedESP.lua" },
             { name = "Universal Aimbot", desc = "Custom FOV circle, smoothness & target lock", url = "https://raw.githubusercontent.com/Exunys/Aimbot-V2/main/Resources/Scripts/Raw/Main.lua" },
             { name = "RTX Shaders", desc = "Cinematic lighting, dynamic sunbeams & colors", url = "https://raw.githubusercontent.com/MZEEN/Shaders/main/Shader.lua" },
-            { name = "Unknown Bee Swarm Hub", desc = "Auto-field farm, token gatherer & vicious bee", url = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Games/BeeSwarm.luau" },
-            { name = "Unknown Blox Fruits Hub", desc = "Auto-farm levels, quests, stats, boss & fruit", url = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Games/BloxFruits.luau" },
-            { name = "Unknown Ink Game Hub", desc = "Mini-game automation, ESP & godmode triggers", url = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Games/InkGame.luau" },
+            { name = "Unknown Bee Swarm Hub", desc = "Auto-field farm, token gatherer & vicious bee", url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/BeeSwarm.luau" },
+            { name = "Unknown Blox Fruits Hub", desc = "Auto-farm levels, quests, stats, boss & fruit", url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/BloxFruits.luau" },
+            { name = "Unknown Ink Game Hub", desc = "Mini-game automation, ESP & godmode triggers", url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/InkGame.luau" },
         }
 
         local function executeScriptUrl(name, url)
@@ -6814,18 +6814,18 @@ return function(opts)
 
         hubState.createSection(hubState.configTabPage, "Official GitHub Repository & Updates")
         hubState.createButton(hubState.configTabPage, "📋 Copy GitHub Repository Link", function()
-            copyText("https://github.com/dontknow228xd-bot/UnknownHub")
+            copyText("https://github.com/UnknownHQ/UnknownHub")
             hubState.notify({ Title = "GitHub Repo", Content = "Repository link copied to clipboard!" })
         end)
         hubState.createButton(hubState.configTabPage, "📋 Copy Universal Smart Loadstring", function()
-            copyText('loadstring(game:HttpGet("https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/Loader.luau"))()')
+            copyText('loadstring(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Loader.luau"))()')
             hubState.notify({ Title = "Smart Loader", Content = "Loadstring copied to clipboard!" })
         end)
         hubState.createButton(hubState.configTabPage, "🔄 Reload Hub From GitHub (Live Update)", function()
             hubState.notify({ Title = "Updating...", Content = "Fetching latest script from GitHub..." })
             task.spawn(function()
                 local ok, src = pcall(function()
-                    return game:HttpGet("https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/UnknownLibrary?t=" .. tostring(os.time()))
+                    return game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary?t=" .. tostring(os.time()))
                 end)
                 if ok and src then
                     local factory = loadstring(src)

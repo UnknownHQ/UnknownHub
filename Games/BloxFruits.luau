@@ -6,7 +6,7 @@ local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
-local LIBRARY_LINK = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main/UnknownLibrary"
+local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
 local LIBRARY_NAME = "ENI_TabbedHub_UI"
 
 local function destroyOldGui()
