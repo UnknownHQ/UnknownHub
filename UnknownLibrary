@@ -309,6 +309,22 @@ return function(opts)
         Mute = ""
     }
 
+        function hubState.triggerHaptic(intensity)
+        pcall(function()
+            if UserInputService.HapticServiceSupported then
+                local HapticService = game:GetService("HapticService")
+                if HapticService and HapticService:IsMotorSupported(Enum.UserInputType.Gamepad1, Enum.VibrationMotor.Small) then
+                    HapticService:SetMotor(Enum.UserInputType.Gamepad1, Enum.VibrationMotor.Small, intensity or 0.5)
+                    task.delay(0.1, function()
+                        pcall(function()
+                            HapticService:SetMotor(Enum.UserInputType.Gamepad1, Enum.VibrationMotor.Small, 0)
+                        end)
+                    end)
+                end
+            end
+        end)
+    end
+
     function hubState.playSfx(overrideSoundId)
         if not hubState.isSfxEnabled or hubState.currentSoundPack == "Mute" then return end
         pcall(function()
@@ -5731,6 +5747,8 @@ return function(opts)
     end
 
     -- Theme Editor Component (Responsive Dual-Color Palette & 16 Split Presets)
+    hubState.CreateDropdown = hubState.createDropdown
+
     function hubState.createThemeEditor(parent)
         local section = Instance.new("Frame")
         section.Size = UDim2.new(1, -6, 0, 340)
@@ -6869,7 +6887,7 @@ return function(opts)
         -- Sound Pack Switcher
         hubState.createSection(hubState.configTabPage, "Sound & Audio Effects")
         local soundPackOptions = { "Modern", "Mechanical", "Cyberpunk", "Bubble", "Mute" }
-        hubState.CreateDropdown(hubState.configTabPage, "UI Sound Pack", soundPackOptions, hubState.currentSoundPack, function(selected)
+        hubState.createDropdown(hubState.configTabPage, "UI Sound Pack", soundPackOptions, hubState.currentSoundPack, function(selected)
             hubState.currentSoundPack = selected
             hubState.playSfx()
             hubState.notify({ Title = "Sound Pack", Content = "Active SFX set to: " .. selected })
