@@ -6893,73 +6893,6 @@ return function(opts)
             hubState.notify({ Title = "Sound Pack", Content = "Active SFX set to: " .. selected })
         end)
 
-        -- Discord Webhook & Live Progression Section
-        hubState.createSection(hubState.configTabPage, "Discord Webhook & Progression")
-        local webhookBox = hubState.createTextBox(hubState.configTabPage, "Discord Webhook URL", hubState.defaultWebhook)
-        local autoReportToggle = false
-        local reportInterval = 60
-        local reportThread = nil
-
-        hubState.createSlider(hubState.configTabPage, "Report Interval (Seconds)", 15, 300, 60, "s", function(val)
-            reportInterval = val
-        end)
-
-        hubState.createToggle(hubState.configTabPage, "Auto-Send Live Progression Stats", false, function(enabled)
-            autoReportToggle = enabled
-            if reportThread then pcall(function() task.cancel(reportThread) end); reportThread = nil end
-            if enabled then
-                reportThread = task.spawn(function()
-                    while autoReportToggle and hubState.screenGui.Parent do
-                        local url = webhookBox.Text ~= "" and webhookBox.Text or hubState.defaultWebhook
-                        local stats = {
-                            { name = "👤 Player", value = LocalPlayer.Name .. " (" .. LocalPlayer.DisplayName .. ")", inline = true },
-                            { name = "🎮 Place ID", value = tostring(game.PlaceId), inline = true },
-                            { name = "⏱️ Server Uptime", value = math.floor(workspace.DistributedGameTime) .. "s", inline = true },
-                            { name = "⚡ Live FPS", value = tostring(math.floor(1 / math.max(RunService.RenderStepped:Wait(), 0.001))), inline = true }
-                        }
-                        local payload = {
-                            username = hubState.webhookBotName,
-                            avatar_url = hubState.webhookBotAvatar,
-                            embeds = {{
-                                title = "📊 UnknownHub Universal Progression",
-                                description = "Automated live farming session report from client.",
-                                color = 0x00D4FF,
-                                fields = stats,
-                                footer = { text = "UnknownHub Universal Bot • " .. os.date("%X") },
-                                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
-                            }}
-                        }
-                        dispatchHttpRequest(url, "POST", nil, payload)
-                        task.wait(reportInterval)
-                    end
-                end)
-                hubState.notify({ Title = "Webhook Auto-Report", Content = "Live reporting enabled (" .. tostring(reportInterval) .. "s interval)" })
-            else
-                hubState.notify({ Title = "Webhook Auto-Report", Content = "Live reporting stopped." })
-            end
-        end)
-
-        hubState.createButton(hubState.configTabPage, "🚀 Send Test Webhook Message", function()
-            local url = webhookBox.Text ~= "" and webhookBox.Text or hubState.defaultWebhook
-            local payload = {
-                username = hubState.webhookBotName,
-                avatar_url = hubState.webhookBotAvatar,
-                embeds = {{
-                    title = "✅ UnknownHub Webhook Test",
-                    description = "Webhook connection established successfully from **" .. LocalPlayer.Name .. "**!",
-                    color = 0x38EF7D,
-                    fields = {
-                        { name = "Game", value = tostring(game.PlaceId), inline = true },
-                        { name = "Ping / FPS", value = "Healthy", inline = true }
-                    },
-                    footer = { text = "UnknownHub Webhook Pipeline • " .. os.date("%X") },
-                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
-                }}
-            }
-            dispatchHttpRequest(url, "POST", nil, payload)
-            hubState.notify({ Title = "Webhook Test", Content = "Dispatched test embed to Discord!" })
-        end)
-
         hubState.createSection(hubState.configTabPage, "HUD & Performance Display")
         hubState.createToggle(hubState.configTabPage, "Show HUD Stats Overlay", hubState.isHudEnabled, function(enabled)
             hubState.setHudVisible(enabled)
@@ -7001,6 +6934,9 @@ return function(opts)
         hubState.createThemeEditor(hubState.configTabPage)
         refreshConfigs()
     end
+
+    -- Pre-initialize system tabs immediately on hub creation
+    hubState.ensureConfigTab()
 
     -- GUI-Specific Internal Error Reporting Modal (Never hooks global game logs)
     hubState.loadingFinished = false
