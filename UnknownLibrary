@@ -81,36 +81,6 @@ local function loadStoredAnnouncements()
         end)
         if ok and type(data) == "table" then return data end
     end
-    
-    -- Draggable Floating Mobile Quick Action Bubble
-    if UserInputService.TouchEnabled then
-        local mobileBubble = Instance.new("TextButton")
-        mobileBubble.Name = "ENI_MobileBubble"
-        mobileBubble.Size = UDim2.new(0, 42, 0, 42)
-        mobileBubble.Position = UDim2.new(0, 16, 0.5, -21)
-        mobileBubble.BackgroundColor3 = Color3.fromRGB(16, 22, 34)
-        mobileBubble.BackgroundTransparency = 0.2
-        mobileBubble.Text = "🌙"
-        mobileBubble.TextSize = 20
-        mobileBubble.Font = Enum.Font.GothamBold
-        mobileBubble.TextColor3 = hubState.currentThemeColor
-        mobileBubble.ZIndex = 200
-        mobileBubble.Parent = hubState.screenGui
-        applyCorner(mobileBubble, 21)
-        local bStroke = applyStroke(mobileBubble, hubState.currentThemeColor, 1.5, 0.2)
-        hubState.registerThemeStroke(bStroke)
-        hubState.registerThemeText(mobileBubble)
-
-        hubState.makeSmoothDraggable(mobileBubble, mobileBubble)
-
-        mobileBubble.MouseButton1Click:Connect(function()
-            hubState.playSfx()
-            hubState.triggerHaptic(0.5)
-            hubState.isGuiOpen = not hubState.isGuiOpen
-            hubState.mainFrame.Visible = hubState.isGuiOpen
-        end)
-    end
-
     return {}
 end
 
@@ -6260,6 +6230,50 @@ return function(opts)
                 setUtilityStatus("JumpPower restored", false)
             end
         end)
+
+        hubState.createSection(hubState.utilityTabPage, "Session & Anti-AFK")
+
+        local antiAfkConn = nil
+        local antiAfkHeartbeat = false
+        local function toggleAntiAfk(enabled)
+            if enabled then
+                if not antiAfkConn then
+                    local VirtualUser = game:GetService("VirtualUser")
+                    antiAfkConn = LocalPlayer.Idled:Connect(function()
+                        pcall(function()
+                            VirtualUser:CaptureController()
+                            VirtualUser:ClickButton2(Vector2.new(0, 0))
+                        end)
+                    end)
+                end
+                antiAfkHeartbeat = true
+                task.spawn(function()
+                    local VirtualUser = game:GetService("VirtualUser")
+                    while antiAfkHeartbeat and hubState.screenGui.Parent do
+                        task.wait(300)
+                        if antiAfkHeartbeat then
+                            pcall(function()
+                                VirtualUser:CaptureController()
+                                VirtualUser:ClickButton2(Vector2.new(0, 0))
+                            end)
+                        end
+                    end
+                end)
+                setUtilityStatus("24/7 Anti-AFK Active", false)
+            else
+                antiAfkHeartbeat = false
+                if antiAfkConn then
+                    pcall(function() antiAfkConn:Disconnect() end)
+                    antiAfkConn = nil
+                end
+                setUtilityStatus("Anti-AFK Disabled", false)
+            end
+        end
+
+        hubState.createToggle(hubState.utilityTabPage, "24/7 Anti-AFK (No Disconnect)", true, function(enabled)
+            toggleAntiAfk(enabled)
+        end)
+        toggleAntiAfk(true)
 
         hubState.createSection(hubState.utilityTabPage, "Server & Teleport")
 
