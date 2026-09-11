@@ -1883,8 +1883,12 @@ return function(opts)
             local annId = ann.id or (tostring(ann.timestamp) .. "_" .. tostring(ann.title))
             if not seen[tostring(annId)] then
                 local target = ann.target or "All"
-                local isForMe = (target == "All") or (target:lower() == myName:lower())
-                if isForMe then
+                local sender = ann.sender or ""
+                local isSelf = (sender ~= "") and (sender:lower() == myName:lower())
+                local isForMe = (not isSelf) and ((target == "All") or (target:lower() == myName:lower()))
+                if isSelf then
+                    markAnnouncementAsSeen(annId)
+                elseif isForMe then
                     markAnnouncementAsSeen(annId)
                     task.delay(1.5, function()
                         hubState.sendNotification({
@@ -3906,20 +3910,23 @@ return function(opts)
         if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end
     end)
 
-    -- Dedicated Developer Announcement Broadcast Button
+    -- Dedicated Developer Announcement Broadcast Button (Visible ONLY for Hub Developers)
     local announceBtn = Instance.new("TextButton")
     announceBtn.Name = "AnnounceBtn"
     announceBtn.Size = UDim2.new(0, 26, 0, 26)
-    announceBtn.Position = UDim2.new(1, -194, 0.5, -13)
-    announceBtn.BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
+    announceBtn.Position = UDim2.new(1, -226, 0.5, -13)
+    announceBtn.BackgroundColor3 = Color3.fromRGB(36, 26, 52)
     announceBtn.Text = "📢"
-    announceBtn.TextColor3 = hubState.isDeveloper and Color3.fromRGB(220, 160, 255) or Color3.fromRGB(210, 220, 240)
+    announceBtn.TextColor3 = Color3.fromRGB(220, 160, 255)
     announceBtn.Font = Enum.Font.GothamBold
     announceBtn.TextSize = 12
     announceBtn.ZIndex = 30
-    announceBtn.Parent = header
+    announceBtn.Visible = (hubState.isDeveloper == true)
+    if hubState.isDeveloper then
+        announceBtn.Parent = header
+    end
     applyCorner(announceBtn, 6)
-    applyStroke(announceBtn, hubState.isDeveloper and Color3.fromRGB(160, 95, 240) or Color3.fromRGB(45, 55, 80), 1, 0.4)
+    applyStroke(announceBtn, Color3.fromRGB(160, 95, 240), 1, 0.4)
 
     announceBtn.MouseEnter:Connect(function()
         TweenService:Create(announceBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -6899,35 +6906,6 @@ return function(opts)
         end)
         hubState.createSlider(hubState.configTabPage, "HUD Background Opacity", 5, 95, math.floor(hubState.hudOpacity * 100), "%", function(val)
             hubState.setHudOpacity(val / 100)
-        end)
-
-        hubState.createSection(hubState.configTabPage, "Official GitHub Repository & Updates")
-        hubState.createButton(hubState.configTabPage, "📋 Copy GitHub Repository Link", function()
-            copyText("https://github.com/UnknownHQ/UnknownHub")
-            hubState.notify({ Title = "GitHub Repo", Content = "Repository link copied to clipboard!" })
-        end)
-        hubState.createButton(hubState.configTabPage, "📋 Copy Universal Smart Loadstring", function()
-            copyText('loadstring(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Loader.luau"))()')
-            hubState.notify({ Title = "Smart Loader", Content = "Loadstring copied to clipboard!" })
-        end)
-        hubState.createButton(hubState.configTabPage, "🔄 Reload Hub From GitHub (Live Update)", function()
-            hubState.notify({ Title = "Updating...", Content = "Fetching latest script from GitHub..." })
-            task.spawn(function()
-                local ok, src = pcall(function()
-                    return game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary?t=" .. tostring(os.time()))
-                end)
-                if ok and src then
-                    local factory = loadstring(src)
-                    if factory then
-                        hubState.destroyOldGui()
-                        factory()({
-                            title = "UNKNOWN HUB",
-                            theme = hubState.currentThemeColor,
-                            secondaryTheme = hubState.secondaryThemeColor
-                        })
-                    end
-                end
-            end)
         end)
 
         hubState.createSection(hubState.configTabPage, "Visual Customization")
