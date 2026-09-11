@@ -215,10 +215,29 @@ end
 -- =========================================================================
 -- Glove Equipping & Arena Entry Helpers
 -- =========================================================================
+local function resetToLobby()
+    local char = getCharacter()
+    local hum = getHumanoid()
+    if hum and hum.Health > 0 then
+        pcall(function() hum.Health = 0 end)
+        task.wait(3.5)
+    end
+end
+
 local function autoEquipGlove(gloveName)
     local cur = getCurrentGlove()
     if cur and cur:lower() == gloveName:lower() then
         return true
+    end
+
+    -- SAFETY CHECK: If player is in the Arena, DO NOT touch glove clickdetectors (prevents game kick!)
+    if not isInLobby() then
+        Hub.notify({
+            Title = "Returning to Lobby",
+            Content = "Resetting character to safely equip " .. gloveName .. " in Lobby...",
+            Duration = 3
+        })
+        resetToLobby()
     end
 
     local lobby = Workspace:FindFirstChild("Lobby")
@@ -233,7 +252,7 @@ local function autoEquipGlove(gloveName)
             local cd = stand:FindFirstChildWhichIsA("ClickDetector", true)
             if cd then
                 fireclickdetector(cd)
-                task.wait(0.4)
+                task.wait(0.5)
             end
         end
     end
@@ -247,7 +266,13 @@ local function enterArena()
         or Workspace:FindFirstChild("Teleport1")
     local root = getRoot()
     if portal and root then
-        root.CFrame = portal.CFrame + Vector3.new(0, 2, 0)
+        root.CFrame = portal.CFrame
+        if firetouchinterest then
+            pcall(function()
+                firetouchinterest(root, portal, 0)
+                firetouchinterest(root, portal, 1)
+            end)
+        end
         task.wait(1.5)
     end
 end
@@ -255,35 +280,42 @@ end
 local function ensureEquippedAndInArena(gloveName)
     local cur = getCurrentGlove()
     if cur:lower() ~= gloveName:lower() then
-        Hub.notify({
-            Title = "Equipping " .. gloveName,
-            Content = "Checking glove stand in Lobby...",
-            Duration = 3
-        })
         local equipped = autoEquipGlove(gloveName)
         if not equipped then
             Hub.notify({
                 Title = "⚠️ Glove Locked / Not Equipped",
-                Content = "Please equip [" .. gloveName .. "] glove first!",
+                Content = "Could not equip [" .. gloveName .. "]. Please make sure you own it!",
                 Duration = 5
             })
             return false
         end
+        task.wait(0.5)
     end
 
-    -- If in lobby, enter arena first
+    -- If in lobby, step through arena portal
     if isInLobby() then
         Hub.notify({
             Title = "Entering Arena",
-            Content = "Stepping through Arena portal with " .. gloveName .. "...",
+            Content = "Entering Arena with " .. gloveName .. "...",
             Duration = 3
         })
         enterArena()
         task.wait(1)
     end
 
-    -- Once in arena, move to Safe Zone
+    -- Equip tool from Backpack if not already holding it
+    local char = getCharacter()
+    local tool = LocalPlayer.Backpack:FindFirstChild(gloveName) or (char and char:FindFirstChild(gloveName))
+    if tool and tool.Parent == LocalPlayer.Backpack and char and char:FindFirstChildWhichIsA("Humanoid") then
+        pcall(function()
+            char.Humanoid:EquipTool(tool)
+        end)
+        task.wait(0.4)
+    end
+
+    -- Teleport to Safe Zone
     teleportToSafeZone()
+    task.wait(0.5)
     return true
 end
 
@@ -494,54 +526,156 @@ Hub.CreateButton(badgeTab, "🚪 Auto-Get Elude Glove (Keypad & Relics)", functi
     end)
 end)
 
--- Auto-Counter Glove Solver (Lever & Evade Pim)
-Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Lever & Evade)", function()
+-- Auto-Counter Glove Solver (Teleport to Maze -> Auto-Solve in Maze)
+Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Teleport & Solve)", function()
     task.spawn(function()
-        local isEludeMaze = (game.PlaceId == 9426795465) or (Workspace:FindFirstChild("Maze") ~= nil) or (Workspace:FindFirstChild("Pim") ~= nil)
+        local isEludeMaze = (game.PlaceId == 9426795465) or (Workspace:FindFirstChild("Maze") ~= nil) or (Workspace:FindFirstChild("Pim") ~= nil) or (Workspace:FindFirstChild("RoomsFolder") ~= nil)
 
         if not isEludeMaze then
+            -- In Main Arena: Teleport the player directly to the Elude Maze place
+            local pCount = #Players:GetPlayers()
+            local code = (pCount * 25) + 1100 - 7
+
             Hub.notify({
-                Title = "⚠️ Not In Elude Maze",
-                Content = "The Counter Lever is inside Elude Maze (Place 9426795465). Use Auto-Elude first to teleport in!",
-                Duration = 6
+                Title = "Counter Solver (Phase 1)",
+                Content = "Solving Keypad (" .. tostring(code) .. ") to teleport you into the Elude Maze...",
+                Duration = 5
             })
+
+            local keypad = Workspace:FindFirstChild("Keypad")
+            if keypad and keypad:FindFirstChild("Buttons") then
+                local root = getRoot()
+                if root and keypad:FindFirstChild("Display") then
+                    root.CFrame = keypad.Display.CFrame + Vector3.new(0, 0, -4)
+                    task.wait(0.4)
+                end
+
+                local buttons = keypad.Buttons
+                if buttons:FindFirstChild("Reset") and buttons.Reset:FindFirstChildWhichIsA("ClickDetector") then
+                    fireclickdetector(buttons.Reset:FindFirstChildWhichIsA("ClickDetector"))
+                    task.wait(0.25)
+                end
+
+                for digit in tostring(code):gmatch(".") do
+                    local btn = buttons:FindFirstChild(digit)
+                    if btn and btn:FindFirstChildWhichIsA("ClickDetector") then
+                        fireclickdetector(btn:FindFirstChildWhichIsA("ClickDetector"))
+                        task.wait(0.2)
+                    end
+                end
+
+                if buttons:FindFirstChild("Enter") and buttons.Enter:FindFirstChildWhichIsA("ClickDetector") then
+                    fireclickdetector(buttons.Enter:FindFirstChildWhichIsA("ClickDetector"))
+                end
+
+                if ReplicatedStorage:FindFirstChild("TeleportElude") then
+                    pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
+                end
+
+                Hub.notify({
+                    Title = "Teleporting to Elude Maze...",
+                    Content = "When you load into the Elude Maze place, execute the script again for full Auto-Counter!",
+                    Duration = 8
+                })
+            else
+                if ReplicatedStorage:FindFirstChild("TeleportElude") then
+                    pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
+                    Hub.notify({
+                        Title = "Teleporting...",
+                        Content = "Dispatched TeleportElude to send you to the maze.",
+                        Duration = 5
+                    })
+                else
+                    Hub.notify({
+                        Title = "Counter Solver",
+                        Content = "Keypad not ready. Please try again in a moment.",
+                        Duration = 4
+                    })
+                end
+            end
             return
         end
 
+        -- INSIDE ELUDE MAZE: Automated Lever Pull + Safe Zone Evade + Relic Claim
         Hub.notify({
-            Title = "Counter Glove",
-            Content = "Searching for secret counter lever...",
+            Title = "Counter Solver (Inside Maze)",
+            Content = "Searching for secret lever in maze...",
             Duration = 3
         })
 
-        local lever = Workspace:FindFirstChild("CounterLever", true) 
-            or Workspace:FindFirstChild("Lever", true)
-            or Workspace:FindFirstChild("SecretLever", true)
+        local leverPart = nil
+        local leverDetector = nil
 
-        if lever then
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ClickDetector") then
+                local p = desc.Parent
+                if p and (p.Name:lower():find("lever") or p.Name:lower():find("counter") or p.Name:lower():find("secret") or p.Name:lower():find("switch")) then
+                    leverPart = p
+                    leverDetector = desc
+                    break
+                end
+            end
+        end
+
+        if not leverDetector then
+            local fallback = Workspace:FindFirstChild("CounterLever", true) or Workspace:FindFirstChild("Lever", true) or Workspace:FindFirstChild("SecretLever", true)
+            if fallback then
+                leverPart = fallback:IsA("BasePart") and fallback or fallback:FindFirstChildWhichIsA("BasePart", true)
+                leverDetector = fallback:FindFirstChildWhichIsA("ClickDetector", true)
+            end
+        end
+
+        if leverDetector and leverPart then
             local root = getRoot()
             if root then
-                root.CFrame = (lever:IsA("BasePart") and lever.CFrame or lever:GetPivot()) + Vector3.new(0, 2, 0)
-                task.wait(0.4)
-                local detector = lever:FindFirstChildWhichIsA("ClickDetector", true)
-                if detector then
-                    fireclickdetector(detector)
-                end
-                Hub.notify({
-                    Title = "Counter Glove",
-                    Content = "Lever activated! Moving to safe elevation to evade Pim...",
-                    Duration = 5
-                })
-                task.wait(0.5)
-                root.CFrame = root.CFrame + Vector3.new(0, 40, 0)
+                root.CFrame = (leverPart:IsA("BasePart") and leverPart.CFrame or leverPart:GetPivot()) + Vector3.new(0, 2, 0)
+                task.wait(0.3)
+                fireclickdetector(leverDetector)
+                task.wait(0.2)
+                fireclickdetector(leverDetector)
             end
+
+            Hub.notify({
+                Title = "Counter Lever Activated!",
+                Content = "Lever pulled! Teleporting to Safe Zone to evade Pim and wait for Counter Relic...",
+                Duration = 5
+            })
         else
             Hub.notify({
-                Title = "Counter Glove",
-                Content = "Lever not found in maze!",
+                Title = "Counter Lever",
+                Content = "Lever wasn't found (random spawn). Teleporting to Safe Zone anyway...",
                 Duration = 4
             })
         end
+
+        -- Move to the standard unified Sky Safe Zone
+        teleportToSafeZone()
+
+        -- Auto-Claim Counter Relic listener
+        task.spawn(function()
+            local found = false
+            for i = 1, 150 do
+                task.wait(1)
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and (obj.Name:lower():find("counter") or obj.Name:lower():find("glove") or obj.Name:lower():find("relic")) and obj.Parent and obj.Parent.Name ~= "Lobby" then
+                        if obj.Name:lower():find("counter") then
+                            local r = getRoot()
+                            if r then
+                                r.CFrame = obj.CFrame + Vector3.new(0, 2, 0)
+                                Hub.notify({
+                                    Title = "🏆 Counter Glove Claimed!",
+                                    Content = "Touched Counter Relic / Pedestal!",
+                                    Duration = 8
+                                })
+                                found = true
+                                break
+                            end
+                        end
+                    end
+                end
+                if found then break end
+            end
+        end)
     end)
 end)
 
@@ -606,7 +740,7 @@ Hub.CreateToggle(badgeTab, "🪨 Auto-Megarock (Diamond -> Arena -> Safe Zone)",
                 return
             end
 
-            task.wait(0.8)
+            task.wait(0.5)
             activateAbility("Rockmode")
             Hub.notify({
                 Title = "Auto-Megarock Active",
@@ -634,7 +768,7 @@ Hub.CreateToggle(badgeTab, "🐟 Auto-Fish (ZZZZZZZ -> Arena -> Sleep Safe Zone)
                 return
             end
 
-            task.wait(0.8)
+            task.wait(0.5)
             activateAbility("ZZZZZZZSleep")
             Hub.notify({
                 Title = "Auto-Fish Active",
@@ -688,7 +822,7 @@ Hub.CreateToggle(badgeTab, "👻 Auto-Voodoo (Ghost -> Arena -> Invisibility Saf
                 return
             end
 
-            task.wait(0.8)
+            task.wait(0.5)
             activateAbility("Ghostinvisibilityactivated")
             Hub.notify({
                 Title = "Auto-Voodoo Active",
@@ -710,22 +844,6 @@ task.spawn(function()
     while true do
         task.wait(1.5)
 
-        -- Fish Sleep Maintainer
-        if state.AutoFish then
-            local hum = getHumanoid()
-            if hum and hum.Health > 0 then
-                activateAbility("ZZZZZZZSleep")
-            end
-        end
-
-        -- Megarock Rock Maintainer
-        if state.AutoMegarock then
-            local char = getCharacter()
-            if char and not char:FindFirstChild("Rock") and not char:FindFirstChild("Megarock") then
-                activateAbility("Rockmode")
-            end
-        end
-
         -- Trap Brick Spamming (Cooldown ~1.5s)
         if state.AutoTrap then
             activateAbility("lbrick")
@@ -744,11 +862,6 @@ task.spawn(function()
                     Duration = 8
                 })
             end
-        end
-
-        -- Voodoo Ghost Maintainer
-        if state.AutoVoodoo then
-            activateAbility("Ghostinvisibilityactivated")
         end
     end
 end)
