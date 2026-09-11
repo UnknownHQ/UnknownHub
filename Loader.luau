@@ -27,6 +27,7 @@ local SupportedGames = {
         name = "Slap Battles",
         icon = "🥊",
         placeIds = { 6403373529, 9431156611, 11520107397, 9426795465, 124596094333302 },
+        gameIds = { 2340706818 },
         scriptUrl = BASE_URL .. "/Games/SlapBattles.luau",
         desc = "Slap aura, anti-ragdoll, godmode, badges & glove farm"
     },
@@ -54,10 +55,18 @@ local SupportedGames = {
 }
 
 local function findSupportedGame(pId)
+    local curGameId = game.GameId
     for _, gameData in ipairs(SupportedGames) do
         for _, id in ipairs(gameData.placeIds) do
             if id == pId then
                 return gameData
+            end
+        end
+        if gameData.gameIds and curGameId and curGameId > 0 then
+            for _, gId in ipairs(gameData.gameIds) do
+                if gId == curGameId then
+                    return gameData
+                end
             end
         end
     end

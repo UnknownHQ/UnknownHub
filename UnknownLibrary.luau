@@ -6620,7 +6620,7 @@ return function(opts)
             {
                 name = "🥊 Slap Battles",
                 desc = "Slap aura, anti-ragdoll, godmode, badges & glove farm",
-                placeIds = { 6403373529, 9431156611, 11520107397, 9426795465 },
+                placeIds = { 6403373529, 9431156611, 11520107397, 9426795465, 124596094333302 },
                 teleportPlaceId = 6403373529,
                 url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/SlapBattles.luau"
             },
