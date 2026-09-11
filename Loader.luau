@@ -26,7 +26,7 @@ local SupportedGames = {
     {
         name = "Slap Battles",
         icon = "🥊",
-        placeIds = { 6403373529, 9431156611, 11520107397, 9426795465 },
+        placeIds = { 6403373529, 9431156611, 11520107397, 9426795465, 124596094333302 },
         scriptUrl = BASE_URL .. "/Games/SlapBattles.luau",
         desc = "Slap aura, anti-ragdoll, godmode, badges & glove farm"
     },
