@@ -5966,9 +5966,13 @@ return function(opts)
                 hubState.playSfx()
                 hubState.triggerHaptic(0.5)
                 hubState.isChromaEnabled = false
+                hubState.currentThemeColor = pData[2]
+                hubState.secondaryThemeColor = pData[3]
                 hubState.applyTheme(pData[2], pData[3])
-                color1 = pData[2]
-                color2 = pData[3]
+                hubState.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
+                    hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
+                    hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
+                )
                 refreshUI()
             end)
         end
@@ -6764,7 +6768,7 @@ return function(opts)
         hubState.errorOverlay.Size = UDim2.new(1, 0, 1, 0)
         hubState.errorOverlay.BackgroundColor3 = Color3.fromRGB(5, 7, 12)
         hubState.errorOverlay.BackgroundTransparency = 0.25
-        errorOverlay.BorderSizePixel = 0
+        hubState.errorOverlay.BorderSizePixel = 0
         hubState.errorOverlay.ZIndex = 120
         hubState.errorOverlay.Parent = hubState.screenGui
 
