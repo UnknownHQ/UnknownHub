@@ -3851,7 +3851,7 @@ return function(opts)
     local notifBtn = Instance.new("TextButton")
     notifBtn.Name = "NotificationBtn"
     notifBtn.Size = UDim2.new(0, 26, 0, 26)
-    notifBtn.Position = UDim2.new(1, -226, 0.5, -13)
+    notifBtn.Position = UDim2.new(1, -194, 0.5, -13)
     notifBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
     notifBtn.Text = "🔔"
     notifBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
@@ -5791,7 +5791,7 @@ return function(opts)
         c1Btn.Size = UDim2.new(0.5, -2, 1, -2)
         c1Btn.Position = UDim2.new(0, 1, 0, 1)
         c1Btn.BackgroundColor3 = hubState.currentThemeColor
-        c1Btn.Text = "1st Color (Left)"
+        c1Btn.Text = "1st Color"
         c1Btn.TextColor3 = Color3.fromRGB(10, 15, 24)
         c1Btn.Font = Enum.Font.GothamBold
         c1Btn.TextSize = 10
@@ -5802,7 +5802,7 @@ return function(opts)
         c2Btn.Size = UDim2.new(0.5, -2, 1, -2)
         c2Btn.Position = UDim2.new(0.5, 1, 0, 1)
         c2Btn.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
-        c2Btn.Text = "2nd Color (Right)"
+        c2Btn.Text = "2nd Color"
         c2Btn.TextColor3 = Color3.fromRGB(180, 195, 220)
         c2Btn.Font = Enum.Font.GothamBold
         c2Btn.TextSize = 10
@@ -5926,7 +5926,7 @@ return function(opts)
         presetLabel.Size = UDim2.new(1, -210, 0, 16)
         presetLabel.Position = UDim2.new(0, 200, 0, 100)
         presetLabel.BackgroundTransparency = 1
-        presetLabel.Text = "Dual Split Presets (16 Themes):"
+        presetLabel.Text = "Dual Split Presets:"
         presetLabel.TextColor3 = Color3.fromRGB(150, 160, 180)
         presetLabel.Font = Enum.Font.GothamBold
         presetLabel.TextSize = 10
@@ -6481,7 +6481,7 @@ return function(opts)
             end
         end
 
-        hubState.createToggle(hubState.universalTabPage, "24/7 Anti-AFK (No 20-Min Kick)", true, function(enabled)
+        hubState.createToggle(hubState.universalTabPage, "24/7 Anti-AFK", true, function(enabled)
             toggleAntiAfk(enabled)
         end)
         toggleAntiAfk(true)
@@ -6548,7 +6548,7 @@ return function(opts)
             end
         end
 
-        hubState.createToggle(hubState.universalTabPage, "Persistent Auto-Rejoin (Retry on Kick/Error)", true, function(enabled)
+        hubState.createToggle(hubState.universalTabPage, "Persistent Auto-Rejoin", true, function(enabled)
             toggleAutoRejoin(enabled)
         end)
         toggleAutoRejoin(true)
@@ -6605,11 +6605,11 @@ return function(opts)
             end
         end
 
-        hubState.createToggle(hubState.universalTabPage, "Potato Mode (Low CPU/GPU & Shadows Off)", false, function(enabled)
+        hubState.createToggle(hubState.universalTabPage, "Potato Mode", false, function(enabled)
             togglePotatoMode(enabled)
         end)
 
-        hubState.createToggle(hubState.universalTabPage, "Disable 3D Rendering (AFK GPU 0%)", false, function(enabled)
+        hubState.createToggle(hubState.universalTabPage, "Disable 3D Rendering", false, function(enabled)
             pcall(function()
                 RunService:Set3dRenderingEnabled(not enabled)
             end)

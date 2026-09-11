@@ -406,11 +406,11 @@ CreateToggle(Pages["🌐 Main & Movement"], "⚡ Stealth CFrame Wall-Bypass Nocl
     end
 end)
 
-CreateToggle(Pages["🌐 Main & Movement"], "Ctrl + Click TP (Mouse Teleport)", 103, function(state)
+CreateToggle(Pages["🌐 Main & Movement"], "Ctrl + Click TP", 103, function(state)
     getgenv().ENI_CtrlClickTP = state
 end)
 
-CreateButton(Pages["🌐 Main & Movement"], "⚡ Teleport to Map Roof (Exact Surface Safe)", 140, function()
+CreateButton(Pages["🌐 Main & Movement"], "⚡ Teleport to Map Roof", 140, function()
     pcall(function()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -448,7 +448,7 @@ end)
 
 local savedLighting = nil
 
-CreateToggle(Pages["🌐 Main & Movement"], "☀️ Fullbright & Remove Dark Fog (Night & Lights Out)", 220, function(state)
+CreateToggle(Pages["🌐 Main & Movement"], "☀️ Fullbright & Remove Dark Fog", 220, function(state)
     getgenv().ENI_Fullbright = state
     local lighting = game:GetService("Lighting")
     if state then
@@ -535,7 +535,7 @@ CreateToggle(Pages["🌐 Main & Movement"], "☀️ Fullbright & Remove Dark Fog
     end
 end)
 
-CreateToggle(Pages["🌐 Main & Movement"], "⚡ Instant Proximity Prompt Interactor (Zero-Hold Duration)", 260, function(state)
+CreateToggle(Pages["🌐 Main & Movement"], "⚡ Instant Proximity Prompt Interactor", 260, function(state)
     getgenv().ENI_InstantPrompts = state
     if state then
         RegisterThread(task.spawn(function()
@@ -576,7 +576,7 @@ local function ClearAllTracers()
     getgenv().ENI_TracersList = {}
 end
 
-CreateToggle(Pages["👁️ ESP & Visuals"], "⚡ Enable ESP (Master Toggle)", 5, function(state)
+CreateToggle(Pages["👁️ ESP & Visuals"], "⚡ Enable ESP", 5, function(state)
     getgenv().ENI_MasterESP = state
     if not state then
         if GeneralEspStorage then
@@ -604,7 +604,7 @@ local ListHeader = Instance.new("TextLabel")
 ListHeader.Size = UDim2.new(1, -15, 0, 30)
 ListHeader.Position = UDim2.new(0, 12, 0, 5)
 ListHeader.BackgroundTransparency = 1
-ListHeader.Text = "📋 Select Active ESP Elements (Multi-Checklist):"
+ListHeader.Text = "📋 Select Active ESP Elements:"
 ListHeader.TextColor3 = Color3.fromRGB(255, 180, 200)
 ListHeader.Font = Enum.Font.GothamBold
 ListHeader.TextSize = 12
@@ -807,7 +807,7 @@ RegisterThread(task.spawn(function()
     end
 end))
 
-CreateButton(Pages["🌐 Universal & ESP"], "⚡ Teleport to Map Roof (Exact Surface Safe)", 180, function()
+CreateButton(Pages["🌐 Universal & ESP"], "⚡ Teleport to Map Roof", 180, function()
     pcall(function()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -846,7 +846,7 @@ CreateButton(Pages["🌐 Universal & ESP"], "⚡ Teleport to Map Roof (Exact Sur
     end)
 end)
 
-CreateButton(Pages["🌐 Universal & ESP"], "⚡ Teleport to Lobby (Lights Out Safe)", 220, function()
+CreateButton(Pages["🌐 Universal & ESP"], "⚡ Teleport to Lobby", 220, function()
     pcall(function()
         local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -868,7 +868,7 @@ CreateButton(Pages["🌐 Universal & ESP"], "⚡ Teleport to Lobby (Lights Out S
     end)
 end)
 
-CreateButton(Pages["🌐 Universal & ESP"], "🚨 EMERGENCY FORCE UNFREEZE RESCUE (Mingle & Minigames)", 260, function()
+CreateButton(Pages["🌐 Universal & ESP"], "🚨 EMERGENCY FORCE UNFREEZE RESCUE", 260, function()
     pcall(function()
         local char = LocalPlayer.Character
         if char then
@@ -906,7 +906,7 @@ end)
 local BalloonEspStorage = CoreGui:FindFirstChild("ENI_Balloon_ESP") or Instance.new("Folder", CoreGui)
 BalloonEspStorage.Name = "ENI_Balloon_ESP"
 
-CreateToggle(Pages["👁️ ESP & Visuals"], "🎈 Sky Balloon ESP (Red Highlight & Distance Tag)", 320, function(state)
+CreateToggle(Pages["👁️ ESP & Visuals"], "🎈 Sky Balloon ESP", 320, function(state)
     getgenv().ENI_BalloonESP = state
     if state then
         RegisterThread(task.spawn(function()
@@ -955,7 +955,7 @@ CreateToggle(Pages["👁️ ESP & Visuals"], "🎈 Sky Balloon ESP (Red Highligh
     end
 end)
 
-CreateToggle(Pages["🌐 Main & Movement"], "🎈 Proximity Balloon Auto-Pop (Strict 15-Stud Range)", 300, function(state)
+CreateToggle(Pages["🌐 Main & Movement"], "🎈 Proximity Balloon Auto-Pop", 300, function(state)
     getgenv().ENI_AutoPopBalloons = state
     if state then
         RegisterThread(task.spawn(function()
@@ -1224,11 +1224,11 @@ local function GetSelectedTargetHead()
     return closestHead
 end
 
-CreateToggle(Pages["🎯 Melee & Guns"], "🔫 Silent Aimbot (Hold M1 / M2)", 50, function(state)
+CreateToggle(Pages["🎯 Melee & Guns"], "🔫 Silent Aimbot", 50, function(state)
     getgenv().ENI_SilentAimbot = state
 end)
 
-CreateToggle(Pages["🎯 Melee & Guns"], "⚡ Ultra Rapid Fire Loop (Bypass Delays & Fire Rate)", 93, function(state)
+CreateToggle(Pages["🎯 Melee & Guns"], "⚡ Ultra Rapid Fire Loop", 93, function(state)
     getgenv().ENI_RapidFireActive = state
     if state then
         RegisterThread(task.spawn(function()
@@ -1377,7 +1377,7 @@ RegisterConnection(RunService.RenderStepped:Connect(function()
     end)
 end))
 
-CreateToggle(Pages["🎯 Melee & Guns"], "♾️ Infinite Ammo & Zero Reload (RLGL Guard Sniper & Guns)", 93, function(state)
+CreateToggle(Pages["🎯 Melee & Guns"], "♾️ Infinite Ammo & Zero Reload", 93, function(state)
     getgenv().ENI_InfiniteAmmoRLGL = state
     if not state then
         getgenv().ENI_InfiniteAmmoRLGL = false
@@ -1560,7 +1560,7 @@ CreateButton(Pages["🔺 Red Light Green Light"], "⚡ Teleport to RLGL Tree / D
     end)
 end)
 
-CreateToggle(Pages["🔺 Red Light Green Light"], "⚡ Auto-Win RLGL (Auto-TP to Doll when game starts)", 91, function(state)
+CreateToggle(Pages["🔺 Red Light Green Light"], "⚡ Auto-Win RLGL", 91, function(state)
     getgenv().ENI_AutoRLGL = state
     if state then
         RegisterThread(task.spawn(function()
@@ -1586,7 +1586,7 @@ CreateToggle(Pages["🔺 Red Light Green Light"], "⚡ Auto-Win RLGL (Auto-TP to
     end
 end)
 
-CreateButton(Pages["🍪 Dalgona Cookie"], "⚡ Hook 1B Dalgona Lighter (Instantly Heats Cookie)", 5, function()
+CreateButton(Pages["🍪 Dalgona Cookie"], "⚡ Hook 1B Dalgona Lighter", 5, function()
     pcall(function()
         local attrs = {"HasLighter", "LighterEquipped", "DalgonaLighter", "LighterUnlocked", "NeedleLighter", "HeatNeedle", "OwnsLighter", "UseLighter"}
         for _, a in ipairs(attrs) do
@@ -1619,7 +1619,7 @@ CreateButton(Pages["🍪 Dalgona Cookie"], "⚡ Hook 1B Dalgona Lighter (Instant
     end)
 end)
 
-CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Dalgona Safe Uncrackable Godmode (Needle & Crack Immunity)", 48, function(state)
+CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Dalgona Safe Uncrackable Godmode", 48, function(state)
     getgenv().ENI_DalgonaGodmode = state
     if state then
         RegisterThread(task.spawn(function()
@@ -1674,7 +1674,7 @@ CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Dalgona Safe Uncrackable Godmode
     end
 end)
 
-CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Perfect Auto Cookie Carver (Auto Needle Follower)", 91, function(state)
+CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Perfect Auto Cookie Carver", 91, function(state)
     getgenv().ENI_DalgonaAutoCarve = state
     if state then
         RegisterThread(task.spawn(function()
@@ -1725,7 +1725,7 @@ CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Perfect Auto Cookie Carver (Auto
     end
 end)
 
-CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Auto-Breathing & Lighter Heat Engine (Dual Mode)", 134, function(state)
+CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Auto-Breathing & Lighter Heat Engine", 134, function(state)
     getgenv().ENI_DalgonaBreathing = state
     if state then
         RegisterThread(task.spawn(function()
@@ -1996,7 +1996,7 @@ CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Jump-Rope Perfect A / D Balance
     end
 end)
 
-CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Reflex Rush (Click 3D Blue Circles & Targets)", 100, function(state)
+CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Reflex Rush", 100, function(state)
     getgenv().ENI_AutoReflexRush = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2129,7 +2129,7 @@ CreateToggle(Pages["🪨 Marbles & QTE"], "⚡ 100% Instant Auto-QTE Solver", 5,
     end
 end)
 
-CreateButton(Pages["🪨 Marbles & QTE"], "🔍 Dump Active Minigame UI Hierarchy to Console (F9)", 12, function()
+CreateButton(Pages["🪨 Marbles & QTE"], "🔍 Dump Active Minigame UI Hierarchy", 12, function()
     pcall(function()
         print("--------------------------------------------------")
         print("⚡ [ENI-DUMPER] Scanning PlayerGui for active minigame GUIs...")
@@ -2183,7 +2183,7 @@ CreateButton(Pages["🪨 Marbles & QTE"], "🔍 Dump Active Minigame UI Hierarch
     end)
 end)
 
-CreateToggle(Pages["🪨 Marbles & QTE"], "🎯 Universal Auto Space Bar Minigame Solver (Old & New Versions + Text Prompt Detector)", 48, function(state)
+CreateToggle(Pages["🪨 Marbles & QTE"], "🎯 Universal Auto Space Bar Minigame Solver", 48, function(state)
     getgenv().ENI_AutoSpaceLineMinigame = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2324,7 +2324,7 @@ end)
 
 local StealthStorage = CoreGui:FindFirstChild("ENI_Glass_Storage") or Instance.new("Folder", CoreGui)
 StealthStorage.Name = "ENI_Glass_Storage"
-CreateToggle(Pages["🧱 Glass Bridge"], "⚡ Glass Bridge ESP (Safe Green / Fake Red)", 5, function(state)
+CreateToggle(Pages["🧱 Glass Bridge"], "⚡ Glass Bridge ESP", 5, function(state)
     getgenv().ENI_GlassESP = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2423,7 +2423,7 @@ CreateButton(Pages["🙈 Hide & Seek"], "🧹 Clean All Spoofed Keys From Backpa
     end)
 end)
 
-CreateButton(Pages["🙈 Hide & Seek"], "⚡ Instant Unlock All Nearby Doors (Far-Range)", 48, function()
+CreateButton(Pages["🙈 Hide & Seek"], "⚡ Instant Unlock All Nearby Doors", 48, function()
     pcall(function()
         for _, prompt in ipairs(workspace:GetDescendants()) do
             if prompt:IsA("ProximityPrompt") and (prompt.Name:find("Door") or prompt.Name:find("Key") or prompt.Name:find("Unlock") or (prompt.Parent and (prompt.Parent.Name:find("Door") or prompt.Parent.Name:find("Key")))) then
@@ -2473,7 +2473,7 @@ CreateToggle(Pages["🙈 Hide & Seek"], "⚡ Reveal Invisible Landmine Traps", 9
 end)
 local HNSEspStorage = CoreGui:FindFirstChild("ENI_HNS_ESP") or Instance.new("Folder", CoreGui)
 HNSEspStorage.Name = "ENI_HNS_ESP"
-CreateToggle(Pages["🙈 Hide & Seek"], "⚡ Hide & Seek Player ESP (Hiders/Seekers)", 91, function(state)
+CreateToggle(Pages["🙈 Hide & Seek"], "⚡ Hide & Seek Player ESP", 91, function(state)
     getgenv().ENI_HNSEsp = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2608,7 +2608,7 @@ end)
 local GuardNpcEspStorage = CoreGui:FindFirstChild("ENI_GuardNPC_ESP") or Instance.new("Folder", CoreGui)
 GuardNpcEspStorage.Name = "ENI_GuardNPC_ESP"
 
-CreateToggle(Pages["👮 Guard & Surgery"], "👮 Rebel Mode: Guard NPC ESP (Highlight & Distance)", 5, function(state)
+CreateToggle(Pages["👮 Guard & Surgery"], "👮 Rebel Mode: Guard NPC ESP", 5, function(state)
     getgenv().ENI_GuardNPCEsp = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2738,7 +2738,7 @@ CreateToggle(Pages["👮 Guard & Surgery"], "🤖 AI Guard Total Blindness & Bra
     end
 end)
 
-CreateButton(Pages["👮 Guard & Surgery"], "🟥 Free Square Guard Role Unlocker (Instant Free Access)", 5, function()
+CreateButton(Pages["👮 Guard & Surgery"], "🟥 Free Square Guard Role Unlocker", 5, function()
     pcall(function()
         -- 1. LocalPlayer & Character Attribute Spoofing
         local attrs = {
@@ -2858,7 +2858,7 @@ CreateToggle(Pages["🛡️ Protections"], "⚡ Ultra Instinct Auto Dodge", 5, f
         getgenv().ENI_AutoDodge = false
     end
 end)
-CreateToggle(Pages["🛡️ Protections"], "⚡ Admin Boss Immunity (Delete Rocks)", 48, function(state)
+CreateToggle(Pages["🛡️ Protections"], "⚡ Admin Boss Immunity", 48, function(state)
     getgenv().ENI_BossImmunity = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2871,7 +2871,7 @@ CreateToggle(Pages["🛡️ Protections"], "⚡ Admin Boss Immunity (Delete Rock
         getgenv().ENI_BossImmunity = false
     end
 end)
-CreateToggle(Pages["🛡️ Protections"], "⚡ Stun, InCombat & ActionCheck Bypass (Safe Physics Sync)", 91, function(state)
+CreateToggle(Pages["🛡️ Protections"], "⚡ Stun, InCombat & ActionCheck Bypass", 91, function(state)
     getgenv().ENI_StunBypass = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2903,7 +2903,7 @@ CreateToggle(Pages["🛡️ Protections"], "⚡ Stun, InCombat & ActionCheck Byp
     end
 end)
 
-CreateButton(Pages["🛡️ Protections"], "🚨 EMERGENCY FORCE UNFREEZE RESCUE (Mingle & Minigame)", 134, function()
+CreateButton(Pages["🛡️ Protections"], "🚨 EMERGENCY FORCE UNFREEZE RESCUE", 134, function()
     pcall(function()
         local char = LocalPlayer.Character
         if char then
@@ -2935,7 +2935,7 @@ CreateButton(Pages["🛡️ Protections"], "🚨 EMERGENCY FORCE UNFREEZE RESCUE
     end)
 end)
 
-CreateToggle(Pages["🛡️ Protections"], "⚡ Anti-Screen Freeze FPS Guard (Safe Physics Sync)", 180, function(state)
+CreateToggle(Pages["🛡️ Protections"], "⚡ Anti-Screen Freeze FPS Guard", 180, function(state)
     getgenv().ENI_AntiScreenFreeze = state
     if state then
         RegisterThread(task.spawn(function()
@@ -2968,7 +2968,7 @@ CreateToggle(Pages["🛡️ Protections"], "⚡ Anti-Screen Freeze FPS Guard (Sa
     end
 end)
 
-CreateToggle(Pages["🛡️ Protections"], "🛠️ Live Crash Debugger & Memory Monitor (Log Heap & Thread Stack)", 220, function(state)
+CreateToggle(Pages["🛡️ Protections"], "🛠️ Live Crash Debugger & Memory Monitor", 220, function(state)
     getgenv().ENI_CrashDebugger = state
     if state then
         RegisterThread(task.spawn(function()
@@ -3056,7 +3056,7 @@ RegisterConnection(UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end))
 
-CreateButton(Pages["⚡ Secret Exploits & Remotes"], "👑 Full Gamepass Unlocker (VIP + 2x Vote + Glass + Perm Guard)", 5, function()
+CreateButton(Pages["⚡ Secret Exploits & Remotes"], "👑 Full Gamepass Unlocker", 5, function()
     pcall(function()
         getgenv().ENI_UniversalGamepassSpoof = true
 
@@ -3186,7 +3186,7 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "🎨 Unlock VIP Custom Clo
     end)
 end)
 
-CreateButton(Pages["⚡ Secret Exploits & Remotes"], "✨ Unlock VIP Special Ability (Phantom Dash / Speed Surge)", 91, function()
+CreateButton(Pages["⚡ Secret Exploits & Remotes"], "✨ Unlock VIP Special Ability", 91, function()
     pcall(function()
         LocalPlayer:SetAttribute("VIPAbilityUnlocked", true)
         LocalPlayer:SetAttribute("HasVIPAbility", true)
@@ -3208,7 +3208,7 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "✨ Unlock VIP Special Abi
     end)
 end)
 
-CreateButton(Pages["⚡ Secret Exploits & Remotes"], "🗳️ Unlock 2x Vote Gamepass (Forces Double Vote Power)", 134, function()
+CreateButton(Pages["⚡ Secret Exploits & Remotes"], "🗳️ Unlock 2x Vote Gamepass", 134, function()
     pcall(function()
         LocalPlayer:SetAttribute("__Owns2XVoteGamepass", true)
         LocalPlayer:SetAttribute("DoubleVote", true)

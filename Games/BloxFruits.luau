@@ -425,9 +425,9 @@ do
     end
 
     CreateButton(serverPage, "🔄 Rejoin Same Server", nil, function() _G.ENI_SmartServerHop("rejoin") end)
-    CreateButton(serverPage, "📉 Hop to Lowest Player Server (1-3 Players)", nil, function() _G.ENI_SmartServerHop("lowest") end)
-    CreateButton(serverPage, "⏳ Hop to Oldest Server (4h+ / Rich Spawns)", nil, function() _G.ENI_SmartServerHop("oldest") end)
-    CreateButton(serverPage, "⚡ Hop to Freshest Server (Low Ping)", nil, function() _G.ENI_SmartServerHop("freshest") end)
+    CreateButton(serverPage, "📉 Hop to Lowest Player Server", nil, function() _G.ENI_SmartServerHop("lowest") end)
+    CreateButton(serverPage, "⏳ Hop to Oldest Server", nil, function() _G.ENI_SmartServerHop("oldest") end)
+    CreateButton(serverPage, "⚡ Hop to Freshest Server", nil, function() _G.ENI_SmartServerHop("freshest") end)
 
     -- Job ID Box & Controls
     local jobIdBox = Instance.new("TextBox")
@@ -859,7 +859,7 @@ local fastAttackTargets = {"NPCs", "Players", "Everyone"}
 -- FARM PAGE LAYOUT & CONTROLS
 do
     -- 1. Master Auto Farm Engine
-    local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm Engine (Level / Quest Farm)", false, function(newState)
+    local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm Engine", false, function(newState)
         isFarmOn = newState
         if isFarmOn then
             _G.startENIFarm()
@@ -905,7 +905,7 @@ do
     end
 
     -- 3. Auto Quest Mode
-    createSliderToggle(farmPage, "Auto Take Quest (Quest Mode)", true, function(newState)
+    createSliderToggle(farmPage, "Auto Take Quest", true, function(newState)
         isAutoQuestOn = newState
     end, "AutoQuest")
 
@@ -943,8 +943,8 @@ do
         end)
     end
 
-    -- 5. Auto Buso Haki (Armament Aura)
-    createSliderToggle(farmPage, "Auto Buso Haki (Armament Aura)", true, function(newState)
+    -- 5. Auto Buso Haki
+    createSliderToggle(farmPage, "Auto Buso Haki", true, function(newState)
         isAutoHakiOn = newState
         if newState then ensureBusoHakiActive() end
     end, "AutoHaki")
@@ -952,7 +952,7 @@ do
     -- 5b. Auto Ken Haki (Observation Haki / Instinct EXP Leveler)
     local isAutoKenOn = false
     local hasKenHaki = LocalPlayer:FindFirstChild("Ken") or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Ken"))
-    local kenTitle = hasKenHaki and "👁️ Auto Ken Haki (Instinct EXP Leveler)" or "👁️ Ken Haki (BUY AT SKYLANDS $750k)"
+    local kenTitle = hasKenHaki and "👁️ Auto Ken Haki" or "👁️ Ken Haki"
 
     createSliderToggle(farmPage, kenTitle, false, function(newState)
         if not hasKenHaki and newState then
@@ -966,7 +966,7 @@ do
     end)
 
     -- 6. Custom Mob Selection
-    createSliderToggle(farmPage, "Auto Farm Selected NPC (Custom Mob)", false, function(newState)
+    createSliderToggle(farmPage, "Auto Farm Selected NPC", false, function(newState)
         isAutoSelectMobOn = newState
     end)
 
@@ -1046,7 +1046,7 @@ do
     end
 
     -- 7. Auto Mastery Selection
-    createSliderToggle(farmPage, "Auto Mastery (Weaken with Melee)", false, function(newState)
+    createSliderToggle(farmPage, "Auto Mastery", false, function(newState)
         isAutoMasteryOn = newState
     end)
 
@@ -1080,7 +1080,7 @@ do
     end
 
     -- 8. Auto Abilities & Skill Keys Textbox
-    createSliderToggle(farmPage, "Auto Abilities (Z,X,C,V,F)", false, function(newState)
+    createSliderToggle(farmPage, "Auto Abilities", false, function(newState)
         isAutoSkillsOn = newState
     end)
 
@@ -1151,7 +1151,7 @@ do
     applyCorner(skillInputBox)
 
     -- 9. Auto Farm Chests
-    createSliderToggle(farmPage, "Auto Farm Chests (Safe Bypass)", false, function(newState)
+    createSliderToggle(farmPage, "Auto Farm Chests", false, function(newState)
         isAutoChestOn = newState
         if isAutoChestOn then
             if type(startChestFarm) == "function" then startChestFarm() end
@@ -1191,7 +1191,7 @@ do
 local isSaberQuestOn = false
     local saberThread = nil
 
-    createSliderToggle(questPage, "[1st Sea] 🗡️ Auto Saber Quest (Shanks Boss & Saber Unlock)", false, function(newState)
+    createSliderToggle(questPage, "[1st Sea] 🗡️ Auto Saber Quest", false, function(newState)
         isSaberQuestOn = newState
         if isSaberQuestOn then
             notifyGUI("Saber Quest", "Auto Saber Quest started.", 4)
@@ -1768,7 +1768,7 @@ local isSaberQuestOn = false
     local isPoleQuestOn = false
     local poleThread = nil
 
-    createSliderToggle(questPage, "[1st Sea] ⚡ Auto Pole V1 Quest (Thunder God Boss)", false, function(newState)
+    createSliderToggle(questPage, "[1st Sea] ⚡ Auto Pole V1 Quest", false, function(newState)
         isPoleQuestOn = newState
         if isPoleQuestOn then
             ensureBusoHakiActive()
@@ -1930,7 +1930,7 @@ local isSaberQuestOn = false
     s2Header.Parent = questPage
     registerThemeText(s2Header)
 
-    createSliderToggle(questPage, "[2nd Sea] 🍷 Auto Bartilo Quest (Swan Pirates, Jeremy & Colosseum Secret Code)", false, function(newState)
+    createSliderToggle(questPage, "[2nd Sea] 🍷 Auto Bartilo Quest", false, function(newState)
         if newState then
             notifyGUI("Bartilo Quest", "Starting Bartilo Quest progression...", 4)
             task.spawn(function()
@@ -1944,7 +1944,7 @@ local isSaberQuestOn = false
         end
     end)
 
-    createSliderToggle(questPage, "[2nd Sea] 🧬 Auto Race V2 Quest (Alchemist Flower Collector)", false, function(newState)
+    createSliderToggle(questPage, "[2nd Sea] 🧬 Auto Race V2 Quest", false, function(newState)
         if newState then
             notifyGUI("Race V2", "Searching for Alchemist Flowers (Red, Blue, Yellow)...", 4)
             task.spawn(function()
@@ -1956,7 +1956,7 @@ local isSaberQuestOn = false
         end
     end)
 
-    createSliderToggle(questPage, "[2nd Sea] 🏭 Auto Factory Raid (Auto Core Damage)", false, function(newState)
+    createSliderToggle(questPage, "[2nd Sea] 🏭 Auto Factory Raid", false, function(newState)
         if newState then
             notifyGUI("Factory Raid", "Factory Core Auto-Attack engine enabled!", 4)
         end
@@ -1976,7 +1976,7 @@ local isSaberQuestOn = false
     s3Header.Parent = questPage
     registerThemeText(s3Header)
 
-    createSliderToggle(questPage, "[3rd Sea] 🧬 Auto Race V3 Quest (Arowana / Boss Trial)", false, function(newState)
+    createSliderToggle(questPage, "[3rd Sea] 🧬 Auto Race V3 Quest", false, function(newState)
         if newState then
             notifyGUI("Race V3", "Starting Race V3 Arowana Quest Trial...", 4)
             task.spawn(function()
@@ -1988,7 +1988,7 @@ local isSaberQuestOn = false
         end
     end)
 
-    createSliderToggle(questPage, "[3rd Sea] 🎸 Auto Soul Guitar Quest (Puzzle & Craft)", false, function(newState)
+    createSliderToggle(questPage, "[3rd Sea] 🎸 Auto Soul Guitar Quest", false, function(newState)
         if newState then
             notifyGUI("Soul Guitar", "Checking Haunted Castle Full Moon & Soul Guitar Puzzle...", 4)
             task.spawn(function()
@@ -2014,7 +2014,7 @@ do
     pHeader.Parent = playerPage
     registerThemeText(pHeader)
 
-    createSliderToggle(playerPage, "Potato Mode (FPS Booster / Textures OFF)", false, function(newState)
+    createSliderToggle(playerPage, "Potato Mode", false, function(newState)
         pcall(function()
             local terrain = workspace:FindFirstChildOfClass("Terrain")
             if terrain then
@@ -2039,7 +2039,7 @@ do
 
     addSectionDivider(playerPage)
 
-    createSliderToggle(playerPage, "Walk on Water (Jesus Walk)", true, function(newState)
+    createSliderToggle(playerPage, "Walk on Water", true, function(newState)
         isWaterWalkOn = newState
     end, "WaterWalk")
 
@@ -3226,7 +3226,7 @@ do
     local collectFruitsBtn = Instance.new("TextButton")
     collectFruitsBtn.Size = UDim2.new(0.98, 0, 0, 38)
     collectFruitsBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 100)
-    collectFruitsBtn.Text = "🎁 Collect All Spawned Fruits (Teleport)"
+    collectFruitsBtn.Text = "🎁 Collect All Spawned Fruits"
     collectFruitsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     collectFruitsBtn.Font = Enum.Font.GothamBold
     collectFruitsBtn.TextSize = 12
@@ -3265,11 +3265,11 @@ do
         isFruitEspOn = newState
     end)
 
-    createSliderToggle(fruitPage, "Auto Fruit Sniper (Fly & Collect)", false, function(newState)
+    createSliderToggle(fruitPage, "Auto Fruit Sniper", false, function(newState)
         isAutoFruitSniperOn = newState
     end)
 
-    createSliderToggle(fruitPage, "Auto Store Fruit (Auto Drop if Duplicate)", true, function(newState)
+    createSliderToggle(fruitPage, "Auto Store Fruit", true, function(newState)
         isAutoStoreFruitOn = newState
     end)
 
@@ -3291,7 +3291,7 @@ do
     miscHeader.Parent = miscPage
     registerThemeText(miscHeader)
 
-    createSliderToggle(miscPage, "⚡ Potato Mode / FPS Booster (Textures OFF)", false, function(newState)
+    createSliderToggle(miscPage, "⚡ Potato Mode", false, function(newState)
         isPotatoModeOn = newState
         pcall(function()
             local terrain = workspace:FindFirstChildOfClass("Terrain")
@@ -4228,7 +4228,7 @@ local function buildThemeCustomizerUI()
     local themeHeader = Instance.new("TextLabel")
     themeHeader.Size = UDim2.new(0.98, 0, 0, 18)
     themeHeader.BackgroundTransparency = 1
-    themeHeader.Text = "🎨 THEME ACCENT COLOR PALETTE (RGB WHEEL + BRIGHTNESS)"
+    themeHeader.Text = "🎨 THEME ACCENT COLOR PALETTE"
     themeHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
     themeHeader.Font = Enum.Font.GothamBlack
     themeHeader.TextSize = 12
