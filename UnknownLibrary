@@ -5869,15 +5869,16 @@ return function(opts)
 
     function hubState.createThemeEditor(parent)
         local section = Instance.new("Frame")
-        section.Size = UDim2.new(1, -6, 0, 340)
-        section.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        section.Name = "ThemeEditorSection"
+        section.Size = UDim2.new(1, -6, 0, 290)
+        section.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
         section.BorderSizePixel = 0
         section.Parent = parent or contentArea
         applyCorner(section, 8)
         applyStroke(section, Color3.fromRGB(34, 42, 58), 1, 0)
 
         local title = Instance.new("TextLabel")
-        title.Size = UDim2.new(1, -16, 0, 22)
+        title.Size = UDim2.new(1, -16, 0, 20)
         title.Position = UDim2.new(0, 10, 0, 6)
         title.BackgroundTransparency = 1
         title.Text = "Dual-Tone Split Theme & Live Palette Editor"
@@ -5891,12 +5892,12 @@ return function(opts)
         local colorTarget = 1 -- 1 for Primary (Left Half), 2 for Secondary (Right Half)
 
         local tabSwitchContainer = Instance.new("Frame")
-        tabSwitchContainer.Size = UDim2.new(0, 180, 0, 26)
-        tabSwitchContainer.Position = UDim2.new(0, 10, 0, 32)
-        tabSwitchContainer.BackgroundColor3 = Color3.fromRGB(14, 17, 26)
+        tabSwitchContainer.Size = UDim2.new(0, 175, 0, 24)
+        tabSwitchContainer.Position = UDim2.new(0, 10, 0, 28)
+        tabSwitchContainer.BackgroundColor3 = Color3.fromRGB(12, 15, 22)
         tabSwitchContainer.BorderSizePixel = 0
         tabSwitchContainer.Parent = section
-        applyCorner(tabSwitchContainer, 5)
+        applyCorner(tabSwitchContainer, 4)
 
         local c1Btn = Instance.new("TextButton")
         c1Btn.Size = UDim2.new(0.5, -2, 1, -2)
@@ -5907,22 +5908,22 @@ return function(opts)
         c1Btn.Font = Enum.Font.GothamBold
         c1Btn.TextSize = 10
         c1Btn.Parent = tabSwitchContainer
-        applyCorner(c1Btn, 4)
+        applyCorner(c1Btn, 3)
 
         local c2Btn = Instance.new("TextButton")
         c2Btn.Size = UDim2.new(0.5, -2, 1, -2)
         c2Btn.Position = UDim2.new(0.5, 1, 0, 1)
-        c2Btn.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
+        c2Btn.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
         c2Btn.Text = "2nd Color"
         c2Btn.TextColor3 = Color3.fromRGB(180, 195, 220)
         c2Btn.Font = Enum.Font.GothamBold
         c2Btn.TextSize = 10
         c2Btn.Parent = tabSwitchContainer
-        applyCorner(c2Btn, 4)
+        applyCorner(c2Btn, 3)
 
         local picker = Instance.new("TextButton")
-        picker.Size = UDim2.new(0, 180, 0, 180)
-        picker.Position = UDim2.new(0, 10, 0, 64)
+        picker.Size = UDim2.new(0, 175, 0, 135)
+        picker.Position = UDim2.new(0, 10, 0, 56)
         picker.BackgroundColor3 = hubState.currentThemeColor
         picker.BorderSizePixel = 0
         picker.Text = ""
@@ -5930,7 +5931,7 @@ return function(opts)
         picker.Active = true
         picker.ZIndex = 1
         picker.Parent = section
-        applyCorner(picker, 6)
+        applyCorner(picker, 5)
 
         local whiteLayer = Instance.new("Frame")
         whiteLayer.Size = UDim2.new(1, 0, 1, 0)
@@ -5939,7 +5940,7 @@ return function(opts)
         whiteLayer.Active = false
         whiteLayer.ZIndex = 2
         whiteLayer.Parent = picker
-        applyCorner(whiteLayer, 6)
+        applyCorner(whiteLayer, 5)
 
         local whiteGradient = Instance.new("UIGradient")
         whiteGradient.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1))
@@ -5957,7 +5958,7 @@ return function(opts)
         blackOverlay.Active = false
         blackOverlay.ZIndex = 3
         blackOverlay.Parent = picker
-        applyCorner(blackOverlay, 6)
+        applyCorner(blackOverlay, 5)
 
         local blackGradient = Instance.new("UIGradient")
         blackGradient.Color = ColorSequence.new(Color3.new(0, 0, 0), Color3.new(0, 0, 0))
@@ -5969,24 +5970,24 @@ return function(opts)
         blackGradient.Parent = blackOverlay
 
         local valueKnob = Instance.new("Frame")
-        valueKnob.Size = UDim2.new(0, 14, 0, 14)
+        valueKnob.Size = UDim2.new(0, 12, 0, 12)
         valueKnob.AnchorPoint = Vector2.new(0.5, 0.5)
         valueKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         valueKnob.BorderSizePixel = 0
         valueKnob.ZIndex = 4
         valueKnob.Parent = picker
-        applyCorner(valueKnob, 7)
+        applyCorner(valueKnob, 6)
         applyStroke(valueKnob, Color3.fromRGB(20, 24, 32), 2, 0)
 
         local hueTrack = Instance.new("TextButton")
-        hueTrack.Size = UDim2.new(0, 180, 0, 14)
-        hueTrack.Position = UDim2.new(0, 10, 0, 252)
+        hueTrack.Size = UDim2.new(0, 175, 0, 12)
+        hueTrack.Position = UDim2.new(0, 10, 0, 196)
         hueTrack.Text = ""
         hueTrack.AutoButtonColor = false
         hueTrack.BorderSizePixel = 0
         hueTrack.Active = true
         hueTrack.Parent = section
-        applyCorner(hueTrack, 4)
+        applyCorner(hueTrack, 3)
 
         local hueGradient = Instance.new("UIGradient")
         hueGradient.Color = ColorSequence.new({
@@ -6007,26 +6008,26 @@ return function(opts)
         hueKnob.BorderSizePixel = 0
         hueKnob.ZIndex = 2
         hueKnob.Parent = hueTrack
-        applyCorner(hueKnob, 3)
+        applyCorner(hueKnob, 2)
         applyStroke(hueKnob, Color3.fromRGB(20, 24, 32), 1, 0)
 
-        -- Live Preview & Status Display
+        -- Live Preview & Status Display (Right Column)
         local rgbLabel = Instance.new("TextLabel")
-        rgbLabel.Size = UDim2.new(1, -210, 0, 36)
-        rgbLabel.Position = UDim2.new(0, 200, 0, 32)
+        rgbLabel.Size = UDim2.new(1, -200, 0, 28)
+        rgbLabel.Position = UDim2.new(0, 192, 0, 26)
         rgbLabel.BackgroundTransparency = 1
         rgbLabel.TextColor3 = Color3.fromRGB(220, 228, 240)
         rgbLabel.Font = Enum.Font.GothamBold
-        rgbLabel.TextSize = 11
+        rgbLabel.TextSize = 10
         rgbLabel.TextXAlignment = Enum.TextXAlignment.Left
         rgbLabel.Parent = section
 
         local previewSplitBox = Instance.new("Frame")
-        previewSplitBox.Size = UDim2.new(1, -210, 0, 22)
-        previewSplitBox.Position = UDim2.new(0, 200, 0, 72)
+        previewSplitBox.Size = UDim2.new(1, -200, 0, 16)
+        previewSplitBox.Position = UDim2.new(0, 192, 0, 56)
         previewSplitBox.BorderSizePixel = 0
         previewSplitBox.Parent = section
-        applyCorner(previewSplitBox, 5)
+        applyCorner(previewSplitBox, 4)
 
         local previewGrad = Instance.new("UIGradient")
         previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
@@ -6034,8 +6035,8 @@ return function(opts)
         previewGrad.Parent = previewSplitBox
 
         local presetLabel = Instance.new("TextLabel")
-        presetLabel.Size = UDim2.new(1, -210, 0, 16)
-        presetLabel.Position = UDim2.new(0, 200, 0, 100)
+        presetLabel.Size = UDim2.new(1, -200, 0, 14)
+        presetLabel.Position = UDim2.new(0, 192, 0, 76)
         presetLabel.BackgroundTransparency = 1
         presetLabel.Text = "Dual Split Presets:"
         presetLabel.TextColor3 = Color3.fromRGB(150, 160, 180)
@@ -6051,7 +6052,7 @@ return function(opts)
             { "Sunset Mirage",   Color3.fromRGB(255, 94, 54),   Color3.fromRGB(255, 185, 30) },
             { "Tokyo Midnight",  Color3.fromRGB(160, 60, 255),  Color3.fromRGB(90, 100, 245) },
             { "Sakura Bloom",    Color3.fromRGB(255, 133, 161), Color3.fromRGB(255, 190, 210) },
-            { "Emerald Matrix",  Color3.fromRGB(0, 255, 135),   Color3.fromRGB(0, 170, 110) },
+            { "Emerald Matrix",  Color3.fromRGB(0, 255, 136),   Color3.fromRGB(0, 170, 110) },
             { "Blood Moon",      Color3.fromRGB(255, 42, 85),   Color3.fromRGB(140, 0, 30) },
             { "Ice Glacier",     Color3.fromRGB(168, 240, 255), Color3.fromRGB(0, 153, 255) },
             { "Solar Flare",     Color3.fromRGB(255, 120, 0),   Color3.fromRGB(255, 205, 0) },
@@ -6072,12 +6073,12 @@ return function(opts)
             valueKnob.Position = UDim2.new(saturation, 0, 1 - brightness, 0)
             hueKnob.Position = UDim2.new(hue, 0, 0.5, 0)
 
-            c1Btn.BackgroundColor3 = (colorTarget == 1) and hubState.currentThemeColor or Color3.fromRGB(22, 28, 40)
+            c1Btn.BackgroundColor3 = (colorTarget == 1) and hubState.currentThemeColor or Color3.fromRGB(20, 25, 36)
             c1Btn.TextColor3 = (colorTarget == 1) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
-            c2Btn.BackgroundColor3 = (colorTarget == 2) and hubState.secondaryThemeColor or Color3.fromRGB(22, 28, 40)
+            c2Btn.BackgroundColor3 = (colorTarget == 2) and hubState.secondaryThemeColor or Color3.fromRGB(20, 25, 36)
             c2Btn.TextColor3 = (colorTarget == 2) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
 
-            rgbLabel.Text = string.format("Left Half: #%02X%02X%02X  |  Right Half: #%02X%02X%02X\nEditing: %s Color",
+            rgbLabel.Text = string.format("Left: #%02X%02X%02X  •  Right: #%02X%02X%02X\nEditing: %s Color",
                 math.floor(hubState.currentThemeColor.R * 255 + 0.5), math.floor(hubState.currentThemeColor.G * 255 + 0.5), math.floor(hubState.currentThemeColor.B * 255 + 0.5),
                 math.floor(hubState.secondaryThemeColor.R * 255 + 0.5), math.floor(hubState.secondaryThemeColor.G * 255 + 0.5), math.floor(hubState.secondaryThemeColor.B * 255 + 0.5),
                 (colorTarget == 1 and "1st (Left)" or "2nd (Right)")
@@ -6111,8 +6112,8 @@ return function(opts)
         end)
 
         local presetContainer = Instance.new("ScrollingFrame")
-        presetContainer.Size = UDim2.new(1, -210, 0, 185)
-        presetContainer.Position = UDim2.new(0, 200, 0, 120)
+        presetContainer.Size = UDim2.new(1, -200, 0, 114)
+        presetContainer.Position = UDim2.new(0, 192, 0, 94)
         presetContainer.BackgroundTransparency = 1
         presetContainer.BorderSizePixel = 0
         presetContainer.ScrollBarThickness = 3
@@ -6121,23 +6122,23 @@ return function(opts)
         presetContainer.Parent = section
 
         local pLayout = Instance.new("UIGridLayout")
-        pLayout.CellSize = UDim2.new(0.48, -4, 0, 32)
-        pLayout.CellPadding = UDim2.new(0, 6, 0, 6)
+        pLayout.CellSize = UDim2.new(0.5, -4, 0, 24)
+        pLayout.CellPadding = UDim2.new(0, 5, 0, 4)
         pLayout.Parent = presetContainer
 
         for _, preset in ipairs(presetThemes) do
             local pBtn = Instance.new("TextButton")
             pBtn.Size = UDim2.new(1, 0, 1, 0)
             pBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            pBtn.Text = "  " .. tostring(preset[1])
+            pBtn.Text = " " .. tostring(preset[1])
             pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             pBtn.Font = Enum.Font.GothamBold
-            pBtn.TextSize = 10
+            pBtn.TextSize = 9
             pBtn.TextTruncate = Enum.TextTruncate.AtEnd
             pBtn.TextXAlignment = Enum.TextXAlignment.Left
             pBtn.AutoButtonColor = false
             pBtn.Parent = presetContainer
-            applyCorner(pBtn, 6)
+            applyCorner(pBtn, 4)
             applyStroke(pBtn, Color3.fromRGB(15, 18, 26), 1, 0)
 
             local pGrad = Instance.new("UIGradient")
@@ -6164,65 +6165,73 @@ return function(opts)
 
         hubState.configSetters.theme = function(value)
             local str = tostring(value)
-            local c1Str, c2Str = str:match("^(.-)|(.*)$")
-            if not c1Str then c1Str = str end
-            local r1, g1, b1 = c1Str:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
-            if r1 and g1 and b1 then
-                hubState.currentThemeColor = Color3.new(tonumber(r1), tonumber(g1), tonumber(b1))
-            end
-            if c2Str then
-                local r2, g2, b2 = c2Str:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
+            local part1, part2 = str:match("^(.-)|(.*)$")
+            if part1 and part2 then
+                local r1, g1, b1 = part1:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
+                if r1 and g1 and b1 then
+                    hubState.currentThemeColor = Color3.new(tonumber(r1), tonumber(g1), tonumber(b1))
+                end
+                local r2, g2, b2 = part2:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
                 if r2 and g2 and b2 then
                     hubState.secondaryThemeColor = Color3.new(tonumber(r2), tonumber(g2), tonumber(b2))
+                end
+            else
+                local r, g, b = str:match("^([%d%.]+),([%d%.]+),([%d%.]+)$")
+                if r and g and b then
+                    hubState.currentThemeColor = Color3.new(tonumber(r), tonumber(g), tonumber(b))
+                    hubState.secondaryThemeColor = hubState.currentThemeColor
                 end
             end
             hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
             refreshUI()
         end
 
-        local draggingTarget = nil
-        local function updateFromInput(input, target)
-            local absolutePosition = target.AbsolutePosition
-            local absoluteSize = target.AbsoluteSize
-            local x = math.clamp((input.Position.X - absolutePosition.X) / math.max(1, absoluteSize.X), 0, 1)
-            local y = math.clamp((input.Position.Y - absolutePosition.Y) / math.max(1, absoluteSize.Y), 0, 1)
-            if target == picker then
-                saturation = x
-                brightness = 1 - y
-            else
-                hue = x
-            end
+        local function handleSatVal(input)
+            local rX = math.clamp((input.Position.X - picker.AbsolutePosition.X) / picker.AbsoluteSize.X, 0, 1)
+            local rY = math.clamp((input.Position.Y - picker.AbsolutePosition.Y) / picker.AbsoluteSize.Y, 0, 1)
+            saturation = rX
+            brightness = 1 - rY
             updatePicker()
         end
 
-        local function beginDrag(target, input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                draggingTarget = target
-                updateFromInput(input, target)
-            end
+        local function handleHue(input)
+            local rX = math.clamp((input.Position.X - hueTrack.AbsolutePosition.X) / hueTrack.AbsoluteSize.X, 0, 1)
+            hue = rX
+            updatePicker()
         end
 
-        picker.InputBegan:Connect(function(input) beginDrag(picker, input) end)
-        hueTrack.InputBegan:Connect(function(input) beginDrag(hueTrack, input) end)
-
-        hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
-            if draggingTarget and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                updateFromInput(input, draggingTarget)
-            end
-        end))
-
-        hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
+        local draggingSV, draggingHue = false, false
+        picker.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                draggingTarget = nil
+                draggingSV = true
+                handleSatVal(input)
             end
-        end))
+        end)
+        hueTrack.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                draggingHue = true
+                handleHue(input)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                if draggingSV then handleSatVal(input) end
+                if draggingHue then handleHue(input) end
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                draggingSV = false
+                draggingHue = false
+            end
+        end)
 
-        -- Theme Presets Grid (1-Tap Palettes)
+        -- Bottom Curated 1-Tap Presets (Fully separated below picker & grid)
         local presetsHeader = Instance.new("TextLabel")
-        presetsHeader.Size = UDim2.new(1, -16, 0, 18)
-        presetsHeader.Position = UDim2.new(0, 10, 0, 252)
+        presetsHeader.Size = UDim2.new(1, -16, 0, 14)
+        presetsHeader.Position = UDim2.new(0, 10, 0, 218)
         presetsHeader.BackgroundTransparency = 1
-        presetsHeader.Text = "CURATED THEME PRESETS"
+        presetsHeader.Text = "Curated Theme Presets:"
         presetsHeader.TextColor3 = Color3.fromRGB(150, 165, 195)
         presetsHeader.Font = Enum.Font.GothamBlack
         presetsHeader.TextSize = 10
@@ -6230,8 +6239,8 @@ return function(opts)
         presetsHeader.Parent = section
 
         local presetScroll = Instance.new("ScrollingFrame")
-        presetScroll.Size = UDim2.new(1, -20, 0, 32)
-        presetScroll.Position = UDim2.new(0, 10, 0, 274)
+        presetScroll.Size = UDim2.new(1, -20, 0, 30)
+        presetScroll.Position = UDim2.new(0, 10, 0, 236)
         presetScroll.BackgroundTransparency = 1
         presetScroll.BorderSizePixel = 0
         presetScroll.ScrollBarThickness = 2
@@ -6258,7 +6267,7 @@ return function(opts)
 
         for pIdx, pData in ipairs(presetsList) do
             local pBtn = Instance.new("TextButton")
-            pBtn.Size = UDim2.new(0, 105, 0, 26)
+            pBtn.Size = UDim2.new(0, 105, 0, 24)
             pBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
             pBtn.Text = pData[1]
             pBtn.TextColor3 = pData[2]
@@ -6266,7 +6275,7 @@ return function(opts)
             pBtn.TextSize = 10
             pBtn.LayoutOrder = pIdx
             pBtn.Parent = presetScroll
-            applyCorner(pBtn, 5)
+            applyCorner(pBtn, 4)
             applyStroke(pBtn, pData[2], 1, 0.4)
 
             pBtn.MouseButton1Click:Connect(function()
@@ -6274,17 +6283,22 @@ return function(opts)
                 hubState.triggerHaptic(0.5)
                 hubState.isChromaEnabled = false
                 hubState.currentThemeColor = pData[2]
-                hubState.secondaryThemeColor = pData[3]
-                hubState.applyTheme(pData[2], pData[3])
+                hubState.secondaryThemeColor = pData[3] or pData[2]
+                hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
                 hubState.configValues.theme = string.format("%.6f,%.6f,%.6f|%.6f,%.6f,%.6f",
                     hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
                     hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
                 )
                 refreshUI()
+                hubState.notify({
+                    Title = "Theme Updated",
+                    Content = "Applied '" .. pData[1] .. "' theme preset",
+                    Color = pData[2],
+                    Duration = 2.5
+                })
             end)
         end
 
-        section.Size = UDim2.new(1, -6, 0, 318)
         refreshUI()
         return section
     end
