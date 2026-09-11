@@ -3831,7 +3831,7 @@ return function(opts)
     local notifBtn = Instance.new("TextButton")
     notifBtn.Name = "NotificationBtn"
     notifBtn.Size = UDim2.new(0, 26, 0, 26)
-    notifBtn.Position = UDim2.new(1, -162, 0.5, -13)
+    notifBtn.Position = UDim2.new(1, -226, 0.5, -13)
     notifBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
     notifBtn.Text = "🔔"
     notifBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
@@ -3894,7 +3894,7 @@ return function(opts)
     local announceBtn = Instance.new("TextButton")
     announceBtn.Name = "AnnounceBtn"
     announceBtn.Size = UDim2.new(0, 26, 0, 26)
-    announceBtn.Position = UDim2.new(1, -130, 0.5, -13)
+    announceBtn.Position = UDim2.new(1, -194, 0.5, -13)
     announceBtn.BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(36, 26, 52) or Color3.fromRGB(24, 30, 44)
     announceBtn.Text = "📢"
     announceBtn.TextColor3 = hubState.isDeveloper and Color3.fromRGB(220, 160, 255) or Color3.fromRGB(210, 220, 240)
@@ -3923,7 +3923,7 @@ return function(opts)
     local feedbackBtn = Instance.new("TextButton")
     feedbackBtn.Name = "FeedbackBtn"
     feedbackBtn.Size = UDim2.new(0, 26, 0, 26)
-    feedbackBtn.Position = UDim2.new(1, -98, 0.5, -13)
+    feedbackBtn.Position = UDim2.new(1, -162, 0.5, -13)
     feedbackBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
     feedbackBtn.Text = "🛠"
     feedbackBtn.TextColor3 = Color3.fromRGB(220, 230, 250)
@@ -3946,6 +3946,84 @@ return function(opts)
     end)
     hubState.bindHeaderButton(feedbackBtn, function()
         if hubState.openFeedbackModal then hubState.openFeedbackModal() end
+    end)
+
+    -- Square Repository Quick-Access Button (📜)
+    local headerRepoBtn = Instance.new("TextButton")
+    headerRepoBtn.Name = "HeaderRepoBtn"
+    headerRepoBtn.Size = UDim2.new(0, 26, 0, 26)
+    headerRepoBtn.Position = UDim2.new(1, -130, 0.5, -13)
+    headerRepoBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+    headerRepoBtn.Text = "📜"
+    headerRepoBtn.TextColor3 = Color3.fromRGB(220, 230, 250)
+    headerRepoBtn.Font = Enum.Font.GothamBold
+    headerRepoBtn.TextSize = 12
+    headerRepoBtn.ZIndex = 30
+    headerRepoBtn.Parent = header
+    applyCorner(headerRepoBtn, 6)
+    local repoStroke = applyStroke(headerRepoBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
+
+    headerRepoBtn.MouseEnter:Connect(function()
+        if hubState.currentActiveTabName ~= "Repository" then
+            TweenService:Create(headerRepoBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = Color3.fromRGB(34, 44, 66)
+            }):Play()
+        end
+    end)
+    headerRepoBtn.MouseLeave:Connect(function()
+        if hubState.currentActiveTabName ~= "Repository" then
+            TweenService:Create(headerRepoBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+            }):Play()
+        end
+    end)
+    hubState.bindHeaderButton(headerRepoBtn, function()
+        if hubState.ensureConfigTab then pcall(hubState.ensureConfigTab) end
+        if hubState.searchBox and hubState.searchBox.Text ~= "" then
+            hubState.searchBox.Text = ""
+        end
+        if hubState.setTabVisible then
+            hubState.setTabVisible("Repository")
+        end
+    end)
+
+    -- Square Favorites Quick-Access Button (⭐)
+    local headerFavBtn = Instance.new("TextButton")
+    headerFavBtn.Name = "HeaderFavBtn"
+    headerFavBtn.Size = UDim2.new(0, 26, 0, 26)
+    headerFavBtn.Position = UDim2.new(1, -98, 0.5, -13)
+    headerFavBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+    headerFavBtn.Text = "⭐"
+    headerFavBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
+    headerFavBtn.Font = Enum.Font.GothamBold
+    headerFavBtn.TextSize = 12
+    headerFavBtn.ZIndex = 30
+    headerFavBtn.Parent = header
+    applyCorner(headerFavBtn, 6)
+    local favStroke = applyStroke(headerFavBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
+
+    headerFavBtn.MouseEnter:Connect(function()
+        if hubState.currentActiveTabName ~= "Favorites" then
+            TweenService:Create(headerFavBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = Color3.fromRGB(34, 44, 66)
+            }):Play()
+        end
+    end)
+    headerFavBtn.MouseLeave:Connect(function()
+        if hubState.currentActiveTabName ~= "Favorites" then
+            TweenService:Create(headerFavBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+            }):Play()
+        end
+    end)
+    hubState.bindHeaderButton(headerFavBtn, function()
+        if hubState.ensureConfigTab then pcall(hubState.ensureConfigTab) end
+        if hubState.searchBox and hubState.searchBox.Text ~= "" then
+            hubState.searchBox.Text = ""
+        end
+        if hubState.setTabVisible then
+            hubState.setTabVisible("Favorites")
+        end
     end)
 
     -- Collapse / Minimize Window Button (Collapses to Header Only)
@@ -4041,6 +4119,7 @@ return function(opts)
 
     -- Tab Switching Mechanism
     function hubState.setTabVisible(tabName)
+        hubState.currentActiveTabName = tabName
         for _, page in ipairs(hubState.tabPages) do
             if page and page.Name == tabName then
                 page.Visible = true
@@ -4075,9 +4154,39 @@ return function(opts)
                 end
             end
         end
+
+        -- Update Header Icons active highlight
+        if headerRepoBtn then
+            local isRepo = (tabName == "Repository")
+            TweenService:Create(headerRepoBtn, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = isRepo and Color3.fromRGB(42, 54, 80) or Color3.fromRGB(24, 30, 44),
+                TextColor3 = isRepo and hubState.currentThemeColor or Color3.fromRGB(220, 230, 250)
+            }):Play()
+            if repoStroke then
+                TweenService:Create(repoStroke, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Color = isRepo and hubState.currentThemeColor or Color3.fromRGB(45, 55, 80)
+                }):Play()
+            end
+        end
+        if headerFavBtn then
+            local isFav = (tabName == "Favorites")
+            TweenService:Create(headerFavBtn, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = isFav and Color3.fromRGB(42, 54, 80) or Color3.fromRGB(24, 30, 44),
+                TextColor3 = isFav and Color3.fromRGB(255, 225, 50) or Color3.fromRGB(255, 215, 0)
+            }):Play()
+            if favStroke then
+                TweenService:Create(favStroke, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Color = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(45, 55, 80)
+                }):Play()
+            end
+        end
     end
 
     function hubState.createPage(name)
+        for _, p in ipairs(hubState.tabPages) do
+            if p.Name == name then return p end
+        end
+
         local page = Instance.new("ScrollingFrame")
         page.Name = name
         page.Size = UDim2.new(1, 0, 1, 0)
@@ -4105,86 +4214,113 @@ return function(opts)
     end
 
     function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
-        local page = hubState.createPage(name)
-        local btn = Instance.new("TextButton")
-        btn.Name = name
-        btn.Size = UDim2.new(1, 0, 0, 34)
-        btn.BackgroundColor3 = Color3.fromRGB(19, 23, 34)
-        btn.Text = ""
-        btn.AutoButtonColor = false
-        
-        if name == "Config" then
-            btn.LayoutOrder = 100000
-        elseif name == "Universal" or name == "Utilities" then
-            btn.LayoutOrder = 99999
-        elseif name == "Repository" then
-            btn.LayoutOrder = 99998
-        elseif name == "Console" then
-            btn.LayoutOrder = 99997
-        elseif name == "Favorites" then
-            btn.LayoutOrder = 99996
-        else
-            btn.LayoutOrder = #hubState.tabButtons + 1
-        end
-
-        btn.Parent = sidebar
-        applyCorner(btn, 6)
-
-        local indicator = Instance.new("Frame")
-        indicator.Name = "ActiveIndicator"
-        indicator.Size = UDim2.new(0, 3, 0, 12)
-        indicator.Position = UDim2.new(0, 0, 0.5, -6)
-        indicator.BackgroundColor3 = hubState.currentThemeColor
-        indicator.BorderSizePixel = 0
-        indicator.BackgroundTransparency = 1
-        indicator.Parent = btn
-        applyCorner(indicator, 2)
-        hubState.registerThemeFrame(indicator)
-
-        local icon
-        local textOffset = 12
-        if iconAssetId then
-            icon = Instance.new("ImageLabel")
-            icon.Name = "TabIcon"
-            icon.Size = UDim2.new(0, 16, 0, 16)
-            icon.Position = UDim2.new(0, 8, 0.5, -8)
-            icon.BackgroundTransparency = 1
-            icon.Image = tostring(iconAssetId):find("rbxassetid://") and iconAssetId or ("rbxassetid://" .. tostring(iconAssetId))
-            icon.ImageColor3 = Color3.fromRGB(210, 220, 240)
-            icon.Parent = btn
-            textOffset = 30
-        end
-
-        local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, -(textOffset + 6), 1, 0)
-        lbl.Position = UDim2.new(0, textOffset, 0, 0)
-        lbl.BackgroundTransparency = 1
-        lbl.Text = text or name
-        lbl.TextColor3 = Color3.fromRGB(225, 232, 245)
-        lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 12
-        lbl.TextTruncate = Enum.TextTruncate.AtEnd
-        lbl.TextXAlignment = Enum.TextXAlignment.Left
-        lbl.Parent = btn
-
-        btn.MouseButton1Click:Connect(function()
-            if hubState.searchBox and hubState.searchBox.Text ~= "" then
-                hubState.searchBox.Text = ""
+        -- Quick-access header pages (Favorites and Repository have NO sidebar buttons)
+        if name == "Favorites" or name == "Repository" or name == "⭐ Favorites" or name == "📦 Repository" then
+            local pageName = (name == "Favorites" or name == "⭐ Favorites") and "Favorites" or "Repository"
+            local p = hubState.createPage(pageName)
+            if defaultVisible then
+                hubState.currentActiveTabName = pageName
+                task.defer(function() hubState.setTabVisible(pageName) end)
             end
-            hubState.currentActiveTabName = name
-            hubState.setTabVisible(name)
-        end)
-        table.insert(hubState.tabButtons, btn)
+            return p
+        end
+
+        -- Reuse pre-created system tabs if requested
+        if (name == "Config" or name == "Configs" or name == "⚙️ Config") and hubState.configTabPage then
+            if defaultVisible then
+                hubState.currentActiveTabName = "Config"
+                task.defer(function() hubState.setTabVisible("Config") end)
+            end
+            return hubState.configTabPage
+        end
+        if (name == "Universal" or name == "Utilities" or name == "🌐 Universal") and hubState.universalTabPage then
+            if defaultVisible then
+                hubState.currentActiveTabName = "Universal"
+                task.defer(function() hubState.setTabVisible("Universal") end)
+            end
+            return hubState.universalTabPage
+        end
+
+        local page = hubState.createPage(name)
+
+        -- Check if button already exists in sidebar
+        local existingBtn = nil
+        for _, b in ipairs(hubState.tabButtons) do
+            if b.Name == name then
+                existingBtn = b
+                break
+            end
+        end
+
+        if not existingBtn then
+            local btn = Instance.new("TextButton")
+            btn.Name = name
+            btn.Size = UDim2.new(1, 0, 0, 34)
+            btn.BackgroundColor3 = Color3.fromRGB(19, 23, 34)
+            btn.Text = ""
+            btn.AutoButtonColor = false
+            
+            if name == "Config" or name == "⚙️ Config" then
+                btn.LayoutOrder = 100000
+            elseif name == "Universal" or name == "🌐 Universal" or name == "Utilities" then
+                btn.LayoutOrder = 99999
+            else
+                btn.LayoutOrder = #hubState.tabButtons + 1
+            end
+
+            btn.Parent = sidebar
+            applyCorner(btn, 6)
+
+            local indicator = Instance.new("Frame")
+            indicator.Name = "ActiveIndicator"
+            indicator.Size = UDim2.new(0, 3, 0, 12)
+            indicator.Position = UDim2.new(0, 0, 0.5, -6)
+            indicator.BackgroundColor3 = hubState.currentThemeColor
+            indicator.BorderSizePixel = 0
+            indicator.BackgroundTransparency = 1
+            indicator.Parent = btn
+            applyCorner(indicator, 2)
+            hubState.registerThemeFrame(indicator)
+
+            local icon
+            local textOffset = 12
+            if iconAssetId then
+                icon = Instance.new("ImageLabel")
+                icon.Name = "TabIcon"
+                icon.Size = UDim2.new(0, 16, 0, 16)
+                icon.Position = UDim2.new(0, 8, 0.5, -8)
+                icon.BackgroundTransparency = 1
+                icon.Image = tostring(iconAssetId):find("rbxassetid://") and iconAssetId or ("rbxassetid://" .. tostring(iconAssetId))
+                icon.ImageColor3 = Color3.fromRGB(210, 220, 240)
+                icon.Parent = btn
+                textOffset = 30
+            end
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, -(textOffset + 6), 1, 0)
+            lbl.Position = UDim2.new(0, textOffset, 0, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = text or name
+            lbl.TextColor3 = Color3.fromRGB(225, 232, 245)
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextSize = 12
+            lbl.TextTruncate = Enum.TextTruncate.AtEnd
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.Parent = btn
+
+            btn.MouseButton1Click:Connect(function()
+                if hubState.searchBox and hubState.searchBox.Text ~= "" then
+                    hubState.searchBox.Text = ""
+                end
+                hubState.currentActiveTabName = name
+                hubState.setTabVisible(name)
+            end)
+            table.insert(hubState.tabButtons, btn)
+        end
 
         if defaultVisible then
             hubState.currentActiveTabName = name
             task.defer(function() hubState.setTabVisible(name) end)
-        end
-
-        if name ~= "Config" and name ~= "Universal" and name ~= "Utilities" and name ~= "Repository" and name ~= "Console" and name ~= "Favorites" and hubState.ensureConfigTab then
-            task.defer(function()
-                pcall(hubState.ensureConfigTab)
-            end)
         end
 
         return page
@@ -4856,7 +4992,7 @@ return function(opts)
     -- =========================================================================
     -- Refined UI Component: List Item (Responsive)
     -- =========================================================================
-    function hubState.createListItem(parent, titleText, subtitleText, callback)
+    function hubState.createListItem(parent, titleText, subtitleText, callback, actionBtnText, actionBtnCallback, actionBtnDisabled)
         if not parent then parent = contentArea end
         local item = Instance.new("TextButton")
         item.Size = UDim2.new(1, -2, 0, 42)
@@ -4937,6 +5073,35 @@ return function(opts)
         subtitle.TextXAlignment = Enum.TextXAlignment.Left
         subtitle.Visible = hasSubtitle
         subtitle.Parent = item
+
+        local actionButton = nil
+        if actionBtnText and actionBtnText ~= "" then
+            checkbox.Visible = false
+            actionButton = Instance.new("TextButton")
+            actionButton.Name = "ActionButton"
+            actionButton.Size = UDim2.new(0, 92, 0, 24)
+            actionButton.AnchorPoint = Vector2.new(1, 0.5)
+            actionButton.Position = UDim2.new(1, -10, 0.5, 0)
+            actionButton.BackgroundColor3 = actionBtnDisabled and Color3.fromRGB(30, 38, 54) or Color3.fromRGB(0, 175, 235)
+            actionButton.Text = tostring(actionBtnText)
+            actionButton.TextColor3 = actionBtnDisabled and Color3.fromRGB(120, 230, 150) or Color3.fromRGB(10, 16, 26)
+            actionButton.Font = Enum.Font.GothamBold
+            actionButton.TextSize = 10
+            actionButton.AutoButtonColor = not actionBtnDisabled
+            actionButton.Active = not actionBtnDisabled
+            actionButton.ZIndex = 15
+            actionButton.Parent = item
+            applyCorner(actionButton, 5)
+            if not actionBtnDisabled then
+                applyStroke(actionButton, Color3.fromRGB(0, 215, 255), 1, 0.3)
+                actionButton.MouseButton1Click:Connect(function()
+                    if hubState.isModalActive then return end
+                    if actionBtnCallback then pcall(actionBtnCallback) end
+                end)
+            else
+                applyStroke(actionButton, Color3.fromRGB(50, 190, 100), 1, 0.5)
+            end
+        end
 
         local function paint(isHovered)
             local targetBg = selected and (isHovered and selectedHoverColor or selectedColor) or (isHovered and hoverColor or normalColor)
@@ -5363,7 +5528,7 @@ return function(opts)
                 end
                 if selectionCallback then pcall(selectionCallback, entryData.Name, entryData) end
                 if entryData.Callback then pcall(entryData.Callback, entryData) end
-            end)
+            end, entryData.ActionText or entryData.actionText, entryData.ActionCallback or entryData.actionCallback, entryData.ActionDisabled or entryData.actionDisabled)
 
             entryData.Row = row
             entryData.RowSetter = setRowSelected
@@ -6036,8 +6201,8 @@ return function(opts)
     hubState.ensureConfigTab = function()
         if hubState.configTabPage then return end
 
-        -- ⭐ Favorites Page
-        hubState.favoritesPage = hubState.createTabButton("⭐ Favorites", "Favorites", nil, false)
+        -- ⭐ Favorites Page (Header Quick-Access Only)
+        hubState.favoritesPage = hubState.createPage("Favorites")
         local favHeader = Instance.new("TextLabel")
         favHeader.Size = UDim2.new(1, -6, 0, 24)
         favHeader.BackgroundTransparency = 1
@@ -6060,122 +6225,9 @@ return function(opts)
         favEmpty.TextXAlignment = Enum.TextXAlignment.Center
         favEmpty.Parent = hubState.favoritesPage
 
-        -- 💻 Luau Live Console Page
-        hubState.consolePage = hubState.createTabButton("💻 Console", "Console", nil, false)
-        hubState.createSection(hubState.consolePage, "Luau Live Script Interpreter")
-
-        local consoleBoxFrame = Instance.new("Frame")
-        consoleBoxFrame.Size = UDim2.new(1, -6, 0, 70)
-        consoleBoxFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
-        consoleBoxFrame.BorderSizePixel = 0
-        consoleBoxFrame.Parent = hubState.consolePage
-        applyCorner(consoleBoxFrame, 6)
-        applyStroke(consoleBoxFrame, Color3.fromRGB(34, 44, 62), 1, 0)
-
-        local consoleInput = Instance.new("TextBox")
-        consoleInput.Size = UDim2.new(1, -16, 1, -12)
-        consoleInput.Position = UDim2.new(0, 8, 0, 6)
-        consoleInput.BackgroundTransparency = 1
-        consoleInput.Text = ""
-        consoleInput.PlaceholderText = "-- Enter Luau code snippet to run (e.g. print('Hello'))"
-        consoleInput.PlaceholderColor3 = Color3.fromRGB(110, 125, 150)
-        consoleInput.TextColor3 = Color3.fromRGB(235, 242, 255)
-        consoleInput.Font = Enum.Font.Code
-        consoleInput.TextSize = 11
-        consoleInput.TextXAlignment = Enum.TextXAlignment.Left
-        consoleInput.TextYAlignment = Enum.TextYAlignment.Top
-        consoleInput.ClearTextOnFocus = false
-        consoleInput.Parent = consoleBoxFrame
-
-        local consoleBtnBar = Instance.new("Frame")
-        consoleBtnBar.Size = UDim2.new(1, -6, 0, 28)
-        consoleBtnBar.BackgroundTransparency = 1
-        consoleBtnBar.Parent = hubState.consolePage
-
-        local runCodeBtn = Instance.new("TextButton")
-        runCodeBtn.Size = UDim2.new(0.5, -4, 1, 0)
-        runCodeBtn.Position = UDim2.new(0, 0, 0, 0)
-        runCodeBtn.BackgroundColor3 = Color3.fromRGB(22, 32, 48)
-        runCodeBtn.Text = "⚡ Execute Code"
-        runCodeBtn.TextColor3 = hubState.currentThemeColor
-        runCodeBtn.Font = Enum.Font.GothamBold
-        runCodeBtn.TextSize = 11
-        runCodeBtn.Parent = consoleBtnBar
-        applyCorner(runCodeBtn, 5)
-        applyStroke(runCodeBtn, hubState.currentThemeColor, 1, 0.4)
-
-        local clearLogBtn = Instance.new("TextButton")
-        clearLogBtn.Size = UDim2.new(0.5, -4, 1, 0)
-        clearLogBtn.Position = UDim2.new(0.5, 4, 0, 0)
-        clearLogBtn.BackgroundColor3 = Color3.fromRGB(28, 22, 28)
-        clearLogBtn.Text = "🗑️ Clear Logs"
-        clearLogBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
-        clearLogBtn.Font = Enum.Font.GothamBold
-        clearLogBtn.TextSize = 11
-        clearLogBtn.Parent = consoleBtnBar
-        applyCorner(clearLogBtn, 5)
-
-        local consoleLogScroll = Instance.new("ScrollingFrame")
-        consoleLogScroll.Size = UDim2.new(1, -6, 0, 130)
-        consoleLogScroll.BackgroundColor3 = Color3.fromRGB(11, 14, 20)
-        consoleLogScroll.BorderSizePixel = 0
-        consoleLogScroll.ScrollBarThickness = 3
-        consoleLogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        consoleLogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-        consoleLogScroll.Parent = hubState.consolePage
-        applyCorner(consoleLogScroll, 6)
-        applyStroke(consoleLogScroll, Color3.fromRGB(28, 36, 50), 1, 0)
-
-        local logLayout = Instance.new("UIListLayout")
-        logLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        logLayout.Padding = UDim.new(0, 3)
-        logLayout.Parent = consoleLogScroll
-
-        local function appendConsoleLog(text, color)
-            local logLbl = Instance.new("TextLabel")
-            logLbl.Size = UDim2.new(1, -12, 0, 16)
-            logLbl.BackgroundTransparency = 1
-            logLbl.Text = "[" .. os.date("%H:%M:%S") .. "] " .. tostring(text)
-            logLbl.TextColor3 = color or Color3.fromRGB(200, 215, 240)
-            logLbl.Font = Enum.Font.Code
-            logLbl.TextSize = 10
-            logLbl.TextWrapped = true
-            logLbl.TextXAlignment = Enum.TextXAlignment.Left
-            logLbl.Parent = consoleLogScroll
-        end
-
-        runCodeBtn.MouseButton1Click:Connect(function()
-            hubState.playSfx()
-            hubState.triggerHaptic(0.4)
-            local code = consoleInput.Text
-            if code and #code > 0 then
-                appendConsoleLog("> " .. code, Color3.fromRGB(140, 180, 255))
-                local chunk, compileErr = loadstring(code)
-                if not chunk then
-                    appendConsoleLog("Compile Error: " .. tostring(compileErr), Color3.fromRGB(255, 100, 100))
-                else
-                    local ok, runtimeErr = pcall(chunk)
-                    if not ok then
-                        appendConsoleLog("Runtime Error: " .. tostring(runtimeErr), Color3.fromRGB(255, 100, 100))
-                    else
-                        appendConsoleLog("✓ Executed Successfully", Color3.fromRGB(100, 255, 160))
-                    end
-                end
-            end
-        end)
-
-        clearLogBtn.MouseButton1Click:Connect(function()
-            for _, child in ipairs(consoleLogScroll:GetChildren()) do
-                if child:IsA("TextLabel") then child:Destroy() end
-            end
-            appendConsoleLog("Console cleared.", Color3.fromRGB(130, 140, 160))
-        end)
-
-        appendConsoleLog("Ready. Enter code above to test.", Color3.fromRGB(100, 220, 255))
-
-        -- 📦 Script Repository & Cloud Scripts Page
-        hubState.repoPage = hubState.createTabButton("📦 Repository", "Repository", nil, false)
-        hubState.createSection(hubState.repoPage, "Community & Verified Script Cloud")
+        -- 📦 Script Repository & Cloud Scripts Page (Header Quick-Access Only)
+        hubState.repoPage = hubState.createPage("Repository")
+        hubState.createSection(hubState.repoPage, "Community & Official Script Cloud")
 
         local repoStatus = Instance.new("TextLabel")
         repoStatus.Size = UDim2.new(1, -6, 0, 20)
@@ -6192,10 +6244,40 @@ return function(opts)
             repoStatus.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
         end
 
-        local repoSearchBox = hubState.createTextBox(hubState.repoPage, "🔍 Search 12+ Cloud Scripts...")
-        local repoListContainer = hubState.CreateList(hubState.repoPage, "Verified Cloud Scripts", {}, 200, false)
+        local repoSearchBox = hubState.createTextBox(hubState.repoPage, "🔍 Search Universal & Game Scripts...")
 
-        local verifiedScripts = {
+        local function executeScriptUrl(name, url)
+            setRepoStatus("Downloading " .. name .. "...", false)
+            task.spawn(function()
+                local ok, src = pcall(function() return game:HttpGet(url) end)
+                if not ok or not src or src == "" then
+                    setRepoStatus("Failed to download " .. name, true)
+                    hubState.notify({ Title = "Repository Error", Content = "Failed to download " .. name, Color = Color3.fromRGB(255, 100, 100) })
+                    return
+                end
+                local chunk, compileErr = loadstring(src)
+                if not chunk then
+                    setRepoStatus("Compile error in " .. name, true)
+                    hubState.notify({ Title = "Repository Error", Content = "Compile error in " .. name, Color = Color3.fromRGB(255, 100, 100) })
+                    return
+                end
+                local execOk, runtimeErr = pcall(chunk)
+                if execOk then
+                    setRepoStatus(name .. " executed successfully!", false)
+                    hubState.notify({ Title = "Repository", Content = name .. " executed successfully!", Color = Color3.fromRGB(80, 240, 150) })
+                else
+                    setRepoStatus("Runtime error in " .. name .. ": " .. tostring(runtimeErr), true)
+                end
+            end)
+        end
+
+        -- List 1: Universal Scripts (Dark Dex, SimpleSpy, Infinite Yield, Fly GUI, ESP, Aimbot, RTX)
+        local universalListContainer = hubState.CreateList(hubState.repoPage, "🌐 Universal Scripts", {}, 230, true)
+
+        -- List 2: Unknown Hub Games (Bee Swarm, Blox Fruits, Ink Game with Teleport / In-Game status)
+        local gameListContainer = hubState.CreateList(hubState.repoPage, "🎮 Unknown Hub Games", {}, 230, true)
+
+        local universalScriptsData = {
             { name = "Dark Dex V3", desc = "Hierarchy explorer, property inspector & decompiler", url = "https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/BypassedDarkDexV3.luau" },
             { name = "SimpleSpy V3", desc = "Real-time RemoteEvent & RemoteFunction logger", url = "https://raw.githubusercontent.com/infyiff/backup/main/SimpleSpyV3/main.lua" },
             { name = "Hydroxide", desc = "Dynamic analysis, closure spy & method hooker", url = "https://raw.githubusercontent.com/Upbolt/Hydroxide/revision/init.lua" },
@@ -6204,62 +6286,118 @@ return function(opts)
             { name = "Unnamed ESP", desc = "Universal boxes, tracers, health & names", url = "https://raw.githubusercontent.com/ic3w0lf22/Unnamed-ESP/master/UnnamedESP.lua" },
             { name = "Universal Aimbot", desc = "Custom FOV circle, smoothness & target lock", url = "https://raw.githubusercontent.com/Exunys/Aimbot-V2/main/Resources/Scripts/Raw/Main.lua" },
             { name = "RTX Shaders", desc = "Cinematic lighting, dynamic sunbeams & colors", url = "https://raw.githubusercontent.com/MZEEN/Shaders/main/Shader.lua" },
-            { name = "Unknown Bee Swarm Hub", desc = "Auto-field farm, token gatherer & vicious bee", url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/BeeSwarm.luau" },
-            { name = "Unknown Blox Fruits Hub", desc = "Auto-farm levels, quests, stats, boss & fruit", url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/BloxFruits.luau" },
-            { name = "Unknown Ink Game Hub", desc = "Mini-game automation, ESP & godmode triggers", url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/InkGame.luau" },
         }
 
-        local function executeScriptUrl(name, url)
-            setRepoStatus("Downloading " .. name .. "...", false)
-            task.spawn(function()
-                local ok, src = pcall(function() return game:HttpGet(url) end)
-                if not ok or not src or src == "" then
-                    setRepoStatus("Failed to download " .. name, true)
-                    hubState.notify({ Title = "Repository Error", Content = "Failed to download " .. name })
-                    return
-                end
-                local chunk, compileErr = loadstring(src)
-                if not chunk then
-                    setRepoStatus("Compile error in " .. name, true)
-                    hubState.notify({ Title = "Repository Error", Content = "Compile error in " .. name })
-                    return
-                end
-                local execOk, runtimeErr = pcall(chunk)
-                if execOk then
-                    setRepoStatus(name .. " executed successfully!", false)
-                    hubState.notify({ Title = "Repository", Content = name .. " executed!" })
-                else
-                    setRepoStatus("Runtime error in " .. name .. ": " .. tostring(runtimeErr), true)
-                end
-            end)
-        end
+        local hubGamesData = {
+            {
+                name = "🐝 Bee Swarm Simulator",
+                desc = "Auto-farm fields, tokens, vicious bee, sprouts & quests",
+                placeIds = { 1537690962 },
+                teleportPlaceId = 1537690962,
+                url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/BeeSwarm.luau"
+            },
+            {
+                name = "⚔️ Blox Fruits",
+                desc = "Auto-farm levels, quest selector, auto-stats, boss & sniper",
+                placeIds = { 2753915549, 4442272183, 7449423635 },
+                teleportPlaceId = 2753915549,
+                url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/BloxFruits.luau"
+            },
+            {
+                name = "🦑 Ink Game / Squid Game",
+                desc = "Mini-game automation, ESP, godmode & remote triggers",
+                placeIds = { 17625359962, 17625126838 },
+                teleportPlaceId = 17625359962,
+                url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/InkGame.luau"
+            }
+        }
 
-        local function populateRepo(filter)
+        local function populateRepository(filter)
             filter = filter and filter:lower() or ""
-            for _, entry in ipairs(repoListContainer.Items) do
+
+            -- 1. Refresh Universal List
+            for _, entry in ipairs(universalListContainer.Items) do
                 if entry.Row and entry.Row.Parent then entry.Row:Destroy() end
             end
-            repoListContainer.Items = {}
-            for _, s in ipairs(verifiedScripts) do
+            universalListContainer.Items = {}
+
+            for _, s in ipairs(universalScriptsData) do
                 if filter == "" or s.name:lower():find(filter) or s.desc:lower():find(filter) then
-                    repoListContainer:AddItem(s.name, s.desc, function()
-                        executeScriptUrl(s.name, s.url)
-                    end)
+                    universalListContainer:AddItem({
+                        Name = s.name,
+                        Desc = s.desc,
+                        ActionText = "▶ Run",
+                        ActionDisabled = false,
+                        ActionCallback = function()
+                            executeScriptUrl(s.name, s.url)
+                        end,
+                        Callback = function()
+                            executeScriptUrl(s.name, s.url)
+                        end
+                    })
+                end
+            end
+
+            -- 2. Refresh Unknown Hub Games List
+            for _, entry in ipairs(gameListContainer.Items) do
+                if entry.Row and entry.Row.Parent then entry.Row:Destroy() end
+            end
+            gameListContainer.Items = {}
+
+            local currentPlaceId = game.PlaceId
+            for _, g in ipairs(hubGamesData) do
+                if filter == "" or g.name:lower():find(filter) or g.desc:lower():find(filter) then
+                    local isCurrentlyInGame = false
+                    for _, pId in ipairs(g.placeIds) do
+                        if pId == currentPlaceId then
+                            isCurrentlyInGame = true
+                            break
+                        end
+                    end
+
+                    local actionText = isCurrentlyInGame and "🟢 In-Game" or "🚀 Teleport"
+                    local actionDisabled = isCurrentlyInGame
+                    local actionCb = function()
+                        if not isCurrentlyInGame then
+                            setRepoStatus("Teleporting to " .. g.name .. "...", false)
+                            hubState.notify({ Title = "Teleporting", Content = "Joining " .. g.name .. "...", Duration = 3 })
+                            pcall(function()
+                                TeleportService:Teleport(g.teleportPlaceId, LocalPlayer)
+                            end)
+                        else
+                            executeScriptUrl(g.name, g.url)
+                        end
+                    end
+
+                    gameListContainer:AddItem({
+                        Name = g.name,
+                        Desc = isCurrentlyInGame and (g.desc .. " • (Active Game)") or (g.desc .. " • (Click Teleport to join)"),
+                        ActionText = actionText,
+                        ActionDisabled = actionDisabled,
+                        ActionCallback = actionCb,
+                        Callback = function()
+                            if isCurrentlyInGame then
+                                executeScriptUrl(g.name, g.url)
+                            else
+                                actionCb()
+                            end
+                        end
+                    })
                 end
             end
         end
 
-        populateRepo("")
+        populateRepository("")
 
         if repoSearchBox then
             repoSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-                populateRepo(repoSearchBox.Text)
+                populateRepository(repoSearchBox.Text)
             end)
         end
 
-        hubState.universalTabPage = hubState.createTabButton("🌐 Universal", "Universal", nil, false)
+        hubState.universalTabPage = hubState.createTabButton("Universal", "🌐 Universal", nil, false)
         hubState.utilityTabPage = hubState.universalTabPage -- Alias for full backward compatibility
-        hubState.configTabPage = hubState.createTabButton("⚙️ Config", "Config", nil, false)
+        hubState.configTabPage = hubState.createTabButton("Config", "⚙️ Config", nil, false)
 
         -- =========================================================================
         -- Universal Tab: Session & AFK Protection, Potato Mode, Movement, Server

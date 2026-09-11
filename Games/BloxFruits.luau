@@ -303,7 +303,7 @@ local miscPage = Hub.createTabButton("Misc", "Misc", "rbxassetid://10709810488",
 local serverPage = Hub.createTabButton("Server", "Server", "rbxassetid://10709809930", false)
 local travelPage = Hub.createTabButton("Travel", "Travel", "rbxassetid://10709798485", false)
 local shopPage = Hub.createTabButton("Shop", "Shop", "rbxassetid://10709810237", false)
-local configPage = Hub.configTabPage or Hub.createTabButton("Configs", "Configs", "rbxassetid://10709810488", false)
+local configPage = Hub.configTabPage
 
 local farmList = createCollapsibleList(farmPage, "Example List", 160, true)
 createListItem(farmList, "Auto Farm", "Starts the farm loop", function()
