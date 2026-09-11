@@ -12,7 +12,17 @@ local PlaceId = game.PlaceId
 local BASE_URL = "https://raw.githubusercontent.com/dontknow228xd-bot/UnknownHub/main"
 
 local GameScripts = {
-    [1537690962] = BASE_URL .. "/Games/BeeSwarm.luau", -- Bee Swarm Simulator
+    -- Bee Swarm Simulator
+    [1537690962] = BASE_URL .. "/Games/BeeSwarm.luau",
+    
+    -- Blox Fruits (Sea 1, Sea 2, Sea 3)
+    [2753915549] = BASE_URL .. "/Games/BloxFruits.luau",
+    [4442272183] = BASE_URL .. "/Games/BloxFruits.luau",
+    [7449423635] = BASE_URL .. "/Games/BloxFruits.luau",
+    
+    -- Ink Game / Squid Games
+    [17625359962] = BASE_URL .. "/Games/InkGame.luau",
+    [17625126838] = BASE_URL .. "/Games/InkGame.luau",
 }
 
 local function safeLoad(url)
