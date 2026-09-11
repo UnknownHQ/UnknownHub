@@ -294,11 +294,35 @@ return function(opts)
         chromaSpeed = 1.0,
         isSfxEnabled = true,
         sfxVolume = 0.4,
+        currentSoundPack = "Modern",
         pinnedItemsStore = {},
         consoleLogs = {},
         autoLoadConfig = false,
     }
     hubState.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
+
+    local soundPackIds = {
+        Modern = "rbxassetid://4590662766",
+        Mechanical = "rbxassetid://9114223171",
+        Cyberpunk = "rbxassetid://138090596",
+        Bubble = "rbxassetid://9114486337",
+        Mute = ""
+    }
+
+    function hubState.playSfx(overrideSoundId)
+        if not hubState.isSfxEnabled or hubState.currentSoundPack == "Mute" then return end
+        pcall(function()
+            local soundId = overrideSoundId or soundPackIds[hubState.currentSoundPack] or soundPackIds.Modern
+            if not soundId or soundId == "" then return end
+            local s = Instance.new("Sound")
+            s.Name = "ENI_UI_Sfx"
+            s.SoundId = soundId
+            s.Volume = hubState.sfxVolume or 0.35
+            s.Parent = game:GetService("SoundService")
+            s:Play()
+            game:GetService("Debris"):AddItem(s, 2)
+        end)
+    end
     hubState.registerThemeBackground = function(frm) return hubState.registerThemeFrame(frm) end
 
     if typeof(opts.toggleKey) == "EnumItem" then
@@ -4091,7 +4115,7 @@ return function(opts)
         
         if name == "Config" then
             btn.LayoutOrder = 100000
-        elseif name == "Utilities" then
+        elseif name == "Universal" or name == "Utilities" then
             btn.LayoutOrder = 99999
         else
             btn.LayoutOrder = #hubState.tabButtons + 1
@@ -4151,7 +4175,7 @@ return function(opts)
             task.defer(function() hubState.setTabVisible(name) end)
         end
 
-        if name ~= "Config" and name ~= "Utilities" and hubState.ensureConfigTab then
+        if name ~= "Config" and name ~= "Universal" and name ~= "Utilities" and hubState.ensureConfigTab then
             task.defer(function()
                 pcall(hubState.ensureConfigTab)
             end)
@@ -6139,100 +6163,30 @@ return function(opts)
 
         appendConsoleLog("Ready. Enter code above to test.", Color3.fromRGB(100, 220, 255))
 
-        hubState.utilityTabPage = hubState.createTabButton("Utilities", "Utilities", nil, false)
-        hubState.configTabPage = hubState.createTabButton("Config", "Config", nil, false)
+        hubState.universalTabPage = hubState.createTabButton("🌐 Universal", "Universal", nil, false)
+        hubState.utilityTabPage = hubState.universalTabPage -- Alias for full backward compatibility
+        hubState.configTabPage = hubState.createTabButton("⚙️ Config", "Config", nil, false)
 
-        -- Utilities Tab implementation
-        hubState.createSection(hubState.utilityTabPage, "Character & Movement")
-        local utilityStatus = Instance.new("TextLabel")
-        utilityStatus.Size = UDim2.new(1, -6, 0, 20)
-        utilityStatus.BackgroundTransparency = 1
-        utilityStatus.Text = "Status: Ready"
-        utilityStatus.TextColor3 = Color3.fromRGB(155, 165, 185)
-        utilityStatus.Font = Enum.Font.GothamMedium
-        utilityStatus.TextSize = 10
-        utilityStatus.TextXAlignment = Enum.TextXAlignment.Left
-        utilityStatus.Parent = hubState.utilityTabPage
+        -- =========================================================================
+        -- Universal Tab: Session & AFK Protection, Potato Mode, Movement, Server
+        -- =========================================================================
+        hubState.createSection(hubState.universalTabPage, "Session & Anti-AFK")
+        local universalStatus = Instance.new("TextLabel")
+        universalStatus.Size = UDim2.new(1, -6, 0, 20)
+        universalStatus.BackgroundTransparency = 1
+        universalStatus.Text = "Status: Universal Core Ready"
+        universalStatus.TextColor3 = Color3.fromRGB(155, 165, 185)
+        universalStatus.Font = Enum.Font.GothamMedium
+        universalStatus.TextSize = 10
+        universalStatus.TextXAlignment = Enum.TextXAlignment.Left
+        universalStatus.Parent = hubState.universalTabPage
 
-        local function setUtilityStatus(message, isError)
-            utilityStatus.Text = "Status: " .. message
-            utilityStatus.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
+        local function setUniversalStatus(message, isError)
+            universalStatus.Text = "Status: " .. message
+            universalStatus.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
         end
 
-        local function getCharacterHumanoid()
-            local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-            return character and character:FindFirstChildOfClass("Humanoid")
-        end
-
-        hubState.createButton(hubState.utilityTabPage, "Reset Character", function()
-            local humanoid = getCharacterHumanoid()
-            if humanoid then
-                humanoid.Health = 0
-                setUtilityStatus("Character reset", false)
-            else
-                setUtilityStatus("Humanoid not found", true)
-            end
-        end)
-
-        local speedBox = hubState.createTextBox(hubState.utilityTabPage, "WalkSpeed Value (e.g. 32)", "32")
-        local jumpBox = hubState.createTextBox(hubState.utilityTabPage, "JumpPower Value (e.g. 75)", "75")
-        local speedOriginal, jumpOriginal
-        local speedRun, jumpRun = 0, 0
-
-        hubState.createToggle(hubState.utilityTabPage, "Lock WalkSpeed", false, function(enabled)
-            speedRun = speedRun + 1
-            local runId = speedRun
-            local value = math.clamp(tonumber(speedBox.Text) or 16, 0, 500)
-            if enabled then
-                local humanoid = getCharacterHumanoid()
-                speedOriginal = humanoid and humanoid.WalkSpeed or 16
-                task.spawn(function()
-                    while runId == speedRun and enabled and hubState.screenGui.Parent do
-                        local character = LocalPlayer.Character
-                        local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
-                        if currentHumanoid then currentHumanoid.WalkSpeed = value end
-                        task.wait(0.15)
-                    end
-                end)
-                setUtilityStatus("WalkSpeed locked at " .. tostring(value), false)
-            elseif speedOriginal then
-                local humanoid = getCharacterHumanoid()
-                if humanoid then humanoid.WalkSpeed = speedOriginal end
-                setUtilityStatus("WalkSpeed restored", false)
-            end
-        end)
-
-        hubState.createToggle(hubState.utilityTabPage, "Lock JumpPower", false, function(enabled)
-            jumpRun = jumpRun + 1
-            local runId = jumpRun
-            local value = math.clamp(tonumber(jumpBox.Text) or 50, 0, 500)
-            if enabled then
-                local humanoid = getCharacterHumanoid()
-                jumpOriginal = humanoid and humanoid.JumpPower or 50
-                task.spawn(function()
-                    while runId == jumpRun and enabled and hubState.screenGui.Parent do
-                        local character = LocalPlayer.Character
-                        local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
-                        if currentHumanoid then
-                            currentHumanoid.UseJumpPower = true
-                            currentHumanoid.JumpPower = value
-                        end
-                        task.wait(0.15)
-                    end
-                end)
-                setUtilityStatus("JumpPower locked at " .. tostring(value), false)
-            elseif jumpOriginal then
-                local humanoid = getCharacterHumanoid()
-                if humanoid then
-                    humanoid.UseJumpPower = true
-                    humanoid.JumpPower = jumpOriginal
-                end
-                setUtilityStatus("JumpPower restored", false)
-            end
-        end)
-
-        hubState.createSection(hubState.utilityTabPage, "Session & Anti-AFK")
-
+        -- 1. 24/7 Anti-AFK Protection
         local antiAfkConn = nil
         local antiAfkHeartbeat = false
         local function toggleAntiAfk(enabled)
@@ -6259,72 +6213,281 @@ return function(opts)
                         end
                     end
                 end)
-                setUtilityStatus("24/7 Anti-AFK Active", false)
+                setUniversalStatus("24/7 Anti-AFK Active", false)
             else
                 antiAfkHeartbeat = false
                 if antiAfkConn then
                     pcall(function() antiAfkConn:Disconnect() end)
                     antiAfkConn = nil
                 end
-                setUtilityStatus("Anti-AFK Disabled", false)
+                setUniversalStatus("Anti-AFK Disabled", false)
             end
         end
 
-        hubState.createToggle(hubState.utilityTabPage, "24/7 Anti-AFK (No Disconnect)", true, function(enabled)
+        hubState.createToggle(hubState.universalTabPage, "24/7 Anti-AFK (No 20-Min Kick)", true, function(enabled)
             toggleAntiAfk(enabled)
         end)
         toggleAntiAfk(true)
 
-        hubState.createSection(hubState.utilityTabPage, "Server & Teleport")
+        -- 2. Persistent Auto-Rejoin on Kick / Disconnect / Error
+        local autoRejoinActive = false
+        local rejoinConnections = {}
+        local isTeleporting = false
 
-        hubState.createButton(hubState.utilityTabPage, "Rejoin Server", function()
-            setUtilityStatus("Rejoining server...", false)
+        local function attemptRejoinLoop()
+            if isTeleporting then return end
+            isTeleporting = true
+            setUniversalStatus("Disconnect/Error detected! Retrying rejoin...", true)
+            task.spawn(function()
+                while autoRejoinActive do
+                    pcall(function()
+                        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                    end)
+                    task.wait(3.5)
+                end
+            end)
+        end
+
+        local function toggleAutoRejoin(enabled)
+            autoRejoinActive = enabled
+            for _, conn in ipairs(rejoinConnections) do
+                pcall(function() conn:Disconnect() end)
+            end
+            rejoinConnections = {}
+
+            if enabled then
+                local GuiService = game:GetService("GuiService")
+                local errConn = GuiService.ErrorMessageChanged:Connect(function(msg)
+                    if msg and #msg > 0 then
+                        attemptRejoinLoop()
+                    end
+                end)
+                table.insert(rejoinConnections, errConn)
+
+                local pCallPrompt, promptGui = pcall(function() return CoreGui:FindFirstChild("RobloxPromptGui") end)
+                if pCallPrompt and promptGui then
+                    local overlay = promptGui:FindFirstChild("promptOverlay")
+                    if overlay then
+                        local childConn = overlay.ChildAdded:Connect(function(child)
+                            if child.Name == "ErrorPrompt" or child.Name:find("Error") or child.Name:find("Prompt") then
+                                attemptRejoinLoop()
+                            end
+                        end)
+                        table.insert(rejoinConnections, childConn)
+                    end
+                end
+
+                local tpFailConn = TeleportService.TeleportInitFailed:Connect(function()
+                    task.wait(2.5)
+                    if autoRejoinActive then
+                        attemptRejoinLoop()
+                    end
+                end)
+                table.insert(rejoinConnections, tpFailConn)
+
+                setUniversalStatus("Persistent Auto-Rejoin Active", false)
+            else
+                setUniversalStatus("Auto-Rejoin Disabled", false)
+            end
+        end
+
+        hubState.createToggle(hubState.universalTabPage, "Persistent Auto-Rejoin (Retry on Kick/Error)", true, function(enabled)
+            toggleAutoRejoin(enabled)
+        end)
+        toggleAutoRejoin(true)
+
+        -- 3. Performance & Potato Mode
+        hubState.createSection(hubState.universalTabPage, "Performance & Potato Mode")
+
+        local potatoOriginals = {
+            shadows = Lighting.GlobalShadows,
+            fogEnd = Lighting.FogEnd,
+            brightness = Lighting.Brightness,
+            disabledEffects = {}
+        }
+        local potatoActive = false
+
+        local function togglePotatoMode(enabled)
+            potatoActive = enabled
+            if enabled then
+                pcall(function()
+                    if settings and settings().Rendering then
+                        settings().Rendering.QualityLevel = 1
+                    end
+                    Lighting.GlobalShadows = false
+                    Lighting.FogEnd = 9e9
+                    Lighting.Brightness = 1
+                    
+                    for _, v in ipairs(Lighting:GetChildren()) do
+                        if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") then
+                            if v.Enabled then
+                                table.insert(potatoOriginals.disabledEffects, v)
+                                v.Enabled = false
+                            end
+                        end
+                    end
+
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                            obj.Enabled = false
+                        end
+                    end
+                end)
+                setUniversalStatus("Potato Mode Active (Max FPS)", false)
+            else
+                pcall(function()
+                    Lighting.GlobalShadows = potatoOriginals.shadows
+                    Lighting.FogEnd = potatoOriginals.fogEnd
+                    Lighting.Brightness = potatoOriginals.brightness
+                    for _, effect in ipairs(potatoOriginals.disabledEffects) do
+                        if effect and effect.Parent then effect.Enabled = true end
+                    end
+                    potatoOriginals.disabledEffects = {}
+                end)
+                setUniversalStatus("Potato Mode Disabled", false)
+            end
+        end
+
+        hubState.createToggle(hubState.universalTabPage, "Potato Mode (Low CPU/GPU & Shadows Off)", false, function(enabled)
+            togglePotatoMode(enabled)
+        end)
+
+        hubState.createToggle(hubState.universalTabPage, "Disable 3D Rendering (AFK GPU 0%)", false, function(enabled)
+            pcall(function()
+                RunService:Set3dRenderingEnabled(not enabled)
+            end)
+            setUniversalStatus(enabled and "3D Rendering OFF (GPU ~0%)" or "3D Rendering ON", false)
+        end)
+
+        -- 4. Character & Movement
+        hubState.createSection(hubState.universalTabPage, "Character & Movement")
+
+        local function getCharacterHumanoid()
+            local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            return character and character:FindFirstChildOfClass("Humanoid")
+        end
+
+        hubState.createButton(hubState.universalTabPage, "Reset Character", function()
+            local humanoid = getCharacterHumanoid()
+            if humanoid then
+                humanoid.Health = 0
+                setUniversalStatus("Character reset", false)
+            else
+                setUniversalStatus("Humanoid not found", true)
+            end
+        end)
+
+        local speedBox = hubState.createTextBox(hubState.universalTabPage, "WalkSpeed Value (e.g. 32)", "32")
+        local jumpBox = hubState.createTextBox(hubState.universalTabPage, "JumpPower Value (e.g. 75)", "75")
+        local speedOriginal, jumpOriginal
+        local speedRun, jumpRun = 0, 0
+
+        hubState.createToggle(hubState.universalTabPage, "Lock WalkSpeed", false, function(enabled)
+            speedRun = speedRun + 1
+            local runId = speedRun
+            local value = math.clamp(tonumber(speedBox.Text) or 16, 0, 500)
+            if enabled then
+                local humanoid = getCharacterHumanoid()
+                speedOriginal = humanoid and humanoid.WalkSpeed or 16
+                task.spawn(function()
+                    while runId == speedRun and enabled and hubState.screenGui.Parent do
+                        local character = LocalPlayer.Character
+                        local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+                        if currentHumanoid then currentHumanoid.WalkSpeed = value end
+                        task.wait(0.15)
+                    end
+                end)
+                setUniversalStatus("WalkSpeed locked at " .. tostring(value), false)
+            elseif speedOriginal then
+                local humanoid = getCharacterHumanoid()
+                if humanoid then humanoid.WalkSpeed = speedOriginal end
+                setUniversalStatus("WalkSpeed restored", false)
+            end
+        end)
+
+        hubState.createToggle(hubState.universalTabPage, "Lock JumpPower", false, function(enabled)
+            jumpRun = jumpRun + 1
+            local runId = jumpRun
+            local value = math.clamp(tonumber(jumpBox.Text) or 50, 0, 500)
+            if enabled then
+                local humanoid = getCharacterHumanoid()
+                jumpOriginal = humanoid and humanoid.JumpPower or 50
+                task.spawn(function()
+                    while runId == jumpRun and enabled and hubState.screenGui.Parent do
+                        local character = LocalPlayer.Character
+                        local currentHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+                        if currentHumanoid then
+                            currentHumanoid.UseJumpPower = true
+                            currentHumanoid.JumpPower = value
+                        end
+                        task.wait(0.15)
+                    end
+                end)
+                setUniversalStatus("JumpPower locked at " .. tostring(value), false)
+            elseif jumpOriginal then
+                local humanoid = getCharacterHumanoid()
+                if humanoid then
+                    humanoid.UseJumpPower = true
+                    humanoid.JumpPower = jumpOriginal
+                end
+                setUniversalStatus("JumpPower restored", false)
+            end
+        end)
+
+        -- 5. Server & Teleport
+        hubState.createSection(hubState.universalTabPage, "Server & Teleport")
+
+        hubState.createButton(hubState.universalTabPage, "Rejoin Server", function()
+            setUniversalStatus("Rejoining server...", false)
             pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
         end)
 
-        hubState.createButton(hubState.utilityTabPage, "Server Hop", function()
+        hubState.createButton(hubState.universalTabPage, "Server Hop", function()
             task.spawn(function()
-                setUtilityStatus("Searching for alternate servers...", false)
+                setUniversalStatus("Searching for alternate servers...", false)
                 local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
                 local ok, response = pcall(function() return game:HttpGet(url) end)
                 if not ok or not response then
-                    setUtilityStatus("Could not fetch server list", true)
+                    setUniversalStatus("Could not fetch server list", true)
                     return
                 end
                 local decodedOk, result = pcall(function() return HttpService:JSONDecode(response) end)
                 if not decodedOk or not result or not result.data then
-                    setUtilityStatus("Invalid server response", true)
+                    setUniversalStatus("Invalid server response", true)
                     return
                 end
                 for _, server in ipairs(result.data) do
                     if server.id and server.id ~= game.JobId and server.playing < server.maxPlayers then
-                        setUtilityStatus("Found server (" .. server.playing .. "/" .. server.maxPlayers .. "), hopping...", false)
+                        setUniversalStatus("Found server (" .. server.playing .. "/" .. server.maxPlayers .. "), hopping...", false)
                         pcall(function()
                             TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
                         end)
                         return
                     end
                 end
-                setUtilityStatus("No suitable server found", true)
+                setUniversalStatus("No suitable server found", true)
             end)
         end)
 
-        hubState.createSection(hubState.utilityTabPage, "Third-Party Tools")
-        hubState.createButton(hubState.utilityTabPage, "Execute Infinite Yield", function()
+        -- 6. Third-Party Tools
+        hubState.createSection(hubState.universalTabPage, "Third-Party Tools")
+        hubState.createButton(hubState.universalTabPage, "Execute Infinite Yield", function()
             task.spawn(function()
-                setUtilityStatus("Loading Infinite Yield...", false)
+                setUniversalStatus("Loading Infinite Yield...", false)
                 local ok, err = pcall(function()
                     local source = game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source")
                     local execute = loadstring(source)
                     assert(execute, "Infinite Yield compilation failed")
                     execute()
                 end)
-                setUtilityStatus(ok and "Infinite Yield loaded!" or ("Infinite Yield failed: " .. tostring(err)), not ok)
+                setUniversalStatus(ok and "Infinite Yield loaded!" or ("Infinite Yield failed: " .. tostring(err)), not ok)
                 if ok then hubState.notify({ Title = "Infinite Yield", Content = "Script executed successfully." }) end
             end)
         end)
 
-        -- Config Tab implementation
+        -- =========================================================================
+        -- Config Tab: Profiles, Keybinds, Sound Packs, Webhook Progression, Themes
+        -- =========================================================================
         hubState.createSection(hubState.configTabPage, "Configuration Profiles")
         local status = Instance.new("TextLabel")
         status.Size = UDim2.new(1, -6, 0, 20)
@@ -6429,24 +6592,6 @@ return function(opts)
             setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
         end)
 
-        hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
-        hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
-        hubState.configSetters.toggleKey = function(value)
-            local keyName = tostring(value)
-            local keyCode = Enum.KeyCode[keyName]
-            if keyCode then
-                hubState.toggleKeyCode = keyCode
-                if hubState.toggleKeyButton and hubState.toggleKeyButton.Parent then
-                    hubState.toggleKeyButton.Text = "  Toggle GUI Key: " .. hubState.toggleKeyCode.Name
-                end
-            end
-        end
-
-        hubState.toggleKeyButton = hubState.createButton(hubState.configTabPage, "Toggle GUI Key: " .. hubState.toggleKeyCode.Name, function()
-            hubState.capturingToggleKey = true
-            hubState.toggleKeyButton.Text = "  Press any keyboard key..."
-        end)
-
         renameNameBox = createConfigActionRow("Rename Config", "New profile name", true, function()
             local oldName = selectedName
             local newName = sanitizeName(renameNameBox and renameNameBox.Text or "")
@@ -6469,6 +6614,100 @@ return function(opts)
                 refreshConfigs()
             end
             setStatus(wrote and ("Renamed to: " .. newName) or "Rename failed", not wrote)
+        end)
+
+        hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
+        hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
+        hubState.configSetters.toggleKey = function(value)
+            local keyName = tostring(value)
+            local keyCode = Enum.KeyCode[keyName]
+            if keyCode then
+                hubState.toggleKeyCode = keyCode
+                if hubState.toggleKeyButton and hubState.toggleKeyButton.Parent then
+                    hubState.toggleKeyButton.Text = "  Toggle GUI Key: " .. hubState.toggleKeyCode.Name
+                end
+            end
+        end
+
+        hubState.toggleKeyButton = hubState.createButton(hubState.configTabPage, "Toggle GUI Key: " .. hubState.toggleKeyCode.Name, function()
+            hubState.capturingToggleKey = true
+            hubState.toggleKeyButton.Text = "  Press any keyboard key..."
+        end)
+
+        -- Sound Pack Switcher
+        hubState.createSection(hubState.configTabPage, "Sound & Audio Effects")
+        local soundPackOptions = { "Modern", "Mechanical", "Cyberpunk", "Bubble", "Mute" }
+        hubState.CreateDropdown(hubState.configTabPage, "UI Sound Pack", soundPackOptions, hubState.currentSoundPack, function(selected)
+            hubState.currentSoundPack = selected
+            hubState.playSfx()
+            hubState.notify({ Title = "Sound Pack", Content = "Active SFX set to: " .. selected })
+        end)
+
+        -- Discord Webhook & Live Progression Section
+        hubState.createSection(hubState.configTabPage, "Discord Webhook & Progression")
+        local webhookBox = hubState.createTextBox(hubState.configTabPage, "Discord Webhook URL", hubState.defaultWebhook)
+        local autoReportToggle = false
+        local reportInterval = 60
+        local reportThread = nil
+
+        hubState.createSlider(hubState.configTabPage, "Report Interval (Seconds)", 15, 300, 60, "s", function(val)
+            reportInterval = val
+        end)
+
+        hubState.createToggle(hubState.configTabPage, "Auto-Send Live Progression Stats", false, function(enabled)
+            autoReportToggle = enabled
+            if reportThread then pcall(function() task.cancel(reportThread) end); reportThread = nil end
+            if enabled then
+                reportThread = task.spawn(function()
+                    while autoReportToggle and hubState.screenGui.Parent do
+                        local url = webhookBox.Text ~= "" and webhookBox.Text or hubState.defaultWebhook
+                        local stats = {
+                            { name = "👤 Player", value = LocalPlayer.Name .. " (" .. LocalPlayer.DisplayName .. ")", inline = true },
+                            { name = "🎮 Place ID", value = tostring(game.PlaceId), inline = true },
+                            { name = "⏱️ Server Uptime", value = math.floor(workspace.DistributedGameTime) .. "s", inline = true },
+                            { name = "⚡ Live FPS", value = tostring(math.floor(1 / math.max(RunService.RenderStepped:Wait(), 0.001))), inline = true }
+                        }
+                        local payload = {
+                            username = hubState.webhookBotName,
+                            avatar_url = hubState.webhookBotAvatar,
+                            embeds = {{
+                                title = "📊 UnknownHub Universal Progression",
+                                description = "Automated live farming session report from client.",
+                                color = 0x00D4FF,
+                                fields = stats,
+                                footer = { text = "UnknownHub Universal Bot • " .. os.date("%X") },
+                                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+                            }}
+                        }
+                        dispatchHttpRequest(url, "POST", nil, payload)
+                        task.wait(reportInterval)
+                    end
+                end)
+                hubState.notify({ Title = "Webhook Auto-Report", Content = "Live reporting enabled (" .. tostring(reportInterval) .. "s interval)" })
+            else
+                hubState.notify({ Title = "Webhook Auto-Report", Content = "Live reporting stopped." })
+            end
+        end)
+
+        hubState.createButton(hubState.configTabPage, "🚀 Send Test Webhook Message", function()
+            local url = webhookBox.Text ~= "" and webhookBox.Text or hubState.defaultWebhook
+            local payload = {
+                username = hubState.webhookBotName,
+                avatar_url = hubState.webhookBotAvatar,
+                embeds = {{
+                    title = "✅ UnknownHub Webhook Test",
+                    description = "Webhook connection established successfully from **" .. LocalPlayer.Name .. "**!",
+                    color = 0x38EF7D,
+                    fields = {
+                        { name = "Game", value = tostring(game.PlaceId), inline = true },
+                        { name = "Ping / FPS", value = "Healthy", inline = true }
+                    },
+                    footer = { text = "UnknownHub Webhook Pipeline • " .. os.date("%X") },
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+                }}
+            }
+            dispatchHttpRequest(url, "POST", nil, payload)
+            hubState.notify({ Title = "Webhook Test", Content = "Dispatched test embed to Discord!" })
         end)
 
         hubState.createSection(hubState.configTabPage, "HUD & Performance Display")
@@ -6759,8 +6998,87 @@ return function(opts)
         return hubState.CreateList(parent or contentArea, name, {})
     end
 
+    function hubState.createWebhook(config)
+        local webhookUrl = (type(config) == "string") and config or (type(config) == "table" and (config.Url or config.Webhook or config.url or config.webhook) or hubState.defaultWebhook)
+        local botName = (type(config) == "table" and (config.BotName or config.Username or config.username)) or hubState.webhookBotName
+        local botAvatar = (type(config) == "table" and (config.BotAvatar or config.AvatarUrl or config.avatar_url)) or hubState.webhookBotAvatar
+
+        local hook = {}
+        local autoActive = false
+        local loopThread = nil
+
+        function hook:Send(payloadOrTitle, description, fields, color)
+            local embed = {}
+            if type(payloadOrTitle) == "table" and payloadOrTitle.title then
+                embed = payloadOrTitle
+            elseif type(payloadOrTitle) == "table" and (payloadOrTitle.embeds or payloadOrTitle.content) then
+                dispatchHttpRequest(webhookUrl, "POST", nil, payloadOrTitle)
+                return
+            else
+                embed.title = tostring(payloadOrTitle or "UnknownHub Progression")
+                embed.description = tostring(description or "")
+                embed.color = (type(color) == "number") and color or 0x00A2FF
+                if type(fields) == "table" then
+                    embed.fields = fields
+                end
+                embed.footer = { text = "UnknownHub • " .. os.date("%X") }
+                embed.timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+            end
+
+            local payload = {
+                username = botName,
+                avatar_url = botAvatar,
+                embeds = { embed }
+            }
+            dispatchHttpRequest(webhookUrl, "POST", nil, payload)
+        end
+
+        function hook:SendSimple(text)
+            dispatchHttpRequest(webhookUrl, "POST", nil, {
+                username = botName,
+                avatar_url = botAvatar,
+                content = tostring(text)
+            })
+        end
+
+        function hook:StartAutoReport(intervalSec, dataCallback)
+            hook:StopAutoReport()
+            autoActive = true
+            local sec = math.max(tonumber(intervalSec) or 60, 5)
+            loopThread = task.spawn(function()
+                while autoActive and hubState.screenGui.Parent do
+                    task.wait(sec)
+                    if not autoActive then break end
+                    if type(dataCallback) == "function" then
+                        local ok, res = pcall(dataCallback)
+                        if ok and type(res) == "table" then
+                            hook:Send(res.Title or res.title or "Live Progression Update", res.Description or res.description or "", res.Fields or res.fields or {}, res.Color or res.color)
+                        end
+                    end
+                end
+            end)
+        end
+
+        function hook:StopAutoReport()
+            autoActive = false
+            if loopThread then
+                pcall(function() task.cancel(loopThread) end)
+                loopThread = nil
+            end
+        end
+
+        hook.send = hook.Send
+        hook.sendSimple = hook.SendSimple
+        hook.startAutoReport = hook.StartAutoReport
+        hook.stopAutoReport = hook.StopAutoReport
+
+        return hook
+    end
+
     -- Returned Library API
     return {
+        createWebhook = hubState.createWebhook,
+        CreateWebhook = hubState.createWebhook,
         gui = hubState.screenGui,
         frame = hubState.mainFrame,
         content = contentArea,
