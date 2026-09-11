@@ -1,99 +1,49 @@
 --[[
     ========================================================================
-    Unknown Hub - 3-Stage Universal Game Checker & Modular Loader
-    Architecture:
-      Stage 1: Game Checker & Fallback Dialog (Small GUI with Supported Games viewer)
-      Stage 2: Core Engine & Library Loader
-      Stage 3: Game-Specific Script Execution (Blox Fruits, Bee Swarm, Ink Game, etc.)
+    UNKNOWN HUB - SLAP BATTLES MODULE
+    Game Support: Slap Battles (Main Arena, Slap Royale, Killstreak, Elude)
+    PlaceIds: 6403373529, 9431156611, 11520107397, 9426795465
+    Features: Combat, Slap Aura, Auto-Badge Gloves, Sky Safe Zone, ESP
     ========================================================================
 ]]
 
+local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
+local LIBRARY_NAME = "ENI_TabbedHub_UI"
+
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
-local PlaceId = game.PlaceId
-
-local BASE_URL = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main"
-local LIBRARY_URL = BASE_URL .. "/UnknownLibrary"
 
 -- =========================================================================
--- Supported Games Registry
+-- Built-in Anti-AFK (Prevents 20-minute Roblox Disconnect during AFK grinds)
 -- =========================================================================
-local SupportedGames = {
-    {
-        name = "Slap Battles",
-        icon = "🥊",
-        placeIds = { 6403373529, 9431156611, 11520107397, 9426795465, 124596094333302 },
-        gameIds = { 2340706818 },
-        scriptUrl = BASE_URL .. "/Games/SlapBattles.luau",
-        desc = "Slap aura, anti-ragdoll, godmode, badges & glove farm"
-    },
-    {
-        name = "Bee Swarm Simulator",
-        icon = "🐝",
-        placeIds = { 1537690962 },
-        scriptUrl = BASE_URL .. "/Games/BeeSwarm.luau",
-        desc = "Auto-field farm, token gatherer, sprouts & vicious bees"
-    },
-    {
-        name = "Blox Fruits",
-        icon = "⚔️",
-        placeIds = { 2753915549, 4442272183, 7449423635 },
-        scriptUrl = BASE_URL .. "/Games/BloxFruits.luau",
-        desc = "Auto-farm levels, quest selector, auto-stats, boss & fruit sniper"
-    },
-    {
-        name = "Ink Game / Squid Games",
-        icon = "🦑",
-        placeIds = { 17625359962, 17625126838 },
-        scriptUrl = BASE_URL .. "/Games/InkGame.luau",
-        desc = "Mini-game automation, ESP, godmode & remote triggers"
-    }
-}
-
-local function findSupportedGame(pId)
-    local curGameId = game.GameId
-    for _, gameData in ipairs(SupportedGames) do
-        for _, id in ipairs(gameData.placeIds) do
-            if id == pId then
-                return gameData
-            end
+pcall(function()
+    LocalPlayer.Idled:Connect(function()
+        if VirtualUser then
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new(0, 0))
+        else
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
         end
-        if gameData.gameIds and curGameId and curGameId > 0 then
-            for _, gId in ipairs(gameData.gameIds) do
-                if gId == curGameId then
-                    return gameData
-                end
-            end
-        end
-    end
-    return nil
-end
+    end)
+end)
 
-local function getSafeGuiParent()
-    local parent = CoreGui
-    if gethui then
-        pcall(function() parent = gethui() end)
-    elseif LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") then
-        parent = LocalPlayer.PlayerGui
-    end
-    return parent
-end
-
-local function destroyOldCheckerGui()
-    local targetName = "ENI_GameChecker_UI"
-    local parents = {CoreGui}
+local function destroyOldGui()
+    local parents = {game:GetService("CoreGui")}
     if gethui then pcall(function() table.insert(parents, gethui()) end) end
-    if LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") then
-        table.insert(parents, LocalPlayer.PlayerGui)
-    end
-    for _, p in ipairs(parents) do
-        if p then
-            for _, child in ipairs(p:GetChildren()) do
-                if child:IsA("ScreenGui") and child.Name == targetName then
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then table.insert(parents, playerGui) end
+    for _, parent in ipairs(parents) do
+        if parent then
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("ScreenGui") and child.Name == LIBRARY_NAME then
                     pcall(function() child:Destroy() end)
                 end
             end
@@ -101,253 +51,926 @@ local function destroyOldCheckerGui()
     end
 end
 
-local function safeFetchScript(url)
+local ok, result = pcall(function()
+    local source
     local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
-    local ok, source = pcall(function()
-        return game:HttpGet(url .. cacheBuster)
-    end)
-    if not ok or not source or source == "" then
-        warn("[UnknownHub] Failed to fetch script from: " .. tostring(url))
-        return nil, "Network download failed"
+    source = game:HttpGet(LIBRARY_LINK .. cacheBuster)
+    local factoryChunk, compileErr = loadstring(source)
+    assert(factoryChunk, "the linked source did not compile: " .. tostring(compileErr))
+    return factoryChunk()
+end)
+
+assert(ok and type(result) == "function", "UnknownLibrary failed to load: " .. tostring(result))
+
+destroyOldGui()
+
+local Hub = result({
+    name = LIBRARY_NAME,
+    title = "UNKNOWN HUB",
+    subTitle = "Slap Battles v2.5 • Badge Master",
+    parent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui"),
+    theme = Color3.fromRGB(255, 120, 0),
+    secondaryTheme = Color3.fromRGB(180, 50, 255)
+})
+
+assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
+
+-- =========================================================================
+-- Hub Tabs
+-- =========================================================================
+local combatTab = Hub.createTabButton("Combat", "🥊 Combat", "rbxassetid://10723407390", true)
+local badgeTab  = Hub.createTabButton("Badges", "🏆 Auto Gloves", "rbxassetid://10723407389", false)
+local farmTab   = Hub.createTabButton("Farm", "⭐ General Farm", "rbxassetid://10723407389", false)
+local defenseTab = Hub.createTabButton("Defense", "🛡️ Defense & Safe", "rbxassetid://10723407392", false)
+local visualTab = Hub.createTabButton("Visuals", "👁️ Visuals & ESP", "rbxassetid://10723407395", false)
+
+-- =========================================================================
+-- State Variables
+-- =========================================================================
+local state = {
+    SlapAura = false,
+    SlapAuraDistance = 18,
+    FastSlap = false,
+    AntiRagdoll = false,
+    AntiVoid = false,
+    AntiMegarock = false,
+    AntiTimestop = false,
+    AutoParry = false,
+    AutoCandy = false,
+    AutoTycoon = false,
+    PlayerESP = false,
+    GloveESP = false,
+    -- Auto-Gloves Grinds
+    AutoMegarock = false,
+    AutoFish = false,
+    AutoTrap = false,
+    AutoVoodoo = false,
+    TrapBrickCount = 0
+}
+
+-- Safe Character Helpers
+local function getCharacter(player)
+    player = player or LocalPlayer
+    return player and player.Character
+end
+
+local function getRoot(player)
+    local char = getCharacter(player)
+    return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+end
+
+local function getHumanoid(player)
+    local char = getCharacter(player)
+    return char and char:FindFirstChildWhichIsA("Humanoid")
+end
+
+local function getSlapCount()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats and leaderstats:FindFirstChild("Slaps") then
+        return leaderstats.Slaps.Value
     end
-    local chunk, compileErr = loadstring(source)
-    if not chunk then
-        warn("[UnknownHub] Compile error in script: " .. tostring(compileErr))
-        return nil, compileErr
+    return 0
+end
+
+local function getCurrentGlove()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats and leaderstats:FindFirstChild("Glove") then
+        return leaderstats.Glove.Value
     end
-    return chunk
+    local tool = getCharacter() and getCharacter():FindFirstChildWhichIsA("Tool")
+    return tool and tool.Name or "None"
+end
+
+local function isInLobby()
+    local root = getRoot()
+    if not root then return false end
+    -- In Slap Battles, Lobby is high up around Y > 200 and X < -800
+    return (root.Position.Y > 150 and root.Position.X < -600)
 end
 
 -- =========================================================================
--- STAGE 1: Check Supported Game
+-- Sky Safe Zone System (Protected Platform far above the map)
 -- =========================================================================
-local detectedGame = findSupportedGame(PlaceId)
+local SAFE_ZONE_POS = Vector3.new(0, 3500, 0)
+local safeZoneModel = nil
 
-if detectedGame then
-    -- Game is supported! Load the dedicated module directly
-    print("[UnknownHub] Recognized game: " .. detectedGame.name .. " (PlaceId: " .. tostring(PlaceId) .. ")")
-    local scriptChunk, err = safeFetchScript(detectedGame.scriptUrl)
-    if scriptChunk then
-        local execOk, runtimeErr = pcall(scriptChunk)
-        if not execOk then
-            warn("[UnknownHub] Runtime error loading " .. detectedGame.name .. ": " .. tostring(runtimeErr))
+local function getOrCreateSafeZone()
+    if safeZoneModel and safeZoneModel.Parent then
+        return safeZoneModel
+    end
+
+    local model = Instance.new("Model")
+    model.Name = "ENI_SkySafeZone"
+
+    local floor = Instance.new("Part")
+    floor.Name = "Floor"
+    floor.Size = Vector3.new(40, 2, 40)
+    floor.Position = SAFE_ZONE_POS
+    floor.Anchored = true
+    floor.Material = Enum.Material.ForceField
+    floor.Color = Color3.fromRGB(0, 195, 245)
+    floor.Transparency = 0.3
+    floor.Parent = model
+
+    -- Surrounding safety walls
+    local wallOffsets = {
+        {Vector3.new(0, 6, 20), Vector3.new(40, 12, 1)},
+        {Vector3.new(0, 6, -20), Vector3.new(40, 12, 1)},
+        {Vector3.new(20, 6, 0), Vector3.new(1, 12, 40)},
+        {Vector3.new(-20, 6, 0), Vector3.new(1, 12, 40)},
+        {Vector3.new(0, 12, 0), Vector3.new(40, 1, 40)}
+    }
+
+    for _, wallData in ipairs(wallOffsets) do
+        local wall = Instance.new("Part")
+        wall.Size = wallData[2]
+        wall.Position = SAFE_ZONE_POS + wallData[1]
+        wall.Anchored = true
+        wall.Material = Enum.Material.ForceField
+        wall.Color = Color3.fromRGB(30, 144, 255)
+        wall.Transparency = 0.6
+        wall.Parent = model
+    end
+
+    model.Parent = Workspace
+    safeZoneModel = model
+    return safeZoneModel
+end
+
+local function teleportToSafeZone()
+    getOrCreateSafeZone()
+    local root = getRoot()
+    if root then
+        root.CFrame = CFrame.new(SAFE_ZONE_POS + Vector3.new(0, 4, 0))
+    end
+end
+
+local function removeSafeZone()
+    if safeZoneModel and safeZoneModel.Parent then
+        safeZoneModel:Destroy()
+        safeZoneModel = nil
+    end
+end
+
+-- =========================================================================
+-- Glove Equipping & Arena Entry Helpers
+-- =========================================================================
+local function autoEquipGlove(gloveName)
+    local cur = getCurrentGlove()
+    if cur and cur:lower() == gloveName:lower() then
+        return true
+    end
+
+    local lobby = Workspace:FindFirstChild("Lobby")
+    if lobby then
+        local stand = lobby:FindFirstChild(gloveName)
+        if stand then
+            local root = getRoot()
+            if root then
+                root.CFrame = (stand:IsA("BasePart") and stand.CFrame or stand:GetPivot()) + Vector3.new(0, 2, 0)
+                task.wait(0.3)
+            end
+            local cd = stand:FindFirstChildWhichIsA("ClickDetector", true)
+            if cd then
+                fireclickdetector(cd)
+                task.wait(0.4)
+            end
         end
     end
-else
-    -- =========================================================================
-    -- Game is NOT supported: Render Sleek Minimalist "Not Supported" Small GUI
-    -- =========================================================================
-    print("[UnknownHub] PlaceId " .. tostring(PlaceId) .. " is not currently mapped. Showing Small GUI...")
-    destroyOldCheckerGui()
 
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "ENI_GameChecker_UI"
-    sg.ResetOnSpawn = false
-    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    sg.Parent = getSafeGuiParent()
+    cur = getCurrentGlove()
+    return (cur and cur:lower() == gloveName:lower())
+end
 
-    local card = Instance.new("Frame")
-    card.Name = "CheckerCard"
-    card.Size = UDim2.new(0, 360, 0, 220)
-    card.Position = UDim2.new(0.5, -180, 0.5, -110)
-    card.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
-    card.BorderSizePixel = 0
-    card.Active = true
-    card.Parent = sg
+local function enterArena()
+    local portal = (Workspace:FindFirstChild("Lobby") and Workspace.Lobby:FindFirstChild("Teleport1"))
+        or Workspace:FindFirstChild("Teleport1")
+    local root = getRoot()
+    if portal and root then
+        root.CFrame = portal.CFrame + Vector3.new(0, 2, 0)
+        task.wait(1.5)
+    end
+end
 
-    local cardCorner = Instance.new("UICorner")
-    cardCorner.CornerRadius = UDim.new(0, 10)
-    cardCorner.Parent = card
-
-    local cardStroke = Instance.new("UIStroke")
-    cardStroke.Color = Color3.fromRGB(0, 195, 245)
-    cardStroke.Thickness = 1.5
-    cardStroke.Transparency = 0.2
-    cardStroke.Parent = card
-
-    -- Header bar
-    local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 38)
-    header.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
-    header.BorderSizePixel = 0
-    header.Parent = card
-
-    local headerCorner = Instance.new("UICorner")
-    headerCorner.CornerRadius = UDim.new(0, 10)
-    headerCorner.Parent = header
-
-    local titleLbl = Instance.new("TextLabel")
-    titleLbl.Size = UDim2.new(1, -70, 1, 0)
-    titleLbl.Position = UDim2.new(0, 12, 0, 0)
-    titleLbl.BackgroundTransparency = 1
-    titleLbl.Text = "🌊 UNKNOWN HUB • GAME CHECKER"
-    titleLbl.TextColor3 = Color3.fromRGB(0, 210, 255)
-    titleLbl.Font = Enum.Font.GothamBlack
-    titleLbl.TextSize = 11
-    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-    titleLbl.Parent = header
-
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.new(0, 24, 0, 24)
-    closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(30, 38, 54)
-    closeBtn.Text = "✕"
-    closeBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 11
-    closeBtn.Parent = header
-
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 6)
-    closeCorner.Parent = closeBtn
-
-    closeBtn.MouseButton1Click:Connect(function()
-        sg:Destroy()
-    end)
-
-    -- Message Body
-    local descLbl = Instance.new("TextLabel")
-    descLbl.Size = UDim2.new(1, -24, 0, 48)
-    descLbl.Position = UDim2.new(0, 12, 0, 46)
-    descLbl.BackgroundTransparency = 1
-    descLbl.Text = "⚠️ Game Not Supported (Place ID: " .. tostring(PlaceId) .. ")\nNo tailored script module is available for this game yet."
-    descLbl.TextColor3 = Color3.fromRGB(200, 212, 230)
-    descLbl.Font = Enum.Font.GothamMedium
-    descLbl.TextSize = 11
-    descLbl.TextWrapped = true
-    descLbl.TextXAlignment = Enum.TextXAlignment.Left
-    descLbl.Parent = card
-
-    -- Buttons row
-    local btnViewGames = Instance.new("TextButton")
-    btnViewGames.Size = UDim2.new(0.5, -16, 0, 34)
-    btnViewGames.Position = UDim2.new(0, 12, 0, 102)
-    btnViewGames.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
-    btnViewGames.Text = "📋 Supported Games"
-    btnViewGames.TextColor3 = Color3.fromRGB(165, 95, 255)
-    btnViewGames.Font = Enum.Font.GothamBold
-    btnViewGames.TextSize = 11
-    btnViewGames.Parent = card
-
-    local bvgCorner = Instance.new("UICorner")
-    bvgCorner.CornerRadius = UDim.new(0, 6)
-    bvgCorner.Parent = btnViewGames
-
-    local bvgStroke = Instance.new("UIStroke")
-    bvgStroke.Color = Color3.fromRGB(165, 95, 255)
-    bvgStroke.Thickness = 1
-    bvgStroke.Transparency = 0.5
-    bvgStroke.Parent = btnViewGames
-
-    local btnLaunchUniversal = Instance.new("TextButton")
-    btnLaunchUniversal.Size = UDim2.new(0.5, -16, 0, 34)
-    btnLaunchUniversal.Position = UDim2.new(0.5, 4, 0, 102)
-    btnLaunchUniversal.BackgroundColor3 = Color3.fromRGB(24, 38, 54)
-    btnLaunchUniversal.Text = "🌐 Launch Universal"
-    btnLaunchUniversal.TextColor3 = Color3.fromRGB(0, 210, 255)
-    btnLaunchUniversal.Font = Enum.Font.GothamBold
-    btnLaunchUniversal.TextSize = 11
-    btnLaunchUniversal.Parent = card
-
-    local bluCorner = Instance.new("UICorner")
-    bluCorner.CornerRadius = UDim.new(0, 6)
-    bluCorner.Parent = btnLaunchUniversal
-
-    local bluStroke = Instance.new("UIStroke")
-    bluStroke.Color = Color3.fromRGB(0, 210, 255)
-    bluStroke.Thickness = 1
-    bluStroke.Transparency = 0.5
-    bluStroke.Parent = btnLaunchUniversal
-
-    -- Expandable Supported Games List Container
-    local gamesListFrame = Instance.new("ScrollingFrame")
-    gamesListFrame.Size = UDim2.new(1, -24, 0, 60)
-    gamesListFrame.Position = UDim2.new(0, 12, 0, 146)
-    gamesListFrame.BackgroundColor3 = Color3.fromRGB(10, 14, 20)
-    gamesListFrame.BorderSizePixel = 0
-    gamesListFrame.ScrollBarThickness = 3
-    gamesListFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    gamesListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    gamesListFrame.Parent = card
-
-    local glCorner = Instance.new("UICorner")
-    glCorner.CornerRadius = UDim.new(0, 6)
-    glCorner.Parent = gamesListFrame
-
-    local glLayout = Instance.new("UIListLayout")
-    glLayout.Padding = UDim.new(0, 4)
-    glLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    glLayout.Parent = gamesListFrame
-
-    for _, g in ipairs(SupportedGames) do
-        local row = Instance.new("TextLabel")
-        row.Size = UDim2.new(1, -8, 0, 20)
-        row.BackgroundTransparency = 1
-        row.Text = "  " .. g.icon .. " " .. g.name .. " (PlaceIds: " .. table.concat(g.placeIds, ", ") .. ")"
-        row.TextColor3 = Color3.fromRGB(180, 195, 220)
-        row.Font = Enum.Font.GothamMedium
-        row.TextSize = 10
-        row.TextXAlignment = Enum.TextXAlignment.Left
-        row.Parent = gamesListFrame
+local function ensureEquippedAndInArena(gloveName)
+    local cur = getCurrentGlove()
+    if cur:lower() ~= gloveName:lower() then
+        Hub.notify({
+            Title = "Equipping " .. gloveName,
+            Content = "Checking glove stand in Lobby...",
+            Duration = 3
+        })
+        local equipped = autoEquipGlove(gloveName)
+        if not equipped then
+            Hub.notify({
+                Title = "⚠️ Glove Locked / Not Equipped",
+                Content = "Please equip [" .. gloveName .. "] glove first!",
+                Duration = 5
+            })
+            return false
+        end
     end
 
-    -- Launch Universal Button Action
-    btnLaunchUniversal.MouseButton1Click:Connect(function()
-        sg:Destroy()
-        local libChunk = safeFetchScript(LIBRARY_URL)
-        if libChunk then
-            local libFactory = libChunk()
-            if libFactory then
-                libFactory({
-                    title = "UNKNOWN HUB",
-                    theme = Color3.fromRGB(0, 195, 245),
-                    secondaryTheme = Color3.fromRGB(165, 95, 255)
+    -- If in lobby, enter arena first
+    if isInLobby() then
+        Hub.notify({
+            Title = "Entering Arena",
+            Content = "Stepping through Arena portal with " .. gloveName .. "...",
+            Duration = 3
+        })
+        enterArena()
+        task.wait(1)
+    end
+
+    -- Once in arena, move to Safe Zone
+    teleportToSafeZone()
+    return true
+end
+
+-- =========================================================================
+-- Glove Ability Activator Helper
+-- =========================================================================
+local function activateAbility(customRemoteName)
+    if customRemoteName then
+        local r = ReplicatedStorage:FindFirstChild(customRemoteName)
+        if r and r:IsA("RemoteEvent") then
+            pcall(function() r:FireServer() end)
+            return
+        end
+    end
+
+    local bEvents = ReplicatedStorage:FindFirstChild("Events")
+    if bEvents and bEvents:FindFirstChild("Ability") then
+        pcall(function() bEvents.Ability:FireServer() end)
+    else
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
+    end
+end
+
+-- =========================================================================
+-- 1. COMBAT TAB
+-- =========================================================================
+local function getSlapEvent()
+    local bEvents = ReplicatedStorage:FindFirstChild("Events") or ReplicatedStorage:FindFirstChild("GeneralEvents")
+    if bEvents then
+        local slap = bEvents:FindFirstChild("Slap") or bEvents:FindFirstChild("Hit") or bEvents:FindFirstChild("SlapEvent")
+        if slap then return slap end
+    end
+    for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+        if child:IsA("RemoteEvent") and (child.Name == "Slap" or child.Name == "Hit" or child.Name == "GeneralHit" or child.Name:find("Slap")) then
+            return child
+        end
+    end
+    return nil
+end
+
+local function slapPlayer(targetChar)
+    if not targetChar then return end
+    local targetRoot = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso")
+    local myRoot = getRoot()
+    if not targetRoot or not myRoot then return end
+
+    local tool = getCharacter() and getCharacter():FindFirstChildWhichIsA("Tool")
+    if tool then
+        pcall(function() tool:Activate() end)
+    end
+
+    local slapEvt = getSlapEvent()
+    if slapEvt then
+        pcall(function() slapEvt:FireServer(targetRoot) end)
+    end
+end
+
+Hub.CreateSection(combatTab, "Slap Aura & Reach")
+
+Hub.CreateToggle(combatTab, "Slap Aura", false, function(toggled)
+    state.SlapAura = toggled
+end)
+
+Hub.CreateSlider(combatTab, "Aura Range", 10, 35, 18, "", function(val)
+    state.SlapAuraDistance = val
+end)
+
+Hub.CreateToggle(combatTab, "Fast Slap Loop", false, function(toggled)
+    state.FastSlap = toggled
+end)
+
+Hub.CreateSection(combatTab, "Glove Abilities & Combat")
+
+Hub.CreateToggle(combatTab, "Auto Reverse Parry", false, function(toggled)
+    state.AutoParry = toggled
+end)
+
+Hub.CreateButton(combatTab, "⚡ Fire Glove Ability (E)", function()
+    activateAbility()
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(state.FastSlap and 0.03 or 0.08)
+        if state.SlapAura then
+            local myRoot = getRoot()
+            if myRoot then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local tRoot = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Torso")
+                        local tHum = player.Character:FindFirstChildWhichIsA("Humanoid")
+                        if tRoot and tHum and tHum.Health > 0 then
+                            local dist = (myRoot.Position - tRoot.Position).Magnitude
+                            if dist <= state.SlapAuraDistance then
+                                slapPlayer(player.Character)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- =========================================================================
+-- 2. AUTO-GLOVES (BADGES) TAB
+-- =========================================================================
+Hub.CreateSection(badgeTab, "One-Click Instant Badge Solvers")
+
+-- Auto-Elude Solver (Keypad in Arena OR Relics in Elude Maze)
+Hub.CreateButton(badgeTab, "🚪 Auto-Get Elude Glove (Keypad & Relics)", function()
+    task.spawn(function()
+        local isEludeMaze = (game.PlaceId == 9426795465) or (Workspace:FindFirstChild("Maze") ~= nil)
+
+        if isEludeMaze then
+            -- We are inside the Elude Maze Realm! Collect the 4 relics!
+            Hub.notify({
+                Title = "Elude Maze Active",
+                Content = "Scanning for 4 maze relics...",
+                Duration = 4
+            })
+            local collected = 0
+            for _, relic in ipairs(Workspace:GetDescendants()) do
+                if relic:IsA("BasePart") and (relic.Name:lower():find("relic") or relic.Name:lower():find("key") or relic.Name == "Item") then
+                    local myRoot = getRoot()
+                    if myRoot then
+                        myRoot.CFrame = relic.CFrame + Vector3.new(0, 2, 0)
+                        collected = collected + 1
+                        task.wait(0.8)
+                    end
+                end
+            end
+
+            local pedestal = Workspace:FindFirstChild("EludePedestal", true) or Workspace:FindFirstChild("EludeGlove", true) or Workspace:FindFirstChild("Pedestal", true)
+            if pedestal and pedestal:IsA("BasePart") then
+                local myRoot = getRoot()
+                if myRoot then
+                    myRoot.CFrame = pedestal.CFrame + Vector3.new(0, 3, 0)
+                end
+            end
+
+            Hub.notify({
+                Title = "Elude Maze Done",
+                Content = "Collected " .. tostring(collected) .. " relics and touched pedestal!",
+                Duration = 6
+            })
+        else
+            -- We are in Main Arena / Lobby: Calculate and solve the Keypad
+            local pCount = #Players:GetPlayers()
+            local code = (pCount * 25) + 1100 - 7
+            
+            Hub.notify({
+                Title = "Elude Keypad Solver",
+                Content = "Calculated Code: " .. tostring(code) .. " (Players: " .. tostring(pCount) .. ")",
+                Duration = 5
+            })
+
+            local keypad = Workspace:FindFirstChild("Keypad")
+            if keypad and keypad:FindFirstChild("Buttons") then
+                local root = getRoot()
+                if root and keypad:FindFirstChild("Display") then
+                    root.CFrame = keypad.Display.CFrame + Vector3.new(0, 0, -4)
+                    task.wait(0.5)
+                end
+
+                local buttons = keypad.Buttons
+                -- Reset first
+                if buttons:FindFirstChild("Reset") and buttons.Reset:FindFirstChildWhichIsA("ClickDetector") then
+                    fireclickdetector(buttons.Reset:FindFirstChildWhichIsA("ClickDetector"))
+                    task.wait(0.3)
+                end
+
+                -- Enter each digit
+                for digit in tostring(code):gmatch(".") do
+                    local btn = buttons:FindFirstChild(digit)
+                    if btn and btn:FindFirstChildWhichIsA("ClickDetector") then
+                        fireclickdetector(btn:FindFirstChildWhichIsA("ClickDetector"))
+                        task.wait(0.25)
+                    end
+                end
+
+                -- Enter button
+                if buttons:FindFirstChild("Enter") and buttons.Enter:FindFirstChildWhichIsA("ClickDetector") then
+                    fireclickdetector(buttons.Enter:FindFirstChildWhichIsA("ClickDetector"))
+                end
+
+                if ReplicatedStorage:FindFirstChild("TeleportElude") then
+                    pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
+                end
+
+                Hub.notify({
+                    Title = "Keypad Solved!",
+                    Content = "Code entered! Teleporting to Elude Maze... Once loaded, run this button again to sweep relics!",
+                    Duration = 7
+                })
+            else
+                Hub.notify({
+                    Title = "Keypad Not Found",
+                    Content = "No Keypad model active in current server.",
+                    Duration = 4
                 })
             end
         end
     end)
+end)
 
-    -- Toggle View Games Button Action
-    local expanded = false
-    btnViewGames.MouseButton1Click:Connect(function()
-        expanded = not expanded
-        if expanded then
-            card.Size = UDim2.new(0, 360, 0, 290)
-            gamesListFrame.Size = UDim2.new(1, -24, 0, 130)
+-- Auto-Counter Glove Solver (Lever & Evade Pim)
+Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Lever & Evade)", function()
+    task.spawn(function()
+        local isEludeMaze = (game.PlaceId == 9426795465) or (Workspace:FindFirstChild("Maze") ~= nil) or (Workspace:FindFirstChild("Pim") ~= nil)
+
+        if not isEludeMaze then
+            Hub.notify({
+                Title = "⚠️ Not In Elude Maze",
+                Content = "The Counter Lever is inside Elude Maze (Place 9426795465). Use Auto-Elude first to teleport in!",
+                Duration = 6
+            })
+            return
+        end
+
+        Hub.notify({
+            Title = "Counter Glove",
+            Content = "Searching for secret counter lever...",
+            Duration = 3
+        })
+
+        local lever = Workspace:FindFirstChild("CounterLever", true) 
+            or Workspace:FindFirstChild("Lever", true)
+            or Workspace:FindFirstChild("SecretLever", true)
+
+        if lever then
+            local root = getRoot()
+            if root then
+                root.CFrame = (lever:IsA("BasePart") and lever.CFrame or lever:GetPivot()) + Vector3.new(0, 2, 0)
+                task.wait(0.4)
+                local detector = lever:FindFirstChildWhichIsA("ClickDetector", true)
+                if detector then
+                    fireclickdetector(detector)
+                end
+                Hub.notify({
+                    Title = "Counter Glove",
+                    Content = "Lever activated! Moving to safe elevation to evade Pim...",
+                    Duration = 5
+                })
+                task.wait(0.5)
+                root.CFrame = root.CFrame + Vector3.new(0, 40, 0)
+            end
         else
-            card.Size = UDim2.new(0, 360, 0, 220)
-            gamesListFrame.Size = UDim2.new(1, -24, 0, 60)
+            Hub.notify({
+                Title = "Counter Glove",
+                Content = "Lever not found in maze!",
+                Duration = 4
+            })
         end
     end)
+end)
 
-    -- Smooth Dragging for Small GUI Card
-    local isDragging = false
-    local dragStart = Vector3.new()
-    local startPos = UDim2.new()
-
-    header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isDragging = true
-            dragStart = input.Position
-            startPos = card.Position
+-- Auto-[REDACTED] Glove Solver (With Safe 5,000 Slaps Check)
+Hub.CreateButton(badgeTab, "⬛ Auto-Get [REDACTED] Glove (5k Slaps Check)", function()
+    task.spawn(function()
+        local currentSlaps = getSlapCount()
+        if currentSlaps < 5000 then
+            Hub.notify({
+                Title = "⚠️ [REDACTED] Locked",
+                Content = "You need at least 5,000 slaps to enter! Current: " .. tostring(currentSlaps),
+                Duration = 5
+            })
+            return
         end
-    end)
 
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isDragging = false
-        end
-    end)
+        Hub.notify({
+            Title = "[REDACTED] Solver",
+            Content = "Slap check passed (" .. tostring(currentSlaps) .. " slaps). Searching for doorway...",
+            Duration = 4
+        })
 
-    UserInputService.InputChanged:Connect(function(input)
-        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            card.Position = UDim2.new(
-                startPos.X.Scale,
-                startPos.X.Offset + delta.X,
-                startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
-            )
+        local redactedDoor = Workspace:FindFirstChild("PocketDimension", true) 
+            or Workspace:FindFirstChild("RedactedDoor", true)
+            or Workspace:FindFirstChild("Door", true)
+
+        local root = getRoot()
+        if root and redactedDoor then
+            local doorPart = redactedDoor:IsA("BasePart") and redactedDoor or redactedDoor:FindFirstChildWhichIsA("BasePart")
+            if doorPart then
+                root.CFrame = doorPart.CFrame + Vector3.new(0, 2, 0)
+                task.wait(1)
+            end
         end
+
+        for i = 1, 10 do
+            local safeDoor = Workspace:FindFirstChild("SafeDoor" .. tostring(i), true) or Workspace:FindFirstChild("Door" .. tostring(i), true)
+            if safeDoor and safeDoor:IsA("BasePart") and root then
+                root.CFrame = safeDoor.CFrame
+                task.wait(0.8)
+            end
+        end
+
+        Hub.notify({
+            Title = "[REDACTED] Solver",
+            Content = "Completed door traversal sequence.",
+            Duration = 4
+        })
     end)
+end)
+
+Hub.CreateSection(badgeTab, "AFK Safe-Zone Glove Grinds")
+
+-- Auto-Megarock (10 Hours AFK with Diamond Glove)
+Hub.CreateToggle(badgeTab, "🪨 Auto-Megarock (Diamond -> Arena -> Safe Zone)", false, function(toggled)
+    state.AutoMegarock = toggled
+    if toggled then
+        task.spawn(function()
+            local success = ensureEquippedAndInArena("Diamond")
+            if not success then
+                state.AutoMegarock = false
+                return
+            end
+
+            task.wait(0.8)
+            activateAbility("Rockmode")
+            Hub.notify({
+                Title = "Auto-Megarock Active",
+                Content = "Diamond rock activated in Safe Zone. Keep AFK for 10 hours!",
+                Duration = 6
+            })
+        end)
+    else
+        Hub.notify({
+            Title = "Auto-Megarock Stopped",
+            Content = "Megarock farmer deactivated.",
+            Duration = 3
+        })
+    end
+end)
+
+-- Auto-Fish (1 Hour AFK with ZZZZZZZ Glove)
+Hub.CreateToggle(badgeTab, "🐟 Auto-Fish (ZZZZZZZ -> Arena -> Sleep Safe Zone)", false, function(toggled)
+    state.AutoFish = toggled
+    if toggled then
+        task.spawn(function()
+            local success = ensureEquippedAndInArena("ZZZZZZZ")
+            if not success then
+                state.AutoFish = false
+                return
+            end
+
+            task.wait(0.8)
+            activateAbility("ZZZZZZZSleep")
+            Hub.notify({
+                Title = "Auto-Fish Active",
+                Content = "ZZZZZZZ sleep mode engaged in Safe Zone. Keep AFK for 1 hour!",
+                Duration = 6
+            })
+        end)
+    else
+        Hub.notify({
+            Title = "Auto-Fish Stopped",
+            Content = "Fish farmer deactivated.",
+            Duration = 3
+        })
+    end
+end)
+
+-- Auto-Trap (1,000 Bricks with Brick Glove)
+Hub.CreateToggle(badgeTab, "🧱 Auto-Trap (Brick -> Arena -> Spam 1k Bricks)", false, function(toggled)
+    state.AutoTrap = toggled
+    if toggled then
+        task.spawn(function()
+            local success = ensureEquippedAndInArena("Brick")
+            if not success then
+                state.AutoTrap = false
+                return
+            end
+
+            Hub.notify({
+                Title = "Auto-Trap Active",
+                Content = "Spamming bricks in Safe Zone. Target: 1,000 bricks.",
+                Duration = 5
+            })
+        end)
+    else
+        Hub.notify({
+            Title = "Auto-Trap Stopped",
+            Content = "Placed " .. tostring(state.TrapBrickCount) .. " bricks total.",
+            Duration = 4
+        })
+    end
+end)
+
+-- Auto-Voodoo (1 Hour Invisibility with Ghost Glove)
+Hub.CreateToggle(badgeTab, "👻 Auto-Voodoo (Ghost -> Arena -> Invisibility Safe Zone)", false, function(toggled)
+    state.AutoVoodoo = toggled
+    if toggled then
+        task.spawn(function()
+            local success = ensureEquippedAndInArena("Ghost")
+            if not success then
+                state.AutoVoodoo = false
+                return
+            end
+
+            task.wait(0.8)
+            activateAbility("Ghostinvisibilityactivated")
+            Hub.notify({
+                Title = "Auto-Voodoo Active",
+                Content = "Ghost invisibility active in Safe Zone. Keep AFK for 1 hour!",
+                Duration = 6
+            })
+        end)
+    else
+        Hub.notify({
+            Title = "Auto-Voodoo Stopped",
+            Content = "Ghost farm deactivated.",
+            Duration = 3
+        })
+    end
+end)
+
+-- Background Routine for AFK Glove Farming
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+
+        -- Fish Sleep Maintainer
+        if state.AutoFish then
+            local hum = getHumanoid()
+            if hum and hum.Health > 0 then
+                activateAbility("ZZZZZZZSleep")
+            end
+        end
+
+        -- Megarock Rock Maintainer
+        if state.AutoMegarock then
+            local char = getCharacter()
+            if char and not char:FindFirstChild("Rock") and not char:FindFirstChild("Megarock") then
+                activateAbility("Rockmode")
+            end
+        end
+
+        -- Trap Brick Spamming (Cooldown ~1.5s)
+        if state.AutoTrap then
+            activateAbility("lbrick")
+            state.TrapBrickCount = state.TrapBrickCount + 1
+            if state.TrapBrickCount % 50 == 0 then
+                Hub.notify({
+                    Title = "Brick Master Progress",
+                    Content = "Bricks placed: " .. tostring(state.TrapBrickCount) .. "/1000",
+                    Duration = 3
+                })
+            end
+            if state.TrapBrickCount >= 1000 then
+                Hub.notify({
+                    Title = "🏆 Trap Glove Unlocked!",
+                    Content = "Reached 1,000 bricks! Badge awarded.",
+                    Duration = 8
+                })
+            end
+        end
+
+        -- Voodoo Ghost Maintainer
+        if state.AutoVoodoo then
+            activateAbility("Ghostinvisibilityactivated")
+        end
+    end
+end)
+
+-- =========================================================================
+-- 3. GENERAL FARM TAB
+-- =========================================================================
+Hub.CreateSection(farmTab, "Slap & Event Farming")
+
+Hub.CreateToggle(farmTab, "Auto Collect Candy / Orbs", false, function(toggled)
+    state.AutoCandy = toggled
+end)
+
+Hub.CreateToggle(farmTab, "Auto Click Tycoon Plate", false, function(toggled)
+    state.AutoTycoon = toggled
+end)
+
+Hub.CreateButton(farmTab, "🏆 Claim Daily & Free Badges", function()
+    for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
+        if desc:IsA("RemoteEvent") and desc.Name:lower():find("badge") then
+            pcall(function() desc:FireServer() end)
+        end
+    end
+    Hub.notify({
+        Title = "Badge Collector",
+        Content = "Dispatched badge reward checks.",
+        Duration = 3
+    })
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if state.AutoCandy then
+            for _, item in ipairs(Workspace:GetChildren()) do
+                if item.Name == "CandyCorn" or item.Name == "Candy" or item.Name == "Orb" then
+                    local myRoot = getRoot()
+                    local itemPart = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart")
+                    if myRoot and itemPart then
+                        myRoot.CFrame = itemPart.CFrame
+                        task.wait(0.1)
+                    end
+                end
+            end
+        end
+
+        if state.AutoTycoon then
+            for _, tycoon in ipairs(Workspace:GetChildren()) do
+                if tycoon.Name:find("Tycoon") then
+                    local clicker = tycoon:FindFirstChild("Click", true) or tycoon:FindFirstChild("Clicker", true)
+                    if clicker and clicker:IsA("BasePart") then
+                        pcall(function()
+                            fireclickdetector(clicker:FindFirstChildWhichIsA("ClickDetector"))
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- =========================================================================
+-- 4. DEFENSE & MISC TAB
+-- =========================================================================
+Hub.CreateSection(defenseTab, "Anti-Ragdoll & Safety Plate")
+
+local voidPlate = nil
+
+Hub.CreateToggle(defenseTab, "Anti-Ragdoll", false, function(toggled)
+    state.AntiRagdoll = toggled
+end)
+
+Hub.CreateToggle(defenseTab, "Anti-Void Safe Plate", false, function(toggled)
+    state.AntiVoid = toggled
+    if toggled then
+        if not voidPlate or not voidPlate.Parent then
+            voidPlate = Instance.new("Part")
+            voidPlate.Name = "ENI_AntiVoidPlate"
+            voidPlate.Size = Vector3.new(2048, 4, 2048)
+            voidPlate.Position = Vector3.new(0, -15, 0)
+            voidPlate.Anchored = true
+            voidPlate.Transparency = 0.5
+            voidPlate.Material = Enum.Material.ForceField
+            voidPlate.Color = Color3.fromRGB(0, 195, 245)
+            voidPlate.Parent = Workspace
+        end
+    else
+        if voidPlate and voidPlate.Parent then
+            voidPlate:Destroy()
+            voidPlate = nil
+        end
+    end
+end)
+
+Hub.CreateButton(defenseTab, "🚀 Teleport to Sky Safe Zone", function()
+    teleportToSafeZone()
+    Hub.notify({
+        Title = "Safe Zone",
+        Content = "Teleported to Sky Safe Platform (Y: 3500).",
+        Duration = 3
+    })
+end)
+
+Hub.CreateButton(defenseTab, "🧹 Remove Sky Safe Zone", function()
+    removeSafeZone()
+    Hub.notify({
+        Title = "Safe Zone",
+        Content = "Sky Safe Platform removed.",
+        Duration = 3
+    })
+end)
+
+Hub.CreateSection(defenseTab, "Glove Immunities")
+
+Hub.CreateToggle(defenseTab, "Anti-Megarock", false, function(toggled)
+    state.AntiMegarock = toggled
+end)
+
+Hub.CreateToggle(defenseTab, "Anti-Timestop", false, function(toggled)
+    state.AntiTimestop = toggled
+end)
+
+RunService.Stepped:Connect(function()
+    if state.AntiRagdoll then
+        local char = getCharacter()
+        if char then
+            local ragdollVal = char:FindFirstChild("Ragdolled") or char:FindFirstChild("Ragdoll")
+            if ragdollVal and ragdollVal:IsA("ValueBase") then
+                pcall(function() ragdollVal.Value = false end)
+            end
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+            if hum and hum:GetState() == Enum.HumanoidStateType.Ragdoll then
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end
+    end
+
+    if state.AntiMegarock then
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            if obj.Name:find("Rock") or obj.Name:find("Megarock") or obj.Name == "CustomRock" then
+                if obj:IsA("BasePart") then
+                    obj.CanTouch = false
+                end
+            end
+        end
+    end
+end)
+
+-- =========================================================================
+-- 5. VISUALS & ESP TAB
+-- =========================================================================
+Hub.CreateSection(visualTab, "Player & Glove ESP")
+
+local espFolder = Instance.new("Folder")
+espFolder.Name = "ENI_SlapESP"
+espFolder.Parent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui")
+
+local function updateESP()
+    espFolder:ClearAllChildren()
+    if not state.PlayerESP and not state.GloveESP then return end
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local root = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Torso")
+            if root then
+                local bg = Instance.new("BillboardGui")
+                bg.Name = "ESP_" .. p.Name
+                bg.Adornee = root
+                bg.Size = UDim2.new(0, 160, 0, 40)
+                bg.StudsOffset = Vector3.new(0, 3, 0)
+                bg.AlwaysOnTop = true
+                bg.Parent = espFolder
+
+                local nameLbl = Instance.new("TextLabel")
+                nameLbl.Size = UDim2.new(1, 0, 0.5, 0)
+                nameLbl.BackgroundTransparency = 1
+                nameLbl.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+                nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+                nameLbl.Font = Enum.Font.GothamBold
+                nameLbl.TextSize = 11
+                nameLbl.Parent = bg
+
+                if state.GloveESP then
+                    local tool = p.Character:FindFirstChildWhichIsA("Tool")
+                    local gloveName = tool and tool.Name or "Default"
+                    local gloveLbl = Instance.new("TextLabel")
+                    gloveLbl.Size = UDim2.new(1, 0, 0.5, 0)
+                    gloveLbl.Position = UDim2.new(0, 0, 0.5, 0)
+                    gloveLbl.BackgroundTransparency = 1
+                    gloveLbl.Text = "🥊 Glove: [" .. gloveName .. "]"
+                    gloveLbl.TextColor3 = Color3.fromRGB(255, 180, 0)
+                    gloveLbl.Font = Enum.Font.GothamBold
+                    gloveLbl.TextSize = 10
+                    gloveLbl.Parent = bg
+                end
+            end
+        end
+    end
 end
+
+Hub.CreateToggle(visualTab, "Player ESP", false, function(toggled)
+    state.PlayerESP = toggled
+    updateESP()
+end)
+
+Hub.CreateToggle(visualTab, "Glove ESP", false, function(toggled)
+    state.GloveESP = toggled
+    updateESP()
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if state.PlayerESP or state.GloveESP then
+            updateESP()
+        end
+    end
+end)
+
+Hub.notify({
+    Title = "Slap Battles Loaded",
+    Content = "Unknown Hub Slap Battles (Badge Master) is active!",
+    Duration = 4
+})
+
