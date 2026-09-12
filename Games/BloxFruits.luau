@@ -656,34 +656,10 @@ do
     end)
 
     -- 2. Farm Weapon Selection Mode
-    local weaponScroll, weaponModeHeader = createCollapsibleList(farmPage, "🗡️ Farm Weapon Mode: " .. selectedWeaponType, 40, false)
-    local weaponFrame = Instance.new("Frame")
-    weaponFrame.Size = UDim2.new(1, 0, 0, 36)
-    weaponFrame.BackgroundTransparency = 1
-    weaponFrame.BorderSizePixel = 0
-    weaponFrame.Parent = weaponScroll
-
-    local weaponBtns = {}
-    for idx, wName in ipairs(weaponTypes) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.23, 0, 0.9, 0)
-        btn.Position = UDim2.new((idx-1)*0.25 + 0.015, 0, 0.05, 0)
-        btn.BackgroundColor3 = (wName == selectedWeaponType) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = wName
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.Parent = weaponFrame
-        applyCorner(btn)
-        table.insert(weaponBtns, {Btn = btn, Name = wName})
-        btn.MouseButton1Click:Connect(function()
-            selectedWeaponType = wName
-            weaponModeHeader.Text = "🗡️ Farm Weapon Mode: " .. selectedWeaponType
-            for _, wb in ipairs(weaponBtns) do
-                wb.Btn.BackgroundColor3 = (wb.Name == selectedWeaponType) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-            end
-        end)
-    end
+    local weaponList = Hub.CreateList(farmPage, "🗡️ Farm Weapon Mode", weaponTypes, function(wName)
+        selectedWeaponType = wName
+    end, false)
+    weaponList:SetSelected(selectedWeaponType)
 
     -- 3. Auto Quest Mode
     createSliderToggle(farmPage, "Auto Take Quest", true, function(newState)
@@ -695,34 +671,10 @@ do
         isAuraHitOn = newState
     end, "AuraHit")
 
-    local faScroll, faHeader = createCollapsibleList(farmPage, "⚡ Fast Attack Target: " .. selectedFastAttackTarget, 40, false)
-    local faFrame = Instance.new("Frame")
-    faFrame.Size = UDim2.new(1, 0, 0, 36)
-    faFrame.BackgroundTransparency = 1
-    faFrame.BorderSizePixel = 0
-    faFrame.Parent = faScroll
-
-    local faBtns = {}
-    for idx, tName in ipairs(fastAttackTargets) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.31, 0, 0.9, 0)
-        btn.Position = UDim2.new((idx-1)*0.33 + 0.015, 0, 0.05, 0)
-        btn.BackgroundColor3 = (tName == selectedFastAttackTarget) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = tName
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.Parent = faFrame
-        applyCorner(btn)
-        table.insert(faBtns, {Btn = btn, Name = tName})
-        btn.MouseButton1Click:Connect(function()
-            selectedFastAttackTarget = tName
-            faHeader.Text = "⚡ Fast Attack Target: " .. selectedFastAttackTarget
-            for _, fb in ipairs(faBtns) do
-                fb.Btn.BackgroundColor3 = (fb.Name == selectedFastAttackTarget) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-            end
-        end)
-    end
+    local faList = Hub.CreateList(farmPage, "⚡ Fast Attack Target", fastAttackTargets, function(tName)
+        selectedFastAttackTarget = tName
+    end, false)
+    faList:SetSelected(selectedFastAttackTarget)
 
     -- 5. Auto Buso Haki
     createSliderToggle(farmPage, "Auto Buso Haki", true, function(newState)
@@ -760,32 +712,10 @@ do
         "Lab Subordinate", "Horned Warrior", "Magma Ninja", "Lava Pirate", "Ship Deckhand",
         "Ice Soldier", "Arctic Warrior", "Sea Soldier", "Water Fighter"
     }
-    local mobScroll, mobHeader = createCollapsibleList(farmPage, "🎯 Select Custom NPC: " .. selectedCustomMobName, 160, false)
-    local mobLayout = mobScroll:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", mobScroll)
-    mobLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    mobLayout.Padding = UDim.new(0, 4)
-
-    local mobBtns = {}
-    for _, mName in ipairs(mobNamesList) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.98, 0, 0, 28)
-        btn.BackgroundColor3 = (mName == selectedCustomMobName) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = "👾 " .. mName
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.Parent = mobScroll
-        applyCorner(btn)
-        table.insert(mobBtns, {Btn = btn, Name = mName})
-        btn.MouseButton1Click:Connect(function()
-            selectedCustomMobName = mName
-            mobHeader.Text = "🎯 Select Custom NPC: " .. selectedCustomMobName
-            for _, mb in ipairs(mobBtns) do
-                mb.Btn.BackgroundColor3 = (mb.Name == selectedCustomMobName) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-            end
-        end)
-    end
+    local mobList = Hub.CreateList(farmPage, "🎯 Select Custom NPC", mobNamesList, function(mName)
+        selectedCustomMobName = mName
+    end, false)
+    mobList:SetSelected(selectedCustomMobName)
 
     -- 6b. Auto Farm Material
     createSliderToggle(farmPage, "Auto Farm Material", false, function(newState)
@@ -797,137 +727,44 @@ do
         "Radioactive Material", "Vampire Fang", "Ectoplasm", "Mystic Droplet",
         "Dragon Scale", "Gunpowder", "Mini Tusk", "Bones", "Demonic Soul", "Conjured Cocoa"
     }
-    local matScroll, matHeader = createCollapsibleList(farmPage, "📦 Select Material: " .. selectedMaterial, 160, false)
-    local matLayout = matScroll:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", matScroll)
-    matLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    matLayout.Padding = UDim.new(0, 4)
-
-    local matBtns = {}
-    for _, matName in ipairs(materialNamesList) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.98, 0, 0, 28)
-        btn.BackgroundColor3 = (matName == selectedMaterial) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = "💎 " .. matName
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.Parent = matScroll
-        applyCorner(btn)
-        table.insert(matBtns, {Btn = btn, Name = matName})
-        btn.MouseButton1Click:Connect(function()
-            selectedMaterial = matName
-            matHeader.Text = "📦 Select Material: " .. selectedMaterial
-            for _, mb in ipairs(matBtns) do
-                mb.Btn.BackgroundColor3 = (mb.Name == selectedMaterial) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-            end
-        end)
-    end
+    local matList = Hub.CreateList(farmPage, "📦 Select Material", materialNamesList, function(matName)
+        selectedMaterial = matName
+    end, false)
+    matList:SetSelected(selectedMaterial)
 
     -- 7. Auto Mastery Selection
     createSliderToggle(farmPage, "Auto Mastery", false, function(newState)
         isAutoMasteryOn = newState
     end)
 
-    local masteryScroll, masteryModeHeader = createCollapsibleList(farmPage, "🎯 Mastery Finish Weapon: " .. selectedMasteryWeapon, 40, false)
-    local masteryFrame = Instance.new("Frame")
-    masteryFrame.Size = UDim2.new(1, 0, 0, 36)
-    masteryFrame.BackgroundTransparency = 1
-    masteryFrame.BorderSizePixel = 0
-    masteryFrame.Parent = masteryScroll
+    local masteryList = Hub.CreateList(farmPage, "🎯 Mastery Finish Weapon", weaponTypes, function(wName)
+        selectedMasteryWeapon = wName
+    end, false)
+    masteryList:SetSelected(selectedMasteryWeapon)
 
-    local masteryBtns = {}
-    for idx, wName in ipairs(weaponTypes) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.23, 0, 0.9, 0)
-        btn.Position = UDim2.new((idx-1)*0.25 + 0.015, 0, 0.05, 0)
-        btn.BackgroundColor3 = (wName == selectedMasteryWeapon) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = wName
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.Parent = masteryFrame
-        applyCorner(btn)
-        table.insert(masteryBtns, {Btn = btn, Name = wName})
-        btn.MouseButton1Click:Connect(function()
-            selectedMasteryWeapon = wName
-            masteryModeHeader.Text = "🎯 Mastery Finish Weapon: " .. selectedMasteryWeapon
-            for _, wb in ipairs(masteryBtns) do
-                wb.Btn.BackgroundColor3 = (wb.Name == selectedMasteryWeapon) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-            end
-        end)
-    end
-
-    -- 8. Auto Abilities & Skill Keys Textbox
+    -- 8. Auto Abilities Execution & Skill Selector
     createSliderToggle(farmPage, "Auto Abilities", false, function(newState)
         isAutoSkillsOn = newState
     end)
 
-    local skillsWScroll, skillsModeHeader = createCollapsibleList(farmPage, "🔥 Auto Skills Weapon: " .. selectedSkillsWeapon, 80, false)
-    local skillsWFrame = Instance.new("Frame")
-    skillsWFrame.Size = UDim2.new(1, 0, 0, 36)
-    skillsWFrame.BackgroundTransparency = 1
-    skillsWFrame.BorderSizePixel = 0
-    skillsWFrame.Parent = skillsWScroll
+    local skillsWList = Hub.CreateList(farmPage, "🔥 Auto Skills Weapon", weaponTypes, function(wName)
+        selectedSkillsWeapon = wName
+    end, false)
+    skillsWList:SetSelected(selectedSkillsWeapon)
 
-    local skillsBtns = {}
-    for idx, wName in ipairs(weaponTypes) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.23, 0, 0.9, 0)
-        btn.Position = UDim2.new((idx-1)*0.25 + 0.015, 0, 0.05, 0)
-        btn.BackgroundColor3 = (wName == selectedSkillsWeapon) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = wName
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.Parent = skillsWFrame
-        applyCorner(btn)
-        table.insert(skillsBtns, {Btn = btn, Name = wName})
-        btn.MouseButton1Click:Connect(function()
-            selectedSkillsWeapon = wName
-            skillsModeHeader.Text = "🔥 Auto Skills Weapon: " .. selectedSkillsWeapon
-            for _, wb in ipairs(skillsBtns) do
-                wb.Btn.BackgroundColor3 = (wb.Name == selectedSkillsWeapon) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-            end
-        end)
-    end
-
-    local activeSkillsFrame = Instance.new("Frame")
-    activeSkillsFrame.Size = UDim2.new(1, 0, 0, 36)
-    activeSkillsFrame.Position = UDim2.new(0, 0, 0, 40)
-    activeSkillsFrame.BackgroundTransparency = 1
-    activeSkillsFrame.BorderSizePixel = 0
-    activeSkillsFrame.Parent = skillsWScroll
-
-    local skillKeys = {"Z", "X", "C", "V", "F"}
-    for idx, sKey in ipairs(skillKeys) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.18, 0, 0.9, 0)
-        btn.Position = UDim2.new((idx-1)*0.19 + 0.015, 0, 0.05, 0)
-        btn.BackgroundColor3 = activeSkills[sKey] and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = "Use " .. sKey
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 11
-        btn.Parent = activeSkillsFrame
-        applyCorner(btn)
-        btn.MouseButton1Click:Connect(function()
-            activeSkills[sKey] = not activeSkills[sKey]
-            btn.BackgroundColor3 = activeSkills[sKey] and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        end)
-    end
-
-    local skillInputBox = Instance.new("TextBox")
-    skillInputBox.Size = UDim2.new(0.96, 0, 0, 26)
-    skillInputBox.Position = UDim2.new(0.02, 0, 0, 80)
-    skillInputBox.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
-    skillInputBox.Text = "Z, X, C, V, F"
-    skillInputBox.PlaceholderText = "Custom Skill Keys (e.g. Z, X, C, V)"
-    skillInputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    skillInputBox.Font = Enum.Font.GothamBold
-    skillInputBox.TextSize = 11
-    skillInputBox.Parent = skillsWScroll
-    applyCorner(skillInputBox)
+    local skillsList = Hub.CreateList(farmPage, "✨ Select Combat Skills", {
+        {Name = "Skill [Z]", Desc = "Activate Z skill in battle"},
+        {Name = "Skill [X]", Desc = "Activate X skill in battle"},
+        {Name = "Skill [C]", Desc = "Activate C skill in battle"},
+        {Name = "Skill [V]", Desc = "Activate V skill in battle"},
+        {Name = "Skill [F]", Desc = "Activate F skill in battle"}
+    }, function(sName, entry)
+        local key = sName:match("%[(%w+)%]")
+        if key then
+            activeSkills[key] = not not (skillsList.SelectedItems and (table.find(skillsList.SelectedItems, entry) or table.find(skillsList.SelectedItems, sName)))
+        end
+    end, false, {MultiSelect = true})
+    skillsList:SetSelectedItems({"Skill [Z]", "Skill [X]", "Skill [C]", "Skill [V]", "Skill [F]"})
 
     -- 9. Auto Farm Chests
     createSliderToggle(farmPage, "Auto Farm Chests", false, function(newState)
@@ -1911,40 +1748,8 @@ do
         isStatsOn = newState
     end, "AutoStats")
 
-    local ptsFrame = Instance.new("Frame")
-    ptsFrame.Size = UDim2.new(0.98, 0, 0, 38)
-    ptsFrame.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
-    ptsFrame.BorderSizePixel = 0
-    ptsFrame.Parent = statsPage
-    applyCorner(ptsFrame)
-
-    local ptsLbl = Instance.new("TextLabel")
-    ptsLbl.Size = UDim2.new(0.6, 0, 1, 0)
-    ptsLbl.Position = UDim2.new(0.04, 0, 0, 0)
-    ptsLbl.BackgroundTransparency = 1
-    ptsLbl.Text = "Points Per Upgrade Step:"
-    ptsLbl.TextColor3 = Color3.fromRGB(230, 235, 245)
-    ptsLbl.Font = Enum.Font.GothamBold
-    ptsLbl.TextSize = 12
-    ptsLbl.TextXAlignment = Enum.TextXAlignment.Left
-    ptsLbl.Parent = ptsFrame
-
-    local ptsBox = Instance.new("TextBox")
-    ptsBox.Size = UDim2.new(0.3, 0, 0.7, 0)
-    ptsBox.Position = UDim2.new(0.66, 0, 0.15, 0)
-    ptsBox.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
-    ptsBox.Text = tostring(pointsPerUpgrade or 1)
-    ptsBox.PlaceholderText = "1"
-    ptsBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    ptsBox.Font = Enum.Font.GothamBold
-    ptsBox.TextSize = 12
-    ptsBox.Parent = ptsFrame
-    applyCorner(ptsBox)
-
-    ptsBox.FocusLost:Connect(function()
-        local val = math.clamp(tonumber(ptsBox.Text) or 1, 1, 100)
+    Hub.CreateSlider(statsPage, "Points per Upgrade Step", 1, 100, pointsPerUpgrade or 3, "pts", function(val)
         pointsPerUpgrade = val
-        ptsBox.Text = tostring(val)
     end)
     
     local statTypes = {"Melee", "Defense", "Sword", "Gun", "DemonFruit"}
@@ -1984,76 +1789,28 @@ do
         isSnipeOn = newState
     end)
 
-    local fruitScroll, snipeFruitHeader = createCollapsibleList(shopPage, "Target Snipe Fruit: " .. selectedSnipeFruit, 140, false)
-    local oldListL = fruitScroll:FindFirstChildOfClass("UIListLayout")
-    if oldListL then oldListL:Destroy() end
-
-    local fGrid = Instance.new("UIGridLayout")
-    fGrid.CellSize = UDim2.new(0.31, 0, 0, 26)
-    fGrid.CellPadding = UDim2.new(0.02, 0, 0, 4)
-    fGrid.SortOrder = Enum.SortOrder.LayoutOrder
-    fGrid.Parent = fruitScroll
-
-    local fPad = Instance.new("UIPadding")
-    fPad.PaddingTop = UDim.new(0, 4)
-    fPad.PaddingLeft = UDim.new(0, 4)
-    fPad.PaddingRight = UDim.new(0, 4)
-    fPad.PaddingBottom = UDim.new(0, 4)
-    fPad.Parent = fruitScroll
-
-    local fruitButtons = {}
-
-    for idx, fName in ipairs(allFruits) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 1, 0)
-        btn.BackgroundColor3 = (fName == selectedSnipeFruit) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-        btn.Text = fName
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 10
-        btn.Parent = fruitScroll
-        applyCorner(btn)
-        
-        table.insert(fruitButtons, {Btn = btn, Name = fName})
-
-        btn.MouseButton1Click:Connect(function()
-            selectedSnipeFruit = fName
-            snipeFruitHeader.Text = "Target Snipe Fruit: " .. selectedSnipeFruit
-            for _, fb in ipairs(fruitButtons) do
-                fb.Btn.BackgroundColor3 = (fb.Name == selectedSnipeFruit) and currentThemeColor or Color3.fromRGB(40, 48, 65)
-            end
-        end)
-    end
+    local fruitList = Hub.CreateList(shopPage, "🎯 Target Snipe Fruit", allFruits, function(fName)
+        selectedSnipeFruit = fName
+    end, false)
+    fruitList:SetSelected(selectedSnipeFruit)
 end
 
 -- LIVE DEALER STOCK & BUY SECTION
-local refreshStockBtn = Instance.new("TextButton")
-refreshStockBtn.Size = UDim2.new(0.98, 0, 0, 32)
-refreshStockBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
-refreshStockBtn.Text = "🔄 Refresh Dealer Stock"
-refreshStockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-refreshStockBtn.Font = Enum.Font.GothamBold
-refreshStockBtn.TextSize = 12
-refreshStockBtn.Parent = shopPage
-applyCorner(refreshStockBtn)
+Hub.CreateButton(shopPage, "🔄 Refresh Dealer Stock", function()
+    if refreshDealerStockUI then refreshDealerStockUI() end
+    notifyGUI("SHOP", "Refreshed Live Dealer Stock!", 3)
+end)
 
-local stockScroll = createCollapsibleList(shopPage, "🛒 Live Dealer Stock", 160, true)
-local sLayout = stockScroll:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", stockScroll)
-sLayout.SortOrder = Enum.SortOrder.LayoutOrder
-sLayout.Padding = UDim.new(0, 4)
-sLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local sPad = Instance.new("UIPadding")
-sPad.PaddingTop = UDim.new(0, 4)
-sPad.PaddingLeft = UDim.new(0, 4)
-sPad.PaddingRight = UDim.new(0, 4)
-sPad.PaddingBottom = UDim.new(0, 4)
-sPad.Parent = stockScroll
+local stockList = Hub.CreateList(shopPage, "🛒 Live Dealer Stock", {}, 200, true)
 
 local function refreshDealerStockUI()
-    for _, child in ipairs(stockScroll:GetChildren()) do
-        if child:IsA("Frame") or child:IsA("TextLabel") then child:Destroy() end
+    if not stockList or not stockList.List then return end
+    for _, child in ipairs(stockList.List:GetChildren()) do
+        if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+            child:Destroy()
+        end
     end
+    stockList.Items = {}
     pcall(function()
         local stock = CommF:InvokeServer("GetFruits")
         if stock and type(stock) == "table" then
@@ -2062,73 +1819,26 @@ local function refreshDealerStockUI()
                 if f.OnSale then
                     count = count + 1
                     local displayName = string.match(f.Name, "^[^-]+") or f.Name
-
-                    local row = Instance.new("Frame")
-                    row.Size = UDim2.new(0.98, 0, 0, 32)
-                    row.BackgroundColor3 = Color3.fromRGB(40, 48, 65)
-                    row.BorderSizePixel = 0
-                    row.Parent = stockScroll
-                    applyCorner(row)
-
-                    local nameLbl = Instance.new("TextLabel")
-                    nameLbl.Size = UDim2.new(0.45, 0, 1, 0)
-                    nameLbl.Position = UDim2.new(0.04, 0, 0, 0)
-                    nameLbl.BackgroundTransparency = 1
-                    nameLbl.Text = displayName
-                    nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    nameLbl.Font = Enum.Font.GothamBold
-                    nameLbl.TextSize = 11
-                    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-                    nameLbl.Parent = row
-
-                    local priceLbl = Instance.new("TextLabel")
-                    priceLbl.Size = UDim2.new(0.30, 0, 1, 0)
-                    priceLbl.Position = UDim2.new(0.46, 0, 0, 0)
-                    priceLbl.BackgroundTransparency = 1
-                    priceLbl.Text = "$" .. tostring(f.Price or 0)
-                    priceLbl.TextColor3 = Color3.fromRGB(40, 200, 100)
-                    priceLbl.Font = Enum.Font.GothamBold
-                    priceLbl.TextSize = 11
-                    priceLbl.TextXAlignment = Enum.TextXAlignment.Left
-                    priceLbl.Parent = row
-
-                    local buyBtn = Instance.new("TextButton")
-                    buyBtn.Size = UDim2.new(0.20, 0, 0.75, 0)
-                    buyBtn.Position = UDim2.new(0.78, 0, 0.125, 0)
-                    buyBtn.BackgroundColor3 = currentThemeColor
-                    buyBtn.Text = "Buy"
-                    buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    buyBtn.Font = Enum.Font.GothamBold
-                    buyBtn.TextSize = 10
-                    buyBtn.Parent = row
-                    applyCorner(buyBtn)
-
-                    buyBtn.MouseButton1Click:Connect(function()
+                    stockList:AddItem(displayName, "$" .. tostring(f.Price or 0), function()
                         pcall(function()
-                            local res = CommF:InvokeServer("PurchaseRawFruit", f.Name)
+                            CommF:InvokeServer("PurchaseRawFruit", f.Name)
+                            notifyGUI("SHOP", "Purchased " .. displayName .. "!", 4)
+                        end)
+                    end, "Buy", function()
+                        pcall(function()
+                            CommF:InvokeServer("PurchaseRawFruit", f.Name)
                             notifyGUI("SHOP", "Purchased " .. displayName .. "!", 4)
                         end)
                     end)
                 end
             end
             if count == 0 then
-                local emptyLbl = Instance.new("TextLabel")
-                emptyLbl.Size = UDim2.new(0.95, 0, 0, 30)
-                emptyLbl.BackgroundTransparency = 1
-                emptyLbl.Text = "No fruits currently on sale."
-                emptyLbl.TextColor3 = Color3.fromRGB(140, 150, 170)
-                emptyLbl.Font = Enum.Font.Gotham
-                emptyLbl.TextSize = 11
-                emptyLbl.Parent = stockScroll
+                stockList:AddItem("No fruits currently on sale", "Check back soon", nil)
             end
+            if stockList.UpdateHeight then stockList.UpdateHeight(false) end
         end
     end)
 end
-
-refreshStockBtn.MouseButton1Click:Connect(function()
-    refreshDealerStockUI()
-    notifyGUI("SHOP", "Refreshed Live Dealer Stock!", 3)
-end)
 
 task.delay(1, function()
     refreshDealerStockUI()
@@ -2136,60 +1846,21 @@ end)
 
 -- REUSABLE SHOP CATALOG BUILDER
 local function buildShopCatalogSection(parentPage, titleText, itemList)
-    local scroll = createCollapsibleList(parentPage, titleText, 180, false)
-    local layout = scroll:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", scroll)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 4)
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
+    local catList = Hub.CreateList(parentPage, titleText, {}, 180, false)
     for _, item in ipairs(itemList) do
-        local row = Instance.new("Frame")
-        row.Size = UDim2.new(0.98, 0, 0, 32)
-        row.BackgroundColor3 = Color3.fromRGB(40, 48, 65)
-        row.BorderSizePixel = 0
-        row.Parent = scroll
-        applyCorner(row)
-
-        local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(0.48, 0, 1, 0)
-        nameLbl.Position = UDim2.new(0.04, 0, 0, 0)
-        nameLbl.BackgroundTransparency = 1
-        nameLbl.Text = item.Name
-        nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        nameLbl.Font = Enum.Font.GothamBold
-        nameLbl.TextSize = 11
-        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-        nameLbl.Parent = row
-
-        local priceLbl = Instance.new("TextLabel")
-        priceLbl.Size = UDim2.new(0.28, 0, 1, 0)
-        priceLbl.Position = UDim2.new(0.50, 0, 0, 0)
-        priceLbl.BackgroundTransparency = 1
-        priceLbl.Text = item.Price
-        priceLbl.TextColor3 = Color3.fromRGB(40, 200, 100)
-        priceLbl.Font = Enum.Font.GothamBold
-        priceLbl.TextSize = 11
-        priceLbl.TextXAlignment = Enum.TextXAlignment.Left
-        priceLbl.Parent = row
-
-        local buyBtn = Instance.new("TextButton")
-        buyBtn.Size = UDim2.new(0.18, 0, 0.75, 0)
-        buyBtn.Position = UDim2.new(0.80, 0, 0.125, 0)
-        buyBtn.BackgroundColor3 = currentThemeColor
-        buyBtn.Text = "Buy"
-        buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        buyBtn.Font = Enum.Font.GothamBold
-        buyBtn.TextSize = 10
-        buyBtn.Parent = row
-        applyCorner(buyBtn)
-
-        buyBtn.MouseButton1Click:Connect(function()
+        catList:AddItem(item.Name, item.Price or "$0", function()
             pcall(function()
-                local res = CommF:InvokeServer(unpack(item.Args))
+                CommF:InvokeServer(unpack(item.Args))
+                notifyGUI("SHOP", "Purchased " .. item.Name .. "!", 4)
+            end)
+        end, "Buy", function()
+            pcall(function()
+                CommF:InvokeServer(unpack(item.Args))
                 notifyGUI("SHOP", "Purchased " .. item.Name .. "!", 4)
             end)
         end)
     end
+    return catList
 end
 
 buildShopCatalogSection(shopPage, "✨ Abilities & Haki Shop", {
@@ -2694,59 +2365,38 @@ do
     end
 
     -- 2. Clean Island Teleports List (Filtered for Current Sea)
-    local travelScroll = createCollapsibleList(travelPage, "🗺️ Island Teleports List (" .. seaTitle .. ")", 220, true)
-    applyCorner(travelScroll)
-
-    local tListLayout = travelScroll:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", travelScroll)
-    tListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    tListLayout.Padding = UDim.new(0, 4)
-
+    local travelList = Hub.CreateList(travelPage, "🗺️ Island Teleports (" .. seaTitle .. ")", {}, 220, true)
     for i, island in ipairs(islands) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 0, 32)
-        btn.BackgroundColor3 = Color3.fromRGB(50, 55, 70)
-        btn.Text = "Travel to " .. island.Name
-        btn.TextColor3 = Color3.fromRGB(220, 220, 220)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 12
-        btn.Parent = travelScroll
-        applyCorner(btn)
-        
-        table.insert(travelButtons, {Btn = btn, Name = island.Name})
-
-        btn.MouseButton1Click:Connect(function()
+        travelList:AddItem(island.Name, "Click to start flight", function()
             if activeTravelIsland == island.Name then
                 _G.ENI_CancelTween()
                 activeTravelIsland = nil
-                btn.BackgroundColor3 = Color3.fromRGB(50, 55, 70)
-                btn.Text = "Travel to " .. island.Name
+                travelStatusLabel.Text = "Status: Idle"
             else
                 activeTravelIsland = island.Name
-                for _, tb in ipairs(travelButtons) do
-                    tb.Btn.BackgroundColor3 = Color3.fromRGB(50, 55, 70)
-                    tb.Btn.Text = "Travel to " .. tb.Name
-                end
-                
-                btn.BackgroundColor3 = Color3.fromRGB(220, 50, 60)
-                btn.Text = "Stop Travel: " .. island.Name
-                
                 if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
                 if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
-                
                 travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
-                
                 safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
                     if activeTravelIsland == island.Name then
                         activeTravelIsland = nil
-                        btn.BackgroundColor3 = Color3.fromRGB(50, 55, 70)
-                        btn.Text = "Travel to " .. island.Name
                         travelStatusLabel.Text = "Status: Arrived at " .. island.Name
                     end
                 end)
             end
+        end, "Teleport", function()
+            activeTravelIsland = island.Name
+            if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
+            if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
+            travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
+            safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
+                if activeTravelIsland == island.Name then
+                    activeTravelIsland = nil
+                    travelStatusLabel.Text = "Status: Arrived at " .. island.Name
+                end
+            end)
         end)
     end
-    travelScroll.CanvasSize = UDim2.new(0, 0, 0, #islands * 36)
 end
 
 -- AUTO STATS CONFIGURATION
@@ -2830,70 +2480,20 @@ createSliderToggle(bossPage, "Auto Server Hop when Bosses Dead", false, function
     isAutoBossHopOn = newState
 end)
 
-local bossScroll = createCollapsibleList(bossPage, "💀 Current Sea Bosses (Check Any)", 220, true)
-local uiListLayout = bossScroll:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout", bossScroll)
-uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-uiListLayout.Padding = UDim.new(0, 4)
-
+local bossList = Hub.CreateList(bossPage, "💀 Current Sea Bosses", {}, 220, true, {MultiSelect = true})
 local bossStatusBadges = {}
 
 for i, boss in ipairs(BossData) do
     selectedBosses[boss.ExactName] = false
-
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(0.98, 0, 0, 32)
-    row.BackgroundTransparency = 1
-    row.Parent = bossScroll
-
-    local checkbox = Instance.new("TextButton")
-    checkbox.Size = UDim2.new(0, 22, 0, 22)
-    checkbox.Position = UDim2.new(0, 6, 0.5, -11)
-    checkbox.BackgroundColor3 = Color3.fromRGB(50, 55, 70)
-    checkbox.Text = ""
-    checkbox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    checkbox.Font = Enum.Font.GothamBold
-    checkbox.TextSize = 14
-    checkbox.Parent = row
-    
-    local cCorner = Instance.new("UICorner")
-    cCorner.CornerRadius = UDim.new(0, 4)
-    cCorner.Parent = checkbox
-
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(0.65, 0, 1, 0)
-    nameLabel.Position = UDim2.new(0, 36, 0, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = boss.Display
-    nameLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 12
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.Parent = row
-
-    local statusBadge = Instance.new("TextLabel")
-    statusBadge.Size = UDim2.new(0.28, 0, 1, 0)
-    statusBadge.Position = UDim2.new(0.70, 0, 0, 0)
-    statusBadge.BackgroundTransparency = 1
-    statusBadge.Text = "[CHECKING]"
-    statusBadge.TextColor3 = Color3.fromRGB(255, 200, 50)
-    statusBadge.Font = Enum.Font.GothamBold
-    statusBadge.TextSize = 11
-    statusBadge.TextXAlignment = Enum.TextXAlignment.Right
-    statusBadge.Parent = row
-
-    bossStatusBadges[boss.ExactName] = statusBadge
-
-    local clickArea = Instance.new("TextButton")
-    clickArea.Size = UDim2.new(1, 0, 1, 0)
-    clickArea.BackgroundTransparency = 1
-    clickArea.Text = ""
-    clickArea.Parent = row
-
-    clickArea.MouseButton1Click:Connect(function()
+    local row, entryData = bossList:AddItem(boss.ExactName, boss.Display .. " | " .. boss.Reward, function()
         selectedBosses[boss.ExactName] = not selectedBosses[boss.ExactName]
-        checkbox.BackgroundColor3 = selectedBosses[boss.ExactName] and currentThemeColor or Color3.fromRGB(50, 55, 70)
-        checkbox.Text = selectedBosses[boss.ExactName] and "✓" or ""
     end)
+    if row then
+        local badge = row:FindFirstChild("ItemSubtitle")
+        if badge then
+            bossStatusBadges[boss.ExactName] = badge
+        end
+    end
 end
 
 -- Live Auto Boss List Status Updater Task (Updates [READY], [DEAD (MM:SS)], and [READY / UNCHECKED] badges)
@@ -2992,17 +2592,7 @@ do
     fruitHeader.Parent = fruitPage
     registerThemeText(fruitHeader)
 
-    local collectFruitsBtn = Instance.new("TextButton")
-    collectFruitsBtn.Size = UDim2.new(0.98, 0, 0, 38)
-    collectFruitsBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 100)
-    collectFruitsBtn.Text = "🎁 Collect All Spawned Fruits"
-    collectFruitsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    collectFruitsBtn.Font = Enum.Font.GothamBold
-    collectFruitsBtn.TextSize = 12
-    collectFruitsBtn.Parent = fruitPage
-    applyCorner(collectFruitsBtn)
-
-    collectFruitsBtn.MouseButton1Click:Connect(function()
+    Hub.CreateButton(fruitPage, "🎁 Collect All Spawned Fruits", function()
         task.spawn(function()
             pcall(function()
                 local char = LocalPlayer.Character
