@@ -10,6 +10,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
 -- =========================================================================
@@ -42,6 +43,714 @@ local function destroyOldGui()
     end
 end
 
+-- =========================================================================
+-- Guide Boss Place Detection & Small GUI
+-- =========================================================================
+local GUIDE_BOSS_PLACE_IDS = {
+    [18550498098] = true,
+    [18247261893] = true,
+    [17308778061] = true
+}
+
+local function isInGuideBossPlace()
+    if GUIDE_BOSS_PLACE_IDS[game.PlaceId] then return true end
+    if Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components") and Workspace.Map.Components:FindFirstChild("GuideArenaCenter") then
+        return true
+    end
+    if Workspace:FindFirstChild("ActivateStuffValues") and Workspace.ActivateStuffValues:FindFirstChild("Gate1Doors") then
+        return true
+    end
+    return false
+end
+
+local function getCharacter(player)
+    player = player or LocalPlayer
+    return player and player.Character
+end
+
+local function getRoot(player)
+    local char = getCharacter(player)
+    return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+end
+
+local function getHumanoid(player)
+    local char = getCharacter(player)
+    return char and char:FindFirstChildWhichIsA("Humanoid")
+end
+
+local function createSmallGuideBossGui()
+    local guiParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+    
+    for _, old in ipairs(guiParent:GetChildren()) do
+        if old.Name == "ENI_GuideBoss_UI" or old.Name == LIBRARY_NAME then
+            pcall(function() old:Destroy() end)
+        end
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ENI_GuideBoss_UI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = guiParent
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 320, 0, 185)
+    mainFrame.Position = UDim2.new(0.5, -160, 0.5, -92)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = mainFrame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 120, 0)
+    stroke.Thickness = 1.5
+    stroke.Parent = mainFrame
+
+    -- Header
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 38)
+    header.BackgroundColor3 = Color3.fromRGB(22, 25, 36)
+    header.BorderSizePixel = 0
+    header.Parent = mainFrame
+
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 10)
+    headerCorner.Parent = header
+
+    local filler = Instance.new("Frame")
+    filler.Size = UDim2.new(1, 0, 0, 10)
+    filler.Position = UDim2.new(0, 0, 1, -10)
+    filler.BackgroundColor3 = Color3.fromRGB(22, 25, 36)
+    filler.BorderSizePixel = 0
+    filler.Parent = header
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 1, 0)
+    title.Position = UDim2.new(0, 14, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "UNKNOWN HUB • GUIDE BOSS"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 13
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = header
+
+    local selectedOutcome = "Save"
+
+    local selectLabel = Instance.new("TextLabel")
+    selectLabel.Size = UDim2.new(1, -28, 0, 20)
+    selectLabel.Position = UDim2.new(0, 14, 0, 44)
+    selectLabel.BackgroundTransparency = 1
+    selectLabel.Text = "SELECT OUTCOME:"
+    selectLabel.TextColor3 = Color3.fromRGB(160, 170, 190)
+    selectLabel.Font = Enum.Font.GothamBold
+    selectLabel.TextSize = 11
+    selectLabel.TextXAlignment = Enum.TextXAlignment.Left
+    selectLabel.Parent = mainFrame
+
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Size = UDim2.new(1, -28, 0, 32)
+    buttonContainer.Position = UDim2.new(0, 14, 0, 64)
+    buttonContainer.BackgroundColor3 = Color3.fromRGB(20, 23, 32)
+    buttonContainer.BorderSizePixel = 0
+    buttonContainer.Parent = mainFrame
+
+    local bcCorner = Instance.new("UICorner")
+    bcCorner.CornerRadius = UDim.new(0, 6)
+    bcCorner.Parent = buttonContainer
+
+    local saveBtn = Instance.new("TextButton")
+    saveBtn.Size = UDim2.new(0.5, -3, 1, -4)
+    saveBtn.Position = UDim2.new(0, 2, 0, 2)
+    saveBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 90)
+    saveBtn.Text = "🤝 SAVE (Relude)"
+    saveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    saveBtn.Font = Enum.Font.GothamBold
+    saveBtn.TextSize = 11
+    saveBtn.Parent = buttonContainer
+
+    local saveCorner = Instance.new("UICorner")
+    saveCorner.CornerRadius = UDim.new(0, 5)
+    saveCorner.Parent = saveBtn
+
+    local killBtn = Instance.new("TextButton")
+    killBtn.Size = UDim2.new(0.5, -3, 1, -4)
+    killBtn.Position = UDim2.new(0.5, 1, 0, 2)
+    killBtn.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+    killBtn.Text = "💀 KILL (Hunter)"
+    killBtn.TextColor3 = Color3.fromRGB(150, 160, 180)
+    killBtn.Font = Enum.Font.GothamBold
+    killBtn.TextSize = 11
+    killBtn.Parent = buttonContainer
+
+    local killCorner = Instance.new("UICorner")
+    killCorner.CornerRadius = UDim.new(0, 5)
+    killCorner.Parent = killBtn
+
+    local function updateSelection(choice)
+        selectedOutcome = choice
+        if choice == "Save" then
+            saveBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 90)
+            saveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            killBtn.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+            killBtn.TextColor3 = Color3.fromRGB(150, 160, 180)
+        else
+            killBtn.BackgroundColor3 = Color3.fromRGB(210, 40, 40)
+            killBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            saveBtn.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+            saveBtn.TextColor3 = Color3.fromRGB(150, 160, 180)
+        end
+    end
+
+    saveBtn.MouseButton1Click:Connect(function() updateSelection("Save") end)
+    killBtn.MouseButton1Click:Connect(function() updateSelection("Kill") end)
+
+    local statusLbl = Instance.new("TextLabel")
+    statusLbl.Size = UDim2.new(1, -28, 0, 20)
+    statusLbl.Position = UDim2.new(0, 14, 0, 104)
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.Text = "Status: Ready (Slap Aura & Reach Embedded)"
+    statusLbl.TextColor3 = Color3.fromRGB(140, 150, 170)
+    statusLbl.Font = Enum.Font.GothamMedium
+    statusLbl.TextSize = 11
+    statusLbl.TextXAlignment = Enum.TextXAlignment.Center
+    statusLbl.Parent = mainFrame
+
+    local autoBtn = Instance.new("TextButton")
+    autoBtn.Size = UDim2.new(1, -28, 0, 42)
+    autoBtn.Position = UDim2.new(0, 14, 0, 128)
+    autoBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 0)
+    autoBtn.Text = "⚡ AUTO COMPLETE MAZE & BOSS"
+    autoBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    autoBtn.Font = Enum.Font.GothamBold
+    autoBtn.TextSize = 12
+    autoBtn.Parent = mainFrame
+
+    local autoCorner = Instance.new("UICorner")
+    autoCorner.CornerRadius = UDim.new(0, 7)
+    autoCorner.Parent = autoBtn
+
+    local godmodeActive = false
+    local godmodeConn = nil
+
+    local function purgeAllHazards()
+        pcall(function()
+            if Workspace:FindFirstChild("ChaserFog") then Workspace.ChaserFog:Destroy() end
+            if Workspace:FindFirstChild("DeathBricks") then Workspace.DeathBricks:Destroy() end
+            if Workspace:FindFirstChild("Gate1ChaserTerryModel") then Workspace.Gate1ChaserTerryModel:Destroy() end
+            
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    local name = obj.Name:lower()
+                    if name == "bossbattledeathpart" or name == "deathbrick" or name == "deathpart" or name == "killpart" or name == "laserdeath" then
+                        obj.CanTouch = false
+                        obj.CanCollide = false
+                        pcall(function() obj:Destroy() end)
+                    end
+                end
+            end
+
+            local mapComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+            if mapComp then
+                if mapComp:FindFirstChild("Lasers") then mapComp.Lasers:Destroy() end
+                if mapComp:FindFirstChild("BossBattleDeathPart") then mapComp.BossBattleDeathPart:Destroy() end
+                if mapComp:FindFirstChild("FallingDebris") then mapComp.FallingDebris:Destroy() end
+            end
+            local gEffect = Lighting:FindFirstChild("GreenTheScreenEffect")
+            if gEffect then gEffect:Destroy() end
+        end)
+    end
+
+    local Lighting = game:GetService("Lighting")
+    Lighting.ChildAdded:Connect(function(child)
+        if child.Name == "GreenTheScreenEffect" then
+            task.defer(function()
+                pcall(function() child:Destroy() end)
+            end)
+        end
+    end)
+
+    local function enableGodmode()
+        godmodeActive = true
+        if godmodeConn then godmodeConn:Disconnect() end
+
+        godmodeConn = RunService.Heartbeat:Connect(function()
+            if not godmodeActive then return end
+            purgeAllHazards()
+            local hum = getHumanoid()
+            local char = getCharacter()
+            if hum then
+                pcall(function()
+                    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+                    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                    if hum.Health < 3 and hum.Health > 0 then
+                        hum.Health = 3
+                    end
+                end)
+            end
+            if char then
+                for _, emitter in ipairs(char:GetDescendants()) do
+                    if emitter:IsA("ParticleEmitter") or emitter:IsA("Beam") or emitter:IsA("Trail") or emitter:IsA("PointLight") or emitter:IsA("Highlight") then
+                        emitter.Enabled = false
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Continuous Core Slap Aura & Boss Combat Engine (Always ON Permanently)
+    task.spawn(function()
+        while true do
+            task.wait(0.03)
+            local char = getCharacter()
+            local root = getRoot()
+            local tool = (char and char:FindFirstChildWhichIsA("Tool")) or (LocalPlayer.Backpack:FindFirstChildWhichIsA("Tool"))
+            
+            if tool and char and root then
+                local glove = tool:FindFirstChild("Glove")
+                if glove then
+                    if glove.Size.X < 80 then
+                        pcall(function()
+                            glove.Size = Vector3.new(100, 100, 100)
+                            glove.CanCollide = false
+                            glove.Massless = true
+                            glove.Transparency = 1
+                        end)
+                    end
+                    for _, effect in ipairs(glove:GetDescendants()) do
+                        if effect:IsA("ParticleEmitter") or effect:IsA("Beam") or effect:IsA("Trail") or effect:IsA("PointLight") or effect:IsA("Highlight") then
+                            effect.Enabled = false
+                        end
+                    end
+                end
+
+                local hasNetwork = tool:FindFirstChild("Network")
+
+                -- Silent Instant Network Slap (No blinding particle bursts)
+                local function hitTarget(targetPart)
+                    if not targetPart or not targetPart:IsA("BasePart") then return end
+                    if tool.Parent ~= char then
+                        tool.Parent = char
+                    end
+                    pcall(function()
+                        if hasNetwork then
+                            tool.Network:FireServer("Hit", targetPart)
+                        end
+                        if glove and firetouchinterest then
+                            firetouchinterest(glove, targetPart, 0)
+                            firetouchinterest(glove, targetPart, 1)
+                        end
+                    end)
+                end
+
+                -- 1. Deflect All Flying Missiles across arena
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and (obj:GetAttribute("TrackGloveMissile") == true or obj.Name == "TrackGloveMissile" or obj.Name:lower():find("missile")) then
+                        local dist = (obj.Position - root.Position).Magnitude
+                        if dist <= 500 then
+                            hitTarget(obj)
+                        end
+                    end
+                end
+
+                -- 2. Slap All Hostile NPCs & Minions (ReplicaNPC, Stevem, PotatoLord, Pumpkin)
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("Model") then
+                        local oName = obj.Name
+                        if oName == "ReplicaNPC" or oName == "Stevem" or oName == "PotatoLord" or oName == "Pumpkin" or oName == "Pumkin" then
+                            local hum = obj:FindFirstChildWhichIsA("Humanoid")
+                            local head = obj:FindFirstChild("Head") or obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                            if head and (not hum or hum.Health > 0) then
+                                local dist = (head.Position - root.Position).Magnitude
+                                if dist <= 500 then
+                                    hitTarget(head)
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- 3. Strike Dungeon Golem (All parts and limbs up to 500 studs)
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("Model") and (obj.Name == "DungeonGolem" or obj.Name == "Golem" or obj.Name:lower():find("golem")) then
+                        for _, part in ipairs(obj:GetChildren()) do
+                            if part:IsA("BasePart") then
+                                local dist = (part.Position - root.Position).Magnitude
+                                if dist <= 500 then
+                                    hitTarget(part)
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- 4. Strike Guide Boss (All parts up to 500 studs)
+                local isBossActive = (Workspace:GetAttribute("GuideHealthPercent") ~= nil) or (Workspace:GetAttribute("BossName") ~= nil)
+                if isBossActive then
+                    for _, obj in ipairs(Workspace:GetDescendants()) do
+                        if obj:IsA("Model") and (obj.Name == "GuideNPC" or obj.Name == "Guide" or obj.Name:lower():find("guidenpc")) then
+                            for _, part in ipairs(obj:GetChildren()) do
+                                if part:IsA("BasePart") then
+                                    local dist = (part.Position - root.Position).Magnitude
+                                    if dist <= 500 then
+                                        hitTarget(part)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Infallible Multi-Method Decision Handler (Auto Spare / Kill)
+    local function executeBossDecision(outcome)
+        local isSave = (outcome == "Save" or outcome == "Save Guide")
+        
+        -- 1. Fire all candidate Decision / Cutscene remotes
+        for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+            if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                local rName = remote.Name:lower()
+                if rName:find("answer") or rName:find("spare") or rName:find("eliminate") or rName:find("decision") or rName:find("cutscene") or rName:find("choice") then
+                    pcall(function()
+                        if remote:IsA("RemoteEvent") then
+                            remote:FireServer(isSave and "Spare" or "Eliminate")
+                            remote:FireServer(isSave and "Save" or "Kill")
+                            remote:FireServer(isSave and "Yes" or "No")
+                            remote:FireServer(isSave and true or false)
+                            remote:FireServer(isSave and 1 or 2)
+                        elseif remote:IsA("RemoteFunction") then
+                            remote:InvokeServer(isSave and "Spare" or "Eliminate")
+                            remote:InvokeServer(isSave and "Save" or "Kill")
+                            remote:InvokeServer(isSave and "Yes" or "No")
+                            remote:InvokeServer(isSave and true or false)
+                        end
+                    end)
+                end
+            end
+        end
+
+        -- 2. Click all buttons in PlayerGui
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if playerGui then
+            for _, btn in ipairs(playerGui:GetDescendants()) do
+                if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                    local bName = btn.Name:lower()
+                    local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
+                    local isTarget = false
+
+                    if isSave then
+                        if bName:find("yes") or bName:find("spare") or bName:find("save") or bText:find("spare") or bText:find("save") or bText:find("yes") or bText:find("relude") then
+                            isTarget = true
+                        end
+                    else
+                        if bName:find("no") or bName:find("kill") or bName:find("eliminate") or bText:find("kill") or bText:find("eliminate") or bText:find("no") or bText:find("hunter") then
+                            isTarget = true
+                        end
+                    end
+
+                    if isTarget then
+                        pcall(function()
+                            if getconnections then
+                                for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                                for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                for _, c in ipairs(getconnections(btn.MouseButton1Down)) do c:Fire() end
+                                for _, c in ipairs(getconnections(btn.MouseButton1Up)) do c:Fire() end
+                            end
+                            if firesignal then
+                                firesignal(btn.MouseButton1Click)
+                                firesignal(btn.Activated)
+                            end
+                            if VirtualInputManager and btn.AbsoluteSize.X > 0 and btn.AbsoluteSize.Y > 0 then
+                                local x = btn.AbsolutePosition.X + btn.AbsoluteSize.X / 2
+                                local y = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y / 2 + 36
+                                VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+                                task.wait(0.05)
+                                VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end
+
+    local function executeGuideSequence()
+        statusLbl.Text = "Status: Purging hazards & Solving Dungeon..."
+        statusLbl.TextColor3 = Color3.fromRGB(255, 190, 0)
+
+        enableGodmode()
+        purgeAllHazards()
+
+        local root = getRoot()
+        local char = getCharacter()
+        if not root or not char then
+            statusLbl.Text = "Status: Character not found"
+            return
+        end
+
+        root.Anchored = false
+        local tool = char:FindFirstChildWhichIsA("Tool") or LocalPlayer.Backpack:FindFirstChildWhichIsA("Tool")
+        if tool and tool.Parent ~= char then tool.Parent = char end
+
+        -- Step 1: Gate 1 Lever
+        local gate1Lever = Workspace:FindFirstChild("Gate1Lever")
+        local g1cd = gate1Lever and gate1Lever:FindFirstChildWhichIsA("ClickDetector", true)
+        local g1Part = gate1Lever and (gate1Lever:FindFirstChild("Lever", true) or gate1Lever:FindFirstChildWhichIsA("BasePart", true))
+        if g1Part then root.CFrame = g1Part.CFrame end
+        task.wait(0.2)
+        if g1cd then pcall(function() fireclickdetector(g1cd) end) end
+        if g1Part and firetouchinterest then
+            pcall(function()
+                firetouchinterest(root, g1Part, 0)
+                firetouchinterest(root, g1Part, 1)
+            end)
+        end
+        task.wait(0.4)
+
+        -- Step 2: Fake Exit Lever
+        local fakeExitLever = Workspace:FindFirstChild("FakeExitLever")
+        local feCd = fakeExitLever and fakeExitLever:FindFirstChildWhichIsA("ClickDetector", true)
+        local fePart = fakeExitLever and (fakeExitLever:FindFirstChild("Lever", true) or fakeExitLever:FindFirstChildWhichIsA("BasePart", true))
+        if fePart then root.CFrame = fePart.CFrame end
+        task.wait(0.2)
+        if feCd then pcall(function() fireclickdetector(feCd) end) end
+        if fePart and firetouchinterest then
+            pcall(function()
+                firetouchinterest(root, fePart, 0)
+                firetouchinterest(root, fePart, 1)
+            end)
+        end
+        task.wait(0.4)
+
+        -- Step 3: Pressure Plate
+        local pp = Workspace:FindFirstChild("pls organize") and Workspace["pls organize"]:FindFirstChild("PressurePlate")
+        local ppHitbox = pp and pp:FindFirstChild("Hitbox")
+        local ppPlate = pp and pp:FindFirstChild("Plate")
+        if ppHitbox then
+            root.CFrame = ppHitbox.CFrame + Vector3.new(0, 1.5, 0)
+            if firetouchinterest then
+                firetouchinterest(root, ppHitbox, 0)
+                firetouchinterest(root, ppHitbox, 1)
+                if ppPlate then
+                    firetouchinterest(root, ppPlate, 0)
+                    firetouchinterest(root, ppPlate, 1)
+                end
+            end
+        end
+        task.wait(0.4)
+
+        -- Step 4: Train & PotatoLord Triggers
+        local mapComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+        local trainTriggers = mapComp and mapComp:FindFirstChild("TrainTriggers")
+        if trainTriggers and firetouchinterest then
+            for _, t in ipairs(trainTriggers:GetChildren()) do
+                if t:IsA("BasePart") then
+                    firetouchinterest(root, t, 0)
+                    firetouchinterest(root, t, 1)
+                end
+            end
+        end
+
+        local potatoTrig = mapComp and mapComp:FindFirstChild("PotatoLordTrigger")
+        if potatoTrig and firetouchinterest then
+            firetouchinterest(root, potatoTrig, 0)
+            firetouchinterest(root, potatoTrig, 1)
+        end
+        task.wait(0.4)
+
+        -- Step 5: Shack Lever & Trapdoor Decontamination Room
+        local shackLever = Workspace:FindFirstChild("ShackLever")
+        local shackCd = shackLever and shackLever:FindFirstChildWhichIsA("ClickDetector", true)
+        root.CFrame = CFrame.new(3276.26, -70.71, 822.51)
+        task.wait(0.2)
+        if shackCd then pcall(function() fireclickdetector(shackCd) end) end
+        
+        -- Stand inside the trapdoor / decontamination room
+        root.CFrame = CFrame.new(3242, -70, 822.51)
+        statusLbl.Text = "Status: In Shack Trapdoor Room (Waiting 11s)..."
+        statusLbl.TextColor3 = Color3.fromRGB(255, 160, 0)
+        task.wait(11)
+
+        -- Step 6: Instant Teleport to Arena Floor & Trigger Cutscene
+        statusLbl.Text = "Status: Teleported to Arena (Waiting 11s for Cutscene)..."
+        statusLbl.TextColor3 = Color3.fromRGB(255, 120, 0)
+
+        root.CFrame = CFrame.new(594.47, 66.5, -321.21)
+
+        local curMapComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+        local arenaCenter = curMapComp and curMapComp:FindFirstChild("GuideArenaCenter")
+        local mainPlatform = curMapComp and curMapComp:FindFirstChild("MainPlatform")
+        if arenaCenter and firetouchinterest then
+            firetouchinterest(root, arenaCenter, 0)
+            firetouchinterest(root, arenaCenter, 1)
+        end
+        if mainPlatform and firetouchinterest then
+            firetouchinterest(root, mainPlatform, 0)
+            firetouchinterest(root, mainPlatform, 1)
+        end
+
+        -- Step 7: Wait 11 seconds on arena floor for cutscene to complete
+        task.wait(11)
+
+        -- Step 8: Teleport to Safe Zone Platform (Y = 85)
+        local arenaSkyPos = Vector3.new(594.62, 85, -321.16)
+        
+        -- Create elevated safe platform: white color with 75% transparency
+        local existingFloor = Workspace:FindFirstChild("ENI_BossSkySafeZone")
+        if existingFloor then existingFloor:Destroy() end
+        local safeFloor = Instance.new("Part")
+        safeFloor.Name = "ENI_BossSkySafeZone"
+        safeFloor.Size = Vector3.new(100, 2, 100)
+        safeFloor.CFrame = CFrame.new(arenaSkyPos.X, 84, arenaSkyPos.Z)
+        safeFloor.Anchored = true
+        safeFloor.Transparency = 0.75
+        safeFloor.Color = Color3.fromRGB(255, 255, 255)
+        safeFloor.Material = Enum.Material.SmoothPlastic
+        safeFloor.CanCollide = true
+        safeFloor.Parent = Workspace
+
+        -- Stand directly on top of the safe zone surface
+        local safeCFrame = CFrame.new(arenaSkyPos.X, 85 + 3.1, arenaSkyPos.Z)
+        root.CFrame = safeCFrame
+        root.Anchored = false
+
+        statusLbl.Text = "Status: Boss Fight Active (Safe Zone Locked & Max Reach Aura)..."
+        statusLbl.TextColor3 = Color3.fromRGB(0, 200, 255)
+
+        local inBossFight = true
+
+        -- Infinite Loop Safe Zone Position Keeper (Only while in Boss Fight)
+        task.spawn(function()
+            while inBossFight do
+                task.wait()
+                local curRoot = getRoot()
+                if curRoot and inBossFight then
+                    curRoot.CFrame = safeCFrame
+                    curRoot.Velocity = Vector3.zero
+                    curRoot.AssemblyLinearVelocity = Vector3.zero
+                end
+            end
+        end)
+
+        -- Watcher for Outcome / Cutscene / Spared Prompt & Auto Claiming
+        task.spawn(function()
+            for i = 1, 600 do
+                task.wait(0.35)
+                local hpPercent = Workspace:GetAttribute("GuideHealthPercent")
+                local bName = Workspace:GetAttribute("BossName")
+                if hpPercent then
+                    statusLbl.Text = "Status: " .. tostring(bName or "Guide") .. " HP: " .. string.format("%.0f%%", hpPercent * 100) .. " (" .. selectedOutcome .. ")"
+                end
+
+                local hasEnded = false
+                pcall(function()
+                    -- Check 1: Health reached 0%
+                    if hpPercent ~= nil and hpPercent <= 0.01 then
+                        hasEnded = true
+                    end
+
+                    -- Check 2: PlayerGui prompt presence
+                    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                    if playerGui then
+                        for _, desc in ipairs(playerGui:GetDescendants()) do
+                            if desc:IsA("GuiObject") and desc.Visible then
+                                local dName = desc.Name:lower()
+                                if dName:find("spare") or dName:find("choice") or dName:find("decision") or dName == "spareguideprompt" then
+                                    hasEnded = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+
+                    -- Check 3: Reward item appeared in Workspace
+                    local liveComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+                    if Workspace:FindFirstChild("Relude", true) or (liveComp and (liveComp:FindFirstChild("Reludepoof") or liveComp:FindFirstChild("TubeBaseGlove"))) or Workspace:FindFirstChild("Hunter", true) then
+                        hasEnded = true
+                    end
+                end)
+
+                if hasEnded then
+                    -- Execute the decision across remotes, UI connections, and VirtualInputManager
+                    for _ = 1, 4 do
+                        executeBossDecision(selectedOutcome)
+                        task.wait(0.2)
+                    end
+
+                    inBossFight = false -- Release position lock!
+
+                    if selectedOutcome == "Save" then
+                        statusLbl.Text = "Status: Spared Guide! Claiming Relude..."
+                        statusLbl.TextColor3 = Color3.fromRGB(0, 255, 120)
+                    else
+                        statusLbl.Text = "Status: Killed Guide! Claimed Hunter!"
+                        statusLbl.TextColor3 = Color3.fromRGB(255, 70, 70)
+                    end
+
+                    task.wait(1)
+                    local curRoot = getRoot()
+                    if curRoot then
+                        curRoot.Anchored = false
+                    end
+
+                    -- Auto-claim reward item
+                    for _ = 1, 50 do
+                        task.wait(0.25)
+                        local curRoot2 = getRoot()
+                        if not curRoot2 then break end
+
+                        local targetReward = nil
+                        local liveComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+                        
+                        if selectedOutcome == "Save" then
+                            targetReward = Workspace:FindFirstChild("Relude", true)
+                                or (liveComp and liveComp:FindFirstChild("Reludepoof"))
+                                or (liveComp and liveComp:FindFirstChild("TubeBaseGlove"))
+                        else
+                            targetReward = Workspace:FindFirstChild("Hunter", true)
+                                or (liveComp and liveComp:FindFirstChild("Hunter"))
+                                or (liveComp and liveComp:FindFirstChild("GuideNPC"))
+                        end
+
+                        if targetReward then
+                            local rPart = targetReward:IsA("BasePart") and targetReward or targetReward:FindFirstChildWhichIsA("BasePart", true)
+                            if rPart then
+                                curRoot2.CFrame = rPart.CFrame
+                                if firetouchinterest then
+                                    pcall(function()
+                                        firetouchinterest(curRoot2, rPart, 0)
+                                        firetouchinterest(curRoot2, rPart, 1)
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                    break
+                end
+            end
+        end)
+    end
+
+    autoBtn.MouseButton1Click:Connect(function()
+        task.spawn(executeGuideSequence)
+    end)
+end
+
+if isInGuideBossPlace() then
+    createSmallGuideBossGui()
+    return
+end
+
 local ok, result = pcall(function()
     local source
     local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
@@ -70,11 +779,11 @@ assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
 -- Hub Tabs
 -- =========================================================================
 local combatTab = Hub.createTabButton("Combat", "🥊 Combat", "rbxassetid://10723407390", true)
-local badgeTab  = Hub.createTabButton("Badges", "🏆 Auto Gloves", "rbxassetid://10723407389", false)
-local farmTab   = Hub.createTabButton("Farm", "⭐ General Farm", "rbxassetid://10723407389", false)
+local badgeTab  = Hub.createTabButton("Badges", "🏆 Badges", "rbxassetid://10723407389", false)
+local farmTab   = Hub.createTabButton("Farm", "⭐ Farm", "rbxassetid://10723407389", false)
 local altTab    = Hub.createTabButton("AltControl", "👥 Alt Control", "rbxassetid://10723407389", false)
-local defenseTab = Hub.createTabButton("Defense", "🛡️ Defense & Safe", "rbxassetid://10723407392", false)
-local visualTab = Hub.createTabButton("Visuals", "👁️ Visuals & ESP", "rbxassetid://10723407395", false)
+local defenseTab = Hub.createTabButton("Defense", "🛡️ Defense", "rbxassetid://10723407392", false)
+local visualTab = Hub.createTabButton("Visuals", "👁️ Visuals", "rbxassetid://10723407395", false)
 
 -- =========================================================================
 -- State Variables
@@ -90,6 +799,8 @@ local state = {
     AutoParry = false,
     AutoCandy = false,
     AutoTycoon = false,
+    AutoSlapple = false,
+    AutoSlappleServerHop = true,
     PlayerESP = false,
     GloveESP = false,
     -- Auto-Gloves Grinds
@@ -98,6 +809,7 @@ local state = {
     AutoFish = false,
     AutoTrap = false,
     AutoVoodoo = false,
+    GuideBossOutcome = "Save Guide",
     TrapBrickCount = 0,
     -- Alt Control System
     IsAltAccount = false,
@@ -107,10 +819,8 @@ local state = {
     AltFeedSlaps = false,
     AltAutoReenter = false,
     AltLoopSlapMain = false,
-    AltSpamReplicaBob = false,
-    AltSpamBrick = false,
-    AltDiamondRock = false,
     AltAutoTPMegarock = false,
+    AltAutoSafeZone = false,
     AltChatCommands = true
 }
 
@@ -148,9 +858,20 @@ local function getCurrentGlove()
 end
 
 local function isInLobby()
+    local char = getCharacter()
+    if char then
+        local inArena = char:FindFirstChild("isInArena")
+        if inArena and inArena.Value == true then
+            return false
+        end
+        local inLobby = char:FindFirstChild("InLobby")
+        if inLobby and inLobby.Value == true then
+            return true
+        end
+    end
     local root = getRoot()
     if not root then return false end
-    -- In Slap Battles, Lobby is high up around Y > 200 and X < -800
+    -- In Slap Battles, Lobby is high up around Y > 200 and X < -600
     return (root.Position.Y > 150 and root.Position.X < -600)
 end
 
@@ -218,12 +939,40 @@ local function removeSafeZone()
     end
 end
 
-local ARENA_CENTER_POS = Vector3.new(0, -4, 0)
+local function deactivateRockmode()
+    pcall(function()
+        if ReplicatedStorage:FindFirstChild("DeactivateRockmode") then
+            ReplicatedStorage.DeactivateRockmode:FireServer()
+        end
+        if ReplicatedStorage:FindFirstChild("Rockmode") then
+            ReplicatedStorage.Rockmode:FireServer()
+        end
+        local char = getCharacter()
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Anchored = false
+                end
+            end
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                hum.PlatformStand = false
+            end
+        end
+    end)
+end
+
+-- Exact Center of Main Island in Slap Battles (Placed on the ground surface)
+local ARENA_CENTER_POS = Vector3.new(-4.088, -8.923, 1.836)
 
 local function teleportToArenaCenter()
+    deactivateRockmode()
+    task.wait(0.2)
     local root = getRoot()
     if root then
-        root.CFrame = CFrame.new(ARENA_CENTER_POS + Vector3.new(0, 3, 0))
+        -- Put character right on the ground at the center (Y = -8.923 + 2.5 studs)
+        root.CFrame = CFrame.new(Vector3.new(-4.088, -6.423, 1.836))
     end
 end
 
@@ -258,6 +1007,14 @@ local function autoEquipGlove(gloveName)
     local lobby = Workspace:FindFirstChild("Lobby")
     if lobby then
         local stand = lobby:FindFirstChild(gloveName)
+        if not stand then
+            for _, child in ipairs(lobby:GetChildren()) do
+                if child.Name:lower() == gloveName:lower() then
+                    stand = child
+                    break
+                end
+            end
+        end
         if stand then
             local root = getRoot()
             if root then
@@ -288,13 +1045,29 @@ local function enterArena()
                 firetouchinterest(root, portal, 1)
             end)
         end
-        task.wait(1.5)
+        -- Fast polling until registered in arena
+        local startTime = tick()
+        while tick() - startTime < 2.0 do
+            task.wait(0.04)
+            local char = getCharacter()
+            if char and char:FindFirstChild("isInArena") and char.isInArena.Value == true then
+                break
+            end
+            if tick() - startTime > 0.35 and firetouchinterest and root and portal then
+                pcall(function()
+                    root.CFrame = portal.CFrame
+                    firetouchinterest(root, portal, 0)
+                    firetouchinterest(root, portal, 1)
+                end)
+            end
+        end
+        task.wait(0.08)
     end
 end
 
-local function ensureEquippedAndInArena(gloveName)
+local function ensureEquippedAndInArena(gloveName, skipSafeZone)
     local cur = getCurrentGlove()
-    if cur:lower() ~= gloveName:lower() then
+    if not cur or cur:lower() ~= gloveName:lower() then
         local equipped = autoEquipGlove(gloveName)
         if not equipped then
             Hub.notify({
@@ -315,22 +1088,26 @@ local function ensureEquippedAndInArena(gloveName)
             Duration = 3
         })
         enterArena()
-        task.wait(1)
+        task.wait(0.8)
     end
 
     -- Equip tool from Backpack if not already holding it
     local char = getCharacter()
-    local tool = LocalPlayer.Backpack:FindFirstChild(gloveName) or (char and char:FindFirstChild(gloveName))
-    if tool and tool.Parent == LocalPlayer.Backpack and char and char:FindFirstChildWhichIsA("Humanoid") then
-        pcall(function()
-            char.Humanoid:EquipTool(tool)
-        end)
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+            if t:IsA("Tool") then
+                pcall(function() hum:EquipTool(t) end)
+            end
+        end
         task.wait(0.4)
     end
 
-    -- Teleport to Safe Zone
-    teleportToSafeZone()
-    task.wait(0.5)
+    -- Teleport to Safe Zone only if not explicitly skipped
+    if not skipSafeZone then
+        teleportToSafeZone()
+        task.wait(0.5)
+    end
     return true
 end
 
@@ -342,20 +1119,34 @@ local function activateAbility(customRemoteName)
         local r = ReplicatedStorage:FindFirstChild(customRemoteName)
         if r and r:IsA("RemoteEvent") then
             pcall(function() r:FireServer() end)
-            return
+        end
+        for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+            if obj:IsA("RemoteEvent") and obj.Name:lower() == customRemoteName:lower() then
+                pcall(function() obj:FireServer() end)
+            end
         end
     end
 
     local bEvents = ReplicatedStorage:FindFirstChild("Events")
     if bEvents and bEvents:FindFirstChild("Ability") then
         pcall(function() bEvents.Ability:FireServer() end)
-    else
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-        end)
     end
+
+    if ReplicatedStorage:FindFirstChild("GeneralAbility") then
+        pcall(function() ReplicatedStorage.GeneralAbility:FireServer() end)
+    end
+
+    local remotesFolder = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotesFolder and remotesFolder:FindFirstChild("UseAbility") then
+        pcall(function() remotesFolder.UseAbility:FireServer() end)
+    end
+
+    -- Also send physical E keypress to trigger client glove scripts directly
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        task.wait(0.1)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+    end)
 end
 
 -- =========================================================================
@@ -392,7 +1183,7 @@ local function slapPlayer(targetChar)
     end
 end
 
-Hub.CreateSection(combatTab, "Slap Aura & Reach")
+Hub.CreateSection(combatTab, "Slap Aura")
 
 Hub.CreateToggle(combatTab, "Slap Aura", false, function(toggled)
     state.SlapAura = toggled
@@ -402,17 +1193,17 @@ Hub.CreateSlider(combatTab, "Aura Range", 10, 35, 18, "", function(val)
     state.SlapAuraDistance = val
 end)
 
-Hub.CreateToggle(combatTab, "Fast Slap Loop", false, function(toggled)
+Hub.CreateToggle(combatTab, "Fast Slap", false, function(toggled)
     state.FastSlap = toggled
 end)
 
-Hub.CreateSection(combatTab, "Glove Abilities & Combat")
+Hub.CreateSection(combatTab, "Abilities")
 
 Hub.CreateToggle(combatTab, "Auto Reverse Parry", false, function(toggled)
     state.AutoParry = toggled
 end)
 
-Hub.CreateButton(combatTab, "⚡ Fire Glove Ability (E)", function()
+Hub.CreateButton(combatTab, "⚡ Fire Ability", function()
     activateAbility()
 end)
 
@@ -442,7 +1233,7 @@ end)
 -- =========================================================================
 -- 2. AUTO-GLOVES (BADGES) TAB
 -- =========================================================================
-Hub.CreateSection(badgeTab, "One-Click Instant Badge Solvers")
+Hub.CreateSection(badgeTab, "Badge Solvers")
 
 local ELUDE_MAZE_PLACE_ID = 11828384869
 
@@ -454,7 +1245,7 @@ local function isInsideEludeMaze()
 end
 
 local function solveEludeKeypad()
-    -- 1. Try Direct Teleport to the exact Maze Place ID (11828384869)
+    -- 1. Try Direct Teleport to the exact Maze Place ID
     pcall(function()
         TeleportService:Teleport(ELUDE_MAZE_PLACE_ID, LocalPlayer)
     end)
@@ -462,11 +1253,11 @@ local function solveEludeKeypad()
         pcall(function() ReplicatedStorage.TeleportElude:FireServer() end)
     end
 
-    -- 2. If in Lobby, enter arena first so server registers active state for keypad
+    -- 2. If in Lobby, enter arena first
     if isInLobby() then
         Hub.notify({
-            Title = "Entering Arena First",
-            Content = "Stepping through arena portal before teleporting to Keypad...",
+            Title = "Entering Arena",
+            Content = "Stepping through arena portal...",
             Duration = 3
         })
         enterArena()
@@ -476,9 +1267,9 @@ local function solveEludeKeypad()
     local keypad = Workspace:FindFirstChild("Keypad")
     if not keypad then
         Hub.notify({
-            Title = "Teleporting...",
-            Content = "Teleport request sent to Elude Maze (Place 11828384869).",
-            Duration = 5
+            Title = "Teleporting",
+            Content = "Connecting to Elude Maze...",
+            Duration = 4
         })
         return false
     end
@@ -488,7 +1279,6 @@ local function solveEludeKeypad()
 
     local root = getRoot()
     if root then
-        -- Teleport player directly in front of Keypad on Slapple Island
         root.CFrame = keypad:GetPivot() * CFrame.new(0, 0, -4) * CFrame.Angles(0, math.rad(180), 0)
         task.wait(0.5)
     end
@@ -497,9 +1287,9 @@ local function solveEludeKeypad()
     local code = tostring((pCount * 25) + 1100 - 7)
 
     Hub.notify({
-        Title = "Keypad Solver",
-        Content = "Entering code [" .. code .. "] for " .. tostring(pCount) .. " players...",
-        Duration = 4
+        Title = "Keypad",
+        Content = "Entering code: " .. code,
+        Duration = 3
     })
 
     local resetBtn = buttons:FindFirstChild("Reset")
@@ -531,19 +1321,19 @@ local function solveEludeKeypad()
     end
 
     Hub.notify({
-        Title = "Keypad Solved!",
-        Content = "Code entered successfully. Waiting for server to teleport to Maze...",
-        Duration = 6
+        Title = "Keypad Solved",
+        Content = "Teleporting to Maze...",
+        Duration = 4
     })
     return true
 end
 
 -- Direct Teleport Button
-Hub.CreateButton(badgeTab, "🚀 Direct Teleport to Elude Maze (11828384869)", function()
+Hub.CreateButton(badgeTab, "🚀 Teleport to Elude Maze", function()
     Hub.notify({
-        Title = "Direct Teleport",
-        Content = "Teleporting directly to Elude Maze Place (11828384869)...",
-        Duration = 5
+        Title = "Teleporting",
+        Content = "Teleporting to Elude Maze...",
+        Duration = 3
     })
     pcall(function()
         TeleportService:Teleport(ELUDE_MAZE_PLACE_ID, LocalPlayer)
@@ -553,19 +1343,18 @@ Hub.CreateButton(badgeTab, "🚀 Direct Teleport to Elude Maze (11828384869)", f
     end
 end)
 
--- Auto-Elude Solver (Solves Keypad in Main Arena -> Fast Sweeps 4 Relics in Maze)
-Hub.CreateButton(badgeTab, "🚪 Auto-Get Elude Glove (Keypad & Maze)", function()
+-- Auto-Elude Solver
+Hub.CreateButton(badgeTab, "🚪 Auto Elude", function()
     task.spawn(function()
         if not isInsideEludeMaze() then
             solveEludeKeypad()
             return
         end
 
-        -- Inside Elude Maze Place (11828384869): Fast sweep all 4 relics
         Hub.notify({
-            Title = "Elude Maze Active",
-            Content = "Collecting 4 hidden relics instantly...",
-            Duration = 4
+            Title = "Elude Maze",
+            Content = "Collecting hidden relics...",
+            Duration = 3
         })
 
         local root = getRoot()
@@ -626,25 +1415,24 @@ Hub.CreateButton(badgeTab, "🚪 Auto-Get Elude Glove (Keypad & Maze)", function
         end
 
         Hub.notify({
-            Title = "🏆 Elude Glove Done!",
-            Content = "Collected relics (" .. tostring(collected) .. ") and claimed Elude Glove!",
-            Duration = 8
+            Title = "Elude Glove",
+            Content = "Relics collected: " .. tostring(collected) .. ". Claimed Elude!",
+            Duration = 5
         })
     end)
 end)
 
--- Auto-Counter Glove Solver (Solves Keypad in Main Arena -> Pulls Secret Lever in Maze)
-Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Keypad & Lever)", function()
+-- Auto-Counter Glove Solver
+Hub.CreateButton(badgeTab, "🕵️ Auto Counter", function()
     task.spawn(function()
         if not isInsideEludeMaze() then
             solveEludeKeypad()
             return
         end
 
-        -- INSIDE ELUDE MAZE: Automated Lever Pull + Safe Zone Evade + Relic Claim
         Hub.notify({
-            Title = "Counter Solver (Inside Maze)",
-            Content = "Searching for secret lever in maze...",
+            Title = "Counter",
+            Content = "Searching for lever...",
             Duration = 3
         })
 
@@ -680,19 +1468,18 @@ Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Keypad & Lever)", fu
             end
 
             Hub.notify({
-                Title = "Counter Lever Activated!",
-                Content = "Lever pulled! Teleporting to Safe Zone to evade Pim and wait for Counter Glove spawn...",
-                Duration = 5
+                Title = "Counter",
+                Content = "Lever pulled! Teleporting to Safe Zone...",
+                Duration = 4
             })
         else
             Hub.notify({
-                Title = "Counter Lever",
-                Content = "Lever not spawned yet or hidden. Teleporting to Safe Zone to stay safe...",
-                Duration = 4
+                Title = "Counter",
+                Content = "Lever not found yet. Teleporting to Safe Zone...",
+                Duration = 3
             })
         end
 
-        -- Move to the standard unified Sky Safe Zone
         teleportToSafeZone()
 
         -- Auto-Claim Counter Relic listener
@@ -714,9 +1501,9 @@ Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Keypad & Lever)", fu
                                     end)
                                 end
                                 Hub.notify({
-                                    Title = "🏆 Counter Glove Claimed!",
-                                    Content = "Touched Counter Relic / Pedestal!",
-                                    Duration = 8
+                                    Title = "Counter Glove",
+                                    Content = "Claimed Counter Glove!",
+                                    Duration = 5
                                 })
                                 found = true
                                 break
@@ -730,23 +1517,531 @@ Hub.CreateButton(badgeTab, "🕵️ Auto-Get Counter Glove (Keypad & Lever)", fu
     end)
 end)
 
--- Auto-[REDACTED] Glove Solver (With Safe 5,000 Slaps Check)
-Hub.CreateButton(badgeTab, "⬛ Auto-Get [REDACTED] Glove (5k Slaps Check)", function()
+-- =========================================================================
+-- Guide Boss & Maze Auto Solver
+-- =========================================================================
+local function completeMazeAndGuideBoss()
+    local root = getRoot()
+    local char = getCharacter()
+    if not root or not char then
+        Hub.notify({
+            Title = "Error",
+            Content = "Character not found",
+            Duration = 3
+        })
+        return
+    end
+
+    enableGodmode()
+    purgeAllHazards()
+
+    Hub.notify({
+        Title = "Solving Dungeon",
+        Content = "Progressing levers and checkpoints...",
+        Duration = 3
+    })
+
+    root.Anchored = false
+    local tool = char:FindFirstChildWhichIsA("Tool") or LocalPlayer.Backpack:FindFirstChildWhichIsA("Tool")
+    if tool and tool.Parent ~= char then tool.Parent = char end
+
+    -- Step 1: Gate 1 Lever
+    local gate1Lever = Workspace:FindFirstChild("Gate1Lever")
+    local g1cd = gate1Lever and gate1Lever:FindFirstChildWhichIsA("ClickDetector", true)
+    local g1Part = gate1Lever and (gate1Lever:FindFirstChild("Lever", true) or gate1Lever:FindFirstChildWhichIsA("BasePart", true))
+    if g1Part then root.CFrame = g1Part.CFrame end
+    task.wait(0.2)
+    if g1cd then pcall(function() fireclickdetector(g1cd) end) end
+    if g1Part and firetouchinterest then
+        pcall(function()
+            firetouchinterest(root, g1Part, 0)
+            firetouchinterest(root, g1Part, 1)
+        end)
+    end
+    task.wait(0.4)
+
+    -- Step 2: Fake Exit Lever
+    local fakeExitLever = Workspace:FindFirstChild("FakeExitLever")
+    local feCd = fakeExitLever and fakeExitLever:FindFirstChildWhichIsA("ClickDetector", true)
+    local fePart = fakeExitLever and (fakeExitLever:FindFirstChild("Lever", true) or fakeExitLever:FindFirstChildWhichIsA("BasePart", true))
+    if fePart then root.CFrame = fePart.CFrame end
+    task.wait(0.2)
+    if feCd then pcall(function() fireclickdetector(feCd) end) end
+    if fePart and firetouchinterest then
+        pcall(function()
+            firetouchinterest(root, fePart, 0)
+            firetouchinterest(root, fePart, 1)
+        end)
+    end
+    task.wait(0.4)
+
+    -- Step 3: Pressure Plate
+    local pp = Workspace:FindFirstChild("pls organize") and Workspace["pls organize"]:FindFirstChild("PressurePlate")
+    local ppHitbox = pp and pp:FindFirstChild("Hitbox")
+    local ppPlate = pp and pp:FindFirstChild("Plate")
+    if ppHitbox then
+        root.CFrame = ppHitbox.CFrame + Vector3.new(0, 1.5, 0)
+        if firetouchinterest then
+            firetouchinterest(root, ppHitbox, 0)
+            firetouchinterest(root, ppHitbox, 1)
+            if ppPlate then
+                firetouchinterest(root, ppPlate, 0)
+                firetouchinterest(root, ppPlate, 1)
+            end
+        end
+    end
+    task.wait(0.4)
+
+    -- Step 4: Train & PotatoLord Triggers
+    local mapComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+    local trainTriggers = mapComp and mapComp:FindFirstChild("TrainTriggers")
+    if trainTriggers and firetouchinterest then
+        for _, t in ipairs(trainTriggers:GetChildren()) do
+            if t:IsA("BasePart") then
+                firetouchinterest(root, t, 0)
+                firetouchinterest(root, t, 1)
+            end
+        end
+    end
+
+    local potatoTrig = mapComp and mapComp:FindFirstChild("PotatoLordTrigger")
+    if potatoTrig and firetouchinterest then
+        firetouchinterest(root, potatoTrig, 0)
+        firetouchinterest(root, potatoTrig, 1)
+    end
+    task.wait(0.4)
+
+    -- Step 5: Shack Lever & Trapdoor Decontamination Room
+    local shackLever = Workspace:FindFirstChild("ShackLever")
+    local shackCd = shackLever and shackLever:FindFirstChildWhichIsA("ClickDetector", true)
+    root.CFrame = CFrame.new(3276.26, -70.71, 822.51)
+    task.wait(0.2)
+    if shackCd then pcall(function() fireclickdetector(shackCd) end) end
+    
+    root.CFrame = CFrame.new(3242, -70, 822.51)
+    Hub.notify({
+        Title = "Decontaminating",
+        Content = "Waiting in Shack Chamber (11s)...",
+        Duration = 4
+    })
+    task.wait(11)
+
+    -- Step 6: Instant Teleport to Arena Floor & Trigger Cutscene
+    Hub.notify({
+        Title = "Entering Arena",
+        Content = "Teleported to arena floor (Waiting 11s for Cutscene)...",
+        Duration = 4
+    })
+
+    root.CFrame = CFrame.new(594.47, 66.5, -321.21)
+
+    local curMapComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+    local arenaCenter = curMapComp and curMapComp:FindFirstChild("GuideArenaCenter")
+    local mainPlatform = curMapComp and curMapComp:FindFirstChild("MainPlatform")
+    if arenaCenter and firetouchinterest then
+        firetouchinterest(root, arenaCenter, 0)
+        firetouchinterest(root, arenaCenter, 1)
+    end
+    if mainPlatform and firetouchinterest then
+        firetouchinterest(root, mainPlatform, 0)
+        firetouchinterest(root, mainPlatform, 1)
+    end
+
+    -- Step 7: Wait 11 seconds on arena floor for cutscene to initialize and play
+    task.wait(11)
+
+    -- Step 8: Teleport to Elevated Safe Zone Platform (Y = 85)
+    local arenaSkyPos = Vector3.new(594.62, 85, -321.16)
+    
+    -- Create elevated safe platform: white color with 75% transparency
+    local existingFloor = Workspace:FindFirstChild("ENI_BossSkySafeZone")
+    if existingFloor then existingFloor:Destroy() end
+    local safeFloor = Instance.new("Part")
+    safeFloor.Name = "ENI_BossSkySafeZone"
+    safeFloor.Size = Vector3.new(100, 2, 100)
+    safeFloor.CFrame = CFrame.new(arenaSkyPos.X, 84, arenaSkyPos.Z)
+    safeFloor.Anchored = true
+    safeFloor.Transparency = 0.75
+    safeFloor.Color = Color3.fromRGB(255, 255, 255)
+    safeFloor.Material = Enum.Material.SmoothPlastic
+    safeFloor.CanCollide = true
+    safeFloor.Parent = Workspace
+
+    local safeCFrame = CFrame.new(arenaSkyPos.X, 85 + 3.1, arenaSkyPos.Z)
+    root.CFrame = safeCFrame
+    root.Anchored = false
+
+    Hub.notify({
+        Title = "Boss Battle Active",
+        Content = "Safe Zone locked & Max Reach Slap Aura active...",
+        Duration = 4
+    })
+
+    local inBossFight = true
+
+    -- Infinite Loop Safe Zone Position Lock (During Boss Fight Only)
+    task.spawn(function()
+        while inBossFight do
+            task.wait()
+            local curRoot = getRoot()
+            if curRoot and inBossFight then
+                curRoot.CFrame = safeCFrame
+                curRoot.Velocity = Vector3.zero
+                curRoot.AssemblyLinearVelocity = Vector3.zero
+            end
+        end
+    end)
+
+    -- Auto-Slap Boss Loop (Extreme Long Reach Hits & Missile Deflection)
+    task.spawn(function()
+        for _ = 1, 1200 do
+            task.wait(0.03)
+            local curChar = getCharacter()
+            local curRoot = getRoot()
+            local curTool = (curChar and curChar:FindFirstChildWhichIsA("Tool")) or (LocalPlayer.Backpack:FindFirstChildWhichIsA("Tool"))
+
+            if curTool and curRoot then
+                local glove = curTool:FindFirstChild("Glove")
+                if glove then
+                    if glove.Size.X < 80 then
+                        pcall(function()
+                            glove.Size = Vector3.new(100, 100, 100)
+                            glove.CanCollide = false
+                            glove.Massless = true
+                            glove.Transparency = 1
+                        end)
+                    end
+                    for _, effect in ipairs(glove:GetDescendants()) do
+                        if effect:IsA("ParticleEmitter") or effect:IsA("Beam") or effect:IsA("Trail") or effect:IsA("PointLight") or effect:IsA("Highlight") then
+                            effect.Enabled = false
+                        end
+                    end
+                end
+
+                local hasNetwork = curTool:FindFirstChild("Network")
+
+                -- Silent Instant Network Slap
+                local function hitTarget(targetPart)
+                    if not targetPart or not targetPart:IsA("BasePart") then return end
+                    if curTool.Parent ~= curChar then
+                        curTool.Parent = curChar
+                    end
+                    pcall(function()
+                        if hasNetwork then
+                            curTool.Network:FireServer("Hit", targetPart)
+                        end
+                        if glove and firetouchinterest then
+                            firetouchinterest(glove, targetPart, 0)
+                            firetouchinterest(glove, targetPart, 1)
+                        end
+                    end)
+                end
+
+                -- 1. Deflect Track Glove Missiles up to 500 studs
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and (obj:GetAttribute("TrackGloveMissile") == true or obj.Name == "TrackGloveMissile" or obj.Name:lower():find("missile")) then
+                        local dist = (obj.Position - curRoot.Position).Magnitude
+                        if dist <= 500 then
+                            hitTarget(obj)
+                        end
+                    end
+                end
+
+                -- 2. Target Boss NPCs & Minions up to 500 studs
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("Model") then
+                        local oName = obj.Name
+                        if oName == "ReplicaNPC" or oName == "Stevem" or oName == "PotatoLord" or oName == "Pumpkin" or oName == "Pumkin" then
+                            local hum = obj:FindFirstChildWhichIsA("Humanoid")
+                            local head = obj:FindFirstChild("Head") or obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                            if head and (not hum or hum.Health > 0) then
+                                local dist = (head.Position - curRoot.Position).Magnitude
+                                if dist <= 500 then
+                                    hitTarget(head)
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- 3. Strike Dungeon Golem (All parts up to 500 studs)
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("Model") and (obj.Name == "DungeonGolem" or obj.Name == "Golem" or obj.Name:lower():find("golem")) then
+                        for _, part in ipairs(obj:GetChildren()) do
+                            if part:IsA("BasePart") then
+                                local dist = (part.Position - curRoot.Position).Magnitude
+                                if dist <= 500 then
+                                    hitTarget(part)
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- 4. Strike Guide Boss up to 500 studs
+                local isBossActive = (Workspace:GetAttribute("GuideHealthPercent") ~= nil) or (Workspace:GetAttribute("BossName") ~= nil)
+                if isBossActive then
+                    for _, obj in ipairs(Workspace:GetDescendants()) do
+                        if obj:IsA("Model") and (obj.Name == "GuideNPC" or obj.Name == "Guide" or obj.Name:lower():find("guidenpc")) then
+                            for _, part in ipairs(obj:GetChildren()) do
+                                if part:IsA("BasePart") then
+                                    local dist = (part.Position - curRoot.Position).Magnitude
+                                    if dist <= 500 then
+                                        hitTarget(part)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Infallible Multi-Method Decision Handler (Auto Spare / Kill)
+    local function executeBossDecision(outcome)
+        local isSave = (outcome == "Save" or outcome == "Save Guide")
+        
+        -- 1. Fire all candidate Decision / Cutscene remotes
+        for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+            if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+                local rName = remote.Name:lower()
+                if rName:find("answer") or rName:find("spare") or rName:find("eliminate") or rName:find("decision") or rName:find("cutscene") or rName:find("choice") then
+                    pcall(function()
+                        if remote:IsA("RemoteEvent") then
+                            remote:FireServer(isSave and "Spare" or "Eliminate")
+                            remote:FireServer(isSave and "Save" or "Kill")
+                            remote:FireServer(isSave and "Yes" or "No")
+                            remote:FireServer(isSave and true or false)
+                            remote:FireServer(isSave and 1 or 2)
+                        elseif remote:IsA("RemoteFunction") then
+                            remote:InvokeServer(isSave and "Spare" or "Eliminate")
+                            remote:InvokeServer(isSave and "Save" or "Kill")
+                            remote:InvokeServer(isSave and "Yes" or "No")
+                            remote:InvokeServer(isSave and true or false)
+                        end
+                    end)
+                end
+            end
+        end
+
+        -- 2. Click all buttons in PlayerGui
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if playerGui then
+            for _, btn in ipairs(playerGui:GetDescendants()) do
+                if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                    local bName = btn.Name:lower()
+                    local bText = (btn:IsA("TextButton") and btn.Text:lower()) or ""
+                    local isTarget = false
+
+                    if isSave then
+                        if bName:find("yes") or bName:find("spare") or bName:find("save") or bText:find("spare") or bText:find("save") or bText:find("yes") or bText:find("relude") then
+                            isTarget = true
+                        end
+                    else
+                        if bName:find("no") or bName:find("kill") or bName:find("eliminate") or bText:find("kill") or bText:find("eliminate") or bText:find("no") or bText:find("hunter") then
+                            isTarget = true
+                        end
+                    end
+
+                    if isTarget then
+                        pcall(function()
+                            if getconnections then
+                                for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                                for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                for _, c in ipairs(getconnections(btn.MouseButton1Down)) do c:Fire() end
+                                for _, c in ipairs(getconnections(btn.MouseButton1Up)) do c:Fire() end
+                            end
+                            if firesignal then
+                                firesignal(btn.MouseButton1Click)
+                                firesignal(btn.Activated)
+                            end
+                            if VirtualInputManager and btn.AbsoluteSize.X > 0 and btn.AbsoluteSize.Y > 0 then
+                                local x = btn.AbsolutePosition.X + btn.AbsoluteSize.X / 2
+                                local y = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y / 2 + 36
+                                VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+                                task.wait(0.05)
+                                VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Background Boss Watcher & Sparing Handler
+    task.spawn(function()
+        for i = 1, 600 do
+            task.wait(0.35)
+            local shouldSpare = (state.GuideBossOutcome == "Save Guide")
+            local hpPercent = Workspace:GetAttribute("GuideHealthPercent")
+
+            local hasEnded = false
+            pcall(function()
+                if hpPercent ~= nil and hpPercent <= 0.01 then
+                    hasEnded = true
+                end
+
+                local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                if playerGui then
+                    for _, desc in ipairs(playerGui:GetDescendants()) do
+                        if desc:IsA("GuiObject") and desc.Visible then
+                            local dName = desc.Name:lower()
+                            if dName:find("spare") or dName:find("choice") or dName:find("decision") or dName == "spareguideprompt" then
+                                hasEnded = true
+                                break
+                            end
+                        end
+                    end
+                end
+
+                local liveComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+                if Workspace:FindFirstChild("Relude", true) or (liveComp and (liveComp:FindFirstChild("Reludepoof") or liveComp:FindFirstChild("TubeBaseGlove"))) or Workspace:FindFirstChild("Hunter", true) then
+                    hasEnded = true
+                end
+            end)
+
+            if hasEnded then
+                for _ = 1, 4 do
+                    executeBossDecision(shouldSpare and "Save" or "Kill")
+                    task.wait(0.2)
+                end
+
+                inBossFight = false
+
+                if shouldSpare then
+                    Hub.notify({
+                        Title = "Spared Guide",
+                        Content = "Saved Guide! Claiming Relude...",
+                        Duration = 5
+                    })
+                else
+                    Hub.notify({
+                        Title = "Killed Guide",
+                        Content = "Defeated Guide! Claiming Hunter...",
+                        Duration = 5
+                    })
+                end
+
+                task.wait(1)
+                local curRoot = getRoot()
+                if curRoot then
+                    curRoot.Anchored = false
+                end
+
+                -- Auto-claim reward item
+                for _ = 1, 50 do
+                    task.wait(0.25)
+                    local curRoot2 = getRoot()
+                    if not curRoot2 then break end
+
+                    local targetReward = nil
+                    local liveComp = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Components")
+                    
+                    if shouldSpare then
+                        targetReward = Workspace:FindFirstChild("Relude", true)
+                            or (liveComp and liveComp:FindFirstChild("Reludepoof"))
+                            or (liveComp and liveComp:FindFirstChild("TubeBaseGlove"))
+                    else
+                        targetReward = Workspace:FindFirstChild("Hunter", true)
+                            or (liveComp and liveComp:FindFirstChild("Hunter"))
+                            or (liveComp and liveComp:FindFirstChild("GuideNPC"))
+                    end
+
+                    if targetReward then
+                        local rPart = targetReward:IsA("BasePart") and targetReward or targetReward:FindFirstChildWhichIsA("BasePart", true)
+                        if rPart then
+                            curRoot2.CFrame = rPart.CFrame
+                            if firetouchinterest then
+                                pcall(function()
+                                    firetouchinterest(curRoot2, rPart, 0)
+                                    firetouchinterest(curRoot2, rPart, 1)
+                                end)
+                            end
+                        end
+                    end
+                end
+                break
+            end
+        end
+    end)
+end
+
+Hub.CreateSection(badgeTab, "Guide Boss & Maze")
+
+Hub.CreateDropdown(badgeTab, "Outcome: Save or Kill Guide", {"Save Guide (Relude)", "Kill Guide (Hunter)"}, "Save Guide (Relude)", function(selected)
+    if selected:find("Save") then
+        state.GuideBossOutcome = "Save Guide"
+    else
+        state.GuideBossOutcome = "Kill Guide"
+    end
+    Hub.notify({
+        Title = "Guide Decision",
+        Content = "Outcome set to: " .. state.GuideBossOutcome,
+        Duration = 2
+    })
+end)
+
+Hub.CreateButton(badgeTab, "⚡ Auto Complete Maze & Boss", function()
+    completeMazeAndGuideBoss()
+end)
+
+Hub.CreateButton(badgeTab, "🤝 Spare Guide (Save)", function()
+    local answerRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Data") and ReplicatedStorage.Remotes.Data:FindFirstChild("AnswerInCutscene")
+    if answerRemote then
+        pcall(function() answerRemote:FireServer(true) end)
+    end
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local sparePrompt = playerGui and playerGui:FindFirstChild("Component") and playerGui.Component:FindFirstChild("SpareGuidePrompt")
+    local yesBtn = sparePrompt and sparePrompt:FindFirstChild("Yes", true)
+    if yesBtn and getconnections then
+        for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
+        for _, c in ipairs(getconnections(yesBtn.Activated)) do c:Fire() end
+    end
+    Hub.notify({
+        Title = "Spare Guide",
+        Content = "Sent Save / Spare decision.",
+        Duration = 3
+    })
+end)
+
+Hub.CreateButton(badgeTab, "💀 Kill Guide (Bounty)", function()
+    local answerRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Data") and ReplicatedStorage.Remotes.Data:FindFirstChild("AnswerInCutscene")
+    if answerRemote then
+        pcall(function() answerRemote:FireServer(false) end)
+    end
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local sparePrompt = playerGui and playerGui:FindFirstChild("Component") and playerGui.Component:FindFirstChild("SpareGuidePrompt")
+    local noBtn = sparePrompt and sparePrompt:FindFirstChild("No", true)
+    if noBtn and getconnections then
+        for _, c in ipairs(getconnections(noBtn.MouseButton1Click)) do c:Fire() end
+        for _, c in ipairs(getconnections(noBtn.Activated)) do c:Fire() end
+    end
+    Hub.notify({
+        Title = "Kill Guide",
+        Content = "Sent Kill / Bounty decision.",
+        Duration = 3
+    })
+end)
+
+-- Auto-[REDACTED] Glove Solver
+Hub.CreateButton(badgeTab, "⬛ Auto [REDACTED]", function()
     task.spawn(function()
         local currentSlaps = getSlapCount()
         if currentSlaps < 5000 then
             Hub.notify({
-                Title = "⚠️ [REDACTED] Locked",
-                Content = "You need at least 5,000 slaps to enter! Current: " .. tostring(currentSlaps),
-                Duration = 5
+                Title = "[REDACTED]",
+                Content = "Requires 5,000 slaps! Current: " .. tostring(currentSlaps),
+                Duration = 4
             })
             return
         end
 
         Hub.notify({
-            Title = "[REDACTED] Solver",
-            Content = "Slap check passed (" .. tostring(currentSlaps) .. " slaps). Searching for doorway...",
-            Duration = 4
+            Title = "[REDACTED]",
+            Content = "Searching for doorway...",
+            Duration = 3
         })
 
         local redactedDoor = Workspace:FindFirstChild("PocketDimension", true) 
@@ -771,68 +2066,81 @@ Hub.CreateButton(badgeTab, "⬛ Auto-Get [REDACTED] Glove (5k Slaps Check)", fun
         end
 
         Hub.notify({
-            Title = "[REDACTED] Solver",
-            Content = "Completed door traversal sequence.",
-            Duration = 4
+            Title = "[REDACTED]",
+            Content = "Completed door traversal.",
+            Duration = 3
         })
     end)
 end)
 
-Hub.CreateSection(badgeTab, "AFK Safe-Zone & Center Glove Grinds")
+Hub.CreateSection(badgeTab, "AFK Farm")
 
--- Auto-Megarock Center Lock (Teleports & anchors player to Arena Center so gloves cannot move rock)
-Hub.CreateToggle(badgeTab, "🎯 Auto-Lock Megarock to Arena Center (Anti-Push)", false, function(toggled)
+-- Megarock Center Lock
+Hub.CreateToggle(badgeTab, "🎯 Megarock Center Lock", false, function(toggled)
     state.MegarockCenterLock = toggled
     if toggled then
         task.spawn(function()
-            local success = ensureEquippedAndInArena("Diamond")
+            local success = ensureEquippedAndInArena("MEGAROCK", true)
             if not success then
                 state.MegarockCenterLock = false
                 return
             end
 
+            local char = getCharacter()
+            if char then
+                for _, p in ipairs(char:GetDescendants()) do
+                    if p:IsA("BasePart") then
+                        p.Anchored = false
+                    end
+                end
+            end
+
             teleportToArenaCenter()
             task.wait(0.4)
-            activateAbility("Rockmode")
 
-            Hub.notify({
-                Title = "Center Megarock Active",
-                Content = "Megarock locked to Arena Center (Anti-Push active).",
-                Duration = 5
-            })
-        end)
-    else
-        pcall(function()
-            if ReplicatedStorage:FindFirstChild("DeactivateRockmode") then
-                ReplicatedStorage.DeactivateRockmode:FireServer()
+            char = getCharacter()
+            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hum then
+                for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+                    if t:IsA("Tool") then
+                        pcall(function() hum:EquipTool(t) end)
+                    end
+                end
             end
+            task.wait(0.3)
+
             if ReplicatedStorage:FindFirstChild("Rockmode") then
                 ReplicatedStorage.Rockmode:FireServer()
             end
-            local char = getCharacter()
-            if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.Anchored = false
-                    end
+            activateAbility("Rockmode")
+            task.wait(0.6)
+
+            char = getCharacter()
+            if char and not char:FindFirstChild("rock") then
+                if ReplicatedStorage:FindFirstChild("Rockmode") then
+                    ReplicatedStorage.Rockmode:FireServer()
                 end
-                local hum = char:FindFirstChildWhichIsA("Humanoid")
-                if hum then
-                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                    hum.PlatformStand = false
-                end
+                activateAbility("Rockmode")
             end
+
+            Hub.notify({
+                Title = "Megarock",
+                Content = "Locked to center.",
+                Duration = 3
+            })
         end)
+    else
+        deactivateRockmode()
         Hub.notify({
-            Title = "Center Megarock Stopped",
-            Content = "Megarock deactivated & character unlocked.",
+            Title = "Megarock",
+            Content = "Megarock deactivated.",
             Duration = 3
         })
     end
 end)
 
--- Auto-Megarock Sky Safe Zone (10 Hours AFK with Diamond Glove)
-Hub.CreateToggle(badgeTab, "🪨 Auto-Megarock (Diamond -> Arena -> Sky Safe Zone)", false, function(toggled)
+-- Auto-Megarock Sky Safe Zone
+Hub.CreateToggle(badgeTab, "🪨 Auto Megarock", false, function(toggled)
     state.AutoMegarock = toggled
     if toggled then
         task.spawn(function()
@@ -845,9 +2153,9 @@ Hub.CreateToggle(badgeTab, "🪨 Auto-Megarock (Diamond -> Arena -> Sky Safe Zon
             task.wait(0.5)
             activateAbility("Rockmode")
             Hub.notify({
-                Title = "Auto-Megarock Active",
-                Content = "Diamond rock activated in Sky Safe Zone. Keep AFK for 10 hours!",
-                Duration = 6
+                Title = "Megarock Farm",
+                Content = "Active in Safe Zone.",
+                Duration = 4
             })
         end)
     else
@@ -873,15 +2181,15 @@ Hub.CreateToggle(badgeTab, "🪨 Auto-Megarock (Diamond -> Arena -> Sky Safe Zon
             end
         end)
         Hub.notify({
-            Title = "Auto-Megarock Stopped",
-            Content = "Megarock deactivated & character unlocked.",
+            Title = "Megarock Farm",
+            Content = "Stopped.",
             Duration = 3
         })
     end
 end)
 
--- Auto-Fish (1 Hour AFK with ZZZZZZZ Glove)
-Hub.CreateToggle(badgeTab, "🐟 Auto-Fish (ZZZZZZZ -> Arena -> Sleep Safe Zone)", false, function(toggled)
+-- Auto-Fish
+Hub.CreateToggle(badgeTab, "🐟 Auto Fish", false, function(toggled)
     state.AutoFish = toggled
     if toggled then
         task.spawn(function()
@@ -894,9 +2202,9 @@ Hub.CreateToggle(badgeTab, "🐟 Auto-Fish (ZZZZZZZ -> Arena -> Sleep Safe Zone)
             task.wait(0.5)
             activateAbility("ZZZZZZZSleep")
             Hub.notify({
-                Title = "Auto-Fish Active",
-                Content = "ZZZZZZZ sleep mode engaged in Safe Zone. Keep AFK for 1 hour!",
-                Duration = 6
+                Title = "Auto Fish",
+                Content = "Sleeping in Safe Zone.",
+                Duration = 4
             })
         end)
     else
@@ -909,15 +2217,15 @@ Hub.CreateToggle(badgeTab, "🐟 Auto-Fish (ZZZZZZZ -> Arena -> Sleep Safe Zone)
             end
         end)
         Hub.notify({
-            Title = "Auto-Fish Stopped",
-            Content = "Fish farmer deactivated & character woke up.",
+            Title = "Auto Fish",
+            Content = "Stopped.",
             Duration = 3
         })
     end
 end)
 
--- Auto-Trap (1,000 Bricks with Brick Glove)
-Hub.CreateToggle(badgeTab, "🧱 Auto-Trap (Brick -> Arena -> Spam 1k Bricks)", false, function(toggled)
+-- Auto-Trap
+Hub.CreateToggle(badgeTab, "🧱 Auto Trap", false, function(toggled)
     state.AutoTrap = toggled
     if toggled then
         task.spawn(function()
@@ -928,22 +2236,22 @@ Hub.CreateToggle(badgeTab, "🧱 Auto-Trap (Brick -> Arena -> Spam 1k Bricks)", 
             end
 
             Hub.notify({
-                Title = "Auto-Trap Active",
-                Content = "Spamming bricks in Safe Zone. Target: 1,000 bricks.",
-                Duration = 5
+                Title = "Auto Trap",
+                Content = "Placing bricks in Safe Zone.",
+                Duration = 4
             })
         end)
     else
         Hub.notify({
-            Title = "Auto-Trap Stopped",
-            Content = "Placed " .. tostring(state.TrapBrickCount) .. " bricks total.",
-            Duration = 4
+            Title = "Auto Trap",
+            Content = "Placed " .. tostring(state.TrapBrickCount) .. " bricks.",
+            Duration = 3
         })
     end
 end)
 
--- Auto-Voodoo (1 Hour Invisibility with Ghost Glove)
-Hub.CreateToggle(badgeTab, "👻 Auto-Voodoo (Ghost -> Arena -> Invisibility Safe Zone)", false, function(toggled)
+-- Auto-Voodoo
+Hub.CreateToggle(badgeTab, "👻 Auto Voodoo", false, function(toggled)
     state.AutoVoodoo = toggled
     if toggled then
         task.spawn(function()
@@ -956,9 +2264,9 @@ Hub.CreateToggle(badgeTab, "👻 Auto-Voodoo (Ghost -> Arena -> Invisibility Saf
             task.wait(0.5)
             activateAbility("Ghostinvisibilityactivated")
             Hub.notify({
-                Title = "Auto-Voodoo Active",
-                Content = "Ghost invisibility active in Safe Zone. Keep AFK for 1 hour!",
-                Duration = 6
+                Title = "Auto Voodoo",
+                Content = "Invisible in Safe Zone.",
+                Duration = 4
             })
         end)
     else
@@ -968,8 +2276,8 @@ Hub.CreateToggle(badgeTab, "👻 Auto-Voodoo (Ghost -> Arena -> Invisibility Saf
             end
         end)
         Hub.notify({
-            Title = "Auto-Voodoo Stopped",
-            Content = "Ghost farm deactivated.",
+            Title = "Auto Voodoo",
+            Content = "Stopped.",
             Duration = 3
         })
     end
@@ -980,21 +2288,33 @@ task.spawn(function()
     while true do
         task.wait(1.5)
 
-        -- Megarock Center Lock Enforcement (Keeps rock at exact center, counteracting Swapper/Pusher/Peshkov)
+        -- Megarock Center Lock Enforcement (Keeps rock on ground at exact X/Z center)
         if state.MegarockCenterLock then
             local root = getRoot()
             if root and not isInLobby() then
-                local dist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(ARENA_CENTER_POS.X, 0, ARENA_CENTER_POS.Z)).Magnitude
-                if dist > 3.5 then
-                    root.CFrame = CFrame.new(ARENA_CENTER_POS + Vector3.new(0, 3, 0))
+                local distXZ = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(ARENA_CENTER_POS.X, 0, ARENA_CENTER_POS.Z)).Magnitude
+                -- Only correct if pushed away horizontally on X/Z (prevents rapid CFrame changes that cancel rock)
+                if distXZ > 6 then
+                    teleportToArenaCenter()
+                    task.wait(0.4)
+                    if ReplicatedStorage:FindFirstChild("Rockmode") then
+                        ReplicatedStorage.Rockmode:FireServer()
+                    end
+                    activateAbility("Rockmode")
+                    task.wait(0.5)
                 end
                 local char = getCharacter()
-                if char then
+                if char and char:FindFirstChild("rock") then
                     for _, p in ipairs(char:GetDescendants()) do
                         if p:IsA("BasePart") then
                             p.Anchored = true
                         end
                     end
+                elseif char and not char:FindFirstChild("rock") then
+                    if ReplicatedStorage:FindFirstChild("Rockmode") then
+                        ReplicatedStorage.Rockmode:FireServer()
+                    end
+                    activateAbility("Rockmode")
                 end
             end
         end
@@ -1024,27 +2344,847 @@ end)
 -- =========================================================================
 -- 3. GENERAL FARM TAB
 -- =========================================================================
-Hub.CreateSection(farmTab, "Slap & Event Farming")
+local function copyToClipboard(text)
+    local fn = setclipboard or toclipboard or (syn and syn.write_clipboard) or (Clipboard and Clipboard.set)
+    if fn then
+        pcall(function() fn(text) end)
+        return true
+    end
+    return false
+end
 
-Hub.CreateToggle(farmTab, "Auto Collect Candy / Orbs", false, function(toggled)
+local SLAPPLE_AUTOEXEC_SOURCE = [====[--[[
+    ╔═══════════════════════════════════════════════════════════════╗
+    ║       UNKNOWN HUB • FAST SLAPPLE FARM (AUTOEXEC VARIANT)      ║
+    ║   Instructions: Put this file into your executor's 'autoexec' ║
+    ║   folder. It will run automatically on every server join.     ║
+    ╚═══════════════════════════════════════════════════════════════╝
+]]
+
+repeat task.wait() until game:IsLoaded()
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+
+local preloadedServers = {}
+local currentJobId = game.JobId
+local placeId = game.PlaceId or 6403373529
+
+task.spawn(function()
+    local function fetch()
+        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+        local success, res = pcall(function()
+            if game.HttpGet then return game:HttpGet(url)
+            elseif request then return request({Url = url, Method = "GET"}).Body
+            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
+            return nil
+        end)
+        if success and res then
+            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
+            if decOk and data and data.data then
+                for _, s in ipairs(data.data) do
+                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
+                        table.insert(preloadedServers, s)
+                    end
+                end
+            end
+        end
+    end
+    pcall(fetch)
+end)
+
+pcall(function()
+    LocalPlayer.Idled:Connect(function()
+        pcall(function()
+            if VirtualUser then
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
+            end
+        end)
+    end)
+end)
+
+local guiParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+pcall(function()
+    if guiParent:FindFirstChild("ENI_SlappleAutoExec_UI") then
+        guiParent.ENI_SlappleAutoExec_UI:Destroy()
+    end
+end)
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ENI_SlappleAutoExec_UI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = guiParent
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 260, 0, 110)
+mainFrame.Position = UDim2.new(1, -275, 0, 20)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = mainFrame
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(255, 120, 0)
+stroke.Thickness = 1.5
+stroke.Parent = mainFrame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -16, 0, 24)
+title.Position = UDim2.new(0, 8, 0, 4)
+title.BackgroundTransparency = 1
+title.Text = "🍎 SLAPPLE FARM (AUTOEXEC)"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 12
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = mainFrame
+
+local statusLbl = Instance.new("TextLabel")
+statusLbl.Size = UDim2.new(1, -16, 0, 22)
+statusLbl.Position = UDim2.new(0, 8, 0, 30)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text = "Status: Instant Sweeping..."
+statusLbl.TextColor3 = Color3.fromRGB(255, 190, 60)
+statusLbl.Font = Enum.Font.GothamMedium
+statusLbl.TextSize = 11
+statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+statusLbl.Parent = mainFrame
+
+local slapsLbl = Instance.new("TextLabel")
+slapsLbl.Size = UDim2.new(1, -16, 0, 20)
+slapsLbl.Position = UDim2.new(0, 8, 0, 52)
+slapsLbl.BackgroundTransparency = 1
+slapsLbl.Text = "Current Slaps: ..."
+slapsLbl.TextColor3 = Color3.fromRGB(180, 190, 210)
+slapsLbl.Font = Enum.Font.Gotham
+slapsLbl.TextSize = 11
+slapsLbl.TextXAlignment = Enum.TextXAlignment.Left
+slapsLbl.Parent = mainFrame
+
+local stopBtn = Instance.new("TextButton")
+stopBtn.Size = UDim2.new(1, -16, 0, 24)
+stopBtn.Position = UDim2.new(0, 8, 1, -28)
+stopBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+stopBtn.Text = "STOP FARM"
+stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+stopBtn.Font = Enum.Font.GothamBold
+stopBtn.TextSize = 11
+stopBtn.Parent = mainFrame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 5)
+btnCorner.Parent = stopBtn
+
+local isStopped = false
+stopBtn.MouseButton1Click:Connect(function()
+    isStopped = true
+    statusLbl.Text = "Status: Stopped by user."
+    statusLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
+    stopBtn.Text = "FARM STOPPED"
+    stopBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+end)
+
+local function updateSlapCounter()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    local slapsVal = leaderstats and leaderstats:FindFirstChild("Slaps")
+    if slapsVal then
+        slapsLbl.Text = "Current Slaps: " .. tostring(slapsVal.Value)
+    end
+end
+
+local function getRoot()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+end
+
+local function enterArenaFast()
+    local portal = (Workspace:FindFirstChild("Lobby") and Workspace.Lobby:FindFirstChild("Teleport1"))
+        or Workspace:FindFirstChild("Teleport1")
+    local root = getRoot()
+    if portal and root then
+        root.CFrame = portal.CFrame
+        if firetouchinterest then
+            pcall(function()
+                firetouchinterest(root, portal, 0)
+                firetouchinterest(root, portal, 1)
+            end)
+        end
+        local s = tick()
+        while tick() - s < 0.6 do
+            RunService.Heartbeat:Wait()
+            local c = LocalPlayer.Character
+            if c and c:FindFirstChild("isInArena") and c.isInArena.Value == true then
+                break
+            end
+        end
+    end
+end
+
+local function serverHopFast()
+    if isStopped then return end
+    statusLbl.Text = "Status: Hopping server..."
+    statusLbl.TextColor3 = Color3.fromRGB(120, 200, 255)
+
+    if #preloadedServers > 0 then
+        local chosen = preloadedServers[math.random(1, #preloadedServers)]
+        TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+        task.delay(5, function()
+            if not isStopped then TeleportService:Teleport(placeId, LocalPlayer) end
+        end)
+    else
+        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+        local success, res = pcall(function()
+            if game.HttpGet then return game:HttpGet(url)
+            elseif request then return request({Url = url, Method = "GET"}).Body
+            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
+            return nil
+        end)
+        local candidates = {}
+        if success and res then
+            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
+            if decOk and data and data.data then
+                for _, s in ipairs(data.data) do
+                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
+                        table.insert(candidates, s)
+                    end
+                end
+            end
+        end
+        if #candidates > 0 then
+            local chosen = candidates[math.random(1, #candidates)]
+            TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+        else
+            TeleportService:Teleport(placeId, LocalPlayer)
+        end
+    end
+end
+
+task.spawn(function()
+    updateSlapCounter()
+    local root = getRoot()
+    while not root and not isStopped do task.wait(0.05) root = getRoot() end
+    if isStopped then return end
+
+    local char = LocalPlayer.Character
+    local inArena = char and char:FindFirstChild("isInArena")
+    if not (inArena and inArena.Value == true) then enterArenaFast() end
+    if isStopped then return end
+
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pGui then
+            local screenFx = pGui:FindFirstChild("ScreenEffects") or pGui:FindFirstChild("Transition")
+            if screenFx then screenFx:Destroy() end
+        end
+    end)
+
+    local slapplesFolder = Workspace:FindFirstChild("Arena")
+        and Workspace.Arena:FindFirstChild("island5")
+        and Workspace.Arena.island5:FindFirstChild("Slapples")
+    if not slapplesFolder then slapplesFolder = Workspace:FindFirstChild("Slapples", true) end
+
+    if slapplesFolder then
+        root = getRoot()
+        local activeSlapples = {}
+        for _, s in ipairs(slapplesFolder:GetChildren()) do
+            local glove = s:FindFirstChild("Glove")
+            if glove and glove:IsA("BasePart") and glove.Transparency < 0.5 then
+                table.insert(activeSlapples, glove)
+            end
+        end
+
+        if #activeSlapples > 0 then
+            statusLbl.Text = "Status: Harvesting " .. tostring(#activeSlapples) .. " Slapples..."
+            statusLbl.TextColor3 = Color3.fromRGB(0, 255, 140)
+            for _, glove in ipairs(activeSlapples) do
+                if isStopped then break end
+                if root and glove and glove.Parent then
+                    root.CFrame = glove.CFrame
+                    if firetouchinterest then
+                        pcall(function()
+                            firetouchinterest(root, glove, 0)
+                            firetouchinterest(root, glove, 1)
+                        end)
+                    end
+                    task.wait(0.015)
+                end
+            end
+        else
+            statusLbl.Text = "Status: Island empty."
+            statusLbl.TextColor3 = Color3.fromRGB(255, 140, 140)
+        end
+    end
+
+    updateSlapCounter()
+    task.wait(0.05)
+    if not isStopped then serverHopFast() end
+end)
+]====]
+
+local _SLAPPLE_SOURCE = [===[
+repeat task.wait() until game:IsLoaded()
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+
+local preloadedServers = {}
+local currentJobId = game.JobId
+local placeId = game.PlaceId or 6403373529
+
+task.spawn(function()
+    local function fetch()
+        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+        local success, res = pcall(function()
+            if game.HttpGet then return game:HttpGet(url)
+            elseif request then return request({Url = url, Method = "GET"}).Body
+            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
+            return nil
+        end)
+        if success and res then
+            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
+            if decOk and data and data.data then
+                for _, s in ipairs(data.data) do
+                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
+                        table.insert(preloadedServers, s)
+                    end
+                end
+            end
+        end
+    end
+    pcall(fetch)
+end)
+
+pcall(function()
+    LocalPlayer.Idled:Connect(function()
+        pcall(function()
+            if VirtualUser then
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
+            end
+        end)
+    end)
+end)
+
+local function queueNextHop()
+    local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
+    if q and _SLAPPLE_SOURCE then
+        pcall(function()
+            local payload = "local _SLAPPLE_SOURCE = [===\n" .. _SLAPPLE_SOURCE .. "\n===]\nloadstring(_SLAPPLE_SOURCE)()"
+            q(payload)
+        end)
+    end
+end
+
+pcall(function()
+    if TeleportService.TeleportInit then
+        TeleportService.TeleportInit:Connect(queueNextHop)
+    end
+end)
+
+if getgenv then
+    getgenv()._SlappleFarmStats = getgenv()._SlappleFarmStats or {totalHarvested = 0, totalHops = 0}
+end
+if not _G._SlappleFarmStats then
+    _G._SlappleFarmStats = {totalHarvested = 0, totalHops = 0}
+end
+
+local function getStats()
+    return (getgenv and getgenv()._SlappleFarmStats) or _G._SlappleFarmStats
+end
+
+local guiParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+pcall(function()
+    if guiParent:FindFirstChild("ENI_SlappleQueue_UI") then
+        guiParent.ENI_SlappleQueue_UI:Destroy()
+    end
+end)
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ENI_SlappleQueue_UI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = guiParent
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 270, 0, 125)
+mainFrame.Position = UDim2.new(1, -285, 0, 20)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = mainFrame
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(0, 210, 255)
+stroke.Thickness = 1.5
+stroke.Parent = mainFrame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -16, 0, 24)
+title.Position = UDim2.new(0, 8, 0, 4)
+title.BackgroundTransparency = 1
+title.Text = "🍎 AUTO SLAPPLE (QUEUE-HOP)"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 12
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = mainFrame
+
+local statusLbl = Instance.new("TextLabel")
+statusLbl.Size = UDim2.new(1, -16, 0, 20)
+statusLbl.Position = UDim2.new(0, 8, 0, 28)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text = "Status: Instant Sweeping..."
+statusLbl.TextColor3 = Color3.fromRGB(0, 220, 255)
+statusLbl.Font = Enum.Font.GothamMedium
+statusLbl.TextSize = 11
+statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+statusLbl.Parent = mainFrame
+
+local slapsLbl = Instance.new("TextLabel")
+slapsLbl.Size = UDim2.new(1, -16, 0, 18)
+slapsLbl.Position = UDim2.new(0, 8, 0, 48)
+slapsLbl.BackgroundTransparency = 1
+slapsLbl.Text = "Current Slaps: ..."
+slapsLbl.TextColor3 = Color3.fromRGB(180, 190, 210)
+slapsLbl.Font = Enum.Font.Gotham
+slapsLbl.TextSize = 11
+slapsLbl.TextXAlignment = Enum.TextXAlignment.Left
+slapsLbl.Parent = mainFrame
+
+local sessionLbl = Instance.new("TextLabel")
+sessionLbl.Size = UDim2.new(1, -16, 0, 18)
+sessionLbl.Position = UDim2.new(0, 8, 0, 68)
+sessionLbl.BackgroundTransparency = 1
+local curStats = getStats()
+sessionLbl.Text = "Session: " .. tostring(curStats.totalHarvested) .. " slapples | " .. tostring(curStats.totalHops) .. " hops"
+sessionLbl.TextColor3 = Color3.fromRGB(140, 230, 140)
+sessionLbl.Font = Enum.Font.Gotham
+sessionLbl.TextSize = 10
+sessionLbl.TextXAlignment = Enum.TextXAlignment.Left
+sessionLbl.Parent = mainFrame
+
+local stopBtn = Instance.new("TextButton")
+stopBtn.Size = UDim2.new(1, -16, 0, 24)
+stopBtn.Position = UDim2.new(0, 8, 1, -28)
+stopBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+stopBtn.Text = "STOP AUTO-FARM"
+stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+stopBtn.Font = Enum.Font.GothamBold
+stopBtn.TextSize = 11
+stopBtn.Parent = mainFrame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 5)
+btnCorner.Parent = stopBtn
+
+local isStopped = false
+stopBtn.MouseButton1Click:Connect(function()
+    isStopped = true
+    statusLbl.Text = "Status: Stopped by user."
+    statusLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
+    stopBtn.Text = "FARM STOPPED"
+    stopBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+end)
+
+local function updateSlapCounter()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    local slapsVal = leaderstats and leaderstats:FindFirstChild("Slaps")
+    if slapsVal then
+        slapsLbl.Text = "Current Slaps: " .. tostring(slapsVal.Value)
+    end
+end
+
+local function getRoot()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+end
+
+local function enterArenaFast()
+    local portal = (Workspace:FindFirstChild("Lobby") and Workspace.Lobby:FindFirstChild("Teleport1"))
+        or Workspace:FindFirstChild("Teleport1")
+    local root = getRoot()
+    if portal and root then
+        root.CFrame = portal.CFrame
+        if firetouchinterest then
+            pcall(function()
+                firetouchinterest(root, portal, 0)
+                firetouchinterest(root, portal, 1)
+            end)
+        end
+        local s = tick()
+        while tick() - s < 0.6 do
+            RunService.Heartbeat:Wait()
+            local c = LocalPlayer.Character
+            if c and c:FindFirstChild("isInArena") and c.isInArena.Value == true then
+                break
+            end
+        end
+    end
+end
+
+local function serverHopFast()
+    if isStopped then return end
+    statusLbl.Text = "Status: Hopping server..."
+    statusLbl.TextColor3 = Color3.fromRGB(120, 200, 255)
+
+    queueNextHop()
+    local statsObj = getStats()
+    statsObj.totalHops = statsObj.totalHops + 1
+
+    if #preloadedServers > 0 then
+        local chosen = preloadedServers[math.random(1, #preloadedServers)]
+        TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+        task.delay(5, function()
+            if not isStopped then
+                queueNextHop()
+                TeleportService:Teleport(placeId, LocalPlayer)
+            end
+        end)
+    else
+        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+        local success, res = pcall(function()
+            if game.HttpGet then return game:HttpGet(url)
+            elseif request then return request({Url = url, Method = "GET"}).Body
+            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
+            return nil
+        end)
+        local candidates = {}
+        if success and res then
+            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
+            if decOk and data and data.data then
+                for _, s in ipairs(data.data) do
+                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
+                        table.insert(candidates, s)
+                    end
+                end
+            end
+        end
+        if #candidates > 0 then
+            local chosen = candidates[math.random(1, #candidates)]
+            TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+        else
+            TeleportService:Teleport(placeId, LocalPlayer)
+        end
+    end
+end
+
+task.spawn(function()
+    updateSlapCounter()
+    local root = getRoot()
+    while not root and not isStopped do task.wait(0.05) root = getRoot() end
+    if isStopped then return end
+
+    local char = LocalPlayer.Character
+    local inArena = char and char:FindFirstChild("isInArena")
+    if not (inArena and inArena.Value == true) then enterArenaFast() end
+    if isStopped then return end
+
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pGui then
+            local screenFx = pGui:FindFirstChild("ScreenEffects") or pGui:FindFirstChild("Transition")
+            if screenFx then screenFx:Destroy() end
+        end
+    end)
+
+    local slapplesFolder = Workspace:FindFirstChild("Arena")
+        and Workspace.Arena:FindFirstChild("island5")
+        and Workspace.Arena.island5:FindFirstChild("Slapples")
+    if not slapplesFolder then slapplesFolder = Workspace:FindFirstChild("Slapples", true) end
+
+    if slapplesFolder then
+        root = getRoot()
+        local activeSlapples = {}
+        for _, s in ipairs(slapplesFolder:GetChildren()) do
+            local glove = s:FindFirstChild("Glove")
+            if glove and glove:IsA("BasePart") and glove.Transparency < 0.5 then
+                table.insert(activeSlapples, glove)
+            end
+        end
+
+        if #activeSlapples > 0 then
+            statusLbl.Text = "Status: Harvesting " .. tostring(#activeSlapples) .. " Slapples..."
+            statusLbl.TextColor3 = Color3.fromRGB(0, 255, 140)
+            for _, glove in ipairs(activeSlapples) do
+                if isStopped then break end
+                if root and glove and glove.Parent then
+                    root.CFrame = glove.CFrame
+                    if firetouchinterest then
+                        pcall(function()
+                            firetouchinterest(root, glove, 0)
+                            firetouchinterest(root, glove, 1)
+                        end)
+                    end
+                    task.wait(0.015)
+                end
+            end
+            local statsObj = getStats()
+            statsObj.totalHarvested = statsObj.totalHarvested + #activeSlapples
+        else
+            statusLbl.Text = "Status: Island empty."
+            statusLbl.TextColor3 = Color3.fromRGB(255, 140, 140)
+        end
+    end
+
+    updateSlapCounter()
+    task.wait(0.05)
+    if not isStopped then serverHopFast() end
+end)
+]===]
+
+local function serverHop()
+    local placeId = game.PlaceId or 6403373529
+    local currentJobId = game.JobId
+    
+    Hub.notify({
+        Title = "Server Hop",
+        Content = "Searching for optimal server...",
+        Duration = 3
+    })
+
+    local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
+    if q and state.AutoSlapple then
+        pcall(function()
+            local payload = "local _SLAPPLE_SOURCE = [===\n" .. _SLAPPLE_SOURCE .. "\n===]\nloadstring(_SLAPPLE_SOURCE)()"
+            q(payload)
+        end)
+    end
+
+    local function fetchServers(cursor)
+        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+        if cursor then url = url .. "&cursor=" .. tostring(cursor) end
+        local success, res = pcall(function()
+            if game.HttpGet then return game:HttpGet(url)
+            elseif request then return request({Url = url, Method = "GET"}).Body
+            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
+            return nil
+        end)
+        if success and res then
+            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
+            if decOk and data and data.data then
+                return data.data, data.nextPageCursor
+            end
+        end
+        return nil, nil
+    end
+
+    local candidateServers = {}
+    local cursor = nil
+    for _ = 1, 3 do
+        local servers, nextCursor = fetchServers(cursor)
+        if servers then
+            for _, s in ipairs(servers) do
+                local count = s.playing or 0
+                if s.id ~= currentJobId and count >= 2 and count <= 10 and count < (s.maxPlayers or 14) then
+                    table.insert(candidateServers, s)
+                end
+            end
+        end
+        if #candidateServers >= 6 or not nextCursor then break end
+        cursor = nextCursor
+    end
+
+    if #candidateServers > 0 then
+        local chosen = candidateServers[math.random(1, #candidateServers)]
+        Hub.notify({
+            Title = "Server Hop",
+            Content = "Teleporting to server (" .. tostring(chosen.playing) .. "/" .. tostring(chosen.maxPlayers) .. " players)...",
+            Duration = 4
+        })
+        TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+        task.delay(4.5, function()
+            if state.AutoSlapple then
+                local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
+                if q then pcall(function() q("local _SLAPPLE_SOURCE = [===\n" .. _SLAPPLE_SOURCE .. "\n===]\nloadstring(_SLAPPLE_SOURCE)()") end) end
+                TeleportService:Teleport(placeId, LocalPlayer)
+            end
+        end)
+    else
+        Hub.notify({
+            Title = "Server Hop",
+            Content = "Rejoining...",
+            Duration = 3
+        })
+        TeleportService:Teleport(placeId, LocalPlayer)
+    end
+end
+
+local function fastHarvestSlapples()
+    local char = getCharacter()
+    local inArena = char and char:FindFirstChild("isInArena")
+    if isInLobby() or not (inArena and inArena.Value == true) then
+        enterArena()
+        task.wait(0.15)
+    end
+
+    local slapplesFolder = Workspace:FindFirstChild("Arena")
+        and Workspace.Arena:FindFirstChild("island5")
+        and Workspace.Arena.island5:FindFirstChild("Slapples")
+
+    if not slapplesFolder then
+        slapplesFolder = Workspace:FindFirstChild("Slapples", true)
+    end
+
+    if not slapplesFolder then return 0 end
+
+    local root = getRoot()
+    if not root then return 0 end
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+
+    local function getActive()
+        local list = {}
+        for _, s in ipairs(slapplesFolder:GetChildren()) do
+            local glove = s:FindFirstChild("Glove")
+            if glove and glove:IsA("BasePart") and glove.Transparency < 0.5 then
+                table.insert(list, glove)
+            end
+        end
+        return list
+    end
+
+    local totalHarvested = 0
+    for pass = 1, 3 do
+        local active = getActive()
+        if #active == 0 then break end
+
+        for _, glove in ipairs(active) do
+            if glove and glove.Parent and glove.Transparency < 0.5 then
+                if hum then hum.PlatformStand = false end
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+                root.CFrame = glove.CFrame
+                if firetouchinterest then
+                    pcall(function()
+                        firetouchinterest(root, glove, 0)
+                        task.wait(0.01)
+                        firetouchinterest(root, glove, 1)
+                    end)
+                end
+                totalHarvested = totalHarvested + 1
+                task.wait(0.015)
+            end
+        end
+        task.wait(0.03)
+    end
+
+    return totalHarvested
+end
+
+Hub.CreateSection(farmTab, "Slapple Farming")
+
+Hub.CreateToggle(farmTab, "🍎 Fast Auto Slapple (Queue-Hop)", false, function(toggled)
+    state.AutoSlapple = toggled
+    if toggled then
+        Hub.notify({
+            Title = "Auto Slapple",
+            Content = "Fast Auto-Slapple with persistent Queue-Hop activated!",
+            Duration = 4
+        })
+    end
+end)
+
+Hub.CreateToggle(farmTab, "🌐 Auto Server-Hop", true, function(toggled)
+    state.AutoSlappleServerHop = toggled
+end)
+
+Hub.CreateButton(farmTab, "⚡ Harvest Slapples (Once)", function()
+    local count = fastHarvestSlapples()
+    Hub.notify({
+        Title = "Slapple Harvest",
+        Content = "Harvested " .. tostring(count) .. " active slapples.",
+        Duration = 3
+    })
+end)
+
+Hub.CreateButton(farmTab, "🚀 Server Hop Now", function()
+    serverHop()
+end)
+
+Hub.CreateButton(farmTab, "📋 Copy Auto-Exec Script", function()
+    local success = copyToClipboard(SLAPPLE_AUTOEXEC_SOURCE)
+    if success then
+        Hub.notify({
+            Title = "📋 Copied to Clipboard",
+            Content = "Auto-exec script copied! Paste it into your executor's autoexec folder.",
+            Duration = 5
+        })
+    else
+        Hub.notify({
+            Title = "Clipboard Error",
+            Content = "Your executor does not support clipboard copying.",
+            Duration = 4
+        })
+    end
+end)
+
+Hub.CreateSection(farmTab, "General Farming")
+
+Hub.CreateToggle(farmTab, "Auto Candy", false, function(toggled)
     state.AutoCandy = toggled
 end)
 
-Hub.CreateToggle(farmTab, "Auto Click Tycoon Plate", false, function(toggled)
+Hub.CreateToggle(farmTab, "Auto Tycoon", false, function(toggled)
     state.AutoTycoon = toggled
 end)
 
-Hub.CreateButton(farmTab, "🏆 Claim Daily & Free Badges", function()
+Hub.CreateButton(farmTab, "🏆 Claim Badges", function()
     for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
         if desc:IsA("RemoteEvent") and desc.Name:lower():find("badge") then
             pcall(function() desc:FireServer() end)
         end
     end
     Hub.notify({
-        Title = "Badge Collector",
-        Content = "Dispatched badge reward checks.",
+        Title = "Badges",
+        Content = "Claimed available badges.",
         Duration = 3
     })
+end)
+
+-- Farm Background Loops
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if state.AutoSlapple then
+            local count = fastHarvestSlapples()
+            if count > 0 then
+                Hub.notify({
+                    Title = "🍎 Slapples Collected",
+                    Content = "Harvested " .. tostring(count) .. " slapples!",
+                    Duration = 2
+                })
+            end
+
+            if state.AutoSlappleServerHop then
+                task.wait(0.1)
+                serverHop()
+                task.wait(5)
+            else
+                task.wait(1.5)
+            end
+        end
+    end
 end)
 
 task.spawn(function()
@@ -1079,7 +3219,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- 4. ALT CONTROL TAB (Multi-Account & Farming Helper)
+-- 4. ALT CONTROL TAB
 -- =========================================================================
 local function getMainPlayer()
     if state.MainUsername and state.MainUsername ~= "" then
@@ -1105,33 +3245,33 @@ local function getPlayerNamesList()
     return names
 end
 
-Hub.CreateSection(altTab, "Alt Account Setup & Main Target")
+Hub.CreateSection(altTab, "Main Target")
 
 local mainTargetDropdown = nil
 mainTargetDropdown = Hub.CreateDropdown(altTab, "Select Main Account", getPlayerNamesList(), getPlayerNamesList()[1], function(selected)
     if selected and selected ~= "No Other Players" then
         state.MainUsername = selected
         Hub.notify({
-            Title = "Target Main Set",
-            Content = "Alt assigned to Master: @" .. selected,
-            Duration = 3
+            Title = "Target Set",
+            Content = "Target: @" .. selected,
+            Duration = 2
         })
     end
 end)
 
-Hub.CreateButton(altTab, "🔄 Refresh Players in Server", function()
+Hub.CreateButton(altTab, "🔄 Refresh Players", function()
     local updated = getPlayerNamesList()
     if mainTargetDropdown and mainTargetDropdown.Refresh then
         mainTargetDropdown.Refresh(updated)
     end
     Hub.notify({
         Title = "Players Refreshed",
-        Content = "Player list refreshed (" .. tostring(#updated) .. " found)",
+        Content = tostring(#updated) .. " players found.",
         Duration = 2
     })
 end)
 
--- Custom Username Text Input helper (Allows typing exact username of Main)
+-- Custom Username Text Input helper
 pcall(function()
     local inputFrame = Instance.new("Frame")
     inputFrame.Size = UDim2.new(1, -6, 0, 42)
@@ -1152,7 +3292,7 @@ pcall(function()
     lbl.Size = UDim2.new(0.4, 0, 1, 0)
     lbl.Position = UDim2.new(0, 14, 0, 0)
     lbl.BackgroundTransparency = 1
-    lbl.Text = "Type Main User:"
+    lbl.Text = "Main User:"
     lbl.TextColor3 = Color3.fromRGB(230, 235, 245)
     lbl.Font = Enum.Font.GothamBold
     lbl.TextSize = 11
@@ -1163,7 +3303,7 @@ pcall(function()
     box.Size = UDim2.new(0.55, -14, 0, 28)
     box.Position = UDim2.new(0.45, 0, 0.5, -14)
     box.BackgroundColor3 = Color3.fromRGB(12, 15, 22)
-    box.PlaceholderText = "Username here..."
+    box.PlaceholderText = "Username..."
     box.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
     box.Text = state.MainUsername or ""
     box.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1180,36 +3320,40 @@ pcall(function()
         if box.Text and box.Text ~= "" then
             state.MainUsername = box.Text:gsub("^%s*(.-)%s*$", "%1")
             Hub.notify({
-                Title = "Main Username Set",
-                Content = "Target set to: @" .. state.MainUsername,
-                Duration = 3
+                Title = "Target Set",
+                Content = "Target: @" .. state.MainUsername,
+                Duration = 2
             })
         end
     end)
 end)
 
-Hub.CreateToggle(altTab, "🤖 Mode: This is an Alt Account", false, function(toggled)
+Hub.CreateToggle(altTab, "🤖 Alt Mode", false, function(toggled)
     state.IsAltAccount = toggled
     if toggled then
         Hub.notify({
-            Title = "Alt Mode Enabled",
-            Content = "This client is now set as an active Alt assistant.",
-            Duration = 4
+            Title = "Alt Mode",
+            Content = "Alt mode enabled.",
+            Duration = 3
         })
     end
 end)
 
-Hub.CreateToggle(altTab, "💬 Listen to Main Chat Commands", true, function(toggled)
+Hub.CreateToggle(altTab, "💬 Chat Commands", true, function(toggled)
     state.AltChatCommands = toggled
 end)
 
-Hub.CreateSection(altTab, "Alt Movement & Slap Feeding")
+Hub.CreateSection(altTab, "Alt Movement")
 
--- Auto TP to Megarock of Main Account
+---- Auto TP to Megarock of Main Account
 local function getMegarockOfPlayer(targetPlr)
     if not targetPlr then return nil end
     local char = targetPlr.Character
     if char then
+        local directRock = char:FindFirstChild("rock") or char:FindFirstChild("Rock") or char:FindFirstChild("Megarock") or char:FindFirstChild("Diamond")
+        if directRock and directRock:IsA("BasePart") then
+            return directRock
+        end
         for _, part in ipairs(char:GetChildren()) do
             local pName = part.Name:lower()
             if (pName:find("rock") or pName:find("megarock") or pName:find("diamond")) and part:IsA("BasePart") then
@@ -1217,20 +3361,46 @@ local function getMegarockOfPlayer(targetPlr)
             end
         end
     end
-    -- Also search workspace models/custom rocks
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        local oName = obj.Name:lower()
-        if (oName:find("megarock") or oName:find("customrock") or oName == "rock") and obj:IsA("BasePart") then
-            local dist = (char and getRoot(targetPlr)) and (obj.Position - getRoot(targetPlr).Position).Magnitude or 999
-            if dist < 30 then
-                return obj
+    local targetRoot = getRoot(targetPlr)
+    if targetRoot then
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            local oName = obj.Name:lower()
+            if (oName:find("rock") or oName:find("megarock") or oName == "customrock") then
+                local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart")
+                if part and (part.Position - targetRoot.Position).Magnitude < 35 then
+                    return part
+                end
             end
         end
+        return targetRoot
     end
     return nil
 end
 
-Hub.CreateToggle(altTab, "🪨 Auto TP to Main's Megarock (Arena -> Rock)", false, function(toggled)
+Hub.CreateToggle(altTab, "🚀 Auto Safe Zone", false, function(toggled)
+    state.AltAutoSafeZone = toggled
+    if toggled then
+        state.IsAltAccount = true
+        task.spawn(function()
+            if isInLobby() then
+                Hub.notify({
+                    Title = "Entering Arena",
+                    Content = "Entering arena...",
+                    Duration = 2
+                })
+                enterArena()
+            end
+            teleportToSafeZone()
+            Hub.notify({
+                Title = "Safe Zone",
+                Content = "Teleported to Safe Zone.",
+                Duration = 2
+            })
+        end)
+    end
+end)
+
+Hub.CreateToggle(altTab, "🪨 Auto TP to Megarock", false, function(toggled)
     state.AltAutoTPMegarock = toggled
     if toggled then
         state.IsAltAccount = true
@@ -1238,103 +3408,55 @@ Hub.CreateToggle(altTab, "🪨 Auto TP to Main's Megarock (Arena -> Rock)", fals
             if isInLobby() then
                 Hub.notify({
                     Title = "Entering Arena",
-                    Content = "Alt entering arena to teleport to Main's Megarock...",
-                    Duration = 3
+                    Content = "Entering arena...",
+                    Duration = 2
                 })
                 enterArena()
-                task.wait(1)
             end
 
             local mainPlr = getMainPlayer()
             if not mainPlr then
                 Hub.notify({
-                    Title = "⚠️ Main Not Found",
-                    Content = "Please select or type your Main account username first!",
-                    Duration = 5
+                    Title = "Main Not Found",
+                    Content = "Select or enter Main username first!",
+                    Duration = 3
                 })
                 return
             end
 
             local rockPart = getMegarockOfPlayer(mainPlr)
             local root = getRoot()
-            if root then
-                if rockPart then
-                    root.CFrame = rockPart.CFrame + Vector3.new(0, rockPart.Size.Y / 2 + 3, 0)
-                elseif getRoot(mainPlr) then
-                    root.CFrame = getRoot(mainPlr).CFrame + Vector3.new(0, 5, 0)
-                end
+            if root and rockPart then
+                root.CFrame = CFrame.new(rockPart.Position + Vector3.new(0, (rockPart.Size.Y / 2) + 2.5, 0))
                 Hub.notify({
-                    Title = "🪨 Teleported to Megarock!",
-                    Content = "Alt is positioned on Main's Megarock.",
-                    Duration = 4
+                    Title = "Teleported",
+                    Content = "Positioned on Main Megarock.",
+                    Duration = 2
                 })
             end
         end)
     end
 end)
 
-Hub.CreateToggle(altTab, "🎯 Alt Follow & Lock to Main", false, function(toggled)
+Hub.CreateToggle(altTab, "🎯 Follow Main", false, function(toggled)
     state.AltFollowMain = toggled
 end)
 
-Hub.CreateSlider(altTab, "Follow Distance", 2, 12, 4, " studs", function(val)
+Hub.CreateSlider(altTab, "Follow Distance", 2, 12, 4, "", function(val)
     state.AltFollowDistance = val
 end)
 
-Hub.CreateToggle(altTab, "🥩 Auto Feed Slaps (Stand Still & Lock to Main)", false, function(toggled)
+Hub.CreateToggle(altTab, "🥩 Feed Slaps", false, function(toggled)
     state.AltFeedSlaps = toggled
 end)
 
-Hub.CreateToggle(altTab, "🔄 Auto Re-enter Arena on Respawn", false, function(toggled)
+Hub.CreateToggle(altTab, "🔄 Auto Re-enter Arena", false, function(toggled)
     state.AltAutoReenter = toggled
 end)
 
-Hub.CreateSection(altTab, "Co-op Glove & Badge Assistance")
+Hub.CreateSection(altTab, "Slap Assistance")
 
-Hub.CreateToggle(altTab, "👥 Alt Spam Bob (Replica Glove Spam)", false, function(toggled)
-    state.AltSpamReplicaBob = toggled
-    if toggled then
-        task.spawn(function()
-            if isInLobby() then
-                autoEquipGlove("Replica")
-                task.wait(0.5)
-                enterArena()
-            end
-        end)
-    end
-end)
-
-Hub.CreateToggle(altTab, "🧱 Alt Spam Bricks (Brick Feeder)", false, function(toggled)
-    state.AltSpamBrick = toggled
-    if toggled then
-        task.spawn(function()
-            if isInLobby() then
-                autoEquipGlove("Brick")
-                task.wait(0.5)
-                enterArena()
-            end
-        end)
-    end
-end)
-
-Hub.CreateToggle(altTab, "🪨 Alt Diamond Rock Mode (Cult/AFK)", false, function(toggled)
-    state.AltDiamondRock = toggled
-    if toggled then
-        task.spawn(function()
-            ensureEquippedAndInArena("Diamond")
-            task.wait(0.5)
-            activateAbility("Rockmode")
-        end)
-    else
-        pcall(function()
-            if ReplicatedStorage:FindFirstChild("DeactivateRockmode") then
-                ReplicatedStorage.DeactivateRockmode:FireServer()
-            end
-        end)
-    end
-end)
-
-Hub.CreateButton(altTab, "👋 Alt Slap Main (1-Tap Hit)", function()
+Hub.CreateButton(altTab, "👋 Slap Main", function()
     local mainPlr = getMainPlayer()
     if mainPlr and mainPlr.Character then
         slapPlayer(mainPlr.Character)
@@ -1346,41 +3468,15 @@ Hub.CreateButton(altTab, "👋 Alt Slap Main (1-Tap Hit)", function()
     else
         Hub.notify({
             Title = "Main Not Found",
-            Content = "Please select your Main account from the dropdown!",
+            Content = "Select Main account from dropdown!",
             Duration = 3
         })
     end
 end)
 
-Hub.CreateToggle(altTab, "🔁 Loop Slap Main (Every 1.5s)", false, function(toggled)
+Hub.CreateToggle(altTab, "🔁 Loop Slap Main", false, function(toggled)
     state.AltLoopSlapMain = toggled
 end)
-
-Hub.CreateSection(altTab, "Quick Glove Equip for Alt")
-
-local altGloves = {
-    {"🥊 Default", "Default"},
-    {"💎 Diamond", "Diamond"},
-    {"👥 Replica (Bob)", "Replica"},
-    {"🧱 Brick", "Brick"},
-    {"👻 Ghost", "Ghost"},
-    {"💤 ZZZZZZZ", "ZZZZZZZ"},
-    {"🔄 Reverse", "Reverse"},
-    {"🛡️ Extended", "Extended"},
-}
-
-for _, gData in ipairs(altGloves) do
-    Hub.CreateButton(altTab, "Equip " .. gData[1], function()
-        task.spawn(function()
-            autoEquipGlove(gData[2])
-            Hub.notify({
-                Title = "Alt Glove",
-                Content = "Equipped [" .. gData[2] .. "]",
-                Duration = 2
-            })
-        end)
-    end)
-end
 
 -- Alt Chat Commands Listener
 local function bindChatCommands(player)
@@ -1409,23 +3505,10 @@ local function bindChatCommands(player)
             end
         elseif cmd == "!alt reset" or cmd == "!alt die" then
             resetToLobby()
-        elseif cmd == "!alt rock" or cmd == "!alt megarock" then
-            task.spawn(function()
-                ensureEquippedAndInArena("Diamond")
-                task.wait(0.5)
-                activateAbility("Rockmode")
-            end)
-        elseif cmd == "!alt unrock" then
-            pcall(function()
-                if ReplicatedStorage:FindFirstChild("DeactivateRockmode") then
-                    ReplicatedStorage.DeactivateRockmode:FireServer()
-                end
-            end)
-        elseif cmd == "!alt bob" then
-            state.AltSpamReplicaBob = not state.AltSpamReplicaBob
-        elseif cmd == "!alt brick" then
-            state.AltSpamBrick = not state.AltSpamBrick
         elseif cmd == "!alt safe" then
+            if isInLobby() then
+                enterArena()
+            end
             teleportToSafeZone()
         end
     end)
@@ -1439,44 +3522,44 @@ Players.PlayerAdded:Connect(bindChatCommands)
 -- Alt Background Follow & Feed Loop
 task.spawn(function()
     while true do
-        task.wait(0.08)
+        task.wait(0.04)
         if state.IsAltAccount then
             local mainPlr = getMainPlayer()
             local mainRoot = mainPlr and getRoot(mainPlr)
             local altRoot = getRoot()
             local altChar = getCharacter()
 
-            -- Auto Re-enter Arena if in lobby
-            if (state.AltAutoReenter or state.AltFeedSlaps or state.AltFollowMain or state.AltAutoTPMegarock) and isInLobby() then
+            if (state.AltAutoReenter or state.AltFeedSlaps or state.AltFollowMain or state.AltAutoTPMegarock or state.AltAutoSafeZone) and isInLobby() then
                 enterArena()
-                task.wait(0.8)
             end
 
-            -- Alt Auto TP & Lock to Main's Megarock
-            if state.AltAutoTPMegarock and mainPlr then
-                local rockPart = getMegarockOfPlayer(mainPlr)
-                if altRoot then
-                    if rockPart then
-                        altRoot.CFrame = rockPart.CFrame + Vector3.new(0, rockPart.Size.Y / 2 + 3, 0)
-                    elseif mainRoot then
-                        altRoot.CFrame = mainRoot.CFrame + Vector3.new(0, 5, 0)
-                    end
+            if state.AltAutoSafeZone and not isInLobby() then
+                if altRoot and (altRoot.Position - SAFE_ZONE_POS).Magnitude > 60 then
+                    teleportToSafeZone()
                 end
             end
 
-            -- Alt Follow Main / Feed Target
-            if (state.AltFollowMain or state.AltFeedSlaps) and mainRoot and altRoot then
-                local targetCFrame = mainRoot.CFrame * CFrame.new(0, 0, -state.AltFollowDistance) * CFrame.Angles(0, math.rad(180), 0)
-                altRoot.CFrame = targetCFrame
-
-                if altChar then
-                    for _, p in ipairs(altChar:GetDescendants()) do
-                        if p:IsA("BasePart") then
-                            p.CanCollide = false
+            if state.AltAutoTPMegarock and mainPlr and not isInLobby() then
+                local rockPart = getMegarockOfPlayer(mainPlr)
+                if altRoot and rockPart then
+                    local targetPos = rockPart.Position + Vector3.new(0, (rockPart.Size.Y / 2) + 2.5, 0)
+                    altRoot.CFrame = CFrame.new(targetPos)
+                    if altChar then
+                        for _, p in ipairs(altChar:GetDescendants()) do
+                            if p:IsA("BasePart") then p.CanCollide = false end
                         end
                     end
                 end
+            end
 
+            if (state.AltFollowMain or state.AltFeedSlaps) and mainRoot and altRoot and not isInLobby() then
+                local targetCFrame = mainRoot.CFrame * CFrame.new(0, 0, -state.AltFollowDistance) * CFrame.Angles(0, math.rad(180), 0)
+                altRoot.CFrame = targetCFrame
+                if altChar then
+                    for _, p in ipairs(altChar:GetDescendants()) do
+                        if p:IsA("BasePart") then p.CanCollide = false end
+                    end
+                end
                 local hum = getHumanoid()
                 if hum and hum:GetState() == Enum.HumanoidStateType.Ragdoll then
                     hum:ChangeState(Enum.HumanoidStateType.GettingUp)
@@ -1486,55 +3569,30 @@ task.spawn(function()
     end
 end)
 
--- Alt Background Ability Spam & Loop Slap
+-- Loop Slap Main Background Worker
 task.spawn(function()
     while true do
         task.wait(1.5)
         if state.IsAltAccount then
             local mainPlr = getMainPlayer()
-
-            -- Loop Slap Main (For badges requiring getting slapped)
             if state.AltLoopSlapMain and mainPlr and mainPlr.Character then
                 slapPlayer(mainPlr.Character)
-            end
-
-            -- Alt Spam Bob (Replica ability spam until Bob spawns)
-            if state.AltSpamReplicaBob then
-                local cur = getCurrentGlove()
-                if cur:lower() ~= "replica" and isInLobby() then
-                    autoEquipGlove("Replica")
-                    task.wait(0.5)
-                    enterArena()
-                end
-                activateAbility("Duplicate")
-            end
-
-            -- Alt Spam Brick
-            if state.AltSpamBrick then
-                local cur = getCurrentGlove()
-                if cur:lower() ~= "brick" and isInLobby() then
-                    autoEquipGlove("Brick")
-                    task.wait(0.5)
-                    enterArena()
-                end
-                activateAbility("lbrick")
             end
         end
     end
 end)
 
 -- =========================================================================
--- 5. DEFENSE & MISC TAB
+-- 5. DEFENSE TAB
 -- =========================================================================
-Hub.CreateSection(defenseTab, "Anti-Ragdoll & Safety Plate")
-
+Hub.CreateSection(defenseTab, "Defense")
 local voidPlate = nil
 
 Hub.CreateToggle(defenseTab, "Anti-Ragdoll", false, function(toggled)
     state.AntiRagdoll = toggled
 end)
 
-Hub.CreateToggle(defenseTab, "Anti-Void Safe Plate", false, function(toggled)
+Hub.CreateToggle(defenseTab, "Anti-Void Plate", false, function(toggled)
     state.AntiVoid = toggled
     if toggled then
         if not voidPlate or not voidPlate.Parent then
@@ -1556,25 +3614,16 @@ Hub.CreateToggle(defenseTab, "Anti-Void Safe Plate", false, function(toggled)
     end
 end)
 
-Hub.CreateButton(defenseTab, "🚀 Teleport to Sky Safe Zone", function()
+Hub.CreateButton(defenseTab, "🚀 Teleport to Safe Zone", function()
     teleportToSafeZone()
     Hub.notify({
         Title = "Safe Zone",
-        Content = "Teleported to Sky Safe Platform (Y: 3500).",
+        Content = "Teleported to Safe Zone.",
         Duration = 3
     })
 end)
 
-Hub.CreateButton(defenseTab, "🧹 Remove Sky Safe Zone", function()
-    removeSafeZone()
-    Hub.notify({
-        Title = "Safe Zone",
-        Content = "Sky Safe Platform removed.",
-        Duration = 3
-    })
-end)
-
-Hub.CreateSection(defenseTab, "Glove Immunities")
+Hub.CreateSection(defenseTab, "Immunities")
 
 Hub.CreateToggle(defenseTab, "Anti-Megarock", false, function(toggled)
     state.AntiMegarock = toggled
@@ -1584,26 +3633,44 @@ Hub.CreateToggle(defenseTab, "Anti-Timestop", false, function(toggled)
     state.AntiTimestop = toggled
 end)
 
-RunService.Stepped:Connect(function()
-    if state.AntiRagdoll then
-        local char = getCharacter()
-        if char then
-            local ragdollVal = char:FindFirstChild("Ragdolled") or char:FindFirstChild("Ragdoll")
-            if ragdollVal and ragdollVal:IsA("ValueBase") then
-                pcall(function() ragdollVal.Value = false end)
-            end
-            local hum = char:FindFirstChildWhichIsA("Humanoid")
-            if hum and hum:GetState() == Enum.HumanoidStateType.Ragdoll then
-                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+-- Defense Background Loop
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if state.AntiRagdoll then
+            local char = getCharacter()
+            if char then
+                local ragdollVal = char:FindFirstChild("Ragdolled") or char:FindFirstChild("Ragdoll")
+                if ragdollVal and ragdollVal:IsA("ValueBase") then
+                    pcall(function() ragdollVal.Value = false end)
+                end
+                local hum = char:FindFirstChildWhichIsA("Humanoid")
+                if hum and hum:GetState() == Enum.HumanoidStateType.Ragdoll then
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
             end
         end
-    end
 
-    if state.AntiMegarock then
-        for _, obj in ipairs(Workspace:GetChildren()) do
-            if obj.Name:find("Rock") or obj.Name:find("Megarock") or obj.Name == "CustomRock" then
-                if obj:IsA("BasePart") then
-                    obj.CanTouch = false
+        if state.AntiMegarock then
+            for _, obj in ipairs(Workspace:GetChildren()) do
+                if obj.Name:find("Rock") or obj.Name:find("Megarock") or obj.Name == "CustomRock" then
+                    if obj:IsA("BasePart") then
+                        obj.CanTouch = false
+                    end
+                end
+            end
+        end
+
+        if state.AntiTimestop then
+            local char = getCharacter()
+            if char then
+                local ts = char:FindFirstChild("TS") or char:FindFirstChild("Timestop")
+                if ts then
+                    pcall(function() ts:Destroy() end)
+                end
+                local hrp = getRoot()
+                if hrp and hrp.Anchored and not state.MegarockCenterLock then
+                    hrp.Anchored = false
                 end
             end
         end
@@ -1611,9 +3678,9 @@ RunService.Stepped:Connect(function()
 end)
 
 -- =========================================================================
--- 5. VISUALS & ESP TAB
+-- 6. VISUALS TAB
 -- =========================================================================
-Hub.CreateSection(visualTab, "Player & Glove ESP")
+Hub.CreateSection(visualTab, "ESP")
 
 local espFolder = Instance.new("Folder")
 espFolder.Name = "ENI_SlapESP"
@@ -1682,8 +3749,7 @@ task.spawn(function()
 end)
 
 Hub.notify({
-    Title = "Slap Battles Loaded",
-    Content = "Unknown Hub Slap Battles (Badge Master) is active!",
-    Duration = 4
+    Title = "Slap Battles",
+    Content = "Unknown Hub loaded.",
+    Duration = 3
 })
-

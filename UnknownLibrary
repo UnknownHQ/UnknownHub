@@ -5384,13 +5384,21 @@ return function(opts)
             end
         end
 
-        local maxAllowedHeight = tonumber(height) or (isNestedList and 240 or 380)
+        local rawHeight = tonumber(height)
+        local maxAllowedHeight = rawHeight or (isNestedList and 240 or 380)
+        if rawHeight then
+            if rawHeight < 100 then
+                maxAllowedHeight = math.max(rawHeight + (isNestedList and 30 or 32) + 16, 120)
+            else
+                maxAllowedHeight = rawHeight + (isNestedList and 30 or 32) + 16
+            end
+        end
         local selectionCallback = type(height) == "function" and height or nil
         local itemBuilder = type(items) == "function" and items or nil
 
         if itemBuilder then itemValues = {} end
         if selectionCallback then
-            maxAllowedHeight = 300
+            maxAllowedHeight = 320
             itemExpanded = true
         end
 
@@ -5480,23 +5488,32 @@ return function(opts)
             local contentH = 0
             local visibleCount = 0
             for _, child in ipairs(list:GetChildren()) do
-                if child:IsA("GuiObject") and child.Visible and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+                if child:IsA("GuiObject") and child.Visible and not child:IsA("UIListLayout") and not child:IsA("UIPadding") and not child:IsA("UIGridLayout") then
                     visibleCount = visibleCount + 1
                     local chH = child.Size.Y.Offset
                     if chH <= 0 and child.AbsoluteSize.Y > 0 then chH = child.AbsoluteSize.Y end
-                    if chH <= 0 then chH = 38 end
-                    contentH = contentH + chH + layout.Padding.Offset
+                    if chH <= 0 then chH = 34 end
+                    contentH = contentH + chH + (layout and layout.Padding.Offset or 5)
                 end
             end
-            if layout.AbsoluteContentSize.Y > contentH then
+            if layout and layout.AbsoluteContentSize.Y > contentH then
                 contentH = layout.AbsoluteContentSize.Y
             end
+            local grid = list:FindFirstChildOfClass("UIGridLayout")
+            if grid and grid.AbsoluteContentSize.Y > contentH then
+                contentH = grid.AbsoluteContentSize.Y
+            end
             if contentH <= 0 and #listObject.Items > 0 then
-                contentH = #listObject.Items * (38 + layout.Padding.Offset)
+                contentH = #listObject.Items * (36 + (layout and layout.Padding.Offset or 5))
+            end
+            if contentH <= 0 then
+                contentH = 50
             end
             local extraPadding = isNestedList and 8 or 12
             local totalH = titleBtnHeight + contentH + extraPadding
-            return math.clamp(totalH, titleBtnHeight + 20, maxAllowedHeight)
+            local minH = titleBtnHeight + 20
+            local maxH = math.max(maxAllowedHeight, minH)
+            return math.clamp(totalH, minH, maxH)
         end
 
         local isUpdatingHeight = false

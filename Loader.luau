@@ -51,6 +51,14 @@ local SupportedGames = {
         placeIds = { 17625359962, 17625126838 },
         scriptUrl = BASE_URL .. "/Games/InkGame.luau",
         desc = "Mini-game automation, ESP, godmode & remote triggers"
+    },
+    {
+        name = "Obby Creator",
+        icon = "🏗️",
+        placeIds = { 2913303231 },
+        gameIds = { 1053132402 },
+        scriptUrl = BASE_URL .. "/Games/ObbyCreator.luau",
+        desc = "Free Advanced Tools, fly, god mode, checkpoint TP & build unlocks"
     }
 }
 
