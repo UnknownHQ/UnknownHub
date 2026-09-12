@@ -17,14 +17,12 @@ local LocalPlayer = Players.LocalPlayer
 -- =========================================================================
 pcall(function()
     LocalPlayer.Idled:Connect(function()
-        if VirtualUser then
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new(0, 0))
-        else
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-        end
+        pcall(function()
+            if VirtualUser then
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
+            end
+        end)
     end)
 end)
 
@@ -60,7 +58,7 @@ destroyOldGui()
 local Hub = result({
     name = LIBRARY_NAME,
     title = "UNKNOWN HUB",
-    subTitle = "Slap Battles v2.5 • Badge Master",
+    subTitle = "Slap Battles",
     parent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui"),
     theme = Color3.fromRGB(255, 120, 0),
     secondaryTheme = Color3.fromRGB(180, 50, 255)
@@ -906,12 +904,9 @@ Hub.CreateToggle(badgeTab, "🐟 Auto-Fish (ZZZZZZZ -> Arena -> Sleep Safe Zone)
             local char = getCharacter()
             local hum = char and char:FindFirstChildWhichIsA("Humanoid")
             if hum then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
                 hum.PlatformStand = false
             end
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
         end)
         Hub.notify({
             Title = "Auto-Fish Stopped",
