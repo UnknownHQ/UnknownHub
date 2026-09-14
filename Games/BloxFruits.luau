@@ -1818,6 +1818,444 @@ buildShopCatalogSection(shopPage, "🔫 Guns & Ranged Weapons Shop", {
     {Name = "Kabucha", Price = "1,500 Frags", Args = {"BlackbeardReward", "Slingshot", "1"}}
 })
 
+-- TRAVEL PAGE SETUP
+local travelStatusLabel = Instance.new("TextLabel")
+travelStatusLabel.Size = UDim2.new(0.98, 0, 0, 24)
+travelStatusLabel.BackgroundTransparency = 1
+travelStatusLabel.Text = "Status: Idle"
+travelStatusLabel.TextColor3 = Color3.fromRGB(0, 230, 255)
+travelStatusLabel.Font = Enum.Font.GothamBold
+travelStatusLabel.TextSize = 12
+travelStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+pcall(function() travelStatusLabel.Parent = travelPage end)
+registerThemeText(travelStatusLabel)
+
+-- GLOBAL CANCEL TWEEN HELPER
+local function restoreCharacterPhysics()
+    pcall(function()
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+                hum.AutoRotate = true
+            end
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    if p.Name == "HumanoidRootPart" then
+                        p.CanCollide = false
+                    else
+                        p.CanCollide = true
+                    end
+                end
+            end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                removeTabBV(hrp)
+                hrp.Velocity = Vector3.zero
+                if hrp:IsA("BasePart") then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+        end
+    end)
+end
+
+_G.ENI_CancelTween = function()
+    isTraveling = false
+    if _G.ENI_TravelTween then
+        pcall(function() _G.ENI_TravelTween:Cancel() end)
+        _G.ENI_TravelTween = nil
+    end
+    _G.ENI_TravelTweenID = nil
+    restoreCharacterPhysics()
+    if travelStatusLabel then
+        travelStatusLabel.Text = "Status: Travel Canceled. Idle."
+    end
+end
+
+do
+    local travelButtons = {}
+    local activeTravelIsland = nil
+
+    -- Detect current Sea using PlaceId & Workspace Fallback
+    local pId = game.PlaceId
+    local isSea1 = (pId == 2753915549)
+    local isSea2 = (pId == 4442272183)
+    local isSea3 = (pId == 7449423635)
+
+    if not isSea1 and not isSea2 and not isSea3 then
+        if workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Cafe") then
+            isSea2 = true
+        elseif workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Mansion") then
+            isSea3 = true
+        else
+            isSea1 = true
+        end
+    end
+
+    local islands = {}
+    local seaTitle = "1st Sea"
+
+    if isSea2 then
+        seaTitle = "2nd Sea"
+        islands = {
+            {Name = "Kingdom of Rose (Cafe) [Lv. 700]", CFrame = CFrame.new(-380, 73, 300)},
+            {Name = "Green Zone [Lv. 875]", CFrame = CFrame.new(-2400, 73, -3100)},
+            {Name = "Graveyard Island [Lv. 950]", CFrame = CFrame.new(1350, 87, -1300)},
+            {Name = "Snow Mountain [Lv. 1000]", CFrame = CFrame.new(-2200, 73, -4400)},
+            {Name = "Hot & Cold [Lv. 1100]", CFrame = CFrame.new(-6000, 15, -4800)},
+            {Name = "Cursed Ship [Lv. 1250]", CFrame = CFrame.new(900, 130, 32800)},
+            {Name = "Ice Castle [Lv. 1350]", CFrame = CFrame.new(5800, 28, -6200)},
+            {Name = "Forgotten Island [Lv. 1425]", CFrame = CFrame.new(-3000, 10, -9800)}
+        }
+    elseif isSea3 then
+        seaTitle = "3rd Sea"
+        islands = {
+            {Name = "Port Town [Lv. 1500]", CFrame = CFrame.new(-2900, 15, 5300)},
+            {Name = "Hydra Island [Lv. 1575]", CFrame = CFrame.new(5700, 600, 200)},
+            {Name = "Great Tree [Lv. 1700]", CFrame = CFrame.new(2250, 15, -7100)},
+            {Name = "Castle on the Sea [Lv. 1775]", CFrame = CFrame.new(-5000, 300, -3000)},
+            {Name = "Floating Turtle [Lv. 1875]", CFrame = CFrame.new(-13200, 330, -7900)},
+            {Name = "Haunted Castle [Lv. 1975]", CFrame = CFrame.new(-9500, 140, 5500)},
+            {Name = "Sea of Treats [Lv. 2075]", CFrame = CFrame.new(600, 25, -12400)},
+            {Name = "Tiki Outpost [Lv. 2450]", CFrame = CFrame.new(-16200, 10, 400)}
+        }
+    else
+        seaTitle = "1st Sea"
+        islands = {
+            {Name = "Starter Island [Lv. 1]", CFrame = CFrame.new(1050, 16, 1400)},
+            {Name = "Jungle [Lv. 15]", CFrame = CFrame.new(-1240, 6, -500)},
+            {Name = "Pirate Village [Lv. 30]", CFrame = CFrame.new(-1150, 15, 4300)},
+            {Name = "Desert [Lv. 60]", CFrame = CFrame.new(900, 6, 4400)},
+            {Name = "Snow Village [Lv. 90]", CFrame = CFrame.new(1300, 87, -1300)},
+            {Name = "Marine Fortress [Lv. 120]", CFrame = CFrame.new(-4900, 20, 4300)},
+            {Name = "Skylands (Lower) [Lv. 150]", CFrame = CFrame.new(-4800, 715, -2600)},
+            {Name = "Skylands (Upper) [Lv. 450]", CFrame = CFrame.new(-7700, 5600, -1450)},
+            {Name = "Colosseum [Lv. 225]", CFrame = CFrame.new(-1300, 8, -3300)},
+            {Name = "Prison [Lv. 190]", CFrame = CFrame.new(5300, 4, 700)},
+            {Name = "Magma Village [Lv. 300]", CFrame = CFrame.new(-5400, 15, 8600)},
+            {Name = "Fishman Island [Lv. 375]", CFrame = CFrame.new(61000, 18, 1500)},
+            {Name = "Fountain City [Lv. 625]", CFrame = CFrame.new(5600, 38, 4800)}
+        }
+    end
+
+    -- 2. Clean Island Teleports List (Filtered for Current Sea)
+    local travelList = Hub.CreateList(travelPage, "🗺️ Island Teleports (" .. seaTitle .. ")", {}, 220, true)
+    for i, island in ipairs(islands) do
+        travelList:AddItem(island.Name, "Click to start flight", function()
+            if activeTravelIsland == island.Name then
+                _G.ENI_CancelTween()
+                activeTravelIsland = nil
+                travelStatusLabel.Text = "Status: Idle"
+            else
+                activeTravelIsland = island.Name
+                if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
+                if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
+                travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
+                safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
+                    if activeTravelIsland == island.Name then
+                        activeTravelIsland = nil
+                        travelStatusLabel.Text = "Status: Arrived at " .. island.Name
+                    end
+                end)
+            end
+        end, "Teleport", function()
+            activeTravelIsland = island.Name
+            if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
+            if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
+            travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
+            safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
+                if activeTravelIsland == island.Name then
+                    activeTravelIsland = nil
+                    travelStatusLabel.Text = "Status: Arrived at " .. island.Name
+                end
+            end)
+        end)
+    end
+end
+
+-- AUTO STATS CONFIGURATION
+local selectedStats = {Melee = true, Defense = true, Sword = false, Gun = false, DemonFruit = false}
+local pointsPerUpgrade = 1
+local isStatsOn = false
+
+-- AUTO BOSS DATA & UI (FILTERED BY CURRENT SEA WITH LIVE READY/DEAD STATUS)
+do
+    local pId = game.PlaceId
+    local isSea1 = (pId == 2753915549)
+    local isSea2 = (pId == 4442272183)
+    local isSea3 = (pId == 7449423635)
+
+    if not isSea1 and not isSea2 and not isSea3 then
+        if workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Cafe") then
+            isSea2 = true
+        elseif workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Mansion") then
+            isSea3 = true
+        else
+            isSea1 = true
+        end
+    end
+
+    local allBossData = {
+        Sea1 = {
+            {ExactName = "Gorilla King", Display = "Gorilla King [Lv. 25]", IslandCFrame = CFrame.new(-1120, 6, -500), RespawnTime = 120, QuestName = "JungleQuest", QuestLevel = 3},
+            {ExactName = "Bobby", Display = "Bobby [Lv. 55]", IslandCFrame = CFrame.new(-1150, 15, 4300), RespawnTime = 180, QuestName = "BuggyQuest1", QuestLevel = 3},
+            {ExactName = "Yeti", Display = "Yeti [Lv. 110]", IslandCFrame = CFrame.new(1200, 106, -1500), RespawnTime = 300, QuestName = "SnowQuest", QuestLevel = 3},
+            {ExactName = "Vice Admiral", Display = "Vice Admiral [Lv. 130]", IslandCFrame = CFrame.new(-4800, 20, 4300), RespawnTime = 600, QuestName = "MarineQuest2", QuestLevel = 2},
+            {ExactName = "Warden", Display = "Warden [Lv. 175]", IslandCFrame = CFrame.new(5300, 4, 700), RespawnTime = 300, QuestName = "ImpelQuest", QuestLevel = 1},
+            {ExactName = "Chief Warden", Display = "Chief Warden [Lv. 200]", IslandCFrame = CFrame.new(5300, 4, 700), RespawnTime = 300, QuestName = "ImpelQuest", QuestLevel = 2},
+            {ExactName = "Swan", Display = "Swan [Lv. 225]", IslandCFrame = CFrame.new(5300, 4, 700), RespawnTime = 1800, QuestName = "ImpelQuest", QuestLevel = 3},
+            {ExactName = "Saber Expert", Display = "Saber Expert [Lv. 200]", IslandCFrame = CFrame.new(-1400, 30, 200), RespawnTime = 1800},
+            {ExactName = "Magma Admiral", Display = "Magma Admiral [Lv. 350]", IslandCFrame = CFrame.new(-5400, 15, 8600), RespawnTime = 1200, QuestName = "MagmaQuest", QuestLevel = 3},
+            {ExactName = "Fishman Lord", Display = "Fishman Lord [Lv. 425]", IslandCFrame = CFrame.new(61000, 18, 1500), RespawnTime = 1200, QuestName = "FishmanQuest", QuestLevel = 2},
+            {ExactName = "Wysper", Display = "Wysper [Lv. 500]", IslandCFrame = CFrame.new(-7900, 5550, -320), RespawnTime = 1200, QuestName = "SkyExp2Quest", QuestLevel = 2},
+            {ExactName = "Thunder God", Display = "Thunder God [Lv. 575]", IslandCFrame = CFrame.new(-7700, 5600, -2300), RespawnTime = 1200, QuestName = "SkyExp2Quest", QuestLevel = 3},
+            {ExactName = "Cyborg", Display = "Cyborg [Lv. 675]", IslandCFrame = CFrame.new(6100, 10, 4000), RespawnTime = 1800, QuestName = "FountainQuest", QuestLevel = 2}
+        },
+        Sea2 = {
+            {ExactName = "Diamond", Display = "Diamond [Lv. 750]", IslandCFrame = CFrame.new(-1550, 195, -200), RespawnTime = 1200, QuestName = "Area1Quest", QuestLevel = 3},
+            {ExactName = "Jeremy", Display = "Jeremy [Lv. 850]", IslandCFrame = CFrame.new(2100, 448, 700), RespawnTime = 1200, QuestName = "Area2Quest", QuestLevel = 3},
+            {ExactName = "Fajita", Display = "Fajita [Lv. 925]", IslandCFrame = CFrame.new(-2100, 73, -3200), RespawnTime = 1200, QuestName = "MarineQuest3", QuestLevel = 3},
+            {ExactName = "Don Swan", Display = "Don Swan [Lv. 1000]", IslandCFrame = CFrame.new(2290, 15, 800), RespawnTime = 1800, QuestName = "Area3Quest", QuestLevel = 3},
+            {ExactName = "Smoke Admiral", Display = "Smoke Admiral [Lv. 1150]", IslandCFrame = CFrame.new(-5050, 15, -5350), RespawnTime = 1200, QuestName = "IceQuest1", QuestLevel = 3},
+            {ExactName = "Tide Keeper", Display = "Tide Keeper [Lv. 1400]", IslandCFrame = CFrame.new(-3700, 70, -10700), RespawnTime = 1800, QuestName = "ForgottenQuest", QuestLevel = 3}
+        },
+        Sea3 = {
+            {ExactName = "Stone", Display = "Stone [Lv. 1550]", IslandCFrame = CFrame.new(-1050, 40, 6700), RespawnTime = 1200, QuestName = "Area1Quest", QuestLevel = 3},
+            {ExactName = "Island Empress", Display = "Island Empress [Lv. 1675]", IslandCFrame = CFrame.new(5700, 600, 200), RespawnTime = 1200, QuestName = "Area2Quest", QuestLevel = 3},
+            {ExactName = "Kilo Admiral", Display = "Kilo Admiral [Lv. 1750]", IslandCFrame = CFrame.new(2850, 70, -7200), RespawnTime = 1200, QuestName = "Area3Quest", QuestLevel = 3},
+            {ExactName = "Captain Elephant", Display = "Captain Elephant [Lv. 1875]", IslandCFrame = CFrame.new(-13400, 330, -8400), RespawnTime = 1200, QuestName = "FloatingTurtleQuest", QuestLevel = 1},
+            {ExactName = "Beautiful Pirate", Display = "Beautiful Pirate [Lv. 1950]", IslandCFrame = CFrame.new(-12000, 330, -8800), RespawnTime = 1800, QuestName = "FloatingTurtleQuest", QuestLevel = 2},
+            {ExactName = "Longma", Display = "Longma [Lv. 2000]", IslandCFrame = CFrame.new(-10200, 330, -9400), RespawnTime = 1800}
+        }
+    }
+
+    _G.ENI_BossData = isSea2 and allBossData.Sea2 or (isSea3 and allBossData.Sea3 or allBossData.Sea1)
+end
+
+local BossData = _G.ENI_BossData
+local bossCooldowns = {}
+local bossKillTimes = {}
+local bossCheckState = {
+    CheckingBoss = nil,
+    ArrivalTime = 0
+}
+
+-- AUTO BOSS CONFIGURATION
+local selectedBosses = {}
+local isAutoBossOn = false
+
+local getBossState, setBossState = createSliderToggle(bossPage, "Enable Auto Boss", false, function(newState)
+    isAutoBossOn = newState
+end)
+_G.ENI_setAutoBossState = setBossState
+
+local isAutoBossHopOn = false
+createSliderToggle(bossPage, "Auto Server Hop when Bosses Dead", false, function(newState)
+    isAutoBossHopOn = newState
+end)
+
+local bossList = Hub.CreateList(bossPage, "💀 Current Sea Bosses", {}, 220, true, {MultiSelect = true})
+local bossStatusBadges = {}
+
+for i, boss in ipairs(BossData) do
+    selectedBosses[boss.ExactName] = false
+    local bossTitle = tostring(boss.Display or boss.ExactName or ("Boss #" .. tostring(i)))
+    local row, entryData = bossList:AddItem(bossTitle, "[READY / UNCHECKED]", function()
+        selectedBosses[boss.ExactName] = not selectedBosses[boss.ExactName]
+    end)
+    if row then
+        local badge = row:FindFirstChild("ItemSubtitle")
+        if badge then
+            bossStatusBadges[boss.ExactName] = badge
+        end
+    end
+end
+
+-- Live Auto Boss List Status Updater Task (Updates [READY], [DEAD (MM:SS)], and [READY / UNCHECKED] badges)
+task.spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            local enemies = workspace:FindFirstChild("Enemies")
+            local liveBosses = {}
+            if enemies then
+                for _, mob in ipairs(enemies:GetChildren()) do
+                    local mHum = mob:FindFirstChildOfClass("Humanoid")
+                    if mHum and mHum.Health > 0 then
+                        for _, boss in ipairs(BossData) do
+                            if string.find(string.lower(mob.Name), string.lower(boss.ExactName)) then
+                                liveBosses[boss.ExactName] = true
+                            end
+                        end
+                    end
+                end
+            end
+
+            local now = tick()
+            for _, boss in ipairs(BossData) do
+                local badge = bossStatusBadges[boss.ExactName]
+                if badge then
+                    if liveBosses[boss.ExactName] then
+                        badge.Text = "[READY]"
+                        badge.TextColor3 = Color3.fromRGB(0, 230, 120)
+                    else
+                        local killTime = bossKillTimes[boss.ExactName] or bossCooldowns[boss.ExactName] or 0
+                        if killTime > now then
+                            local cdSec = math.ceil(killTime - now)
+                            local mins = math.floor(cdSec / 60)
+                            local secs = cdSec % 60
+                            badge.Text = string.format("[DEAD] (%02d:%02d)", mins, secs)
+                            badge.TextColor3 = Color3.fromRGB(255, 60, 60)
+                        else
+                            bossKillTimes[boss.ExactName] = nil
+                            bossCooldowns[boss.ExactName] = nil
+                            badge.Text = "[READY / UNCHECKED]"
+                            badge.TextColor3 = Color3.fromRGB(255, 200, 50)
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- ESP, FRUIT & MISC PAGE STATE FLAGS
+local isChestEspOn = false
+local isPlayerEspOn = false
+local isBossEspOn = false
+local isFruitEspOn = false
+local isAutoFruitSniperOn = false
+local isAutoStoreFruitOn = true
+local isAutoFruitHopOn = false
+local isPotatoModeOn = false
+
+-- ESP PAGE (VISUAL TRACKERS)
+do
+    Hub.CreateSection(espPage, "👁️ Visual ESP Trackers")
+
+    createSliderToggle(espPage, "Chest ESP Tracker", false, function(newState)
+        isChestEspOn = newState
+    end)
+
+    createSliderToggle(espPage, "Player ESP & Health Tracker", false, function(newState)
+        isPlayerEspOn = newState
+    end)
+
+    createSliderToggle(espPage, "Boss ESP & Level Tracker", false, function(newState)
+        isBossEspOn = newState
+    end)
+end
+
+-- FRUIT PAGE SETUP (DEVIL FRUIT SUITE)
+do
+    Hub.CreateSection(fruitPage, "🍎 Devil Fruit Suite & Auto Sniper")
+
+    Hub.CreateButton(fruitPage, "🎁 Collect All Spawned Fruits", function()
+        task.spawn(function()
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp then return end
+
+                local found = 0
+                for _, obj in ipairs(workspace:GetChildren()) do
+                    if obj:IsA("Tool") and (string.find(obj.Name, "Fruit") or obj:FindFirstChild("Handle")) then
+                        local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
+                        if handle then
+                            found = found + 1
+                            safeTweenToIsland(handle.CFrame)
+                            task.wait(1.5)
+                        end
+                    end
+                end
+                
+                if found == 0 then
+                    notifyGUI("Fruit Collector", "No spawned fruits found in server.", 4)
+                else
+                    notifyGUI("Fruit Collector", "Collected " .. found .. " fruit(s)!", 4)
+                end
+            end)
+        end)
+    end)
+
+    createSliderToggle(fruitPage, "Fruit ESP & Distance Tracker", false, function(newState)
+        isFruitEspOn = newState
+    end)
+
+    createSliderToggle(fruitPage, "Auto Fruit Sniper", false, function(newState)
+        isAutoFruitSniperOn = newState
+    end)
+
+    createSliderToggle(fruitPage, "Auto Store Fruit", true, function(newState)
+        isAutoStoreFruitOn = newState
+    end)
+
+    createSliderToggle(fruitPage, "Auto Server Hop if No Fruit Spawned", false, function(newState)
+        isAutoFruitHopOn = newState
+    end)
+end
+
+-- MISC PAGE SETUP (POTATO MODE & PERFORMANCE)
+do
+    Hub.CreateSection(miscPage, "⚙️ Misc & Performance Settings")
+
+    local miscPotatoSaved = {}
+    createSliderToggle(miscPage, "⚡ Potato Mode", false, function(newState)
+        isPotatoModeOn = newState
+        pcall(function()
+            if newState then
+                miscPotatoSaved = { materials = {}, decals = {}, emitters = {} }
+                local terrain = workspace:FindFirstChildOfClass("Terrain")
+                if terrain then
+                    terrain.WaterWaveSize = 0
+                    terrain.WaterWaveSpeed = 0
+                end
+                game:GetService("Lighting").GlobalShadows = false
+                for _, v in ipairs(workspace:GetDescendants()) do
+                    if v:IsA("BasePart") and not v:IsA("MeshPart") and not v:IsA("Terrain") then
+                        miscPotatoSaved.materials[v] = v.Material
+                        v.Material = Enum.Material.SmoothPlastic
+                    elseif v:IsA("Decal") or v:IsA("Texture") then
+                        miscPotatoSaved.decals[v] = v.Transparency
+                        v.Transparency = 1
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                        if v.Enabled then
+                            miscPotatoSaved.emitters[v] = true
+                            v.Enabled = false
+                        end
+                    end
+                end
+            else
+                local terrain = workspace:FindFirstChildOfClass("Terrain")
+                if terrain then
+                    terrain.WaterWaveSize = 0.15
+                    terrain.WaterWaveSpeed = 10
+                end
+                game:GetService("Lighting").GlobalShadows = true
+                if miscPotatoSaved.materials then
+                    for part, mat in pairs(miscPotatoSaved.materials) do
+                        if part and part.Parent then part.Material = mat end
+                    end
+                end
+                if miscPotatoSaved.decals then
+                    for decal, trans in pairs(miscPotatoSaved.decals) do
+                        if decal and decal.Parent then decal.Transparency = trans end
+                    end
+                end
+                if miscPotatoSaved.emitters then
+                    for emitter, _ in pairs(miscPotatoSaved.emitters) do
+                        if emitter and emitter.Parent then emitter.Enabled = true end
+                    end
+                end
+                miscPotatoSaved = {}
+            end
+        end)
+        notifyGUI("PERFORMANCE", newState and "Potato Mode ENABLED! ⚡ (Textures & Particles OFF)" or "Potato Mode Disabled.", 3)
+    end)
+end
+
 -- GLOBAL BACKGROUND LOOP (Infinite Energy, Fruit Snipe & Auto Chest)
 if _G.ENI_GlobalLoop then pcall(function() _G.ENI_GlobalLoop:Disconnect() end) end
 local lastSnipeTime = 0
@@ -2308,447 +2746,9 @@ _G.ENI_FastHitLoop = RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- TRAVEL PAGE SETUP
-local travelStatusLabel = Instance.new("TextLabel")
-travelStatusLabel.Size = UDim2.new(0.98, 0, 0, 24)
-travelStatusLabel.BackgroundTransparency = 1
-travelStatusLabel.Text = "Status: Idle"
-travelStatusLabel.TextColor3 = Color3.fromRGB(0, 230, 255)
-travelStatusLabel.Font = Enum.Font.GothamBold
-travelStatusLabel.TextSize = 12
-travelStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-pcall(function() travelStatusLabel.Parent = travelPage end)
-registerThemeText(travelStatusLabel)
-
--- GLOBAL CANCEL TWEEN HELPER
-local function restoreCharacterPhysics()
-    pcall(function()
-        local char = LocalPlayer.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.PlatformStand = false
-                hum.AutoRotate = true
-            end
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    if p.Name == "HumanoidRootPart" then
-                        p.CanCollide = false
-                    else
-                        p.CanCollide = true
-                    end
-                end
-            end
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                removeTabBV(hrp)
-                hrp.Velocity = Vector3.zero
-                if hrp:IsA("BasePart") then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-            end
-        end
-    end)
-end
-
-_G.ENI_CancelTween = function()
-    isTraveling = false
-    if _G.ENI_TravelTween then
-        pcall(function() _G.ENI_TravelTween:Cancel() end)
-        _G.ENI_TravelTween = nil
-    end
-    _G.ENI_TravelTweenID = nil
-    restoreCharacterPhysics()
-    if travelStatusLabel then
-        travelStatusLabel.Text = "Status: Travel Canceled. Idle."
-    end
-end
-
-do
-    local travelButtons = {}
-    local activeTravelIsland = nil
-
-    -- Detect current Sea using PlaceId & Workspace Fallback
-    local pId = game.PlaceId
-    local isSea1 = (pId == 2753915549)
-    local isSea2 = (pId == 4442272183)
-    local isSea3 = (pId == 7449423635)
-
-    if not isSea1 and not isSea2 and not isSea3 then
-        if workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Cafe") then
-            isSea2 = true
-        elseif workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Mansion") then
-            isSea3 = true
-        else
-            isSea1 = true
-        end
-    end
-
-    local islands = {}
-    local seaTitle = "1st Sea"
-
-    if isSea2 then
-        seaTitle = "2nd Sea"
-        islands = {
-            {Name = "Kingdom of Rose (Cafe) [Lv. 700]", CFrame = CFrame.new(-380, 73, 300)},
-            {Name = "Green Zone [Lv. 875]", CFrame = CFrame.new(-2400, 73, -3100)},
-            {Name = "Graveyard Island [Lv. 950]", CFrame = CFrame.new(1350, 87, -1300)},
-            {Name = "Snow Mountain [Lv. 1000]", CFrame = CFrame.new(-2200, 73, -4400)},
-            {Name = "Hot & Cold [Lv. 1100]", CFrame = CFrame.new(-6000, 15, -4800)},
-            {Name = "Cursed Ship [Lv. 1250]", CFrame = CFrame.new(900, 130, 32800)},
-            {Name = "Ice Castle [Lv. 1350]", CFrame = CFrame.new(5800, 28, -6200)},
-            {Name = "Forgotten Island [Lv. 1425]", CFrame = CFrame.new(-3000, 10, -9800)}
-        }
-    elseif isSea3 then
-        seaTitle = "3rd Sea"
-        islands = {
-            {Name = "Port Town [Lv. 1500]", CFrame = CFrame.new(-2900, 15, 5300)},
-            {Name = "Hydra Island [Lv. 1575]", CFrame = CFrame.new(5700, 600, 200)},
-            {Name = "Great Tree [Lv. 1700]", CFrame = CFrame.new(2250, 15, -7100)},
-            {Name = "Castle on the Sea [Lv. 1775]", CFrame = CFrame.new(-5000, 300, -3000)},
-            {Name = "Floating Turtle [Lv. 1875]", CFrame = CFrame.new(-13200, 330, -7900)},
-            {Name = "Haunted Castle [Lv. 1975]", CFrame = CFrame.new(-9500, 140, 5500)},
-            {Name = "Sea of Treats [Lv. 2075]", CFrame = CFrame.new(600, 25, -12400)},
-            {Name = "Tiki Outpost [Lv. 2450]", CFrame = CFrame.new(-16200, 10, 400)}
-        }
-    else
-        seaTitle = "1st Sea"
-        islands = {
-            {Name = "Starter Island [Lv. 1]", CFrame = CFrame.new(1050, 16, 1400)},
-            {Name = "Jungle [Lv. 15]", CFrame = CFrame.new(-1240, 6, -500)},
-            {Name = "Pirate Village [Lv. 30]", CFrame = CFrame.new(-1150, 15, 4300)},
-            {Name = "Desert [Lv. 60]", CFrame = CFrame.new(900, 6, 4400)},
-            {Name = "Snow Village [Lv. 90]", CFrame = CFrame.new(1300, 87, -1300)},
-            {Name = "Marine Fortress [Lv. 120]", CFrame = CFrame.new(-4900, 20, 4300)},
-            {Name = "Skylands (Lower) [Lv. 150]", CFrame = CFrame.new(-4800, 715, -2600)},
-            {Name = "Skylands (Upper) [Lv. 450]", CFrame = CFrame.new(-7700, 5600, -1450)},
-            {Name = "Colosseum [Lv. 225]", CFrame = CFrame.new(-1300, 8, -3300)},
-            {Name = "Prison [Lv. 190]", CFrame = CFrame.new(5300, 4, 700)},
-            {Name = "Magma Village [Lv. 300]", CFrame = CFrame.new(-5400, 15, 8600)},
-            {Name = "Fishman Island [Lv. 375]", CFrame = CFrame.new(61000, 18, 1500)},
-            {Name = "Fountain City [Lv. 625]", CFrame = CFrame.new(5600, 38, 4800)}
-        }
-    end
-
-    -- 2. Clean Island Teleports List (Filtered for Current Sea)
-    local travelList = Hub.CreateList(travelPage, "🗺️ Island Teleports (" .. seaTitle .. ")", {}, 220, true)
-    for i, island in ipairs(islands) do
-        travelList:AddItem(island.Name, "Click to start flight", function()
-            if activeTravelIsland == island.Name then
-                _G.ENI_CancelTween()
-                activeTravelIsland = nil
-                travelStatusLabel.Text = "Status: Idle"
-            else
-                activeTravelIsland = island.Name
-                if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
-                if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
-                travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
-                safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
-                    if activeTravelIsland == island.Name then
-                        activeTravelIsland = nil
-                        travelStatusLabel.Text = "Status: Arrived at " .. island.Name
-                    end
-                end)
-            end
-        end, "Teleport", function()
-            activeTravelIsland = island.Name
-            if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
-            if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
-            travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
-            safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
-                if activeTravelIsland == island.Name then
-                    activeTravelIsland = nil
-                    travelStatusLabel.Text = "Status: Arrived at " .. island.Name
-                end
-            end)
-        end)
-    end
-end
-
--- AUTO STATS CONFIGURATION
-local selectedStats = {Melee = true, Defense = true, Sword = false, Gun = false, DemonFruit = false}
-local pointsPerUpgrade = 1
-local isStatsOn = false
-
--- AUTO BOSS DATA & UI (FILTERED BY CURRENT SEA WITH LIVE READY/DEAD STATUS)
-do
-    local pId = game.PlaceId
-    local isSea1 = (pId == 2753915549)
-    local isSea2 = (pId == 4442272183)
-    local isSea3 = (pId == 7449423635)
-
-    if not isSea1 and not isSea2 and not isSea3 then
-        if workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Cafe") then
-            isSea2 = true
-        elseif workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Mansion") then
-            isSea3 = true
-        else
-            isSea1 = true
-        end
-    end
-
-    local allBossData = {
-        Sea1 = {
-            {ExactName = "Gorilla King", Display = "Gorilla King [Lv. 25]", IslandCFrame = CFrame.new(-1120, 6, -500), RespawnTime = 120, QuestName = "JungleQuest", QuestLevel = 3},
-            {ExactName = "Bobby", Display = "Bobby [Lv. 55]", IslandCFrame = CFrame.new(-1150, 15, 4300), RespawnTime = 180, QuestName = "BuggyQuest1", QuestLevel = 3},
-            {ExactName = "Yeti", Display = "Yeti [Lv. 110]", IslandCFrame = CFrame.new(1200, 106, -1500), RespawnTime = 300, QuestName = "SnowQuest", QuestLevel = 3},
-            {ExactName = "Vice Admiral", Display = "Vice Admiral [Lv. 130]", IslandCFrame = CFrame.new(-4800, 20, 4300), RespawnTime = 600, QuestName = "MarineQuest2", QuestLevel = 2},
-            {ExactName = "Warden", Display = "Warden [Lv. 175]", IslandCFrame = CFrame.new(5300, 4, 700), RespawnTime = 300, QuestName = "ImpelQuest", QuestLevel = 1},
-            {ExactName = "Chief Warden", Display = "Chief Warden [Lv. 200]", IslandCFrame = CFrame.new(5300, 4, 700), RespawnTime = 300, QuestName = "ImpelQuest", QuestLevel = 2},
-            {ExactName = "Swan", Display = "Swan [Lv. 225]", IslandCFrame = CFrame.new(5300, 4, 700), RespawnTime = 1800, QuestName = "ImpelQuest", QuestLevel = 3},
-            {ExactName = "Saber Expert", Display = "Saber Expert [Lv. 200]", IslandCFrame = CFrame.new(-1400, 30, 200), RespawnTime = 1800},
-            {ExactName = "Magma Admiral", Display = "Magma Admiral [Lv. 350]", IslandCFrame = CFrame.new(-5400, 15, 8600), RespawnTime = 1200, QuestName = "MagmaQuest", QuestLevel = 3},
-            {ExactName = "Fishman Lord", Display = "Fishman Lord [Lv. 425]", IslandCFrame = CFrame.new(61000, 18, 1500), RespawnTime = 1200, QuestName = "FishmanQuest", QuestLevel = 2},
-            {ExactName = "Wysper", Display = "Wysper [Lv. 500]", IslandCFrame = CFrame.new(-7900, 5550, -320), RespawnTime = 1200, QuestName = "SkyExp2Quest", QuestLevel = 2},
-            {ExactName = "Thunder God", Display = "Thunder God [Lv. 575]", IslandCFrame = CFrame.new(-7700, 5600, -2300), RespawnTime = 1200, QuestName = "SkyExp2Quest", QuestLevel = 3},
-            {ExactName = "Cyborg", Display = "Cyborg [Lv. 675]", IslandCFrame = CFrame.new(6100, 10, 4000), RespawnTime = 1800, QuestName = "FountainQuest", QuestLevel = 2}
-        },
-        Sea2 = {
-            {ExactName = "Diamond", Display = "Diamond [Lv. 750]", IslandCFrame = CFrame.new(-1550, 195, -200), RespawnTime = 1200, QuestName = "Area1Quest", QuestLevel = 3},
-            {ExactName = "Jeremy", Display = "Jeremy [Lv. 850]", IslandCFrame = CFrame.new(2100, 448, 700), RespawnTime = 1200, QuestName = "Area2Quest", QuestLevel = 3},
-            {ExactName = "Fajita", Display = "Fajita [Lv. 925]", IslandCFrame = CFrame.new(-2100, 73, -3200), RespawnTime = 1200, QuestName = "MarineQuest3", QuestLevel = 3},
-            {ExactName = "Don Swan", Display = "Don Swan [Lv. 1000]", IslandCFrame = CFrame.new(2290, 15, 800), RespawnTime = 1800, QuestName = "Area3Quest", QuestLevel = 3},
-            {ExactName = "Smoke Admiral", Display = "Smoke Admiral [Lv. 1150]", IslandCFrame = CFrame.new(-5050, 15, -5350), RespawnTime = 1200, QuestName = "IceQuest1", QuestLevel = 3},
-            {ExactName = "Tide Keeper", Display = "Tide Keeper [Lv. 1400]", IslandCFrame = CFrame.new(-3700, 70, -10700), RespawnTime = 1800, QuestName = "ForgottenQuest", QuestLevel = 3}
-        },
-        Sea3 = {
-            {ExactName = "Stone", Display = "Stone [Lv. 1550]", IslandCFrame = CFrame.new(-1050, 40, 6700), RespawnTime = 1200, QuestName = "Area1Quest", QuestLevel = 3},
-            {ExactName = "Island Empress", Display = "Island Empress [Lv. 1675]", IslandCFrame = CFrame.new(5700, 600, 200), RespawnTime = 1200, QuestName = "Area2Quest", QuestLevel = 3},
-            {ExactName = "Kilo Admiral", Display = "Kilo Admiral [Lv. 1750]", IslandCFrame = CFrame.new(2850, 70, -7200), RespawnTime = 1200, QuestName = "Area3Quest", QuestLevel = 3},
-            {ExactName = "Captain Elephant", Display = "Captain Elephant [Lv. 1875]", IslandCFrame = CFrame.new(-13400, 330, -8400), RespawnTime = 1200, QuestName = "FloatingTurtleQuest", QuestLevel = 1},
-            {ExactName = "Beautiful Pirate", Display = "Beautiful Pirate [Lv. 1950]", IslandCFrame = CFrame.new(-12000, 330, -8800), RespawnTime = 1800, QuestName = "FloatingTurtleQuest", QuestLevel = 2},
-            {ExactName = "Longma", Display = "Longma [Lv. 2000]", IslandCFrame = CFrame.new(-10200, 330, -9400), RespawnTime = 1800}
-        }
-    }
-
-    _G.ENI_BossData = isSea2 and allBossData.Sea2 or (isSea3 and allBossData.Sea3 or allBossData.Sea1)
-end
-
-local BossData = _G.ENI_BossData
-local bossCooldowns = {}
-local bossKillTimes = {}
-local bossCheckState = {
-    CheckingBoss = nil,
-    ArrivalTime = 0
-}
-
--- AUTO BOSS CONFIGURATION
-local selectedBosses = {}
-local isAutoBossOn = false
-
-local getBossState, setBossState = createSliderToggle(bossPage, "Enable Auto Boss", false, function(newState)
-    isAutoBossOn = newState
-end)
-_G.ENI_setAutoBossState = setBossState
-
-local isAutoBossHopOn = false
-createSliderToggle(bossPage, "Auto Server Hop when Bosses Dead", false, function(newState)
-    isAutoBossHopOn = newState
-end)
-
-local bossList = Hub.CreateList(bossPage, "💀 Current Sea Bosses", {}, 220, true, {MultiSelect = true})
-local bossStatusBadges = {}
-
-for i, boss in ipairs(BossData) do
-    selectedBosses[boss.ExactName] = false
-    local bossTitle = tostring(boss.Display or boss.ExactName or ("Boss #" .. tostring(i)))
-    local row, entryData = bossList:AddItem(bossTitle, "[READY / UNCHECKED]", function()
-        selectedBosses[boss.ExactName] = not selectedBosses[boss.ExactName]
-    end)
-    if row then
-        local badge = row:FindFirstChild("ItemSubtitle")
-        if badge then
-            bossStatusBadges[boss.ExactName] = badge
-        end
-    end
-end
-
--- Live Auto Boss List Status Updater Task (Updates [READY], [DEAD (MM:SS)], and [READY / UNCHECKED] badges)
-task.spawn(function()
-    while task.wait(1) do
-        pcall(function()
-            local enemies = workspace:FindFirstChild("Enemies")
-            local liveBosses = {}
-            if enemies then
-                for _, mob in ipairs(enemies:GetChildren()) do
-                    local mHum = mob:FindFirstChildOfClass("Humanoid")
-                    if mHum and mHum.Health > 0 then
-                        for _, boss in ipairs(BossData) do
-                            if string.find(string.lower(mob.Name), string.lower(boss.ExactName)) then
-                                liveBosses[boss.ExactName] = true
-                            end
-                        end
-                    end
-                end
-            end
-
-            local now = tick()
-            for _, boss in ipairs(BossData) do
-                local badge = bossStatusBadges[boss.ExactName]
-                if badge then
-                    if liveBosses[boss.ExactName] then
-                        badge.Text = "[READY]"
-                        badge.TextColor3 = Color3.fromRGB(0, 230, 120)
-                    else
-                        local killTime = bossKillTimes[boss.ExactName] or bossCooldowns[boss.ExactName] or 0
-                        if killTime > now then
-                            local cdSec = math.ceil(killTime - now)
-                            local mins = math.floor(cdSec / 60)
-                            local secs = cdSec % 60
-                            badge.Text = string.format("[DEAD] (%02d:%02d)", mins, secs)
-                            badge.TextColor3 = Color3.fromRGB(255, 60, 60)
-                        else
-                            bossKillTimes[boss.ExactName] = nil
-                            bossCooldowns[boss.ExactName] = nil
-                            badge.Text = "[READY / UNCHECKED]"
-                            badge.TextColor3 = Color3.fromRGB(255, 200, 50)
-                        end
-                    end
-                end
-            end
-        end)
-    end
-end)
-
--- ESP, FRUIT & MISC PAGE STATE FLAGS
-local isChestEspOn = false
-local isPlayerEspOn = false
-local isBossEspOn = false
-local isFruitEspOn = false
-local isAutoFruitSniperOn = false
-local isAutoStoreFruitOn = true
-local isAutoFruitHopOn = false
-local isPotatoModeOn = false
-
--- ESP PAGE (VISUAL TRACKERS)
-do
-    Hub.CreateSection(espPage, "👁️ Visual ESP Trackers")
-
-    createSliderToggle(espPage, "Chest ESP Tracker", false, function(newState)
-        isChestEspOn = newState
-    end)
-
-    createSliderToggle(espPage, "Player ESP & Health Tracker", false, function(newState)
-        isPlayerEspOn = newState
-    end)
-
-    createSliderToggle(espPage, "Boss ESP & Level Tracker", false, function(newState)
-        isBossEspOn = newState
-    end)
-end
-
--- FRUIT PAGE SETUP (DEVIL FRUIT SUITE)
-do
-    Hub.CreateSection(fruitPage, "🍎 Devil Fruit Suite & Auto Sniper")
-
-    Hub.CreateButton(fruitPage, "🎁 Collect All Spawned Fruits", function()
-        task.spawn(function()
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if not hrp then return end
-
-                local found = 0
-                for _, obj in ipairs(workspace:GetChildren()) do
-                    if obj:IsA("Tool") and (string.find(obj.Name, "Fruit") or obj:FindFirstChild("Handle")) then
-                        local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-                        if handle then
-                            found = found + 1
-                            safeTweenToIsland(handle.CFrame)
-                            task.wait(1.5)
-                        end
-                    end
-                end
-                
-                if found == 0 then
-                    notifyGUI("Fruit Collector", "No spawned fruits found in server.", 4)
-                else
-                    notifyGUI("Fruit Collector", "Collected " .. found .. " fruit(s)!", 4)
-                end
-            end)
-        end)
-    end)
-
-    createSliderToggle(fruitPage, "Fruit ESP & Distance Tracker", false, function(newState)
-        isFruitEspOn = newState
-    end)
-
-    createSliderToggle(fruitPage, "Auto Fruit Sniper", false, function(newState)
-        isAutoFruitSniperOn = newState
-    end)
-
-    createSliderToggle(fruitPage, "Auto Store Fruit", true, function(newState)
-        isAutoStoreFruitOn = newState
-    end)
-
-    createSliderToggle(fruitPage, "Auto Server Hop if No Fruit Spawned", false, function(newState)
-        isAutoFruitHopOn = newState
-    end)
-end
-
--- MISC PAGE SETUP (POTATO MODE & PERFORMANCE)
-do
-    Hub.CreateSection(miscPage, "⚙️ Misc & Performance Settings")
-
-    local miscPotatoSaved = {}
-    createSliderToggle(miscPage, "⚡ Potato Mode", false, function(newState)
-        isPotatoModeOn = newState
-        pcall(function()
-            if newState then
-                miscPotatoSaved = { materials = {}, decals = {}, emitters = {} }
-                local terrain = workspace:FindFirstChildOfClass("Terrain")
-                if terrain then
-                    terrain.WaterWaveSize = 0
-                    terrain.WaterWaveSpeed = 0
-                end
-                game:GetService("Lighting").GlobalShadows = false
-                for _, v in ipairs(workspace:GetDescendants()) do
-                    if v:IsA("BasePart") and not v:IsA("MeshPart") and not v:IsA("Terrain") then
-                        miscPotatoSaved.materials[v] = v.Material
-                        v.Material = Enum.Material.SmoothPlastic
-                    elseif v:IsA("Decal") or v:IsA("Texture") then
-                        miscPotatoSaved.decals[v] = v.Transparency
-                        v.Transparency = 1
-                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-                        if v.Enabled then
-                            miscPotatoSaved.emitters[v] = true
-                            v.Enabled = false
-                        end
-                    end
-                end
-            else
-                local terrain = workspace:FindFirstChildOfClass("Terrain")
-                if terrain then
-                    terrain.WaterWaveSize = 0.15
-                    terrain.WaterWaveSpeed = 10
-                end
-                game:GetService("Lighting").GlobalShadows = true
-                if miscPotatoSaved.materials then
-                    for part, mat in pairs(miscPotatoSaved.materials) do
-                        if part and part.Parent then part.Material = mat end
-                    end
-                end
-                if miscPotatoSaved.decals then
-                    for decal, trans in pairs(miscPotatoSaved.decals) do
-                        if decal and decal.Parent then decal.Transparency = trans end
-                    end
-                end
-                if miscPotatoSaved.emitters then
-                    for emitter, _ in pairs(miscPotatoSaved.emitters) do
-                        if emitter and emitter.Parent then emitter.Enabled = true end
-                    end
-                end
-                miscPotatoSaved = {}
-            end
-        end)
-        notifyGUI("PERFORMANCE", newState and "Potato Mode ENABLED! ⚡ (Textures & Particles OFF)" or "Potato Mode Disabled.", 3)
-    end)
-end
 
 
-
-    -- AUTO-REJOIN PROTECTION (INTERCEPT DISCONNECTIONS)
+-- AUTO-REJOIN PROTECTION (INTERCEPT DISCONNECTIONS)
     pcall(function()
         local GuiService = game:GetService("GuiService")
         GuiService.ErrorMessageChanged:Connect(function()

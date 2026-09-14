@@ -42,6 +42,7 @@ local SupportedGames = {
         name = "Blox Fruits",
         icon = "⚔️",
         placeIds = { 2753915549, 4442272183, 7449423635 },
+        gameIds = { 994732206, 2753915549, 4442272183, 7449423635 },
         scriptUrl = BASE_URL .. "/Games/BloxFruits.luau",
         desc = "Auto-farm levels, quest selector, auto-stats, boss & fruit sniper"
     },
@@ -83,6 +84,14 @@ local function findSupportedGame(pId)
                 if gId == curGameId then
                     return gameData
                 end
+            end
+        end
+    end
+    -- Universe / Experience level fallback check
+    if curGameId == 994732206 or pId == 2753915549 or pId == 4442272183 or pId == 7449423635 then
+        for _, gameData in ipairs(SupportedGames) do
+            if gameData.name == "Blox Fruits" then
+                return gameData
             end
         end
     end

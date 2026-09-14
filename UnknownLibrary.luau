@@ -5790,21 +5790,36 @@ return function(opts)
             return row, entryData
         end
 
-        listObject.AddItem = function(selfOrName, nameOrSubtitle, subtitleOrCallback, callback)
+        listObject.AddItem = function(selfOrName, nameOrSubtitle, subtitleOrCallback, callback, actionText, actionCallback, actionDisabled)
             local name = selfOrName
             local subtitle = nameOrSubtitle
+            local actText = actionText
+            local actCb = actionCallback
+            local actDis = actionDisabled
             if selfOrName == listObject then
                 name = nameOrSubtitle
                 subtitle = subtitleOrCallback
             else
+                actDis = actCb
+                actCb = actText
+                actText = callback
                 callback = subtitleOrCallback
+                subtitle = nameOrSubtitle
+                name = selfOrName
             end
             if type(name) == "table" then return addEntry(name) end
             if type(subtitle) == "function" and callback == nil then
                 callback = subtitle
                 subtitle = nil
             end
-            return addEntry({ Name = name, Desc = subtitle, Callback = callback })
+            return addEntry({
+                Name = name,
+                Desc = subtitle,
+                Callback = callback,
+                ActionText = actText,
+                ActionCallback = actCb,
+                ActionDisabled = actDis
+            })
         end
 
         listObject.AddList = function(selfOrTitle, titleOrItems, itemsOrHeight, heightOrExpanded, expandedOrOptions, options)
