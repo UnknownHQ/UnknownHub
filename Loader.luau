@@ -90,11 +90,15 @@ local function findSupportedGame(pId)
 end
 
 local function getSafeGuiParent()
-    local parent = CoreGui
+    local parent = nil
     if gethui then
         pcall(function() parent = gethui() end)
-    elseif LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") then
-        parent = LocalPlayer.PlayerGui
+    end
+    if not parent and LocalPlayer then
+        pcall(function() parent = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui") end)
+    end
+    if not parent then
+        pcall(function() parent = CoreGui end)
     end
     return parent
 end

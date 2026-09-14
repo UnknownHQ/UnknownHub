@@ -79,7 +79,7 @@ local function getHumanoid(player)
 end
 
 local function createSmallGuideBossGui()
-    local guiParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+    local guiParent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
     
     for _, old in ipairs(guiParent:GetChildren()) do
         if old.Name == "ENI_GuideBoss_UI" or old.Name == LIBRARY_NAME then
@@ -768,7 +768,7 @@ local Hub = result({
     name = LIBRARY_NAME,
     title = "UNKNOWN HUB",
     subTitle = "Slap Battles",
-    parent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui"),
+    parent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui")),
     theme = Color3.fromRGB(255, 120, 0),
     secondaryTheme = Color3.fromRGB(180, 50, 255)
 })
@@ -2383,7 +2383,7 @@ pcall(function()
     end)
 end)
 
-local guiParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+local guiParent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
 pcall(function()
     if guiParent:FindFirstChild("ENI_SlappleAutoExec_UI") then
         guiParent.ENI_SlappleAutoExec_UI:Destroy()
@@ -2672,7 +2672,7 @@ local function getStats()
     return (getgenv and getgenv()._SlappleFarmStats) or _G._SlappleFarmStats
 end
 
-local guiParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+local guiParent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
 pcall(function()
     if guiParent:FindFirstChild("ENI_SlappleQueue_UI") then
         guiParent.ENI_SlappleQueue_UI:Destroy()

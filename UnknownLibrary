@@ -1078,7 +1078,20 @@ return function(opts)
     end
 
     -- Root ScreenGui setup (Prioritize gethui / PlayerGui to avoid CoreGui capability Plugin locks)
-    local localParent = opts.parent or (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or CoreGui
+    local localParent = nil
+    if gethui then
+        pcall(function() localParent = gethui() end)
+    end
+    if not localParent and LocalPlayer then
+        pcall(function() localParent = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui") end)
+    end
+    if not localParent and opts.parent and opts.parent ~= CoreGui then
+        localParent = opts.parent
+    end
+    if not localParent then
+        pcall(function() localParent = CoreGui end)
+    end
+
     hubState.screenGui = Instance.new("ScreenGui")
     hubState.screenGui.Name = opts.name or "ENI_TabbedHub_UI"
     hubState.screenGui.ResetOnSpawn = false
@@ -4771,12 +4784,18 @@ return function(opts)
 
     -- UI Component: Section Label / Divider
     function hubState.createSection(parent, sectionText)
-        if not parent then parent = contentArea end
+        if type(parent) == "table" and parent.List then
+            parent = parent.List
+        elseif type(parent) == "table" and parent.Frame then
+            parent = parent.Frame
+        elseif not parent or typeof(parent) ~= "Instance" then
+            parent = contentArea
+        end
         local secFrame = Instance.new("Frame")
         secFrame.Name = "SectionHeader"
         secFrame.Size = UDim2.new(1, -4, 0, 26)
         secFrame.BackgroundTransparency = 1
-        secFrame.Parent = parent
+        pcall(function() secFrame.Parent = parent end)
 
         local secLabel = Instance.new("TextLabel")
         secLabel.Size = UDim2.new(1, -8, 1, 0)
@@ -4802,7 +4821,13 @@ return function(opts)
 
     -- UI Component: Button (Responsive & Holographic Click FX)
     function hubState.createButton(parent, text, callback)
-        if not parent then parent = contentArea end
+        if type(parent) == "table" and parent.List then
+            parent = parent.List
+        elseif type(parent) == "table" and parent.Frame then
+            parent = parent.Frame
+        elseif not parent or typeof(parent) ~= "Instance" then
+            parent = contentArea
+        end
         local item = Instance.new("TextButton")
         item.Size = UDim2.new(1, -6, 0, 36)
         item.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
@@ -4814,7 +4839,7 @@ return function(opts)
         item.TextTruncate = Enum.TextTruncate.AtEnd
         item.TextXAlignment = Enum.TextXAlignment.Left
         item.ClipsDescendants = true
-        item.Parent = parent
+        pcall(function() item.Parent = parent end)
         applyCorner(item, 7)
         local btnStroke = applyStroke(item, Color3.fromRGB(36, 46, 66), 1, 0)
 
@@ -4924,12 +4949,18 @@ return function(opts)
 
     -- UI Component: Toggle (Responsive & Smooth Spring Knob)
     function hubState.createToggle(parent, text, defaultState, callback)
-        if not parent then parent = contentArea end
+        if type(parent) == "table" and parent.List then
+            parent = parent.List
+        elseif type(parent) == "table" and parent.Frame then
+            parent = parent.Frame
+        elseif not parent or typeof(parent) ~= "Instance" then
+            parent = contentArea
+        end
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
         frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
         frame.BorderSizePixel = 0
-        frame.Parent = parent
+        pcall(function() frame.Parent = parent end)
         applyCorner(frame, 7)
         local toggleStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
 
@@ -5015,7 +5046,13 @@ return function(opts)
 
     -- UI Component: Slider (Responsive)
     function hubState.createSlider(parent, titleText, minValue, maxValue, defaultValue, suffix, callback)
-        if not parent then parent = contentArea end
+        if type(parent) == "table" and parent.List then
+            parent = parent.List
+        elseif type(parent) == "table" and parent.Frame then
+            parent = parent.Frame
+        elseif not parent or typeof(parent) ~= "Instance" then
+            parent = contentArea
+        end
         minValue = tonumber(minValue) or 0
         maxValue = tonumber(maxValue) or 100
         if maxValue < minValue then minValue, maxValue = maxValue, minValue end
@@ -5026,7 +5063,7 @@ return function(opts)
         frame.Size = UDim2.new(1, -6, 0, 52)
         frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
         frame.BorderSizePixel = 0
-        frame.Parent = parent
+        pcall(function() frame.Parent = parent end)
         applyCorner(frame, 7)
         applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
 
@@ -5169,13 +5206,19 @@ return function(opts)
     -- Refined UI Component: List Item (Responsive)
     -- =========================================================================
     function hubState.createListItem(parent, titleText, subtitleText, callback, actionBtnText, actionBtnCallback, actionBtnDisabled)
-        if not parent then parent = contentArea end
+        if type(parent) == "table" and parent.List then
+            parent = parent.List
+        elseif type(parent) == "table" and parent.Frame then
+            parent = parent.Frame
+        elseif not parent or typeof(parent) ~= "Instance" then
+            parent = contentArea
+        end
         local item = Instance.new("TextButton")
         item.Size = UDim2.new(1, -2, 0, 42)
         item.BackgroundColor3 = Color3.fromRGB(20, 24, 35)
         item.AutoButtonColor = false
         item.Text = ""
-        item.Parent = parent
+        pcall(function() item.Parent = parent end)
         applyCorner(item, 7)
         local itemStroke = applyStroke(item, Color3.fromRGB(36, 44, 64), 1, 0)
 
@@ -5797,7 +5840,13 @@ return function(opts)
 
     -- UI Component: Dropdown (Responsive)
     function hubState.createDropdown(parent, titleText, options, defaultOption, callback)
-        if not parent then parent = contentArea end
+        if type(parent) == "table" and parent.List then
+            parent = parent.List
+        elseif type(parent) == "table" and parent.Frame then
+            parent = parent.Frame
+        elseif not parent or typeof(parent) ~= "Instance" then
+            parent = contentArea
+        end
         options = options or {}
         local selected = defaultOption or options[1] or "Select Option"
 
@@ -5806,7 +5855,7 @@ return function(opts)
         frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
         frame.BorderSizePixel = 0
         frame.ClipsDescendants = true
-        frame.Parent = parent
+        pcall(function() frame.Parent = parent end)
         applyCorner(frame, 7)
         applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
 
