@@ -1095,6 +1095,7 @@ return function(opts)
     hubState.screenGui = Instance.new("ScreenGui")
     hubState.screenGui.Name = opts.name or "ENI_TabbedHub_UI"
     hubState.screenGui.ResetOnSpawn = false
+    hubState.screenGui.IgnoreGuiInset = true
     hubState.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     pcall(function() hubState.screenGui.Parent = localParent end)
 
@@ -4820,6 +4821,121 @@ return function(opts)
     end
 
     -- UI Component: Button (Responsive & Holographic Click FX)
+    
+    -- =========================================================================
+    -- Dynamic Custom Configuration & Loop Engine
+    -- =========================================================================
+    hubState.customConfigs = {}
+    hubState.toggleStates = {}
+    hubState.activeLoops = {}
+    hubState.blackScreenOverlay = nil
+
+    function hubState.SetBlackScreen(enabled)
+        pcall(function()
+            RunService:Set3dRenderingEnabled(not enabled)
+        end)
+        if enabled then
+            if not hubState.blackScreenOverlay or not hubState.blackScreenOverlay.Parent then
+                local overlay = Instance.new("Frame")
+                overlay.Name = "ENI_BlackScreenOverlay"
+                overlay.Size = UDim2.new(1, 0, 1, 0)
+                overlay.Position = UDim2.new(0, 0, 0, 0)
+                overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                overlay.BorderSizePixel = 0
+                overlay.ZIndex = 999999
+                overlay.Active = false
+                pcall(function() overlay.Parent = hubState.screenGui end)
+                hubState.blackScreenOverlay = overlay
+            else
+                hubState.blackScreenOverlay.Visible = true
+            end
+        else
+            if hubState.blackScreenOverlay and hubState.blackScreenOverlay.Parent then
+                hubState.blackScreenOverlay.Visible = false
+            end
+        end
+    end
+
+    function hubState.CreateConfigOption(name, optType, defaultValue, optionsList)
+        return {
+            Name = name,
+            Type = optType or "Dropdown",
+            Default = defaultValue,
+            Options = optionsList or {},
+            Value = defaultValue
+        }
+    end
+
+    function hubState.CreateConfig(controlTarget, optionsTable)
+        local targetName = type(controlTarget) == "string" and controlTarget or (type(controlTarget) == "table" and (controlTarget.Title or controlTarget.Name)) or "Default"
+        hubState.customConfigs[targetName] = hubState.customConfigs[targetName] or {}
+
+        if type(optionsTable) == "table" then
+            for k, v in pairs(optionsTable) do
+                local optName = (type(v) == "table" and v.Name) or tostring(k)
+                local optVal = (type(v) == "table" and v.Default ~= nil and v.Default) or v
+                hubState.customConfigs[targetName][optName] = optVal
+            end
+        end
+
+        local configHandler = {
+            TargetName = targetName,
+            SetOption = function(self, optName, val)
+                hubState.customConfigs[targetName][optName] = val
+            end,
+            GetOption = function(self, optName)
+                return hubState.GetConfigOptionFrom(targetName, optName)
+            end,
+            AddOption = function(self, optName, optType, defaultVal, optionsList)
+                hubState.customConfigs[targetName][optName] = defaultVal
+                return self
+            end
+        }
+
+        if type(controlTarget) == "table" then
+            controlTarget.Config = configHandler
+            controlTarget.GetConfigOption = function(self, optName)
+                return hubState.GetConfigOptionFrom(targetName, optName)
+            end
+            controlTarget.SetConfigOption = function(self, optName, val)
+                hubState.customConfigs[targetName][optName] = val
+            end
+        end
+
+        return configHandler
+    end
+
+    function hubState.GetConfigOptionFrom(targetName, optionName)
+        if not targetName then return nil end
+        local cfg = hubState.customConfigs[targetName]
+        if cfg then
+            if optionName then
+                return cfg[optionName]
+            else
+                return cfg
+            end
+        end
+        if optionName then
+            return hubState.configValues[tostring(targetName) .. ":" .. tostring(optionName)]
+        end
+        return hubState.configValues["toggle:" .. tostring(targetName)]
+    end
+
+    function hubState.SetConfigOption(targetName, optionName, value)
+        if not targetName then return end
+        hubState.customConfigs[targetName] = hubState.customConfigs[targetName] or {}
+        hubState.customConfigs[targetName][optionName] = value
+        hubState.configValues[tostring(targetName) .. ":" .. tostring(optionName)] = value
+    end
+
+    function hubState.GetToggleState(targetName)
+        if not targetName then return false end
+        if hubState.toggleStates[targetName] ~= nil then
+            return hubState.toggleStates[targetName]
+        end
+        return hubState.configValues["toggle:" .. tostring(targetName)] == true
+    end
+
     function hubState.createButton(parent, text, callback)
         if type(parent) == "table" and parent.List then
             parent = parent.List
@@ -4948,7 +5064,7 @@ return function(opts)
     end
 
     -- UI Component: Toggle (Responsive & Smooth Spring Knob)
-    function hubState.createToggle(parent, text, defaultState, callback)
+    function hubState.createToggle(parent, text, defaultState, callbackOrLoop, loopDelay, configTable)
         if type(parent) == "table" and parent.List then
             parent = parent.List
         elseif type(parent) == "table" and parent.Frame then
@@ -4993,8 +5109,35 @@ return function(opts)
         applyCorner(knob, 9)
 
         local isToggled = defaultState or false
+        hubState.toggleStates[text] = isToggled
+
+        if configTable then
+            hubState.CreateConfig(text, configTable)
+        end
+
+        local loopThreadId = 0
+        local function stopLoop()
+            loopThreadId = loopThreadId + 1
+        end
+
+        local function startLoop()
+            stopLoop()
+            local curId = loopThreadId
+            task.spawn(function()
+                while curId == loopThreadId and isToggled and hubState.screenGui and hubState.screenGui.Parent do
+                    if callbackOrLoop then
+                        pcall(callbackOrLoop, true, function(opt)
+                            return hubState.GetConfigOptionFrom(text, opt)
+                        end)
+                    end
+                    task.wait(typeof(loopDelay) == "number" and loopDelay or 0.1)
+                end
+            end)
+        end
+
         local function setState(v, skipCallback)
             isToggled = (v == true)
+            hubState.toggleStates[text] = isToggled
             hubState.configValues["toggle:" .. tostring(text)] = isToggled
             local targetPos = isToggled and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
             local targetColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
@@ -5002,7 +5145,21 @@ return function(opts)
             TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
             TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
-            if callback and not skipCallback then pcall(callback, isToggled) end
+
+            if typeof(loopDelay) == "number" then
+                if isToggled then
+                    startLoop()
+                else
+                    stopLoop()
+                    if callbackOrLoop and not skipCallback then
+                        pcall(callbackOrLoop, false, function(opt) return hubState.GetConfigOptionFrom(text, opt) end)
+                    end
+                end
+            else
+                if callbackOrLoop and not skipCallback then
+                    pcall(callbackOrLoop, isToggled, function(opt) return hubState.GetConfigOptionFrom(text, opt) end)
+                end
+            end
         end
 
         local click = Instance.new("TextButton")
@@ -5037,11 +5194,32 @@ return function(opts)
         hubState.attachContextMenu(click, itemData)
 
         setState(isToggled, true)
-        return {
+
+        local resultObj = {
+            Title = text,
             Frame = frame,
             Set = setState,
             Get = function() return isToggled end,
+            CreateConfig = function(self, opts)
+                return hubState.CreateConfig(text, opts)
+            end,
+            CreateConfigOption = function(self, optName, optType, defVal, optList)
+                hubState.SetConfigOption(text, optName, defVal)
+                return self
+            end,
+            GetConfigOption = function(self, optName)
+                return hubState.GetConfigOptionFrom(text, optName)
+            end,
+            SetConfigOption = function(self, optName, val)
+                hubState.SetConfigOption(text, optName, val)
+                return self
+            end
         }
+        return resultObj
+    end
+
+    function hubState.CreateLoopToggle(parent, text, defaultState, loopInterval, loopFunc, configTable)
+        return hubState.createToggle(parent, text, defaultState, loopFunc, loopInterval or 0.1, configTable)
     end
 
     -- UI Component: Slider (Responsive)
@@ -6998,10 +7176,8 @@ return function(opts)
         end)
 
         hubState.createToggle(hubState.universalTabPage, "Disable 3D Rendering", false, function(enabled)
-            pcall(function()
-                RunService:Set3dRenderingEnabled(not enabled)
-            end)
-            setUniversalStatus(enabled and "3D Rendering OFF (GPU ~0%)" or "3D Rendering ON", false)
+            hubState.SetBlackScreen(enabled)
+            setUniversalStatus(enabled and "3D Rendering OFF (Black Screen Active)" or "3D Rendering ON", false)
         end)
 
         -- 4. Character & Movement
@@ -7748,6 +7924,23 @@ return function(opts)
         CreateButton = hubState.createButton,
         createButton = hubState.createButton,
         CreateToggle = hubState.createToggle,
+        createToggle = hubState.createToggle,
+        CreateLoopToggle = hubState.CreateLoopToggle,
+        createLoopToggle = hubState.CreateLoopToggle,
+        CreateConfig = hubState.CreateConfig,
+        createConfig = hubState.CreateConfig,
+        CreateConfigOption = hubState.CreateConfigOption,
+        createConfigOption = hubState.CreateConfigOption,
+        GetConfigOptionFrom = hubState.GetConfigOptionFrom,
+        getConfigOptionFrom = hubState.GetConfigOptionFrom,
+        SetConfigOption = hubState.SetConfigOption,
+        setConfigOption = hubState.SetConfigOption,
+        GetToggleState = hubState.GetToggleState,
+        getToggleState = hubState.GetToggleState,
+        IsActive = hubState.GetToggleState,
+        isActive = hubState.GetToggleState,
+        SetBlackScreen = hubState.SetBlackScreen,
+        setBlackScreen = hubState.SetBlackScreen,
         createToggle = hubState.createToggle,
         CreateSlider = hubState.createSlider,
         createSlider = hubState.createSlider,
