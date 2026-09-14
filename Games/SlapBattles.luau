@@ -2372,33 +2372,6 @@ local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
-local preloadedServers = {}
-local currentJobId = game.JobId
-local placeId = game.PlaceId or 6403373529
-
-task.spawn(function()
-    local function fetch()
-        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
-        local success, res = pcall(function()
-            if game.HttpGet then return game:HttpGet(url)
-            elseif request then return request({Url = url, Method = "GET"}).Body
-            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
-            return nil
-        end)
-        if success and res then
-            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
-            if decOk and data and data.data then
-                for _, s in ipairs(data.data) do
-                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
-                        table.insert(preloadedServers, s)
-                    end
-                end
-            end
-        end
-    end
-    pcall(fetch)
-end)
-
 pcall(function()
     LocalPlayer.Idled:Connect(function()
         pcall(function()
@@ -2455,7 +2428,7 @@ local statusLbl = Instance.new("TextLabel")
 statusLbl.Size = UDim2.new(1, -16, 0, 22)
 statusLbl.Position = UDim2.new(0, 8, 0, 30)
 statusLbl.BackgroundTransparency = 1
-statusLbl.Text = "Status: Instant Sweeping..."
+statusLbl.Text = "Status: Initializing..."
 statusLbl.TextColor3 = Color3.fromRGB(255, 190, 60)
 statusLbl.Font = Enum.Font.GothamMedium
 statusLbl.TextSize = 11
@@ -2522,7 +2495,7 @@ local function enterArenaFast()
             end)
         end
         local s = tick()
-        while tick() - s < 0.6 do
+        while tick() - s < 0.4 do
             RunService.Heartbeat:Wait()
             local c = LocalPlayer.Character
             if c and c:FindFirstChild("isInArena") and c.isInArena.Value == true then
@@ -2537,13 +2510,10 @@ local function serverHopFast()
     statusLbl.Text = "Status: Hopping server..."
     statusLbl.TextColor3 = Color3.fromRGB(120, 200, 255)
 
-    if #preloadedServers > 0 then
-        local chosen = preloadedServers[math.random(1, #preloadedServers)]
-        TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
-        task.delay(5, function()
-            if not isStopped then TeleportService:Teleport(placeId, LocalPlayer) end
-        end)
-    else
+    local placeId = game.PlaceId or 6403373529
+    local currentJobId = game.JobId
+
+    task.spawn(function()
         local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
         local success, res = pcall(function()
             if game.HttpGet then return game:HttpGet(url)
@@ -2556,39 +2526,37 @@ local function serverHopFast()
             local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
             if decOk and data and data.data then
                 for _, s in ipairs(data.data) do
-                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
+                    local count = s.playing or 0
+                    if s.id ~= currentJobId and count >= 2 and count < (s.maxPlayers or 14) then
                         table.insert(candidates, s)
                     end
                 end
             end
         end
+
         if #candidates > 0 then
             local chosen = candidates[math.random(1, #candidates)]
             TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+            task.delay(4.5, function()
+                if not isStopped then TeleportService:Teleport(placeId, LocalPlayer) end
+            end)
         else
             TeleportService:Teleport(placeId, LocalPlayer)
         end
-    end
+    end)
 end
 
 task.spawn(function()
     updateSlapCounter()
     local root = getRoot()
-    while not root and not isStopped do task.wait(0.05) root = getRoot() end
+    local sWait = tick()
+    while not root and not isStopped and (tick() - sWait < 5) do task.wait(0.04) root = getRoot() end
     if isStopped then return end
 
     local char = LocalPlayer.Character
     local inArena = char and char:FindFirstChild("isInArena")
     if not (inArena and inArena.Value == true) then enterArenaFast() end
     if isStopped then return end
-
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if pGui then
-            local screenFx = pGui:FindFirstChild("ScreenEffects") or pGui:FindFirstChild("Transition")
-            if screenFx then screenFx:Destroy() end
-        end
-    end)
 
     local slapplesFolder = Workspace:FindFirstChild("Arena")
         and Workspace.Arena:FindFirstChild("island5")
@@ -2610,7 +2578,9 @@ task.spawn(function()
             statusLbl.TextColor3 = Color3.fromRGB(0, 255, 140)
             for _, glove in ipairs(activeSlapples) do
                 if isStopped then break end
-                if root and glove and glove.Parent then
+                if root and glove and glove.Parent and glove.Transparency < 0.5 then
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
                     root.CFrame = glove.CFrame
                     if firetouchinterest then
                         pcall(function()
@@ -2618,7 +2588,16 @@ task.spawn(function()
                             firetouchinterest(root, glove, 1)
                         end)
                     end
-                    task.wait(0.015)
+                    local charParts = (LocalPlayer.Character and LocalPlayer.Character:GetChildren()) or {}
+                    for _, p in ipairs(charParts) do
+                        if p:IsA("BasePart") and firetouchinterest then
+                            pcall(function()
+                                firetouchinterest(p, glove, 0)
+                                firetouchinterest(p, glove, 1)
+                            end)
+                        end
+                    end
+                    task.wait(0.04)
                 end
             end
         else
@@ -2645,33 +2624,6 @@ local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
-local preloadedServers = {}
-local currentJobId = game.JobId
-local placeId = game.PlaceId or 6403373529
-
-task.spawn(function()
-    local function fetch()
-        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
-        local success, res = pcall(function()
-            if game.HttpGet then return game:HttpGet(url)
-            elseif request then return request({Url = url, Method = "GET"}).Body
-            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
-            return nil
-        end)
-        if success and res then
-            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
-            if decOk and data and data.data then
-                for _, s in ipairs(data.data) do
-                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
-                        table.insert(preloadedServers, s)
-                    end
-                end
-            end
-        end
-    end
-    pcall(fetch)
-end)
-
 pcall(function()
     LocalPlayer.Idled:Connect(function()
         pcall(function()
@@ -2683,19 +2635,29 @@ pcall(function()
     end)
 end)
 
-local function queueNextHop()
-    local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
-    if q and _SLAPPLE_SOURCE then
+local function getQueueFunc()
+    return (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
+end
+
+local isStopped = false
+
+local function queueSelf()
+    if isStopped then return end
+    local q = getQueueFunc()
+    local src = _G._SLAPPLE_FARM_SRC or (getgenv and getgenv()._SLAPPLE_FARM_SRC)
+    if q and src then
         pcall(function()
-            local payload = "local _SLAPPLE_SOURCE = [===\n" .. _SLAPPLE_SOURCE .. "\n===]\nloadstring(_SLAPPLE_SOURCE)()"
+            local payload = "_G._SLAPPLE_FARM_SRC = " .. string.format("%q", src) .. "; loadstring(_G._SLAPPLE_FARM_SRC)();"
             q(payload)
         end)
     end
 end
 
+-- Ensure queueSelf is queued immediately on load and on teleport events
+queueSelf()
 pcall(function()
     if TeleportService.TeleportInit then
-        TeleportService.TeleportInit:Connect(queueNextHop)
+        TeleportService.TeleportInit:Connect(queueSelf)
     end
 end)
 
@@ -2755,7 +2717,7 @@ local statusLbl = Instance.new("TextLabel")
 statusLbl.Size = UDim2.new(1, -16, 0, 20)
 statusLbl.Position = UDim2.new(0, 8, 0, 28)
 statusLbl.BackgroundTransparency = 1
-statusLbl.Text = "Status: Instant Sweeping..."
+statusLbl.Text = "Status: Initializing..."
 statusLbl.TextColor3 = Color3.fromRGB(0, 220, 255)
 statusLbl.Font = Enum.Font.GothamMedium
 statusLbl.TextSize = 11
@@ -2799,9 +2761,10 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 5)
 btnCorner.Parent = stopBtn
 
-local isStopped = false
 stopBtn.MouseButton1Click:Connect(function()
     isStopped = true
+    _G._SLAPPLE_FARM_SRC = nil
+    if getgenv then getgenv()._SLAPPLE_FARM_SRC = nil end
     statusLbl.Text = "Status: Stopped by user."
     statusLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
     stopBtn.Text = "FARM STOPPED"
@@ -2834,7 +2797,7 @@ local function enterArenaFast()
             end)
         end
         local s = tick()
-        while tick() - s < 0.6 do
+        while tick() - s < 0.4 do
             RunService.Heartbeat:Wait()
             local c = LocalPlayer.Character
             if c and c:FindFirstChild("isInArena") and c.isInArena.Value == true then
@@ -2849,20 +2812,14 @@ local function serverHopFast()
     statusLbl.Text = "Status: Hopping server..."
     statusLbl.TextColor3 = Color3.fromRGB(120, 200, 255)
 
-    queueNextHop()
+    queueSelf()
     local statsObj = getStats()
     statsObj.totalHops = statsObj.totalHops + 1
 
-    if #preloadedServers > 0 then
-        local chosen = preloadedServers[math.random(1, #preloadedServers)]
-        TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
-        task.delay(5, function()
-            if not isStopped then
-                queueNextHop()
-                TeleportService:Teleport(placeId, LocalPlayer)
-            end
-        end)
-    else
+    local placeId = game.PlaceId or 6403373529
+    local currentJobId = game.JobId
+
+    task.spawn(function()
         local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
         local success, res = pcall(function()
             if game.HttpGet then return game:HttpGet(url)
@@ -2875,39 +2832,42 @@ local function serverHopFast()
             local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
             if decOk and data and data.data then
                 for _, s in ipairs(data.data) do
-                    if s.id ~= currentJobId and (s.playing or 0) < (s.maxPlayers or 14) and (s.playing or 0) > 0 then
+                    local count = s.playing or 0
+                    if s.id ~= currentJobId and count >= 2 and count < (s.maxPlayers or 14) then
                         table.insert(candidates, s)
                     end
                 end
             end
         end
+
         if #candidates > 0 then
             local chosen = candidates[math.random(1, #candidates)]
+            queueSelf()
             TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+            task.delay(4.5, function()
+                if not isStopped then
+                    queueSelf()
+                    TeleportService:Teleport(placeId, LocalPlayer)
+                end
+            end)
         else
+            queueSelf()
             TeleportService:Teleport(placeId, LocalPlayer)
         end
-    end
+    end)
 end
 
 task.spawn(function()
     updateSlapCounter()
     local root = getRoot()
-    while not root and not isStopped do task.wait(0.05) root = getRoot() end
+    local sWait = tick()
+    while not root and not isStopped and (tick() - sWait < 5) do task.wait(0.04) root = getRoot() end
     if isStopped then return end
 
     local char = LocalPlayer.Character
     local inArena = char and char:FindFirstChild("isInArena")
     if not (inArena and inArena.Value == true) then enterArenaFast() end
     if isStopped then return end
-
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if pGui then
-            local screenFx = pGui:FindFirstChild("ScreenEffects") or pGui:FindFirstChild("Transition")
-            if screenFx then screenFx:Destroy() end
-        end
-    end)
 
     local slapplesFolder = Workspace:FindFirstChild("Arena")
         and Workspace.Arena:FindFirstChild("island5")
@@ -2927,9 +2887,12 @@ task.spawn(function()
         if #activeSlapples > 0 then
             statusLbl.Text = "Status: Harvesting " .. tostring(#activeSlapples) .. " Slapples..."
             statusLbl.TextColor3 = Color3.fromRGB(0, 255, 140)
+            local collectedCount = 0
             for _, glove in ipairs(activeSlapples) do
                 if isStopped then break end
-                if root and glove and glove.Parent then
+                if root and glove and glove.Parent and glove.Transparency < 0.5 then
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
                     root.CFrame = glove.CFrame
                     if firetouchinterest then
                         pcall(function()
@@ -2937,11 +2900,21 @@ task.spawn(function()
                             firetouchinterest(root, glove, 1)
                         end)
                     end
-                    task.wait(0.015)
+                    local charParts = (LocalPlayer.Character and LocalPlayer.Character:GetChildren()) or {}
+                    for _, p in ipairs(charParts) do
+                        if p:IsA("BasePart") and firetouchinterest then
+                            pcall(function()
+                                firetouchinterest(p, glove, 0)
+                                firetouchinterest(p, glove, 1)
+                            end)
+                        end
+                    end
+                    collectedCount = collectedCount + 1
+                    task.wait(0.04)
                 end
             end
             local statsObj = getStats()
-            statsObj.totalHarvested = statsObj.totalHarvested + #activeSlapples
+            statsObj.totalHarvested = statsObj.totalHarvested + collectedCount
         else
             statusLbl.Text = "Status: Island empty."
             statusLbl.TextColor3 = Color3.fromRGB(255, 140, 140)
@@ -2954,6 +2927,16 @@ task.spawn(function()
 end)
 ]===]
 
+local function queueSlappleNextHop()
+    local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
+    if q and _SLAPPLE_SOURCE then
+        pcall(function()
+            local payload = "_G._SLAPPLE_FARM_SRC = " .. string.format("%q", _SLAPPLE_SOURCE) .. "; loadstring(_G._SLAPPLE_FARM_SRC)();"
+            q(payload)
+        end)
+    end
+end
+
 local function serverHop()
     local placeId = game.PlaceId or 6403373529
     local currentJobId = game.JobId
@@ -2964,71 +2947,70 @@ local function serverHop()
         Duration = 3
     })
 
-    local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
-    if q and state.AutoSlapple then
-        pcall(function()
-            local payload = "local _SLAPPLE_SOURCE = [===\n" .. _SLAPPLE_SOURCE .. "\n===]\nloadstring(_SLAPPLE_SOURCE)()"
-            q(payload)
-        end)
+    if state.AutoSlapple then
+        queueSlappleNextHop()
     end
 
-    local function fetchServers(cursor)
-        local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
-        if cursor then url = url .. "&cursor=" .. tostring(cursor) end
-        local success, res = pcall(function()
-            if game.HttpGet then return game:HttpGet(url)
-            elseif request then return request({Url = url, Method = "GET"}).Body
-            elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
-            return nil
-        end)
-        if success and res then
-            local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
-            if decOk and data and data.data then
-                return data.data, data.nextPageCursor
-            end
-        end
-        return nil, nil
-    end
-
-    local candidateServers = {}
-    local cursor = nil
-    for _ = 1, 3 do
-        local servers, nextCursor = fetchServers(cursor)
-        if servers then
-            for _, s in ipairs(servers) do
-                local count = s.playing or 0
-                if s.id ~= currentJobId and count >= 2 and count <= 10 and count < (s.maxPlayers or 14) then
-                    table.insert(candidateServers, s)
+    task.spawn(function()
+        local function fetchServers(cursor)
+            local url = "https://games.roblox.com/v1/games/" .. tostring(placeId) .. "/servers/Public?sortOrder=Asc&limit=100"
+            if cursor then url = url .. "&cursor=" .. tostring(cursor) end
+            local success, res = pcall(function()
+                if game.HttpGet then return game:HttpGet(url)
+                elseif request then return request({Url = url, Method = "GET"}).Body
+                elseif http_request then return http_request({Url = url, Method = "GET"}).Body end
+                return nil
+            end)
+            if success and res then
+                local decOk, data = pcall(function() return HttpService:JSONDecode(res) end)
+                if decOk and data and data.data then
+                    return data.data, data.nextPageCursor
                 end
             end
+            return nil, nil
         end
-        if #candidateServers >= 6 or not nextCursor then break end
-        cursor = nextCursor
-    end
 
-    if #candidateServers > 0 then
-        local chosen = candidateServers[math.random(1, #candidateServers)]
-        Hub.notify({
-            Title = "Server Hop",
-            Content = "Teleporting to server (" .. tostring(chosen.playing) .. "/" .. tostring(chosen.maxPlayers) .. " players)...",
-            Duration = 4
-        })
-        TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
-        task.delay(4.5, function()
-            if state.AutoSlapple then
-                local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or (getgenv and getgenv().queue_on_teleport)
-                if q then pcall(function() q("local _SLAPPLE_SOURCE = [===\n" .. _SLAPPLE_SOURCE .. "\n===]\nloadstring(_SLAPPLE_SOURCE)()") end) end
-                TeleportService:Teleport(placeId, LocalPlayer)
+        local candidateServers = {}
+        local cursor = nil
+        for _ = 1, 3 do
+            local servers, nextCursor = fetchServers(cursor)
+            if servers then
+                for _, s in ipairs(servers) do
+                    local count = s.playing or 0
+                    if s.id ~= currentJobId and count >= 2 and count <= 10 and count < (s.maxPlayers or 14) then
+                        table.insert(candidateServers, s)
+                    end
+                end
             end
-        end)
-    else
-        Hub.notify({
-            Title = "Server Hop",
-            Content = "Rejoining...",
-            Duration = 3
-        })
-        TeleportService:Teleport(placeId, LocalPlayer)
-    end
+            if #candidateServers >= 6 or not nextCursor then break end
+            cursor = nextCursor
+        end
+
+        if #candidateServers > 0 then
+            local chosen = candidateServers[math.random(1, #candidateServers)]
+            Hub.notify({
+                Title = "Server Hop",
+                Content = "Teleporting to server (" .. tostring(chosen.playing) .. "/" .. tostring(chosen.maxPlayers) .. " players)...",
+                Duration = 4
+            })
+            if state.AutoSlapple then queueSlappleNextHop() end
+            TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+            task.delay(4.5, function()
+                if state.AutoSlapple then
+                    queueSlappleNextHop()
+                    TeleportService:Teleport(placeId, LocalPlayer)
+                end
+            end)
+        else
+            Hub.notify({
+                Title = "Server Hop",
+                Content = "Rejoining...",
+                Duration = 3
+            })
+            if state.AutoSlapple then queueSlappleNextHop() end
+            TeleportService:Teleport(placeId, LocalPlayer)
+        end
+    end)
 end
 
 local function fastHarvestSlapples()
@@ -3036,7 +3018,7 @@ local function fastHarvestSlapples()
     local inArena = char and char:FindFirstChild("isInArena")
     if isInLobby() or not (inArena and inArena.Value == true) then
         enterArena()
-        task.wait(0.15)
+        task.wait(0.1)
     end
 
     local slapplesFolder = Workspace:FindFirstChild("Arena")
@@ -3065,7 +3047,7 @@ local function fastHarvestSlapples()
     end
 
     local totalHarvested = 0
-    for pass = 1, 3 do
+    for pass = 1, 2 do
         local active = getActive()
         if #active == 0 then break end
 
@@ -3078,19 +3060,28 @@ local function fastHarvestSlapples()
                 if firetouchinterest then
                     pcall(function()
                         firetouchinterest(root, glove, 0)
-                        task.wait(0.01)
                         firetouchinterest(root, glove, 1)
                     end)
+                    local charParts = (char and char:GetChildren()) or {}
+                    for _, p in ipairs(charParts) do
+                        if p:IsA("BasePart") then
+                            pcall(function()
+                                firetouchinterest(p, glove, 0)
+                                firetouchinterest(p, glove, 1)
+                            end)
+                        end
+                    end
                 end
                 totalHarvested = totalHarvested + 1
-                task.wait(0.015)
+                task.wait(0.04)
             end
         end
-        task.wait(0.03)
+        task.wait(0.02)
     end
 
     return totalHarvested
 end
+
 
 Hub.CreateSection(farmTab, "Slapple Farming")
 

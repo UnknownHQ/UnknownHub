@@ -4,23 +4,29 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local TeleportService = game:GetService("TeleportService")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
 local LIBRARY_NAME = "ENI_TabbedHub_UI"
 
 local function destroyOldGui()
-    local parents = {CoreGui}
+    local parents = {game:GetService("CoreGui")}
     if gethui then pcall(function() table.insert(parents, gethui()) end) end
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local playerGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
     if playerGui then table.insert(parents, playerGui) end
     for _, parent in ipairs(parents) do
         if parent then
-            for _, child in ipairs(parent:GetChildren()) do
-                if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "ENI_BloxFruits_GuiContainer" or child.Name == "ENI_MainGui") then
-                    pcall(function() child:Destroy() end)
+            pcall(function()
+                for _, child in ipairs(parent:GetChildren()) do
+                    if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "ENI_BloxFruits_GuiContainer" or child.Name == "ENI_MainGui") then
+                        pcall(function() child:Destroy() end)
+                    end
                 end
-            end
+            end)
         end
     end
 end
@@ -40,11 +46,14 @@ destroyOldGui()
 
 local Hub = result({
     name = LIBRARY_NAME,
-    title = "UNKNOWN HUB | BLOX FRUITS",
-    parent = (gethui and gethui()) or CoreGui or LocalPlayer:WaitForChild("PlayerGui"),
+    title = "UNKNOWN HUB",
+    subTitle = "Blox Fruits",
+    parent = (gethui and gethui()) or game:GetService("CoreGui") or (LocalPlayer and LocalPlayer:WaitForChild("PlayerGui")),
     theme = Color3.fromRGB(0, 195, 245),
     secondaryTheme = Color3.fromRGB(165, 95, 255)
 })
+
+assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
 
 -- Anti-AFK Connection
 local VirtualUser = game:GetService("VirtualUser")
@@ -62,7 +71,8 @@ end
 
 local lastBusoAttempt = 0
 local function ensureBusoHakiActive()
-    if tick() - lastBusoAttempt < 2 then return end
+    if not isAutoHakiOn then return end
+    if tick() - lastBusoAttempt < 5 then return end
     pcall(function()
         local char = LocalPlayer.Character or (workspace:FindFirstChild("Characters") and workspace.Characters:FindFirstChild(LocalPlayer.Name))
         if char and not char:FindFirstChild("HasBuso") and not char:FindFirstChild("Buso") then
@@ -75,24 +85,11 @@ local function ensureBusoHakiActive()
     end)
 end
 
--- Immediately enable Buso Haki on GUI Execution!
-task.spawn(function()
-    task.wait(0.5)
-    ensureBusoHakiActive()
-end)
-
--- Enable on CharacterRespawn / Reset instantly!
+-- Enable on CharacterRespawn / Reset
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     newChar:WaitForChild("HumanoidRootPart", 5)
-    task.wait(0.8)
-    ensureBusoHakiActive()
-end)
-
-if _G.ENI_AutoBusoLoop then pcall(function() _G.ENI_AutoBusoLoop:Disconnect() end) _G.ENI_AutoBusoLoop = nil end
-local lastBusoCheck = 0
-_G.ENI_AutoBusoLoop = RunService.Heartbeat:Connect(function()
-    if tick() - lastBusoCheck > 2 then
-        lastBusoCheck = tick()
+    task.wait(1.5)
+    if isAutoHakiOn then
         ensureBusoHakiActive()
     end
 end)
@@ -155,27 +152,7 @@ _G.ENI_WaterWalkConn = RunService.RenderStepped:Connect(function()
     end)
 end)
 
--- Anti-Cheat Metamethod Hook (with checkcaller guard)
-if not _G.ENI_Hooked then
-    _G.ENI_Hooked = true
-    local rawMeta = getrawmetatable(game)
-    setreadonly(rawMeta, false)
-    local oldNamecall = rawMeta.__namecall
-    rawMeta.__namecall = newcclosure(function(self, ...)
-        if checkcaller and checkcaller() then
-            return oldNamecall(self, ...)
-        end
-        local method = getnamecallmethod()
-        if (tostring(method) == "FireServer" or tostring(method) == "InvokeServer") then
-            local name = tostring(self)
-            if name == "ErrorLog" or name == "Ban" or name == "Detection" or name == "AdminCheck" then
-                return nil
-            end
-        end
-        return oldNamecall(self, ...)
-    end)
-    setreadonly(rawMeta, true)
-end
+
 
 local isTraveling = false
 local safeTweenToIsland -- Forward declaration
@@ -353,30 +330,7 @@ local travelPage = Hub.createTabButton("Travel", "Travel", "rbxassetid://1070979
 local shopPage = Hub.createTabButton("Shop", "Shop", "rbxassetid://10709810237", false)
 
 do
-    local serverHeader = Instance.new("TextLabel")
-    serverHeader.Size = UDim2.new(1, 0, 0, 24)
-    serverHeader.BackgroundTransparency = 1
-    serverHeader.Text = "🌐 SMART SERVER HOPPER & MANAGEMENT"
-    serverHeader.TextColor3 = currentThemeColor
-    serverHeader.Font = Enum.Font.GothamBlack
-    serverHeader.TextSize = 14
-    serverHeader.Parent = serverPage
-
-    -- Teleport Failure Handler — intercepts restricted/full server errors and auto-hops
-    if not _G.ENI_TeleportFailedHook then
-        _G.ENI_TeleportFailedHook = true
-        pcall(function()
-            game:GetService("TeleportService").TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
-                if player == LocalPlayer then
-                    notifyGUI("SERVER", "Server restricted! Matchmaking hop...", 4)
-                    task.wait(0.5)
-                    pcall(function()
-                        game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
-                    end)
-                end
-            end)
-        end)
-    end
+    Hub.CreateSection(serverPage, "🌐 Smart Server Hopper & Management")
 
     _G.ENI_SmartServerHop = function(mode)
 
@@ -793,16 +747,7 @@ do
     -- =========================================================================
     -- [1ST SEA] AUTOMATED SPECIAL QUESTS
     -- =========================================================================
-    local s1Header = Instance.new("TextLabel")
-    s1Header.Size = UDim2.new(0.98, 0, 0, 18)
-    s1Header.BackgroundTransparency = 1
-    s1Header.Text = "🌊 [1ST SEA] SPECIAL QUESTS"
-    s1Header.TextColor3 = Color3.fromRGB(0, 230, 255)
-    s1Header.Font = Enum.Font.GothamBlack
-    s1Header.TextSize = 12
-    s1Header.TextXAlignment = Enum.TextXAlignment.Left
-    s1Header.Parent = questPage
-    registerThemeText(s1Header)
+    Hub.CreateSection(questPage, "🌊 1st Sea Special Quests")
 
 local isSaberQuestOn = false
     local saberThread = nil
@@ -1481,8 +1426,10 @@ local isSaberQuestOn = false
 
                             -- Encrypted hit stream for reliable damage
                             pcall(function()
-                                if _G.ENI_WrappedHit and bHrp then
-                                    _G.ENI_WrappedHit.FireServer(_G.ENI_WrappedHit, bHrp, {{thunderGod, bHrp}})
+                                if bHrp and thunderGod then
+                                    if _G.ENI_PerformFastAttack then
+                                        _G.ENI_PerformFastAttack({{thunderGod, bHrp}}, bHrp)
+                                    end
                                 end
                             end)
                         else
@@ -1535,16 +1482,7 @@ local isSaberQuestOn = false
     -- =========================================================================
     -- [2ND SEA] AUTOMATED SPECIAL QUESTS
     -- =========================================================================
-    local s2Header = Instance.new("TextLabel")
-    s2Header.Size = UDim2.new(0.98, 0, 0, 18)
-    s2Header.BackgroundTransparency = 1
-    s2Header.Text = "🌊 [2ND SEA] SPECIAL QUESTS"
-    s2Header.TextColor3 = Color3.fromRGB(0, 230, 255)
-    s2Header.Font = Enum.Font.GothamBlack
-    s2Header.TextSize = 12
-    s2Header.TextXAlignment = Enum.TextXAlignment.Left
-    s2Header.Parent = questPage
-    registerThemeText(s2Header)
+    Hub.CreateSection(questPage, "🌊 2nd Sea Special Quests")
 
     createSliderToggle(questPage, "[2nd Sea] 🍷 Auto Bartilo Quest", false, function(newState)
         if newState then
@@ -1581,16 +1519,7 @@ local isSaberQuestOn = false
     -- =========================================================================
     -- [3RD SEA] AUTOMATED SPECIAL QUESTS
     -- =========================================================================
-    local s3Header = Instance.new("TextLabel")
-    s3Header.Size = UDim2.new(0.98, 0, 0, 18)
-    s3Header.BackgroundTransparency = 1
-    s3Header.Text = "🌊 [3RD SEA] SPECIAL QUESTS"
-    s3Header.TextColor3 = Color3.fromRGB(0, 230, 255)
-    s3Header.Font = Enum.Font.GothamBlack
-    s3Header.TextSize = 12
-    s3Header.TextXAlignment = Enum.TextXAlignment.Left
-    s3Header.Parent = questPage
-    registerThemeText(s3Header)
+    Hub.CreateSection(questPage, "🌊 3rd Sea Special Quests")
 
     createSliderToggle(questPage, "[3rd Sea] 🧬 Auto Race V3 Quest", false, function(newState)
         if newState then
@@ -1619,35 +1548,56 @@ end
 
 -- PLAYER PAGE SETUP
 do
-    local pHeader = Instance.new("TextLabel")
-    pHeader.Size = UDim2.new(0.98, 0, 0, 18)
-    pHeader.BackgroundTransparency = 1
-    pHeader.Text = "🏃 PLAYER UTILITIES & MOVEMENT"
-    pHeader.TextColor3 = Color3.fromRGB(0, 230, 255)
-    pHeader.Font = Enum.Font.GothamBlack
-    pHeader.TextSize = 12
-    pHeader.TextXAlignment = Enum.TextXAlignment.Left
-    pHeader.Parent = playerPage
-    registerThemeText(pHeader)
+    Hub.CreateSection(playerPage, "🏃 Player Utilities & Movement")
 
+    local potatoSaved = {}
     createSliderToggle(playerPage, "Potato Mode", false, function(newState)
         pcall(function()
-            local terrain = workspace:FindFirstChildOfClass("Terrain")
-            if terrain then
-                terrain.WaterWaveSize = newState and 0 or 0.15
-                terrain.WaterWaveSpeed = newState and 0 or 10
-                terrain.WaterReflectance = newState and 0 or 1
-                terrain.WaterTransparency = newState and 0 or 1
-            end
-            game:GetService("Lighting").GlobalShadows = not newState
-            for _, v in ipairs(game:GetDescendants()) do
-                if v:IsA("BasePart") and not v:IsA("MeshPart") then
-                    if newState then v.Material = Enum.Material.SmoothPlastic else v.Material = Enum.Material.Plastic end
-                elseif v:IsA("Decal") or v:IsA("Texture") then
-                    v.Transparency = newState and 1 or 0
-                elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-                    v.Enabled = not newState
+            if newState then
+                potatoSaved = { materials = {}, decals = {}, emitters = {} }
+                local terrain = workspace:FindFirstChildOfClass("Terrain")
+                if terrain then
+                    terrain.WaterWaveSize = 0
+                    terrain.WaterWaveSpeed = 0
                 end
+                game:GetService("Lighting").GlobalShadows = false
+                for _, v in ipairs(workspace:GetDescendants()) do
+                    if v:IsA("BasePart") and not v:IsA("MeshPart") and not v:IsA("Terrain") then
+                        potatoSaved.materials[v] = v.Material
+                        v.Material = Enum.Material.SmoothPlastic
+                    elseif v:IsA("Decal") or v:IsA("Texture") then
+                        potatoSaved.decals[v] = v.Transparency
+                        v.Transparency = 1
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                        if v.Enabled then
+                            potatoSaved.emitters[v] = true
+                            v.Enabled = false
+                        end
+                    end
+                end
+            else
+                local terrain = workspace:FindFirstChildOfClass("Terrain")
+                if terrain then
+                    terrain.WaterWaveSize = 0.15
+                    terrain.WaterWaveSpeed = 10
+                end
+                game:GetService("Lighting").GlobalShadows = true
+                if potatoSaved.materials then
+                    for part, mat in pairs(potatoSaved.materials) do
+                        if part and part.Parent then part.Material = mat end
+                    end
+                end
+                if potatoSaved.decals then
+                    for decal, trans in pairs(potatoSaved.decals) do
+                        if decal and decal.Parent then decal.Transparency = trans end
+                    end
+                end
+                if potatoSaved.emitters then
+                    for emitter, _ in pairs(potatoSaved.emitters) do
+                        if emitter and emitter.Parent then emitter.Enabled = true end
+                    end
+                end
+                potatoSaved = {}
             end
         end)
         notifyGUI("PERFORMANCE", newState and "Potato Mode Active (Textures OFF)" or "Potato Mode Disabled.", 3)
@@ -1734,15 +1684,7 @@ end
 
 -- STATS PAGE SETUP
 do
-    local statsHeader = Instance.new("TextLabel")
-    statsHeader.Size = UDim2.new(0.98, 0, 0, 18)
-    statsHeader.BackgroundTransparency = 1
-    statsHeader.Text = "📊 AUTO STATS ALLOCATION"
-    statsHeader.TextColor3 = Color3.fromRGB(0, 230, 255)
-    statsHeader.Font = Enum.Font.GothamBlack
-    statsHeader.TextSize = 12
-    statsHeader.TextXAlignment = Enum.TextXAlignment.Left
-    statsHeader.Parent = statsPage
+    Hub.CreateSection(statsPage, "📊 Auto Stats Allocation")
     
     createSliderToggle(statsPage, "Enable Auto Stats Allocation", false, function(newState)
         isStatsOn = newState
@@ -1762,15 +1704,7 @@ end
 
 -- SHOP PAGE SETUP
 do
-    local shopHeader = Instance.new("TextLabel")
-    shopHeader.Size = UDim2.new(0.98, 0, 0, 18)
-    shopHeader.BackgroundTransparency = 1
-    shopHeader.Text = "🛍️ BLOX FRUIT SHOP & GACHA"
-    shopHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
-    shopHeader.Font = Enum.Font.GothamBlack
-    shopHeader.TextSize = 12
-    shopHeader.TextXAlignment = Enum.TextXAlignment.Left
-    shopHeader.Parent = shopPage
+    Hub.CreateSection(shopPage, "🛍️ Blox Fruit Shop & Gacha")
     local selectedSnipeFruit = "Kitsune"
     local allFruits = {
         "Rocket", "Spin", "Blade", "Spring", "Bomb", "Smoke", "Spike", 
@@ -2175,28 +2109,184 @@ _G.ENI_GlobalLoop = RunService.Heartbeat:Connect(function()
     end
 end)
 
--- STANDALONE FAST ATTACK (Using game's encrypted Net wrapper for RegisterHit)
+-- ROBUST MULTI-LAYER FAST ATTACK ENGINE (Blox Fruits Net / CombatFramework / Remotes)
 if _G.ENI_FastHitThread then 
     pcall(function() task.cancel(_G.ENI_FastHitThread) end)
     _G.ENI_FastHitThread = nil
 end
 if _G.ENI_FastHitLoop then pcall(function() _G.ENI_FastHitLoop:Disconnect() end) end
+if _G.ENI_InputBeganConn then pcall(function() _G.ENI_InputBeganConn:Disconnect() end) end
+if _G.ENI_InputEndedConn then pcall(function() _G.ENI_InputEndedConn:Disconnect() end) end
 
--- Get the REAL encrypted remote wrappers through the Net module
-_G.ENI_NetModule = require(ReplicatedStorage.Modules.Net)
-_G.ENI_WrappedHit = _G.ENI_NetModule:RemoteEvent("RegisterHit", true)
-_G.ENI_WrappedAtk = _G.ENI_NetModule:RemoteEvent("RegisterAttack", true)
+-- Attempt to retrieve CombatFramework and Net module safely
+pcall(function()
+    _G.ENI_CombatFramework = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
+end)
+pcall(function()
+    _G.ENI_NetModule = require(ReplicatedStorage.Modules:WaitForChild("Net", 2))
+    _G.ENI_WrappedAtk = _G.ENI_NetModule:RemoteEvent("RegisterAttack")
+    _G.ENI_WrappedHit = _G.ENI_NetModule:RemoteEvent("RegisterHit")
+end)
+
 _G.ENI_LastHitTime = 0
+_G.ENI_IsManualAttacking = false
 
-_G.ENI_FastHitLoop = RunService.RenderStepped:Connect(function()
+-- Global performFastAttack function callable anywhere (Auto Farm, Bosses, Raids, Fast Attack)
+_G.ENI_PerformFastAttack = function(nearbyHits, primaryPart)
+    if not nearbyHits or #nearbyHits == 0 then return end
+    primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart")))
+    if not primaryPart then return end
+
+    -- 1. Net Module (Wrapped Remote Events)
+    pcall(function()
+        if not _G.ENI_WrappedAtk or not _G.ENI_WrappedHit then
+            local netM = require(ReplicatedStorage.Modules.Net)
+            _G.ENI_WrappedAtk = netM:RemoteEvent("RegisterAttack")
+            _G.ENI_WrappedHit = netM:RemoteEvent("RegisterHit")
+        end
+        if _G.ENI_WrappedAtk then
+            if typeof(_G.ENI_WrappedAtk) == "Instance" then
+                _G.ENI_WrappedAtk:FireServer(0)
+            elseif type(_G.ENI_WrappedAtk) == "table" and _G.ENI_WrappedAtk.FireServer then
+                _G.ENI_WrappedAtk:FireServer(0)
+            end
+        end
+        if _G.ENI_WrappedHit then
+            if typeof(_G.ENI_WrappedHit) == "Instance" then
+                _G.ENI_WrappedHit:FireServer(primaryPart, nearbyHits)
+            elseif type(_G.ENI_WrappedHit) == "table" and _G.ENI_WrappedHit.FireServer then
+                _G.ENI_WrappedHit:FireServer(primaryPart, nearbyHits)
+            end
+        end
+    end)
+
+    -- 2. Direct RE child instances fallback
+    pcall(function()
+        local netFolder = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+        if netFolder then
+            local rAtk = netFolder:FindFirstChild("RE/RegisterAttack") or netFolder:FindFirstChild("RegisterAttack")
+            local rHit = netFolder:FindFirstChild("RE/RegisterHit") or netFolder:FindFirstChild("RegisterHit")
+            if rAtk then rAtk:FireServer(0) end
+            if rHit then rHit:FireServer(primaryPart, nearbyHits) end
+        end
+    end)
+
+    -- 3. CommE / Remotes fallback
+    pcall(function()
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        local commE = remotes and remotes:FindFirstChild("CommE")
+        if commE then
+            commE:FireServer("RegisterAttack", 0)
+            commE:FireServer("RegisterHit", primaryPart, nearbyHits)
+        end
+    end)
+
+    -- 4. CombatFramework controller bypass
+    pcall(function()
+        if _G.ENI_CombatFramework and _G.ENI_CombatFramework.activeController then
+            local ac = _G.ENI_CombatFramework.activeController
+            ac.timeToNextAttack = 0
+            ac.attacking = false
+            ac.blocking = false
+            if ac.hitboxMagnitude and ac.hitboxMagnitude < 60 then
+                ac.hitboxMagnitude = 60
+            end
+        end
+    end)
+end
+
+-- Fast Attack Input detection (Mouse click, Touch screen on mobile, Tool activation)
+_G.ENI_InputBeganConn = UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        _G.ENI_IsManualAttacking = true
+    end
+end)
+
+_G.ENI_InputEndedConn = UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        _G.ENI_IsManualAttacking = false
+    end
+end)
+
+local hookedTools = {}
+local function hookToolFastAttack(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    if hookedTools[tool] then return end
+    hookedTools[tool] = true
+
+    tool.Activated:Connect(function()
+        if not isAuraHitOn then return end
+        task.spawn(function()
+            local char = LocalPlayer.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+            local hrp = char.HumanoidRootPart
+            local hits = {}
+            local primaryHRP = nil
+            
+            if selectedFastAttackTarget == "NPCs" or selectedFastAttackTarget == "Everyone" then
+                local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
+                for i = 1, #enemies do
+                    local mob = enemies[i]
+                    local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                    local mHum = mob:FindFirstChildOfClass("Humanoid")
+                    if mHrp and mHum and mHum.Health > 0 and (mHrp.Position - hrp.Position).Magnitude <= 60 then
+                        if not primaryHRP then primaryHRP = mHrp end
+                        table.insert(hits, {mob, mHrp})
+                    end
+                end
+            end
+            if selectedFastAttackTarget == "Players" or selectedFastAttackTarget == "Everyone" then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") and plr.Character.Humanoid.Health > 0 then
+                        local pHrp = plr.Character.HumanoidRootPart
+                        if (pHrp.Position - hrp.Position).Magnitude <= 60 then
+                            if not primaryHRP then primaryHRP = pHrp end
+                            table.insert(hits, {plr.Character, pHrp})
+                        end
+                    end
+                end
+            end
+            if primaryHRP and #hits > 0 then
+                _G.ENI_PerformFastAttack(hits, primaryHRP)
+            end
+        end)
+    end)
+end
+
+if LocalPlayer.Character then
+    for _, child in ipairs(LocalPlayer.Character:GetChildren()) do
+        if child:IsA("Tool") then hookToolFastAttack(child) end
+    end
+    LocalPlayer.Character.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then hookToolFastAttack(child) end
+    end)
+end
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    newChar.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then hookToolFastAttack(child) end
+    end)
+end)
+
+-- CALIBRATED FAST ATTACK HEARTBEAT STREAM
+_G.ENI_FastHitLoop = RunService.Heartbeat:Connect(function()
     pcall(function()
         if not isAuraHitOn then return end
-        if tick() - _G.ENI_LastHitTime < 0.025 then return end
-        _G.ENI_LastHitTime = tick()
+
+        local isClicking = _G.ENI_IsManualAttacking or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+        local shouldAttack = isFarmOn or isClicking
+        if not shouldAttack then return end
+
+        local now = tick()
+        if now - _G.ENI_LastHitTime < 0.08 then return end
+        _G.ENI_LastHitTime = now
 
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local hrp = char.HumanoidRootPart
+
+        local tool = char:FindFirstChildOfClass("Tool")
+        if not tool then return end
 
         local nearbyHits = {}
         local primaryHRP = nil
@@ -2205,10 +2295,11 @@ _G.ENI_FastHitLoop = RunService.RenderStepped:Connect(function()
             local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
             for i = 1, #enemies do
                 local mob = enemies[i]
-                if mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChildOfClass("Humanoid") and mob.Humanoid.Health > 0 then
-                    local mHrp = mob.HumanoidRootPart
+                local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                local mHum = mob:FindFirstChildOfClass("Humanoid")
+                if mHrp and mHum and mHum.Health > 0 then
                     local dist = (mHrp.Position - hrp.Position).Magnitude
-                    if dist <= 90 then
+                    if dist <= 60 then
                         if not primaryHRP then primaryHRP = mHrp end
                         table.insert(nearbyHits, {mob, mHrp})
                     end
@@ -2222,7 +2313,7 @@ _G.ENI_FastHitLoop = RunService.RenderStepped:Connect(function()
                     if plr.Character.Humanoid.Health > 0 then
                         local pHrp = plr.Character.HumanoidRootPart
                         local dist = (pHrp.Position - hrp.Position).Magnitude
-                        if dist <= 90 then
+                        if dist <= 60 then
                             if not primaryHRP then primaryHRP = pHrp end
                             table.insert(nearbyHits, {plr.Character, pHrp})
                         end
@@ -2232,11 +2323,7 @@ _G.ENI_FastHitLoop = RunService.RenderStepped:Connect(function()
         end
 
         if primaryHRP and #nearbyHits > 0 then
-            -- Ultra-Fast Multi-Burst Attack Engine (~120 hits/sec throughput)
-            for burst = 1, 3 do
-                pcall(function() _G.ENI_WrappedAtk:FireServer(0) end)
-                pcall(function() _G.ENI_WrappedHit.FireServer(_G.ENI_WrappedHit, primaryHRP, nearbyHits) end)
-            end
+            _G.ENI_PerformFastAttack(nearbyHits, primaryHRP)
         end
     end)
 end)
@@ -2250,7 +2337,7 @@ travelStatusLabel.TextColor3 = Color3.fromRGB(0, 230, 255)
 travelStatusLabel.Font = Enum.Font.GothamBold
 travelStatusLabel.TextSize = 12
 travelStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-travelStatusLabel.Parent = travelPage
+pcall(function() travelStatusLabel.Parent = travelPage end)
 registerThemeText(travelStatusLabel)
 
 -- GLOBAL CANCEL TWEEN HELPER
@@ -2555,16 +2642,7 @@ local isPotatoModeOn = false
 
 -- ESP PAGE (VISUAL TRACKERS)
 do
-    local espHeader = Instance.new("TextLabel")
-    espHeader.Size = UDim2.new(0.98, 0, 0, 18)
-    espHeader.BackgroundTransparency = 1
-    espHeader.Text = "👁️ VISUAL ESP TRACKERS"
-    espHeader.TextColor3 = Color3.fromRGB(0, 230, 255)
-    espHeader.Font = Enum.Font.GothamBlack
-    espHeader.TextSize = 12
-    espHeader.TextXAlignment = Enum.TextXAlignment.Left
-    espHeader.Parent = espPage
-    registerThemeText(espHeader)
+    Hub.CreateSection(espPage, "👁️ Visual ESP Trackers")
 
     createSliderToggle(espPage, "Chest ESP Tracker", false, function(newState)
         isChestEspOn = newState
@@ -2581,16 +2659,7 @@ end
 
 -- FRUIT PAGE SETUP (DEVIL FRUIT SUITE)
 do
-    local fruitHeader = Instance.new("TextLabel")
-    fruitHeader.Size = UDim2.new(0.98, 0, 0, 18)
-    fruitHeader.BackgroundTransparency = 1
-    fruitHeader.Text = "🍎 DEVIL FRUIT SUITE & AUTO SNIPER"
-    fruitHeader.TextColor3 = Color3.fromRGB(0, 230, 255)
-    fruitHeader.Font = Enum.Font.GothamBlack
-    fruitHeader.TextSize = 12
-    fruitHeader.TextXAlignment = Enum.TextXAlignment.Left
-    fruitHeader.Parent = fruitPage
-    registerThemeText(fruitHeader)
+    Hub.CreateSection(fruitPage, "🍎 Devil Fruit Suite & Auto Sniper")
 
     Hub.CreateButton(fruitPage, "🎁 Collect All Spawned Fruits", function()
         task.spawn(function()
@@ -2639,36 +2708,57 @@ end
 
 -- MISC PAGE SETUP (POTATO MODE & PERFORMANCE)
 do
-    local miscHeader = Instance.new("TextLabel")
-    miscHeader.Size = UDim2.new(0.98, 0, 0, 18)
-    miscHeader.BackgroundTransparency = 1
-    miscHeader.Text = "⚙️ MISC & PERFORMANCE SETTINGS"
-    miscHeader.TextColor3 = Color3.fromRGB(0, 230, 255)
-    miscHeader.Font = Enum.Font.GothamBlack
-    miscHeader.TextSize = 12
-    miscHeader.TextXAlignment = Enum.TextXAlignment.Left
-    miscHeader.Parent = miscPage
-    registerThemeText(miscHeader)
+    Hub.CreateSection(miscPage, "⚙️ Misc & Performance Settings")
 
+    local miscPotatoSaved = {}
     createSliderToggle(miscPage, "⚡ Potato Mode", false, function(newState)
         isPotatoModeOn = newState
         pcall(function()
-            local terrain = workspace:FindFirstChildOfClass("Terrain")
-            if terrain then
-                terrain.WaterWaveSize = newState and 0 or 0.15
-                terrain.WaterWaveSpeed = newState and 0 or 10
-                terrain.WaterReflectance = newState and 0 or 1
-                terrain.WaterTransparency = newState and 0 or 1
-            end
-            game:GetService("Lighting").GlobalShadows = not newState
-            for _, v in ipairs(game:GetDescendants()) do
-                if v:IsA("BasePart") and not v:IsA("MeshPart") then
-                    if newState then v.Material = Enum.Material.SmoothPlastic else v.Material = Enum.Material.Plastic end
-                elseif v:IsA("Decal") or v:IsA("Texture") then
-                    v.Transparency = newState and 1 or 0
-                elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-                    v.Enabled = not newState
+            if newState then
+                miscPotatoSaved = { materials = {}, decals = {}, emitters = {} }
+                local terrain = workspace:FindFirstChildOfClass("Terrain")
+                if terrain then
+                    terrain.WaterWaveSize = 0
+                    terrain.WaterWaveSpeed = 0
                 end
+                game:GetService("Lighting").GlobalShadows = false
+                for _, v in ipairs(workspace:GetDescendants()) do
+                    if v:IsA("BasePart") and not v:IsA("MeshPart") and not v:IsA("Terrain") then
+                        miscPotatoSaved.materials[v] = v.Material
+                        v.Material = Enum.Material.SmoothPlastic
+                    elseif v:IsA("Decal") or v:IsA("Texture") then
+                        miscPotatoSaved.decals[v] = v.Transparency
+                        v.Transparency = 1
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                        if v.Enabled then
+                            miscPotatoSaved.emitters[v] = true
+                            v.Enabled = false
+                        end
+                    end
+                end
+            else
+                local terrain = workspace:FindFirstChildOfClass("Terrain")
+                if terrain then
+                    terrain.WaterWaveSize = 0.15
+                    terrain.WaterWaveSpeed = 10
+                end
+                game:GetService("Lighting").GlobalShadows = true
+                if miscPotatoSaved.materials then
+                    for part, mat in pairs(miscPotatoSaved.materials) do
+                        if part and part.Parent then part.Material = mat end
+                    end
+                end
+                if miscPotatoSaved.decals then
+                    for decal, trans in pairs(miscPotatoSaved.decals) do
+                        if decal and decal.Parent then decal.Transparency = trans end
+                    end
+                end
+                if miscPotatoSaved.emitters then
+                    for emitter, _ in pairs(miscPotatoSaved.emitters) do
+                        if emitter and emitter.Parent then emitter.Enabled = true end
+                    end
+                end
+                miscPotatoSaved = {}
             end
         end)
         notifyGUI("PERFORMANCE", newState and "Potato Mode ENABLED! ⚡ (Textures & Particles OFF)" or "Potato Mode Disabled.", 3)
@@ -2697,21 +2787,17 @@ if _G.ENI_EspLoop then pcall(function() _G.ENI_EspLoop:Disconnect() end) end
 if _G.ENI_EspThread then pcall(function() task.cancel(_G.ENI_EspThread) end) end
 if _G.ENI_FastEspRender then pcall(function() _G.ENI_FastEspRender:Disconnect() end) end
 
-local espGuiParent = CoreGui:FindFirstChild("ENI_ESP_GuiContainer")
-if not espGuiParent then
-    local ok, _ = pcall(function()
+local espGuiParent = nil
+pcall(function()
+    local targetParent = (gethui and gethui()) or game:GetService("CoreGui") or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui"))
+    espGuiParent = targetParent and targetParent:FindFirstChild("ENI_ESP_GuiContainer")
+    if not espGuiParent and targetParent then
         espGuiParent = Instance.new("ScreenGui")
         espGuiParent.Name = "ENI_ESP_GuiContainer"
         espGuiParent.ResetOnSpawn = false
-        espGuiParent.Parent = CoreGui
-    end)
-    if not ok then
-        espGuiParent = Instance.new("ScreenGui")
-        espGuiParent.Name = "ENI_ESP_GuiContainer"
-        espGuiParent.ResetOnSpawn = false
-        espGuiParent.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        espGuiParent.Parent = targetParent
     end
-end
+end)
 local espFolder = espGuiParent
 
 local knownBossNames = {
@@ -2975,16 +3061,7 @@ end)
 
 -- SERVER & STATS ANALYTICS PAGE
 do
-    local sHeader = Instance.new("TextLabel")
-    sHeader.Size = UDim2.new(0.98, 0, 0, 18)
-    sHeader.BackgroundTransparency = 1
-    sHeader.Text = "📊 SERVER & LIVE PLAYER ANALYTICS"
-    sHeader.TextColor3 = Color3.fromRGB(0, 230, 255)
-    sHeader.Font = Enum.Font.GothamBlack
-    sHeader.TextSize = 12
-    sHeader.TextXAlignment = Enum.TextXAlignment.Left
-    sHeader.Parent = serverPage
-    registerThemeText(sHeader)
+    Hub.CreateSection(serverPage, "📊 Server & Live Player Analytics")
 
     local pStatsCard = Instance.new("Frame")
     pStatsCard.Size = UDim2.new(0.98, 0, 0, 95)
@@ -3959,74 +4036,29 @@ _G.startENIFarm = function()
 
                 farmStatusLabel.Text = string.format("Lvl %d | Farming %d %s (Multi-NPC Fast Hit Engine)", currentLevel, #targetMobs, targetMobs[1].Name)
 
-                -- BLOX FRUIT & WEAPON PURE AURA MULTI-TARGET HIT ENGINE (NETWORK SYNCED & MICRO-BATCHED)
+                -- BLOX FRUIT & WEAPON PURE MULTI-TARGET FAST ATTACK ENGINE
                 if activeTool then
                     pcall(function()
-                        local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-                        local commE = remotes and remotes:FindFirstChild("CommE")
-                        local commF = remotes and remotes:FindFirstChild("CommF_")
-                        
-                        -- Build multi-hit list containing ALL stacked mobs (up to 15 simultaneously)
                         local hitList = {}
                         local now = tick()
 
                         for i = 1, math.min(#targetMobs, 15) do
                             local mob = targetMobs[i]
-                            local mHrp = mob:FindFirstChild("HumanoidRootPart")
+                            local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
                             local mHum = mob:FindFirstChildOfClass("Humanoid")
                             
                             if mHrp and mHum and mHum.Health > 0 then
-                                -- Spawn i-frame check: If mob was recently spawned (< 0.8s), track spawn tick but bypass desync
-                                local spawnTick = mob:GetAttribute("ENI_SpawnTick")
-                                if not spawnTick then
-                                    spawnTick = now
-                                    mob:SetAttribute("ENI_SpawnTick", now)
-                                end
-                                
-                                -- Network ownership sync: Ensure mob position is firmly synchronized with server
                                 local distFromPlayer = (mHrp.Position - playerHRP.Position).Magnitude
-                                if distFromPlayer <= (farmDist + 12) then
+                                if distFromPlayer <= (farmDist + 18) then
                                     table.insert(hitList, {mob, mHrp})
                                 end
                             end
                         end
                         
-                        if #hitList > 0 then
-                            -- 1. Primary multi-target packet stream for immediate batch hit registration
+                        if #hitList > 0 and (now - (lastFarmHit or 0) >= 0.08) then
+                            lastFarmHit = now
                             local primaryHRP = hitList[1][2]
-                            if commE then
-                                commE:FireServer("RegisterHit", primaryHRP, hitList)
-                            end
-                            if commF then
-                                commF:InvokeServer("RigController", "WeaponHit", activeTool.Name, hitList)
-                            end
-
-                            -- 2. Staggered micro-batch packet stream: Send secondary hits in pairs to prevent server rate drops
-                            if #hitList > 1 then
-                                for idx = 1, #hitList, 2 do
-                                    local pair = {}
-                                    table.insert(pair, hitList[idx])
-                                    if hitList[idx + 1] then
-                                        table.insert(pair, hitList[idx + 1])
-                                    end
-
-                                    local targetPart = hitList[idx][2]
-                                    if commE then
-                                        commE:FireServer("RegisterHit", targetPart, pair)
-                                    end
-                                    if commF then
-                                        commF:InvokeServer("RigController", "WeaponHit", activeTool.Name, pair)
-                                    end
-                                end
-                            end
-
-                            local net = game:GetService("ReplicatedStorage"):FindFirstChild("Net")
-                            if net then
-                                local regHit = net:FindFirstChild("RegisterHit") or net:FindFirstChild("RegisterAttack") or net:FindFirstChild("Combo")
-                                if regHit and regHit:IsA("RemoteEvent") then
-                                    regHit:FireServer()
-                                end
-                            end
+                            _G.ENI_PerformFastAttack(hitList, primaryHRP)
                         end
                     end)
                 end

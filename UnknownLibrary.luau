@@ -18,7 +18,7 @@ local function applyCorner(obj, radius)
     if not obj then return nil end
     local c = Instance.new("UICorner")
     c.CornerRadius = UDim.new(0, radius or 8)
-    c.Parent = obj
+    pcall(function() c.Parent = obj end)
     return c
 end
 
@@ -29,7 +29,7 @@ local function applyStroke(obj, color, thickness, transparency)
     s.Thickness = thickness or 1
     s.Transparency = transparency or 0
     s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    s.Parent = obj
+    pcall(function() s.Parent = obj end)
     return s
 end
 
@@ -1077,13 +1077,13 @@ return function(opts)
         hubState.disablingAll = false
     end
 
-    -- Root ScreenGui setup
-    local localParent = opts.parent or (gethui and gethui()) or CoreGui or (LocalPlayer and LocalPlayer:WaitForChild("PlayerGui"))
+    -- Root ScreenGui setup (Prioritize gethui / PlayerGui to avoid CoreGui capability Plugin locks)
+    local localParent = opts.parent or (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or CoreGui
     hubState.screenGui = Instance.new("ScreenGui")
     hubState.screenGui.Name = opts.name or "ENI_TabbedHub_UI"
     hubState.screenGui.ResetOnSpawn = false
     hubState.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    hubState.screenGui.Parent = localParent
+    pcall(function() hubState.screenGui.Parent = localParent end)
 
     -- Modern Toast Notification Container (Responsive for PC & Mobile)
     local notifWidth = hubState.isMobileDevice and 260 or 300
@@ -4962,7 +4962,7 @@ return function(opts)
         applyCorner(knob, 9)
 
         local isToggled = defaultState or false
-        local function setState(v)
+        local function setState(v, skipCallback)
             isToggled = (v == true)
             hubState.configValues["toggle:" .. tostring(text)] = isToggled
             local targetPos = isToggled and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
@@ -4971,7 +4971,7 @@ return function(opts)
             TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
             TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
-            if callback then pcall(callback, isToggled) end
+            if callback and not skipCallback then pcall(callback, isToggled) end
         end
 
         local click = Instance.new("TextButton")
@@ -5005,7 +5005,7 @@ return function(opts)
         hubState.attachContextMenu(frame, itemData)
         hubState.attachContextMenu(click, itemData)
 
-        setState(isToggled)
+        setState(isToggled, true)
         return {
             Frame = frame,
             Set = setState,
@@ -5352,13 +5352,6 @@ return function(opts)
             itemTitle = title or "Sub-List"
             itemValues = items or {}
             itemExpanded = expanded ~= false
-        elseif typeof(parentTarget) == "Instance" and parentTarget:IsA("ScrollingFrame") then
-            if hubState.scrollingFrameToListMap[parentTarget] then
-                parentListObj = hubState.scrollingFrameToListMap[parentTarget]
-                isNestedList = true
-            elseif type(selectionOptions) == "table" and selectionOptions.isNested == true then
-                isNestedList = true
-            end
         elseif type(parentTarget) == "table" then
             itemValues = parentTarget
             parentTarget = contentArea
@@ -5376,12 +5369,16 @@ return function(opts)
                 itemValues = items or {}
                 itemExpanded = expanded ~= false
             end
-        elseif typeof(parentTarget) == "Instance" then
-            if type(title) == "table" then
-                itemValues = title
-                itemTitle = "List"
-                itemExpanded = height ~= false
-            end
+        end
+
+        -- Safe fallback for parentTarget if Instance or nil
+        if typeof(parentTarget) == "Instance" then
+            pcall(function()
+                if hubState.scrollingFrameToListMap and hubState.scrollingFrameToListMap[parentTarget] then
+                    parentListObj = hubState.scrollingFrameToListMap[parentTarget]
+                    isNestedList = true
+                end
+            end)
         end
 
         local rawHeight = tonumber(height)
@@ -5414,7 +5411,6 @@ return function(opts)
         frame.BackgroundColor3 = isNestedList and Color3.fromRGB(13, 17, 26) or Color3.fromRGB(16, 20, 30)
         frame.BorderSizePixel = 0
         frame.ClipsDescendants = true
-        frame.Parent = parentTarget
         applyCorner(frame, isNestedList and 6 or 7)
         applyStroke(frame, isNestedList and Color3.fromRGB(44, 54, 76) or Color3.fromRGB(34, 42, 58), 1, 0)
 
@@ -5427,7 +5423,7 @@ return function(opts)
         titleBtn.TextSize = isNestedList and 11 or 12
         titleBtn.TextTruncate = Enum.TextTruncate.AtEnd
         titleBtn.TextXAlignment = Enum.TextXAlignment.Left
-        titleBtn.Parent = frame
+        pcall(function() titleBtn.Parent = frame end)
         applyCorner(titleBtn, isNestedList and 6 or 7)
 
         local arrow = Instance.new("TextLabel")
@@ -5442,7 +5438,7 @@ return function(opts)
         arrow.TextXAlignment = Enum.TextXAlignment.Center
         arrow.TextYAlignment = Enum.TextYAlignment.Center
         arrow.Rotation = itemExpanded and 0 or -90
-        arrow.Parent = titleBtn
+        pcall(function() arrow.Parent = titleBtn end)
         hubState.registerThemeText(arrow)
 
         local list = Instance.new("ScrollingFrame")
@@ -5455,12 +5451,12 @@ return function(opts)
         list.CanvasSize = UDim2.new(0, 0, 0, 0)
         list.ClipsDescendants = true
         list.Visible = itemExpanded
-        list.Parent = frame
+        pcall(function() list.Parent = frame end)
 
         local layout = Instance.new("UIListLayout")
         layout.SortOrder = Enum.SortOrder.LayoutOrder
         layout.Padding = UDim.new(0, 5)
-        layout.Parent = list
+        pcall(function() layout.Parent = list end)
 
         local listObject = {
             ParentList = parentListObj,
@@ -5599,10 +5595,11 @@ return function(opts)
             updateListHeight(true)
         end)
 
-        -- Initial sizing setup
-        task.defer(function()
-            updateListHeight(false)
-        end)
+        -- Attach assembled list frame tree to parent target
+        pcall(function() frame.Parent = parentTarget end)
+        if not frame.Parent then
+            pcall(function() frame.Parent = contentArea end)
+        end
 
         listObject.Frame = frame
         listObject.List = list
