@@ -306,7 +306,7 @@ local function addSectionDivider(parent)
     divider.Size = UDim2.new(0.98, 0, 0, 1)
     divider.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
     divider.BorderSizePixel = 0
-    divider.Parent = parent or Hub.content
+    pcall(function() divider.Parent = parent or Hub.content end)
     return divider
 end
 
@@ -420,40 +420,17 @@ do
     CreateButton(serverPage, "⚡ Hop to Freshest Server", nil, function() _G.ENI_SmartServerHop("freshest") end)
 
     -- Job ID Box & Controls
-    local jobIdBox = Instance.new("TextBox")
-    jobIdBox.Size = UDim2.new(0.98, 0, 0, 32)
-    jobIdBox.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
-    jobIdBox.PlaceholderText = "Paste Job ID here..."
-    jobIdBox.Text = ""
-    jobIdBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    jobIdBox.Font = Enum.Font.GothamMedium
-    jobIdBox.TextSize = 12
-    jobIdBox.Parent = serverPage
-    applyCorner(jobIdBox)
+    local enteredJobId = ""
+    local jobIdBox = Hub.CreateTextBox(serverPage, "Paste Job ID here...", "", function(txt)
+        enteredJobId = txt
+    end)
 
-    local joinJobBtn = Instance.new("TextButton")
-    joinJobBtn.Size = UDim2.new(0.98, 0, 0, 32)
-    joinJobBtn.BackgroundColor3 = Color3.fromRGB(30, 40, 55)
-    joinJobBtn.Text = "🎯 Join by Job ID"
-    joinJobBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    joinJobBtn.Font = Enum.Font.GothamBold
-    joinJobBtn.TextSize = 12
-    joinJobBtn.Parent = serverPage
-    applyCorner(joinJobBtn)
-
-    local copyJobBtn = Instance.new("TextButton")
-    copyJobBtn.Size = UDim2.new(0.98, 0, 0, 32)
-    copyJobBtn.BackgroundColor3 = Color3.fromRGB(40, 30, 50)
-    copyJobBtn.Text = "📋 Copy Current Job ID"
-    copyJobBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    copyJobBtn.Font = Enum.Font.GothamBold
-    copyJobBtn.TextSize = 12
-    copyJobBtn.Parent = serverPage
-    applyCorner(copyJobBtn)
-
-    joinJobBtn.MouseButton1Click:Connect(function()
-        local targetJobId = jobIdBox.Text
-        if targetJobId ~= "" then
+    Hub.CreateButton(serverPage, "🎯 Join by Job ID", nil, function()
+        local targetJobId = enteredJobId
+        if (not targetJobId or targetJobId == "") and jobIdBox and jobIdBox.Text then
+            targetJobId = jobIdBox.Text
+        end
+        if targetJobId and targetJobId ~= "" then
             notifyGUI("SERVER", "Joining Job ID...", 3)
             game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, targetJobId, LocalPlayer)
         else
@@ -461,12 +438,15 @@ do
         end
     end)
 
-    copyJobBtn.MouseButton1Click:Connect(function()
+    Hub.CreateButton(serverPage, "📋 Copy Current Job ID", nil, function()
         if setclipboard then
-            setclipboard(game.JobId)
-            notifyGUI("SERVER", "Job ID copied to clipboard!", 3)
+            setclipboard(tostring(game.JobId))
+            notifyGUI("COPIED", "Server Job ID copied to clipboard!", 3)
+        elseif toclipboard then
+            toclipboard(tostring(game.JobId))
+            notifyGUI("COPIED", "Server Job ID copied to clipboard!", 3)
         else
-            notifyGUI("ERROR", "Executor doesn't support setclipboard!", 3)
+            notifyGUI("ERROR", "Clipboard function not supported by executor!", 3)
         end
     end)
 end
@@ -739,7 +719,7 @@ do
     farmStatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
     farmStatusLabel.Font = Enum.Font.Gotham
     farmStatusLabel.TextSize = 13
-    farmStatusLabel.Parent = farmPage
+    pcall(function() farmStatusLabel.Parent = farmPage end)
 end
 
 -- QUESTS PAGE SETUP
@@ -3068,7 +3048,7 @@ do
     pStatsCard.Size = UDim2.new(0.98, 0, 0, 95)
     pStatsCard.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
     pStatsCard.BorderSizePixel = 0
-    pStatsCard.Parent = serverPage
+    pcall(function() pStatsCard.Parent = serverPage end)
     applyCorner(pStatsCard)
 
     local pStatsLbl = Instance.new("TextLabel")
@@ -3081,13 +3061,13 @@ do
     pStatsLbl.TextSize = 11
     pStatsLbl.TextXAlignment = Enum.TextXAlignment.Left
     pStatsLbl.TextYAlignment = Enum.TextYAlignment.Top
-    pStatsLbl.Parent = pStatsCard
+    pcall(function() pStatsLbl.Parent = pStatsCard end)
 
     local sStatsCard = Instance.new("Frame")
     sStatsCard.Size = UDim2.new(0.98, 0, 0, 95)
     sStatsCard.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
     sStatsCard.BorderSizePixel = 0
-    sStatsCard.Parent = serverPage
+    pcall(function() sStatsCard.Parent = serverPage end)
     applyCorner(sStatsCard)
 
     local sStatsLbl = Instance.new("TextLabel")
@@ -3100,14 +3080,14 @@ do
     sStatsLbl.TextSize = 11
     sStatsLbl.TextXAlignment = Enum.TextXAlignment.Left
     sStatsLbl.TextYAlignment = Enum.TextYAlignment.Top
-    sStatsLbl.Parent = sStatsCard
+    pcall(function() sStatsLbl.Parent = sStatsCard end)
 
     -- Live World & Client Memory Card
     local wStatsCard = Instance.new("Frame")
     wStatsCard.Size = UDim2.new(0.98, 0, 0, 75)
     wStatsCard.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
     wStatsCard.BorderSizePixel = 0
-    wStatsCard.Parent = serverPage
+    pcall(function() wStatsCard.Parent = serverPage end)
     applyCorner(wStatsCard)
 
     local wStatsLbl = Instance.new("TextLabel")
@@ -3120,7 +3100,7 @@ do
     wStatsLbl.TextSize = 11
     wStatsLbl.TextXAlignment = Enum.TextXAlignment.Left
     wStatsLbl.TextYAlignment = Enum.TextYAlignment.Top
-    wStatsLbl.Parent = wStatsCard
+    pcall(function() wStatsLbl.Parent = wStatsCard end)
 
     -- Analytics Auto-Update Thread
     task.spawn(function()
