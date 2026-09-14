@@ -2572,7 +2572,8 @@ local bossStatusBadges = {}
 
 for i, boss in ipairs(BossData) do
     selectedBosses[boss.ExactName] = false
-    local row, entryData = bossList:AddItem(boss.ExactName, boss.Display .. " | " .. boss.Reward, function()
+    local bossTitle = tostring(boss.Display or boss.ExactName or ("Boss #" .. tostring(i)))
+    local row, entryData = bossList:AddItem(bossTitle, "[READY / UNCHECKED]", function()
         selectedBosses[boss.ExactName] = not selectedBosses[boss.ExactName]
     end)
     if row then
