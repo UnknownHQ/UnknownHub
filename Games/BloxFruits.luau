@@ -2770,16 +2770,18 @@ if _G.ENI_FastEspRender then pcall(function() _G.ENI_FastEspRender:Disconnect() 
 
 local espGuiParent = nil
 pcall(function()
-    local targetParent = (gethui and gethui()) or game:GetService("CoreGui") or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui"))
-    espGuiParent = targetParent and targetParent:FindFirstChild("ENI_ESP_GuiContainer")
-    if not espGuiParent and targetParent then
-        espGuiParent = Instance.new("ScreenGui")
-        espGuiParent.Name = "ENI_ESP_GuiContainer"
-        espGuiParent.ResetOnSpawn = false
-        espGuiParent.Parent = targetParent
+    local targetParent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 2))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
+    if targetParent then
+        espGuiParent = targetParent:FindFirstChild("ENI_ESP_GuiContainer")
+        if not espGuiParent then
+            espGuiParent = Instance.new("ScreenGui")
+            espGuiParent.Name = "ENI_ESP_GuiContainer"
+            espGuiParent.ResetOnSpawn = false
+            pcall(function() espGuiParent.Parent = targetParent end)
+        end
     end
 end)
-local espFolder = espGuiParent
+local espFolder = espGuiParent or (Hub and Hub.screenGui) or (Hub and Hub.content)
 
 local knownBossNames = {
     ["Gorilla King"] = true, ["Bobby"] = true, ["Yeti"] = true, ["Mob Leader"] = true,
@@ -2789,7 +2791,9 @@ local knownBossNames = {
 }
 
 local function createEspTag(targetPos, textStr, color3Val, tagKey)
-    local existing = espFolder:FindFirstChild(tagKey)
+    if not espFolder then return nil end
+    local existing = nil
+    pcall(function() existing = espFolder:FindFirstChild(tagKey) end)
     if not existing then
         existing = Instance.new("TextLabel")
         existing.Name = tagKey
@@ -2800,7 +2804,7 @@ local function createEspTag(targetPos, textStr, color3Val, tagKey)
         existing.TextSize = 13
         existing.TextStrokeTransparency = 0.2
         existing.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-        existing.Parent = espFolder
+        pcall(function() existing.Parent = espFolder end)
     end
     
     existing.Text = textStr
