@@ -3734,7 +3734,7 @@ return function(opts)
 
         local titleGroup = Instance.new("Frame")
     titleGroup.Name = "TitleGroup"
-    titleGroup.Size = UDim2.new(1, -220, 1, 0)
+    titleGroup.Size = UDim2.new(1, -235, 1, 0)
     titleGroup.Position = UDim2.new(0, 14, 0, 0)
     titleGroup.BackgroundTransparency = 1
     titleGroup.ZIndex = 22
@@ -7760,6 +7760,7 @@ return function(opts)
         createList = hubState.CreateList,
         GetItemFromList = hubState.GetItemFromList,
         createTabButton = hubState.createTabButton,
+        CreateTabButton = hubState.createTabButton,
         BringSelectedItem = hubState.BringSelectedItem,
         createPage = hubState.createPage,
         createSliderToggle = hubState.createToggle,
