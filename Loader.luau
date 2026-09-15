@@ -24,6 +24,14 @@ local LIBRARY_URL = BASE_URL .. "/UnknownLibrary"
 -- =========================================================================
 local SupportedGames = {
     {
+        name = "Booga Booga",
+        icon = "🏕️",
+        placeIds = { 59004523, 59004524, 117296883, 117296884, 5253198075, 5928812690, 6393433504 },
+        gameIds = { 59004523, 59004524, 117296883, 117296884, 5253198075 },
+        scriptUrl = BASE_URL .. "/Games/BoogaBooga.luau",
+        desc = "Kill & mob aura, auto harvest trees/ores, magnet loot, godmode & island TP"
+    },
+    {
         name = "Slap Battles",
         icon = "🥊",
         placeIds = { 6403373529, 9431156611, 11520107397, 9426795465, 124596094333302 },

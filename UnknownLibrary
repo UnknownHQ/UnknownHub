@@ -6047,13 +6047,12 @@ return function(opts)
         frame.Size = UDim2.new(1, -6, 0, 42)
         frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
         frame.BorderSizePixel = 0
-        frame.ClipsDescendants = true
         pcall(function() frame.Parent = parent end)
         applyCorner(frame, 7)
-        applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        local dropStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
 
         local title = Instance.new("TextLabel")
-        title.Size = UDim2.new(0.5, 0, 0, 42)
+        title.Size = UDim2.new(0.5, 0, 1, 0)
         title.Position = UDim2.new(0, 14, 0, 0)
         title.BackgroundTransparency = 1
         title.Text = titleText or "Dropdown"
@@ -6065,87 +6064,167 @@ return function(opts)
         title.Parent = frame
 
         local selectedBtn = Instance.new("TextButton")
-        selectedBtn.Size = UDim2.new(0.44, 0, 0, 28)
-        selectedBtn.Position = UDim2.new(0.52, 0, 0, 7)
-        selectedBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+        selectedBtn.Size = UDim2.new(0.46, 0, 0, 28)
+        selectedBtn.Position = UDim2.new(0.51, 0, 0.5, -14)
+        selectedBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
         selectedBtn.Text = tostring(selected) .. "  ▼"
         selectedBtn.TextColor3 = hubState.currentThemeColor
         selectedBtn.Font = Enum.Font.GothamBold
         selectedBtn.TextSize = 11
         selectedBtn.TextTruncate = Enum.TextTruncate.AtEnd
+        selectedBtn.AutoButtonColor = false
         selectedBtn.Parent = frame
         applyCorner(selectedBtn, 6)
+        local btnStroke = applyStroke(selectedBtn, Color3.fromRGB(38, 48, 68), 1, 0)
         hubState.registerThemeText(selectedBtn)
 
-        local dropList = Instance.new("ScrollingFrame")
-        dropList.Size = UDim2.new(1, -16, 0, 100)
-        dropList.Position = UDim2.new(0, 8, 0, 46)
-        dropList.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
-        dropList.BorderSizePixel = 0
-        dropList.ScrollBarThickness = 3
-        dropList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        dropList.CanvasSize = UDim2.new(0, 0, 0, 0)
-        dropList.Visible = false
-        dropList.Parent = frame
-        applyCorner(dropList, 6)
+        local currentPopupOverlay = nil
 
-        local dropLayout = Instance.new("UIListLayout")
-        dropLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        dropLayout.Padding = UDim.new(0, 4)
-        dropLayout.Parent = dropList
-
-        local isOpen = false
-        local function toggleDropdown()
-            isOpen = not isOpen
-            local targetHeight = isOpen and 156 or 42
-            if isOpen then dropList.Visible = true end
-            TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Size = UDim2.new(1, -6, 0, targetHeight)
-            }):Play()
-            if not isOpen then
-                task.delay(0.2, function() if not isOpen then dropList.Visible = false end end)
-            end
-        end
-
-        local function populateOptions(optsList)
-            for _, child in ipairs(dropList:GetChildren()) do
-                if child:IsA("TextButton") then child:Destroy() end
-            end
-            for _, opt in ipairs(optsList) do
-                local optBtn = Instance.new("TextButton")
-                optBtn.Size = UDim2.new(1, -6, 0, 26)
-                optBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
-                optBtn.Text = "  " .. tostring(opt)
-                optBtn.TextColor3 = (opt == selected) and hubState.currentThemeColor or Color3.fromRGB(220, 225, 240)
-                optBtn.Font = Enum.Font.GothamMedium
-                optBtn.TextSize = 11
-                optBtn.TextTruncate = Enum.TextTruncate.AtEnd
-                optBtn.TextXAlignment = Enum.TextXAlignment.Left
-                optBtn.Parent = dropList
-                applyCorner(optBtn, 4)
-
-                optBtn.MouseButton1Click:Connect(function()
-                    if hubState.isModalActive then return end
-                    selected = opt
-                    selectedBtn.Text = tostring(selected) .. "  ▼"
-                    toggleDropdown()
-                    if callback then pcall(callback, selected) end
+        local function closePopup()
+            if currentPopupOverlay and currentPopupOverlay.Parent then
+                local pop = currentPopupOverlay
+                currentPopupOverlay = nil
+                pcall(function()
+                    local menu = pop:FindFirstChild("Menu")
+                    if menu then
+                        TweenService:Create(menu, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                            Size = UDim2.new(0, menu.AbsoluteSize.X, 0, 0),
+                            BackgroundTransparency = 1
+                        }):Play()
+                    end
+                    TweenService:Create(pop, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        BackgroundTransparency = 1
+                    }):Play()
+                    task.delay(0.13, function() pcall(function() pop:Destroy() end) end)
                 end)
             end
         end
 
+        local function openPopup()
+            closePopup()
+            if not hubState.screenGui or not hubState.screenGui.Parent then return end
+
+            local popOverlay = Instance.new("TextButton")
+            popOverlay.Name = "DropdownPopupOverlay"
+            popOverlay.Size = UDim2.new(1, 0, 1, 0)
+            popOverlay.Position = UDim2.new(0, 0, 0, 0)
+            popOverlay.BackgroundTransparency = 1
+            popOverlay.Text = ""
+            popOverlay.Active = true
+            popOverlay.ZIndex = 500
+            popOverlay.Parent = hubState.screenGui
+            currentPopupOverlay = popOverlay
+
+            popOverlay.MouseButton1Click:Connect(closePopup)
+
+            local btnPos = selectedBtn.AbsolutePosition
+            local btnSize = selectedBtn.AbsoluteSize
+            local screenHeight = (hubState.screenGui.AbsoluteSize.Y > 0) and hubState.screenGui.AbsoluteSize.Y or 800
+            local screenWidth = (hubState.screenGui.AbsoluteSize.X > 0) and hubState.screenGui.AbsoluteSize.X or 1200
+            local menuWidth = math.max(btnSize.X, 160)
+            local totalItems = #options
+            local menuHeight = math.clamp(totalItems * 30 + 8, 38, 180)
+
+            local posX = math.clamp(btnPos.X + btnSize.X - menuWidth, 10, math.max(10, screenWidth - menuWidth - 10))
+            local posY = btnPos.Y + btnSize.Y + 4
+            if posY + menuHeight > screenHeight - 10 then
+                posY = math.max(10, btnPos.Y - menuHeight - 4)
+            end
+
+            local menuFrame = Instance.new("Frame")
+            menuFrame.Name = "Menu"
+            menuFrame.Size = UDim2.new(0, menuWidth, 0, 0)
+            menuFrame.Position = UDim2.new(0, posX, 0, posY)
+            menuFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+            menuFrame.BorderSizePixel = 0
+            menuFrame.ClipsDescendants = true
+            menuFrame.ZIndex = 501
+            menuFrame.Parent = popOverlay
+            applyCorner(menuFrame, 7)
+            local menuStroke = applyStroke(menuFrame, hubState.currentThemeColor, 1.2, 0.2)
+            hubState.registerThemeStroke(menuStroke)
+
+            local scroll = Instance.new("ScrollingFrame")
+            scroll.Size = UDim2.new(1, -6, 1, -8)
+            scroll.Position = UDim2.new(0, 3, 0, 4)
+            scroll.BackgroundTransparency = 1
+            scroll.BorderSizePixel = 0
+            scroll.ScrollBarThickness = 3
+            scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 105)
+            scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+            scroll.ZIndex = 502
+            scroll.Parent = menuFrame
+
+            local layout = Instance.new("UIListLayout")
+            layout.SortOrder = Enum.SortOrder.LayoutOrder
+            layout.Padding = UDim.new(0, 3)
+            layout.Parent = scroll
+
+            for idx, opt in ipairs(options) do
+                local isCurrent = (tostring(opt) == tostring(selected))
+                local itemBtn = Instance.new("TextButton")
+                itemBtn.Name = "Option_" .. tostring(idx)
+                itemBtn.Size = UDim2.new(1, -4, 0, 26)
+                itemBtn.BackgroundColor3 = isCurrent and Color3.fromRGB(28, 38, 56) or Color3.fromRGB(18, 22, 32)
+                itemBtn.Text = (isCurrent and "✓ " or "   ") .. tostring(opt)
+                itemBtn.TextColor3 = isCurrent and hubState.currentThemeColor or Color3.fromRGB(220, 230, 245)
+                itemBtn.Font = isCurrent and Enum.Font.GothamBold or Enum.Font.GothamMedium
+                itemBtn.TextSize = 11
+                itemBtn.TextTruncate = Enum.TextTruncate.AtEnd
+                itemBtn.TextXAlignment = Enum.TextXAlignment.Left
+                itemBtn.AutoButtonColor = false
+                itemBtn.ZIndex = 503
+                itemBtn.Parent = scroll
+                applyCorner(itemBtn, 5)
+
+                itemBtn.MouseEnter:Connect(function()
+                    if not (tostring(opt) == tostring(selected)) then
+                        TweenService:Create(itemBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            BackgroundColor3 = Color3.fromRGB(26, 34, 48),
+                            TextColor3 = Color3.fromRGB(255, 255, 255)
+                        }):Play()
+                    end
+                end)
+                itemBtn.MouseLeave:Connect(function()
+                    if not (tostring(opt) == tostring(selected)) then
+                        TweenService:Create(itemBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            BackgroundColor3 = Color3.fromRGB(18, 22, 32),
+                            TextColor3 = Color3.fromRGB(220, 230, 245)
+                        }):Play()
+                    end
+                end)
+
+                itemBtn.MouseButton1Click:Connect(function()
+                    selected = opt
+                    selectedBtn.Text = tostring(selected) .. "  ▼"
+                    closePopup()
+                    if callback then pcall(callback, selected) end
+                end)
+            end
+
+            TweenService:Create(menuFrame, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0, menuWidth, 0, menuHeight)
+            }):Play()
+        end
+
         selectedBtn.MouseButton1Click:Connect(function()
             if hubState.isModalActive then return end
-            toggleDropdown()
+            if currentPopupOverlay then
+                closePopup()
+            else
+                openPopup()
+            end
         end)
-        populateOptions(options)
 
         local itemData = {
             id = "dropdown_" .. tostring(titleText or "Dropdown"),
             title = titleText or "Dropdown",
             type = "Dropdown",
             tab = hubState.currentActiveTabName,
-            action = toggleDropdown
+            action = function()
+                if currentPopupOverlay then closePopup() else openPopup() end
+            end
         }
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(frame, itemData)
@@ -6158,7 +6237,13 @@ return function(opts)
                 if callback then pcall(callback, selected) end
             end,
             Get = function() return selected end,
-            Refresh = populateOptions
+            Refresh = function(newOptions)
+                options = newOptions or {}
+                if not table.find(options, selected) then
+                    selected = options[1] or "Select Option"
+                    selectedBtn.Text = tostring(selected) .. "  ▼"
+                end
+            end
         }
     end
 

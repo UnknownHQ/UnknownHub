@@ -35,6 +35,9 @@ local ok, result = pcall(function()
     local source
     local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
     source = game:HttpGet(LIBRARY_LINK .. cacheBuster)
+    pcall(function()
+        source = source:gsub("game:GetService%([\"']CoreGui[\"']%)", "(gethui and gethui() or (game:GetService(\"Players\").LocalPlayer and game:GetService(\"Players\").LocalPlayer:WaitForChild(\"PlayerGui\")))")
+    end)
     local factoryChunk, compileErr = loadstring(source)
     assert(factoryChunk, "the linked source did not compile: " .. tostring(compileErr))
     return factoryChunk()
@@ -543,6 +546,50 @@ local isInfEnergyOn = false
 local isAutoChestOn = false
 local isAutoRollOn = false
 local selectedSnipeFruit = "Kitsune"
+
+local function performAutoRollFruit()
+    pcall(function()
+        local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+        local commF = remotes and remotes:FindFirstChild("CommF_")
+        if commF then
+            notifyGUI("RANDOM FRUIT", "Rolling fruit from Blox Fruit Gacha...", 3)
+            local res = commF:InvokeServer("Cousin", "Buy")
+            commF:InvokeServer("Cousin", "DLCBoxData")
+            if res then
+                notifyGUI("RANDOM FRUIT", "Result: " .. tostring(res), 5)
+            end
+            task.wait(1.5)
+
+            local function storeFruitTool(tool)
+                if not tool then return end
+                local origName = tool:GetAttribute("OriginalName") or tool.Name
+                if origName then
+                    commF:InvokeServer("StoreFruit", origName, tool)
+                    notifyGUI("FRUIT", "Auto-Stored: " .. tostring(origName), 4)
+                end
+            end
+
+            local char = LocalPlayer.Character
+            if char then
+                for _, t in ipairs(char:GetChildren()) do
+                    if t:IsA("Tool") and (string.find(t.Name, "Fruit") or t:GetAttribute("OriginalName")) then
+                        storeFruitTool(t)
+                    end
+                end
+            end
+
+            local bp = LocalPlayer:FindFirstChild("Backpack")
+            if bp then
+                for _, t in ipairs(bp:GetChildren()) do
+                    if t:IsA("Tool") and (string.find(t.Name, "Fruit") or t:GetAttribute("OriginalName")) then
+                        storeFruitTool(t)
+                    end
+                end
+            end
+        end
+    end)
+end
+_G.performAutoRollFruit = performAutoRollFruit
 local isStatsOn = false
 local selectedStats = {["Melee"] = true, ["Defense"] = true, ["Sword"] = false, ["Gun"] = false, ["Demon Fruit"] = false}
 local pointsPerUpgrade = 3
@@ -573,8 +620,8 @@ local fastAttackTargets = {"NPCs", "Players", "Everyone"}
 
 -- FARM PAGE LAYOUT & CONTROLS
 do
-    -- 1. Master Auto Farm Engine
-    local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm Engine", false, function(newState)
+    -- 1. Master Auto Farm
+    local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm", false, function(newState)
         isFarmOn = newState
         if isFarmOn then
             _G.startENIFarm()
@@ -1697,6 +1744,9 @@ do
 
     createSliderToggle(shopPage, "Auto Roll Random Fruit", false, function(newState)
         isAutoRollOn = newState
+        if newState then
+            task.spawn(performAutoRollFruit)
+        end
     end)
 
     createSliderToggle(shopPage, "Snipe Dealer Fruit", false, function(newState)
@@ -2514,7 +2564,7 @@ _G.ENI_GlobalLoop = RunService.Heartbeat:Connect(function()
                                 if string.find(string.lower(f.Name), string.lower(targetName)) then
                                     local res = Comm:InvokeServer("PurchaseRawFruit", f.Name)
                                     if res then
-                                        notifyGUI("Fruit Sniper", "🎉 Sniped Mythic Fruit: " .. f.Name .. "!", 8)
+                                        notifyGUI("Fruit Sniper", "🎉 Sniped Mythic Fruit: " .. tostring(f and f.Name or "Unknown") .. "!", 8)
                                     end
                                     break
                                 end
@@ -3390,34 +3440,42 @@ local function autoClaimQuest(questName, questLevel)
 end
 
 _G.ENI_TravelNoclip = game:GetService("RunService").Stepped:Connect(function()
-    if isTraveling or isFarmOn then
-        pcall(function()
-            local char = LocalPlayer.Character
-            if char then
-                for _, p in ipairs(char:GetDescendants()) do
-                    if p:IsA("BasePart") then p.CanCollide = false end
+    pcall(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+
+        if isTraveling or isFarmOn or isAutoChestOn then
+            for _, p in ipairs(char:GetChildren()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+            if hum then
+                hum.PlatformStand = true
+                hum.AutoRotate = false
+            end
+            if hrp then
+                local bv = getTabBV(hrp)
+                if bv then
+                    bv.Velocity = Vector3.zero
+                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
                 end
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.PlatformStand = true
-                    hum.AutoRotate = false
-                end
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local bv = getTabBV(hrp)
-                    if bv then
-                        bv.Velocity = Vector3.zero
-                        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                    end
-                    hrp.Velocity = Vector3.zero
-                    if hrp:IsA("BasePart") then
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                        hrp.AssemblyAngularVelocity = Vector3.zero
-                    end
+                hrp.Velocity = Vector3.zero
+                if hrp:IsA("BasePart") then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
                 end
             end
-        end)
-    end
+        else
+            if hum and hum.PlatformStand then
+                hum.PlatformStand = false
+                hum.AutoRotate = true
+            end
+            if hrp then
+                removeTabBV(hrp)
+            end
+        end
+    end)
 end)
 
 local function customDistributeStats()
@@ -3440,10 +3498,6 @@ local function customDistributeStats()
 end
 
 safeTweenToIsland = function(targetCFrame, callback)
-    if isTraveling then
-        return
-    end
-
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then 
         isTraveling = false
@@ -3462,15 +3516,30 @@ safeTweenToIsland = function(targetCFrame, callback)
         return
     end
 
+    local currentPos = hrp.Position
+    local targetPos = targetCF.Position
+    local dist = (currentPos - targetPos).Magnitude
+
+    if dist <= 14 then
+        if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
+        isTraveling = false
+        hrp.CFrame = targetCF
+        if callback then callback() end
+        return
+    end
+
+    -- Cancel existing flight tween cleanly before starting new destination flight
+    if _G.ENI_TravelTween then 
+        pcall(function() _G.ENI_TravelTween:Cancel() end) 
+        _G.ENI_TravelTween = nil 
+    end
+
     -- Ensure anti-gravity is firmly active before initiating flight
     local bv = getTabBV(hrp)
     if bv then
         bv.Velocity = Vector3.zero
         bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
     end
-
-    local currentPos = hrp.Position
-    local targetPos = targetCF.Position
 
     -- BLOX FRUITS DIMENSIONAL PORTAL TELEPORT SOLVER (FISHMAN ISLAND & SKYLANDS)
     local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
@@ -3540,24 +3609,12 @@ safeTweenToIsland = function(targetCFrame, callback)
         return
     end
 
-    local dist = (hrp.Position - targetCF.Position).Magnitude
-
-    if dist <= 12 then
-        if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
-        isTraveling = false
-        hrp.CFrame = targetCF
-        if callback then callback() end
-        return
-    end
-
     isTraveling = true
-    if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
-    
     local currentTweenID = tick()
     _G.ENI_TravelTweenID = currentTweenID
 
-    -- Smooth high-speed travel (300 studs/sec)
-    local speed = 300
+    -- Fast smooth travel (320 studs/sec)
+    local speed = 320
     local travelTime = math.clamp(dist / speed, 0.1, 45)
     local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 
@@ -3641,13 +3698,23 @@ _G.stopENIFarm = function()
 
     pcall(function()
         local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            removeTabBV(hrp)
-            hrp.Velocity = Vector3.zero
-            if hrp:IsA("BasePart") then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+                hum.AutoRotate = true
+            end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                removeTabBV(hrp)
+                hrp.Velocity = Vector3.zero
+                if hrp:IsA("BasePart") then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
             end
         end
     end)
@@ -3671,7 +3738,7 @@ _G.startENIFarm = function()
     if _G.ENI_MainFarmLoop then _G.ENI_MainFarmLoop:Disconnect() _G.ENI_MainFarmLoop = nil end
     if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
     isTraveling = false
-    farmStatusLabel.Text = "Status: Auto Farm Engine Active..."
+    farmStatusLabel.Text = "Status: Auto Farm Active..."
 
     local lastQuestClaim = 0
     local lastToolRefresh = 0
@@ -4048,15 +4115,16 @@ _G.startENIFarm = function()
                     end)
                 end
             else
-                -- ZERO MOBS ALIVE: Stay stationary at current spawner node. ZERO island center tweens!
+                -- ZERO MOBS ALIVE / UNSTREAMED: Fly smoothly to target island spawner or island CFrame!
                 groundCFrame = nil
                 
-                if spawnerCF then
-                    local spawnerTargetCF = spawnerCF * CFrame.new(0, farmDist, 0)
+                local targetDestinationCF = spawnerCF or islandCFrame
+                if targetDestinationCF then
+                    local spawnerTargetCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
                     local distToSpawner = (playerHRP.Position - spawnerTargetCF.Position).Magnitude
 
                     if distToSpawner > 15 then
-                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Flying smoothly to " .. displayName .. " spawner..."
+                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Flying smoothly to " .. displayName .. " island..."
                         if not isTraveling then
                             safeTweenToIsland(spawnerTargetCF)
                         end
@@ -4065,11 +4133,10 @@ _G.startENIFarm = function()
                             if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
                             isTraveling = false
                         end
-                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Hovering at " .. displayName .. " spawner... Waiting for spawns."
+                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Hovering at " .. displayName .. "... Waiting for spawns."
                         playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.12)
                     end
                 else
-                    -- If spawner part unstreamed, hold player stationary in place! ZERO TELEPORTING TO ISLAND CENTER!
                     farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Waiting for " .. displayName .. " spawns..."
                 end
             end
@@ -4083,42 +4150,7 @@ task.spawn(function()
     while task.wait(3) do
         if isAutoRollOn and tick() - lastStandaloneRollTime > 30 then
             lastStandaloneRollTime = tick()
-            pcall(function()
-                local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-                local commF = remotes and remotes:FindFirstChild("CommF_")
-                if commF then
-                    commF:InvokeServer("Cousin", "Buy")
-                    commF:InvokeServer("Cousin", "DLCBoxData")
-                    task.wait(1.5)
-
-                    local function storeFruitTool(tool)
-                        if not tool then return end
-                        local origName = tool:GetAttribute("OriginalName") or tool.Name
-                        if origName then
-                            commF:InvokeServer("StoreFruit", origName, tool)
-                            notifyGUI("FRUIT", "Auto-Stored: " .. tostring(origName), 4)
-                        end
-                    end
-
-                    local char = LocalPlayer.Character
-                    if char then
-                        for _, t in ipairs(char:GetChildren()) do
-                            if t:IsA("Tool") and (string.find(t.Name, "Fruit") or t:GetAttribute("OriginalName")) then
-                                storeFruitTool(t)
-                            end
-                        end
-                    end
-
-                    local bp = LocalPlayer:FindFirstChild("Backpack")
-                    if bp then
-                        for _, t in ipairs(bp:GetChildren()) do
-                            if t:IsA("Tool") and (string.find(t.Name, "Fruit") or t:GetAttribute("OriginalName")) then
-                                storeFruitTool(t)
-                            end
-                        end
-                    end
-                end
-            end)
+            performAutoRollFruit()
         end
     end
 end)
