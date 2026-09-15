@@ -247,15 +247,18 @@ Hub.CreateToggle(combatTab, "⚡ Auto Hit", false, function(toggled)
     state.AutoHit = toggled
 end)
 
-Hub.CreateDropdown(combatTab, "Auto Hit Target Whitelist", {
+local targetCategories = {
     "All Resources",
     "Ores & Minerals",
     "Trees & Wood",
     "Plants & Food",
     "Chests & Structures"
-}, "All Resources", function(selected)
+}
+local hitWhitelistList = Hub.CreateList(combatTab, "🎯 Auto Hit Target Whitelist", targetCategories, 180, true)
+hitWhitelistList:SetSelected(state.AutoHitWhitelist or "All Resources")
+hitWhitelistList.OnSelect = function(selected)
     state.AutoHitWhitelist = selected
-end)
+end
 
 Hub.CreateSlider(combatTab, "Auto Hit Range (Studs)", 10, 100, 35, " studs", function(val)
     state.AutoHitRange = val
@@ -382,16 +385,19 @@ Hub.CreateToggle(farmTab, "🧲 Auto Pickup", false, function(toggled)
     prevPickupState = toggled
 end)
 
-Hub.CreateDropdown(farmTab, "Item Whitelist Category", {
+local pickupCategories = {
     "All Items (Everything)",
     "Ores & Gems",
     "Wood & Logs",
     "Food & Consumables",
     "Equipment & Gear",
     "Valuables & Essences"
-}, "All Items (Everything)", function(selected)
+}
+local itemCategoryList = Hub.CreateList(farmTab, "🪵 Item Whitelist Category", pickupCategories, 200, true)
+itemCategoryList:SetSelected(state.PickupCategoryWhitelist or "All Items (Everything)")
+itemCategoryList.OnSelect = function(selected)
     state.PickupCategoryWhitelist = selected
-end)
+end
 
 Hub.CreateTextBox(farmTab, "Specific Item Name Filter", "Type item name (e.g. Berry, Adurite)", function(text)
     state.PickupCustomFilter = text

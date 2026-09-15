@@ -5939,6 +5939,7 @@ return function(opts)
                 else
                     listObject.SetSelected(entryData)
                 end
+                if listObject.OnSelect then pcall(listObject.OnSelect, entryData.Name, entryData) end
                 if selectionCallback then pcall(selectionCallback, entryData.Name, entryData) end
                 if entryData.Callback then pcall(entryData.Callback, entryData) end
             end, entryData.ActionText or entryData.actionText, entryData.ActionCallback or entryData.actionCallback, entryData.ActionDisabled or entryData.actionDisabled)
