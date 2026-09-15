@@ -637,9 +637,10 @@ do
     end)
 
     -- 2. Farm Weapon Selection Mode
-    local weaponList = Hub.CreateList(farmPage, "🗡️ Farm Weapon Mode", weaponTypes, function(wName)
+    local weaponList = Hub.CreateList(farmPage, "🗡️ Farm Weapon Mode", weaponTypes, 180, true)
+    weaponList.OnSelect = function(wName)
         selectedWeaponType = wName
-    end, false)
+    end
     weaponList:SetSelected(selectedWeaponType)
 
     -- 3. Auto Quest Mode
@@ -652,9 +653,10 @@ do
         isAuraHitOn = newState
     end, "AuraHit")
 
-    local faList = Hub.CreateList(farmPage, "⚡ Fast Attack Target", fastAttackTargets, function(tName)
+    local faList = Hub.CreateList(farmPage, "⚡ Fast Attack Target", fastAttackTargets, 180, true)
+    faList.OnSelect = function(tName)
         selectedFastAttackTarget = tName
-    end, false)
+    end
     faList:SetSelected(selectedFastAttackTarget)
 
     -- 5. Auto Buso Haki

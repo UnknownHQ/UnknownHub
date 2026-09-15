@@ -5393,42 +5393,44 @@ return function(opts)
         end
         local item = Instance.new("TextButton")
         item.Size = UDim2.new(1, -2, 0, 42)
-        item.BackgroundColor3 = Color3.fromRGB(20, 24, 35)
+        item.BackgroundColor3 = Color3.fromRGB(13, 17, 27)
         item.AutoButtonColor = false
         item.Text = ""
         pcall(function() item.Parent = parent end)
         applyCorner(item, 7)
-        local itemStroke = applyStroke(item, Color3.fromRGB(36, 44, 64), 1, 0)
+        local itemStroke = applyStroke(item, Color3.fromRGB(28, 38, 56), 1, 0)
 
         local selected = false
-        local normalColor = Color3.fromRGB(20, 24, 35)
-        local hoverColor = Color3.fromRGB(28, 35, 52)
-        local selectedColor = Color3.fromRGB(25, 42, 62)
-        local selectedHoverColor = Color3.fromRGB(32, 54, 78)
+        local normalColor = Color3.fromRGB(13, 17, 27)
+        local hoverColor = Color3.fromRGB(18, 25, 38)
+        local selectedColor = Color3.fromRGB(20, 30, 48)
+        local selectedHoverColor = Color3.fromRGB(26, 40, 64)
 
         local hasSubtitle = subtitleText and subtitleText ~= "" and tostring(subtitleText):lower() ~= "nope"
 
+        -- Left Vertical Accent Bar (always visible matching user UI design)
         local accent = Instance.new("Frame")
         accent.Name = "LeftAccent"
-        accent.Size = UDim2.new(0, 3, 0, 16)
-        accent.Position = UDim2.new(0, 0, 0.5, -8)
+        accent.Size = UDim2.new(0, 3, 0, 18)
+        accent.Position = UDim2.new(0, 0, 0.5, -9)
         accent.BackgroundColor3 = hubState.currentThemeColor
         accent.BorderSizePixel = 0
-        accent.BackgroundTransparency = 0.6
+        accent.BackgroundTransparency = 0
         accent.Parent = item
         applyCorner(accent, 2)
         hubState.registerThemeFrame(accent)
 
+        -- Rounded Checkbox / Selection Box
         local checkbox = Instance.new("Frame")
         checkbox.Name = "Checkbox"
-        checkbox.Size = UDim2.new(0, 20, 0, 20)
+        checkbox.Size = UDim2.new(0, 22, 0, 22)
         checkbox.AnchorPoint = Vector2.new(1, 0.5)
         checkbox.Position = UDim2.new(1, -12, 0.5, 0)
-        checkbox.BackgroundColor3 = Color3.fromRGB(14, 17, 25)
+        checkbox.BackgroundColor3 = Color3.fromRGB(11, 15, 24)
         checkbox.BorderSizePixel = 0
         checkbox.Parent = item
         applyCorner(checkbox, 6)
-        local cbStroke = applyStroke(checkbox, Color3.fromRGB(56, 68, 92), 1.5, 0)
+        local cbStroke = applyStroke(checkbox, Color3.fromRGB(42, 54, 78), 1.5, 0)
 
         local checkImage = Instance.new("TextLabel")
         checkImage.Name = "CheckImage"
@@ -5446,10 +5448,10 @@ return function(opts)
         local title = Instance.new("TextLabel")
         title.Name = "ItemTitle"
         title.Size = hasSubtitle and UDim2.new(1, -64, 0, 18) or UDim2.new(1, -64, 1, 0)
-        title.Position = hasSubtitle and UDim2.new(0, 14, 0, 4) or UDim2.new(0, 14, 0, 0)
+        title.Position = hasSubtitle and UDim2.new(0, 16, 0, 4) or UDim2.new(0, 16, 0, 0)
         title.BackgroundTransparency = 1
         title.Text = titleText or "Item"
-        title.TextColor3 = Color3.fromRGB(238, 243, 252)
+        title.TextColor3 = Color3.fromRGB(245, 250, 255)
         title.Font = Enum.Font.GothamBold
         title.TextSize = 12
         title.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5460,7 +5462,7 @@ return function(opts)
         local subtitle = Instance.new("TextLabel")
         subtitle.Name = "ItemSubtitle"
         subtitle.Size = UDim2.new(1, -64, 0, 15)
-        subtitle.Position = UDim2.new(0, 14, 0, 22)
+        subtitle.Position = UDim2.new(0, 16, 0, 22)
         subtitle.BackgroundTransparency = 1
         subtitle.Text = hasSubtitle and subtitleText or ""
         subtitle.TextColor3 = Color3.fromRGB(145, 156, 180)
@@ -5502,19 +5504,19 @@ return function(opts)
 
         local function paint(isHovered)
             local targetBg = selected and (isHovered and selectedHoverColor or selectedColor) or (isHovered and hoverColor or normalColor)
-            local targetStroke = selected and hubState.currentThemeColor or (isHovered and Color3.fromRGB(56, 68, 96) or Color3.fromRGB(36, 44, 64))
-            
+            local targetStroke = selected and hubState.currentThemeColor or (isHovered and Color3.fromRGB(48, 62, 90) or Color3.fromRGB(28, 38, 56))
+
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
             TweenService:Create(itemStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStroke}):Play()
-            
-            checkImage.Visible = selected
-            checkbox.BackgroundColor3 = selected and hubState.currentThemeColor or Color3.fromRGB(14, 17, 25)
-            cbStroke.Color = selected and hubState.currentThemeColor or Color3.fromRGB(56, 68, 92)
 
-            local targetAccentSize = selected and UDim2.new(0, 4, 1, -12) or (isHovered and UDim2.new(0, 3, 0, 22) or UDim2.new(0, 3, 0, 16))
-            local targetAccentPos = selected and UDim2.new(0, 0, 0, 6) or (isHovered and UDim2.new(0, 0, 0.5, -11) or UDim2.new(0, 0, 0.5, -8))
-            local targetAccentTrans = selected and 0 or (isHovered and 0.2 or 0.6)
-            
+            checkImage.Visible = selected
+            checkbox.BackgroundColor3 = selected and hubState.currentThemeColor or Color3.fromRGB(11, 15, 24)
+            cbStroke.Color = selected and hubState.currentThemeColor or Color3.fromRGB(42, 54, 78)
+
+            local targetAccentSize = selected and UDim2.new(0, 4, 1, -8) or (isHovered and UDim2.new(0, 3, 0, 24) or UDim2.new(0, 3, 0, 18))
+            local targetAccentPos = selected and UDim2.new(0, 0, 0, 4) or (isHovered and UDim2.new(0, 0, 0.5, -12) or UDim2.new(0, 0, 0.5, -9))
+            local targetAccentTrans = selected and 0 or (isHovered and 0 or 0.1)
+
             TweenService:Create(accent, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Size = targetAccentSize,
                 Position = targetAccentPos,
