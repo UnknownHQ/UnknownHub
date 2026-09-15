@@ -1,9 +1,10 @@
 --[[
     ========================================================================
-    Unknown Hub - Booga Booga Dedicated Script Module (v4 Ultimate)
+    Unknown Hub - Booga Booga Dedicated Script Module (v5 Master Edition)
     Library: UnknownLibrary (ENI Tabbed Hub UI)
-    Features: Single "Auto Hit" with Target Whitelist, "Auto Pickup" with Full Game Item Whitelist,
-              Body-Frozen Magnet, No-Fall Safe Collision Restoration, Godmode, ESP, Island TP
+    Features: Single "Auto Hit" with Resource Whitelist (Ores, Trees, Plants, Chests),
+              "Auto Pickup" with Full Game Item Whitelist List, Body-Frozen Magnet,
+              No-Fall Safe Collision Restoration, Godmode, ESP, Island TP
     ========================================================================
 ]]
 
@@ -60,7 +61,6 @@ local ok, result = pcall(function()
     local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
     source = game:HttpGet(LIBRARY_LINK .. cacheBuster)
     pcall(function()
-        source = source:gsub("game:GetService%([\"']CoreGui[\"']%)", "(gethui and gethui() or (game:GetService(\"Players\").LocalPlayer and game:GetService(\"Players\").LocalPlayer:WaitForChild(\"PlayerGui\")))")
     end)
     local factoryChunk, compileErr = loadstring(source)
     assert(factoryChunk, "Library compile failed: " .. tostring(compileErr))
@@ -88,7 +88,7 @@ assert(type(Hub) == "table", "UnknownLibrary returned invalid hub")
 -- State Registry
 -- =========================================================================
 local state = {
-    -- Auto Hit (Single Toggle + Whitelist Filter)
+    -- Auto Hit (Single Toggle + Resource Whitelist List)
     AutoHit = false,
     AutoHitWhitelist = "All Resources", -- "All Resources", "Ores & Minerals", "Trees & Wood", "Plants & Food", "Chests & Structures"
     AutoHitRange = 35,
@@ -101,7 +101,7 @@ local state = {
     AutoEat = false,
     EatThreshold = 60,
 
-    -- Auto Pickup (Single Toggle + Full Item Whitelist Filter)
+    -- Auto Pickup (Single Toggle + Full Item Whitelist List)
     AutoPickup = false,
     PickupCategoryWhitelist = "All Items (Everything)", -- "All Items (Everything)", "Ores & Gems", "Wood & Logs", "Food & Consumables", "Equipment & Gear", "Valuables & Essences"
     PickupCustomFilter = "",
@@ -173,7 +173,7 @@ end
 
 -- Resource Category Whitelist Matcher
 local RESOURCE_CATEGORIES = {
-    ["All Resources"] = {"tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient", "chestnut", "rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "essence", "berry", "bush", "fruit", "plant", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry", "node", "structure", "debris", "chest", "crate"},
+    ["All Resources"] = {"tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient", "chestnut", "rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "essence", "berry", "bush", "fruit", "plant", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry", "node", "structure", "debris", "chest", "crate", "magma", "void"},
     ["Ores & Minerals"] = {"rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "magma", "void", "node", "coal", "pink diamond"},
     ["Trees & Wood"] = {"tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient", "chestnut"},
     ["Plants & Food"] = {"berry", "bush", "fruit", "plant", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry"},
@@ -204,13 +204,11 @@ local ITEM_CATEGORIES = {
 local function isWhitelistedItem(itemName)
     itemName = itemName:lower()
 
-    -- 1. Custom text filter check if user typed anything
     if state.PickupCustomFilter and state.PickupCustomFilter ~= "" then
         local filterLower = state.PickupCustomFilter:lower()
         if itemName:find(filterLower) then return true end
     end
 
-    -- 2. Category selection check
     local category = state.PickupCategoryWhitelist
     if category == "All Items (Everything)" then
         return true
@@ -229,7 +227,7 @@ local function isWhitelistedItem(itemName)
 end
 
 -- =========================================================================
--- Hub Tabs Setup
+-- Tabs Setup
 -- =========================================================================
 local combatTab   = Hub.createTabButton("Combat", "🥊 Combat & Auto Hit", "rbxassetid://10723407390", true)
 local farmTab     = Hub.createTabButton("Farm", "🪵 Auto Pickup & Whitelist", "rbxassetid://10723407389", false)
@@ -239,7 +237,7 @@ local teleportTab = Hub.createTabButton("Teleports", "🌐 Teleports", "rbxasset
 local miscTab     = Hub.createTabButton("Misc", "🛠️ Utility & Server", "rbxassetid://10723407392", false)
 
 -- =========================================================================
--- 1. COMBAT TAB: SINGLE TOGGLE "AUTO HIT" + TARGET WHITELIST
+-- 1. COMBAT TAB: AUTO HIT (WHITELIST: RESOURCES ONLY)
 -- =========================================================================
 Hub.CreateSection(combatTab, "Single Toggle Auto Hit")
 
@@ -290,7 +288,7 @@ Hub.CreateSlider(combatTab, "Eat Threshold (% HP/Hunger)", 20, 80, 60, "%", func
     state.EatThreshold = val
 end)
 
--- Unified Auto Hit Execution Loop
+-- Auto Hit Execution Loop (Dedicated to Resources - Trees, Ores, Meteors, Plants, Chests)
 task.spawn(function()
     while true do
         task.wait(state.FastHit and 0.04 or 0.12)
@@ -304,52 +302,110 @@ task.spawn(function()
                 end
 
                 local hitRemotes = getRemotesMatching({"hit", "swing", "attack", "damage", "harvest", "useitem", "chop", "mine"})
-                local mode = state.AutoHitWhitelist
 
-                -- Target only resources
-                
-                
+                -- Scan Dedicated Folders & Workspace for Whitelisted Resources
+                local containers = {Workspace}
+                for _, name in ipairs({"Resources", "Trees", "Ores", "Nodes", "Flora", "Entities", "Structures", "Items", "Debris"}) do
+                    local f = Workspace:FindFirstChild(name)
+                    if f then table.insert(containers, f) end
+                end
 
-                -- Target Whitelisted Resources Only (No Players or Mobs)
-                local allowResources = true
-                if allowResources then
-                    local containers = {Workspace}
-                    for _, name in ipairs({"Resources", "Trees", "Ores", "Nodes", "Flora", "Entities", "Structures", "Items", "Debris"}) do
-                        local f = Workspace:FindFirstChild(name)
-                        if f then table.insert(containers, f) end
-                    end
-
-                    for _, container in ipairs(containers) do
-                        for _, child in ipairs(container:GetChildren()) do
-                            if child ~= char then
-                                local part = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
-                                if part and isTargetResource(child.Name) then
-                                    local dist = (myRoot.Position - part.Position).Magnitude
-                                    if dist <= state.AutoHitRange then
-                                        if tool then pcall(function() tool:Activate() end) end
-                                        for _, r in ipairs(hitRemotes) do
-                                            pcall(function()
-                                                if r:IsA("RemoteEvent") then
-                                                    r:FireServer(part)
-                                                    r:FireServer(part.Parent)
-                                                elseif r:IsA("RemoteFunction") then
-                                                    r:InvokeServer(part)
-                                                end
-                                            end)
-                                        end
-
-                                        local cd = part:FindFirstChildWhichIsA("ClickDetector", true) or (part.Parent and part.Parent:FindFirstChildWhichIsA("ClickDetector", true))
-                                        if cd then fireclickdetector(cd) end
-
-                                        local prompt = part:FindFirstChildWhichIsA("ProximityPrompt", true) or (part.Parent and part.Parent:FindFirstChildWhichIsA("ProximityPrompt", true))
-                                        if prompt and fireproximityprompt then fireproximityprompt(prompt) end
+                for _, container in ipairs(containers) do
+                    for _, child in ipairs(container:GetChildren()) do
+                        if child ~= char then
+                            local part = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
+                            if part and isTargetResource(child.Name) then
+                                local dist = (myRoot.Position - part.Position).Magnitude
+                                if dist <= state.AutoHitRange then
+                                    if tool then pcall(function() tool:Activate() end) end
+                                    for _, r in ipairs(hitRemotes) do
+                                        pcall(function()
+                                            if r:IsA("RemoteEvent") then
+                                                r:FireServer(part)
+                                                r:FireServer(part.Parent)
+                                            elseif r:IsA("RemoteFunction") then
+                                                r:InvokeServer(part)
+                                            end
+                                        end)
                                     end
+
+                                    local cd = part:FindFirstChildWhichIsA("ClickDetector", true) or (part.Parent and part.Parent:FindFirstChildWhichIsA("ClickDetector", true))
+                                    if cd then fireclickdetector(cd) end
+
+                                    local prompt = part:FindFirstChildWhichIsA("ProximityPrompt", true) or (part.Parent and part.Parent:FindFirstChildWhichIsA("ProximityPrompt", true))
+                                    if prompt and fireproximityprompt then fireproximityprompt(prompt) end
                                 end
                             end
                         end
                     end
                 end
             end
+        end
+    end
+end)
+
+-- Hitbox Expander Loop
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if state.ReachHitbox then
+            pcall(function()
+                local char = getCharacter()
+                local tool = char and char:FindFirstChildWhichIsA("Tool")
+                local handle = tool and (tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart"))
+                if handle then
+                    handle.Size = Vector3.new(state.ReachSize, state.ReachSize, state.ReachSize)
+                    handle.Massless = true
+                    handle.CanCollide = false
+                end
+            end)
+        end
+    end
+end)
+
+-- Auto Eat Loop
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if state.AutoEat then
+            pcall(function()
+                local hum = getHumanoid()
+                if hum and (hum.Health <= (hum.MaxHealth * (state.EatThreshold / 100))) then
+                    local backpack = LocalPlayer:FindFirstChild("Backpack")
+                    local char = getCharacter()
+                    local foodKeywords = {"berry", "meat", "fruit", "food", "cooked", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit"}
+                    local foundFood = nil
+
+                    if backpack then
+                        for _, item in ipairs(backpack:GetChildren()) do
+                            local iName = item.Name:lower()
+                            for _, kw in ipairs(foodKeywords) do
+                                if iName:find(kw) then
+                                    foundFood = item
+                                    break
+                                end
+                            end
+                            if foundFood then break end
+                        end
+                    end
+
+                    if foundFood and char then
+                        local curTool = char:FindFirstChildWhichIsA("Tool")
+                        hum:EquipTool(foundFood)
+                        task.wait(0.1)
+                        foundFood:Activate()
+                        local eatRemotes = getRemotesMatching({"eat", "consume", "use", "useitem"})
+                        for _, r in ipairs(eatRemotes) do
+                            pcall(function()
+                                if r:IsA("RemoteEvent") then r:FireServer(foundFood)
+                                elseif r:IsA("RemoteFunction") then r:InvokeServer(foundFood) end
+                            end)
+                        end
+                        task.wait(0.1)
+                        if curTool then hum:EquipTool(curTool) end
+                    end
+                end
+            end)
         end
     end
 end)
@@ -364,7 +420,6 @@ local prevPickupState = false
 Hub.CreateToggle(farmTab, "🧲 Auto Pickup", false, function(toggled)
     state.AutoPickup = toggled
 
-    -- Restore collisions when turning OFF pickup so items rest naturally without falling off map!
     if prevPickupState and not toggled then
         pcall(function()
             local myRoot = getRoot()
@@ -433,7 +488,6 @@ task.spawn(function()
                                 local dist = (myRoot.Position - dropPart.Position).Magnitude
                                 if dist <= state.PickupRange and isWhitelistedItem(drop.Name) then
                                     pcall(function()
-                                        -- 1. Disable collision during freeze
                                         for _, p in ipairs(drop:IsA("Model") and drop:GetDescendants() or {dropPart}) do
                                             if p:IsA("BasePart") then
                                                 p.CanCollide = false
@@ -443,26 +497,26 @@ task.spawn(function()
                                             end
                                         end
 
-                                        -- 2. Freeze directly onto player body
                                         if state.FreezeToPlayerBody then
                                             dropPart.CFrame = myRoot.CFrame * CFrame.new(0, -0.5, 0)
                                         else
                                             dropPart.CFrame = myRoot.CFrame
                                         end
 
-                                        -- 3. Fire pickup remotes
-                                        for _, pr in ipairs(pickupRemotes) do
-                                            if pr:IsA("RemoteEvent") then
-                                                pr:FireServer(drop)
-                                                pr:FireServer(dropPart)
-                                            elseif pr:IsA("RemoteFunction") then
-                                                pr:InvokeServer(drop)
+                                        for _, r in ipairs(pickupRemotes) do
+                                            if r:IsA("RemoteEvent") then
+                                                r:FireServer(drop)
+                                                r:FireServer(dropPart)
+                                            elseif r:IsA("RemoteFunction") then
+                                                r:InvokeServer(drop)
+                                                r:InvokeServer(dropPart)
                                             end
                                         end
 
-                                        local cd = drop:FindFirstChildWhichIsA("ClickDetector", true)
+                                        local cd = drop:FindFirstChildWhichIsA("ClickDetector", true) or (dropPart and dropPart:FindFirstChildWhichIsA("ClickDetector", true))
                                         if cd then fireclickdetector(cd) end
-                                        local prompt = drop:FindFirstChildWhichIsA("ProximityPrompt", true)
+
+                                        local prompt = drop:FindFirstChildWhichIsA("ProximityPrompt", true) or (dropPart and dropPart:FindFirstChildWhichIsA("ProximityPrompt", true))
                                         if prompt and fireproximityprompt then fireproximityprompt(prompt) end
                                     end)
                                 end
@@ -476,12 +530,19 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- 3. PLAYER & MOVEMENT TAB (SAFE NO-FALL COLLISION RESTORATION)
+-- 3. PLAYER TAB: GODMODE, MOVEMENT & FLY
 -- =========================================================================
 Hub.CreateSection(playerTab, "Godmode & Defense")
 
 Hub.CreateToggle(playerTab, "God Mode (No Fall / Health Guard)", false, function(toggled)
     state.GodMode = toggled
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not toggled)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not toggled)
+        end
+    end)
 end)
 
 Hub.CreateToggle(playerTab, "Infinite Stamina", false, function(toggled)
@@ -492,41 +553,59 @@ Hub.CreateSection(playerTab, "Speed & Jump Modifications")
 
 Hub.CreateToggle(playerTab, "Enable Custom WalkSpeed", false, function(toggled)
     state.WalkSpeedToggle = toggled
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = toggled and state.WalkSpeedValue or 16 end
+    end)
 end)
 
 Hub.CreateSlider(playerTab, "WalkSpeed Value", 16, 150, 24, " speed", function(val)
     state.WalkSpeedValue = val
+    if state.WalkSpeedToggle then
+        pcall(function()
+            local hum = getHumanoid()
+            if hum then hum.WalkSpeed = val end
+        end)
+    end
 end)
 
 Hub.CreateToggle(playerTab, "Enable Custom JumpPower", false, function(toggled)
     state.JumpPowerToggle = toggled
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then hum.JumpPower = toggled and state.JumpPowerValue or 50 end
+    end)
 end)
 
 Hub.CreateSlider(playerTab, "JumpPower Value", 50, 250, 75, " jump", function(val)
     state.JumpPowerValue = val
+    if state.JumpPowerToggle then
+        pcall(function()
+            local hum = getHumanoid()
+            if hum then hum.JumpPower = val end
+        end)
+    end
 end)
 
 Hub.CreateSection(playerTab, "Fly & Noclip")
 
-local prevNoclipState = false
-
 Hub.CreateToggle(playerTab, "Noclip (Pass Through Objects)", false, function(toggled)
     state.Noclip = toggled
+end)
 
-    -- Restore character collisions when turning OFF Noclip so player never falls through map!
-    if prevNoclipState and not toggled then
+RunService.Stepped:Connect(function()
+    if state.Noclip then
         pcall(function()
             local char = getCharacter()
             if char then
                 for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
                     end
                 end
             end
         end)
     end
-    prevNoclipState = toggled
 end)
 
 Hub.CreateToggle(playerTab, "Fly Mode", false, function(toggled)
@@ -541,62 +620,57 @@ Hub.CreateToggle(playerTab, "Water Walk (Jesus Mode)", false, function(toggled)
     state.WaterWalk = toggled
 end)
 
--- Movement Loops
-RunService.Stepped:Connect(function()
-    local char = getCharacter()
-    if char then
-        local hum = getHumanoid()
-        if hum then
-            if state.WalkSpeedToggle then hum.WalkSpeed = state.WalkSpeedValue end
-            if state.JumpPowerToggle then
-                hum.UseJumpPower = true
-                hum.JumpPower = state.JumpPowerValue
-            end
-            if state.GodMode then
-                pcall(function()
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-                end)
-            end
-        end
-
-        if state.Noclip then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
+-- Fly & Water Walk Loop
+local flyBodyGyro, flyBodyVelocity
+task.spawn(function()
+    while true do
+        task.wait(0.03)
+        if state.Fly then
+            local root = getRoot()
+            local cam = Workspace.CurrentCamera
+            if root and cam then
+                if not flyBodyVelocity or not flyBodyVelocity.Parent then
+                    flyBodyVelocity = Instance.new("BodyVelocity")
+                    flyBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                    flyBodyVelocity.Velocity = Vector3.zero
+                    flyBodyVelocity.Parent = root
                 end
-            end
-        end
-    end
-end)
+                if not flyBodyGyro or not flyBodyGyro.Parent then
+                    flyBodyGyro = Instance.new("BodyGyro")
+                    flyBodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+                    flyBodyGyro.CFrame = root.CFrame
+                    flyBodyGyro.Parent = root
+                end
 
--- Water Walk Platform logic
-local waterPlatform = nil
-RunService.Heartbeat:Connect(function()
-    if state.WaterWalk then
-        local root = getRoot()
-        if root then
-            if not waterPlatform or not waterPlatform.Parent then
-                waterPlatform = Instance.new("Part")
-                waterPlatform.Name = "ENI_WaterPlatform"
-                waterPlatform.Size = Vector3.new(12, 1, 12)
-                waterPlatform.Transparency = 1
-                waterPlatform.Anchored = true
-                waterPlatform.Parent = Workspace
+                local moveDir = Vector3.zero
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+                flyBodyVelocity.Velocity = moveDir.Unit * state.FlySpeed
+                if moveDir.Magnitude == 0 then flyBodyVelocity.Velocity = Vector3.zero end
+                flyBodyGyro.CFrame = cam.CFrame
             end
-            waterPlatform.CFrame = CFrame.new(root.Position.X, 0.5, root.Position.Z)
+        else
+            if flyBodyVelocity then flyBodyVelocity:Destroy() flyBodyVelocity = nil end
+            if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
         end
-    else
-        if waterPlatform and waterPlatform.Parent then
-            waterPlatform:Destroy()
-            waterPlatform = nil
+
+        if state.WaterWalk then
+            local root = getRoot()
+            if root and root.Position.Y < 4.5 and root.Position.Y > -5 then
+                root.Velocity = Vector3.new(root.Velocity.X, 0, root.Velocity.Z)
+                root.CFrame = CFrame.new(root.Position.X, 5, root.Position.Z) * root.CFrame.Rotation
+            end
         end
     end
 end)
 
 -- =========================================================================
--- 4. VISUALS (ESP) TAB
+-- 4. VISUALS TAB: ESP & FULLBRIGHT
 -- =========================================================================
 Hub.CreateSection(visualsTab, "ESP Toggles")
 
@@ -616,100 +690,108 @@ Hub.CreateSection(visualsTab, "Environment")
 
 Hub.CreateToggle(visualsTab, "Fullbright / Clear Vision", false, function(toggled)
     state.Fullbright = toggled
-    if toggled then
-        Lighting.Ambient = Color3.new(1, 1, 1)
-        Lighting.Brightness = 2
-        Lighting.ClockTime = 14
-        Lighting.GlobalShadows = false
-    else
-        Lighting.Brightness = 1
-        Lighting.GlobalShadows = true
-    end
+    pcall(function()
+        if toggled then
+            Lighting.Brightness = 2
+            Lighting.ClockTime = 14
+            Lighting.FogEnd = 100000
+            Lighting.GlobalShadows = false
+            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        else
+            Lighting.Brightness = 1
+            Lighting.GlobalShadows = true
+        end
+    end)
 end)
 
--- Basic Billboard ESP Drawing Engine
+-- Simple Clean Box/Highlight ESP Loop
 local espFolder = Instance.new("Folder")
-espFolder.Name = "ENI_ESPContainer"
-espFolder.Parent = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui")
-
-local function updateESP()
-    espFolder:ClearAllChildren()
-    if not state.PlayerESP and not state.ResourceESP and not state.MobESP then return end
-
-    if state.PlayerESP then
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character then
-                local head = p.Character:FindFirstChild("Head")
-                if head then
-                    local bb = Instance.new("BillboardGui")
-                    bb.Adornee = head
-                    bb.Size = UDim2.new(0, 100, 0, 30)
-                    bb.StudsOffset = Vector3.new(0, 2, 0)
-                    bb.AlwaysOnTop = true
-
-                    local lbl = Instance.new("TextLabel")
-                    lbl.Size = UDim2.new(1, 0, 1, 0)
-                    lbl.BackgroundTransparency = 1
-                    lbl.Text = p.Name
-                    lbl.TextColor3 = Color3.fromRGB(0, 230, 255)
-                    lbl.Font = Enum.Font.GothamBold
-                    lbl.TextSize = 11
-                    lbl.Parent = bb
-                    bb.Parent = espFolder
-                end
-            end
-        end
-    end
-end
+espFolder.Name = "ENI_BoogaESP"
+pcall(function() espFolder.Parent = (gethui and gethui()) or CoreGui or Workspace end)
 
 task.spawn(function()
     while true do
         task.wait(1.5)
-        pcall(updateESP)
+        pcall(function()
+            espFolder:ClearAllChildren()
+            if state.PlayerESP then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LocalPlayer and p.Character then
+                        local h = Instance.new("Highlight")
+                        h.Name = "PlayerHighlight"
+                        h.FillColor = Color3.fromRGB(255, 50, 50)
+                        h.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        h.FillTransparency = 0.5
+                        h.Adornee = p.Character
+                        h.Parent = espFolder
+                    end
+                end
+            end
+
+            if state.ResourceESP then
+                local resFolder = Workspace:FindFirstChild("Resources") or Workspace:FindFirstChild("Trees") or Workspace:FindFirstChild("Ores")
+                if resFolder then
+                    for _, res in ipairs(resFolder:GetChildren()) do
+                        if isTargetResource(res.Name) then
+                            local h = Instance.new("Highlight")
+                            h.Name = "ResourceHighlight"
+                            h.FillColor = Color3.fromRGB(0, 220, 100)
+                            h.OutlineColor = Color3.fromRGB(255, 255, 255)
+                            h.FillTransparency = 0.6
+                            h.Adornee = res
+                            h.Parent = espFolder
+                        end
+                    end
+                end
+            end
+        end)
     end
 end)
 
 -- =========================================================================
--- 5. TELEPORTS TAB
+-- 5. TELEPORTS TAB: ISLANDS & WAYPOINTS
 -- =========================================================================
 Hub.CreateSection(teleportTab, "Island Teleports")
 
-local IslandLocations = {
-    ["Spawn / Starter Island"] = Vector3.new(0, 15, 0),
-    ["Jungle Island"]         = Vector3.new(-1200, 20, 800),
-    ["Volcano Island"]        = Vector3.new(1500, 50, -1500),
-    ["Snow / Ice Island"]     = Vector3.new(-2000, 30, -2000),
-    ["Sunken Shrine"]         = Vector3.new(800, 10, 2200),
-    ["Deep Cave Entrance"]    = Vector3.new(-500, -40, 300)
+local islands = {
+    ["Spawn Island"] = Vector3.new(0, 50, 0),
+    ["Volcano Island"] = Vector3.new(-1200, 75, -800),
+    ["Ice Island"] = Vector3.new(1500, 60, -1200),
+    ["Desert Island"] = Vector3.new(-900, 50, 1400),
+    ["Floating Island (Sky)"] = Vector3.new(0, 500, -500),
+    ["Sunken Island (Underwater)"] = Vector3.new(800, -40, 800)
 }
 
-for name, pos in pairs(IslandLocations) do
+for name, pos in pairs(islands) do
     Hub.CreateButton(teleportTab, "🏝️ TP to " .. name, function()
-        local root = getRoot()
-        if root then
-            root.CFrame = CFrame.new(pos)
-        end
+        pcall(function()
+            local root = getRoot()
+            if root then
+                root.CFrame = CFrame.new(pos) + Vector3.new(0, 10, 0)
+            end
+        end)
     end)
 end
 
 -- =========================================================================
--- 6. MISC & UTILITY TAB
+-- 6. MISC TAB: SERVER & UTILITY
 -- =========================================================================
 Hub.CreateSection(miscTab, "Server & Utility")
 
 Hub.CreateButton(miscTab, "⚡ Rejoin Current Server", function()
-    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    pcall(function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end)
 end)
 
 Hub.CreateButton(miscTab, "🌐 Server Hop (Low Player Server)", function()
     pcall(function()
-        local api = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
-        local res = game:HttpGet(api)
-        local data = HttpService:JSONDecode(res)
-        if data and data.data then
-            for _, s in ipairs(data.data) do
-                if s.playing and s.playing < s.maxPlayers and s.id ~= game.JobId then
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, LocalPlayer)
+        local serversUrl = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
+        local response = HttpService:JSONDecode(game:HttpGet(serversUrl))
+        if response and response.data then
+            for _, server in ipairs(response.data) do
+                if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
                     break
                 end
             end
@@ -718,11 +800,11 @@ Hub.CreateButton(miscTab, "🌐 Server Hop (Low Player Server)", function()
 end)
 
 Hub.CreateButton(miscTab, "📋 Copy JobId / Server Code", function()
-    if setclipboard then
-        setclipboard(tostring(game.JobId))
-        Hub.notify({ Title = "Copied!", Content = "JobId copied to clipboard", Duration = 2 })
-    end
+    pcall(function()
+        if setclipboard then
+            setclipboard(game.JobId)
+        end
+    end)
 end)
 
-Hub.FinishLoading()
-print("[UnknownHub] Booga Booga Script Module v4 (Single Auto Hit & Full Item Whitelist Auto Pickup) Loaded Successfully!")
+print("[UnknownHub] Booga Booga Script Module v5 Loaded Successfully!")
