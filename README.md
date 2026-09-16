@@ -27,8 +27,6 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/
 - **Bee Swarm Simulator** (Auto Farm, Sprout Farm, Vicious Bee, Token Link)
 - **Booga Booga** (Auto Hit, Auto Pickup, Resource Whitelist, Godmode, ESP, TP)
 - **Ink Game / Squid Games** (Minigame Automation, ESP, Godmode, Gamepass Unlocks)
-- **+1 TNT Mining** (Auto Clicker, Auto Rebirth, Train & Upgrades)
-- **Obby Creator** (Fly, Godmode, Checkpoint TP, Advanced Tools)
 - **Universal** (Runs in any game with character tweaks, potato mode, 3D disabler, and tools)
 
 ---
