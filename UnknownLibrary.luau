@@ -353,6 +353,24 @@ return function(opts)
         frm.BackgroundColor3 = hubState.currentThemeColor
     end
     hubState.registerThemeBackground = hubState.registerThemeFrame
+    function hubState.registerThemeObject(obj, prop, mode)
+        if not obj then return end
+        pcall(function()
+            if obj:IsA("UIStroke") then
+                hubState.registerThemeStroke(obj)
+            elseif obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+                if prop == "BackgroundColor3" then
+                    hubState.registerThemeFrame(obj)
+                else
+                    hubState.registerThemeText(obj)
+                end
+            elseif obj:IsA("UIGradient") then
+                hubState.registerThemeGradient(obj)
+            else
+                hubState.registerThemeFrame(obj)
+            end
+        end)
+    end
     function hubState.registerThemeGradient(grad, rotation)
         if not grad then return end
         table.insert(hubState.themeGradients, grad)
@@ -3347,7 +3365,7 @@ return function(opts)
         cable.BackgroundTransparency = 0.35
         cable.ZIndex = 25
         cable.Parent = cyberHarness
-        hubState.registerThemeObject(cable, "BackgroundColor3", "theme")
+        hubState.registerThemeFrame(cable)
         return cable
     end
     local function createCubeChip(size, pos, coreSize, hasPins)
@@ -3371,7 +3389,7 @@ return function(opts)
         core.ZIndex = 27
         core.Parent = chip
         applyCorner(core, 1)
-        hubState.registerThemeObject(core, "BackgroundColor3", "theme")
+        hubState.registerThemeFrame(core)
         if hasPins then
             for p = 1, 2 do
                 local pin = Instance.new("Frame")
@@ -7152,7 +7170,21 @@ return function(opts)
         hubState.mobileToggleBtn = mobBtn
     end
     task.defer(function()
-        hubState.finishLoading()
+        pcall(function() hubState.finishLoading() end)
+    end)
+    task.delay(0.5, function()
+        if not hubState.loadingFinished then
+            pcall(function() hubState.finishLoading() end)
+        end
+    end)
+    task.delay(1.5, function()
+        if loadingOverlay and loadingOverlay.Parent then
+            pcall(function()
+                loadingOverlay:Destroy()
+                hubState.mainFrame.Visible = true
+                hubState.loadingFinished = true
+            end)
+        end
     end)
     function hubState.GetItemFromList(listName, parent, createIfMissing)
         local name = tostring(listName or "List")
