@@ -1,9 +1,3 @@
---[[
-    ========================================================================
-    Unknown Hub UI Library - Next-Gen Responsive Ocean Edition
-    ========================================================================
-]]
-
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
@@ -13,7 +7,6 @@ local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
 local StatsService = game:GetService("Stats")
-
 local function applyCorner(obj, radius)
     if not obj then return nil end
     local c = Instance.new("UICorner")
@@ -21,7 +14,6 @@ local function applyCorner(obj, radius)
     pcall(function() c.Parent = obj end)
     return c
 end
-
 local function applyStroke(obj, color, thickness, transparency)
     if not obj then return nil end
     local s = Instance.new("UIStroke")
@@ -32,13 +24,11 @@ local function applyStroke(obj, color, thickness, transparency)
     pcall(function() s.Parent = obj end)
     return s
 end
-
 local function copyText(value)
     local copier = type(setclipboard) == "function" and setclipboard or (type(toclipboard) == "function" and toclipboard or nil)
     if not copier then return false end
     return pcall(copier, tostring(value))
 end
-
 local function dispatchHttpRequest(url, method, headers, body)
     if not url or type(url) ~= "string" or not url:find("http") then return end
     task.spawn(function()
@@ -48,10 +38,8 @@ local function dispatchHttpRequest(url, method, headers, body)
             or (fluxus and fluxus.request)
             or (krnl and krnl.request)
             or request
-
         local payloadBody = (type(body) == "table") and HttpService:JSONEncode(body) or tostring(body or "")
         local headersMap = headers or { ["Content-Type"] = "application/json" }
-
         if httpRequestFn then
             pcall(function()
                 httpRequestFn({
@@ -68,12 +56,10 @@ local function dispatchHttpRequest(url, method, headers, body)
         end
     end)
 end
-
 local ANNOUNCEMENTS_STORAGE_FILE = "Unknown_GlobalAnnouncements.json"
 local SEEN_ANNOUNCEMENTS_FILE = "Unknown_SeenAnnouncements.json"
 local FEEDBACKS_STORAGE_FILE = "Unknown_DevFeedbackInbox.json"
 local SEEN_FEEDBACKS_FILE = "Unknown_SeenFeedbacks.json"
-
 local function loadStoredAnnouncements()
     if readfile and isfile and isfile(ANNOUNCEMENTS_STORAGE_FILE) then
         local ok, data = pcall(function()
@@ -83,7 +69,6 @@ local function loadStoredAnnouncements()
     end
     return {}
 end
-
 local function loadSeenAnnouncements()
     if readfile and isfile and isfile(SEEN_ANNOUNCEMENTS_FILE) then
         local ok, data = pcall(function()
@@ -93,7 +78,6 @@ local function loadSeenAnnouncements()
     end
     return {}
 end
-
 local function persistAnnouncementRecord(record)
     local list = loadStoredAnnouncements()
     table.insert(list, record)
@@ -103,7 +87,6 @@ local function persistAnnouncementRecord(record)
         end)
     end
 end
-
 local function markAnnouncementAsSeen(id)
     local seen = loadSeenAnnouncements()
     seen[tostring(id)] = true
@@ -113,7 +96,6 @@ local function markAnnouncementAsSeen(id)
         end)
     end
 end
-
 local function loadStoredFeedbacks()
     if readfile and isfile and isfile(FEEDBACKS_STORAGE_FILE) then
         local ok, data = pcall(function()
@@ -123,7 +105,6 @@ local function loadStoredFeedbacks()
     end
     return {}
 end
-
 local function loadSeenFeedbacks()
     if readfile and isfile and isfile(SEEN_FEEDBACKS_FILE) then
         local ok, data = pcall(function()
@@ -133,7 +114,6 @@ local function loadSeenFeedbacks()
     end
     return {}
 end
-
 local function persistFeedbackRecord(record)
     local list = loadStoredFeedbacks()
     table.insert(list, record)
@@ -143,7 +123,6 @@ local function persistFeedbackRecord(record)
         end)
     end
 end
-
 local function markFeedbackAsSeen(id)
     local seen = loadSeenFeedbacks()
     seen[tostring(id)] = true
@@ -153,17 +132,12 @@ local function markFeedbackAsSeen(id)
         end)
     end
 end
-
-
-
 local configRoot = "UnknownHub"
-
 local function sanitizeName(value)
     local name = tostring(value or "Unknown")
     name = name:gsub("[^%w%-%s_]", ""):gsub("%s+", "_")
     return name ~= "" and name or "Unknown"
 end
-
 local function getGameFolderName()
     local gameName = tostring(game.PlaceId or "UnknownGame")
     pcall(function()
@@ -173,13 +147,10 @@ local function getGameFolderName()
     end)
     return sanitizeName(gameName)
 end
-
 local configGameFolder = configRoot .. "/" .. getGameFolderName()
-
 local function fileApiAvailable()
     return type(isfolder) == "function" and type(makefolder) == "function" and type(listfiles) == "function" and type(readfile) == "function" and type(writefile) == "function" and type(delfile) == "function"
 end
-
 local function ensureConfigFolders()
     if not fileApiAvailable() then return false end
     pcall(function()
@@ -188,23 +159,18 @@ local function ensureConfigFolders()
     end)
     return isfolder(configGameFolder)
 end
-
 local function configPath(name)
     return configGameFolder .. "/" .. sanitizeName(name) .. ".cfg"
 end
-
 local function encodeConfigKey(value)
     return tostring(value):gsub("%%", "%%25"):gsub("|", "%%7C"):gsub("\n", "%%0A")
 end
-
 local function decodeConfigKey(value)
     return tostring(value):gsub("%%0A", "\n"):gsub("%%7C", "|"):gsub("%%25", "%%")
 end
-
 local KEYBINDS_STORAGE_FILE = "Unknown_FeatureKeybinds.json"
 local feedbackCooldownSec = 25
 local MAX_FEEDBACK_PER_SESSION = 6
-
 local function getLiveBusFolder()
     local parents = {game:GetService("ReplicatedStorage"), CoreGui}
     for _, parent in ipairs(parents) do
@@ -222,7 +188,6 @@ local function getLiveBusFolder()
     end
     return nil
 end
-
 local function broadcastLivePayload(payloadType, data)
     local bus = getLiveBusFolder()
     if not bus then return end
@@ -238,7 +203,6 @@ local function broadcastLivePayload(payloadType, data)
         end)
     end)
 end
-
 return function(opts)
     opts = opts or {}
     local LocalPlayer = Players.LocalPlayer
@@ -246,7 +210,6 @@ return function(opts)
     local defaultWebhook = "https://discord.com/api/webhooks/1546874178391515298/pFNb5b0moAaijqIILkO_orgHQnOnZmYuVwKiVszBPtY9tIEolBqPPEAgYqRzbAHULmXQ"
     local isDeveloper = (LocalPlayer and LocalPlayer.Name and LocalPlayer.Name:lower() == devUsername:lower()) or false
     local isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-
     local hubState = {
         devUsername = devUsername,
         defaultWebhook = defaultWebhook,
@@ -302,7 +265,6 @@ return function(opts)
         autoLoadConfig = false,
     }
     hubState.scrollingFrameToListMap = setmetatable({}, { __mode = "k" })
-
     local soundPackIds = {
         Modern = "rbxassetid://4590662766",
         Mechanical = "rbxassetid://9114223171",
@@ -310,7 +272,6 @@ return function(opts)
         Bubble = "rbxassetid://9114486337",
         Mute = ""
     }
-
         function hubState.triggerHaptic(intensity)
         pcall(function()
             if UserInputService.HapticServiceSupported then
@@ -326,7 +287,6 @@ return function(opts)
             end
         end)
     end
-
     function hubState.playSfx(overrideSoundId)
         if not hubState.isSfxEnabled or hubState.currentSoundPack == "Mute" then return end
         pcall(function()
@@ -342,14 +302,11 @@ return function(opts)
         end)
     end
     hubState.registerThemeBackground = function(frm) return hubState.registerThemeFrame(frm) end
-
     if typeof(opts.toggleKey) == "EnumItem" then
         hubState.toggleKeyCode = opts.toggleKey
     elseif type(opts.toggleKey) == "string" and Enum.KeyCode[opts.toggleKey] then
         hubState.toggleKeyCode = Enum.KeyCode[opts.toggleKey]
     end
-
-
     function hubState.getThemeColorSequence(color1, color2)
         color1 = color1 or hubState.currentThemeColor
         color2 = color2 or hubState.secondaryThemeColor
@@ -359,8 +316,6 @@ return function(opts)
             ColorSequenceKeypoint.new(1, color2)
         })
     end
-
-    -- Cleanup utility for old GUIs
     function hubState.destroyOldGui()
         local parents = {CoreGui, LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")}
         if gethui then pcall(function() table.insert(parents, gethui()) end) end
@@ -377,51 +332,39 @@ return function(opts)
         local oldBlur = Lighting:FindFirstChild("Unknown_HubBlur")
         if oldBlur then pcall(function() oldBlur:Destroy() end) end
     end
-
     hubState.destroyOldGui()
-
-    -- Helper: safe connection tracking
     function hubState.trackConnection(conn)
         if conn then table.insert(hubState.activeConnections, conn) end
         return conn
     end
-
-
-    -- Theme registration functions
     function hubState.registerThemeText(lbl)
         if not lbl then return end
         table.insert(hubState.themeLabels, lbl)
         lbl.TextColor3 = hubState.currentThemeColor
     end
-
     function hubState.registerThemeStroke(stroke)
         if not stroke then return end
         table.insert(hubState.themeStrokes, stroke)
         stroke.Color = hubState.currentThemeColor
     end
-
     function hubState.registerThemeFrame(frm)
         if not frm then return end
         table.insert(hubState.themeFrames, frm)
         frm.BackgroundColor3 = hubState.currentThemeColor
     end
-
     hubState.registerThemeBackground = hubState.registerThemeFrame
-
     function hubState.registerThemeGradient(grad, rotation)
         if not grad then return end
         table.insert(hubState.themeGradients, grad)
         grad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         if rotation ~= nil then grad.Rotation = rotation end
     end
-
     function hubState.registerThemeUpdater(callback)
         if type(callback) == "function" then
             table.insert(hubState.themeUpdaters, callback)
             pcall(callback, hubState.currentThemeColor, hubState.secondaryThemeColor)
         end
     end
-
     function hubState.pruneDeadThemeReferences()
         local function pruneList(tbl, checkParent)
             local i = 1
@@ -439,28 +382,20 @@ return function(opts)
         pruneList(hubState.themeFrames, true)
         pruneList(hubState.themeGradients, true)
     end
-
     function hubState.applyTheme(color1, color2)
         if color1 then hubState.currentThemeColor = color1 end
         if color2 then hubState.secondaryThemeColor = color2 end
         hubState.pruneDeadThemeReferences()
-
         local c1 = hubState.currentThemeColor
         local c2 = hubState.secondaryThemeColor
-
-        -- 1. Main Frames & Backgrounds (2nd color is blacker/darker tint)
         local mainBg = Color3.fromRGB(math.floor(c2.R * 26 + 8), math.floor(c2.G * 26 + 10), math.floor(c2.B * 26 + 14))
         local sidebarBg = Color3.fromRGB(math.floor(c2.R * 34 + 10), math.floor(c2.G * 34 + 12), math.floor(c2.B * 34 + 18))
         local headerBg = Color3.fromRGB(math.floor(c2.R * 30 + 9), math.floor(c2.G * 30 + 11), math.floor(c2.B * 30 + 16))
         local sectionBg = Color3.fromRGB(math.floor(c2.R * 42 + 12), math.floor(c2.G * 42 + 15), math.floor(c2.B * 42 + 22))
-
         if hubState.mainFrame and hubState.mainFrame.Parent then hubState.mainFrame.BackgroundColor3 = mainBg end
         if hubState.sidebar and hubState.sidebar.Parent then hubState.sidebar.BackgroundColor3 = sidebarBg end
         if hubState.header and hubState.header.Parent then hubState.header.BackgroundColor3 = headerBg end
-
-        -- 2. Button surfaces (2nd color is whiter/lighter tint)
         local buttonBg = Color3.fromRGB(math.floor(c2.R * 85 + 24), math.floor(c2.G * 85 + 30), math.floor(c2.B * 85 + 42))
-
         for _, label in ipairs(hubState.themeLabels) do
             if label and label.Parent then label.TextColor3 = c1 end
         end
@@ -476,7 +411,6 @@ return function(opts)
         for _, bFrame in ipairs(hubState.themeButtonFrames or {}) do
             if bFrame and bFrame.Parent then bFrame.BackgroundColor3 = buttonBg end
         end
-
         local seq = hubState.getThemeColorSequence(c1, c2)
         for _, grad in ipairs(hubState.themeGradients) do
             if grad and grad.Parent then grad.Color = seq end
@@ -484,18 +418,12 @@ return function(opts)
         for _, updater in ipairs(hubState.themeUpdaters) do
             pcall(updater, c1, c2)
         end
-
-        -- Refresh active tab styling with the new picked theme colors
         if hubState.currentActiveTabName and hubState.setTabVisible then
             task.defer(function()
                 hubState.setTabVisible(hubState.currentActiveTabName)
             end)
         end
     end
-
-    -- =========================================================================
-    -- Enhanced Celestial Ocean & Moon Simulation (Strictly Clipped, CanvasGroup)
-    -- =========================================================================
         function hubState.startOceanWaveBackground(parent)
         local success, cg = pcall(function()
             local c = Instance.new("CanvasGroup")
@@ -513,10 +441,6 @@ return function(opts)
         waveContainer.ZIndex = 0
         waveContainer.Parent = parent
         applyCorner(waveContainer, 10)
-
-        -- ---------------------------------------------------------------------
-        -- Crisp Geometric Sparkling Starfield (100% Vector Frames, Zero Font Glyphs)
-        -- ---------------------------------------------------------------------
         local starNodesData = {
             { x = 0.08, y = 0.10, size = 5, speed = 2.1, phase = 0.2, isDiamond = true },
             { x = 0.18, y = 0.07, size = 4, speed = 1.7, phase = 1.5, isDiamond = false },
@@ -531,7 +455,6 @@ return function(opts)
             { x = 0.84, y = 0.32, size = 5, speed = 1.6, phase = 4.8, isDiamond = true },
             { x = 0.50, y = 0.28, size = 4, speed = 3.0, phase = 2.6, isDiamond = false },
         }
-
         local activeStarElements = {}
         for _, star in ipairs(starNodesData) do
             local starHolder = Instance.new("Frame")
@@ -547,8 +470,6 @@ return function(opts)
             starHolder.Rotation = star.isDiamond and 45 or 0
             starHolder.Parent = waveContainer
             applyCorner(starHolder, star.isDiamond and 1 or math.floor(star.size / 2))
-
-            -- Star Outer Glow Aura
             local starGlow = Instance.new("Frame")
             starGlow.Name = "Glow"
             starGlow.Size = UDim2.new(1.8, 0, 1.8, 0)
@@ -563,7 +484,6 @@ return function(opts)
             starGlow.Parent = starHolder
             applyCorner(starGlow, math.floor(star.size))
             hubState.registerThemeFrame(starGlow)
-
             table.insert(activeStarElements, {
                 holder = starHolder,
                 glow = starGlow,
@@ -571,10 +491,6 @@ return function(opts)
                 phase = star.phase,
             })
         end
-
-        -- ---------------------------------------------------------------------
-        -- Shooting Meteor Streak Decor
-        -- ---------------------------------------------------------------------
         local meteorStreak = Instance.new("Frame")
         meteorStreak.Name = "MeteorStreak"
         meteorStreak.Size = UDim2.new(0, 75, 0, 2)
@@ -588,7 +504,6 @@ return function(opts)
         meteorStreak.ZIndex = 0
         meteorStreak.Parent = waveContainer
         applyCorner(meteorStreak, 1)
-
         local meteorGrad = Instance.new("UIGradient")
         meteorGrad.Color = hubState.getThemeColorSequence(Color3.fromRGB(255, 255, 255), hubState.secondaryThemeColor)
         meteorGrad.Transparency = NumberSequence.new({
@@ -598,10 +513,6 @@ return function(opts)
         })
         meteorGrad.Parent = meteorStreak
         hubState.registerThemeGradient(meteorGrad, 0)
-
-        -- ---------------------------------------------------------------------
-        -- Ambient Ocean Background Glow & Depth Mist
-        -- ---------------------------------------------------------------------
         local centerGlow = Instance.new("Frame")
         centerGlow.Name = "OceanCenterGlow"
         centerGlow.Size = UDim2.new(1, 0, 0, 160)
@@ -613,7 +524,6 @@ return function(opts)
         centerGlow.ZIndex = 0
         centerGlow.Parent = waveContainer
         hubState.registerThemeBackground(centerGlow)
-
         local glowGradient = Instance.new("UIGradient")
         glowGradient.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 1),
@@ -622,21 +532,14 @@ return function(opts)
         })
         glowGradient.Rotation = 90
         glowGradient.Parent = centerGlow
-
-        -- ---------------------------------------------------------------------
-        -- Seamless Fully-Synchronized Ocean Wave Ribbons (Harmonic Mesh)
-        -- ---------------------------------------------------------------------
         local wavePattern = "╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲"
-
         local waveLayersData = {
             { name = "AbyssWave", offsetY = -28, speed = 14, amp = 7,  freq = 0.75, trans = 0.92, fontSize = 44, colorMix = 0.2 },
             { name = "DeepWave",  offsetY = -10, speed = 24, amp = 10, freq = 1.15, trans = 0.86, fontSize = 52, colorMix = 0.4 },
             { name = "MidWave",   offsetY =  12, speed = 36, amp = 13, freq = 1.65, trans = 0.80, fontSize = 60, colorMix = 0.7 },
             { name = "CrestWave", offsetY =  32, speed = 50, amp = 16, freq = 2.20, trans = 0.72, fontSize = 66, colorMix = 1.0 },
         }
-
         local waveLabels = {}
-
         for _, data in ipairs(waveLayersData) do
             local layerFrame = Instance.new("Frame")
             layerFrame.Name = data.name
@@ -649,7 +552,6 @@ return function(opts)
             layerFrame.Active = false
             layerFrame.ZIndex = 0
             layerFrame.Parent = waveContainer
-
             for part = 1, 2 do
                 local waveLbl = Instance.new("TextLabel")
                 waveLbl.Name = "WavePart_" .. tostring(part)
@@ -668,7 +570,6 @@ return function(opts)
                 waveLbl.ZIndex = 0
                 waveLbl.Parent = layerFrame
                 hubState.registerThemeText(waveLbl)
-
                 local waveGradient = Instance.new("UIGradient")
                 waveGradient.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
                 waveGradient.Transparency = NumberSequence.new({
@@ -679,7 +580,6 @@ return function(opts)
                 waveGradient.Rotation = 90
                 waveGradient.Parent = waveLbl
                 hubState.registerThemeGradient(waveGradient, 90)
-
                 table.insert(waveLabels, {
                     label = waveLbl,
                     layerFrame = layerFrame,
@@ -689,7 +589,6 @@ return function(opts)
                 })
             end
         end
-
         local startTime = tick()
         local waveConn
         waveConn = RunService.RenderStepped:Connect(function()
@@ -697,21 +596,15 @@ return function(opts)
                 if waveConn then waveConn:Disconnect() end
                 return
             end
-
             if not waveContainer.Visible or not parent.Visible or (parent.AbsoluteSize and parent.AbsoluteSize.Y < 60) then
                 return
             end
-
             local elapsed = tick() - startTime
-
-            -- 1. Twinkling Geometric Starfield (Clean alpha pulsing)
             for _, star in ipairs(activeStarElements) do
                 local flicker = (math.sin((elapsed * star.speed) + star.phase) * 0.32) + 0.60
                 star.holder.BackgroundTransparency = math.clamp(flicker, 0.25, 0.95)
                 star.glow.BackgroundTransparency = math.clamp(flicker + 0.20, 0.50, 1.0)
             end
-
-            -- 2. Shooting Meteor Streak Loop (every 7.5 seconds)
             if meteorStreak and meteorStreak.Parent then
                 local cycleTime = elapsed % 7.5
                 if cycleTime < 1.3 then
@@ -727,41 +620,28 @@ return function(opts)
                     meteorStreak.BackgroundTransparency = 1
                 end
             end
-
-            -- 3. Seamless Fully-Synchronized Ocean Waves
             for _, item in ipairs(waveLabels) do
                 local data = item.layerData
                 local speed = data.speed
                 local width = item.width
-
-                -- Seamless cyclic X scrolling across parts
                 local xOffset = ((elapsed * speed) + ((item.part - 1) * width)) % (width * 2) - width
-
-                -- Fully synchronized Y harmonic sine wave (consistent across both parts to eliminate any seam disjoints)
                 local yOffset = (math.sin(elapsed * data.freq) * data.amp)
                               + (math.cos(elapsed * data.freq * 0.5) * (data.amp * 0.35))
-
                 item.label.Position = UDim2.new(0, xOffset, 0, yOffset)
             end
         end)
         hubState.trackConnection(waveConn)
-
         return waveContainer
     end
-
-    -- Smooth Dragging system
     function hubState.makeSmoothDraggable(guiFrame, dragHandle)
         dragHandle = dragHandle or guiFrame
         if not guiFrame or not dragHandle then return end
-
         local dragging = false
         local dragInput = nil
         local dragStart = nil
         local startPos = nil
-
         hubState.trackConnection(dragHandle.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                -- Guard: Ignore if input falls over any TextButton or ImageButton child of dragHandle
                 local inputX, inputY = input.Position.X, input.Position.Y
                 local clickedButton = false
                 for _, child in ipairs(dragHandle:GetDescendants()) do
@@ -775,19 +655,16 @@ return function(opts)
                     end
                 end
                 if clickedButton then return end
-
                 dragging = true
                 dragStart = input.Position
                 startPos = guiFrame.Position
             end
         end))
-
         hubState.trackConnection(dragHandle.InputChanged:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
                 dragInput = input
             end
         end))
-
         hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
             if input == dragInput and dragging and startPos then
                 local delta = input.Position - dragStart
@@ -800,7 +677,6 @@ return function(opts)
                 TweenService:Create(guiFrame, TweenInfo.new(0.06, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             end
         end))
-
         hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
@@ -808,18 +684,12 @@ return function(opts)
             end
         end))
     end
-
-    -- =========================================================================
-    -- Dynamic Resizable System (Responsive Proportional Scaling)
-    -- =========================================================================
     hubState.onResizeEvent = Instance.new("BindableEvent")
-
     function hubState.makeResizable(targetFrame, minW, minH, maxW, maxH)
         minW = minW or 460
         minH = minH or 300
         maxW = maxW or 1200
         maxH = maxH or 900
-
         local resizer = Instance.new("Frame")
         resizer.Name = "ResizeGripContainer"
         resizer.Size = UDim2.new(0, 22, 0, 22)
@@ -827,8 +697,6 @@ return function(opts)
         resizer.BackgroundTransparency = 1
         resizer.ZIndex = 30
         resizer.Parent = targetFrame
-
-        -- Triangle Graphic (◢)
         local gripIcon = Instance.new("TextLabel")
         gripIcon.Name = "GripIcon"
         gripIcon.Size = UDim2.new(1, 0, 1, 0)
@@ -844,7 +712,6 @@ return function(opts)
         gripIcon.ZIndex = 31
         gripIcon.Parent = resizer
         hubState.registerThemeText(gripIcon)
-
         local gripBtn = Instance.new("TextButton")
         gripBtn.Name = "GripHitbox"
         gripBtn.Size = UDim2.new(1, 0, 1, 0)
@@ -852,18 +719,15 @@ return function(opts)
         gripBtn.Text = ""
         gripBtn.ZIndex = 32
         gripBtn.Parent = resizer
-
         local resizing = false
         local resizeStart = nil
         local startSize = nil
-
         gripBtn.MouseEnter:Connect(function()
             TweenService:Create(gripIcon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 TextTransparency = 0,
                 TextSize = 18
             }):Play()
         end)
-
         gripBtn.MouseLeave:Connect(function()
             if not resizing then
                 TweenService:Create(gripIcon, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -872,7 +736,6 @@ return function(opts)
                 }):Play()
             end
         end)
-
         hubState.trackConnection(gripBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 resizing = true
@@ -884,7 +747,6 @@ return function(opts)
                 }):Play()
             end
         end))
-
         hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
             if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                 local delta = input.Position - resizeStart
@@ -894,7 +756,6 @@ return function(opts)
                 hubState.onResizeEvent:Fire(newW, newH)
             end
         end))
-
         hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 resizing = false
@@ -904,17 +765,12 @@ return function(opts)
                 }):Play()
             end
         end))
-
         return resizer
     end
-
-    -- Close confirmation modal
     function hubState.createCloseConfirmation(container, onConfirm)
         if not container then return end
         if container:FindFirstChild("Unknown_CloseConfirmOverlay") then return end
-
         hubState.isModalActive = true
-
         local blur = Lighting:FindFirstChild("Unknown_HubBlur")
         if not blur then
             blur = Instance.new("BlurEffect")
@@ -923,7 +779,6 @@ return function(opts)
             blur.Parent = Lighting
         end
         TweenService:Create(blur, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 14}):Play()
-
         local overlay = Instance.new("Frame")
         overlay.Name = "Unknown_CloseConfirmOverlay"
         overlay.Size = UDim2.new(1, 0, 1, 0)
@@ -933,7 +788,6 @@ return function(opts)
         overlay.Active = true
         overlay.ZIndex = 40
         overlay.Parent = container
-
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
         modalBlocker.Size = UDim2.new(1, 0, 1, 0)
@@ -943,7 +797,6 @@ return function(opts)
         modalBlocker.AutoButtonColor = false
         modalBlocker.ZIndex = 40
         modalBlocker.Parent = overlay
-
         local panel = Instance.new("Frame")
         panel.Name = "ConfirmPanel"
         panel.Size = UDim2.new(0, 270, 0, 140)
@@ -954,7 +807,6 @@ return function(opts)
         panel.Parent = overlay
         applyCorner(panel, 10)
         applyStroke(panel, Color3.fromRGB(255, 175, 75), 1.5, 0)
-
         local warnIcon = Instance.new("TextLabel")
         warnIcon.Name = "WarningIcon"
         warnIcon.Size = UDim2.new(0, 32, 0, 32)
@@ -967,7 +819,6 @@ return function(opts)
         warnIcon.TextXAlignment = Enum.TextXAlignment.Center
         warnIcon.ZIndex = 42
         warnIcon.Parent = panel
-
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -24, 0, 20)
         title.Position = UDim2.new(0, 12, 0, 44)
@@ -979,7 +830,6 @@ return function(opts)
         title.TextXAlignment = Enum.TextXAlignment.Center
         title.ZIndex = 42
         title.Parent = panel
-
         local msg = Instance.new("TextLabel")
         msg.Size = UDim2.new(1, -26, 0, 24)
         msg.Position = UDim2.new(0, 13, 0, 66)
@@ -992,7 +842,6 @@ return function(opts)
         msg.TextXAlignment = Enum.TextXAlignment.Center
         msg.ZIndex = 42
         msg.Parent = panel
-
         local cancelBtn = Instance.new("TextButton")
         cancelBtn.Size = UDim2.new(0, 88, 0, 28)
         cancelBtn.Position = UDim2.new(0.5, -98, 1, -38)
@@ -1004,7 +853,6 @@ return function(opts)
         cancelBtn.ZIndex = 42
         cancelBtn.Parent = panel
         applyCorner(cancelBtn, 6)
-
         local confirmBtn = Instance.new("TextButton")
         confirmBtn.Size = UDim2.new(0, 88, 0, 28)
         confirmBtn.Position = UDim2.new(0.5, 10, 1, -38)
@@ -1016,11 +864,9 @@ return function(opts)
         confirmBtn.ZIndex = 42
         confirmBtn.Parent = panel
         applyCorner(confirmBtn, 6)
-
         TweenService:Create(overlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.35}):Play()
         panel.Position = UDim2.new(0.5, -135, 0.5, -50)
         TweenService:Create(panel, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, -135, 0.5, -70)}):Play()
-
         local overlayClosed = false
         local function closeOverlay()
             if overlayClosed then return end
@@ -1038,15 +884,12 @@ return function(opts)
                 task.delay(0.16, function() pcall(function() overlay:Destroy() end) end)
             end
         end
-
         cancelBtn.MouseButton1Click:Connect(closeOverlay)
         confirmBtn.MouseButton1Click:Connect(function()
             closeOverlay()
             if onConfirm then pcall(onConfirm) end
         end)
     end
-
-    -- Disable all features safely
     function hubState.DisableAllFeatureStates()
         if hubState.disablingAll then return end
         hubState.disablingAll = true
@@ -1057,27 +900,22 @@ return function(opts)
                 end
             end
         end)
-
         for _, stopper in ipairs(hubState.featureStoppers) do
             pcall(function()
                 if stopper then stopper() end
             end)
         end
-
         for _, setter in ipairs(hubState.allToggleSetters) do
             pcall(function()
                 if setter then setter(false) end
             end)
         end
-
         local cleanup = getgenv().Unknown_Cleanup or _G.Unknown_Cleanup
         if cleanup then
             pcall(cleanup)
         end
         hubState.disablingAll = false
     end
-
-    -- Root ScreenGui setup (Prioritize gethui / PlayerGui to avoid CoreGui capability Plugin locks)
     local localParent = nil
     if gethui then
         pcall(function() localParent = gethui() end)
@@ -1091,15 +929,12 @@ return function(opts)
     if not localParent then
         pcall(function() localParent = CoreGui end)
     end
-
     hubState.screenGui = Instance.new("ScreenGui")
     hubState.screenGui.Name = opts.name or "Unknown_TabbedHub_UI"
     hubState.screenGui.ResetOnSpawn = false
     hubState.screenGui.IgnoreGuiInset = true
     hubState.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     pcall(function() hubState.screenGui.Parent = localParent end)
-
-    -- Modern Toast Notification Container (Responsive for PC & Mobile)
     local notifWidth = hubState.isMobileDevice and 260 or 300
     hubState.notificationContainer = Instance.new("Frame")
     hubState.notificationContainer.Name = "NotificationContainer"
@@ -1108,16 +943,11 @@ return function(opts)
     hubState.notificationContainer.BackgroundTransparency = 1
     hubState.notificationContainer.ZIndex = 150
     hubState.notificationContainer.Parent = hubState.screenGui
-
     hubState.notifLayout = Instance.new("UIListLayout")
     hubState.notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
     hubState.notifLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
     hubState.notifLayout.Padding = UDim.new(0, 8)
     hubState.notifLayout.Parent = hubState.notificationContainer
-
-    -- =========================================================================
-    -- Notification Store & Center System
-    -- =========================================================================
     hubState.notificationsStore = {}
     hubState.unreadNotifCount = 0
     hubState.notifBadgeContainer = nil
@@ -1142,7 +972,6 @@ return function(opts)
     hubState.favoriteItems = {}
     hubState.functionItemMap = {}
     hubState.activeContextMenuClose = nil
-
     local FAVORITES_FILE = "UnknownHub/Favorites.json"
     local function saveFavoritesConfig()
         pcall(function()
@@ -1157,7 +986,6 @@ return function(opts)
             end
         end)
     end
-
     local function loadFavoritesConfig()
         pcall(function()
             if isfile and readfile and isfile(FAVORITES_FILE) then
@@ -1172,11 +1000,9 @@ return function(opts)
         end)
     end
     loadFavoritesConfig()
-
     function hubState.isFavorite(itemId)
         return hubState.favoriteItemIds[itemId] == true
     end
-
     function hubState.toggleFavorite(itemData)
         if not itemData or not itemData.id then return end
         local isFav = hubState.favoriteItemIds[itemData.id] == true
@@ -1204,7 +1030,6 @@ return function(opts)
             hubState.refreshFavoritesPage()
         end
     end
-
     function hubState.updateNotifBadge()
         if hubState.notifBadgeContainer and hubState.notifBadgeLabel then
             if hubState.unreadNotifCount > 0 then
@@ -1218,9 +1043,7 @@ return function(opts)
             end
         end
     end
-
         local activeToastCards = {}
-
     function hubState.notify(config)
         config = type(config) == "table" and config or { Title = "Notification", Content = tostring(config) }
         local titleText = config.Title or "Notification"
@@ -1229,8 +1052,6 @@ return function(opts)
         local notifColor1 = config.Color or hubState.currentThemeColor
         local notifColor2 = config.SecondaryColor or hubState.secondaryThemeColor
         local category = config.Category or "System"
-
-        -- Sound chime (safe pcall)
         pcall(function()
             local sound = Instance.new("Sound")
             sound.Name = "ENI_NotifChime"
@@ -1240,15 +1061,12 @@ return function(opts)
             sound:Play()
             game:GetService("Debris"):AddItem(sound, 2)
         end)
-
-        -- Limit simultaneous visible toasts to 4 to prevent screen clutter
         if #activeToastCards >= 4 then
             local oldest = table.remove(activeToastCards, 1)
             if oldest and oldest.Close then
                 pcall(oldest.Close)
             end
         end
-
         local categoryIcon = "🔔"
         if titleText:find("👑") or titleText:lower():find("dev") or category == "Developer" then
             categoryIcon = "👑"
@@ -1265,7 +1083,6 @@ return function(opts)
         elseif titleText:find("❌") or titleText:find("⚠") or titleText:lower():find("error") then
             categoryIcon = "⚠"
         end
-
         local notifCard = Instance.new("Frame")
         notifCard.Name = "NotificationCard"
         notifCard.Size = UDim2.new(1, 0, 0, 74)
@@ -1276,14 +1093,11 @@ return function(opts)
         notifCard.ZIndex = 151
         notifCard.Parent = hubState.notificationContainer
         applyCorner(notifCard, 9)
-
         local nStroke = applyStroke(notifCard, notifColor1, 1.2, 0.3)
         local nStrokeGrad = Instance.new("UIGradient")
         nStrokeGrad.Color = ColorSequence.new(notifColor1, notifColor2)
         nStrokeGrad.Rotation = 0
         nStrokeGrad.Parent = nStroke
-
-        -- Acrylic Dual-Color Background Gradient
         local bgGrad = Instance.new("UIGradient")
         bgGrad.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(16, 22, 34)),
@@ -1292,8 +1106,6 @@ return function(opts)
         })
         bgGrad.Rotation = 45
         bgGrad.Parent = notifCard
-
-        -- Glowing Left Accent Ribbon
         local accentBar = Instance.new("Frame")
         accentBar.Name = "AccentBar"
         accentBar.Size = UDim2.new(0, 4, 1, -16)
@@ -1303,13 +1115,10 @@ return function(opts)
         accentBar.ZIndex = 152
         accentBar.Parent = notifCard
         applyCorner(accentBar, 2)
-
         local accentGrad = Instance.new("UIGradient")
         accentGrad.Color = ColorSequence.new(notifColor1, notifColor2)
         accentGrad.Rotation = 90
         accentGrad.Parent = accentBar
-
-        -- Category Icon Container
         local iconBox = Instance.new("Frame")
         iconBox.Size = UDim2.new(0, 26, 0, 26)
         iconBox.Position = UDim2.new(0, 16, 0, 10)
@@ -1318,7 +1127,6 @@ return function(opts)
         iconBox.ZIndex = 152
         iconBox.Parent = notifCard
         applyCorner(iconBox, 6)
-
         local iconLbl = Instance.new("TextLabel")
         iconLbl.Size = UDim2.new(1, 0, 1, 0)
         iconLbl.BackgroundTransparency = 1
@@ -1330,8 +1138,6 @@ return function(opts)
         iconLbl.TextYAlignment = Enum.TextYAlignment.Center
         iconLbl.ZIndex = 153
         iconLbl.Parent = iconBox
-
-        -- Title Label
         local nTitle = Instance.new("TextLabel")
         nTitle.Size = UDim2.new(1, -78, 0, 18)
         nTitle.Position = UDim2.new(0, 48, 0, 8)
@@ -1344,8 +1150,6 @@ return function(opts)
         nTitle.TextXAlignment = Enum.TextXAlignment.Left
         nTitle.ZIndex = 152
         nTitle.Parent = notifCard
-
-        -- Time
         local nTime = Instance.new("TextLabel")
         nTime.Size = UDim2.new(0, 40, 0, 14)
         nTime.Position = UDim2.new(1, -64, 0, 8)
@@ -1357,8 +1161,6 @@ return function(opts)
         nTime.TextXAlignment = Enum.TextXAlignment.Right
         nTime.ZIndex = 152
         nTime.Parent = notifCard
-
-        -- Dismiss 'X' Button
         local dismissBtn = Instance.new("TextButton")
         dismissBtn.Size = UDim2.new(0, 18, 0, 18)
         dismissBtn.Position = UDim2.new(1, -24, 0, 7)
@@ -1371,8 +1173,6 @@ return function(opts)
         dismissBtn.ZIndex = 155
         dismissBtn.Parent = notifCard
         applyCorner(dismissBtn, 4)
-
-        -- Content Message Label
         local nContent = Instance.new("TextLabel")
         nContent.Size = UDim2.new(1, -56, 0, 34)
         nContent.Position = UDim2.new(0, 48, 0, 28)
@@ -1386,8 +1186,6 @@ return function(opts)
         nContent.TextYAlignment = Enum.TextYAlignment.Top
         nContent.ZIndex = 152
         nContent.Parent = notifCard
-
-        -- Glowing Progress Timer Bar (Bottom)
         local timerTrack = Instance.new("Frame")
         timerTrack.Size = UDim2.new(1, -12, 0, 2)
         timerTrack.Position = UDim2.new(0, 6, 1, -4)
@@ -1396,7 +1194,6 @@ return function(opts)
         timerTrack.ZIndex = 153
         timerTrack.Parent = notifCard
         applyCorner(timerTrack, 1)
-
         local timerBar = Instance.new("Frame")
         timerBar.Size = UDim2.new(1, 0, 1, 0)
         timerBar.BackgroundColor3 = notifColor1
@@ -1404,13 +1201,10 @@ return function(opts)
         timerBar.ZIndex = 154
         timerBar.Parent = timerTrack
         applyCorner(timerBar, 1)
-
         local tGrad = Instance.new("UIGradient")
         tGrad.Color = ColorSequence.new(notifColor1, notifColor2)
         tGrad.Rotation = 0
         tGrad.Parent = timerBar
-
-        -- Click overlay to open notification center or action
         local cardClickBtn = Instance.new("TextButton")
         cardClickBtn.Size = UDim2.new(1, -26, 1, 0)
         cardClickBtn.Position = UDim2.new(0, 0, 0, 0)
@@ -1418,7 +1212,6 @@ return function(opts)
         cardClickBtn.Text = ""
         cardClickBtn.ZIndex = 153
         cardClickBtn.Parent = notifCard
-
         cardClickBtn.MouseButton1Click:Connect(function()
             if hubState.openNotificationCenterModal then
                 if category == "Announcements" then
@@ -1429,39 +1222,30 @@ return function(opts)
                 hubState.openNotificationCenterModal(hubState.screenGui)
             end
         end)
-
-        -- 1. Smooth Slide-In from the Right
         TweenService:Create(notifCard, TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
             Position = UDim2.new(0, 0, 0, 0),
             BackgroundTransparency = 0.05
         }):Play()
-
-        -- 2. Timer Bar Countdown
         local timerTween = TweenService:Create(timerBar, TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
             Size = UDim2.new(0, 0, 1, 0)
         })
         timerTween:Play()
-
         local isClosing = false
         local function closeCardSlowly()
             if isClosing then return end
             isClosing = true
             timerTween:Cancel()
-
-            -- Remove from active list
             for idx, c in ipairs(activeToastCards) do
                 if c.Card == notifCard then
                     table.remove(activeToastCards, idx)
                     break
                 end
             end
-
             local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
             TweenService:Create(notifCard, fadeInfo, {
                 Position = UDim2.new(1, 60, 0, 0),
                 BackgroundTransparency = 1
             }):Play()
-
             for _, desc in ipairs(notifCard:GetDescendants()) do
                 if desc:IsA("TextLabel") or desc:IsA("TextButton") then
                     TweenService:Create(desc, fadeInfo, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
@@ -1471,34 +1255,27 @@ return function(opts)
                     TweenService:Create(desc, fadeInfo, { Transparency = 1 }):Play()
                 end
             end
-
             task.delay(0.42, function()
                 pcall(function() notifCard:Destroy() end)
             end)
         end
-
         local toastObj = { Card = notifCard, Close = closeCardSlowly }
         table.insert(activeToastCards, toastObj)
-
-        -- Hover effects: pause timer and brighten card
         notifCard.MouseEnter:Connect(function()
             if isClosing then return end
             pcall(function() timerTween:Pause() end)
             TweenService:Create(nStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0 }):Play()
         end)
-
         notifCard.MouseLeave:Connect(function()
             if isClosing then return end
             pcall(function() timerTween:Play() end)
             TweenService:Create(nStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0.3 }):Play()
         end)
-
         dismissBtn.MouseButton1Click:Connect(closeCardSlowly)
         task.delay(duration, function()
             if not isClosing then closeCardSlowly() end
         end)
     end
-
     function hubState.sendNotification(config)
         config = type(config) == "table" and config or { Title = "Notification", Content = tostring(config) }
         local titleText = config.Title or "Notification"
@@ -1507,7 +1284,6 @@ return function(opts)
         local notifColor = config.Color or hubState.currentThemeColor
         local secColor = config.SecondaryColor or hubState.secondaryThemeColor
         local timeStr = config.Time or os.date("%H:%M")
-
         local entry = {
             id = #hubState.notificationsStore + 1,
             title = titleText,
@@ -1518,15 +1294,12 @@ return function(opts)
             time = timeStr,
             read = false
         }
-
         table.insert(hubState.notificationsStore, 1, entry)
         if #hubState.notificationsStore > 60 then
             table.remove(hubState.notificationsStore)
         end
-
         hubState.unreadNotifCount = hubState.unreadNotifCount + 1
         hubState.updateNotifBadge()
-
         if config.Toast ~= false then
             hubState.notify({
                 Title = titleText,
@@ -1537,14 +1310,11 @@ return function(opts)
                 Category = category
             })
         end
-
         if hubState.refreshNotifCenterUI then
             pcall(hubState.refreshNotifCenterUI)
         end
         return entry
     end
-
-    -- Initial welcome notification
     task.defer(function()
         if hubState.isDeveloper then
             hubState.sendNotification({
@@ -1564,10 +1334,6 @@ return function(opts)
             })
         end
     end)
-
-    -- =========================================================================
-    -- Dynamic Keybinding & Context Menu Engine (Right-Click Bind Manager)
-    -- =========================================================================
         local function loadSavedKeybinds()
         if readfile and isfile and isfile(KEYBINDS_STORAGE_FILE) then
             local ok, data = pcall(function()
@@ -1577,7 +1343,6 @@ return function(opts)
         end
         return {}
     end
-
     local function saveKeybindsConfig()
         if not writefile then return end
         local map = {}
@@ -1590,11 +1355,9 @@ return function(opts)
             writefile(KEYBINDS_STORAGE_FILE, HttpService:JSONEncode(map))
         end)
     end
-
     function hubState.registerFunctionItem(itemData)
         if not itemData or not itemData.id then return end
         hubState.registeredFunctions[itemData.id] = itemData
-
         local savedMap = loadSavedKeybinds()
         local savedKeyName = savedMap[itemData.id]
         if savedKeyName and Enum.KeyCode[savedKeyName] then
@@ -1603,31 +1366,24 @@ return function(opts)
             hubState.featureKeybinds[kc] = itemData
         end
     end
-
     hubState.openBindContextMenu = function(itemData, mousePos)
         if not itemData then return end
-
-        -- Close any currently active RMB context menu immediately
         if hubState.activeContextMenuClose then
             pcall(hubState.activeContextMenuClose)
             hubState.activeContextMenuClose = nil
         end
-
         local existing = hubState.screenGui:FindFirstChild("BindContextMenuOverlay")
         if existing then pcall(function() existing:Destroy() end) end
-
         local overlay = Instance.new("Frame")
         overlay.Name = "BindContextMenuOverlay"
         overlay.Size = UDim2.new(1, 0, 1, 0)
         overlay.BackgroundTransparency = 1
         overlay.ZIndex = 280
         overlay.Parent = hubState.screenGui
-
         local posX = mousePos and mousePos.X or (hubState.screenGui.AbsoluteSize.X / 2 - 120)
         local posY = mousePos and mousePos.Y or (hubState.screenGui.AbsoluteSize.Y / 2 - 100)
         posX = math.clamp(posX, 10, math.max(10, hubState.screenGui.AbsoluteSize.X - 250))
         posY = math.clamp(posY, 10, math.max(10, hubState.screenGui.AbsoluteSize.Y - 245))
-
         local menu = Instance.new("Frame")
         menu.Name = "ContextMenu"
         menu.Size = UDim2.new(0, 240, 0, 230)
@@ -1640,14 +1396,12 @@ return function(opts)
         applyCorner(menu, 8)
         local mStroke = applyStroke(menu, hubState.currentThemeColor, 1.5, 0.2)
         hubState.registerThemeStroke(mStroke)
-
         local mHeader = Instance.new("Frame")
         mHeader.Size = UDim2.new(1, 0, 0, 32)
         mHeader.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
         mHeader.BorderSizePixel = 0
         mHeader.ZIndex = 282
         mHeader.Parent = menu
-
         local mTitle = Instance.new("TextLabel")
         mTitle.Size = UDim2.new(1, -30, 1, 0)
         mTitle.Position = UDim2.new(0, 10, 0, 0)
@@ -1660,7 +1414,6 @@ return function(opts)
         mTitle.TextXAlignment = Enum.TextXAlignment.Left
         mTitle.ZIndex = 283
         mTitle.Parent = mHeader
-
         local mClose = Instance.new("TextButton")
         mClose.Size = UDim2.new(0, 20, 0, 20)
         mClose.Position = UDim2.new(1, -25, 0.5, -10)
@@ -1672,19 +1425,16 @@ return function(opts)
         mClose.ZIndex = 283
         mClose.Parent = mHeader
         applyCorner(mClose, 4)
-
         local mBody = Instance.new("Frame")
         mBody.Size = UDim2.new(1, -16, 1, -40)
         mBody.Position = UDim2.new(0, 8, 0, 36)
         mBody.BackgroundTransparency = 1
         mBody.ZIndex = 282
         mBody.Parent = menu
-
         local mLayout = Instance.new("UIListLayout")
         mLayout.SortOrder = Enum.SortOrder.LayoutOrder
         mLayout.Padding = UDim.new(0, 5)
         mLayout.Parent = mBody
-
         local currentBindLabel = Instance.new("TextLabel")
         currentBindLabel.Size = UDim2.new(1, 0, 0, 18)
         currentBindLabel.BackgroundTransparency = 1
@@ -1695,8 +1445,6 @@ return function(opts)
         currentBindLabel.TextXAlignment = Enum.TextXAlignment.Left
         currentBindLabel.ZIndex = 283
         currentBindLabel.Parent = mBody
-
-        -- ⭐ Add / Remove Favorites Button
         local favBtn = Instance.new("TextButton")
         favBtn.Size = UDim2.new(1, 0, 0, 26)
         favBtn.BackgroundColor3 = Color3.fromRGB(28, 34, 48)
@@ -1706,7 +1454,6 @@ return function(opts)
         favBtn.Parent = mBody
         applyCorner(favBtn, 5)
         local favStroke = applyStroke(favBtn, Color3.fromRGB(255, 215, 0), 1, 0.4)
-
         local function updateFavBtn()
             local isFav = hubState.isFavorite(itemData.id)
             favBtn.Text = isFav and "⭐ In Favorites (Click to Remove)" or "⭐ Add in Favorites"
@@ -1714,12 +1461,10 @@ return function(opts)
             favBtn.BackgroundColor3 = isFav and Color3.fromRGB(42, 36, 20) or Color3.fromRGB(28, 34, 48)
         end
         updateFavBtn()
-
         favBtn.MouseButton1Click:Connect(function()
             hubState.toggleFavorite(itemData)
             updateFavBtn()
         end)
-
         local setBindBtn = Instance.new("TextButton")
         setBindBtn.Size = UDim2.new(1, 0, 0, 26)
         setBindBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
@@ -1731,7 +1476,6 @@ return function(opts)
         setBindBtn.Parent = mBody
         applyCorner(setBindBtn, 5)
         applyStroke(setBindBtn, Color3.fromRGB(40, 52, 76), 1, 0)
-
         local clearBindBtn = Instance.new("TextButton")
         clearBindBtn.Size = UDim2.new(1, 0, 0, 26)
         clearBindBtn.BackgroundColor3 = Color3.fromRGB(32, 24, 28)
@@ -1742,7 +1486,6 @@ return function(opts)
         clearBindBtn.ZIndex = 283
         clearBindBtn.Parent = mBody
         applyCorner(clearBindBtn, 5)
-
         local triggerBtn = Instance.new("TextButton")
         triggerBtn.Size = UDim2.new(1, 0, 0, 26)
         triggerBtn.BackgroundColor3 = Color3.fromRGB(20, 28, 42)
@@ -1753,11 +1496,9 @@ return function(opts)
         triggerBtn.ZIndex = 283
         triggerBtn.Parent = mBody
         applyCorner(triggerBtn, 5)
-
         local isListeningKey = false
         local keyConn = nil
         local outsideClickConn = nil
-
         local function closeMenu()
             if keyConn then
                 keyConn:Disconnect()
@@ -1774,11 +1515,8 @@ return function(opts)
                 overlay:Destroy()
             end
         end
-
         hubState.activeContextMenuClose = closeMenu
         mClose.MouseButton1Click:Connect(closeMenu)
-
-        -- Outside click listener: allows seamless clicking/right-clicking other UI elements while closing this menu
         outsideClickConn = UserInputService.InputBegan:Connect(function(input, gpe)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 local mouseLocation = UserInputService:GetMouseLocation()
@@ -1789,13 +1527,11 @@ return function(opts)
                 end
             end
         end)
-
         setBindBtn.MouseButton1Click:Connect(function()
             if isListeningKey then return end
             isListeningKey = true
             setBindBtn.Text = "⌨️ Press any key..."
             setBindBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
-
             keyConn = UserInputService.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.Keyboard then
                     local kc = input.KeyCode
@@ -1805,16 +1541,13 @@ return function(opts)
                                 hubState.featureKeybinds[oldKc] = nil
                             end
                         end
-
                         itemData.bind = kc.Name
                         hubState.featureKeybinds[kc] = itemData
                         saveKeybindsConfig()
-
                         currentBindLabel.Text = "Current Bind: [" .. kc.Name .. "]"
                         currentBindLabel.TextColor3 = hubState.currentThemeColor
                         setBindBtn.Text = "⌨️ Bind: [" .. kc.Name .. "]"
                         setBindBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
-
                         hubState.notify({
                             Title = "Keybind Set",
                             Content = "Bound [" .. kc.Name .. "] to '" .. tostring(itemData.title) .. "'",
@@ -1830,7 +1563,6 @@ return function(opts)
                 end
             end)
         end)
-
         clearBindBtn.MouseButton1Click:Connect(function()
             for oldKc, oldItem in pairs(hubState.featureKeybinds) do
                 if oldItem.id == itemData.id then
@@ -1849,13 +1581,11 @@ return function(opts)
                 Duration = 2.5
             })
         end)
-
         triggerBtn.MouseButton1Click:Connect(function()
             if itemData.action then pcall(itemData.action) end
             closeMenu()
         end)
     end
-
     hubState.attachContextMenu = function(guiObj, itemData)
         if not guiObj then return end
         hubState.trackConnection(guiObj.InputBegan:Connect(function(input)
@@ -1864,16 +1594,10 @@ return function(opts)
             end
         end))
     end
-
-    -- =========================================================================
-    -- Draggable Semi-Transparent HUD Performance Stats Window
-    -- =========================================================================
     hubState.hudFrame = nil
     local hudFpsLabel, hudPingLabel, hudMemLabel, hudSessionLabel
-
     function hubState.createHudStatsWindow()
         if hubState.hudFrame then return hubState.hudFrame end
-
         hubState.hudFrame = Instance.new("Frame")
         hubState.hudFrame.Name = "Unknown_StatsHUD"
         hubState.hudFrame.Size = UDim2.new(0, 190, 0, 115)
@@ -1888,15 +1612,12 @@ return function(opts)
         applyCorner(hubState.hudFrame, 8)
         local hudStroke = applyStroke(hubState.hudFrame, hubState.currentThemeColor, 1.2, 0.4)
         hubState.registerThemeStroke(hudStroke)
-
         hubState.makeSmoothDraggable(hubState.hudFrame, hubState.hudFrame)
-
         local hudTitleBar = Instance.new("Frame")
         hudTitleBar.Size = UDim2.new(1, 0, 0, 22)
         hudTitleBar.BackgroundTransparency = 1
         hudTitleBar.ZIndex = 81
         hudTitleBar.Parent = hubState.hudFrame
-
         local dot = Instance.new("Frame")
         dot.Size = UDim2.new(0, 6, 0, 6)
         dot.Position = UDim2.new(0, 8, 0.5, -3)
@@ -1906,7 +1627,6 @@ return function(opts)
         dot.Parent = hudTitleBar
         applyCorner(dot, 3)
         hubState.registerThemeFrame(dot)
-
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -22, 1, 0)
         title.Position = UDim2.new(0, 18, 0, 0)
@@ -1918,26 +1638,22 @@ return function(opts)
         title.TextXAlignment = Enum.TextXAlignment.Left
         title.ZIndex = 82
         title.Parent = hudTitleBar
-
         local statsContainer = Instance.new("Frame")
         statsContainer.Size = UDim2.new(1, -16, 1, -28)
         statsContainer.Position = UDim2.new(0, 8, 0, 24)
         statsContainer.BackgroundTransparency = 1
         statsContainer.ZIndex = 81
         statsContainer.Parent = hubState.hudFrame
-
         local sLayout = Instance.new("UIListLayout")
         sLayout.SortOrder = Enum.SortOrder.LayoutOrder
         sLayout.Padding = UDim.new(0, 3)
         sLayout.Parent = statsContainer
-
         local function createStatRow(icon, labelText)
             local row = Instance.new("Frame")
             row.Size = UDim2.new(1, 0, 0, 16)
             row.BackgroundTransparency = 1
             row.ZIndex = 82
             row.Parent = statsContainer
-
             local lbl = Instance.new("TextLabel")
             lbl.Size = UDim2.new(0.5, 0, 1, 0)
             lbl.BackgroundTransparency = 1
@@ -1948,7 +1664,6 @@ return function(opts)
             lbl.TextXAlignment = Enum.TextXAlignment.Left
             lbl.ZIndex = 83
             lbl.Parent = row
-
             local val = Instance.new("TextLabel")
             val.Size = UDim2.new(0.5, 0, 1, 0)
             val.Position = UDim2.new(0.5, 0, 0, 0)
@@ -1960,19 +1675,15 @@ return function(opts)
             val.TextXAlignment = Enum.TextXAlignment.Right
             val.ZIndex = 83
             val.Parent = row
-
             return val
         end
-
         hudFpsLabel = createStatRow("⚡", "FPS:")
         hudPingLabel = createStatRow("📶", "Ping:")
         hudMemLabel = createStatRow("💾", "Memory:")
         hudSessionLabel = createStatRow("⏱️", "Session:")
-
         local frameCount = 0
         local lastTime = tick()
         local sessionStart = tick()
-
         local hudConn = RunService.RenderStepped:Connect(function()
             frameCount = frameCount + 1
             local now = tick()
@@ -1980,7 +1691,6 @@ return function(opts)
                 local fps = math.floor(frameCount / (now - lastTime))
                 frameCount = 0
                 lastTime = now
-
                 if hubState.hudFrame and hubState.hudFrame.Visible then
                     hudFpsLabel.Text = tostring(fps) .. " FPS"
                     if fps >= 50 then
@@ -1990,19 +1700,16 @@ return function(opts)
                     else
                         hudFpsLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
                     end
-
                     local pingVal = 0
                     pcall(function()
                         pingVal = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
                     end)
                     hudPingLabel.Text = tostring(pingVal) .. " ms"
-
                     local memVal = 0
                     pcall(function()
                         memVal = math.floor(StatsService:GetTotalMemoryUsageMb())
                     end)
                     hudMemLabel.Text = tostring(memVal) .. " MB"
-
                     local elapsedSec = math.floor(now - sessionStart)
                     local hrs = math.floor(elapsedSec / 3600)
                     local mins = math.floor((elapsedSec % 3600) / 60)
@@ -2012,31 +1719,22 @@ return function(opts)
             end
         end)
         hubState.trackConnection(hudConn)
-
         return hubState.hudFrame
     end
-
     hubState.setHudVisible = function(visible)
         hubState.isHudEnabled = (visible == true)
         hubState.configValues.hudEnabled = hubState.isHudEnabled
         if not hubState.hudFrame then hubState.createHudStatsWindow() end
         if hubState.hudFrame then hubState.hudFrame.Visible = hubState.isHudEnabled end
     end
-
-    
-    -- =========================================================================
-    -- Draggable Keybinds HUD Window
-    -- =========================================================================
     hubState.keybindHudFrame = nil
     hubState.isKeybindHudEnabled = false
     hubState.keybindHudContainer = nil
-
     function hubState.refreshKeybindHudList()
         if not hubState.keybindHudContainer then return end
         for _, child in ipairs(hubState.keybindHudContainer:GetChildren()) do
             if child:IsA("Frame") then child:Destroy() end
         end
-
         local count = 0
         for kc, item in pairs(hubState.featureKeybinds) do
             count = count + 1
@@ -2046,7 +1744,6 @@ return function(opts)
             row.BorderSizePixel = 0
             row.Parent = hubState.keybindHudContainer
             applyCorner(row, 4)
-
             local keyBadge = Instance.new("TextLabel")
             keyBadge.Size = UDim2.new(0, 48, 1, -4)
             keyBadge.Position = UDim2.new(0, 3, 0, 2)
@@ -2059,7 +1756,6 @@ return function(opts)
             keyBadge.Parent = row
             applyCorner(keyBadge, 3)
             hubState.registerThemeText(keyBadge)
-
             local titleLbl = Instance.new("TextLabel")
             titleLbl.Size = UDim2.new(1, -60, 1, 0)
             titleLbl.Position = UDim2.new(0, 56, 0, 0)
@@ -2072,7 +1768,6 @@ return function(opts)
             titleLbl.TextXAlignment = Enum.TextXAlignment.Left
             titleLbl.Parent = row
         end
-
         if count == 0 then
             local emptyLbl = Instance.new("TextLabel")
             emptyLbl.Size = UDim2.new(1, 0, 1, 0)
@@ -2084,10 +1779,8 @@ return function(opts)
             emptyLbl.Parent = hubState.keybindHudContainer
         end
     end
-
     function hubState.createKeybindHudWindow()
         if hubState.keybindHudFrame then return hubState.keybindHudFrame end
-
         hubState.keybindHudFrame = Instance.new("Frame")
         hubState.keybindHudFrame.Name = "Unknown_KeybindHUD"
         hubState.keybindHudFrame.Size = UDim2.new(0, 200, 0, 140)
@@ -2102,15 +1795,12 @@ return function(opts)
         applyCorner(hubState.keybindHudFrame, 8)
         local kbStroke = applyStroke(hubState.keybindHudFrame, hubState.currentThemeColor, 1.2, 0.4)
         hubState.registerThemeStroke(kbStroke)
-
         hubState.makeSmoothDraggable(hubState.keybindHudFrame, hubState.keybindHudFrame)
-
         local titleBar = Instance.new("Frame")
         titleBar.Size = UDim2.new(1, 0, 0, 22)
         titleBar.BackgroundTransparency = 1
         titleBar.ZIndex = 81
         titleBar.Parent = hubState.keybindHudFrame
-
         local dot = Instance.new("Frame")
         dot.Size = UDim2.new(0, 6, 0, 6)
         dot.Position = UDim2.new(0, 8, 0.5, -3)
@@ -2120,7 +1810,6 @@ return function(opts)
         dot.Parent = titleBar
         applyCorner(dot, 3)
         hubState.registerThemeFrame(dot)
-
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -22, 1, 0)
         title.Position = UDim2.new(0, 18, 0, 0)
@@ -2132,7 +1821,6 @@ return function(opts)
         title.TextXAlignment = Enum.TextXAlignment.Left
         title.ZIndex = 82
         title.Parent = titleBar
-
         hubState.keybindHudContainer = Instance.new("ScrollingFrame")
         hubState.keybindHudContainer.Size = UDim2.new(1, -12, 1, -28)
         hubState.keybindHudContainer.Position = UDim2.new(0, 6, 0, 24)
@@ -2143,29 +1831,22 @@ return function(opts)
         hubState.keybindHudContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
         hubState.keybindHudContainer.ZIndex = 82
         hubState.keybindHudContainer.Parent = hubState.keybindHudFrame
-
         local listLayout = Instance.new("UIListLayout")
         listLayout.SortOrder = Enum.SortOrder.LayoutOrder
         listLayout.Padding = UDim.new(0, 3)
         listLayout.Parent = hubState.keybindHudContainer
-
         hubState.refreshKeybindHudList()
         return hubState.keybindHudFrame
     end
-
     hubState.setHudOpacity = function(opacity)
         hubState.hudOpacity = math.clamp(opacity or 0.35, 0.05, 0.95)
         hubState.configValues.hudOpacity = hubState.hudOpacity
         if hubState.hudFrame then hubState.hudFrame.BackgroundTransparency = hubState.hudOpacity end
     end
-
-    -- Cross-Client Real-Time Live Bus
-    -- Sync offline announcements for players upon join / execution
     function hubState.syncOfflineAndPendingAnnouncements()
         local list = loadStoredAnnouncements()
         local seen = loadSeenAnnouncements()
         local myName = LocalPlayer and LocalPlayer.Name or ""
-
         for _, ann in ipairs(list) do
             local annId = ann.id or (tostring(ann.timestamp) .. "_" .. tostring(ann.title))
             if not seen[tostring(annId)] then
@@ -2191,13 +1872,10 @@ return function(opts)
             end
         end
     end
-
-    -- Sync offline feedbacks strictly for developer upon join / execution
     function hubState.syncOfflineAndPendingFeedbacks()
         if not hubState.isDeveloper then return end
         local list = loadStoredFeedbacks()
         local seen = loadSeenFeedbacks()
-
         local unreadCount = 0
         for _, fb in ipairs(list) do
             local fbId = fb.id or (tostring(fb.timestamp) .. "_" .. tostring(fb.sender))
@@ -2217,30 +1895,21 @@ return function(opts)
             end
         end
     end
-
     function hubState.setupLiveListener()
         local bus = getLiveBusFolder()
         if not bus then return end
-
         local function onPacketAdded(child)
             if child:IsA("StringValue") and child.Name:sub(1, 8) == "ENI_Pkt_" then
                 task.spawn(function()
                     local ok, packet = pcall(function() return HttpService:JSONDecode(child.Value) end)
                     if not ok or not packet or type(packet) ~= "table" then return end
-
                     local pType = packet.type
                     local sender = packet.sender or "Unknown"
                     local target = packet.target or "All"
                     local myName = LocalPlayer and LocalPlayer.Name or ""
-
-                    -- Ignore if local player is sender
                     if sender:lower() == myName:lower() then return end
-
-                    -- Check if packet is targeted to us
                     local isForMe = (target == "All") or (target:lower() == myName:lower())
-
                     if pType == "Feedback" or pType == "FeedbackAlert" then
-                        -- STRICTLY FOR DEVELOPER ONLY (Non-devs never receive feedback notifications)
                         if hubState.isDeveloper then
                             if packet.id then markFeedbackAsSeen(packet.id) end
                             hubState.sendNotification({
@@ -2254,7 +1923,6 @@ return function(opts)
                         end
                     elseif pType == "Announcement" or pType == "DevBroadcast" then
                         if isForMe then
-                            -- Mark as seen in offline store so it's not re-notified
                             if packet.id then markAnnouncementAsSeen(packet.id) end
                             hubState.sendNotification({
                                 Title = "📢 " .. tostring(packet.title or "Developer Announcement"),
@@ -2269,28 +1937,20 @@ return function(opts)
                 end)
             end
         end
-
         for _, child in ipairs(bus:GetChildren()) do
             onPacketAdded(child)
         end
         hubState.trackConnection(bus.ChildAdded:Connect(onPacketAdded))
     end
-
     task.defer(hubState.setupLiveListener)
     task.defer(hubState.syncOfflineAndPendingAnnouncements)
     task.defer(hubState.syncOfflineAndPendingFeedbacks)
-
-    -- =========================================================================
-    -- Anti-Spam Feedback Engine
-    -- =========================================================================
     hubState.lastFeedbackTime = 0
     hubState.lastFeedbackText = ""
         hubState.feedbackSessionCount = 0
         function hubState.processFeedbackDispatch(category, message, callback)
         local now = tick()
         local elapsed = now - hubState.lastFeedbackTime
-
-        -- 1. Anti-Spam Cooldown check
         if elapsed < feedbackCooldownSec then
             local remain = math.ceil(feedbackCooldownSec - elapsed)
             hubState.notify({
@@ -2301,8 +1961,6 @@ return function(opts)
             if callback then callback(false, "Cooldown: " .. remain .. "s remaining") end
             return false
         end
-
-        -- 2. Anti-Spam Session limit
         if hubState.feedbackSessionCount >= MAX_FEEDBACK_PER_SESSION then
             hubState.notify({
                 Title = "Session Limit Reached",
@@ -2312,8 +1970,6 @@ return function(opts)
             if callback then callback(false, "Session limit reached") end
             return false
         end
-
-        -- 3. Length Validations
         local cleanMsg = message:match("^%s*(.-)%s*$") or ""
         if #cleanMsg < 6 then
             hubState.notify({
@@ -2324,7 +1980,6 @@ return function(opts)
             if callback then callback(false, "Message too short (min 6 characters)") end
             return false
         end
-
         if #cleanMsg > 500 then
             hubState.notify({
                 Title = "Message Too Long",
@@ -2334,8 +1989,6 @@ return function(opts)
             if callback then callback(false, "Message too long (max 500 characters)") end
             return false
         end
-
-        -- 4. Duplicate Check
         if cleanMsg:lower() == hubState.lastFeedbackText:lower() then
             hubState.notify({
                 Title = "Duplicate Feedback",
@@ -2345,16 +1998,13 @@ return function(opts)
             if callback then callback(false, "Duplicate message detected") end
             return false
         end
-
         hubState.lastFeedbackTime = now
         hubState.lastFeedbackText = cleanMsg
         hubState.feedbackSessionCount = hubState.feedbackSessionCount + 1
-
         local pName = LocalPlayer and LocalPlayer.Name or "Player"
         local pUserId = LocalPlayer and LocalPlayer.UserId or 0
         local pPlaceId = game.PlaceId or 0
         local pJobId = game.JobId or "SinglePlayer"
-
         local fbId = "fb_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999))
         local fbRecord = {
             id = fbId,
@@ -2368,14 +2018,8 @@ return function(opts)
             timestamp = os.time(),
             time = os.date("%H:%M")
         }
-
-        -- 1. Persist to Global 24/7 Developer Feedback Storage
         persistFeedbackRecord(fbRecord)
-
-        -- 2. Dispatch across live bus for developer in-game alerts
         broadcastLivePayload("Feedback", fbRecord)
-
-        -- Webhook & Custom Callback
         if opts.onFeedback then
             pcall(function()
                 opts.onFeedback(category, cleanMsg, {
@@ -2388,7 +2032,6 @@ return function(opts)
                 })
             end)
         end
-
         local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
         if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
             local catColor = category == "Bug Report" and 15158332 or (category == "Suggestions" and 3447003 or 10181046)
@@ -2396,7 +2039,6 @@ return function(opts)
             local profileLink = "https://www.roblox.com/users/" .. tostring(pUserId) .. "/profile"
             local gameLink = "https://www.roblox.com/games/" .. tostring(pPlaceId)
             local devicePlatform = hubState.isMobileDevice and "📱 Mobile (Touch)" or "💻 PC (Desktop)"
-
             local payload = {
                 username = hubState.webhookBotName,
                 avatar_url = hubState.webhookBotAvatar,
@@ -2421,8 +2063,6 @@ return function(opts)
             }
             dispatchHttpRequest(targetWebhook, "POST", nil, payload)
         end
-
-        -- Record into user's notification center
         hubState.sendNotification({
             Title = "Feedback Sent (" .. category .. ")",
             Content = "Thank you! Your submission: \"" .. (cleanMsg:sub(1, 35) .. (#cleanMsg > 35 and "..." or "")) .. "\" was received.",
@@ -2430,22 +2070,15 @@ return function(opts)
             Color = Color3.fromRGB(0, 215, 125),
             Toast = true
         })
-
         if callback then callback(true) end
         return true
     end
-
-    -- =========================================================================
-    -- Notification Center Modal UI
-    -- =========================================================================
     function hubState.createNotificationCenterModal(parentFrame)
         local existing = hubState.screenGui:FindFirstChild("NotificationCenterOverlay")
         if existing then
             pcall(function() existing:Destroy() end)
         end
-
         hubState.isModalActive = true
-
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "NotificationCenterOverlay"
         modalOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -2456,7 +2089,6 @@ return function(opts)
         modalOverlay.ZIndex = 250
         modalOverlay.Active = true
         modalOverlay.Parent = hubState.screenGui
-
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
         modalBlocker.Size = UDim2.new(1, 0, 1, 0)
@@ -2466,7 +2098,6 @@ return function(opts)
         modalBlocker.AutoButtonColor = false
         modalBlocker.ZIndex = 250
         modalBlocker.Parent = modalOverlay
-
         local centerPanel = Instance.new("Frame")
         centerPanel.Name = "CenterPanel"
         centerPanel.Size = UDim2.new(0, 540, 0, 380)
@@ -2480,15 +2111,12 @@ return function(opts)
         applyCorner(centerPanel, 10)
         local centerStroke = applyStroke(centerPanel, hubState.currentThemeColor, 1.5, 0.25)
         hubState.registerThemeStroke(centerStroke)
-
-        -- Panel Header
         local pHeader = Instance.new("Frame")
         pHeader.Size = UDim2.new(1, 0, 0, 42)
         pHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 34)
         pHeader.BorderSizePixel = 0
         pHeader.ZIndex = 252
         pHeader.Parent = centerPanel
-
         local pTitle = Instance.new("TextLabel")
         pTitle.Size = UDim2.new(0.4, 0, 1, 0)
         pTitle.Position = UDim2.new(0, 14, 0, 0)
@@ -2500,7 +2128,6 @@ return function(opts)
         pTitle.TextXAlignment = Enum.TextXAlignment.Left
         pTitle.ZIndex = 253
         pTitle.Parent = pHeader
-
         local closeBtn = Instance.new("TextButton")
         closeBtn.Size = UDim2.new(0, 24, 0, 24)
         closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
@@ -2512,7 +2139,6 @@ return function(opts)
         closeBtn.ZIndex = 253
         closeBtn.Parent = pHeader
         applyCorner(closeBtn, 5)
-
         local markReadBtn = Instance.new("TextButton")
         markReadBtn.Size = UDim2.new(0, 80, 0, 24)
         markReadBtn.Position = UDim2.new(1, -118, 0.5, -12)
@@ -2524,7 +2150,6 @@ return function(opts)
         markReadBtn.ZIndex = 253
         markReadBtn.Parent = pHeader
         applyCorner(markReadBtn, 5)
-
         local clearAllBtn = Instance.new("TextButton")
         clearAllBtn.Size = UDim2.new(0, 68, 0, 24)
         clearAllBtn.Position = UDim2.new(1, -192, 0.5, -12)
@@ -2536,25 +2161,19 @@ return function(opts)
         clearAllBtn.ZIndex = 253
         clearAllBtn.Parent = pHeader
         applyCorner(clearAllBtn, 5)
-
-        -- Category Filter Tabs
         local filterBar = Instance.new("Frame")
         filterBar.Size = UDim2.new(1, -24, 0, 30)
         filterBar.Position = UDim2.new(0, 12, 0, 48)
         filterBar.BackgroundTransparency = 1
         filterBar.ZIndex = 252
         filterBar.Parent = centerPanel
-
         local filterLayout = Instance.new("UIListLayout")
         filterLayout.FillDirection = Enum.FillDirection.Horizontal
         filterLayout.SortOrder = Enum.SortOrder.LayoutOrder
         filterLayout.Padding = UDim.new(0, 6)
         filterLayout.Parent = filterBar
-
         local filterButtons = {}
         local filterTabs = {"All", "System", "Feedback", "Announcements"}
-
-        -- Scrollable Card Container
         local cardScroll = Instance.new("ScrollingFrame")
         cardScroll.Size = UDim2.new(1, -24, 1, -90)
         cardScroll.Position = UDim2.new(0, 12, 0, 84)
@@ -2566,26 +2185,22 @@ return function(opts)
         cardScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
         cardScroll.ZIndex = 252
         cardScroll.Parent = centerPanel
-
         local cardLayout = Instance.new("UIListLayout")
         cardLayout.SortOrder = Enum.SortOrder.LayoutOrder
         cardLayout.Padding = UDim.new(0, 6)
         cardLayout.Parent = cardScroll
-
         local function renderCards()
             for _, child in ipairs(cardScroll:GetChildren()) do
                 if child:IsA("Frame") or child:IsA("TextLabel") then
                     child:Destroy()
                 end
             end
-
             local filtered = {}
             for _, notif in ipairs(hubState.notificationsStore) do
                 if hubState.activeNotifFilter == "All" or notif.category == hubState.activeNotifFilter then
                     table.insert(filtered, notif)
                 end
             end
-
             if #filtered == 0 then
                 local emptyLabel = Instance.new("TextLabel")
                 emptyLabel.Size = UDim2.new(1, 0, 0, 80)
@@ -2599,7 +2214,6 @@ return function(opts)
                 emptyLabel.Parent = cardScroll
                 return
             end
-
             for _, notif in ipairs(filtered) do
                 local card = Instance.new("Frame")
                 card.Name = "NotifItem_" .. notif.id
@@ -2610,7 +2224,6 @@ return function(opts)
                 card.Parent = cardScroll
                 applyCorner(card, 6)
                 applyStroke(card, Color3.fromRGB(36, 44, 62), 1, 0.4)
-
                 local leftBar = Instance.new("Frame")
                 leftBar.Size = UDim2.new(0, 3, 1, 0)
                 leftBar.BackgroundColor3 = notif.color or hubState.currentThemeColor
@@ -2618,7 +2231,6 @@ return function(opts)
                 leftBar.ZIndex = 254
                 leftBar.Parent = card
                 applyCorner(leftBar, 2)
-
                 local cTitle = Instance.new("TextLabel")
                 cTitle.Size = UDim2.new(1, -90, 0, 18)
                 cTitle.Position = UDim2.new(0, 12, 0, 6)
@@ -2631,7 +2243,6 @@ return function(opts)
                 cTitle.TextTruncate = Enum.TextTruncate.AtEnd
                 cTitle.ZIndex = 254
                 cTitle.Parent = card
-
                 local cTime = Instance.new("TextLabel")
                 cTime.Size = UDim2.new(0, 45, 0, 18)
                 cTime.Position = UDim2.new(1, -70, 0, 6)
@@ -2643,7 +2254,6 @@ return function(opts)
                 cTime.TextXAlignment = Enum.TextXAlignment.Right
                 cTime.ZIndex = 254
                 cTime.Parent = card
-
                 local cContent = Instance.new("TextLabel")
                 cContent.Size = UDim2.new(1, -40, 0, 24)
                 cContent.Position = UDim2.new(0, 12, 0, 24)
@@ -2657,7 +2267,6 @@ return function(opts)
                 cContent.TextYAlignment = Enum.TextYAlignment.Top
                 cContent.ZIndex = 254
                 cContent.Parent = card
-
                 local delCardBtn = Instance.new("TextButton")
                 delCardBtn.Size = UDim2.new(0, 18, 0, 18)
                 delCardBtn.Position = UDim2.new(1, -22, 0, 6)
@@ -2668,7 +2277,6 @@ return function(opts)
                 delCardBtn.TextSize = 10
                 delCardBtn.ZIndex = 254
                 delCardBtn.Parent = card
-
                 local isFeedbackItem = (notif.category == "Feedback") or tostring(notif.title):find("Feedback") or tostring(notif.title):find("Report") or tostring(notif.title):find("Suggestion")
                 if isFeedbackItem then
                     card.Size = UDim2.new(1, 0, 0, 68)
@@ -2684,14 +2292,12 @@ return function(opts)
                     replyCardBtn.Parent = card
                     applyCorner(replyCardBtn, 4)
                     applyStroke(replyCardBtn, Color3.fromRGB(0, 160, 220), 1, 0.4)
-
                     replyCardBtn.MouseButton1Click:Connect(function()
                         if hubState.openFeedbackReplyModal then
                             hubState.openFeedbackReplyModal(notif)
                         end
                     end)
                 end
-
                 delCardBtn.MouseButton1Click:Connect(function()
                     for idx, item in ipairs(hubState.notificationsStore) do
                         if item.id == notif.id then
@@ -2707,7 +2313,6 @@ return function(opts)
                 end)
             end
         end
-
         for _, tabName in ipairs(filterTabs) do
             local tabBtn = Instance.new("TextButton")
             tabBtn.Size = UDim2.new(0, tabName == "Announcements" and 95 or (tabName == "Dev Broadcast" and 100 or 68), 1, 0)
@@ -2719,9 +2324,7 @@ return function(opts)
             tabBtn.ZIndex = 253
             tabBtn.Parent = filterBar
             applyCorner(tabBtn, 5)
-
             filterButtons[tabName] = tabBtn
-
             tabBtn.MouseButton1Click:Connect(function()
                 hubState.activeNotifFilter = tabName
                 for name, btn in pairs(filterButtons) do
@@ -2734,7 +2337,6 @@ return function(opts)
                 renderCards()
             end)
         end
-
         markReadBtn.MouseButton1Click:Connect(function()
             for _, item in ipairs(hubState.notificationsStore) do
                 item.read = true
@@ -2743,22 +2345,17 @@ return function(opts)
             hubState.updateNotifBadge()
             renderCards()
         end)
-
         clearAllBtn.MouseButton1Click:Connect(function()
             hubState.notificationsStore = {}
             hubState.unreadNotifCount = 0
             hubState.updateNotifBadge()
             renderCards()
         end)
-
         hubState.refreshNotifCenterUI = renderCards
         renderCards()
-
-        -- Fade In Animation
         TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.35
         }):Play()
-
         local isClosing = false
         local function closeModal()
             if isClosing then return end
@@ -2773,22 +2370,15 @@ return function(opts)
                 pcall(function() modalOverlay:Destroy() end)
             end)
         end
-
         closeBtn.MouseButton1Click:Connect(closeModal)
         modalBlocker.MouseButton1Click:Connect(closeModal)
     end
-
-    -- =========================================================================
-    -- Feedback Modal UI (Tools / Feedback Square Button Modal)
-    -- =========================================================================
     function hubState.createFeedbackModal(parentFrame)
         local existing = hubState.screenGui:FindFirstChild("FeedbackOverlay")
         if existing then
             pcall(function() existing:Destroy() end)
         end
-
         hubState.isModalActive = true
-
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "FeedbackOverlay"
         modalOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -2799,7 +2389,6 @@ return function(opts)
         modalOverlay.ZIndex = 250
         modalOverlay.Active = true
         modalOverlay.Parent = hubState.screenGui
-
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
         modalBlocker.Size = UDim2.new(1, 0, 1, 0)
@@ -2809,7 +2398,6 @@ return function(opts)
         modalBlocker.AutoButtonColor = false
         modalBlocker.ZIndex = 250
         modalBlocker.Parent = modalOverlay
-
         local fbPanel = Instance.new("Frame")
         fbPanel.Name = "FeedbackPanel"
         fbPanel.Size = UDim2.new(0, 500, 0, 370)
@@ -2823,15 +2411,12 @@ return function(opts)
         applyCorner(fbPanel, 10)
         local fbStroke = applyStroke(fbPanel, hubState.currentThemeColor, 1.5, 0.25)
         hubState.registerThemeStroke(fbStroke)
-
-        -- Modal Header
         local fbHeader = Instance.new("Frame")
         fbHeader.Size = UDim2.new(1, 0, 0, 40)
         fbHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 35)
         fbHeader.BorderSizePixel = 0
         fbHeader.ZIndex = 252
         fbHeader.Parent = fbPanel
-
         local fbTitle = Instance.new("TextLabel")
         fbTitle.Size = UDim2.new(0.7, 0, 1, 0)
         fbTitle.Position = UDim2.new(0, 14, 0, 0)
@@ -2843,7 +2428,6 @@ return function(opts)
         fbTitle.TextXAlignment = Enum.TextXAlignment.Left
         fbTitle.ZIndex = 253
         fbTitle.Parent = fbHeader
-
         local closeBtn = Instance.new("TextButton")
         closeBtn.Size = UDim2.new(0, 24, 0, 24)
         closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
@@ -2855,8 +2439,6 @@ return function(opts)
         closeBtn.ZIndex = 253
         closeBtn.Parent = fbHeader
         applyCorner(closeBtn, 5)
-
-        -- Category Selector
         local catLabel = Instance.new("TextLabel")
         catLabel.Size = UDim2.new(1, -28, 0, 18)
         catLabel.Position = UDim2.new(0, 14, 0, 46)
@@ -2868,29 +2450,24 @@ return function(opts)
         catLabel.TextXAlignment = Enum.TextXAlignment.Left
         catLabel.ZIndex = 252
         catLabel.Parent = fbPanel
-
         local catContainer = Instance.new("Frame")
         catContainer.Size = UDim2.new(1, -28, 0, 28)
         catContainer.Position = UDim2.new(0, 14, 0, 66)
         catContainer.BackgroundTransparency = 1
         catContainer.ZIndex = 252
         catContainer.Parent = fbPanel
-
         local catLayout = Instance.new("UIListLayout")
         catLayout.FillDirection = Enum.FillDirection.Horizontal
         catLayout.SortOrder = Enum.SortOrder.LayoutOrder
         catLayout.Padding = UDim.new(0, 6)
         catLayout.Parent = catContainer
-
         local categories = {
             { name = "Bug Report", icon = "🐛", color = Color3.fromRGB(250, 90, 90) },
             { name = "Suggestions", icon = "💡", color = Color3.fromRGB(0, 210, 255) },
             { name = "Question & Answer", icon = "❓", color = Color3.fromRGB(180, 110, 255) }
         }
-
         local selectedCategory = "Bug Report"
         local catButtons = {}
-
         for _, catInfo in ipairs(categories) do
             local catBtn = Instance.new("TextButton")
             catBtn.Size = UDim2.new(0, catInfo.name == "Question & Answer" and 130 or 105, 1, 0)
@@ -2903,9 +2480,7 @@ return function(opts)
             catBtn.Parent = catContainer
             applyCorner(catBtn, 5)
             local btnStroke = applyStroke(catBtn, selectedCategory == catInfo.name and catInfo.color or Color3.fromRGB(38, 46, 66), 1, selectedCategory == catInfo.name and 0.2 or 0.7)
-
             catButtons[catInfo.name] = { btn = catBtn, stroke = btnStroke, info = catInfo }
-
             catBtn.MouseButton1Click:Connect(function()
                 selectedCategory = catInfo.name
                 for name, item in pairs(catButtons) do
@@ -2919,8 +2494,6 @@ return function(opts)
                 end
             end)
         end
-
-        -- Feedback Textbox Container
         local textContainer = Instance.new("Frame")
         textContainer.Size = UDim2.new(1, -28, 1, -156)
         textContainer.Position = UDim2.new(0, 14, 0, 102)
@@ -2930,7 +2503,6 @@ return function(opts)
         textContainer.Parent = fbPanel
         applyCorner(textContainer, 6)
         local textStroke = applyStroke(textContainer, Color3.fromRGB(38, 48, 70), 1, 0.4)
-
         local textBox = Instance.new("TextBox")
         textBox.Size = UDim2.new(1, -16, 1, -24)
         textBox.Position = UDim2.new(0, 8, 0, 6)
@@ -2948,7 +2520,6 @@ return function(opts)
         textBox.TextYAlignment = Enum.TextYAlignment.Top
         textBox.ZIndex = 253
         textBox.Parent = textContainer
-
         local charCounter = Instance.new("TextLabel")
         charCounter.Size = UDim2.new(0, 70, 0, 16)
         charCounter.Position = UDim2.new(1, -76, 1, -18)
@@ -2960,7 +2531,6 @@ return function(opts)
         charCounter.TextXAlignment = Enum.TextXAlignment.Right
         charCounter.ZIndex = 253
         charCounter.Parent = textContainer
-
         textBox:GetPropertyChangedSignal("Text"):Connect(function()
             local len = #textBox.Text
             if len > 500 then
@@ -2970,22 +2540,18 @@ return function(opts)
             charCounter.Text = tostring(len) .. " / 500"
             charCounter.TextColor3 = len >= 450 and Color3.fromRGB(250, 110, 110) or Color3.fromRGB(120, 132, 155)
         end)
-
         textBox.Focused:Connect(function()
             TweenService:Create(textStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Color = hubState.currentThemeColor,
                 Transparency = 0.2
             }):Play()
         end)
-
         textBox.FocusLost:Connect(function()
             TweenService:Create(textStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Color = Color3.fromRGB(38, 48, 70),
                 Transparency = 0.4
             }):Play()
         end)
-
-        -- Footer Controls
         local antiSpamLabel = Instance.new("TextLabel")
         antiSpamLabel.Size = UDim2.new(0.55, 0, 0, 32)
         antiSpamLabel.Position = UDim2.new(0, 14, 1, -44)
@@ -2997,7 +2563,6 @@ return function(opts)
         antiSpamLabel.TextXAlignment = Enum.TextXAlignment.Left
         antiSpamLabel.ZIndex = 252
         antiSpamLabel.Parent = fbPanel
-
         local sendBtn = Instance.new("TextButton")
         sendBtn.Size = UDim2.new(0, 120, 0, 30)
         sendBtn.Position = UDim2.new(1, -134, 1, -44)
@@ -3010,7 +2575,6 @@ return function(opts)
         sendBtn.Parent = fbPanel
         applyCorner(sendBtn, 6)
         hubState.registerThemeFrame(sendBtn)
-
         local isClosing = false
         local function closeModal()
             if isClosing then return end
@@ -3024,13 +2588,10 @@ return function(opts)
                 pcall(function() modalOverlay:Destroy() end)
             end)
         end
-
         local isSending = false
         sendBtn.MouseButton1Click:Connect(function()
             if isSending then return end
             local msg = textBox.Text
-
-            -- Live cooldown feedback
             local elapsed = tick() - hubState.lastFeedbackTime
             if elapsed < feedbackCooldownSec then
                 local waitTime = math.ceil(feedbackCooldownSec - elapsed)
@@ -3039,7 +2600,6 @@ return function(opts)
                     if sendBtn and sendBtn.Parent then sendBtn.Text = "Send Feedback" end
                 end)
             end
-
             isSending = true
             hubState.processFeedbackDispatch(selectedCategory, msg, function(success, err)
                 isSending = false
@@ -3054,26 +2614,17 @@ return function(opts)
                 end
             end)
         end)
-
         closeBtn.MouseButton1Click:Connect(closeModal)
         modalBlocker.MouseButton1Click:Connect(closeModal)
-
-        -- Fade In Animation
         TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.35
         }):Play()
     end
-
-    -- =========================================================================
-    -- Feedback Direct Reply Modal UI (Live Developer Broadcast & Webhook Sync)
-    -- =========================================================================
     function hubState.createFeedbackReplyModal(targetNotif)
         if not targetNotif then return end
         local existing = hubState.screenGui:FindFirstChild("FeedbackReplyOverlay")
         if existing then pcall(function() existing:Destroy() end) end
-
         hubState.isModalActive = true
-
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "FeedbackReplyOverlay"
         modalOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -3084,7 +2635,6 @@ return function(opts)
         modalOverlay.ZIndex = 260
         modalOverlay.Active = true
         modalOverlay.Parent = hubState.screenGui
-
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Size = UDim2.new(1, 0, 1, 0)
         modalBlocker.BackgroundTransparency = 1
@@ -3093,7 +2643,6 @@ return function(opts)
         modalBlocker.AutoButtonColor = false
         modalBlocker.ZIndex = 260
         modalBlocker.Parent = modalOverlay
-
         local panel = Instance.new("Frame")
         panel.Name = "ReplyPanel"
         panel.Size = UDim2.new(0, 480, 0, 360)
@@ -3107,15 +2656,12 @@ return function(opts)
         applyCorner(panel, 10)
         local panelStroke = applyStroke(panel, Color3.fromRGB(0, 215, 255), 1.5, 0.25)
         hubState.registerThemeStroke(panelStroke)
-
-        -- Header
         local pHeader = Instance.new("Frame")
         pHeader.Size = UDim2.new(1, 0, 0, 40)
         pHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 35)
         pHeader.BorderSizePixel = 0
         pHeader.ZIndex = 262
         pHeader.Parent = panel
-
         local pTitle = Instance.new("TextLabel")
         pTitle.Size = UDim2.new(0.7, 0, 1, 0)
         pTitle.Position = UDim2.new(0, 14, 0, 0)
@@ -3127,7 +2673,6 @@ return function(opts)
         pTitle.TextXAlignment = Enum.TextXAlignment.Left
         pTitle.ZIndex = 263
         pTitle.Parent = pHeader
-
         local closeBtn = Instance.new("TextButton")
         closeBtn.Size = UDim2.new(0, 24, 0, 24)
         closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
@@ -3139,8 +2684,6 @@ return function(opts)
         closeBtn.ZIndex = 263
         closeBtn.Parent = pHeader
         applyCorner(closeBtn, 5)
-
-        -- Scrollable Content
         local scroll = Instance.new("ScrollingFrame")
         scroll.Size = UDim2.new(1, -24, 1, -52)
         scroll.Position = UDim2.new(0, 12, 0, 46)
@@ -3151,16 +2694,12 @@ return function(opts)
         scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
         scroll.ZIndex = 262
         scroll.Parent = panel
-
         local layout = Instance.new("UIListLayout")
         layout.SortOrder = Enum.SortOrder.LayoutOrder
         layout.Padding = UDim.new(0, 8)
         layout.Parent = scroll
-
-        -- Sender target info
         local targetUser = targetNotif.sender or (tostring(targetNotif.title):match("from%s+([%w_]+)") or "All")
         local origText = targetNotif.content or targetNotif.message or ""
-
         local infoLabel = Instance.new("TextLabel")
         infoLabel.Size = UDim2.new(1, 0, 0, 18)
         infoLabel.BackgroundTransparency = 1
@@ -3172,8 +2711,6 @@ return function(opts)
         infoLabel.ZIndex = 263
         infoLabel.Parent = scroll
         hubState.registerThemeText(infoLabel)
-
-        -- Original snippet container
         local origContainer = Instance.new("Frame")
         origContainer.Size = UDim2.new(1, 0, 0, 52)
         origContainer.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
@@ -3181,7 +2718,6 @@ return function(opts)
         origContainer.Parent = scroll
         applyCorner(origContainer, 6)
         applyStroke(origContainer, Color3.fromRGB(36, 46, 68), 1, 0.4)
-
         local origContent = Instance.new("TextLabel")
         origContent.Size = UDim2.new(1, -16, 1, -8)
         origContent.Position = UDim2.new(0, 8, 0, 4)
@@ -3195,8 +2731,6 @@ return function(opts)
         origContent.TextYAlignment = Enum.TextYAlignment.Top
         origContent.ZIndex = 264
         origContent.Parent = origContainer
-
-        -- Response textbox
         local replyLabel = Instance.new("TextLabel")
         replyLabel.Size = UDim2.new(1, 0, 0, 18)
         replyLabel.BackgroundTransparency = 1
@@ -3207,7 +2741,6 @@ return function(opts)
         replyLabel.TextXAlignment = Enum.TextXAlignment.Left
         replyLabel.ZIndex = 263
         replyLabel.Parent = scroll
-
         local replyBox = Instance.new("TextBox")
         replyBox.Size = UDim2.new(1, 0, 0, 80)
         replyBox.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
@@ -3227,8 +2760,6 @@ return function(opts)
         replyBox.Parent = scroll
         applyCorner(replyBox, 6)
         applyStroke(replyBox, Color3.fromRGB(45, 55, 80), 1, 0)
-
-        -- Action Buttons
         local sendReplyBtn = Instance.new("TextButton")
         sendReplyBtn.Size = UDim2.new(1, 0, 0, 32)
         sendReplyBtn.BackgroundColor3 = Color3.fromRGB(0, 195, 245)
@@ -3240,7 +2771,6 @@ return function(opts)
         sendReplyBtn.Parent = scroll
         applyCorner(sendReplyBtn, 6)
         hubState.registerThemeFrame(sendReplyBtn)
-
         local isClosing = false
         local function closeModal()
             if isClosing then return end
@@ -3250,17 +2780,14 @@ return function(opts)
             t:Play()
             t.Completed:Connect(function() pcall(function() modalOverlay:Destroy() end) end)
         end
-
         closeBtn.MouseButton1Click:Connect(closeModal)
         modalBlocker.MouseButton1Click:Connect(closeModal)
-
         sendReplyBtn.MouseButton1Click:Connect(function()
             local msg = replyBox.Text:match("^%s*(.-)%s*$")
             if not msg or #msg < 3 then
                 hubState.notify({ Title = "Invalid Reply", Content = "Please enter at least 3 characters.", Color = Color3.fromRGB(255, 170, 50) })
                 return
             end
-
             local replyRecord = {
                 id = "rep_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999)),
                 title = "💬 Developer Reply from " .. devUsername,
@@ -3271,14 +2798,8 @@ return function(opts)
                 timestamp = os.time(),
                 time = os.date("%H:%M")
             }
-
-            -- 1. Live broadcast packet to target
             broadcastLivePayload("Announcement", replyRecord)
-
-            -- 2. Persist to 24/7 Global Store (so target gets reply even if offline)
             persistAnnouncementRecord(replyRecord)
-
-            -- 3. Discord Webhook notification of the reply (Interactive Reply Bot)
             local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
             if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
                 local replyBotName = "UnknownHub Reply Bot [" .. devUsername .. "]"
@@ -3300,7 +2821,6 @@ return function(opts)
                 }
                 dispatchHttpRequest(targetWebhook, "POST", nil, payload)
             end
-
             hubState.sendNotification({
                 Title = "Reply Sent to @" .. targetUser,
                 Content = "\"" .. (msg:sub(1, 40) .. (#msg > 40 and "..." or "")) .. "\"",
@@ -3308,30 +2828,21 @@ return function(opts)
                 Color = Color3.fromRGB(0, 215, 120),
                 Toast = true
             })
-
             sendReplyBtn.Text = "✓ Sent!"
             sendReplyBtn.BackgroundColor3 = Color3.fromRGB(0, 215, 120)
             task.delay(0.8, closeModal)
         end)
-
         TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 0.35 }):Play()
     end
-
     hubState.openFeedbackReplyModal = function(notif)
         hubState.createFeedbackReplyModal(notif)
     end
-
-    -- =========================================================================
-    -- Dedicated Developer Announcement Modal UI (With Dynamic Target Ping Selector)
-    -- =========================================================================
     function hubState.createAnnouncementModal(parentFrame)
         local existing = hubState.screenGui:FindFirstChild("AnnouncementOverlay")
         if existing then
             pcall(function() existing:Destroy() end)
         end
-
         hubState.isModalActive = true
-
         local modalOverlay = Instance.new("Frame")
         modalOverlay.Name = "AnnouncementOverlay"
         modalOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -3342,7 +2853,6 @@ return function(opts)
         modalOverlay.ZIndex = 250
         modalOverlay.Active = true
         modalOverlay.Parent = hubState.screenGui
-
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
         modalBlocker.Size = UDim2.new(1, 0, 1, 0)
@@ -3352,7 +2862,6 @@ return function(opts)
         modalBlocker.AutoButtonColor = false
         modalBlocker.ZIndex = 250
         modalBlocker.Parent = modalOverlay
-
         local annPanel = Instance.new("Frame")
         annPanel.Name = "AnnouncementPanel"
         annPanel.Size = UDim2.new(0, 520, 0, 440)
@@ -3366,15 +2875,12 @@ return function(opts)
         applyCorner(annPanel, 10)
         local annStroke = applyStroke(annPanel, Color3.fromRGB(175, 105, 255), 1.5, 0.25)
         hubState.registerThemeStroke(annStroke)
-
-        -- Modal Header
         local annHeader = Instance.new("Frame")
         annHeader.Size = UDim2.new(1, 0, 0, 42)
         annHeader.BackgroundColor3 = Color3.fromRGB(18, 23, 35)
         annHeader.BorderSizePixel = 0
         annHeader.ZIndex = 252
         annHeader.Parent = annPanel
-
         local annTitle = Instance.new("TextLabel")
         annTitle.Size = UDim2.new(0.75, 0, 1, 0)
         annTitle.Position = UDim2.new(0, 14, 0, 0)
@@ -3386,7 +2892,6 @@ return function(opts)
         annTitle.TextXAlignment = Enum.TextXAlignment.Left
         annTitle.ZIndex = 253
         annTitle.Parent = annHeader
-
         local closeBtn = Instance.new("TextButton")
         closeBtn.Size = UDim2.new(0, 24, 0, 24)
         closeBtn.Position = UDim2.new(1, -30, 0.5, -12)
@@ -3398,7 +2903,6 @@ return function(opts)
         closeBtn.ZIndex = 253
         closeBtn.Parent = annHeader
         applyCorner(closeBtn, 5)
-
         local contentScroll = Instance.new("ScrollingFrame")
         contentScroll.Size = UDim2.new(1, -24, 1, -54)
         contentScroll.Position = UDim2.new(0, 12, 0, 48)
@@ -3410,13 +2914,10 @@ return function(opts)
         contentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
         contentScroll.ZIndex = 252
         contentScroll.Parent = annPanel
-
         local contentLayout = Instance.new("UIListLayout")
         contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
         contentLayout.Padding = UDim.new(0, 10)
         contentLayout.Parent = contentScroll
-
-        -- 1. Audience / Ping Scope Section
         local scopeLabel = Instance.new("TextLabel")
         scopeLabel.Size = UDim2.new(1, 0, 0, 18)
         scopeLabel.BackgroundTransparency = 1
@@ -3427,21 +2928,17 @@ return function(opts)
         scopeLabel.TextXAlignment = Enum.TextXAlignment.Left
         scopeLabel.ZIndex = 253
         scopeLabel.Parent = contentScroll
-
         local scopeButtonsContainer = Instance.new("Frame")
         scopeButtonsContainer.Size = UDim2.new(1, 0, 0, 32)
         scopeButtonsContainer.BackgroundTransparency = 1
         scopeButtonsContainer.ZIndex = 253
         scopeButtonsContainer.Parent = contentScroll
-
         local scopeButtonsLayout = Instance.new("UIListLayout")
         scopeButtonsLayout.FillDirection = Enum.FillDirection.Horizontal
         scopeButtonsLayout.SortOrder = Enum.SortOrder.LayoutOrder
         scopeButtonsLayout.Padding = UDim.new(0, 8)
         scopeButtonsLayout.Parent = scopeButtonsContainer
-
-        local selectedPingScope = "All" -- "All" or "Custom"
-
+        local selectedPingScope = "All" 
         local allBtn = Instance.new("TextButton")
         allBtn.Size = UDim2.new(0.48, 0, 1, 0)
         allBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
@@ -3452,7 +2949,6 @@ return function(opts)
         allBtn.ZIndex = 254
         allBtn.Parent = scopeButtonsContainer
         applyCorner(allBtn, 6)
-
         local customBtn = Instance.new("TextButton")
         customBtn.Size = UDim2.new(0.48, 0, 1, 0)
         customBtn.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
@@ -3464,8 +2960,6 @@ return function(opts)
         customBtn.Parent = scopeButtonsContainer
         applyCorner(customBtn, 6)
         applyStroke(customBtn, Color3.fromRGB(40, 50, 75), 1, 0.4)
-
-        -- Custom Username Container (Appears when Custom Username is selected)
         local customTargetContainer = Instance.new("Frame")
         customTargetContainer.Name = "CustomTargetContainer"
         customTargetContainer.Size = UDim2.new(1, 0, 0, 68)
@@ -3473,7 +2967,6 @@ return function(opts)
         customTargetContainer.Visible = false
         customTargetContainer.ZIndex = 253
         customTargetContainer.Parent = contentScroll
-
         local customTargetBox = Instance.new("TextBox")
         customTargetBox.Size = UDim2.new(1, 0, 0, 32)
         customTargetBox.Position = UDim2.new(0, 0, 0, 0)
@@ -3490,8 +2983,6 @@ return function(opts)
         customTargetBox.Parent = customTargetContainer
         applyCorner(customTargetBox, 6)
         applyStroke(customTargetBox, Color3.fromRGB(45, 55, 80), 1, 0)
-
-        -- Quick-select server player suggestions
         local suggestionsScroll = Instance.new("ScrollingFrame")
         suggestionsScroll.Size = UDim2.new(1, 0, 0, 28)
         suggestionsScroll.Position = UDim2.new(0, 0, 0, 38)
@@ -3502,13 +2993,11 @@ return function(opts)
         suggestionsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
         suggestionsScroll.ZIndex = 254
         suggestionsScroll.Parent = customTargetContainer
-
         local suggLayout = Instance.new("UIListLayout")
         suggLayout.FillDirection = Enum.FillDirection.Horizontal
         suggLayout.SortOrder = Enum.SortOrder.LayoutOrder
         suggLayout.Padding = UDim.new(0, 6)
         suggLayout.Parent = suggestionsScroll
-
         local function populatePlayerSuggestions()
             for _, c in ipairs(suggestionsScroll:GetChildren()) do
                 if c:IsA("TextButton") then c:Destroy() end
@@ -3526,15 +3015,12 @@ return function(opts)
                 pPill.Parent = suggestionsScroll
                 applyCorner(pPill, 4)
                 applyStroke(pPill, Color3.fromRGB(45, 55, 80), 1, 0.3)
-
                 pPill.MouseButton1Click:Connect(function()
                     customTargetBox.Text = plr.Name
                 end)
             end
         end
-
         populatePlayerSuggestions()
-
         local function updateScopeUI()
             if selectedPingScope == "All" then
                 allBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
@@ -3551,18 +3037,14 @@ return function(opts)
                 populatePlayerSuggestions()
             end
         end
-
         allBtn.MouseButton1Click:Connect(function()
             selectedPingScope = "All"
             updateScopeUI()
         end)
-
         customBtn.MouseButton1Click:Connect(function()
             selectedPingScope = "Custom"
             updateScopeUI()
         end)
-
-        -- 2. Announcement Title Section
         local titleHdrLabel = Instance.new("TextLabel")
         titleHdrLabel.Size = UDim2.new(1, 0, 0, 18)
         titleHdrLabel.BackgroundTransparency = 1
@@ -3573,7 +3055,6 @@ return function(opts)
         titleHdrLabel.TextXAlignment = Enum.TextXAlignment.Left
         titleHdrLabel.ZIndex = 253
         titleHdrLabel.Parent = contentScroll
-
         local titleBox = Instance.new("TextBox")
         titleBox.Size = UDim2.new(1, 0, 0, 32)
         titleBox.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
@@ -3589,8 +3070,6 @@ return function(opts)
         titleBox.Parent = contentScroll
         applyCorner(titleBox, 6)
         applyStroke(titleBox, Color3.fromRGB(45, 55, 80), 1, 0)
-
-        -- 3. Announcement Body Message
         local bodyHdrLabel = Instance.new("TextLabel")
         bodyHdrLabel.Size = UDim2.new(1, 0, 0, 18)
         bodyHdrLabel.BackgroundTransparency = 1
@@ -3601,7 +3080,6 @@ return function(opts)
         bodyHdrLabel.TextXAlignment = Enum.TextXAlignment.Left
         bodyHdrLabel.ZIndex = 253
         bodyHdrLabel.Parent = contentScroll
-
         local bodyBox = Instance.new("TextBox")
         bodyBox.Size = UDim2.new(1, 0, 0, 84)
         bodyBox.BackgroundColor3 = Color3.fromRGB(18, 22, 33)
@@ -3621,14 +3099,11 @@ return function(opts)
         bodyBox.Parent = contentScroll
         applyCorner(bodyBox, 6)
         applyStroke(bodyBox, Color3.fromRGB(45, 55, 80), 1, 0)
-
-        -- 4. Status Bar & Broadcast Button
         local bottomContainer = Instance.new("Frame")
         bottomContainer.Size = UDim2.new(1, 0, 0, 36)
         bottomContainer.BackgroundTransparency = 1
         bottomContainer.ZIndex = 253
         bottomContainer.Parent = contentScroll
-
         local statusLbl = Instance.new("TextLabel")
         statusLbl.Size = UDim2.new(1, -170, 1, 0)
         statusLbl.Position = UDim2.new(0, 0, 0, 0)
@@ -3640,7 +3115,6 @@ return function(opts)
         statusLbl.TextXAlignment = Enum.TextXAlignment.Left
         statusLbl.ZIndex = 254
         statusLbl.Parent = bottomContainer
-
         local broadcastBtn = Instance.new("TextButton")
         broadcastBtn.Size = UDim2.new(0, 160, 0, 34)
         broadcastBtn.Position = UDim2.new(1, -160, 0, 0)
@@ -3652,7 +3126,6 @@ return function(opts)
         broadcastBtn.ZIndex = 254
         broadcastBtn.Parent = bottomContainer
         applyCorner(broadcastBtn, 6)
-
         local isClosing = false
         local function closeModal()
             if isClosing then return end
@@ -3666,26 +3139,21 @@ return function(opts)
                 pcall(function() modalOverlay:Destroy() end)
             end)
         end
-
         local isBroadcasting = false
         broadcastBtn.MouseButton1Click:Connect(function()
             if isBroadcasting then return end
             local targetVal = selectedPingScope == "All" and "All" or customTargetBox.Text:match("^%s*(.-)%s*$")
             local titleVal = titleBox.Text:match("^%s*(.-)%s*$")
             local msgVal = bodyBox.Text:match("^%s*(.-)%s*$")
-
             if not targetVal or targetVal == "" then targetVal = "All" end
             if not titleVal or titleVal == "" then titleVal = "Developer Announcement" end
-
             if not msgVal or #msgVal < 3 then
                 statusLbl.Text = "⚠️ Please enter at least 3 characters for the message."
                 statusLbl.TextColor3 = Color3.fromRGB(255, 170, 60)
                 return
             end
-
             isBroadcasting = true
             broadcastBtn.Text = "Broadcasting..."
-
             local annRecord = {
                 id = "ann_" .. tostring(tick()) .. "_" .. tostring(math.random(1000, 9999)),
                 title = titleVal,
@@ -3696,14 +3164,8 @@ return function(opts)
                 timestamp = os.time(),
                 time = os.date("%H:%M")
             }
-
-            -- 1. Dispatch Live Bus Packet (Instant in-game delivery)
             broadcastLivePayload("Announcement", annRecord)
-
-            -- 2. Persist to Global 24/7 Offline Storage (so offline players receive it when they run script)
             persistAnnouncementRecord(annRecord)
-
-            -- 3. Discord Webhook Broadcast (Broadcast Gateway Bot)
             local targetWebhook = opts.feedbackWebhook or hubState.defaultWebhook
             if targetWebhook and type(targetWebhook) == "string" and targetWebhook:find("http") then
                 local broadcastBotName = "UnknownHub Broadcast Gateway [" .. devUsername .. "]"
@@ -3725,8 +3187,6 @@ return function(opts)
                 }
                 dispatchHttpRequest(targetWebhook, "POST", nil, payload)
             end
-
-            -- 4. Dev Local Notification & Toast
             hubState.sendNotification({
                 Title = "Broadcast Sent (" .. targetVal .. ")",
                 Content = titleVal .. ": \"" .. (msgVal:sub(1, 40) .. (#msgVal > 40 and "..." or "")) .. "\"",
@@ -3734,39 +3194,29 @@ return function(opts)
                 Color = Color3.fromRGB(180, 100, 255),
                 Toast = true
             })
-
             broadcastBtn.Text = "✓ Dispatched!"
             broadcastBtn.BackgroundColor3 = Color3.fromRGB(0, 210, 120)
             statusLbl.Text = "✓ Successfully dispatched live & saved to 24/7 sync!"
             statusLbl.TextColor3 = Color3.fromRGB(0, 215, 130)
-
             task.delay(1.2, function()
                 closeModal()
             end)
         end)
-
         closeBtn.MouseButton1Click:Connect(closeModal)
         modalBlocker.MouseButton1Click:Connect(closeModal)
-
-        -- Fade In Animation
         TweenService:Create(modalOverlay, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.35
         }):Play()
     end
-
     hubState.openNotificationCenterModal = function()
         hubState.createNotificationCenterModal(hubState.screenGui)
     end
-
     hubState.openFeedbackModal = function()
         hubState.createFeedbackModal(hubState.screenGui)
     end
-
     hubState.openAnnouncementModal = function()
         hubState.createAnnouncementModal(hubState.screenGui)
     end
-
-    -- Loading overlay
     local loadingOverlay = Instance.new("Frame")
     loadingOverlay.Name = "LoadingOverlay"
     loadingOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -3774,7 +3224,6 @@ return function(opts)
     loadingOverlay.BorderSizePixel = 0
     loadingOverlay.ZIndex = 100
     loadingOverlay.Parent = hubState.screenGui
-
     local loadingTitle = Instance.new("TextLabel")
     loadingTitle.Size = UDim2.new(1, -40, 0, 28)
     loadingTitle.Position = UDim2.new(0, 20, 0.5, -22)
@@ -3787,7 +3236,6 @@ return function(opts)
     loadingTitle.ZIndex = 101
     loadingTitle.Parent = loadingOverlay
     hubState.registerThemeText(loadingTitle)
-
     local loadingStatus = Instance.new("TextLabel")
     loadingStatus.Size = UDim2.new(1, -40, 0, 20)
     loadingStatus.Position = UDim2.new(0, 20, 0.5, 12)
@@ -3799,15 +3247,10 @@ return function(opts)
     loadingStatus.TextXAlignment = Enum.TextXAlignment.Center
     loadingStatus.ZIndex = 101
     loadingStatus.Parent = loadingOverlay
-
-    -- =========================================================================
-    -- Main Window Frame (Fluid Proportional Responsive Obsidian Glass)
-    -- =========================================================================
     local isTouchScreen = UserInputService.TouchEnabled
     local defaultFrameSize = isTouchScreen and UDim2.new(0.92, 0, 0.84, 0) or UDim2.new(0, 580, 0, 390)
     local defaultFramePos = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
     local defaultAnchor = isTouchScreen and Vector2.new(0.5, 0.5) or Vector2.new(0, 0)
-
     hubState.mainFrame = Instance.new("Frame")
     hubState.mainFrame.Name = "MainFrame"
     hubState.mainFrame.AnchorPoint = defaultAnchor
@@ -3821,7 +3264,6 @@ return function(opts)
     hubState.mainFrame.Parent = hubState.screenGui
     applyCorner(hubState.mainFrame, 10)
     local waveBackground = hubState.startOceanWaveBackground(hubState.mainFrame)
-
     local mainBgGradient = Instance.new("UIGradient")
     mainBgGradient.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 18, 27)),
@@ -3829,14 +3271,9 @@ return function(opts)
     })
     mainBgGradient.Rotation = 45
     mainBgGradient.Parent = hubState.mainFrame
-
     local mainStroke = applyStroke(hubState.mainFrame, hubState.currentThemeColor, 1.5, 0.2)
     hubState.registerThemeStroke(mainStroke)
-
-    -- Attach Bottom-Right Resizer Triangle Grip
     local resizerGrip = hubState.makeResizable(hubState.mainFrame, 460, 300, 1200, 900)
-
-    -- Header Bar
     local header = Instance.new("Frame")
     header.Name = "Header"
     header.Size = UDim2.new(1, 0, 0, 46)
@@ -3846,7 +3283,6 @@ return function(opts)
     header.Parent = hubState.mainFrame
     applyCorner(header, 10)
     hubState.makeSmoothDraggable(hubState.mainFrame, header)
-
     local headerCover = Instance.new("Frame")
     headerCover.Size = UDim2.new(1, 0, 0, 10)
     headerCover.Position = UDim2.new(0, 0, 1, -10)
@@ -3854,7 +3290,6 @@ return function(opts)
     headerCover.BorderSizePixel = 0
     headerCover.ZIndex = 21
     headerCover.Parent = header
-
     local headerDivider = Instance.new("Frame")
     headerDivider.Size = UDim2.new(1, 0, 0, 1)
     headerDivider.Position = UDim2.new(0, 0, 1, 0)
@@ -3862,16 +3297,14 @@ return function(opts)
     headerDivider.BorderSizePixel = 0
     headerDivider.ZIndex = 21
     headerDivider.Parent = header
-
         local titleGroup = Instance.new("Frame")
     titleGroup.Name = "TitleGroup"
     titleGroup.Size = UDim2.new(1, -235, 1, 0)
     titleGroup.Position = UDim2.new(0, 14, 0, 0)
     titleGroup.BackgroundTransparency = 1
     titleGroup.ZIndex = 22
-    titleGroup.ClipsDescendants = true
+    titleGroup.ClipsDescendants = false
     titleGroup.Parent = header
-
     local titleLayout = Instance.new("UIListLayout")
     titleLayout.FillDirection = Enum.FillDirection.Horizontal
     titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
@@ -3879,8 +3312,6 @@ return function(opts)
     titleLayout.SortOrder = Enum.SortOrder.LayoutOrder
     titleLayout.Padding = UDim.new(0, 7)
     titleLayout.Parent = titleGroup
-
-    -- Unknown Hub Official Avatar Emblem (LayoutOrder = 1, right beside the name)
     local moonEmblem = Instance.new("Frame")
     moonEmblem.Name = "HubAvatarEmblem"
     moonEmblem.Size = UDim2.new(0, 26, 0, 26)
@@ -3888,11 +3319,11 @@ return function(opts)
     moonEmblem.BorderSizePixel = 0
     moonEmblem.LayoutOrder = 1
     moonEmblem.ZIndex = 23
+    moonEmblem.ClipsDescendants = false
     moonEmblem.Parent = titleGroup
     applyCorner(moonEmblem, 13)
     local moonStroke = applyStroke(moonEmblem, hubState.currentThemeColor, 1.2, 0.3)
     hubState.registerThemeStroke(moonStroke)
-
     local hubAvatarImg = Instance.new("ImageLabel")
     hubAvatarImg.Name = "HubAvatar"
     hubAvatarImg.Size = UDim2.new(1, 0, 1, 0)
@@ -3900,7 +3331,118 @@ return function(opts)
     hubAvatarImg.ZIndex = 24
     hubAvatarImg.Parent = moonEmblem
     applyCorner(hubAvatarImg, 13)
-
+    local cyberHarness = Instance.new("Frame")
+    cyberHarness.Name = "AvatarCyberHarness"
+    cyberHarness.Size = UDim2.new(1, 0, 1, 0)
+    cyberHarness.BackgroundTransparency = 1
+    cyberHarness.ZIndex = 25
+    cyberHarness.ClipsDescendants = false
+    cyberHarness.Parent = moonEmblem
+    local function createCyberCable(size, pos, color)
+        local cable = Instance.new("Frame")
+        cable.Size = size
+        cable.Position = pos
+        cable.BackgroundColor3 = color or hubState.currentThemeColor
+        cable.BorderSizePixel = 0
+        cable.BackgroundTransparency = 0.35
+        cable.ZIndex = 25
+        cable.Parent = cyberHarness
+        hubState.registerThemeObject(cable, "BackgroundColor3", "theme")
+        return cable
+    end
+    local function createCubeChip(size, pos, coreSize, hasPins)
+        local chip = Instance.new("Frame")
+        chip.Size = size
+        chip.Position = pos
+        chip.BackgroundColor3 = Color3.fromRGB(14, 20, 32)
+        chip.BorderSizePixel = 0
+        chip.ZIndex = 26
+        chip.ClipsDescendants = false
+        chip.Parent = cyberHarness
+        applyCorner(chip, 2)
+        local chipStroke = applyStroke(chip, hubState.currentThemeColor, 1, 0.25)
+        hubState.registerThemeStroke(chipStroke)
+        local core = Instance.new("Frame")
+        core.Size = coreSize or UDim2.new(0, 4, 0, 4)
+        core.AnchorPoint = Vector2.new(0.5, 0.5)
+        core.Position = UDim2.new(0.5, 0, 0.5, 0)
+        core.BackgroundColor3 = hubState.currentThemeColor
+        core.BorderSizePixel = 0
+        core.ZIndex = 27
+        core.Parent = chip
+        applyCorner(core, 1)
+        hubState.registerThemeObject(core, "BackgroundColor3", "theme")
+        if hasPins then
+            for p = 1, 2 do
+                local pin = Instance.new("Frame")
+                pin.Size = UDim2.new(0, 1, 0, 2)
+                pin.Position = UDim2.new(0, (p == 1 and 2 or size.X.Offset - 3), 0, -2)
+                pin.BackgroundColor3 = Color3.fromRGB(90, 115, 155)
+                pin.BorderSizePixel = 0
+                pin.ZIndex = 25
+                pin.Parent = chip
+                local pinB = Instance.new("Frame")
+                pinB.Size = UDim2.new(0, 1, 0, 2)
+                pinB.Position = UDim2.new(0, (p == 1 and 2 or size.X.Offset - 3), 1, 0)
+                pinB.BackgroundColor3 = Color3.fromRGB(90, 115, 155)
+                pinB.BorderSizePixel = 0
+                pinB.ZIndex = 25
+                pinB.Parent = chip
+            end
+        end
+        task.spawn(function()
+            while chip and chip.Parent and core and core.Parent do
+                local twIn = TweenService:Create(core, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = 0.7 })
+                twIn:Play()
+                twIn.Completed:Wait()
+                local twOut = TweenService:Create(core, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { BackgroundTransparency = 0.05 })
+                twOut:Play()
+                twOut.Completed:Wait()
+                task.wait(0.3)
+            end
+        end)
+        return chip
+    end
+    local cable1_h = createCyberCable(UDim2.new(0, 6, 0, 1), UDim2.new(0, -6, 0, 5))
+    local cable1_v = createCyberCable(UDim2.new(0, 1, 0, 7), UDim2.new(0, -6, 0, -2))
+    local chip1 = createCubeChip(UDim2.new(0, 7, 0, 7), UDim2.new(0, -9, 0, -8), UDim2.new(0, 3, 0, 3), true)
+    local cable2_h = createCyberCable(UDim2.new(0, 7, 0, 1), UDim2.new(1, 0, 1, -7))
+    local cable2_v = createCyberCable(UDim2.new(0, 1, 0, 6), UDim2.new(1, 6, 1, -7))
+    local chip2 = createCubeChip(UDim2.new(0, 8, 0, 8), UDim2.new(1, 4, 1, -2), UDim2.new(0, 4, 0, 4), true)
+    local cable3_v = createCyberCable(UDim2.new(0, 1, 0, 5), UDim2.new(0, 3, 1, 0))
+    local cable3_h = createCyberCable(UDim2.new(0, 6, 0, 1), UDim2.new(0, -3, 1, 4))
+    local chip3 = createCubeChip(UDim2.new(0, 6, 0, 6), UDim2.new(0, -8, 1, 2), UDim2.new(0, 2, 0, 2), false)
+    local dataPacket = Instance.new("Frame")
+    dataPacket.Size = UDim2.new(0, 2, 0, 2)
+    dataPacket.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    dataPacket.BorderSizePixel = 0
+    dataPacket.ZIndex = 28
+    dataPacket.Parent = cyberHarness
+    applyCorner(dataPacket, 1)
+    task.spawn(function()
+        while dataPacket and dataPacket.Parent do
+            dataPacket.Position = UDim2.new(0, -8, 0, -6)
+            dataPacket.BackgroundTransparency = 0
+            local tw1 = TweenService:Create(dataPacket, TweenInfo.new(0.5, Enum.EasingStyle.Linear), { Position = UDim2.new(0, -6, 0, 5) })
+            tw1:Play()
+            tw1.Completed:Wait()
+            local tw2 = TweenService:Create(dataPacket, TweenInfo.new(0.4, Enum.EasingStyle.Linear), { Position = UDim2.new(0, 0, 0, 5) })
+            tw2:Play()
+            tw2.Completed:Wait()
+            dataPacket.BackgroundTransparency = 1
+            task.wait(1.5)
+            dataPacket.Position = UDim2.new(1, 0, 1, -7)
+            dataPacket.BackgroundTransparency = 0
+            local tw3 = TweenService:Create(dataPacket, TweenInfo.new(0.4, Enum.EasingStyle.Linear), { Position = UDim2.new(1, 6, 1, -7) })
+            tw3:Play()
+            tw3.Completed:Wait()
+            local tw4 = TweenService:Create(dataPacket, TweenInfo.new(0.4, Enum.EasingStyle.Linear), { Position = UDim2.new(1, 6, 1, -1) })
+            tw4:Play()
+            tw4.Completed:Wait()
+            dataPacket.BackgroundTransparency = 1
+            task.wait(2)
+        end
+    end)
     local avatarUrl = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/unknown_hub_avatar.jpg"
     pcall(function()
         if writefile and getcustomasset then
@@ -3921,8 +3463,6 @@ return function(opts)
             hubAvatarImg.Image = avatarUrl
         end
     end)
-
-    -- Dynamic Auto-Sized Title Container (LayoutOrder = 2)
     local titleContainer = Instance.new("Frame")
     titleContainer.Name = "TitleContainer"
     titleContainer.AutomaticSize = Enum.AutomaticSize.X
@@ -3931,10 +3471,7 @@ return function(opts)
     titleContainer.LayoutOrder = 2
     titleContainer.ZIndex = 22
     titleContainer.Parent = titleGroup
-
     local originalTitleText = opts.title or "UNKNOWN HUB"
-
-    -- Cyan Chromatic Ghost Layer
     local titleGlitchCyan = Instance.new("TextLabel")
     titleGlitchCyan.Name = "GlitchCyan"
     titleGlitchCyan.AutomaticSize = Enum.AutomaticSize.X
@@ -3949,8 +3486,6 @@ return function(opts)
     titleGlitchCyan.TextXAlignment = Enum.TextXAlignment.Left
     titleGlitchCyan.ZIndex = 22
     titleGlitchCyan.Parent = titleContainer
-
-    -- Magenta Chromatic Ghost Layer
     local titleGlitchMagenta = Instance.new("TextLabel")
     titleGlitchMagenta.Name = "GlitchMagenta"
     titleGlitchMagenta.AutomaticSize = Enum.AutomaticSize.X
@@ -3965,8 +3500,6 @@ return function(opts)
     titleGlitchMagenta.TextXAlignment = Enum.TextXAlignment.Left
     titleGlitchMagenta.ZIndex = 22
     titleGlitchMagenta.Parent = titleContainer
-
-    -- Main Foreground Title Label
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Name = "Title"
     titleLabel.AutomaticSize = Enum.AutomaticSize.X
@@ -3980,10 +3513,8 @@ return function(opts)
     titleLabel.ZIndex = 23
     titleLabel.Parent = titleContainer
     hubState.registerThemeText(titleLabel)
-
     local glitchGlyphs = {"0", "1", "Δ", "Ξ", "Ψ", "◈", "X", "Z", "7"}
     local isGlitching = false
-
     function hubState.triggerTitleCyberGlitch()
         if isGlitching then return end
         isGlitching = true
@@ -3992,7 +3523,6 @@ return function(opts)
             titleGlitchMagenta.TextTransparency = 0.40
             titleGlitchCyan.Position = UDim2.new(0, -2, 0, 0)
             titleGlitchMagenta.Position = UDim2.new(0, 2, 0, 0)
-
             for frameStep = 1, 3 do
                 local scrambled = ""
                 for charIdx = 1, #originalTitleText do
@@ -4008,7 +3538,6 @@ return function(opts)
                 titleGlitchMagenta.Text = scrambled
                 task.wait(0.035)
             end
-
             titleLabel.Text = originalTitleText
             titleGlitchCyan.Text = originalTitleText
             titleGlitchMagenta.Text = originalTitleText
@@ -4017,7 +3546,6 @@ return function(opts)
             isGlitching = false
         end)
     end
-
     local titleHitbox = Instance.new("TextButton")
     titleHitbox.Size = UDim2.new(1, 0, 1, 0)
     titleHitbox.BackgroundTransparency = 1
@@ -4026,7 +3554,6 @@ return function(opts)
     titleHitbox.Parent = titleContainer
     titleHitbox.MouseEnter:Connect(hubState.triggerTitleCyberGlitch)
     titleHitbox.MouseButton1Click:Connect(hubState.triggerTitleCyberGlitch)
-
     task.spawn(function()
         while hubState.screenGui and hubState.screenGui.Parent do
             task.wait(math.random(16, 24))
@@ -4035,8 +3562,6 @@ return function(opts)
             end
         end
     end)
-
-    -- Auto-sorted SubTitle Label (LayoutOrder = 3)
     local subTitleLabel = Instance.new("TextLabel")
     subTitleLabel.Name = "SubTitle"
     subTitleLabel.AutomaticSize = Enum.AutomaticSize.X
@@ -4050,8 +3575,6 @@ return function(opts)
     subTitleLabel.LayoutOrder = 3
     subTitleLabel.ZIndex = 22
     subTitleLabel.Parent = titleGroup
-
-    -- Auto-sorted Live Status Pill (LayoutOrder = 4)
     local livePill = Instance.new("Frame")
     livePill.Name = "LivePill"
     livePill.Size = UDim2.new(0, 64, 0, 20)
@@ -4062,7 +3585,6 @@ return function(opts)
     livePill.Parent = titleGroup
     applyCorner(livePill, 10)
     applyStroke(livePill, Color3.fromRGB(44, 56, 80), 1, 0)
-
     local liveDot = Instance.new("Frame")
     liveDot.Name = "LiveDot"
     liveDot.Size = UDim2.new(0, 6, 0, 6)
@@ -4072,7 +3594,6 @@ return function(opts)
     liveDot.ZIndex = 23
     liveDot.Parent = livePill
     applyCorner(liveDot, 3)
-
     local liveText = Instance.new("TextLabel")
     liveText.Size = UDim2.new(1, -18, 1, 0)
     liveText.Position = UDim2.new(0, 17, 0, 0)
@@ -4084,8 +3605,6 @@ return function(opts)
     liveText.TextXAlignment = Enum.TextXAlignment.Left
     liveText.ZIndex = 23
     liveText.Parent = livePill
-
-    -- Live Dot Breathing animation
     task.spawn(function()
         local dotStart = tick()
         while liveDot and liveDot.Parent do
@@ -4095,8 +3614,6 @@ return function(opts)
             task.wait(0.08)
         end
     end)
-
-    -- Responsive Proportional Sidebar (26% window width)
     local sidebar = Instance.new("ScrollingFrame")
     sidebar.Name = "Sidebar"
     sidebar.Size = UDim2.new(0.26, 0, 1, -47)
@@ -4111,20 +3628,16 @@ return function(opts)
     sidebar.ZIndex = 10
     sidebar.Parent = hubState.mainFrame
     applyCorner(sidebar, 10)
-
     local sidebarPadding = Instance.new("UIPadding")
     sidebarPadding.PaddingTop = UDim.new(0, 8)
     sidebarPadding.PaddingBottom = UDim.new(0, 8)
     sidebarPadding.PaddingLeft = UDim.new(0, 8)
     sidebarPadding.PaddingRight = UDim.new(0, 8)
     sidebarPadding.Parent = sidebar
-
     local sidebarLayout = Instance.new("UIListLayout")
     sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
     sidebarLayout.Padding = UDim.new(0, 6)
     sidebarLayout.Parent = sidebar
-
-    -- Proportional Sidebar Right Divider Line
     local sidebarDivider = Instance.new("Frame")
     sidebarDivider.Size = UDim2.new(0, 1, 1, -47)
     sidebarDivider.Position = UDim2.new(0.26, 0, 0, 47)
@@ -4132,8 +3645,6 @@ return function(opts)
     sidebarDivider.BorderSizePixel = 0
     sidebarDivider.ZIndex = 11
     sidebarDivider.Parent = hubState.mainFrame
-
-    -- Responsive Content Area (74% window width, auto-resizing with mainFrame)
     local contentArea = Instance.new("Frame")
     contentArea.Name = "ContentArea"
     contentArea.Size = UDim2.new(0.74, -1, 1, -47)
@@ -4141,14 +3652,8 @@ return function(opts)
     contentArea.BackgroundTransparency = 1
     contentArea.ZIndex = 10
     contentArea.Parent = hubState.mainFrame
-
-    -- =========================================================================
-    -- Header Buttons (Close, Collapse, Feedback, Notifications)
-    -- =========================================================================
     hubState.isWindowCollapsed = false
     hubState.uncollapsedWindowHeight = 390
-
-    -- Square Notification Bell Button
     local notifBtn = Instance.new("TextButton")
     notifBtn.Name = "NotificationBtn"
     notifBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -4162,7 +3667,6 @@ return function(opts)
     notifBtn.Parent = header
     applyCorner(notifBtn, 6)
     applyStroke(notifBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
-
     hubState.notifBadgeContainer = Instance.new("Frame")
     hubState.notifBadgeContainer.Name = "NotifBadge"
     hubState.notifBadgeContainer.Size = UDim2.new(0, 16, 0, 16)
@@ -4173,7 +3677,6 @@ return function(opts)
     hubState.notifBadgeContainer.Visible = false
     hubState.notifBadgeContainer.Parent = notifBtn
     applyCorner(hubState.notifBadgeContainer, 8)
-
     hubState.notifBadgeLabel = Instance.new("TextLabel")
     hubState.notifBadgeLabel.Size = UDim2.new(1, 0, 1, 0)
     hubState.notifBadgeLabel.BackgroundTransparency = 1
@@ -4184,7 +3687,6 @@ return function(opts)
     hubState.notifBadgeLabel.TextXAlignment = Enum.TextXAlignment.Center
     hubState.notifBadgeLabel.ZIndex = 33
     hubState.notifBadgeLabel.Parent = hubState.notifBadgeContainer
-
     notifBtn.MouseEnter:Connect(function()
         TweenService:Create(notifBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundColor3 = Color3.fromRGB(34, 44, 66)
@@ -4206,12 +3708,9 @@ return function(opts)
         hubState.trackConnection(btn.Activated:Connect(trigger))
         hubState.trackConnection(btn.MouseButton1Click:Connect(trigger))
     end
-
     hubState.bindHeaderButton(notifBtn, function()
         if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end
     end)
-
-    -- Dedicated Developer Announcement Broadcast Button (Visible ONLY for Hub Developers)
     local announceBtn = Instance.new("TextButton")
     announceBtn.Name = "AnnounceBtn"
     announceBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -4228,7 +3727,6 @@ return function(opts)
     end
     applyCorner(announceBtn, 6)
     applyStroke(announceBtn, Color3.fromRGB(160, 95, 240), 1, 0.4)
-
     announceBtn.MouseEnter:Connect(function()
         TweenService:Create(announceBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundColor3 = hubState.isDeveloper and Color3.fromRGB(50, 36, 75) or Color3.fromRGB(34, 44, 66)
@@ -4242,8 +3740,6 @@ return function(opts)
     hubState.bindHeaderButton(announceBtn, function()
         if hubState.openAnnouncementModal then hubState.openAnnouncementModal() end
     end)
-
-    -- Square Feedback Tools Button (Right next to collapse button)
     local feedbackBtn = Instance.new("TextButton")
     feedbackBtn.Name = "FeedbackBtn"
     feedbackBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -4257,7 +3753,6 @@ return function(opts)
     feedbackBtn.Parent = header
     applyCorner(feedbackBtn, 6)
     applyStroke(feedbackBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
-
     feedbackBtn.MouseEnter:Connect(function()
         TweenService:Create(feedbackBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundColor3 = Color3.fromRGB(34, 44, 66)
@@ -4271,8 +3766,6 @@ return function(opts)
     hubState.bindHeaderButton(feedbackBtn, function()
         if hubState.openFeedbackModal then hubState.openFeedbackModal() end
     end)
-
-    -- Square Repository Quick-Access Button (📜)
     local headerRepoBtn = Instance.new("TextButton")
     headerRepoBtn.Name = "HeaderRepoBtn"
     headerRepoBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -4286,7 +3779,6 @@ return function(opts)
     headerRepoBtn.Parent = header
     applyCorner(headerRepoBtn, 6)
     local repoStroke = applyStroke(headerRepoBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
-
     headerRepoBtn.MouseEnter:Connect(function()
         if hubState.currentActiveTabName ~= "Repository" then
             TweenService:Create(headerRepoBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -4310,8 +3802,6 @@ return function(opts)
             hubState.setTabVisible("Repository")
         end
     end)
-
-    -- Square Favorites Quick-Access Button (⭐)
     local headerFavBtn = Instance.new("TextButton")
     headerFavBtn.Name = "HeaderFavBtn"
     headerFavBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -4325,7 +3815,6 @@ return function(opts)
     headerFavBtn.Parent = header
     applyCorner(headerFavBtn, 6)
     local favStroke = applyStroke(headerFavBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
-
     headerFavBtn.MouseEnter:Connect(function()
         if hubState.currentActiveTabName ~= "Favorites" then
             TweenService:Create(headerFavBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -4349,8 +3838,6 @@ return function(opts)
             hubState.setTabVisible("Favorites")
         end
     end)
-
-    -- Collapse / Minimize Window Button (Collapses to Header Only)
     local minimizeBtn = Instance.new("TextButton")
     minimizeBtn.Name = "MinimizeBtn"
     minimizeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -4363,7 +3850,6 @@ return function(opts)
     minimizeBtn.ZIndex = 30
     minimizeBtn.Parent = header
     applyCorner(minimizeBtn, 6)
-
     minimizeBtn.MouseEnter:Connect(function()
         TweenService:Create(minimizeBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundColor3 = Color3.fromRGB(40, 50, 72)
@@ -4374,10 +3860,8 @@ return function(opts)
             BackgroundColor3 = Color3.fromRGB(30, 36, 52)
         }):Play()
     end)
-
     hubState.bindHeaderButton(minimizeBtn, function()
         if not hubState.isWindowCollapsed then
-            -- Collapse to header size (46px height, leaving only header bar)
             local currentH = hubState.mainFrame.AbsoluteSize.Y
             if currentH > 60 then
                 hubState.uncollapsedWindowHeight = currentH
@@ -4386,7 +3870,6 @@ return function(opts)
             else
                 hubState.uncollapsedWindowHeight = 390
             end
-
             hubState.isWindowCollapsed = true
             minimizeBtn.Text = "+"
             if resizerGrip then resizerGrip.Visible = false end
@@ -4396,15 +3879,12 @@ return function(opts)
             sidebar.Visible = false
             sidebarDivider.Visible = false
             contentArea.Visible = false
-
             TweenService:Create(hubState.mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, 46)
             }):Play()
         else
-            -- Expand window back to saved height
             hubState.isWindowCollapsed = false
             minimizeBtn.Text = "-"
-
             if waveBackground then waveBackground.Visible = true end
             headerCover.Visible = true
             headerDivider.Visible = true
@@ -4412,14 +3892,11 @@ return function(opts)
             sidebarDivider.Visible = true
             contentArea.Visible = true
             if resizerGrip then resizerGrip.Visible = true end
-
             TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                 Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, hubState.uncollapsedWindowHeight)
             }):Play()
         end
     end)
-
-    -- Close Button
     local closeBtn = Instance.new("TextButton")
     closeBtn.Name = "CloseBtn"
     closeBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -4432,7 +3909,6 @@ return function(opts)
     closeBtn.ZIndex = 30
     closeBtn.Parent = header
     applyCorner(closeBtn, 6)
-
     hubState.bindHeaderButton(closeBtn, function()
         hubState.createCloseConfirmation(hubState.mainFrame, function()
             hubState.DisableAllFeatureStates()
@@ -4440,8 +3916,6 @@ return function(opts)
             if hubState.screenGui then hubState.screenGui:Destroy() end
         end)
     end)
-
-    -- Tab Switching Mechanism
     function hubState.setTabVisible(tabName)
         hubState.currentActiveTabName = tabName
         for _, page in ipairs(hubState.tabPages) do
@@ -4455,7 +3929,6 @@ return function(opts)
         local c2 = hubState.secondaryThemeColor
         local activeTabBg = Color3.fromRGB(math.floor(c2.R * 130 + 26), math.floor(c2.G * 130 + 32), math.floor(c2.B * 130 + 46))
         local inactiveTabBg = Color3.fromRGB(math.floor(c2.R * 36 + 14), math.floor(c2.G * 36 + 17), math.floor(c2.B * 36 + 24))
-
         for _, btn in ipairs(hubState.tabButtons) do
             if btn and btn.Name == tabName then
                 TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -4484,8 +3957,6 @@ return function(opts)
                 end
             end
         end
-
-        -- Update Header Icons active highlight
         if headerRepoBtn then
             local isRepo = (tabName == "Repository")
             TweenService:Create(headerRepoBtn, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -4511,12 +3982,10 @@ return function(opts)
             end
         end
     end
-
     function hubState.createPage(name)
         for _, p in ipairs(hubState.tabPages) do
             if p.Name == name then return p end
         end
-
         local page = Instance.new("ScrollingFrame")
         page.Name = name
         page.Size = UDim2.new(1, 0, 1, 0)
@@ -4527,14 +3996,12 @@ return function(opts)
         page.CanvasSize = UDim2.new(0, 0, 0, 0)
         page.Visible = false
         page.Parent = contentArea
-
         local pad = Instance.new("UIPadding")
         pad.PaddingTop = UDim.new(0, 10)
         pad.PaddingBottom = UDim.new(0, 24)
         pad.PaddingLeft = UDim.new(0, 10)
         pad.PaddingRight = UDim.new(0, 12)
         pad.Parent = page
-
         local layout = Instance.new("UIListLayout")
         layout.SortOrder = Enum.SortOrder.LayoutOrder
         layout.Padding = UDim.new(0, 8)
@@ -4543,9 +4010,7 @@ return function(opts)
         table.insert(hubState.tabPages, page)
         return page
     end
-
     function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
-        -- Quick-access header pages (Favorites and Repository have NO sidebar buttons)
         if name == "Favorites" or name == "Repository" or name == "⭐ Favorites" or name == "📦 Repository" then
             local pageName = (name == "Favorites" or name == "⭐ Favorites") and "Favorites" or "Repository"
             local p = hubState.createPage(pageName)
@@ -4555,8 +4020,6 @@ return function(opts)
             end
             return p
         end
-
-        -- Reuse pre-created system tabs if requested
         if (name == "Config" or name == "Configs" or name == "⚙️ Config") and hubState.configTabPage then
             if defaultVisible then
                 hubState.currentActiveTabName = "Config"
@@ -4571,10 +4034,7 @@ return function(opts)
             end
             return hubState.universalTabPage
         end
-
         local page = hubState.createPage(name)
-
-        -- Check if button already exists in sidebar
         local existingBtn = nil
         for _, b in ipairs(hubState.tabButtons) do
             if b.Name == name then
@@ -4582,7 +4042,6 @@ return function(opts)
                 break
             end
         end
-
         if not existingBtn then
             local btn = Instance.new("TextButton")
             btn.Name = name
@@ -4590,7 +4049,6 @@ return function(opts)
             btn.BackgroundColor3 = Color3.fromRGB(19, 23, 34)
             btn.Text = ""
             btn.AutoButtonColor = false
-            
             if name == "Config" or name == "⚙️ Config" then
                 btn.LayoutOrder = 100000
             elseif name == "Universal" or name == "🌐 Universal" or name == "Utilities" then
@@ -4598,10 +4056,8 @@ return function(opts)
             else
                 btn.LayoutOrder = #hubState.tabButtons + 1
             end
-
             btn.Parent = sidebar
             applyCorner(btn, 6)
-
             local indicator = Instance.new("Frame")
             indicator.Name = "ActiveIndicator"
             indicator.Size = UDim2.new(0, 3, 0, 12)
@@ -4612,7 +4068,6 @@ return function(opts)
             indicator.Parent = btn
             applyCorner(indicator, 2)
             hubState.registerThemeFrame(indicator)
-
             local icon
             local textOffset = 12
             if iconAssetId then
@@ -4626,7 +4081,6 @@ return function(opts)
                 icon.Parent = btn
                 textOffset = 30
             end
-
             local lbl = Instance.new("TextLabel")
             lbl.Size = UDim2.new(1, -(textOffset + 6), 1, 0)
             lbl.Position = UDim2.new(0, textOffset, 0, 0)
@@ -4638,7 +4092,6 @@ return function(opts)
             lbl.TextTruncate = Enum.TextTruncate.AtEnd
             lbl.TextXAlignment = Enum.TextXAlignment.Left
             lbl.Parent = btn
-
             btn.MouseButton1Click:Connect(function()
                 if hubState.searchBox and hubState.searchBox.Text ~= "" then
                     hubState.searchBox.Text = ""
@@ -4649,18 +4102,12 @@ return function(opts)
             if not hubState.tabButtons then hubState.tabButtons = {} end
             table.insert(hubState.tabButtons, btn)
         end
-
         if defaultVisible then
             hubState.currentActiveTabName = name
             task.defer(function() hubState.setTabVisible(name) end)
         end
-
         return page
     end
-
-    -- =========================================================================
-    -- Search & Discovery System (Instant Interactive Functions Filter)
-    -- =========================================================================
     local searchContainer = Instance.new("Frame")
     searchContainer.Name = "SidebarSearchContainer"
     searchContainer.Size = UDim2.new(1, 0, 0, 32)
@@ -4670,7 +4117,6 @@ return function(opts)
     searchContainer.Parent = sidebar
     applyCorner(searchContainer, 6)
     local searchStroke = applyStroke(searchContainer, Color3.fromRGB(38, 48, 70), 1, 0.4)
-
     local searchIcon = Instance.new("TextLabel")
     searchIcon.Size = UDim2.new(0, 24, 1, 0)
     searchIcon.Position = UDim2.new(0, 4, 0, 0)
@@ -4681,7 +4127,6 @@ return function(opts)
     searchIcon.TextSize = 11
     searchIcon.ZIndex = 13
     searchIcon.Parent = searchContainer
-
     local clearSearchBtn = Instance.new("TextButton")
     clearSearchBtn.Size = UDim2.new(0, 20, 0, 20)
     clearSearchBtn.Position = UDim2.new(1, -24, 0.5, -10)
@@ -4694,7 +4139,6 @@ return function(opts)
     clearSearchBtn.ZIndex = 14
     clearSearchBtn.Parent = searchContainer
     applyCorner(clearSearchBtn, 4)
-
     hubState.searchBox = Instance.new("TextBox")
     hubState.searchBox.Size = UDim2.new(1, -52, 1, 0)
     hubState.searchBox.Position = UDim2.new(0, 26, 0, 0)
@@ -4709,23 +4153,18 @@ return function(opts)
     hubState.searchBox.TextXAlignment = Enum.TextXAlignment.Left
     hubState.searchBox.ZIndex = 13
     hubState.searchBox.Parent = searchContainer
-
     hubState.searchResultsPage = hubState.createPage("__SearchResults__")
-
         function hubState.renderSearchResults(query)
         for _, child in ipairs(hubState.searchResultsPage:GetChildren()) do
             if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
                 child:Destroy()
             end
         end
-
         local cleanQ = query:match("^%s*(.-)%s*$"):lower()
         if cleanQ == "" then
             hubState.setTabVisible(hubState.currentActiveTabName)
             return
         end
-
-        -- Make search page active
         for _, page in ipairs(hubState.tabPages) do
             page.Visible = (page == hubState.searchResultsPage)
         end
@@ -4734,13 +4173,10 @@ return function(opts)
             local ind = btn:FindFirstChild("ActiveIndicator")
             if ind then ind.BackgroundTransparency = 1 end
         end
-
-        -- Results Section Header
         local resHeader = Instance.new("Frame")
         resHeader.Size = UDim2.new(1, -4, 0, 26)
         resHeader.BackgroundTransparency = 1
         resHeader.Parent = hubState.searchResultsPage
-
         local resTitle = Instance.new("TextLabel")
         resTitle.Size = UDim2.new(1, 0, 1, 0)
         resTitle.BackgroundTransparency = 1
@@ -4751,19 +4187,14 @@ return function(opts)
         resTitle.TextXAlignment = Enum.TextXAlignment.Left
         resTitle.Parent = resHeader
         hubState.registerThemeText(resTitle)
-
         local matchedCount = 0
-
         for id, itemData in pairs(hubState.registeredFunctions) do
             local titleMatch = itemData.title and tostring(itemData.title):lower():find(cleanQ, 1, true)
             local subMatch = itemData.subtitle and tostring(itemData.subtitle):lower():find(cleanQ, 1, true)
             local tabMatch = itemData.tab and tostring(itemData.tab):lower():find(cleanQ, 1, true)
-
             if titleMatch or subMatch or tabMatch then
                 matchedCount = matchedCount + 1
-
                 local isToggle = (itemData.type == "Toggle" and itemData.get and itemData.set)
-
                 local card = Instance.new("Frame")
                 card.Name = "ResultCard_" .. tostring(id)
                 card.Size = UDim2.new(1, -6, 0, 46)
@@ -4772,7 +4203,6 @@ return function(opts)
                 card.Parent = hubState.searchResultsPage
                 applyCorner(card, 7)
                 local cStroke = applyStroke(card, Color3.fromRGB(36, 46, 66), 1, 0)
-
                 local cTitle = Instance.new("TextLabel")
                 cTitle.Size = UDim2.new(0.60, 0, 0, 20)
                 cTitle.Position = UDim2.new(0, 14, 0, 5)
@@ -4784,7 +4214,6 @@ return function(opts)
                 cTitle.TextTruncate = Enum.TextTruncate.AtEnd
                 cTitle.TextXAlignment = Enum.TextXAlignment.Left
                 cTitle.Parent = card
-
                 local cTabBadge = Instance.new("TextLabel")
                 cTabBadge.Size = UDim2.new(0.60, 0, 0, 16)
                 cTabBadge.Position = UDim2.new(0, 14, 0, 25)
@@ -4796,11 +4225,8 @@ return function(opts)
                 cTabBadge.TextTruncate = Enum.TextTruncate.AtEnd
                 cTabBadge.TextXAlignment = Enum.TextXAlignment.Left
                 cTabBadge.Parent = card
-
-                -- Interactive Full-Card Click & Direct Toggle Controls
                 if isToggle then
                     local curState = itemData.get() == true
-
                     local statusLabel = Instance.new("TextLabel")
                     statusLabel.Size = UDim2.new(0, 36, 0, 22)
                     statusLabel.Position = UDim2.new(1, -100, 0.5, -11)
@@ -4811,7 +4237,6 @@ return function(opts)
                     statusLabel.TextSize = 10
                     statusLabel.TextXAlignment = Enum.TextXAlignment.Right
                     statusLabel.Parent = card
-
                     local switch = Instance.new("Frame")
                     switch.Size = UDim2.new(0, 46, 0, 24)
                     switch.Position = UDim2.new(1, -58, 0.5, -12)
@@ -4819,7 +4244,6 @@ return function(opts)
                     switch.BorderSizePixel = 0
                     switch.Parent = card
                     applyCorner(switch, 12)
-
                     local sKnob = Instance.new("Frame")
                     sKnob.Size = UDim2.new(0, 18, 0, 18)
                     sKnob.Position = curState and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
@@ -4827,7 +4251,6 @@ return function(opts)
                     sKnob.BorderSizePixel = 0
                     sKnob.Parent = switch
                     applyCorner(sKnob, 9)
-
                     local function toggleFeature()
                         local nextState = not (itemData.get() == true)
                         itemData.set(nextState)
@@ -4839,7 +4262,6 @@ return function(opts)
                         TweenService:Create(switch, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
                         TweenService:Create(cStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = nextState and hubState.currentThemeColor or Color3.fromRGB(36, 46, 66)}):Play()
                     end
-
                     local cardHitbox = Instance.new("TextButton")
                     cardHitbox.Size = UDim2.new(1, 0, 1, 0)
                     cardHitbox.BackgroundTransparency = 1
@@ -4859,7 +4281,6 @@ return function(opts)
                     sValBtn.ZIndex = 25
                     sValBtn.Parent = card
                     applyCorner(sValBtn, 5)
-
                     sValBtn.MouseButton1Click:Connect(function()
                         if itemData.action then
                             itemData.action()
@@ -4878,7 +4299,6 @@ return function(opts)
                     trigBtn.ZIndex = 25
                     trigBtn.Parent = card
                     applyCorner(trigBtn, 5)
-
                     local function triggerAction()
                         TweenService:Create(trigBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hubState.currentThemeColor, TextColor3 = Color3.fromRGB(15, 20, 30)}):Play()
                         if itemData.action then pcall(itemData.action) end
@@ -4888,9 +4308,7 @@ return function(opts)
                             end
                         end)
                     end
-
                     trigBtn.MouseButton1Click:Connect(triggerAction)
-
                     local cardHitbox = Instance.new("TextButton")
                     cardHitbox.Size = UDim2.new(1, -85, 1, 0)
                     cardHitbox.BackgroundTransparency = 1
@@ -4899,11 +4317,9 @@ return function(opts)
                     cardHitbox.Parent = card
                     cardHitbox.MouseButton1Click:Connect(triggerAction)
                 end
-
                 hubState.attachContextMenu(card, itemData)
             end
         end
-
         if matchedCount == 0 then
             local emptyLabel = Instance.new("TextLabel")
             emptyLabel.Size = UDim2.new(1, 0, 0, 60)
@@ -4916,18 +4332,14 @@ return function(opts)
             emptyLabel.Parent = hubState.searchResultsPage
         end
     end
-
     hubState.searchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local q = hubState.searchBox.Text
         clearSearchBtn.Visible = (#q > 0)
         hubState.renderSearchResults(q)
     end)
-
     clearSearchBtn.MouseButton1Click:Connect(function()
         hubState.searchBox.Text = ""
     end)
-
-    -- UI Component: Section Label / Divider
     function hubState.createSection(parent, sectionText)
         if type(parent) == "table" and parent.List then
             parent = parent.List
@@ -4941,7 +4353,6 @@ return function(opts)
         secFrame.Size = UDim2.new(1, -4, 0, 26)
         secFrame.BackgroundTransparency = 1
         pcall(function() secFrame.Parent = parent end)
-
         local secLabel = Instance.new("TextLabel")
         secLabel.Size = UDim2.new(1, -8, 1, 0)
         secLabel.Position = UDim2.new(0, 4, 0, 0)
@@ -4953,27 +4364,18 @@ return function(opts)
         secLabel.TextXAlignment = Enum.TextXAlignment.Left
         secLabel.Parent = secFrame
         hubState.registerThemeText(secLabel)
-
         local divider = Instance.new("Frame")
         divider.Size = UDim2.new(1, 0, 0, 1)
         divider.Position = UDim2.new(0, 0, 1, -1)
         divider.BackgroundColor3 = Color3.fromRGB(32, 40, 56)
         divider.BorderSizePixel = 0
         divider.Parent = secFrame
-
         return secFrame
     end
-
-    -- UI Component: Button (Responsive & Holographic Click FX)
-    
-    -- =========================================================================
-    -- Dynamic Custom Configuration & Loop Engine
-    -- =========================================================================
     hubState.customConfigs = {}
     hubState.toggleStates = {}
     hubState.activeLoops = {}
     hubState.blackScreenOverlay = nil
-
     function hubState.SetBlackScreen(enabled)
         pcall(function()
             RunService:Set3dRenderingEnabled(not enabled)
@@ -4999,7 +4401,6 @@ return function(opts)
             end
         end
     end
-
     function hubState.CreateConfigOption(name, optType, defaultValue, optionsList)
         return {
             Name = name,
@@ -5009,11 +4410,9 @@ return function(opts)
             Value = defaultValue
         }
     end
-
     function hubState.CreateConfig(controlTarget, optionsTable)
         local targetName = type(controlTarget) == "string" and controlTarget or (type(controlTarget) == "table" and (controlTarget.Title or controlTarget.Name)) or "Default"
         hubState.customConfigs[targetName] = hubState.customConfigs[targetName] or {}
-
         if type(optionsTable) == "table" then
             for k, v in pairs(optionsTable) do
                 local optName = (type(v) == "table" and v.Name) or tostring(k)
@@ -5021,7 +4420,6 @@ return function(opts)
                 hubState.customConfigs[targetName][optName] = optVal
             end
         end
-
         local configHandler = {
             TargetName = targetName,
             SetOption = function(self, optName, val)
@@ -5035,7 +4433,6 @@ return function(opts)
                 return self
             end
         }
-
         if type(controlTarget) == "table" then
             controlTarget.Config = configHandler
             controlTarget.GetConfigOption = function(self, optName)
@@ -5045,10 +4442,8 @@ return function(opts)
                 hubState.customConfigs[targetName][optName] = val
             end
         end
-
         return configHandler
     end
-
     function hubState.GetConfigOptionFrom(targetName, optionName)
         if not targetName then return nil end
         local cfg = hubState.customConfigs[targetName]
@@ -5064,14 +4459,12 @@ return function(opts)
         end
         return hubState.configValues["toggle:" .. tostring(targetName)]
     end
-
     function hubState.SetConfigOption(targetName, optionName, value)
         if not targetName then return end
         hubState.customConfigs[targetName] = hubState.customConfigs[targetName] or {}
         hubState.customConfigs[targetName][optionName] = value
         hubState.configValues[tostring(targetName) .. ":" .. tostring(optionName)] = value
     end
-
     function hubState.GetToggleState(targetName)
         if not targetName then return false end
         if hubState.toggleStates[targetName] ~= nil then
@@ -5079,7 +4472,6 @@ return function(opts)
         end
         return hubState.configValues["toggle:" .. tostring(targetName)] == true
     end
-
     function hubState.createButton(parent, text, callback)
         if type(parent) == "table" and parent.List then
             parent = parent.List
@@ -5102,8 +4494,6 @@ return function(opts)
         pcall(function() item.Parent = parent end)
         applyCorner(item, 7)
         local btnStroke = applyStroke(item, Color3.fromRGB(36, 46, 66), 1, 0)
-
-        -- Holographic click flash overlay
         local sheen = Instance.new("Frame")
         sheen.Name = "SheenRipple"
         sheen.Size = UDim2.new(0, 0, 1, 0)
@@ -5114,7 +4504,6 @@ return function(opts)
         sheen.ZIndex = 2
         sheen.Parent = item
         applyCorner(sheen, 7)
-
         local sheenGrad = Instance.new("UIGradient")
         sheenGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         sheenGrad.Transparency = NumberSequence.new({
@@ -5124,11 +4513,9 @@ return function(opts)
         })
         sheenGrad.Parent = sheen
         hubState.registerThemeGradient(sheenGrad, 0)
-
         local normalColor = Color3.fromRGB(20, 25, 36)
         local hoverColor = Color3.fromRGB(28, 36, 52)
         local clickColor = Color3.fromRGB(38, 48, 70)
-
         item.MouseEnter:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hoverColor}):Play()
             TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = hubState.currentThemeColor}):Play()
@@ -5145,7 +4532,6 @@ return function(opts)
         end)
         item.MouseButton1Click:Connect(function()
             if hubState.isModalActive then return end
-            -- Holographic ripple sweep
             sheen.Size = UDim2.new(0, 0, 1, 0)
             sheen.Position = UDim2.new(0, 0, 0, 0)
             sheen.BackgroundTransparency = 0.5
@@ -5155,7 +4541,6 @@ return function(opts)
             }):Play()
             if callback then pcall(callback) end
         end)
-
         local itemData = {
             id = "btn_" .. tostring(text or "Button") .. "_" .. tostring(math.random(1000, 9999)),
             title = text or "Button",
@@ -5169,11 +4554,8 @@ return function(opts)
         table.insert(hubState.themeButtonFrames, item)
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(item, itemData)
-
         return item
     end
-
-    -- UI Component: Text Box (Responsive)
     function hubState.createTextBox(parent, placeholderText, defaultText, callback)
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 38)
@@ -5182,7 +4564,6 @@ return function(opts)
         frame.Parent = parent or contentArea
         applyCorner(frame, 7)
         applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
-
         local box = Instance.new("TextBox")
         box.Size = UDim2.new(1, -16, 1, -8)
         box.Position = UDim2.new(0, 8, 0, 4)
@@ -5198,7 +4579,6 @@ return function(opts)
         box.TextXAlignment = Enum.TextXAlignment.Left
         box.Parent = frame
         applyCorner(box, 5)
-
         if callback then
             box.FocusLost:Connect(function(enterPressed)
                 pcall(callback, box.Text, enterPressed)
@@ -5206,8 +4586,6 @@ return function(opts)
         end
         return box
     end
-
-    -- UI Component: Toggle (Responsive & Smooth Spring Knob)
     function hubState.createToggle(parent, text, defaultState, callbackOrLoop, loopDelay, configTable)
         if type(parent) == "table" and parent.List then
             parent = parent.List
@@ -5223,7 +4601,6 @@ return function(opts)
         pcall(function() frame.Parent = parent end)
         applyCorner(frame, 7)
         local toggleStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
-
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(1, -70, 1, 0)
         label.Position = UDim2.new(0, 14, 0, 0)
@@ -5235,7 +4612,6 @@ return function(opts)
         label.TextTruncate = Enum.TextTruncate.AtEnd
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.Parent = frame
-
         local switchTrack = Instance.new("Frame")
         switchTrack.Size = UDim2.new(0, 48, 0, 24)
         switchTrack.Position = UDim2.new(1, -58, 0.5, -12)
@@ -5243,7 +4619,6 @@ return function(opts)
         switchTrack.BorderSizePixel = 0
         switchTrack.Parent = frame
         applyCorner(switchTrack, 12)
-
         local knob = Instance.new("Frame")
         knob.Size = UDim2.new(0, 18, 0, 18)
         knob.Position = (defaultState == true) and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
@@ -5251,19 +4626,15 @@ return function(opts)
         knob.BorderSizePixel = 0
         knob.Parent = switchTrack
         applyCorner(knob, 9)
-
         local isToggled = defaultState or false
         hubState.toggleStates[text] = isToggled
-
         if configTable then
             hubState.CreateConfig(text, configTable)
         end
-
         local loopThreadId = 0
         local function stopLoop()
             loopThreadId = loopThreadId + 1
         end
-
         local function startLoop()
             stopLoop()
             local curId = loopThreadId
@@ -5278,7 +4649,6 @@ return function(opts)
                 end
             end)
         end
-
         local function setState(v, skipCallback)
             isToggled = (v == true)
             hubState.toggleStates[text] = isToggled
@@ -5289,7 +4659,6 @@ return function(opts)
             TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
             TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
-
             if typeof(loopDelay) == "number" then
                 if isToggled then
                     startLoop()
@@ -5305,7 +4674,6 @@ return function(opts)
                 end
             end
         end
-
         local click = Instance.new("TextButton")
         click.Size = UDim2.new(1, 0, 1, 0)
         click.BackgroundTransparency = 1
@@ -5315,13 +4683,11 @@ return function(opts)
             if hubState.isModalActive then return end
             setState(not isToggled)
         end)
-
         table.insert(hubState.allToggleSetters, setState)
         hubState.configSetters["toggle:" .. tostring(text)] = setState
         hubState.registerThemeUpdater(function(themeColor)
             if isToggled and switchTrack.Parent then switchTrack.BackgroundColor3 = themeColor end
         end)
-
         local itemData = {
             id = "toggle_" .. tostring(text or "Toggle"),
             title = text or "Toggle",
@@ -5336,9 +4702,7 @@ return function(opts)
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(frame, itemData)
         hubState.attachContextMenu(click, itemData)
-
         setState(isToggled, true)
-
         local resultObj = {
             Title = text,
             Frame = frame,
@@ -5361,12 +4725,9 @@ return function(opts)
         }
         return resultObj
     end
-
     function hubState.CreateLoopToggle(parent, text, defaultState, loopInterval, loopFunc, configTable)
         return hubState.createToggle(parent, text, defaultState, loopFunc, loopInterval or 0.1, configTable)
     end
-
-    -- UI Component: Slider (Responsive)
     function hubState.createSlider(parent, titleText, minValue, maxValue, defaultValue, suffix, callback)
         if type(parent) == "table" and parent.List then
             parent = parent.List
@@ -5380,7 +4741,6 @@ return function(opts)
         if maxValue < minValue then minValue, maxValue = maxValue, minValue end
         local value = math.clamp(tonumber(defaultValue) or minValue, minValue, maxValue)
         local range = math.max(0.0001, maxValue - minValue)
-
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 52)
         frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
@@ -5388,7 +4748,6 @@ return function(opts)
         pcall(function() frame.Parent = parent end)
         applyCorner(frame, 7)
         applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
-
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(0.65, 0, 0, 20)
         label.Position = UDim2.new(0, 14, 0, 6)
@@ -5400,7 +4759,6 @@ return function(opts)
         label.TextTruncate = Enum.TextTruncate.AtEnd
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.Parent = frame
-
         local valueLabel = Instance.new("TextLabel")
         valueLabel.Size = UDim2.new(0.3, 0, 0, 20)
         valueLabel.Position = UDim2.new(0.68, 0, 0, 6)
@@ -5411,7 +4769,6 @@ return function(opts)
         valueLabel.TextXAlignment = Enum.TextXAlignment.Right
         valueLabel.Parent = frame
         hubState.registerThemeText(valueLabel)
-
         local track = Instance.new("TextButton")
         track.Size = UDim2.new(1, -28, 0, 8)
         track.Position = UDim2.new(0, 14, 0, 34)
@@ -5422,7 +4779,6 @@ return function(opts)
         track.BorderSizePixel = 0
         track.Parent = frame
         applyCorner(track, 4)
-
         local fill = Instance.new("Frame")
         fill.BackgroundColor3 = hubState.currentThemeColor
         fill.BorderSizePixel = 0
@@ -5430,7 +4786,6 @@ return function(opts)
         fill.Parent = track
         applyCorner(fill, 4)
         hubState.registerThemeFrame(fill)
-
         local knob = Instance.new("Frame")
         knob.Size = UDim2.new(0, 14, 0, 14)
         knob.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -5440,14 +4795,12 @@ return function(opts)
         knob.BorderSizePixel = 0
         knob.Parent = track
         applyCorner(knob, 7)
-
         local function formatValue(val)
             if val % 1 == 0 then
                 return tostring(math.floor(val)) .. (suffix or "")
             end
             return string.format("%.2f", val) .. (suffix or "")
         end
-
         local function setValue(newValue, fireCallback)
             value = math.clamp(tonumber(newValue) or value, minValue, maxValue)
             hubState.configValues["slider:" .. tostring(titleText)] = value
@@ -5457,17 +4810,14 @@ return function(opts)
             knob.Position = UDim2.new(percent, 0, 0.5, 0)
             if fireCallback and callback then pcall(callback, value) end
         end
-
         hubState.configSetters["slider:" .. tostring(titleText)] = function(newValue)
             setValue(newValue, true)
         end
-
         local dragging = false
         local function updateFromInput(input)
             local percent = (input.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X)
             setValue(minValue + math.clamp(percent, 0, 1) * range, true)
         end
-
         track.InputBegan:Connect(function(input)
             if hubState.isModalActive then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -5475,25 +4825,21 @@ return function(opts)
                 updateFromInput(input)
             end
         end)
-
         track.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
             end
         end)
-
         hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
             end
         end))
-
         hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
             if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                 updateFromInput(input)
             end
         end))
-
         local itemData = {
             id = "slider_" .. tostring(titleText or "Slider"),
             title = titleText or "Slider",
@@ -5515,7 +4861,6 @@ return function(opts)
         }
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(frame, itemData)
-
         setValue(value, false)
         return {
             Frame = frame,
@@ -5523,10 +4868,6 @@ return function(opts)
             Get = function() return value end,
         }
     end
-
-    -- =========================================================================
-    -- Refined UI Component: List Item (Responsive)
-    -- =========================================================================
     function hubState.createListItem(parent, titleText, subtitleText, callback, actionBtnText, actionBtnCallback, actionBtnDisabled)
         if type(parent) == "table" and parent.List then
             parent = parent.List
@@ -5543,16 +4884,12 @@ return function(opts)
         pcall(function() item.Parent = parent end)
         applyCorner(item, 7)
         local itemStroke = applyStroke(item, Color3.fromRGB(28, 38, 56), 1, 0)
-
         local selected = false
         local normalColor = Color3.fromRGB(13, 17, 27)
         local hoverColor = Color3.fromRGB(18, 25, 38)
         local selectedColor = Color3.fromRGB(20, 30, 48)
         local selectedHoverColor = Color3.fromRGB(26, 40, 64)
-
         local hasSubtitle = subtitleText and subtitleText ~= "" and tostring(subtitleText):lower() ~= "nope"
-
-        -- Left Vertical Accent Bar (always visible matching user UI design)
         local accent = Instance.new("Frame")
         accent.Name = "LeftAccent"
         accent.Size = UDim2.new(0, 3, 0, 18)
@@ -5563,8 +4900,6 @@ return function(opts)
         accent.Parent = item
         applyCorner(accent, 2)
         hubState.registerThemeFrame(accent)
-
-        -- Rounded Checkbox / Selection Box
         local checkbox = Instance.new("Frame")
         checkbox.Name = "Checkbox"
         checkbox.Size = UDim2.new(0, 22, 0, 22)
@@ -5575,7 +4910,6 @@ return function(opts)
         checkbox.Parent = item
         applyCorner(checkbox, 6)
         local cbStroke = applyStroke(checkbox, Color3.fromRGB(42, 54, 78), 1.5, 0)
-
         local checkImage = Instance.new("TextLabel")
         checkImage.Name = "CheckImage"
         checkImage.Size = UDim2.new(1, 0, 1, 0)
@@ -5588,7 +4922,6 @@ return function(opts)
         checkImage.TextYAlignment = Enum.TextYAlignment.Center
         checkImage.Visible = false
         checkImage.Parent = checkbox
-
         local title = Instance.new("TextLabel")
         title.Name = "ItemTitle"
         title.Size = hasSubtitle and UDim2.new(1, -64, 0, 18) or UDim2.new(1, -64, 1, 0)
@@ -5602,7 +4935,6 @@ return function(opts)
         title.TextXAlignment = Enum.TextXAlignment.Left
         title.TextYAlignment = hasSubtitle and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center
         title.Parent = item
-
         local subtitle = Instance.new("TextLabel")
         subtitle.Name = "ItemSubtitle"
         subtitle.Size = UDim2.new(1, -64, 0, 15)
@@ -5616,7 +4948,6 @@ return function(opts)
         subtitle.TextXAlignment = Enum.TextXAlignment.Left
         subtitle.Visible = hasSubtitle
         subtitle.Parent = item
-
         local actionButton = nil
         if actionBtnText and actionBtnText ~= "" then
             checkbox.Visible = false
@@ -5645,36 +4976,29 @@ return function(opts)
                 applyStroke(actionButton, Color3.fromRGB(50, 190, 100), 1, 0.5)
             end
         end
-
         local function paint(isHovered)
             local targetBg = selected and (isHovered and selectedHoverColor or selectedColor) or (isHovered and hoverColor or normalColor)
             local targetStroke = selected and hubState.currentThemeColor or (isHovered and Color3.fromRGB(48, 62, 90) or Color3.fromRGB(28, 38, 56))
-
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
             TweenService:Create(itemStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStroke}):Play()
-
             checkImage.Visible = selected
             checkbox.BackgroundColor3 = selected and hubState.currentThemeColor or Color3.fromRGB(11, 15, 24)
             cbStroke.Color = selected and hubState.currentThemeColor or Color3.fromRGB(42, 54, 78)
-
             local targetAccentSize = selected and UDim2.new(0, 4, 1, -8) or (isHovered and UDim2.new(0, 3, 0, 24) or UDim2.new(0, 3, 0, 18))
             local targetAccentPos = selected and UDim2.new(0, 0, 0, 4) or (isHovered and UDim2.new(0, 0, 0.5, -12) or UDim2.new(0, 0, 0.5, -9))
             local targetAccentTrans = selected and 0 or (isHovered and 0 or 0.1)
-
             TweenService:Create(accent, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Size = targetAccentSize,
                 Position = targetAccentPos,
                 BackgroundTransparency = targetAccentTrans
             }):Play()
         end
-
         item.MouseEnter:Connect(function() paint(true) end)
         item.MouseLeave:Connect(function() paint(false) end)
         item.MouseButton1Click:Connect(function()
             if hubState.isModalActive then return end
             if callback then pcall(callback) end
         end)
-
         local itemData = {
             id = "item_" .. tostring(titleText or "Item") .. "_" .. tostring(subtitleText or ""),
             title = titleText or "Item",
@@ -5687,22 +5011,16 @@ return function(opts)
         }
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(item, itemData)
-
         return item, function(isSelected)
             selected = (isSelected == true)
             paint(false)
         end
     end
-
-    -- Forward declaration for recursive nested list support
-
-    -- UI Component: List Container (Supports recursive nested lists & sub-lists, auto-resizing)
     function hubState.BringSelectedItem(list)
         if not list then return nil end
         if list.SelectedItem ~= nil then return list.SelectedItem end
         return nil
     end
-
     hubState.CreateList = function(parent, title, items, height, expanded, selectionOptions)
         local parentTarget = parent
         local itemTitle = title or "List"
@@ -5711,7 +5029,6 @@ return function(opts)
         local multiSelect = selectionOptions == true or (type(selectionOptions) == "table" and (selectionOptions.MultiSelect == true or selectionOptions.multiSelect == true))
         local parentListObj = nil
         local isNestedList = false
-
         if type(parentTarget) == "table" and parentTarget.List then
             parentListObj = parentTarget
             parentTarget = parentListObj.List
@@ -5737,8 +5054,6 @@ return function(opts)
                 itemExpanded = expanded ~= false
             end
         end
-
-        -- Safe fallback for parentTarget if Instance or nil
         if typeof(parentTarget) == "Instance" then
             pcall(function()
                 if hubState.scrollingFrameToListMap and hubState.scrollingFrameToListMap[parentTarget] then
@@ -5747,7 +5062,6 @@ return function(opts)
                 end
             end)
         end
-
         local rawHeight = tonumber(height)
         local maxAllowedHeight = rawHeight or (isNestedList and 240 or 380)
         if rawHeight then
@@ -5759,19 +5073,15 @@ return function(opts)
         end
         local selectionCallback = type(height) == "function" and height or nil
         local itemBuilder = type(items) == "function" and items or nil
-
         if itemBuilder then itemValues = {} end
         if selectionCallback then
             maxAllowedHeight = 320
             itemExpanded = true
         end
-
         if type(itemValues) ~= "table" then itemValues = {} end
         if not parentTarget then parentTarget = contentArea end
-
         local titleBtnHeight = isNestedList and 30 or 32
         local open = itemExpanded
-
         local frame = Instance.new("Frame")
         frame.Name = "List_" .. tostring(itemTitle)
         frame.Size = UDim2.new(1, -6, 0, titleBtnHeight)
@@ -5780,7 +5090,6 @@ return function(opts)
         frame.ClipsDescendants = true
         applyCorner(frame, isNestedList and 6 or 7)
         applyStroke(frame, isNestedList and Color3.fromRGB(44, 54, 76) or Color3.fromRGB(34, 42, 58), 1, 0)
-
         local titleBtn = Instance.new("TextButton")
         titleBtn.Size = UDim2.new(1, 0, 0, titleBtnHeight)
         titleBtn.Text = (isNestedList and "  › " or "  ") .. tostring(itemTitle)
@@ -5792,7 +5101,6 @@ return function(opts)
         titleBtn.TextXAlignment = Enum.TextXAlignment.Left
         pcall(function() titleBtn.Parent = frame end)
         applyCorner(titleBtn, isNestedList and 6 or 7)
-
         local arrow = Instance.new("TextLabel")
         arrow.Name = "Arrow"
         arrow.Size = UDim2.new(0, 32, 1, 0)
@@ -5807,7 +5115,6 @@ return function(opts)
         arrow.Rotation = itemExpanded and 0 or -90
         pcall(function() arrow.Parent = titleBtn end)
         hubState.registerThemeText(arrow)
-
         local list = Instance.new("ScrollingFrame")
         list.Position = UDim2.new(0, 4, 0, isNestedList and 32 or 34)
         list.Size = UDim2.new(1, -8, 0, 0)
@@ -5819,12 +5126,10 @@ return function(opts)
         list.ClipsDescendants = true
         list.Visible = itemExpanded
         pcall(function() list.Parent = frame end)
-
         local layout = Instance.new("UIListLayout")
         layout.SortOrder = Enum.SortOrder.LayoutOrder
         layout.Padding = UDim.new(0, 5)
         pcall(function() layout.Parent = list end)
-
         local listObject = {
             ParentList = parentListObj,
             Frame = nil,
@@ -5846,7 +5151,6 @@ return function(opts)
             BringSelected = nil,
         }
         hubState.scrollingFrameToListMap[list] = listObject
-
                 local function calculateDesiredHeight()
             local contentH = 0
             local visibleCount = 0
@@ -5878,12 +5182,10 @@ return function(opts)
             local maxH = math.max(maxAllowedHeight, minH)
             return math.clamp(totalH, minH, maxH)
         end
-
         local isUpdatingHeight = false
         local function updateListHeight(animate)
             if not frame or not frame.Parent or isUpdatingHeight then return end
             isUpdatingHeight = true
-
             if not open then
                 local targetSize = UDim2.new(1, -6, 0, titleBtnHeight)
                 if animate then
@@ -5906,13 +5208,11 @@ return function(opts)
                 end
                 return
             end
-
             list.Visible = true
             local targetH = calculateDesiredHeight()
             local listTargetH = math.max(10, targetH - titleBtnHeight - (isNestedList and 6 or 8))
             local targetSize = UDim2.new(1, -6, 0, targetH)
             local listSize = UDim2.new(1, -8, 0, listTargetH)
-
             if animate then
                 TweenService:Create(frame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
                 TweenService:Create(list, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = listSize}):Play()
@@ -5920,18 +5220,15 @@ return function(opts)
                 frame.Size = targetSize
                 list.Size = listSize
             end
-
             task.delay(0.25, function()
                 isUpdatingHeight = false
             end)
-
             if listObject and listObject.ParentList and listObject.ParentList.UpdateHeight then
                 task.defer(function()
                     listObject.ParentList.UpdateHeight(animate)
                 end)
             end
         end
-
         local layoutDebounce = false
         layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             if open and not layoutDebounce and not isUpdatingHeight then
@@ -5942,32 +5239,26 @@ return function(opts)
                 end)
             end
         end)
-
         list.ChildAdded:Connect(function(child)
             task.defer(function()
                 if open then updateListHeight(false) end
             end)
         end)
-
         list.ChildRemoved:Connect(function()
             task.defer(function()
                 if open then updateListHeight(false) end
             end)
         end)
-
         titleBtn.MouseButton1Click:Connect(function()
             if hubState.isModalActive then return end
             open = not open
             TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = open and 0 or -90}):Play()
             updateListHeight(true)
         end)
-
-        -- Attach assembled list frame tree to parent target
         pcall(function() frame.Parent = parentTarget end)
         if not frame.Parent then
             pcall(function() frame.Parent = contentArea end)
         end
-
         listObject.Frame = frame
         listObject.List = list
         listObject.SelectedItem = nil
@@ -6048,7 +5339,6 @@ return function(opts)
         listObject.BringSelected = function()
             return listObject.MultiSelect and listObject.SelectedItems or hubState.BringSelectedItem(listObject)
         end
-
         hubState.listRegistry[tostring(itemTitle)] = listObject
         hubState.configSetters["list:" .. tostring(itemTitle)] = function(value)
             if listObject.MultiSelect then
@@ -6061,7 +5351,6 @@ return function(opts)
                 listObject.SetSelected(value)
             end
         end
-
         local function addEntry(entry)
             local entryData = nil
             if type(entry) == "string" then
@@ -6074,7 +5363,6 @@ return function(opts)
                 }
             end
             if not entryData then return end
-
             local row, setRowSelected = hubState.createListItem(list, entryData.Name, entryData.Desc, function()
                 if listObject.MultiSelect then
                     listObject.ToggleSelected(entryData)
@@ -6087,10 +5375,8 @@ return function(opts)
                 if selectionCallback then pcall(selectionCallback, entryData.Name, entryData) end
                 if entryData.Callback then pcall(entryData.Callback, entryData) end
             end, entryData.ActionText or entryData.actionText, entryData.ActionCallback or entryData.actionCallback, entryData.ActionDisabled or entryData.actionDisabled)
-
             entryData.Row = row
             entryData.RowSetter = setRowSelected
-
             entryData.AddList = function(selfOrTitle, subTitleOrItems, subItemsOrHeight, subHeightOrExpanded, subExpandedOrOptions, subOptions)
                 local subTitle = selfOrTitle
                 local subItems = subTitleOrItems
@@ -6110,11 +5396,9 @@ return function(opts)
                 return subList
             end
             entryData.CreateList = entryData.AddList
-
             table.insert(listObject.Items, entryData)
             return row, entryData
         end
-
         listObject.AddItem = function(selfOrName, nameOrSubtitle, subtitleOrCallback, callback, actionText, actionCallback, actionDisabled)
             local name = selfOrName
             local subtitle = nameOrSubtitle
@@ -6146,7 +5430,6 @@ return function(opts)
                 ActionDisabled = actDis
             })
         end
-
         listObject.AddList = function(selfOrTitle, titleOrItems, itemsOrHeight, heightOrExpanded, expandedOrOptions, options)
             local subTitle = selfOrTitle
             local subItems = titleOrItems
@@ -6166,7 +5449,6 @@ return function(opts)
             return subList
         end
         listObject.CreateList = listObject.AddList
-
         if itemBuilder then
             pcall(itemBuilder, listObject)
         else
@@ -6174,11 +5456,8 @@ return function(opts)
                 addEntry(entry)
             end
         end
-
         return listObject
     end
-
-    -- UI Component: Dropdown (Responsive)
     function hubState.createDropdown(parent, titleText, options, defaultOption, callback)
         if type(parent) == "table" and parent.List then
             parent = parent.List
@@ -6189,7 +5468,6 @@ return function(opts)
         end
         options = options or {}
         local selected = defaultOption or options[1] or "Select Option"
-
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
         frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
@@ -6197,7 +5475,6 @@ return function(opts)
         pcall(function() frame.Parent = parent end)
         applyCorner(frame, 7)
         local dropStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
-
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(0.5, 0, 1, 0)
         title.Position = UDim2.new(0, 14, 0, 0)
@@ -6209,7 +5486,6 @@ return function(opts)
         title.TextTruncate = Enum.TextTruncate.AtEnd
         title.TextXAlignment = Enum.TextXAlignment.Left
         title.Parent = frame
-
         local selectedBtn = Instance.new("TextButton")
         selectedBtn.Size = UDim2.new(0.46, 0, 0, 28)
         selectedBtn.Position = UDim2.new(0.51, 0, 0.5, -14)
@@ -6224,9 +5500,7 @@ return function(opts)
         applyCorner(selectedBtn, 6)
         local btnStroke = applyStroke(selectedBtn, Color3.fromRGB(38, 48, 68), 1, 0)
         hubState.registerThemeText(selectedBtn)
-
         local currentPopupOverlay = nil
-
         local function closePopup()
             if currentPopupOverlay and currentPopupOverlay.Parent then
                 local pop = currentPopupOverlay
@@ -6246,11 +5520,9 @@ return function(opts)
                 end)
             end
         end
-
         local function openPopup()
             closePopup()
             if not hubState.screenGui or not hubState.screenGui.Parent then return end
-
             local popOverlay = Instance.new("TextButton")
             popOverlay.Name = "DropdownPopupOverlay"
             popOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -6261,9 +5533,7 @@ return function(opts)
             popOverlay.ZIndex = 500
             popOverlay.Parent = hubState.screenGui
             currentPopupOverlay = popOverlay
-
             popOverlay.MouseButton1Click:Connect(closePopup)
-
             local btnPos = selectedBtn.AbsolutePosition
             local btnSize = selectedBtn.AbsoluteSize
             local screenHeight = (hubState.screenGui.AbsoluteSize.Y > 0) and hubState.screenGui.AbsoluteSize.Y or 800
@@ -6271,13 +5541,11 @@ return function(opts)
             local menuWidth = math.max(btnSize.X, 160)
             local totalItems = #options
             local menuHeight = math.clamp(totalItems * 30 + 8, 38, 180)
-
             local posX = math.clamp(btnPos.X + btnSize.X - menuWidth, 10, math.max(10, screenWidth - menuWidth - 10))
             local posY = btnPos.Y + btnSize.Y + 4
             if posY + menuHeight > screenHeight - 10 then
                 posY = math.max(10, btnPos.Y - menuHeight - 4)
             end
-
             local menuFrame = Instance.new("Frame")
             menuFrame.Name = "Menu"
             menuFrame.Size = UDim2.new(0, menuWidth, 0, 0)
@@ -6290,7 +5558,6 @@ return function(opts)
             applyCorner(menuFrame, 7)
             local menuStroke = applyStroke(menuFrame, hubState.currentThemeColor, 1.2, 0.2)
             hubState.registerThemeStroke(menuStroke)
-
             local scroll = Instance.new("ScrollingFrame")
             scroll.Size = UDim2.new(1, -6, 1, -8)
             scroll.Position = UDim2.new(0, 3, 0, 4)
@@ -6302,12 +5569,10 @@ return function(opts)
             scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
             scroll.ZIndex = 502
             scroll.Parent = menuFrame
-
             local layout = Instance.new("UIListLayout")
             layout.SortOrder = Enum.SortOrder.LayoutOrder
             layout.Padding = UDim.new(0, 3)
             layout.Parent = scroll
-
             for idx, opt in ipairs(options) do
                 local isCurrent = (tostring(opt) == tostring(selected))
                 local itemBtn = Instance.new("TextButton")
@@ -6324,7 +5589,6 @@ return function(opts)
                 itemBtn.ZIndex = 503
                 itemBtn.Parent = scroll
                 applyCorner(itemBtn, 5)
-
                 itemBtn.MouseEnter:Connect(function()
                     if not (tostring(opt) == tostring(selected)) then
                         TweenService:Create(itemBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -6341,7 +5605,6 @@ return function(opts)
                         }):Play()
                     end
                 end)
-
                 itemBtn.MouseButton1Click:Connect(function()
                     selected = opt
                     selectedBtn.Text = tostring(selected) .. "  ▼"
@@ -6349,12 +5612,10 @@ return function(opts)
                     if callback then pcall(callback, selected) end
                 end)
             end
-
             TweenService:Create(menuFrame, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Size = UDim2.new(0, menuWidth, 0, menuHeight)
             }):Play()
         end
-
         selectedBtn.MouseButton1Click:Connect(function()
             if hubState.isModalActive then return end
             if currentPopupOverlay then
@@ -6363,7 +5624,6 @@ return function(opts)
                 openPopup()
             end
         end)
-
         local itemData = {
             id = "dropdown_" .. tostring(titleText or "Dropdown"),
             title = titleText or "Dropdown",
@@ -6375,7 +5635,6 @@ return function(opts)
         }
         hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(frame, itemData)
-
         return {
             Frame = frame,
             Set = function(opt)
@@ -6393,10 +5652,7 @@ return function(opts)
             end
         }
     end
-
-    -- Theme Editor Component (Responsive Dual-Color Palette & 16 Split Presets)
     hubState.CreateDropdown = hubState.createDropdown
-
     function hubState.createThemeEditor(parent)
         local section = Instance.new("Frame")
         section.Name = "ThemeEditorSection"
@@ -6406,7 +5662,6 @@ return function(opts)
         section.Parent = parent or contentArea
         applyCorner(section, 8)
         applyStroke(section, Color3.fromRGB(34, 42, 58), 1, 0)
-
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -16, 0, 20)
         title.Position = UDim2.new(0, 10, 0, 6)
@@ -6417,10 +5672,7 @@ return function(opts)
         title.TextXAlignment = Enum.TextXAlignment.Left
         title.Parent = section
         hubState.registerThemeText(title)
-
-        -- Color 1 / Color 2 Editing Tab Switcher
-        local colorTarget = 1 -- 1 for Primary (Left Half), 2 for Secondary (Right Half)
-
+        local colorTarget = 1 
         local tabSwitchContainer = Instance.new("Frame")
         tabSwitchContainer.Size = UDim2.new(0, 175, 0, 24)
         tabSwitchContainer.Position = UDim2.new(0, 10, 0, 28)
@@ -6428,7 +5680,6 @@ return function(opts)
         tabSwitchContainer.BorderSizePixel = 0
         tabSwitchContainer.Parent = section
         applyCorner(tabSwitchContainer, 4)
-
         local c1Btn = Instance.new("TextButton")
         c1Btn.Size = UDim2.new(0.5, -2, 1, -2)
         c1Btn.Position = UDim2.new(0, 1, 0, 1)
@@ -6439,7 +5690,6 @@ return function(opts)
         c1Btn.TextSize = 10
         c1Btn.Parent = tabSwitchContainer
         applyCorner(c1Btn, 3)
-
         local c2Btn = Instance.new("TextButton")
         c2Btn.Size = UDim2.new(0.5, -2, 1, -2)
         c2Btn.Position = UDim2.new(0.5, 1, 0, 1)
@@ -6450,7 +5700,6 @@ return function(opts)
         c2Btn.TextSize = 10
         c2Btn.Parent = tabSwitchContainer
         applyCorner(c2Btn, 3)
-
         local picker = Instance.new("TextButton")
         picker.Size = UDim2.new(0, 175, 0, 135)
         picker.Position = UDim2.new(0, 10, 0, 56)
@@ -6462,7 +5711,6 @@ return function(opts)
         picker.ZIndex = 1
         picker.Parent = section
         applyCorner(picker, 5)
-
         local whiteLayer = Instance.new("Frame")
         whiteLayer.Size = UDim2.new(1, 0, 1, 0)
         whiteLayer.BackgroundColor3 = Color3.new(1, 1, 1)
@@ -6471,7 +5719,6 @@ return function(opts)
         whiteLayer.ZIndex = 2
         whiteLayer.Parent = picker
         applyCorner(whiteLayer, 5)
-
         local whiteGradient = Instance.new("UIGradient")
         whiteGradient.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1))
         whiteGradient.Transparency = NumberSequence.new({
@@ -6480,7 +5727,6 @@ return function(opts)
         })
         whiteGradient.Rotation = 0
         whiteGradient.Parent = whiteLayer
-
         local blackOverlay = Instance.new("Frame")
         blackOverlay.Size = UDim2.new(1, 0, 1, 0)
         blackOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -6489,7 +5735,6 @@ return function(opts)
         blackOverlay.ZIndex = 3
         blackOverlay.Parent = picker
         applyCorner(blackOverlay, 5)
-
         local blackGradient = Instance.new("UIGradient")
         blackGradient.Color = ColorSequence.new(Color3.new(0, 0, 0), Color3.new(0, 0, 0))
         blackGradient.Transparency = NumberSequence.new({
@@ -6498,7 +5743,6 @@ return function(opts)
         })
         blackGradient.Rotation = 90
         blackGradient.Parent = blackOverlay
-
         local valueKnob = Instance.new("Frame")
         valueKnob.Size = UDim2.new(0, 12, 0, 12)
         valueKnob.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -6508,7 +5752,6 @@ return function(opts)
         valueKnob.Parent = picker
         applyCorner(valueKnob, 6)
         applyStroke(valueKnob, Color3.fromRGB(20, 24, 32), 2, 0)
-
         local hueTrack = Instance.new("TextButton")
         hueTrack.Size = UDim2.new(0, 175, 0, 12)
         hueTrack.Position = UDim2.new(0, 10, 0, 196)
@@ -6518,7 +5761,6 @@ return function(opts)
         hueTrack.Active = true
         hueTrack.Parent = section
         applyCorner(hueTrack, 3)
-
         local hueGradient = Instance.new("UIGradient")
         hueGradient.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
@@ -6530,7 +5772,6 @@ return function(opts)
             ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
         })
         hueGradient.Parent = hueTrack
-
         local hueKnob = Instance.new("Frame")
         hueKnob.Size = UDim2.new(0, 6, 1, 4)
         hueKnob.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -6540,8 +5781,6 @@ return function(opts)
         hueKnob.Parent = hueTrack
         applyCorner(hueKnob, 2)
         applyStroke(hueKnob, Color3.fromRGB(20, 24, 32), 1, 0)
-
-        -- Live Preview & Status Display (Right Column)
         local rgbLabel = Instance.new("TextLabel")
         rgbLabel.Size = UDim2.new(1, -200, 0, 28)
         rgbLabel.Position = UDim2.new(0, 192, 0, 26)
@@ -6551,19 +5790,16 @@ return function(opts)
         rgbLabel.TextSize = 10
         rgbLabel.TextXAlignment = Enum.TextXAlignment.Left
         rgbLabel.Parent = section
-
         local previewSplitBox = Instance.new("Frame")
         previewSplitBox.Size = UDim2.new(1, -200, 0, 16)
         previewSplitBox.Position = UDim2.new(0, 192, 0, 56)
         previewSplitBox.BorderSizePixel = 0
         previewSplitBox.Parent = section
         applyCorner(previewSplitBox, 4)
-
         local previewGrad = Instance.new("UIGradient")
         previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         previewGrad.Rotation = 0
         previewGrad.Parent = previewSplitBox
-
         local presetLabel = Instance.new("TextLabel")
         presetLabel.Size = UDim2.new(1, -200, 0, 14)
         presetLabel.Position = UDim2.new(0, 192, 0, 76)
@@ -6574,7 +5810,6 @@ return function(opts)
         presetLabel.TextSize = 10
         presetLabel.TextXAlignment = Enum.TextXAlignment.Left
         presetLabel.Parent = section
-
         local presetThemes = {
             { "Cyber Ocean",     Color3.fromRGB(0, 195, 245),   Color3.fromRGB(0, 95, 255) },
             { "Neon Cyberpunk",   Color3.fromRGB(0, 240, 255),   Color3.fromRGB(255, 0, 135) },
@@ -6593,21 +5828,17 @@ return function(opts)
             { "Cosmic Nebula",   Color3.fromRGB(255, 71, 126),  Color3.fromRGB(114, 9, 183) },
             { "Acid Lime",       Color3.fromRGB(112, 224, 0),   Color3.fromRGB(0, 229, 255) },
         }
-
         local hue, saturation, brightness = Color3.toHSV(hubState.currentThemeColor)
-
         local function refreshUI()
             local activeCol = (colorTarget == 1) and hubState.currentThemeColor or hubState.secondaryThemeColor
             hue, saturation, brightness = Color3.toHSV(activeCol)
             picker.BackgroundColor3 = Color3.fromHSV(hue, 1, 1)
             valueKnob.Position = UDim2.new(saturation, 0, 1 - brightness, 0)
             hueKnob.Position = UDim2.new(hue, 0, 0.5, 0)
-
             c1Btn.BackgroundColor3 = (colorTarget == 1) and hubState.currentThemeColor or Color3.fromRGB(20, 25, 36)
             c1Btn.TextColor3 = (colorTarget == 1) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
             c2Btn.BackgroundColor3 = (colorTarget == 2) and hubState.secondaryThemeColor or Color3.fromRGB(20, 25, 36)
             c2Btn.TextColor3 = (colorTarget == 2) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
-
             rgbLabel.Text = string.format("Left: #%02X%02X%02X  •  Right: #%02X%02X%02X\nEditing: %s Color",
                 math.floor(hubState.currentThemeColor.R * 255 + 0.5), math.floor(hubState.currentThemeColor.G * 255 + 0.5), math.floor(hubState.currentThemeColor.B * 255 + 0.5),
                 math.floor(hubState.secondaryThemeColor.R * 255 + 0.5), math.floor(hubState.secondaryThemeColor.G * 255 + 0.5), math.floor(hubState.secondaryThemeColor.B * 255 + 0.5),
@@ -6615,7 +5846,6 @@ return function(opts)
             )
             previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         end
-
         local function updatePicker()
             local color = Color3.fromHSV(hue, saturation, brightness)
             if colorTarget == 1 then
@@ -6630,17 +5860,14 @@ return function(opts)
             )
             refreshUI()
         end
-
         c1Btn.MouseButton1Click:Connect(function()
             colorTarget = 1
             refreshUI()
         end)
-
         c2Btn.MouseButton1Click:Connect(function()
             colorTarget = 2
             refreshUI()
         end)
-
         local presetContainer = Instance.new("ScrollingFrame")
         presetContainer.Size = UDim2.new(1, -200, 0, 114)
         presetContainer.Position = UDim2.new(0, 192, 0, 94)
@@ -6650,12 +5877,10 @@ return function(opts)
         presetContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
         presetContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
         presetContainer.Parent = section
-
         local pLayout = Instance.new("UIGridLayout")
         pLayout.CellSize = UDim2.new(0.5, -4, 0, 24)
         pLayout.CellPadding = UDim2.new(0, 5, 0, 4)
         pLayout.Parent = presetContainer
-
         for _, preset in ipairs(presetThemes) do
             local pBtn = Instance.new("TextButton")
             pBtn.Size = UDim2.new(1, 0, 1, 0)
@@ -6670,7 +5895,6 @@ return function(opts)
             pBtn.Parent = presetContainer
             applyCorner(pBtn, 4)
             applyStroke(pBtn, Color3.fromRGB(15, 18, 26), 1, 0)
-
             local pGrad = Instance.new("UIGradient")
             pGrad.Color = ColorSequence.new({
                 ColorSequenceKeypoint.new(0, preset[2]),
@@ -6680,7 +5904,6 @@ return function(opts)
             })
             pGrad.Rotation = 0
             pGrad.Parent = pBtn
-
             pBtn.MouseButton1Click:Connect(function()
                 hubState.currentThemeColor = preset[2]
                 hubState.secondaryThemeColor = preset[3]
@@ -6692,7 +5915,6 @@ return function(opts)
                 refreshUI()
             end)
         end
-
         hubState.configSetters.theme = function(value)
             local str = tostring(value)
             local part1, part2 = str:match("^(.-)|(.*)$")
@@ -6715,7 +5937,6 @@ return function(opts)
             hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
             refreshUI()
         end
-
         local function handleSatVal(input)
             local rX = math.clamp((input.Position.X - picker.AbsolutePosition.X) / picker.AbsoluteSize.X, 0, 1)
             local rY = math.clamp((input.Position.Y - picker.AbsolutePosition.Y) / picker.AbsoluteSize.Y, 0, 1)
@@ -6723,13 +5944,11 @@ return function(opts)
             brightness = 1 - rY
             updatePicker()
         end
-
         local function handleHue(input)
             local rX = math.clamp((input.Position.X - hueTrack.AbsolutePosition.X) / hueTrack.AbsoluteSize.X, 0, 1)
             hue = rX
             updatePicker()
         end
-
         local draggingSV, draggingHue = false, false
         picker.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -6755,8 +5974,6 @@ return function(opts)
                 draggingHue = false
             end
         end)
-
-        -- Bottom Curated 1-Tap Presets (Fully separated below picker & grid)
         local presetsHeader = Instance.new("TextLabel")
         presetsHeader.Size = UDim2.new(1, -16, 0, 14)
         presetsHeader.Position = UDim2.new(0, 10, 0, 218)
@@ -6767,7 +5984,6 @@ return function(opts)
         presetsHeader.TextSize = 10
         presetsHeader.TextXAlignment = Enum.TextXAlignment.Left
         presetsHeader.Parent = section
-
         local presetScroll = Instance.new("ScrollingFrame")
         presetScroll.Size = UDim2.new(1, -20, 0, 30)
         presetScroll.Position = UDim2.new(0, 10, 0, 236)
@@ -6778,13 +5994,11 @@ return function(opts)
         presetScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
         presetScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
         presetScroll.Parent = section
-
         local presetLayout = Instance.new("UIListLayout")
         presetLayout.FillDirection = Enum.FillDirection.Horizontal
         presetLayout.SortOrder = Enum.SortOrder.LayoutOrder
         presetLayout.Padding = UDim.new(0, 6)
         presetLayout.Parent = presetScroll
-
         local presetsList = {
             {"🌙 Celestial", Color3.fromRGB(0, 210, 255), Color3.fromRGB(155, 89, 255)},
             {"⚡ Cyberpunk", Color3.fromRGB(255, 0, 128), Color3.fromRGB(0, 240, 255)},
@@ -6794,7 +6008,6 @@ return function(opts)
             {"👑 Obsidian Gold", Color3.fromRGB(255, 215, 0), Color3.fromRGB(255, 153, 0)},
             {"💎 Diamond Frost", Color3.fromRGB(112, 224, 255), Color3.fromRGB(224, 248, 255)},
         }
-
         for pIdx, pData in ipairs(presetsList) do
             local pBtn = Instance.new("TextButton")
             pBtn.Size = UDim2.new(0, 105, 0, 24)
@@ -6807,7 +6020,6 @@ return function(opts)
             pBtn.Parent = presetScroll
             applyCorner(pBtn, 4)
             applyStroke(pBtn, pData[2], 1, 0.4)
-
             pBtn.MouseButton1Click:Connect(function()
                 hubState.playSfx()
                 hubState.triggerHaptic(0.5)
@@ -6828,13 +6040,9 @@ return function(opts)
                 })
             end)
         end
-
         refreshUI()
         return section
     end
-
-    -- Config File & System Helpers
-
                 function hubState.serializeConfig()
         local lines = {"UnknownHubConfigV1"}
         for key, value in pairs(hubState.configValues) do
@@ -6843,7 +6051,6 @@ return function(opts)
         end
         return table.concat(lines, "\n")
     end
-
     function hubState.applyConfig(contents)
         for line in string.gmatch(contents or "", "[^\r\n]+") do
             local valueType, encodedKey, rawValue = line:match("^([BNS])|([^|]+)|(.+)$")
@@ -6863,7 +6070,6 @@ return function(opts)
             end
         end
     end
-
     function hubState.getConfigNames()
         local names = {}
         if not ensureConfigFolders() then return names end
@@ -6876,12 +6082,8 @@ return function(opts)
         table.sort(names)
         return names
     end
-
-    -- Favorites, Console, Utilities & Config Tabs
     hubState.ensureConfigTab = function()
         if hubState.configTabPage then return end
-
-        -- ⭐ Favorites Page (Header Quick-Access Only)
         hubState.favoritesPage = hubState.createPage("Favorites")
         local favHeader = Instance.new("TextLabel")
         favHeader.Size = UDim2.new(1, -6, 0, 24)
@@ -6893,7 +6095,6 @@ return function(opts)
         favHeader.TextXAlignment = Enum.TextXAlignment.Left
         favHeader.Parent = hubState.favoritesPage
         hubState.registerThemeText(favHeader)
-
         local favContainer = Instance.new("Frame")
         favContainer.Name = "FavContainer"
         favContainer.Size = UDim2.new(1, 0, 0, 0)
@@ -6901,12 +6102,10 @@ return function(opts)
         favContainer.BackgroundTransparency = 1
         favContainer.BorderSizePixel = 0
         favContainer.Parent = hubState.favoritesPage
-
         local favLayout = Instance.new("UIListLayout")
         favLayout.SortOrder = Enum.SortOrder.LayoutOrder
         favLayout.Padding = UDim.new(0, 6)
         favLayout.Parent = favContainer
-
         local favEmpty = Instance.new("TextLabel")
         favEmpty.Name = "FavEmpty"
         favEmpty.Size = UDim2.new(1, -6, 0, 60)
@@ -6917,19 +6116,16 @@ return function(opts)
         favEmpty.TextSize = 11
         favEmpty.TextXAlignment = Enum.TextXAlignment.Center
         favEmpty.Parent = hubState.favoritesPage
-
         function hubState.refreshFavoritesPage()
             if not hubState.favoritesPage then return end
             local container = hubState.favoritesPage:FindFirstChild("FavContainer")
             local emptyLabel = hubState.favoritesPage:FindFirstChild("FavEmpty")
             if not container then return end
-
             for _, child in ipairs(container:GetChildren()) do
                 if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
                     child:Destroy()
                 end
             end
-
             local count = 0
             for id, isFav in pairs(hubState.favoriteItemIds) do
                 if isFav then
@@ -6944,7 +6140,6 @@ return function(opts)
                         card.Parent = container
                         applyCorner(card, 6)
                         applyStroke(card, Color3.fromRGB(38, 48, 70), 1, 0.4)
-
                         local icon = Instance.new("TextLabel")
                         icon.Size = UDim2.new(0, 24, 1, 0)
                         icon.Position = UDim2.new(0, 8, 0, 0)
@@ -6952,7 +6147,6 @@ return function(opts)
                         icon.Text = itemData.type == "Toggle" and "🔘" or (itemData.type == "Slider" and "🎚️" or "⚡")
                         icon.TextSize = 13
                         icon.Parent = card
-
                         local title = Instance.new("TextLabel")
                         title.Size = UDim2.new(1, -160, 0, 18)
                         title.Position = UDim2.new(0, 36, 0, 3)
@@ -6964,7 +6158,6 @@ return function(opts)
                         title.TextTruncate = Enum.TextTruncate.AtEnd
                         title.TextXAlignment = Enum.TextXAlignment.Left
                         title.Parent = card
-
                         local sub = Instance.new("TextLabel")
                         sub.Size = UDim2.new(1, -160, 0, 14)
                         sub.Position = UDim2.new(0, 36, 0, 20)
@@ -6976,7 +6169,6 @@ return function(opts)
                         sub.TextTruncate = Enum.TextTruncate.AtEnd
                         sub.TextXAlignment = Enum.TextXAlignment.Left
                         sub.Parent = card
-
                         local unpinBtn = Instance.new("TextButton")
                         unpinBtn.Size = UDim2.new(0, 24, 0, 24)
                         unpinBtn.Position = UDim2.new(1, -30, 0.5, -12)
@@ -6987,11 +6179,9 @@ return function(opts)
                         unpinBtn.TextSize = 11
                         unpinBtn.Parent = card
                         applyCorner(unpinBtn, 4)
-
                         unpinBtn.MouseButton1Click:Connect(function()
                             hubState.toggleFavorite(itemData)
                         end)
-
                         if itemData.type == "Toggle" then
                             local tBtn = Instance.new("TextButton")
                             tBtn.Size = UDim2.new(0, 60, 0, 24)
@@ -7000,7 +6190,6 @@ return function(opts)
                             tBtn.TextSize = 11
                             tBtn.Parent = card
                             applyCorner(tBtn, 4)
-
                             local function updateTBtn()
                                 local cur = itemData.get and itemData.get() or false
                                 tBtn.Text = cur and "ON" or "OFF"
@@ -7008,7 +6197,6 @@ return function(opts)
                                 tBtn.TextColor3 = cur and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(160, 170, 195)
                             end
                             updateTBtn()
-
                             tBtn.MouseButton1Click:Connect(function()
                                 if itemData.action then pcall(itemData.action) end
                                 updateTBtn()
@@ -7024,27 +6212,21 @@ return function(opts)
                             eBtn.TextSize = 11
                             eBtn.Parent = card
                             applyCorner(eBtn, 4)
-
                             eBtn.MouseButton1Click:Connect(function()
                                 if itemData.action then pcall(itemData.action) end
                             end)
                         end
-
                         hubState.attachContextMenu(card, itemData)
                     end
                 end
             end
-
             if emptyLabel then
                 emptyLabel.Visible = (count == 0)
             end
         end
         hubState.refreshFavoritesPage()
-
-        -- 📦 Script Repository & Cloud Scripts Page (Header Quick-Access Only)
         hubState.repoPage = hubState.createPage("Repository")
         hubState.createSection(hubState.repoPage, "Community & Official Script Cloud")
-
         local repoStatus = Instance.new("TextLabel")
         repoStatus.Size = UDim2.new(1, -6, 0, 20)
         repoStatus.BackgroundTransparency = 1
@@ -7054,14 +6236,11 @@ return function(opts)
         repoStatus.TextSize = 10
         repoStatus.TextXAlignment = Enum.TextXAlignment.Left
         repoStatus.Parent = hubState.repoPage
-
         local function setRepoStatus(message, isError)
             repoStatus.Text = "Status: " .. message
             repoStatus.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
         end
-
         local repoSearchBox = hubState.createTextBox(hubState.repoPage, "🔍 Search Universal & Game Scripts...")
-
         local function executeScriptUrl(name, url)
             setRepoStatus("Downloading " .. name .. "...", false)
             task.spawn(function()
@@ -7086,13 +6265,8 @@ return function(opts)
                 end
             end)
         end
-
-        -- List 1: Universal Scripts (Dark Dex, SimpleSpy, Infinite Yield, Fly GUI, ESP, Aimbot, RTX)
         local universalListContainer = hubState.CreateList(hubState.repoPage, "🌐 Universal Scripts", {}, 230, true)
-
-        -- List 2: Unknown Hub Games (Bee Swarm, Blox Fruits, Ink Game with Teleport / In-Game status)
         local gameListContainer = hubState.CreateList(hubState.repoPage, "🎮 Unknown Hub Games", {}, 230, true)
-
         local universalScriptsData = {
             { name = "Dark Dex V3", desc = "Hierarchy explorer, property inspector & decompiler", url = "https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/BypassedDarkDexV3.luau" },
             { name = "SimpleSpy V3", desc = "Real-time RemoteEvent & RemoteFunction logger", url = "https://raw.githubusercontent.com/infyiff/backup/main/SimpleSpyV3/main.lua" },
@@ -7103,7 +6277,6 @@ return function(opts)
             { name = "Universal Aimbot", desc = "Custom FOV circle, smoothness & target lock", url = "https://raw.githubusercontent.com/Exunys/Aimbot-V2/main/Resources/Scripts/Raw/Main.lua" },
             { name = "RTX Shaders", desc = "Cinematic lighting, dynamic sunbeams & colors", url = "https://raw.githubusercontent.com/MZEEN/Shaders/main/Shader.lua" },
         }
-
         local hubGamesData = {
             {
                 name = "🥊 Slap Battles",
@@ -7134,16 +6307,12 @@ return function(opts)
                 url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/InkGame.luau"
             }
         }
-
         local function populateRepository(filter)
             filter = filter and filter:lower() or ""
-
-            -- 1. Refresh Universal List
             for _, entry in ipairs(universalListContainer.Items) do
                 if entry.Row and entry.Row.Parent then entry.Row:Destroy() end
             end
             universalListContainer.Items = {}
-
             for _, s in ipairs(universalScriptsData) do
                 if filter == "" or s.name:lower():find(filter) or s.desc:lower():find(filter) then
                     universalListContainer:AddItem({
@@ -7160,13 +6329,10 @@ return function(opts)
                     })
                 end
             end
-
-            -- 2. Refresh Unknown Hub Games List
             for _, entry in ipairs(gameListContainer.Items) do
                 if entry.Row and entry.Row.Parent then entry.Row:Destroy() end
             end
             gameListContainer.Items = {}
-
             local currentPlaceId = game.PlaceId
             for _, g in ipairs(hubGamesData) do
                 if filter == "" or g.name:lower():find(filter) or g.desc:lower():find(filter) then
@@ -7177,7 +6343,6 @@ return function(opts)
                             break
                         end
                     end
-
                     local actionText = isCurrentlyInGame and "🟢 In-Game" or "🚀 Teleport"
                     local actionDisabled = isCurrentlyInGame
                     local actionCb = function()
@@ -7191,7 +6356,6 @@ return function(opts)
                             executeScriptUrl(g.name, g.url)
                         end
                     end
-
                     gameListContainer:AddItem({
                         Name = g.name,
                         Desc = isCurrentlyInGame and (g.desc .. " • (Active Game)") or (g.desc .. " • (Click Teleport to join)"),
@@ -7209,22 +6373,15 @@ return function(opts)
                 end
             end
         end
-
         populateRepository("")
-
         if repoSearchBox then
             repoSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
                 populateRepository(repoSearchBox.Text)
             end)
         end
-
         hubState.universalTabPage = hubState.createTabButton("Universal", "🌐 Universal", nil, false)
-        hubState.utilityTabPage = hubState.universalTabPage -- Alias for full backward compatibility
+        hubState.utilityTabPage = hubState.universalTabPage 
         hubState.configTabPage = hubState.createTabButton("Config", "⚙️ Config", nil, false)
-
-        -- =========================================================================
-        -- Universal Tab: Session & AFK Protection, Potato Mode, Movement, Server
-        -- =========================================================================
         hubState.createSection(hubState.universalTabPage, "Session & Anti-AFK")
         local universalStatus = Instance.new("TextLabel")
         universalStatus.Size = UDim2.new(1, -6, 0, 20)
@@ -7235,13 +6392,10 @@ return function(opts)
         universalStatus.TextSize = 10
         universalStatus.TextXAlignment = Enum.TextXAlignment.Left
         universalStatus.Parent = hubState.universalTabPage
-
         local function setUniversalStatus(message, isError)
             universalStatus.Text = "Status: " .. message
             universalStatus.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
         end
-
-        -- 1. 24/7 Anti-AFK Protection
         local antiAfkConn = nil
         local antiAfkHeartbeat = false
         local function toggleAntiAfk(enabled)
@@ -7278,17 +6432,13 @@ return function(opts)
                 setUniversalStatus("Anti-AFK Disabled", false)
             end
         end
-
         hubState.createToggle(hubState.universalTabPage, "24/7 Anti-AFK", true, function(enabled)
             toggleAntiAfk(enabled)
         end)
         toggleAntiAfk(true)
-
-        -- 2. Persistent Auto-Rejoin on Kick / Disconnect / Error
         local autoRejoinActive = false
         local rejoinConnections = {}
         local isTeleporting = false
-
         local function attemptRejoinLoop()
             if isTeleporting then return end
             isTeleporting = true
@@ -7302,14 +6452,12 @@ return function(opts)
                 end
             end)
         end
-
         local function toggleAutoRejoin(enabled)
             autoRejoinActive = enabled
             for _, conn in ipairs(rejoinConnections) do
                 pcall(function() conn:Disconnect() end)
             end
             rejoinConnections = {}
-
             if enabled then
                 local GuiService = game:GetService("GuiService")
                 local errConn = GuiService.ErrorMessageChanged:Connect(function(msg)
@@ -7318,7 +6466,6 @@ return function(opts)
                     end
                 end)
                 table.insert(rejoinConnections, errConn)
-
                 local pCallPrompt, promptGui = pcall(function() return CoreGui:FindFirstChild("RobloxPromptGui") end)
                 if pCallPrompt and promptGui then
                     local overlay = promptGui:FindFirstChild("promptOverlay")
@@ -7331,7 +6478,6 @@ return function(opts)
                         table.insert(rejoinConnections, childConn)
                     end
                 end
-
                 local tpFailConn = TeleportService.TeleportInitFailed:Connect(function()
                     task.wait(2.5)
                     if autoRejoinActive then
@@ -7339,21 +6485,16 @@ return function(opts)
                     end
                 end)
                 table.insert(rejoinConnections, tpFailConn)
-
                 setUniversalStatus("Persistent Auto-Rejoin Active", false)
             else
                 setUniversalStatus("Auto-Rejoin Disabled", false)
             end
         end
-
         hubState.createToggle(hubState.universalTabPage, "Persistent Auto-Rejoin", true, function(enabled)
             toggleAutoRejoin(enabled)
         end)
         toggleAutoRejoin(true)
-
-        -- 3. Performance & Potato Mode
         hubState.createSection(hubState.universalTabPage, "Performance & Potato Mode")
-
         local potatoOriginals = {
             shadows = Lighting.GlobalShadows,
             fogEnd = Lighting.FogEnd,
@@ -7361,7 +6502,6 @@ return function(opts)
             disabledEffects = {}
         }
         local potatoActive = false
-
         local function togglePotatoMode(enabled)
             potatoActive = enabled
             if enabled then
@@ -7372,7 +6512,6 @@ return function(opts)
                     Lighting.GlobalShadows = false
                     Lighting.FogEnd = 9e9
                     Lighting.Brightness = 1
-                    
                     for _, v in ipairs(Lighting:GetChildren()) do
                         if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") or v:IsA("DepthOfFieldEffect") then
                             if v.Enabled then
@@ -7381,7 +6520,6 @@ return function(opts)
                             end
                         end
                     end
-
                     for _, obj in ipairs(workspace:GetDescendants()) do
                         if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
                             obj.Enabled = false
@@ -7402,24 +6540,18 @@ return function(opts)
                 setUniversalStatus("Potato Mode Disabled", false)
             end
         end
-
         hubState.createToggle(hubState.universalTabPage, "Potato Mode", false, function(enabled)
             togglePotatoMode(enabled)
         end)
-
         hubState.createToggle(hubState.universalTabPage, "Disable 3D Rendering", false, function(enabled)
             hubState.SetBlackScreen(enabled)
             setUniversalStatus(enabled and "3D Rendering OFF (Black Screen Active)" or "3D Rendering ON", false)
         end)
-
-        -- 4. Character & Movement
         hubState.createSection(hubState.universalTabPage, "Character & Movement")
-
         local function getCharacterHumanoid()
             local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
             return character and character:FindFirstChildOfClass("Humanoid")
         end
-
         hubState.createButton(hubState.universalTabPage, "Reset Character", function()
             local humanoid = getCharacterHumanoid()
             if humanoid then
@@ -7429,12 +6561,10 @@ return function(opts)
                 setUniversalStatus("Humanoid not found", true)
             end
         end)
-
         local speedBox = hubState.createTextBox(hubState.universalTabPage, "WalkSpeed Value (e.g. 32)", "32")
         local jumpBox = hubState.createTextBox(hubState.universalTabPage, "JumpPower Value (e.g. 75)", "75")
         local speedOriginal, jumpOriginal
         local speedRun, jumpRun = 0, 0
-
         hubState.createToggle(hubState.universalTabPage, "Lock WalkSpeed", false, function(enabled)
             speedRun = speedRun + 1
             local runId = speedRun
@@ -7457,7 +6587,6 @@ return function(opts)
                 setUniversalStatus("WalkSpeed restored", false)
             end
         end)
-
         hubState.createToggle(hubState.universalTabPage, "Lock JumpPower", false, function(enabled)
             jumpRun = jumpRun + 1
             local runId = jumpRun
@@ -7486,21 +6615,16 @@ return function(opts)
                 setUniversalStatus("JumpPower restored", false)
             end
         end)
-
-        -- 5. Server & Teleport
         hubState.createSection(hubState.universalTabPage, "Server & Teleport")
-
         hubState.createButton(hubState.universalTabPage, "Rejoin Server", function()
             setUniversalStatus("Rejoining server...", false)
             pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
         end)
-
         local serverHopMode = "Lowest Players"
         local hopModes = {"Lowest Players", "Highest Players (Busy)", "Random Alternate", "Single Player (Near Empty)"}
         hubState.createDropdown(hubState.universalTabPage, "Server Hop Filter Mode", hopModes, serverHopMode, function(selected)
             serverHopMode = selected
         end)
-
         hubState.createButton(hubState.universalTabPage, "🚀 Server Hop with Filter", function()
             task.spawn(function()
                 setUniversalStatus("Querying Roblox server pool (" .. serverHopMode .. ")...", false)
@@ -7516,19 +6640,16 @@ return function(opts)
                     setUniversalStatus("Invalid server response", true)
                     return
                 end
-
                 local validServers = {}
                 for _, s in ipairs(result.data) do
                     if s.id and s.id ~= game.JobId and s.playing and s.playing < (s.maxPlayers or 12) then
                         table.insert(validServers, s)
                     end
                 end
-
                 if #validServers == 0 then
                     setUniversalStatus("No matching alternate servers found", true)
                     return
                 end
-
                 local targetServer = nil
                 if serverHopMode == "Lowest Players" then
                     table.sort(validServers, function(a, b) return a.playing < b.playing end)
@@ -7544,7 +6665,6 @@ return function(opts)
                 else
                     targetServer = validServers[math.random(1, #validServers)]
                 end
-
                 if targetServer then
                     setUniversalStatus("Hopping to " .. tostring(targetServer.playing) .. "/" .. tostring(targetServer.maxPlayers) .. " player server...", false)
                     hubState.notify({
@@ -7560,7 +6680,6 @@ return function(opts)
                 end
             end)
         end)
-
         hubState.createButton(hubState.universalTabPage, "📋 Copy Current Job ID", function()
             local jId = tostring(game.JobId)
             if setclipboard then
@@ -7576,7 +6695,6 @@ return function(opts)
                 Duration = 3
             })
         end)
-
         local targetJobId = ""
         local jobIdBox = hubState.createTextBox(hubState.universalTabPage, "Paste Job ID here...", "")
         if jobIdBox then
@@ -7584,7 +6702,6 @@ return function(opts)
                 targetJobId = jobIdBox.Text:match("^%s*(.-)%s*$")
             end)
         end
-
         hubState.createButton(hubState.universalTabPage, "🚀 Join by Job ID", function()
             local cleanId = targetJobId ~= "" and targetJobId or (jobIdBox and jobIdBox.Text:match("^%s*(.-)%s*$") or "")
             if not cleanId or cleanId == "" then
@@ -7597,7 +6714,6 @@ return function(opts)
                 })
                 return
             end
-
             setUniversalStatus("Joining server: " .. cleanId:sub(1, 14) .. "...", false)
             hubState.notify({
                 Title = "Teleporting",
@@ -7609,8 +6725,6 @@ return function(opts)
                 TeleportService:TeleportToPlaceInstance(game.PlaceId, cleanId, LocalPlayer)
             end)
         end)
-
-        -- 6. Third-Party Tools
         hubState.createSection(hubState.universalTabPage, "Third-Party Tools")
         hubState.createButton(hubState.universalTabPage, "Execute Infinite Yield", function()
             task.spawn(function()
@@ -7625,10 +6739,6 @@ return function(opts)
                 if ok then hubState.notify({ Title = "Infinite Yield", Content = "Script executed successfully." }) end
             end)
         end)
-
-        -- =========================================================================
-        -- Config Tab: Profiles, Keybinds, Sound Packs, Webhook Progression, Themes
-        -- =========================================================================
         hubState.createSection(hubState.configTabPage, "Configuration Profiles")
         local status = Instance.new("TextLabel")
         status.Size = UDim2.new(1, -6, 0, 20)
@@ -7639,17 +6749,14 @@ return function(opts)
         status.TextSize = 10
         status.TextXAlignment = Enum.TextXAlignment.Left
         status.Parent = hubState.configTabPage
-
         local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, true)
         local selectedName
         local saveNameBox
         local renameNameBox
-
         local function setStatus(message, isError)
             status.Text = message
             status.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
         end
-
         local function refreshConfigs()
             for _, entry in ipairs(configList.Items) do
                 if entry.Row and entry.Row.Parent then entry.Row:Destroy() end
@@ -7666,24 +6773,20 @@ return function(opts)
                 end)
             end
         end
-
         local function createConfigActionRow(buttonText, boxPlaceholder, boxOnLeft, callback)
             local row = Instance.new("Frame")
             row.Size = UDim2.new(1, -6, 0, 38)
             row.BackgroundTransparency = 1
             row.Parent = hubState.configTabPage
-
             local button = hubState.createButton(row, buttonText, callback)
             button.Size = UDim2.new(0.48, -4, 1, 0)
             button.Position = boxOnLeft and UDim2.new(0.52, 4, 0, 0) or UDim2.new(0, 0, 0, 0)
-
             local box = hubState.createTextBox(row, boxPlaceholder)
             local boxFrame = box.Parent
             boxFrame.Size = UDim2.new(0.52, -4, 1, 0)
             boxFrame.Position = boxOnLeft and UDim2.new(0, 0, 0, 0) or UDim2.new(0.48, 4, 0, 0)
             return box
         end
-
         local function saveConfig(overwrite)
             local name = sanitizeName(saveNameBox and saveNameBox.Text or "")
             if name == "" or name == "Unknown" then
@@ -7707,7 +6810,6 @@ return function(opts)
                 hubState.notify({ Title = "Config", Content = "Profile '" .. name .. "' saved." })
             end
         end
-
         saveNameBox = createConfigActionRow("Save Config", "Profile name", false, function() saveConfig(false) end)
         hubState.createButton(hubState.configTabPage, "Overwrite Selected", function() saveConfig(true) end)
         hubState.createButton(hubState.configTabPage, "Load Selected", function()
@@ -7732,9 +6834,7 @@ return function(opts)
             refreshConfigs()
             setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
         end)
-
         hubState.createSection(hubState.configTabPage, "Cloud & Clipboard Share")
-
         hubState.createButton(hubState.configTabPage, "📋 Copy Current Config to Clipboard", function()
             local serialized = hubState.serializeConfig()
             if setclipboard then
@@ -7750,7 +6850,6 @@ return function(opts)
                 Color = hubState.currentThemeColor
             })
         end)
-
         local importBox = hubState.createTextBox(hubState.configTabPage, "Paste exported config string here...", "")
         hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Text", function()
             local rawText = importBox and importBox.Text or ""
@@ -7771,7 +6870,6 @@ return function(opts)
                 setStatus("Failed to parse config string", true)
             end
         end)
-
         renameNameBox = createConfigActionRow("Rename Config", "New profile name", true, function()
             local oldName = selectedName
             local newName = sanitizeName(renameNameBox and renameNameBox.Text or "")
@@ -7795,7 +6893,6 @@ return function(opts)
             end
             setStatus(wrote and ("Renamed to: " .. newName) or "Rename failed", not wrote)
         end)
-
         hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
         hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
         hubState.configSetters.toggleKey = function(value)
@@ -7808,13 +6905,10 @@ return function(opts)
                 end
             end
         end
-
         hubState.toggleKeyButton = hubState.createButton(hubState.configTabPage, "Toggle GUI Key: " .. hubState.toggleKeyCode.Name, function()
             hubState.capturingToggleKey = true
             hubState.toggleKeyButton.Text = "  Press any keyboard key..."
         end)
-
-        -- Sound Pack Switcher
         hubState.createSection(hubState.configTabPage, "Sound & Audio Effects")
         local soundPackOptions = { "Modern", "Mechanical", "Cyberpunk", "Bubble", "Mute" }
         hubState.createDropdown(hubState.configTabPage, "UI Sound Pack", soundPackOptions, hubState.currentSoundPack, function(selected)
@@ -7822,7 +6916,6 @@ return function(opts)
             hubState.playSfx()
             hubState.notify({ Title = "Sound Pack", Content = "Active SFX set to: " .. selected })
         end)
-
         hubState.createSection(hubState.configTabPage, "HUD & Performance Display")
         hubState.createToggle(hubState.configTabPage, "Show HUD Stats Overlay", hubState.isHudEnabled, function(enabled)
             hubState.setHudVisible(enabled)
@@ -7830,32 +6923,23 @@ return function(opts)
         hubState.createSlider(hubState.configTabPage, "HUD Background Opacity", 5, 95, math.floor(hubState.hudOpacity * 100), "%", function(val)
             hubState.setHudOpacity(val / 100)
         end)
-
         hubState.createSection(hubState.configTabPage, "Visual Customization")
         hubState.createThemeEditor(hubState.configTabPage)
         refreshConfigs()
     end
-
-    -- Pre-initialize system tabs immediately on hub creation
     hubState.ensureConfigTab()
-
-    -- GUI-Specific Internal Error Reporting Modal (Never hooks global game logs)
     hubState.loadingFinished = false
     hubState.errorOverlay = nil
     hubState.lastError = ""
-
-
     function hubState.finishLoading(message)
         if hubState.loadingFinished then return end
         hubState.loadingFinished = true
         if message then loadingStatus.Text = tostring(message) end
         hubState.mainFrame.Visible = true
-        
         hubState.mainFrame.Position = UDim2.new(0.5, -290, 0.5, -180)
         TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
             Position = UDim2.new(0.5, -290, 0.5, -195)
         }):Play()
-
         TweenService:Create(loadingOverlay, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 1}):Play()
         TweenService:Create(loadingTitle, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}):Play()
         TweenService:Create(loadingStatus, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 1}):Play()
@@ -7863,18 +6947,15 @@ return function(opts)
             if loadingOverlay and loadingOverlay.Parent then loadingOverlay:Destroy() end
         end)
     end
-
     function hubState.reportGuiError(message)
         hubState.lastError = tostring(message or "Unknown GUI error")
         copyText(hubState.lastError)
         hubState.finishLoading("Loaded")
-
         if hubState.errorOverlay and hubState.errorOverlay.Parent then
             local messageLabel = hubState.errorOverlay:FindFirstChild("ErrorMessage", true)
             if messageLabel then messageLabel.Text = hubState.lastError end
             return
         end
-
         hubState.errorOverlay = Instance.new("Frame")
         hubState.errorOverlay.Name = "ErrorOverlay"
         hubState.errorOverlay.Size = UDim2.new(1, 0, 1, 0)
@@ -7883,7 +6964,6 @@ return function(opts)
         hubState.errorOverlay.BorderSizePixel = 0
         hubState.errorOverlay.ZIndex = 120
         hubState.errorOverlay.Parent = hubState.screenGui
-
         local panel = Instance.new("Frame")
         panel.Size = UDim2.new(0, 440, 0, 200)
         panel.Position = UDim2.new(0.5, -220, 0.5, -100)
@@ -7893,7 +6973,6 @@ return function(opts)
         panel.Parent = hubState.errorOverlay
         applyCorner(panel, 8)
         applyStroke(panel, Color3.fromRGB(235, 75, 85), 1.5, 0)
-
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -24, 0, 28)
         title.Position = UDim2.new(0, 12, 0, 8)
@@ -7905,7 +6984,6 @@ return function(opts)
         title.TextXAlignment = Enum.TextXAlignment.Left
         title.ZIndex = 122
         title.Parent = panel
-
         local messageLabel = Instance.new("TextLabel")
         messageLabel.Name = "ErrorMessage"
         messageLabel.Size = UDim2.new(1, -24, 0, 84)
@@ -7922,7 +7000,6 @@ return function(opts)
         messageLabel.ZIndex = 122
         messageLabel.Parent = panel
         applyCorner(messageLabel, 6)
-
         local copyButton = Instance.new("TextButton")
         copyButton.Size = UDim2.new(0, 120, 0, 28)
         copyButton.Position = UDim2.new(1, -132, 1, -38)
@@ -7935,7 +7012,6 @@ return function(opts)
         copyButton.ZIndex = 122
         copyButton.Parent = panel
         applyCorner(copyButton, 6)
-
         local closeButton = Instance.new("TextButton")
         closeButton.Size = UDim2.new(0, 80, 0, 28)
         closeButton.Position = UDim2.new(0, 12, 1, -38)
@@ -7948,20 +7024,17 @@ return function(opts)
         closeButton.ZIndex = 122
         closeButton.Parent = panel
         applyCorner(closeButton, 6)
-
         copyButton.MouseButton1Click:Connect(function()
             copyButton.Text = copyText(hubState.lastError) and "Copied!" or "Clipboard Error"
             task.delay(1.2, function()
                 if copyButton and copyButton.Parent then copyButton.Text = "Copy Error" end
             end)
         end)
-
         closeButton.MouseButton1Click:Connect(function()
             if hubState.errorOverlay then hubState.errorOverlay:Destroy() end
             hubState.errorOverlay = nil
         end)
     end
-
     function hubState.checkFunction(name, callback, ...)
         if type(callback) ~= "function" then
             hubState.reportGuiError(tostring(name or "Function") .. " is not a callable function")
@@ -7977,11 +7050,8 @@ return function(opts)
         end)
         return ok, result
     end
-
-    -- Keybind Listener
     hubState.trackConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-
         if hubState.capturingToggleKey then
             if input.KeyCode ~= Enum.KeyCode.Unknown then
                 hubState.toggleKeyCode = input.KeyCode
@@ -7994,15 +7064,12 @@ return function(opts)
             end
             return
         end
-
         if not gameProcessed then
             if input.KeyCode == hubState.toggleKeyCode then
                 hubState.screenGui.Enabled = not hubState.screenGui.Enabled
                 hubState.isGuiOpen = hubState.screenGui.Enabled
                 return
             end
-
-            -- Feature Keybind Trigger
             if hubState.featureKeybinds[input.KeyCode] then
                 local item = hubState.featureKeybinds[input.KeyCode]
                 if item and item.action then
@@ -8017,10 +7084,6 @@ return function(opts)
             end
         end
     end))
-
-    -- =========================================================================
-    -- Dedicated Mobile Floating Action Button (Always Accessible on Touch)
-    -- =========================================================================
     hubState.mobileToggleBtn = nil
     if opts.mobileToggle ~= false and (UserInputService.TouchEnabled or opts.mobileToggle == true) then
         local mobBtn = Instance.new("ImageButton")
@@ -8035,14 +7098,12 @@ return function(opts)
         mobBtn.ZIndex = 300
         mobBtn.Parent = hubState.screenGui
         applyCorner(mobBtn, 24)
-
         local mobStroke = applyStroke(mobBtn, hubState.currentThemeColor, 2, 0.1)
         local mobStrokeGrad = Instance.new("UIGradient")
         mobStrokeGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         mobStrokeGrad.Rotation = 45
         mobStrokeGrad.Parent = mobStroke
         hubState.registerThemeGradient(mobStrokeGrad, 45)
-
         local mobIcon = Instance.new("TextLabel")
         mobIcon.Name = "Icon"
         mobIcon.Size = UDim2.new(1, 0, 1, 0)
@@ -8054,8 +7115,6 @@ return function(opts)
         mobIcon.ZIndex = 301
         mobIcon.Parent = mobBtn
         hubState.registerThemeText(mobIcon)
-
-        -- Subtle rotation on the gradient border
         task.spawn(function()
             local r = 0
             while mobBtn and mobBtn.Parent do
@@ -8064,15 +7123,11 @@ return function(opts)
                 task.wait(0.04)
             end
         end)
-
         hubState.makeSmoothDraggable(mobBtn, mobBtn)
-
         local isToggling = false
         mobBtn.MouseButton1Click:Connect(function()
             if isToggling then return end
             isToggling = true
-
-            -- Button tap squash & pop animation
             TweenService:Create(mobBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Size = UDim2.new(0, 42, 0, 42)
             }):Play()
@@ -8081,31 +7136,24 @@ return function(opts)
                     Size = UDim2.new(0, 48, 0, 48)
                 }):Play()
             end)
-
             local nextState = not hubState.mainFrame.Visible
             hubState.mainFrame.Visible = nextState
             hubState.isGuiOpen = nextState
-
             if nextState then
                 hubState.mainFrame.Position = isTouchScreen and UDim2.new(0.5, 0, 0.52, 0) or UDim2.new(0.5, -290, 0.52, -195)
                 TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                     Position = isTouchScreen and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, -290, 0.5, -195)
                 }):Play()
             end
-
             task.delay(0.25, function()
                 isToggling = false
             end)
         end)
-
         hubState.mobileToggleBtn = mobBtn
     end
-
-    -- Auto finish loading defer
     task.defer(function()
         hubState.finishLoading()
     end)
-
     function hubState.GetItemFromList(listName, parent, createIfMissing)
         local name = tostring(listName or "List")
         local existing = hubState.listRegistry[name]
@@ -8113,16 +7161,13 @@ return function(opts)
         if createIfMissing == false then return nil end
         return hubState.CreateList(parent or contentArea, name, {})
     end
-
     function hubState.createWebhook(config)
         local webhookUrl = (type(config) == "string") and config or (type(config) == "table" and (config.Url or config.Webhook or config.url or config.webhook) or hubState.defaultWebhook)
         local botName = (type(config) == "table" and (config.BotName or config.Username or config.username)) or hubState.webhookBotName
         local botAvatar = (type(config) == "table" and (config.BotAvatar or config.AvatarUrl or config.avatar_url)) or hubState.webhookBotAvatar
-
         local hook = {}
         local autoActive = false
         local loopThread = nil
-
         function hook:Send(payloadOrTitle, description, fields, color)
             local embed = {}
             if type(payloadOrTitle) == "table" and payloadOrTitle.title then
@@ -8140,7 +7185,6 @@ return function(opts)
                 embed.footer = { text = "UnknownHub • " .. os.date("%X") }
                 embed.timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
             end
-
             local payload = {
                 username = botName,
                 avatar_url = botAvatar,
@@ -8148,7 +7192,6 @@ return function(opts)
             }
             dispatchHttpRequest(webhookUrl, "POST", nil, payload)
         end
-
         function hook:SendSimple(text)
             dispatchHttpRequest(webhookUrl, "POST", nil, {
                 username = botName,
@@ -8156,7 +7199,6 @@ return function(opts)
                 content = tostring(text)
             })
         end
-
         function hook:StartAutoReport(intervalSec, dataCallback)
             hook:StopAutoReport()
             autoActive = true
@@ -8174,7 +7216,6 @@ return function(opts)
                 end
             end)
         end
-
         function hook:StopAutoReport()
             autoActive = false
             if loopThread then
@@ -8182,16 +7223,12 @@ return function(opts)
                 loopThread = nil
             end
         end
-
         hook.send = hook.Send
         hook.sendSimple = hook.SendSimple
         hook.startAutoReport = hook.StartAutoReport
         hook.stopAutoReport = hook.StopAutoReport
-
         return hook
     end
-
-    -- Returned Library API
     return {
         createWebhook = hubState.createWebhook,
         CreateWebhook = hubState.createWebhook,
