@@ -2023,6 +2023,136 @@ return function(opts)
         if hubState.hudFrame then hubState.hudFrame.Visible = hubState.isHudEnabled end
     end
 
+    
+    -- =========================================================================
+    -- Draggable Keybinds HUD Window
+    -- =========================================================================
+    hubState.keybindHudFrame = nil
+    hubState.isKeybindHudEnabled = false
+    hubState.keybindHudContainer = nil
+
+    function hubState.refreshKeybindHudList()
+        if not hubState.keybindHudContainer then return end
+        for _, child in ipairs(hubState.keybindHudContainer:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+
+        local count = 0
+        for kc, item in pairs(hubState.featureKeybinds) do
+            count = count + 1
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, 0, 0, 22)
+            row.BackgroundColor3 = Color3.fromRGB(16, 21, 32)
+            row.BorderSizePixel = 0
+            row.Parent = hubState.keybindHudContainer
+            applyCorner(row, 4)
+
+            local keyBadge = Instance.new("TextLabel")
+            keyBadge.Size = UDim2.new(0, 48, 1, -4)
+            keyBadge.Position = UDim2.new(0, 3, 0, 2)
+            keyBadge.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
+            keyBadge.Text = "[" .. tostring(kc.Name) .. "]"
+            keyBadge.TextColor3 = hubState.currentThemeColor
+            keyBadge.Font = Enum.Font.GothamBold
+            keyBadge.TextSize = 10
+            keyBadge.TextTruncate = Enum.TextTruncate.AtEnd
+            keyBadge.Parent = row
+            applyCorner(keyBadge, 3)
+            hubState.registerThemeText(keyBadge)
+
+            local titleLbl = Instance.new("TextLabel")
+            titleLbl.Size = UDim2.new(1, -60, 1, 0)
+            titleLbl.Position = UDim2.new(0, 56, 0, 0)
+            titleLbl.BackgroundTransparency = 1
+            titleLbl.Text = tostring(item.title or "Action")
+            titleLbl.TextColor3 = Color3.fromRGB(220, 230, 245)
+            titleLbl.Font = Enum.Font.GothamMedium
+            titleLbl.TextSize = 10
+            titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+            titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+            titleLbl.Parent = row
+        end
+
+        if count == 0 then
+            local emptyLbl = Instance.new("TextLabel")
+            emptyLbl.Size = UDim2.new(1, 0, 1, 0)
+            emptyLbl.BackgroundTransparency = 1
+            emptyLbl.Text = "Right-click any toggle to bind keys"
+            emptyLbl.TextColor3 = Color3.fromRGB(130, 140, 165)
+            emptyLbl.Font = Enum.Font.GothamMedium
+            emptyLbl.TextSize = 9
+            emptyLbl.Parent = hubState.keybindHudContainer
+        end
+    end
+
+    function hubState.createKeybindHudWindow()
+        if hubState.keybindHudFrame then return hubState.keybindHudFrame end
+
+        hubState.keybindHudFrame = Instance.new("Frame")
+        hubState.keybindHudFrame.Name = "Unknown_KeybindHUD"
+        hubState.keybindHudFrame.Size = UDim2.new(0, 200, 0, 140)
+        hubState.keybindHudFrame.Position = UDim2.new(0, 20, 0, 220)
+        hubState.keybindHudFrame.BackgroundColor3 = Color3.fromRGB(11, 15, 22)
+        hubState.keybindHudFrame.BackgroundTransparency = hubState.hudOpacity
+        hubState.keybindHudFrame.BorderSizePixel = 0
+        hubState.keybindHudFrame.ZIndex = 80
+        hubState.keybindHudFrame.Visible = hubState.isKeybindHudEnabled
+        hubState.keybindHudFrame.Active = true
+        pcall(function() hubState.keybindHudFrame.Parent = hubState.screenGui end)
+        applyCorner(hubState.keybindHudFrame, 8)
+        local kbStroke = applyStroke(hubState.keybindHudFrame, hubState.currentThemeColor, 1.2, 0.4)
+        hubState.registerThemeStroke(kbStroke)
+
+        hubState.makeSmoothDraggable(hubState.keybindHudFrame, hubState.keybindHudFrame)
+
+        local titleBar = Instance.new("Frame")
+        titleBar.Size = UDim2.new(1, 0, 0, 22)
+        titleBar.BackgroundTransparency = 1
+        titleBar.ZIndex = 81
+        titleBar.Parent = hubState.keybindHudFrame
+
+        local dot = Instance.new("Frame")
+        dot.Size = UDim2.new(0, 6, 0, 6)
+        dot.Position = UDim2.new(0, 8, 0.5, -3)
+        dot.BackgroundColor3 = hubState.currentThemeColor
+        dot.BorderSizePixel = 0
+        dot.ZIndex = 82
+        dot.Parent = titleBar
+        applyCorner(dot, 3)
+        hubState.registerThemeFrame(dot)
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -22, 1, 0)
+        title.Position = UDim2.new(0, 18, 0, 0)
+        title.BackgroundTransparency = 1
+        title.Text = "ACTIVE KEYBINDS"
+        title.TextColor3 = Color3.fromRGB(210, 220, 240)
+        title.Font = Enum.Font.GothamBlack
+        title.TextSize = 9
+        title.TextXAlignment = Enum.TextXAlignment.Left
+        title.ZIndex = 82
+        title.Parent = titleBar
+
+        hubState.keybindHudContainer = Instance.new("ScrollingFrame")
+        hubState.keybindHudContainer.Size = UDim2.new(1, -12, 1, -28)
+        hubState.keybindHudContainer.Position = UDim2.new(0, 6, 0, 24)
+        hubState.keybindHudContainer.BackgroundTransparency = 1
+        hubState.keybindHudContainer.BorderSizePixel = 0
+        hubState.keybindHudContainer.ScrollBarThickness = 2
+        hubState.keybindHudContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        hubState.keybindHudContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+        hubState.keybindHudContainer.ZIndex = 82
+        hubState.keybindHudContainer.Parent = hubState.keybindHudFrame
+
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout.Padding = UDim.new(0, 3)
+        listLayout.Parent = hubState.keybindHudContainer
+
+        hubState.refreshKeybindHudList()
+        return hubState.keybindHudFrame
+    end
+
     hubState.setHudOpacity = function(opacity)
         hubState.hudOpacity = math.clamp(opacity or 0.35, 0.05, 0.95)
         hubState.configValues.hudOpacity = hubState.hudOpacity
@@ -7365,10 +7495,17 @@ return function(opts)
             pcall(function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
         end)
 
-        hubState.createButton(hubState.universalTabPage, "Server Hop", function()
+        local serverHopMode = "Lowest Players"
+        local hopModes = {"Lowest Players", "Highest Players (Busy)", "Random Alternate", "Single Player (Near Empty)"}
+        hubState.createDropdown(hubState.universalTabPage, "Server Hop Filter Mode", hopModes, serverHopMode, function(selected)
+            serverHopMode = selected
+        end)
+
+        hubState.createButton(hubState.universalTabPage, "🚀 Server Hop with Filter", function()
             task.spawn(function()
-                setUniversalStatus("Searching for alternate servers...", false)
-                local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
+                setUniversalStatus("Querying Roblox server pool (" .. serverHopMode .. ")...", false)
+                local sortOrder = (serverHopMode == "Highest Players (Busy)") and "Desc" or "Asc"
+                local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=" .. sortOrder .. "&limit=100"
                 local ok, response = pcall(function() return game:HttpGet(url) end)
                 if not ok or not response then
                     setUniversalStatus("Could not fetch server list", true)
@@ -7379,16 +7516,48 @@ return function(opts)
                     setUniversalStatus("Invalid server response", true)
                     return
                 end
-                for _, server in ipairs(result.data) do
-                    if server.id and server.id ~= game.JobId and server.playing < server.maxPlayers then
-                        setUniversalStatus("Found server (" .. server.playing .. "/" .. server.maxPlayers .. "), hopping...", false)
-                        pcall(function()
-                            TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
-                        end)
-                        return
+
+                local validServers = {}
+                for _, s in ipairs(result.data) do
+                    if s.id and s.id ~= game.JobId and s.playing and s.playing < (s.maxPlayers or 12) then
+                        table.insert(validServers, s)
                     end
                 end
-                setUniversalStatus("No suitable server found", true)
+
+                if #validServers == 0 then
+                    setUniversalStatus("No matching alternate servers found", true)
+                    return
+                end
+
+                local targetServer = nil
+                if serverHopMode == "Lowest Players" then
+                    table.sort(validServers, function(a, b) return a.playing < b.playing end)
+                    targetServer = validServers[1]
+                elseif serverHopMode == "Single Player (Near Empty)" then
+                    for _, s in ipairs(validServers) do
+                        if s.playing <= 2 then targetServer = s; break end
+                    end
+                    targetServer = targetServer or validServers[1]
+                elseif serverHopMode == "Highest Players (Busy)" then
+                    table.sort(validServers, function(a, b) return a.playing > b.playing end)
+                    targetServer = validServers[1]
+                else
+                    targetServer = validServers[math.random(1, #validServers)]
+                end
+
+                if targetServer then
+                    setUniversalStatus("Hopping to " .. tostring(targetServer.playing) .. "/" .. tostring(targetServer.maxPlayers) .. " player server...", false)
+                    hubState.notify({
+                        Title = "Server Hopping",
+                        Content = "Joining server with " .. tostring(targetServer.playing) .. " players...",
+                        Duration = 4,
+                        Color = hubState.currentThemeColor
+                    })
+                    task.wait(0.2)
+                    pcall(function()
+                        TeleportService:TeleportToPlaceInstance(game.PlaceId, targetServer.id, LocalPlayer)
+                    end)
+                end
             end)
         end)
 
@@ -7562,6 +7731,45 @@ return function(opts)
             if renameNameBox then renameNameBox.Text = "" end
             refreshConfigs()
             setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
+        end)
+
+        hubState.createSection(hubState.configTabPage, "Cloud & Clipboard Share")
+
+        hubState.createButton(hubState.configTabPage, "📋 Copy Current Config to Clipboard", function()
+            local serialized = hubState.serializeConfig()
+            if setclipboard then
+                pcall(setclipboard, serialized)
+            elseif toclipboard then
+                pcall(toclipboard, serialized)
+            end
+            setStatus("Config string copied to clipboard!", false)
+            hubState.notify({
+                Title = "Config Exported",
+                Content = "Full configuration copied to your clipboard.",
+                Duration = 3,
+                Color = hubState.currentThemeColor
+            })
+        end)
+
+        local importBox = hubState.createTextBox(hubState.configTabPage, "Paste exported config string here...", "")
+        hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Text", function()
+            local rawText = importBox and importBox.Text or ""
+            if rawText == "" then
+                setStatus("Paste a valid config string first", true)
+                return
+            end
+            local ok = pcall(function() hubState.applyConfig(rawText) end)
+            if ok then
+                setStatus("Config string imported & applied!", false)
+                hubState.notify({
+                    Title = "Config Imported",
+                    Content = "Imported configuration applied successfully.",
+                    Duration = 3,
+                    Color = Color3.fromRGB(50, 230, 140)
+                })
+            else
+                setStatus("Failed to parse config string", true)
+            end
         end)
 
         renameNameBox = createConfigActionRow("Rename Config", "New profile name", true, function()
