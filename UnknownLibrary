@@ -1,6 +1,6 @@
 --[[
     ========================================================================
-    ENI Tabbed Hub UI Library - Next-Gen Responsive Ocean Edition
+    Unknown Hub UI Library - Next-Gen Responsive Ocean Edition
     ========================================================================
 ]]
 
@@ -69,10 +69,10 @@ local function dispatchHttpRequest(url, method, headers, body)
     end)
 end
 
-local ANNOUNCEMENTS_STORAGE_FILE = "ENI_GlobalAnnouncements.json"
-local SEEN_ANNOUNCEMENTS_FILE = "ENI_SeenAnnouncements.json"
-local FEEDBACKS_STORAGE_FILE = "ENI_DevFeedbackInbox.json"
-local SEEN_FEEDBACKS_FILE = "ENI_SeenFeedbacks.json"
+local ANNOUNCEMENTS_STORAGE_FILE = "Unknown_GlobalAnnouncements.json"
+local SEEN_ANNOUNCEMENTS_FILE = "Unknown_SeenAnnouncements.json"
+local FEEDBACKS_STORAGE_FILE = "Unknown_DevFeedbackInbox.json"
+local SEEN_FEEDBACKS_FILE = "Unknown_SeenFeedbacks.json"
 
 local function loadStoredAnnouncements()
     if readfile and isfile and isfile(ANNOUNCEMENTS_STORAGE_FILE) then
@@ -201,7 +201,7 @@ local function decodeConfigKey(value)
     return tostring(value):gsub("%%0A", "\n"):gsub("%%7C", "|"):gsub("%%25", "%%")
 end
 
-local KEYBINDS_STORAGE_FILE = "ENI_FeatureKeybinds.json"
+local KEYBINDS_STORAGE_FILE = "Unknown_FeatureKeybinds.json"
 local feedbackCooldownSec = 25
 local MAX_FEEDBACK_PER_SESSION = 6
 
@@ -209,12 +209,12 @@ local function getLiveBusFolder()
     local parents = {game:GetService("ReplicatedStorage"), CoreGui}
     for _, parent in ipairs(parents) do
         if parent then
-            local existing = parent:FindFirstChild("ENI_LiveEventBus")
+            local existing = parent:FindFirstChild("Unknown_LiveEventBus")
             if existing then return existing end
             local created = nil
             pcall(function()
                 created = Instance.new("Folder")
-                created.Name = "ENI_LiveEventBus"
+                created.Name = "Unknown_LiveEventBus"
                 created.Parent = parent
             end)
             if created then return created end
@@ -333,7 +333,7 @@ return function(opts)
             local soundId = overrideSoundId or soundPackIds[hubState.currentSoundPack] or soundPackIds.Modern
             if not soundId or soundId == "" then return end
             local s = Instance.new("Sound")
-            s.Name = "ENI_UI_Sfx"
+            s.Name = "Unknown_UI_Sfx"
             s.SoundId = soundId
             s.Volume = hubState.sfxVolume or 0.35
             s.Parent = game:GetService("SoundService")
@@ -364,7 +364,7 @@ return function(opts)
     function hubState.destroyOldGui()
         local parents = {CoreGui, LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")}
         if gethui then pcall(function() table.insert(parents, gethui()) end) end
-        local targetName = opts.name or "ENI_TabbedHub_UI"
+        local targetName = opts.name or "Unknown_TabbedHub_UI"
         for _, parent in ipairs(parents) do
             if parent then
                 for _, child in ipairs(parent:GetChildren()) do
@@ -374,7 +374,7 @@ return function(opts)
                 end
             end
         end
-        local oldBlur = Lighting:FindFirstChild("ENI_HubBlur")
+        local oldBlur = Lighting:FindFirstChild("Unknown_HubBlur")
         if oldBlur then pcall(function() oldBlur:Destroy() end) end
     end
 
@@ -911,21 +911,21 @@ return function(opts)
     -- Close confirmation modal
     function hubState.createCloseConfirmation(container, onConfirm)
         if not container then return end
-        if container:FindFirstChild("ENI_CloseConfirmOverlay") then return end
+        if container:FindFirstChild("Unknown_CloseConfirmOverlay") then return end
 
         hubState.isModalActive = true
 
-        local blur = Lighting:FindFirstChild("ENI_HubBlur")
+        local blur = Lighting:FindFirstChild("Unknown_HubBlur")
         if not blur then
             blur = Instance.new("BlurEffect")
-            blur.Name = "ENI_HubBlur"
+            blur.Name = "Unknown_HubBlur"
             blur.Size = 0
             blur.Parent = Lighting
         end
         TweenService:Create(blur, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 14}):Play()
 
         local overlay = Instance.new("Frame")
-        overlay.Name = "ENI_CloseConfirmOverlay"
+        overlay.Name = "Unknown_CloseConfirmOverlay"
         overlay.Size = UDim2.new(1, 0, 1, 0)
         overlay.BackgroundColor3 = Color3.fromRGB(6, 8, 14)
         overlay.BackgroundTransparency = 1
@@ -1070,7 +1070,7 @@ return function(opts)
             end)
         end
 
-        local cleanup = getgenv().ENI_Cleanup or _G.ENI_Cleanup
+        local cleanup = getgenv().Unknown_Cleanup or _G.Unknown_Cleanup
         if cleanup then
             pcall(cleanup)
         end
@@ -1093,7 +1093,7 @@ return function(opts)
     end
 
     hubState.screenGui = Instance.new("ScreenGui")
-    hubState.screenGui.Name = opts.name or "ENI_TabbedHub_UI"
+    hubState.screenGui.Name = opts.name or "Unknown_TabbedHub_UI"
     hubState.screenGui.ResetOnSpawn = false
     hubState.screenGui.IgnoreGuiInset = true
     hubState.screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -1556,7 +1556,7 @@ return function(opts)
             })
         else
             hubState.sendNotification({
-                Title = "Welcome to " .. (opts.title or "ENI HUB"),
+                Title = "Welcome to " .. (opts.title or "UNKNOWN HUB"),
                 Content = "Hub initialized successfully. Press RightControl to toggle visibility.",
                 Category = "System",
                 Color = hubState.currentThemeColor,
@@ -1875,7 +1875,7 @@ return function(opts)
         if hubState.hudFrame then return hubState.hudFrame end
 
         hubState.hudFrame = Instance.new("Frame")
-        hubState.hudFrame.Name = "ENI_StatsHUD"
+        hubState.hudFrame.Name = "Unknown_StatsHUD"
         hubState.hudFrame.Size = UDim2.new(0, 190, 0, 115)
         hubState.hudFrame.Position = UDim2.new(0, 20, 0, 90)
         hubState.hudFrame.BackgroundColor3 = Color3.fromRGB(11, 15, 22)
@@ -3750,33 +3750,47 @@ return function(opts)
     titleLayout.Padding = UDim.new(0, 7)
     titleLayout.Parent = titleGroup
 
-    -- Celestial Crescent Moon Emblem (LayoutOrder = 1, right beside the name)
+    -- Unknown Hub Official Avatar Emblem (LayoutOrder = 1, right beside the name)
     local moonEmblem = Instance.new("Frame")
-    moonEmblem.Name = "MoonEmblem"
-    moonEmblem.Size = UDim2.new(0, 24, 0, 24)
-    moonEmblem.BackgroundColor3 = Color3.fromRGB(20, 26, 40)
-    moonEmblem.BackgroundTransparency = 0.2
+    moonEmblem.Name = "HubAvatarEmblem"
+    moonEmblem.Size = UDim2.new(0, 26, 0, 26)
+    moonEmblem.BackgroundColor3 = Color3.fromRGB(15, 20, 32)
     moonEmblem.BorderSizePixel = 0
     moonEmblem.LayoutOrder = 1
     moonEmblem.ZIndex = 23
     moonEmblem.Parent = titleGroup
-    applyCorner(moonEmblem, 12)
+    applyCorner(moonEmblem, 13)
     local moonStroke = applyStroke(moonEmblem, hubState.currentThemeColor, 1.2, 0.3)
     hubState.registerThemeStroke(moonStroke)
 
-    local moonIconLabel = Instance.new("TextLabel")
-    moonIconLabel.Name = "MoonIcon"
-    moonIconLabel.Size = UDim2.new(1, 0, 1, 0)
-    moonIconLabel.BackgroundTransparency = 1
-    moonIconLabel.Text = "🌙"
-    moonIconLabel.TextSize = 13
-    moonIconLabel.Font = Enum.Font.GothamBold
-    moonIconLabel.TextColor3 = hubState.currentThemeColor
-    moonIconLabel.TextXAlignment = Enum.TextXAlignment.Center
-    moonIconLabel.TextYAlignment = Enum.TextYAlignment.Center
-    moonIconLabel.ZIndex = 24
-    moonIconLabel.Parent = moonEmblem
-    hubState.registerThemeText(moonIconLabel)
+    local hubAvatarImg = Instance.new("ImageLabel")
+    hubAvatarImg.Name = "HubAvatar"
+    hubAvatarImg.Size = UDim2.new(1, 0, 1, 0)
+    hubAvatarImg.BackgroundTransparency = 1
+    hubAvatarImg.ZIndex = 24
+    hubAvatarImg.Parent = moonEmblem
+    applyCorner(hubAvatarImg, 13)
+
+    local avatarUrl = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/unknown_hub_avatar.jpg"
+    pcall(function()
+        if writefile and getcustomasset then
+            local assetPath = "UnknownHub/unknown_hub_avatar.jpg"
+            if not (isfile and isfile(assetPath)) then
+                if makefolder and not isfolder("UnknownHub") then makefolder("UnknownHub") end
+                local imgData = game:HttpGet(avatarUrl)
+                if imgData and #imgData > 0 then
+                    writefile(assetPath, imgData)
+                end
+            end
+            if isfile and isfile(assetPath) then
+                hubAvatarImg.Image = getcustomasset(assetPath)
+            else
+                hubAvatarImg.Image = avatarUrl
+            end
+        else
+            hubAvatarImg.Image = avatarUrl
+        end
+    end)
 
     -- Dynamic Auto-Sized Title Container (LayoutOrder = 2)
     local titleContainer = Instance.new("Frame")
@@ -3788,7 +3802,7 @@ return function(opts)
     titleContainer.ZIndex = 22
     titleContainer.Parent = titleGroup
 
-    local originalTitleText = opts.title or "ENI HUB"
+    local originalTitleText = opts.title or "UNKNOWN HUB"
 
     -- Cyan Chromatic Ghost Layer
     local titleGlitchCyan = Instance.new("TextLabel")
@@ -4837,7 +4851,7 @@ return function(opts)
         if enabled then
             if not hubState.blackScreenOverlay or not hubState.blackScreenOverlay.Parent then
                 local overlay = Instance.new("Frame")
-                overlay.Name = "ENI_BlackScreenOverlay"
+                overlay.Name = "Unknown_BlackScreenOverlay"
                 overlay.Size = UDim2.new(1, 0, 1, 0)
                 overlay.Position = UDim2.new(0, 0, 0, 0)
                 overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -7802,7 +7816,7 @@ return function(opts)
     hubState.mobileToggleBtn = nil
     if opts.mobileToggle ~= false and (UserInputService.TouchEnabled or opts.mobileToggle == true) then
         local mobBtn = Instance.new("ImageButton")
-        mobBtn.Name = "ENI_MobileToggleBtn"
+        mobBtn.Name = "Unknown_MobileToggleBtn"
         mobBtn.Size = UDim2.new(0, 48, 0, 48)
         mobBtn.Position = UDim2.new(0, 18, 0.45, -24)
         mobBtn.BackgroundColor3 = Color3.fromRGB(14, 18, 28)
@@ -7998,7 +8012,7 @@ return function(opts)
             for _, conn in ipairs(hubState.activeConnections) do
                 pcall(function() conn:Disconnect() end)
             end
-            local blur = Lighting:FindFirstChild("ENI_HubBlur")
+            local blur = Lighting:FindFirstChild("Unknown_HubBlur")
             if blur then pcall(function() blur:Destroy() end) end
             if hubState.screenGui then hubState.screenGui:Destroy() end
         end,

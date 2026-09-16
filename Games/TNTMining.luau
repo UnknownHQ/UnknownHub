@@ -1,7 +1,7 @@
 --[[
     ========================================================================
     Unknown Hub - +1 TNT Mining [Full Automation & Target Mining Engine]
-    GUI Library: UnknownLibrary (ENI Tabbed Hub UI)
+    GUI Library: UnknownLibrary (Unknown Hub UI)
     ========================================================================
 ]]
 
@@ -14,7 +14,7 @@ local CoreGui = game:GetService('CoreGui')
 local LocalPlayer = Players.LocalPlayer
 
 local LIBRARY_LINK = 'https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary'
-local LIBRARY_NAME = 'ENI_TabbedHub_UI'
+local LIBRARY_NAME = 'Unknown_TabbedHub_UI'
 
 local function destroyOldGui()
     local parents = {CoreGui}
@@ -24,7 +24,7 @@ local function destroyOldGui()
     for _, parent in ipairs(parents) do
         if parent then
             for _, child in ipairs(parent:GetChildren()) do
-                if child:IsA('ScreenGui') and (child.Name == LIBRARY_NAME or child.Name == 'ENI_TNTMining_UI') then
+                if child:IsA('ScreenGui') and (child.Name == LIBRARY_NAME or child.Name == 'Unknown_TNTMining_UI') then
                     pcall(function() child:Destroy() end)
                 end
             end

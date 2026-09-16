@@ -1,6 +1,6 @@
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
-local LIBRARY_NAME = "ENI_TabbedHub_UI"
+local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -82,13 +82,13 @@ local function createSmallGuideBossGui()
     local guiParent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
     
     for _, old in ipairs(guiParent:GetChildren()) do
-        if old.Name == "ENI_GuideBoss_UI" or old.Name == LIBRARY_NAME then
+        if old.Name == "Unknown_GuideBoss_UI" or old.Name == LIBRARY_NAME then
             pcall(function() old:Destroy() end)
         end
     end
 
     local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ENI_GuideBoss_UI"
+    screenGui.Name = "Unknown_GuideBoss_UI"
     screenGui.ResetOnSpawn = false
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = guiParent
@@ -606,10 +606,10 @@ local function createSmallGuideBossGui()
         local arenaSkyPos = Vector3.new(594.62, 85, -321.16)
         
         -- Create elevated safe platform: white color with 75% transparency
-        local existingFloor = Workspace:FindFirstChild("ENI_BossSkySafeZone")
+        local existingFloor = Workspace:FindFirstChild("Unknown_BossSkySafeZone")
         if existingFloor then existingFloor:Destroy() end
         local safeFloor = Instance.new("Part")
-        safeFloor.Name = "ENI_BossSkySafeZone"
+        safeFloor.Name = "Unknown_BossSkySafeZone"
         safeFloor.Size = Vector3.new(100, 2, 100)
         safeFloor.CFrame = CFrame.new(arenaSkyPos.X, 84, arenaSkyPos.Z)
         safeFloor.Anchored = true
@@ -887,7 +887,7 @@ local function getOrCreateSafeZone()
     end
 
     local model = Instance.new("Model")
-    model.Name = "ENI_SkySafeZone"
+    model.Name = "Unknown_SkySafeZone"
 
     local floor = Instance.new("Part")
     floor.Name = "Floor"
@@ -1654,10 +1654,10 @@ local function completeMazeAndGuideBoss()
     local arenaSkyPos = Vector3.new(594.62, 85, -321.16)
     
     -- Create elevated safe platform: white color with 75% transparency
-    local existingFloor = Workspace:FindFirstChild("ENI_BossSkySafeZone")
+    local existingFloor = Workspace:FindFirstChild("Unknown_BossSkySafeZone")
     if existingFloor then existingFloor:Destroy() end
     local safeFloor = Instance.new("Part")
-    safeFloor.Name = "ENI_BossSkySafeZone"
+    safeFloor.Name = "Unknown_BossSkySafeZone"
     safeFloor.Size = Vector3.new(100, 2, 100)
     safeFloor.CFrame = CFrame.new(arenaSkyPos.X, 84, arenaSkyPos.Z)
     safeFloor.Anchored = true
@@ -2385,13 +2385,13 @@ end)
 
 local guiParent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
 pcall(function()
-    if guiParent:FindFirstChild("ENI_SlappleAutoExec_UI") then
-        guiParent.ENI_SlappleAutoExec_UI:Destroy()
+    if guiParent:FindFirstChild("Unknown_SlappleAutoExec_UI") then
+        guiParent.Unknown_SlappleAutoExec_UI:Destroy()
     end
 end)
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "ENI_SlappleAutoExec_UI"
+screenGui.Name = "Unknown_SlappleAutoExec_UI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = guiParent
 
@@ -2674,13 +2674,13 @@ end
 
 local guiParent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
 pcall(function()
-    if guiParent:FindFirstChild("ENI_SlappleQueue_UI") then
-        guiParent.ENI_SlappleQueue_UI:Destroy()
+    if guiParent:FindFirstChild("Unknown_SlappleQueue_UI") then
+        guiParent.Unknown_SlappleQueue_UI:Destroy()
     end
 end)
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "ENI_SlappleQueue_UI"
+screenGui.Name = "Unknown_SlappleQueue_UI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = guiParent
 
@@ -3588,7 +3588,7 @@ Hub.CreateToggle(defenseTab, "Anti-Void Plate", false, function(toggled)
     if toggled then
         if not voidPlate or not voidPlate.Parent then
             voidPlate = Instance.new("Part")
-            voidPlate.Name = "ENI_AntiVoidPlate"
+            voidPlate.Name = "Unknown_AntiVoidPlate"
             voidPlate.Size = Vector3.new(2048, 4, 2048)
             voidPlate.Position = Vector3.new(0, -15, 0)
             voidPlate.Anchored = true
@@ -3674,7 +3674,7 @@ end)
 Hub.CreateSection(visualTab, "ESP")
 
 local espFolder = Instance.new("Folder")
-espFolder.Name = "ENI_SlapESP"
+espFolder.Name = "Unknown_SlapESP"
 espFolder.Parent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:FindFirstChild("PlayerGui")
 
 local function updateESP()

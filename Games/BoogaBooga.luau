@@ -1,10 +1,16 @@
 --[[
     ========================================================================
-    Unknown Hub - Booga Booga Dedicated Script Module (v5 Master Edition)
-    Library: UnknownLibrary (ENI Tabbed Hub UI)
-    Features: Single "Auto Hit" with Resource Whitelist (Ores, Trees, Plants, Chests),
-              "Auto Pickup" with Full Game Item Whitelist List, Body-Frozen Magnet,
-              No-Fall Safe Collision Restoration, Godmode, ESP, Island TP
+    Unknown Hub - Booga Booga Dedicated Script Module (v8 Ultimate Edition)
+    Library: UnknownLibrary (Unknown Hub UI)
+    Features:
+      - Native Network Packet Auto Hit (Packets.SwingTool with EntityIDs & Toolbar Sync)
+      - Native Server-Side Auto Pickup (Packets.Pickup by EntityID, Zero Teleporting)
+      - Physical Item Magnet Toggle (Separate option, moves unanchored items smoothly)
+      - No-Slip Mountain (Infinite MaxSlopeAngle 89.9° + Anti-Slide Velocity Lock)
+      - No-Slow Water (Automatic WalkSpeed & Velocity Maintenance while Swimming)
+      - Body-Frozen & No-Fall Item Collision Guards
+      - Whitelist Selectors via CreateList() (Resources, Mobs, Players, Full Items)
+      - Movement & Teleports & Visuals ESP
     ========================================================================
 ]]
 
@@ -18,14 +24,13 @@ local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
+local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
-local LIBRARY_NAME = "ENI_TabbedHub_UI"
+local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
--- =========================================================================
 -- Built-in Anti-AFK
--- =========================================================================
 pcall(function()
     LocalPlayer.Idled:Connect(function()
         pcall(function()
@@ -46,7 +51,7 @@ local function destroyOldGui()
         if parent then
             pcall(function()
                 for _, child in ipairs(parent:GetChildren()) do
-                    if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "ENI_BoogaBooga_UI") then
+                    if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "Unknown_BoogaBooga_UI") then
                         pcall(function() child:Destroy() end)
                     end
                 end
@@ -60,8 +65,6 @@ local ok, result = pcall(function()
     local source
     local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
     source = game:HttpGet(LIBRARY_LINK .. cacheBuster)
-    pcall(function()
-    end)
     local factoryChunk, compileErr = loadstring(source)
     assert(factoryChunk, "Library compile failed: " .. tostring(compileErr))
     return factoryChunk()
@@ -85,12 +88,32 @@ local Hub = result({
 assert(type(Hub) == "table", "UnknownLibrary returned invalid hub")
 
 -- =========================================================================
+-- Game Internals (Booga Booga Reborn ByteNet / Packets / Modules)
+-- =========================================================================
+local Packets = nil
+pcall(function()
+    Packets = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Packets"))
+end)
+local GameUtil = nil
+pcall(function()
+    GameUtil = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameUtil"))
+end)
+local Clock = nil
+pcall(function()
+    Clock = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Clock"))
+end)
+local ToolModule = nil
+pcall(function()
+    ToolModule = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("tool"))
+end)
+
+-- =========================================================================
 -- State Registry
 -- =========================================================================
 local state = {
-    -- Auto Hit (Single Toggle + Resource Whitelist List)
+    -- Auto Hit (Single Toggle + Whitelist List: Resources, Mobs, Players)
     AutoHit = false,
-    AutoHitWhitelist = "All Resources", -- "All Resources", "Ores & Minerals", "Trees & Wood", "Plants & Food", "Chests & Structures"
+    AutoHitTargets = { Resources = true, Mobs = false, Players = false },
     AutoHitRange = 35,
     FastHit = true,
 
@@ -101,14 +124,19 @@ local state = {
     AutoEat = false,
     EatThreshold = 60,
 
-    -- Auto Pickup (Single Toggle + Full Item Whitelist List)
+    -- Auto Pickup (Server-Side Packets.Pickup - Completely Safe & Zero Teleportation)
     AutoPickup = false,
-    PickupCategoryWhitelist = "All Items (Everything)", -- "All Items (Everything)", "Ores & Gems", "Wood & Logs", "Food & Consumables", "Equipment & Gear", "Valuables & Essences"
+    PickupCategoryWhitelist = "All Items (Everything)",
     PickupCustomFilter = "",
-    PickupRange = 50,
-    FreezeToPlayerBody = true,
+    PickupRange = 35,
+
+    -- Auto Magnet (Separate Optional Toggle - Smooth Visual Magnet)
+    AutoMagnet = false,
+    MagnetRange = 30,
 
     -- Movement & Player
+    NoSlipMountain = false,
+    NoSlowWater = false,
     GodMode = false,
     WalkSpeedToggle = false,
     WalkSpeedValue = 24,
@@ -146,6 +174,21 @@ local function getHumanoid(player)
     return char and char:FindFirstChildWhichIsA("Humanoid")
 end
 
+-- Crash-Proof Part Finder (Never errors on Camera/Terrain/Folders)
+local function getPrimaryOrAnyPart(obj)
+    if not obj or typeof(obj) ~= "Instance" then return nil end
+    if obj:IsA("BasePart") then return obj end
+    if obj:IsA("Model") then
+        local trunk = obj:FindFirstChild("Trunk")
+        if trunk and trunk:IsA("BasePart") then return trunk end
+        local okPrim, prim = pcall(function() return obj.PrimaryPart end)
+        if okPrim and prim and prim:IsA("BasePart") then return prim end
+        local anyPart = obj:FindFirstChildWhichIsA("BasePart", true)
+        if anyPart then return anyPart end
+    end
+    return nil
+end
+
 -- Comprehensive Remote Collectors
 local function getAllRemotes()
     local remotes = {}
@@ -171,20 +214,21 @@ local function getRemotesMatching(patterns)
     return matched
 end
 
--- Resource Category Whitelist Matcher
-local RESOURCE_CATEGORIES = {
-    ["All Resources"] = {"tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient", "chestnut", "rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "essence", "berry", "bush", "fruit", "plant", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry", "node", "structure", "debris", "chest", "crate", "magma", "void"},
-    ["Ores & Minerals"] = {"rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "magma", "void", "node", "coal", "pink diamond"},
-    ["Trees & Wood"] = {"tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient", "chestnut"},
-    ["Plants & Food"] = {"berry", "bush", "fruit", "plant", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry"},
-    ["Chests & Structures"] = {"chest", "crate", "structure", "totem", "box", "debris"}
+-- Resource Whitelist Matcher (All In-Game Resources including Cactus, Trees, Rocks, Crops, Ores, Mounds)
+local RESOURCE_KEYWORDS = {
+    "tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient", "chestnut", "trunk",
+    "rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "essence", "magma", "void",
+    "node", "coal", "pink diamond", "mound", "debris", "structure", "chest", "crate", "box", "totem",
+    "berry", "bush", "fruit", "plant", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry",
+    "cactus", "cacti", "crop", "flora", "flower", "grass", "reed", "lily", "coral", "boulder", "shroom", "mushroom"
 }
 
-local function isTargetResource(name)
+local function isTargetResource(name, parentFolder)
+    if parentFolder and (parentFolder.Name == "Resources" or parentFolder.Name == "Crops" or parentFolder.Name == "Mounds" or parentFolder.Name == "Nodes" or parentFolder.Name == "Flora" or parentFolder.Name == "Trees" or parentFolder.Name == "Ores") then
+        return true
+    end
     name = name:lower()
-    local category = state.AutoHitWhitelist or "All Resources"
-    local keywords = RESOURCE_CATEGORIES[category] or RESOURCE_CATEGORIES["All Resources"]
-    for _, kw in ipairs(keywords) do
+    for _, kw in ipairs(RESOURCE_KEYWORDS) do
         if name:find(kw) then
             return true
         end
@@ -230,14 +274,14 @@ end
 -- Tabs Setup
 -- =========================================================================
 local combatTab   = Hub.createTabButton("Combat", "🥊 Combat & Auto Hit", "rbxassetid://10723407390", true)
-local farmTab     = Hub.createTabButton("Farm", "🪵 Auto Pickup & Whitelist", "rbxassetid://10723407389", false)
+local farmTab     = Hub.createTabButton("Farm", "🪵 Auto Pickup & Farm", "rbxassetid://10723407389", false)
 local playerTab   = Hub.createTabButton("Player", "⚡ Movement", "rbxassetid://10723407392", false)
 local visualsTab  = Hub.createTabButton("Visuals", "👁️ ESP & Visuals", "rbxassetid://10723407395", false)
 local teleportTab = Hub.createTabButton("Teleports", "🌐 Teleports", "rbxassetid://10723407389", false)
 local miscTab     = Hub.createTabButton("Misc", "🛠️ Utility & Server", "rbxassetid://10723407392", false)
 
 -- =========================================================================
--- 1. COMBAT TAB: AUTO HIT (WHITELIST: RESOURCES ONLY)
+-- 1. COMBAT TAB: AUTO HIT (NATIVE BYTE-NET PACKETS & REMOTE SYNC)
 -- =========================================================================
 Hub.CreateSection(combatTab, "Single Toggle Auto Hit")
 
@@ -245,24 +289,28 @@ Hub.CreateToggle(combatTab, "⚡ Auto Hit", false, function(toggled)
     state.AutoHit = toggled
 end)
 
-local targetCategories = {
-    "All Resources",
-    "Ores & Minerals",
-    "Trees & Wood",
-    "Plants & Food",
-    "Chests & Structures"
-}
-local hitWhitelistList = Hub.CreateList(combatTab, "🎯 Auto Hit Target Whitelist", targetCategories, 180, true)
-hitWhitelistList:SetSelected(state.AutoHitWhitelist or "All Resources")
-hitWhitelistList.OnSelect = function(selected)
-    state.AutoHitWhitelist = selected
+-- Multi-select List using Hub.CreateList() for Auto Hit Targets: Resources, Mobs, Players
+local autoHitTargetsList = Hub.CreateList(combatTab, "🎯 Auto Hit Targets (Whitelist)", {"Resources", "Mobs", "Players"}, 150, true, true)
+autoHitTargetsList:SetSelectedItems({"Resources"})
+autoHitTargetsList.OnSelect = function(selectedName, entryData)
+    state.AutoHitTargets.Resources = false
+    state.AutoHitTargets.Mobs = false
+    state.AutoHitTargets.Players = false
+
+    local selectedList = autoHitTargetsList.SelectedItems or {}
+    for _, item in ipairs(selectedList) do
+        local n = type(item) == "table" and item.Name or tostring(item)
+        if state.AutoHitTargets[n] ~= nil then
+            state.AutoHitTargets[n] = true
+        end
+    end
 end
 
 Hub.CreateSlider(combatTab, "Auto Hit Range (Studs)", 10, 100, 35, " studs", function(val)
     state.AutoHitRange = val
 end)
 
-Hub.CreateToggle(combatTab, "⚡ Fast Swing Speed", true, function(toggled)
+Hub.CreateToggle(combatTab, "⚡ Max Hit Speed", true, function(toggled)
     state.FastHit = toggled
 end)
 
@@ -288,58 +336,141 @@ Hub.CreateSlider(combatTab, "Eat Threshold (% HP/Hunger)", 20, 80, 60, "%", func
     state.EatThreshold = val
 end)
 
--- Auto Hit Execution Loop (Dedicated to Resources - Trees, Ores, Meteors, Plants, Chests)
+-- Native High-Speed Animation-Free Packet Auto Hit Loop
+-- Cached Remotes for Auto Hit Fallback (Fetched once, zero frame drops)
+local cachedSwingRemote = nil
+local cachedInteractStructure = nil
+pcall(function()
+    if ReplicatedStorage:FindFirstChild("Events") then
+        cachedSwingRemote = ReplicatedStorage.Events:FindFirstChild("SwingTool")
+        cachedInteractStructure = ReplicatedStorage.Events:FindFirstChild("InteractStructure")
+    end
+end)
+
+-- High-Performance Animation-Free Packet Auto Hit Loop (Optimized for 144+ FPS)
 task.spawn(function()
     while true do
-        task.wait(state.FastHit and 0.04 or 0.12)
+        task.wait(state.FastHit and 0.05 or 0.12)
         if state.AutoHit then
-            local myRoot = getRoot()
-            if myRoot then
+            pcall(function()
                 local char = getCharacter()
-                local tool = char and char:FindFirstChildWhichIsA("Tool")
-                if tool then
-                    pcall(function() tool:Activate() end)
-                end
+                local myRoot = getRoot()
+                if not char or not myRoot then return end
 
-                local hitRemotes = getRemotesMatching({"hit", "swing", "attack", "damage", "harvest", "useitem", "chop", "mine"})
+                local packetTargets = {}
+                local targetsToHit = {}
+                local myPos = myRoot.Position
+                local maxDist = state.AutoHitRange
 
-                -- Scan Dedicated Folders & Workspace for Whitelisted Resources
-                local containers = {Workspace}
-                for _, name in ipairs({"Resources", "Trees", "Ores", "Nodes", "Flora", "Entities", "Structures", "Items", "Debris"}) do
-                    local f = Workspace:FindFirstChild(name)
-                    if f then table.insert(containers, f) end
-                end
+                -- 1. Resources Target Scanner (All Resources, Cactus, Crops, Trees, Ores, Mounds)
+                if state.AutoHitTargets.Resources then
+                    local containers = {}
+                    for _, name in ipairs({"Resources", "Crops", "Mounds", "Trees", "Ores", "Nodes", "Flora", "Entities", "Structures"}) do
+                        local f = Workspace:FindFirstChild(name)
+                        if f then table.insert(containers, f) end
+                    end
 
-                for _, container in ipairs(containers) do
-                    for _, child in ipairs(container:GetChildren()) do
-                        if child ~= char then
-                            local part = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
-                            if part and isTargetResource(child.Name) then
-                                local dist = (myRoot.Position - part.Position).Magnitude
-                                if dist <= state.AutoHitRange then
-                                    if tool then pcall(function() tool:Activate() end) end
-                                    for _, r in ipairs(hitRemotes) do
-                                        pcall(function()
-                                            if r:IsA("RemoteEvent") then
-                                                r:FireServer(part)
-                                                r:FireServer(part.Parent)
-                                            elseif r:IsA("RemoteFunction") then
-                                                r:InvokeServer(part)
-                                            end
-                                        end)
+                    for _, container in ipairs(containers) do
+                        for _, child in ipairs(container:GetChildren()) do
+                            if child ~= char and (child:IsA("Model") or child:IsA("BasePart")) then
+                                local part = getPrimaryOrAnyPart(child)
+                                if part and isTargetResource(child.Name, container) then
+                                    local dist = (myPos - part.Position).Magnitude
+                                    if dist <= maxDist then
+                                        local entityID = child:GetAttribute("EntityID") or part:GetAttribute("EntityID")
+                                        if entityID then
+                                            table.insert(packetTargets, { entityID = entityID, buffer = nil })
+                                        else
+                                            table.insert(targetsToHit, { part = part, parent = child })
+                                        end
                                     end
-
-                                    local cd = part:FindFirstChildWhichIsA("ClickDetector", true) or (part.Parent and part.Parent:FindFirstChildWhichIsA("ClickDetector", true))
-                                    if cd then fireclickdetector(cd) end
-
-                                    local prompt = part:FindFirstChildWhichIsA("ProximityPrompt", true) or (part.Parent and part.Parent:FindFirstChildWhichIsA("ProximityPrompt", true))
-                                    if prompt and fireproximityprompt then fireproximityprompt(prompt) end
                                 end
                             end
                         end
                     end
                 end
-            end
+
+                -- 2. Mobs Target Scanner
+                if state.AutoHitTargets.Mobs then
+                    local mobContainers = {}
+                    for _, name in ipairs({"Mobs", "Animals", "NPCs", "Entities", "Enemies", "Fauna"}) do
+                        local f = Workspace:FindFirstChild(name)
+                        if f then table.insert(mobContainers, f) end
+                    end
+
+                    for _, container in ipairs(mobContainers) do
+                        for _, child in ipairs(container:GetChildren()) do
+                            if child ~= char and child:IsA("Model") then
+                                local mHum = child:FindFirstChildWhichIsA("Humanoid")
+                                local mRoot = getPrimaryOrAnyPart(child)
+                                local isPlr = Players:GetPlayerFromCharacter(child) ~= nil
+                                if mHum and mHum.Health > 0 and mRoot and not isPlr then
+                                    local dist = (myPos - mRoot.Position).Magnitude
+                                    if dist <= maxDist then
+                                        local entityID = child:GetAttribute("EntityID") or mRoot:GetAttribute("EntityID")
+                                        if entityID then
+                                            table.insert(packetTargets, { entityID = entityID, buffer = nil })
+                                        else
+                                            table.insert(targetsToHit, { part = mRoot, parent = child })
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- 3. Players Target Scanner
+                if state.AutoHitTargets.Players then
+                    for _, otherPlr in ipairs(Players:GetPlayers()) do
+                        if otherPlr ~= LocalPlayer and otherPlr.Character then
+                            local oChar = otherPlr.Character
+                            local oHum = oChar:FindFirstChildWhichIsA("Humanoid")
+                            local oRoot = getPrimaryOrAnyPart(oChar)
+                            if oHum and oHum.Health > 0 and oRoot then
+                                local dist = (myPos - oRoot.Position).Magnitude
+                                if dist <= maxDist then
+                                    local entityID = oChar:GetAttribute("EntityID") or oRoot:GetAttribute("EntityID")
+                                    if entityID then
+                                        table.insert(packetTargets, { entityID = entityID, buffer = nil })
+                                    else
+                                        table.insert(targetsToHit, { part = oRoot, parent = oChar })
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- Native Packets.SwingTool.send Execution (High Performance, No Animation)
+                if #packetTargets > 0 and Packets and Packets.SwingTool then
+                    pcall(function()
+                        local timestamp = Clock and Clock.getServerTime(true) or os.clock()
+                        Packets.SwingTool.send({
+                            entityIDs = packetTargets,
+                            cframe = char:GetPivot(),
+                            timestamp = timestamp
+                        })
+                    end)
+                end
+
+                -- Fallback Execution for Non-Packet Objects Only
+                if #targetsToHit > 0 then
+                    for _, targetData in ipairs(targetsToHit) do
+                        local targetPart = targetData.part
+                        local targetModel = targetData.parent
+
+                        if cachedSwingRemote then
+                            pcall(function() cachedSwingRemote:FireServer(targetPart) end)
+                            pcall(function() cachedSwingRemote:FireServer(targetModel) end)
+                        end
+
+                        if cachedInteractStructure then
+                            pcall(function() cachedInteractStructure:FireServer(targetModel or targetPart) end)
+                        end
+                    end
+                end
+            end)
         end
     end
 end)
@@ -411,33 +542,12 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- 2. FARM TAB: AUTO PICKUP & ALL GAME ITEMS WHITELIST (BODY-FROZEN)
+-- 2. FARM TAB: NATIVE AUTO PICKUP & SEPARATE AUTO MAGNET
 -- =========================================================================
-Hub.CreateSection(farmTab, "Auto Pickup Automation")
+Hub.CreateSection(farmTab, "Native Server Auto Pickup (No Teleport)")
 
-local prevPickupState = false
-
-Hub.CreateToggle(farmTab, "🧲 Auto Pickup", false, function(toggled)
+Hub.CreateToggle(farmTab, "🧲 Auto Pickup (Server Verified)", false, function(toggled)
     state.AutoPickup = toggled
-
-    if prevPickupState and not toggled then
-        pcall(function()
-            local myRoot = getRoot()
-            if myRoot then
-                for _, obj in ipairs(Workspace:GetDescendants()) do
-                    if obj:IsA("BasePart") and obj.Name ~= "HumanoidRootPart" and obj.Name ~= "Torso" then
-                        if (myRoot.Position - obj.Position).Magnitude <= (state.PickupRange + 20) then
-                            obj.CanCollide = true
-                            obj.CanTouch = true
-                            obj.AssemblyLinearVelocity = Vector3.zero
-                            obj.AssemblyAngularVelocity = Vector3.zero
-                        end
-                    end
-                end
-            end
-        end)
-    end
-    prevPickupState = toggled
 end)
 
 local pickupCategories = {
@@ -458,80 +568,237 @@ Hub.CreateTextBox(farmTab, "Specific Item Name Filter", "Type item name (e.g. Be
     state.PickupCustomFilter = text
 end)
 
-Hub.CreateSlider(farmTab, "Pickup Range (Studs)", 10, 120, 50, " studs", function(val)
+Hub.CreateSlider(farmTab, "Pickup Range (Studs)", 10, 60, 35, " studs", function(val)
     state.PickupRange = val
 end)
 
-Hub.CreateToggle(farmTab, "🔒 Freeze Whitelisted Items to Player Body", true, function(toggled)
-    state.FreezeToPlayerBody = toggled
+Hub.CreateSection(farmTab, "Auto Item Magnet (Optional Visual Pull)")
+
+local prevMagnetState = false
+Hub.CreateToggle(farmTab, "🧲 Auto Magnet (Pull Items)", false, function(toggled)
+    state.AutoMagnet = toggled
+
+    -- Restore collision and velocity when toggled OFF so items don't fall through the floor
+    if prevMagnetState and not toggled then
+        pcall(function()
+            local myRoot = getRoot()
+            if myRoot and Workspace:FindFirstChild("Items") then
+                for _, obj in ipairs(Workspace.Items:GetChildren()) do
+                    local p = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart", true)
+                    if p and (myRoot.Position - p.Position).Magnitude <= (state.MagnetRange + 25) then
+                        p.CanCollide = true
+                        p.AssemblyLinearVelocity = Vector3.zero
+                        p.AssemblyAngularVelocity = Vector3.zero
+                    end
+                end
+            end
+        end)
+    end
+    prevMagnetState = toggled
 end)
 
--- Auto Pickup Execution Loop (Whitelisted Item Body-Freezing)
+Hub.CreateSlider(farmTab, "Magnet Range (Studs)", 10, 80, 30, " studs", function(val)
+    state.MagnetRange = val
+end)
+
+-- Native Server-Side Auto Pickup Loop (Zero Character CFrame Manipulation)
 task.spawn(function()
     while true do
-        task.wait(0.05)
+        task.wait(0.06)
         if state.AutoPickup then
-            local myRoot = getRoot()
-            if myRoot then
-                local pickupRemotes = getRemotesMatching({"pickup", "collect", "grab", "interact", "collectitem"})
-                local containers = {Workspace}
-                for _, name in ipairs({"Items", "Drops", "Debris", "Loot", "Flora"}) do
-                    local folder = Workspace:FindFirstChild(name)
-                    if folder then table.insert(containers, folder) end
+            pcall(function()
+                local myRoot = getRoot()
+                if not myRoot then return end
+
+                local itemsFolder = Workspace:FindFirstChild("Items")
+                local containers = {itemsFolder}
+                for _, name in ipairs({"Drops", "Loot", "Debris"}) do
+                    local f = Workspace:FindFirstChild(name)
+                    if f then table.insert(containers, f) end
                 end
 
                 for _, container in ipairs(containers) do
-                    for _, drop in ipairs(container:GetChildren()) do
-                        if drop ~= getCharacter() then
-                            local dropPart = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart", true)
-                            if dropPart and dropPart.Name ~= "HumanoidRootPart" and dropPart.Name ~= "Torso" then
-                                local dist = (myRoot.Position - dropPart.Position).Magnitude
-                                if dist <= state.PickupRange and isWhitelistedItem(drop.Name) then
-                                    pcall(function()
-                                        for _, p in ipairs(drop:IsA("Model") and drop:GetDescendants() or {dropPart}) do
-                                            if p:IsA("BasePart") then
-                                                p.CanCollide = false
-                                                p.CanTouch = true
-                                                p.AssemblyLinearVelocity = Vector3.zero
-                                                p.AssemblyAngularVelocity = Vector3.zero
-                                            end
-                                        end
+                    if container then
+                        for _, item in ipairs(container:GetChildren()) do
+                            local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
+                            if part then
+                                local dist = (myRoot.Position - part.Position).Magnitude
+                                if dist <= state.PickupRange and isWhitelistedItem(item.Name) then
+                                    local entityID = item:GetAttribute("EntityID") or part:GetAttribute("EntityID")
+                                    if entityID and Packets and Packets.Pickup then
+                                        -- Native server pickup packet
+                                        Packets.Pickup.send(entityID)
+                                    end
 
-                                        if state.FreezeToPlayerBody then
-                                            dropPart.CFrame = myRoot.CFrame * CFrame.new(0, -0.5, 0)
-                                        else
-                                            dropPart.CFrame = myRoot.CFrame
-                                        end
+                                    -- Fallback Remote Events
+                                    local pickupRemote = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Pickup")
+                                    if pickupRemote then
+                                        pcall(function() pickupRemote:FireServer(item) end)
+                                        pcall(function() pickupRemote:FireServer(part) end)
+                                    end
 
-                                        for _, r in ipairs(pickupRemotes) do
-                                            if r:IsA("RemoteEvent") then
-                                                r:FireServer(drop)
-                                                r:FireServer(dropPart)
-                                            elseif r:IsA("RemoteFunction") then
-                                                r:InvokeServer(drop)
-                                                r:InvokeServer(dropPart)
-                                            end
-                                        end
+                                    local cd = item:FindFirstChildWhichIsA("ClickDetector", true) or part:FindFirstChildWhichIsA("ClickDetector", true)
+                                    if cd then fireclickdetector(cd) end
 
-                                        local cd = drop:FindFirstChildWhichIsA("ClickDetector", true) or (dropPart and dropPart:FindFirstChildWhichIsA("ClickDetector", true))
-                                        if cd then fireclickdetector(cd) end
-
-                                        local prompt = drop:FindFirstChildWhichIsA("ProximityPrompt", true) or (dropPart and dropPart:FindFirstChildWhichIsA("ProximityPrompt", true))
-                                        if prompt and fireproximityprompt then fireproximityprompt(prompt) end
-                                    end)
+                                    local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                    if prompt and fireproximityprompt then fireproximityprompt(prompt) end
                                 end
                             end
                         end
                     end
                 end
-            end
+            end)
+        end
+    end
+end)
+
+-- Robust Anti-Snap Auto Magnet Loop (Physics Velocity + Touch Ownership + Server Pickup Sync)
+task.spawn(function()
+    while true do
+        task.wait(0.04)
+        if state.AutoMagnet then
+            pcall(function()
+                local char = getCharacter()
+                local myRoot = getRoot()
+                if not char or not myRoot then return end
+
+                local itemsFolder = Workspace:FindFirstChild("Items")
+                local containers = {itemsFolder}
+                for _, name in ipairs({"Drops", "Loot", "Debris"}) do
+                    local f = Workspace:FindFirstChild(name)
+                    if f then table.insert(containers, f) end
+                end
+
+                local myPos = myRoot.Position
+                local targetPos = myPos + Vector3.new(0, -0.5, 0)
+
+                for _, container in ipairs(containers) do
+                    if container then
+                        for _, item in ipairs(container:GetChildren()) do
+                            local part = item:IsA("BasePart") and item or item:FindFirstChildWhichIsA("BasePart", true)
+                            if part and not part.Anchored then
+                                local dist = (myPos - part.Position).Magnitude
+                                if dist <= state.MagnetRange and isWhitelistedItem(item.Name) then
+                                    part.CanCollide = false
+
+                                    -- Apply smooth physics velocity towards player so the server validates natural movement
+                                    local moveDirection = (targetPos - part.Position)
+                                    if moveDirection.Magnitude > 0.5 then
+                                        part.AssemblyLinearVelocity = moveDirection.Unit * math.clamp(dist * 5, 20, 55)
+                                    else
+                                        part.AssemblyLinearVelocity = Vector3.zero
+                                    end
+
+                                    -- Smooth client-side glide interpolation without going through the floor
+                                    local newY = math.max(part.Position.Y, targetPos.Y)
+                                    local intermediatePos = Vector3.new(part.Position.X, newY, part.Position.Z):Lerp(targetPos, 0.35)
+                                    part.CFrame = CFrame.new(intermediatePos)
+
+                                    -- Take network ownership and trigger item pickup
+                                    if firetouchinterest then
+                                        firetouchinterest(myRoot, part, 0)
+                                    end
+
+                                    local entityID = item:GetAttribute("EntityID") or part:GetAttribute("EntityID")
+                                    if entityID and Packets and Packets.Pickup then
+                                        Packets.Pickup.send(entityID)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
         end
     end
 end)
 
 -- =========================================================================
--- 3. PLAYER TAB: GODMODE, MOVEMENT & FLY
+-- 3. PLAYER TAB: MOVEMENT, NO-SLIP MOUNTAIN, NO-SLOW WATER & GODMODE
 -- =========================================================================
+Hub.CreateSection(playerTab, "Mountain & Water Enhancements")
+
+Hub.CreateToggle(playerTab, "⛰️ No-Slip Mountain (Walk Up Cliffs)", false, function(toggled)
+    state.NoSlipMountain = toggled
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then
+            hum.MaxSlopeAngle = toggled and 89.9 or 46
+        end
+    end)
+end)
+
+Hub.CreateToggle(playerTab, "🌊 No-Slow Water (Full Speed Swimming)", false, function(toggled)
+    state.NoSlowWater = toggled
+end)
+
+-- High-Performance No-Slip Mountain & No-Slow Water Runner
+RunService.Heartbeat:Connect(function()
+    pcall(function()
+        local char = getCharacter()
+        local hum = getHumanoid()
+        local root = getRoot()
+        if not char or not hum or not root then return end
+
+        -- No-Slip Mountain: Keep MaxSlopeAngle 89.9 and prevent sliding downwards on steep slopes
+        if state.NoSlipMountain then
+            if hum.MaxSlopeAngle < 89 then
+                hum.MaxSlopeAngle = 89.9
+            end
+            local stateType = hum:GetState()
+            if (stateType == Enum.HumanoidStateType.Freefall or stateType == Enum.HumanoidStateType.FallingDown) and root.AssemblyLinearVelocity.Y < -5 then
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = {char}
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                local ray = Workspace:Raycast(root.Position, Vector3.new(0, -4, 0), rayParams)
+                if ray and ray.Instance and not ray.Instance:IsA("Terrain") and ray.Normal.Y < 0.7 then
+                    root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+                end
+            end
+        end
+
+        -- No-Slow Water: Full Speed 3D Directional Swimming & No Water Drag
+        if state.NoSlowWater then
+            local isWater = (hum:GetState() == Enum.HumanoidStateType.Swimming) or (hum.FloorMaterial == Enum.Material.Water) or (root.Position.Y < 4.5 and root.Position.Y > -200)
+            if isWater then
+                local targetSpeed = (state.WalkSpeedToggle and state.WalkSpeedValue or 28)
+                local cam = Workspace.CurrentCamera
+                local moveDir = hum.MoveDirection
+
+                local hasInput = moveDir.Magnitude > 0 or UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Space) or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+
+                if hasInput then
+                    local xzDir = moveDir
+                    if xzDir.Magnitude == 0 and cam then
+                        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                            local look = cam.CFrame.LookVector
+                            xzDir = Vector3.new(look.X, 0, look.Z).Unit
+                        elseif UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                            local look = cam.CFrame.LookVector
+                            xzDir = -Vector3.new(look.X, 0, look.Z).Unit
+                        end
+                    end
+
+                    local vy = 0
+                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                        vy = targetSpeed * 0.85
+                    elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                        vy = -targetSpeed * 0.85
+                    elseif cam and xzDir.Magnitude > 0 then
+                        vy = math.clamp(cam.CFrame.LookVector.Y * targetSpeed * 0.75, -targetSpeed, targetSpeed)
+                    end
+
+                    if xzDir.Magnitude > 0 then
+                        root.AssemblyLinearVelocity = Vector3.new(xzDir.X * targetSpeed, vy, xzDir.Z * targetSpeed)
+                    elseif vy ~= 0 then
+                        root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, vy, root.AssemblyLinearVelocity.Z)
+                    end
+                end
+            end
+        end
+    end)
+end)
+
 Hub.CreateSection(playerTab, "Godmode & Defense")
 
 Hub.CreateToggle(playerTab, "God Mode (No Fall / Health Guard)", false, function(toggled)
@@ -706,7 +973,7 @@ end)
 
 -- Simple Clean Box/Highlight ESP Loop
 local espFolder = Instance.new("Folder")
-espFolder.Name = "ENI_BoogaESP"
+espFolder.Name = "Unknown_BoogaESP"
 pcall(function() espFolder.Parent = (gethui and gethui()) or CoreGui or Workspace end)
 
 task.spawn(function()
@@ -807,4 +1074,4 @@ Hub.CreateButton(miscTab, "📋 Copy JobId / Server Code", function()
     end)
 end)
 
-print("[UnknownHub] Booga Booga Script Module v5 Loaded Successfully!")
+print("[UnknownHub] Booga Booga Script Module v8 Ultimate Edition Loaded Successfully!")

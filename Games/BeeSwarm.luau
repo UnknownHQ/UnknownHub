@@ -1,5 +1,5 @@
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
-local LIBRARY_NAME = "ENI_TabbedHub_UI"
+local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}

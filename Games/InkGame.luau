@@ -1,5 +1,5 @@
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
-local LIBRARY_NAME = "ENI_TabbedHub_UI"
+local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -9,7 +9,7 @@ local function destroyOldGui()
     for _, parent in ipairs(parents) do
         if parent then
             for _, child in ipairs(parent:GetChildren()) do
-                if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "ENI_InkGame_UI") then
+                if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "Unknown_InkGame_UI") then
                     pcall(function() child:Destroy() end)
                 end
             end
@@ -90,36 +90,36 @@ local function GetSafeParent()
 end
 
 local currentJobId = game.JobId
-if getgenv().ENI_SessionJobId and getgenv().ENI_SessionJobId ~= currentJobId then
-    getgenv().ENI_ActiveConnections = {}
-    getgenv().ENI_ActiveThreads = {}
+if getgenv().Unknown_SessionJobId and getgenv().Unknown_SessionJobId ~= currentJobId then
+    getgenv().Unknown_ActiveConnections = {}
+    getgenv().Unknown_ActiveThreads = {}
 end
-getgenv().ENI_SessionJobId = currentJobId
+getgenv().Unknown_SessionJobId = currentJobId
 
-getgenv().ENI_ActiveConnections = getgenv().ENI_ActiveConnections or {}
+getgenv().Unknown_ActiveConnections = getgenv().Unknown_ActiveConnections or {}
 local function RegisterConnection(conn)
     if not conn then return nil end
     if typeof(conn) == "RBXScriptConnection" then
-        for _, existing in ipairs(getgenv().ENI_ActiveConnections) do
+        for _, existing in ipairs(getgenv().Unknown_ActiveConnections) do
             if existing == conn then return conn end
         end
     end
-    table.insert(getgenv().ENI_ActiveConnections, conn)
+    table.insert(getgenv().Unknown_ActiveConnections, conn)
     return conn
 end
 
-if getgenv().ENI_Cleanup then pcall(getgenv().ENI_Cleanup) end
-getgenv().ENI_Cleanup = function()
+if getgenv().Unknown_Cleanup then pcall(getgenv().Unknown_Cleanup) end
+getgenv().Unknown_Cleanup = function()
     pcall(function()
-        if getgenv().ENI_ActiveThreads then
-            for _, th in ipairs(getgenv().ENI_ActiveThreads) do
+        if getgenv().Unknown_ActiveThreads then
+            for _, th in ipairs(getgenv().Unknown_ActiveThreads) do
                 pcall(function() if th and task.cancel then task.cancel(th) end end)
             end
         end
-        getgenv().ENI_ActiveThreads = {}
+        getgenv().Unknown_ActiveThreads = {}
 
-        if getgenv().ENI_ActiveConnections then
-            for _, conn in ipairs(getgenv().ENI_ActiveConnections) do
+        if getgenv().Unknown_ActiveConnections then
+            for _, conn in ipairs(getgenv().Unknown_ActiveConnections) do
                 pcall(function()
                     if typeof(conn) == "RBXScriptConnection" and conn.Connected then
                         conn:Disconnect()
@@ -127,7 +127,7 @@ getgenv().ENI_Cleanup = function()
                 end)
             end
         end
-        getgenv().ENI_ActiveConnections = {}
+        getgenv().Unknown_ActiveConnections = {}
 
         pcall(function()
             if Drawing then
@@ -139,7 +139,7 @@ getgenv().ENI_Cleanup = function()
 
         local parentObj = GetSafeParent()
         if parentObj then
-            local toRemove = {"ENI_Notifications", "ENI_InkGame_MasterHub_v9_4", "ENI_ToastFolder", "ENI_General_ESP", "ENI_GuardNPC_ESP", "ENI_Balloon_ESP", "ENI_Glass_Storage"}
+            local toRemove = {"Unknown_Notifications", "Unknown_InkGame_MasterHub", "Unknown_ToastFolder", "Unknown_General_ESP", "Unknown_GuardNPC_ESP", "Unknown_Balloon_ESP", "Unknown_Glass_Storage"}
             for _, name in ipairs(toRemove) do
                 local child = parentObj:FindFirstChild(name)
                 if child then pcall(function() child:Destroy() end) end
@@ -147,24 +147,24 @@ getgenv().ENI_Cleanup = function()
         end
     end)
 end
-getgenv().ENI_Cleanup()
+getgenv().Unknown_Cleanup()
 
-getgenv().ENI_ActiveThreads = {}
+getgenv().Unknown_ActiveThreads = {}
 local function RegisterThread(th)
     if not th then return nil end
-    if getgenv().ENI_ActiveThreads and #getgenv().ENI_ActiveThreads > 40 then
+    if getgenv().Unknown_ActiveThreads and #getgenv().Unknown_ActiveThreads > 40 then
         for i = 1, 10 do
-            local old = table.remove(getgenv().ENI_ActiveThreads, 1)
+            local old = table.remove(getgenv().Unknown_ActiveThreads, 1)
             if old and task.cancel then pcall(function() task.cancel(old) end) end
         end
     end
-    table.insert(getgenv().ENI_ActiveThreads, th)
+    table.insert(getgenv().Unknown_ActiveThreads, th)
     return th
 end
 
-getgenv().ENI_SilentAimbot = false
-getgenv().ENI_ExtendedReach = false
-getgenv().ENI_CtrlClickTP = false
+getgenv().Unknown_SilentAimbot = false
+getgenv().Unknown_ExtendedReach = false
+getgenv().Unknown_CtrlClickTP = false
 
 local function GetRemotesFolder()
     local ok, rf = pcall(function()
@@ -178,27 +178,27 @@ end
 
 RegisterConnection(LocalPlayer.CharacterAdded:Connect(function()
     pcall(function()
-        for _, name in ipairs({"ENI_General_ESP", "ENI_GuardNPC_ESP", "ENI_Balloon_ESP", "ENI_Glass_Storage"}) do
+        for _, name in ipairs({"Unknown_General_ESP", "Unknown_GuardNPC_ESP", "Unknown_Balloon_ESP", "Unknown_Glass_Storage"}) do
             local folder = CoreGui:FindFirstChild(name)
             if folder then folder:ClearAllChildren() end
         end
         collectgarbage("collect")
-        print("[ENI-GC] New round/spawn detected -> Cleared ESP caches & executed Lua Garbage Collection!")
+        print("[Unknown-GC] New round/spawn detected -> Cleared ESP caches & executed Lua Garbage Collection!")
     end)
 end))
 
 RegisterThread(task.spawn(function()
-    print("[ENI-PROTECT]", "Permanent Crash Prevention & Memory Watchdog ACTIVE!")
+    print("[Unknown-PROTECT]", "Permanent Crash Prevention & Memory Watchdog ACTIVE!")
     while true do
         task.wait(2.0)
         pcall(function()
             local luaMem = math.floor(gcinfo() / 1024)
-            local threadCount = getgenv().ENI_ActiveThreads and #getgenv().ENI_ActiveThreads or 0
+            local threadCount = getgenv().Unknown_ActiveThreads and #getgenv().Unknown_ActiveThreads or 0
 
             if luaMem > 220 or threadCount > 35 then
-                warn("[ENI-WATCHDOG]", "Threshold exceeded! Purging caches, clearing stale draws, and dropping excess threads. (Heap: " .. tostring(luaMem) .. " MB | Threads: " .. tostring(threadCount) .. ")")
+                warn("[Unknown-WATCHDOG]", "Threshold exceeded! Purging caches, clearing stale draws, and dropping excess threads. (Heap: " .. tostring(luaMem) .. " MB | Threads: " .. tostring(threadCount) .. ")")
                 if CoreGui then
-                    for _, name in ipairs({"ENI_General_ESP", "ENI_GuardNPC_ESP", "ENI_Balloon_ESP", "ENI_Glass_Storage"}) do
+                    for _, name in ipairs({"Unknown_General_ESP", "Unknown_GuardNPC_ESP", "Unknown_Balloon_ESP", "Unknown_Glass_Storage"}) do
                         local folder = CoreGui:FindFirstChild(name)
                         if folder then folder:ClearAllChildren() end
                     end
@@ -210,9 +210,9 @@ RegisterThread(task.spawn(function()
                         end
                     end
                 end)
-                if getgenv().ENI_ActiveThreads and #getgenv().ENI_ActiveThreads > 18 then
-                    for i = 1, math.min(12, #getgenv().ENI_ActiveThreads - 18) do
-                        local old = table.remove(getgenv().ENI_ActiveThreads, 1)
+                if getgenv().Unknown_ActiveThreads and #getgenv().Unknown_ActiveThreads > 18 then
+                    for i = 1, math.min(12, #getgenv().Unknown_ActiveThreads - 18) do
+                        local old = table.remove(getgenv().Unknown_ActiveThreads, 1)
                         if old and task.cancel then pcall(function() task.cancel(old) end) end
                     end
                 end
@@ -241,7 +241,7 @@ pcall(function()
     for _, parent in ipairs(targets) do
         if parent then
             for _, c in ipairs(parent:GetChildren()) do
-                if c.Name == "ENI_TabbedHub_UI" or c.Name == "ENI_InkGame_MasterHub_v9_4" then
+                if c.Name == "Unknown_TabbedHub_UI" or c.Name == "Unknown_InkGame_MasterHub" then
                     c:Destroy()
                 end
             end
@@ -250,7 +250,7 @@ pcall(function()
 end)
 
 local NotifGui = Instance.new("ScreenGui")
-NotifGui.Name = "ENI_Notifications"
+NotifGui.Name = "Unknown_Notifications"
 NotifGui.ResetOnSpawn = false
 NotifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 NotifGui.Parent = GetSafeParent()
@@ -279,7 +279,7 @@ local function Notify(category, titleText, msgText, durationSec)
     })
 end
 
-local function ENI_Notify(title, text, typeName, duration)
+local function Unknown_Notify(title, text, typeName, duration)
     Notify(typeName, title, text, duration)
 end
 
@@ -356,7 +356,7 @@ CreateButton(Pages["🌐 Main & Movement"], "🔍 Run Live Self-Diagnostic Healt
         end
 
         local storageCount = 0
-        for _, sName in ipairs({"ENI_General_ESP", "ENI_Balloon_ESP", "ENI_HNS_ESP", "ENI_Glass_Storage", "ENI_GuardNPC_ESP"}) do
+        for _, sName in ipairs({"Unknown_General_ESP", "Unknown_Balloon_ESP", "Unknown_HNS_ESP", "Unknown_Glass_Storage", "Unknown_GuardNPC_ESP"}) do
             if CoreGui:FindFirstChild(sName) then storageCount = storageCount + 1 end
         end
         table.insert(results, "✅ CoreGui Storage: " .. tostring(storageCount) .. "/5 Folders Active")
@@ -365,8 +365,8 @@ CreateButton(Pages["🌐 Main & Movement"], "🔍 Run Live Self-Diagnostic Healt
         table.insert(results, "ℹ️ Sub-Place ID: " .. tostring(placeId))
 
         local fullReport = table.concat(results, "\n")
-        print("\n--- [ENI DIAGNOSTIC REPORT] ---\n" .. fullReport .. "\n-------------------------------")
-        ENI_Notify("Diagnostic Check Complete", "All systems operational! Check F9 Console for details.", "Success", 4)
+        print("\n--- [Unknown DIAGNOSTIC REPORT] ---\n" .. fullReport .. "\n-------------------------------")
+        Unknown_Notify("Diagnostic Check Complete", "All systems operational! Check F9 Console for details.", "Success", 4)
     end)
 end)
 
@@ -379,10 +379,10 @@ CreateSlider(Pages["🌐 Main & Movement"], "WalkSpeed", 16, 120, 16, 5, functio
 end)
 
 CreateToggle(Pages["🌐 Main & Movement"], "⚡ Stealth CFrame Wall-Bypass Noclip", 60, function(state)
-    getgenv().ENI_NoclipActive = state
+    getgenv().Unknown_NoclipActive = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_NoclipActive do
+            while getgenv().Unknown_NoclipActive do
                 task.wait(0.02)
                 pcall(function()
                     local char = LocalPlayer.Character
@@ -402,12 +402,12 @@ CreateToggle(Pages["🌐 Main & Movement"], "⚡ Stealth CFrame Wall-Bypass Nocl
             end
         end))
     else
-        getgenv().ENI_NoclipActive = false
+        getgenv().Unknown_NoclipActive = false
     end
 end)
 
 CreateToggle(Pages["🌐 Main & Movement"], "Ctrl + Click TP", 103, function(state)
-    getgenv().ENI_CtrlClickTP = state
+    getgenv().Unknown_CtrlClickTP = state
 end)
 
 CreateButton(Pages["🌐 Main & Movement"], "⚡ Teleport to Map Roof", 140, function()
@@ -425,7 +425,7 @@ CreateButton(Pages["🌐 Main & Movement"], "⚡ Teleport to Map Roof", 140, fun
                 end
             end
             hrp.CFrame = CFrame.new(hrp.Position.X, highestY + 8, hrp.Position.Z)
-            print("[ENI-TP] Teleported to Map Roof surface!")
+            print("[Unknown-TP] Teleported to Map Roof surface!")
         end
     end)
 end)
@@ -441,7 +441,7 @@ CreateButton(Pages["🌐 Main & Movement"], "🏰 Teleport to Main Lobby / Spawn
                 if cf then hrp.CFrame = cf + Vector3.new(0, 5, 0) return end
             end
             hrp.CFrame = CFrame.new(0, 15, 0)
-            print("[ENI-TP] Teleported to Main Lobby / Spawn!")
+            print("[Unknown-TP] Teleported to Main Lobby / Spawn!")
         end
     end)
 end)
@@ -449,7 +449,7 @@ end)
 local savedLighting = nil
 
 CreateToggle(Pages["🌐 Main & Movement"], "☀️ Fullbright & Remove Dark Fog", 220, function(state)
-    getgenv().ENI_Fullbright = state
+    getgenv().Unknown_Fullbright = state
     local lighting = game:GetService("Lighting")
     if state then
         if not savedLighting then
@@ -474,7 +474,7 @@ CreateToggle(Pages["🌐 Main & Movement"], "☀️ Fullbright & Remove Dark Fog
         end
 
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_Fullbright do
+            while getgenv().Unknown_Fullbright do
                 pcall(function()
                     lighting.ClockTime = 12
                     lighting.GlobalShadows = false
@@ -497,7 +497,7 @@ CreateToggle(Pages["🌐 Main & Movement"], "☀️ Fullbright & Remove Dark Fog
             end
         end))
     else
-        getgenv().ENI_Fullbright = false
+        getgenv().Unknown_Fullbright = false
         task.wait(0.05)
         pcall(function()
             if savedLighting then
@@ -530,16 +530,16 @@ CreateToggle(Pages["🌐 Main & Movement"], "☀️ Fullbright & Remove Dark Fog
                 lighting.FogEnd = 10000
                 lighting.FogStart = 0
             end
-            print("[ENI-LIGHTING] Fullbright Disabled -> Exact Original Lighting & Effects Restored!")
+            print("[Unknown-LIGHTING] Fullbright Disabled -> Exact Original Lighting & Effects Restored!")
         end)
     end
 end)
 
 CreateToggle(Pages["🌐 Main & Movement"], "⚡ Instant Proximity Prompt Interactor", 260, function(state)
-    getgenv().ENI_InstantPrompts = state
+    getgenv().Unknown_InstantPrompts = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_InstantPrompts do
+            while getgenv().Unknown_InstantPrompts do
                 task.wait(0.3)
                 pcall(function()
                     for _, prompt in ipairs(workspace:GetDescendants()) do
@@ -551,21 +551,21 @@ CreateToggle(Pages["🌐 Main & Movement"], "⚡ Instant Proximity Prompt Intera
             end
         end))
     else
-        getgenv().ENI_InstantPrompts = false
+        getgenv().Unknown_InstantPrompts = false
     end
 end)
 
-getgenv().ENI_MasterESP = false -- Default OFF (No Auto-Enable)
-getgenv().ENI_EspHighlight = true
-getgenv().ENI_EspNames = true
-getgenv().ENI_EspHealth = true
-getgenv().ENI_EspBoxes = false
-getgenv().ENI_EspTracers = false
-getgenv().ENI_TracersList = getgenv().ENI_TracersList or {}
+getgenv().Unknown_MasterESP = false -- Default OFF (No Auto-Enable)
+getgenv().Unknown_EspHighlight = true
+getgenv().Unknown_EspNames = true
+getgenv().Unknown_EspHealth = true
+getgenv().Unknown_EspBoxes = false
+getgenv().Unknown_EspTracers = false
+getgenv().Unknown_TracersList = getgenv().Unknown_TracersList or {}
 
 local function ClearAllTracers()
-    getgenv().ENI_TracersList = getgenv().ENI_TracersList or {}
-    for pKey, tracer in pairs(getgenv().ENI_TracersList) do
+    getgenv().Unknown_TracersList = getgenv().Unknown_TracersList or {}
+    for pKey, tracer in pairs(getgenv().Unknown_TracersList) do
         pcall(function()
             if tracer then
                 tracer.Visible = false
@@ -573,11 +573,11 @@ local function ClearAllTracers()
             end
         end)
     end
-    getgenv().ENI_TracersList = {}
+    getgenv().Unknown_TracersList = {}
 end
 
 CreateToggle(Pages["👁️ ESP & Visuals"], "⚡ Enable ESP", 5, function(state)
-    getgenv().ENI_MasterESP = state
+    getgenv().Unknown_MasterESP = state
     if not state then
         if GeneralEspStorage then
             GeneralEspStorage:ClearAllChildren()
@@ -647,8 +647,8 @@ for _, opt in ipairs(espOptions) do
     optY = optY + 30
 end
 
-local GeneralEspStorage = CoreGui:FindFirstChild("ENI_General_ESP") or Instance.new("Folder", CoreGui)
-GeneralEspStorage.Name = "ENI_General_ESP"
+local GeneralEspStorage = CoreGui:FindFirstChild("Unknown_General_ESP") or Instance.new("Folder", CoreGui)
+GeneralEspStorage.Name = "Unknown_General_ESP"
 
 local function GetHealthColor(pct)
     if pct >= 0.75 then return Color3.fromRGB(math.floor(255 * (1 - ((pct - 0.75) / 0.25))), 255, 30)
@@ -661,7 +661,7 @@ RegisterThread(task.spawn(function()
     while true do
         task.wait(0.1) -- Stable 10 FPS scan rate to prevent frame starvation & client crashes!
         pcall(function()
-            if not getgenv().ENI_MasterESP then
+            if not getgenv().Unknown_MasterESP then
                 GeneralEspStorage:ClearAllChildren()
                 ClearAllTracers()
                 return
@@ -684,7 +684,7 @@ RegisterThread(task.spawn(function()
                     local dist = myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0
 
                     local hl = GeneralEspStorage:FindFirstChild("HL_" .. pKey)
-                    if getgenv().ENI_EspHighlight then
+                    if getgenv().Unknown_EspHighlight then
                         if not hl then
                             hl = Instance.new("Highlight")
                             hl.Name = "HL_" .. pKey
@@ -699,7 +699,7 @@ RegisterThread(task.spawn(function()
                     end
 
                     local bb = GeneralEspStorage:FindFirstChild(pKey)
-                    if getgenv().ENI_EspNames or getgenv().ENI_EspHealth then
+                    if getgenv().Unknown_EspNames or getgenv().Unknown_EspHealth then
                         if not bb then
                             bb = Instance.new("BillboardGui")
                             bb.Name = pKey
@@ -723,10 +723,10 @@ RegisterThread(task.spawn(function()
                         local txt = bb:FindFirstChild("Text", true)
                         if txt then
                             local labelLines = {}
-                            if getgenv().ENI_EspNames then
+                            if getgenv().Unknown_EspNames then
                                 table.insert(labelLines, string.format("%s (@%s)", targetPlayer.DisplayName, targetPlayer.Name))
                             end
-                            if getgenv().ENI_EspHealth then
+                            if getgenv().Unknown_EspHealth then
                                 table.insert(labelLines, string.format("%d HP (%d%%) • %dm", math.floor(hum.Health), math.floor(healthPct * 100), dist))
                             end
                             txt.Text = table.concat(labelLines, "\n")
@@ -737,7 +737,7 @@ RegisterThread(task.spawn(function()
                     end
 
                     local box = GeneralEspStorage:FindFirstChild("Box_" .. pKey)
-                    if getgenv().ENI_EspBoxes then
+                    if getgenv().Unknown_EspBoxes then
                         if not box then
                             box = Instance.new("SelectionBox")
                             box.Name = "Box_" .. pKey
@@ -750,29 +750,29 @@ RegisterThread(task.spawn(function()
                         box:Destroy()
                     end
 
-                    if getgenv().ENI_EspTracers and Drawing then
+                    if getgenv().Unknown_EspTracers and Drawing then
                         local screenPos, onScreen = cam:WorldToViewportPoint(hrp.Position)
                         if onScreen then
-                            local tracer = getgenv().ENI_TracersList[pKey]
+                            local tracer = getgenv().Unknown_TracersList[pKey]
                             if not tracer then
                                 tracer = Drawing.new("Line")
                                 tracer.Thickness = 1.5
                                 tracer.Transparency = 0.8
-                                getgenv().ENI_TracersList[pKey] = tracer
+                                getgenv().Unknown_TracersList[pKey] = tracer
                             end
                             tracer.From = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
                             tracer.To = Vector2.new(screenPos.X, screenPos.Y)
                             tracer.Color = hpColor
                             tracer.Visible = true
-                        elseif getgenv().ENI_TracersList[pKey] then
-                            getgenv().ENI_TracersList[pKey].Visible = false
+                        elseif getgenv().Unknown_TracersList[pKey] then
+                            getgenv().Unknown_TracersList[pKey].Visible = false
                         end
-                    elseif getgenv().ENI_TracersList[pKey] then
+                    elseif getgenv().Unknown_TracersList[pKey] then
                         pcall(function()
-                            getgenv().ENI_TracersList[pKey].Visible = false
-                            getgenv().ENI_TracersList[pKey]:Remove()
+                            getgenv().Unknown_TracersList[pKey].Visible = false
+                            getgenv().Unknown_TracersList[pKey]:Remove()
                         end)
-                        getgenv().ENI_TracersList[pKey] = nil
+                        getgenv().Unknown_TracersList[pKey] = nil
                     end
                 end
             end
@@ -783,8 +783,8 @@ RegisterThread(task.spawn(function()
                     child:Destroy()
                 end
             end
-            for pKey, tracer in pairs(getgenv().ENI_TracersList) do
-                if not activeUsers[pKey] or not getgenv().ENI_EspTracers then
+            for pKey, tracer in pairs(getgenv().Unknown_TracersList) do
+                if not activeUsers[pKey] or not getgenv().Unknown_EspTracers then
                     pcall(function()
                         tracer.Visible = false
                         tracer:Remove()
@@ -795,7 +795,7 @@ RegisterThread(task.spawn(function()
     end
 end))
 local mouse = LocalPlayer:GetMouse()
-UserInputService.InputBegan:Connect(function(input, gpe) if not gpe and getgenv().ENI_CtrlClickTP and input.UserInputType == Enum.UserInputType.MouseButton1 and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then pcall(function() if mouse and mouse.Hit and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0)) end end) end end)
+UserInputService.InputBegan:Connect(function(input, gpe) if not gpe and getgenv().Unknown_CtrlClickTP and input.UserInputType == Enum.UserInputType.MouseButton1 and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then pcall(function() if mouse and mouse.Hit and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(mouse.Hit.Position + Vector3.new(0, 3, 0)) end end) end end)
 RegisterThread(task.spawn(function()
     while true do
         task.wait(0.3)
@@ -899,18 +899,18 @@ CreateButton(Pages["🌐 Universal & ESP"], "🚨 EMERGENCY FORCE UNFREEZE RESCU
                     gui.Enabled = true
                 end
             end
-        print("[ENI-RESCUE] Screen freeze cleared, character unfrozen, camera & lighting restored!")
+        print("[Unknown-RESCUE] Screen freeze cleared, character unfrozen, camera & lighting restored!")
     end)
 end)
 
-local BalloonEspStorage = CoreGui:FindFirstChild("ENI_Balloon_ESP") or Instance.new("Folder", CoreGui)
-BalloonEspStorage.Name = "ENI_Balloon_ESP"
+local BalloonEspStorage = CoreGui:FindFirstChild("Unknown_Balloon_ESP") or Instance.new("Folder", CoreGui)
+BalloonEspStorage.Name = "Unknown_Balloon_ESP"
 
 CreateToggle(Pages["👁️ ESP & Visuals"], "🎈 Sky Balloon ESP", 320, function(state)
-    getgenv().ENI_BalloonESP = state
+    getgenv().Unknown_BalloonESP = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_BalloonESP do
+            while getgenv().Unknown_BalloonESP do
                 task.wait(0.5)
                 pcall(function()
                     BalloonEspStorage:ClearAllChildren()
@@ -950,16 +950,16 @@ CreateToggle(Pages["👁️ ESP & Visuals"], "🎈 Sky Balloon ESP", 320, functi
             end
         end))
     else
-        getgenv().ENI_BalloonESP = false
+        getgenv().Unknown_BalloonESP = false
         BalloonEspStorage:ClearAllChildren()
     end
 end)
 
 CreateToggle(Pages["🌐 Main & Movement"], "🎈 Proximity Balloon Auto-Pop", 300, function(state)
-    getgenv().ENI_AutoPopBalloons = state
+    getgenv().Unknown_AutoPopBalloons = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoPopBalloons do
+            while getgenv().Unknown_AutoPopBalloons do
                 task.wait(0.2) -- Throttled check: 0 spam when far away!
                 pcall(function()
                     local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -992,15 +992,15 @@ CreateToggle(Pages["🌐 Main & Movement"], "🎈 Proximity Balloon Auto-Pop", 3
             end
         end))
     else
-        getgenv().ENI_AutoPopBalloons = false
+        getgenv().Unknown_AutoPopBalloons = false
     end
 end)
 
 local targetModes = {"Marked Players", "Guards (Rebel Mode)", "Enemy Players (Guard Mode)", "Universal (All Players)"}
-getgenv().ENI_AimbotMode = "Marked Players"
-CreateDropdown(Pages["🎯 Melee & Guns"], "🎯 Target Mode", targetModes, "Marked Players", 5, function(selected) getgenv().ENI_AimbotMode = selected print("[ENI-AIMBOT] Target mode set to:", selected) end)
+getgenv().Unknown_AimbotMode = "Marked Players"
+CreateDropdown(Pages["🎯 Melee & Guns"], "🎯 Target Mode", targetModes, "Marked Players", 5, function(selected) getgenv().Unknown_AimbotMode = selected print("[Unknown-AIMBOT] Target mode set to:", selected) end)
 
-getgenv().ENI_ManualMarkedPlayers = getgenv().ENI_ManualMarkedPlayers or {}
+getgenv().Unknown_ManualMarkedPlayers = getgenv().Unknown_ManualMarkedPlayers or {}
 
 CreateButton(Pages["🎯 Melee & Guns"], "📌 Mark Closest Player to Crosshair for Aimbot", 12, function()
     pcall(function()
@@ -1019,8 +1019,8 @@ CreateButton(Pages["🎯 Melee & Guns"], "📌 Mark Closest Player to Crosshair 
         end
 
         if closestP then
-            getgenv().ENI_ManualMarkedPlayers[closestP.Name] = true
-            getgenv().ENI_ManualMarkedPlayers[closestP] = true
+            getgenv().Unknown_ManualMarkedPlayers[closestP.Name] = true
+            getgenv().Unknown_ManualMarkedPlayers[closestP] = true
             if closestP.Character then
                 closestP.Character:SetAttribute("Marked", true)
                 local hl = Instance.new("Highlight")
@@ -1030,30 +1030,30 @@ CreateButton(Pages["🎯 Melee & Guns"], "📌 Mark Closest Player to Crosshair 
                 hl.OutlineColor = Color3.fromRGB(255, 255, 255)
                 hl.Parent = closestP.Character
             end
-            print("[ENI-MARK] Marked player for Aimbot:", closestP.Name)
+            print("[Unknown-MARK] Marked player for Aimbot:", closestP.Name)
         end
     end)
 end)
 
 CreateButton(Pages["🎯 Melee & Guns"], "🧹 Clear All Marked Aimbot Targets", 18, function()
-    getgenv().ENI_ManualMarkedPlayers = {}
+    getgenv().Unknown_ManualMarkedPlayers = {}
     for _, player in ipairs(Players:GetPlayers()) do
         if player.Character then
             local hl = player.Character:FindFirstChild("ENI_ManualMark_HL")
             if hl then hl:Destroy() end
         end
     end
-    print("[ENI-MARK] Cleared all marked aimbot targets!")
+    print("[Unknown-MARK] Cleared all marked aimbot targets!")
 end)
 
-getgenv().ENI_ManualMarkedPlayers = getgenv().ENI_ManualMarkedPlayers or {}
+getgenv().Unknown_ManualMarkedPlayers = getgenv().Unknown_ManualMarkedPlayers or {}
 local markedCache = {}
 
 local function IsPlayerMarked(player)
     if not (player and player.Character and player.Character.Parent) then
         if player then
-            getgenv().ENI_ManualMarkedPlayers[player.Name] = nil
-            getgenv().ENI_ManualMarkedPlayers[player] = nil
+            getgenv().Unknown_ManualMarkedPlayers[player.Name] = nil
+            getgenv().Unknown_ManualMarkedPlayers[player] = nil
             markedCache[player] = nil
         end
         return false
@@ -1062,8 +1062,8 @@ local function IsPlayerMarked(player)
     local char = player.Character
     local hum = char:FindFirstChildOfClass("Humanoid") or char:FindFirstChild("Humanoid")
     if not (hum and hum.Health > 0) then
-        getgenv().ENI_ManualMarkedPlayers[player.Name] = nil
-        getgenv().ENI_ManualMarkedPlayers[player] = nil
+        getgenv().Unknown_ManualMarkedPlayers[player.Name] = nil
+        getgenv().Unknown_ManualMarkedPlayers[player] = nil
         markedCache[player] = nil
         return false
     end
@@ -1075,7 +1075,7 @@ local function IsPlayerMarked(player)
     end
 
     local function EvaluateMarked()
-        if getgenv().ENI_ManualMarkedPlayers[player.Name] or getgenv().ENI_ManualMarkedPlayers[player] then
+        if getgenv().Unknown_ManualMarkedPlayers[player.Name] or getgenv().Unknown_ManualMarkedPlayers[player] then
             return true
         end
 
@@ -1147,7 +1147,7 @@ local function GetAimTargetPosition(part)
 end
 
 local function GetSelectedTargetHead()
-    local mode = getgenv().ENI_AimbotMode or "Universal (All Players)"
+    local mode = getgenv().Unknown_AimbotMode or "Universal (All Players)"
     local cam = workspace.CurrentCamera
     if not cam then return nil end
     local mouseLoc = UserInputService:GetMouseLocation()
@@ -1225,18 +1225,18 @@ local function GetSelectedTargetHead()
 end
 
 CreateToggle(Pages["🎯 Melee & Guns"], "🔫 Silent Aimbot", 50, function(state)
-    getgenv().ENI_SilentAimbot = state
+    getgenv().Unknown_SilentAimbot = state
 end)
 
 CreateToggle(Pages["🎯 Melee & Guns"], "⚡ Ultra Rapid Fire Loop", 93, function(state)
-    getgenv().ENI_RapidFireActive = state
+    getgenv().Unknown_RapidFireActive = state
     if state then
         RegisterThread(task.spawn(function()
             local lastBurstAt = 0
             local ammoNames = {"Bullets", "MaxBullets", "Ammo", "MaxAmmo", "ClipAmmo", "ClipSize", "CurrentAmmo", "StoredAmmo", "AmmoCount", "Magazine", "CurrentClip", "Clip", "Current", "Rounds", "ShotsLeft"}
             local boolNames = {"Reloading", "IsReloading", "NeedsReload", "CanFire", "Ready", "Enabled", "Debounce", "Cooldown"}
 
-            while getgenv().ENI_RapidFireActive do
+            while getgenv().Unknown_RapidFireActive do
                 task.wait(0.03)
                 pcall(function()
                     local now = os.clock()
@@ -1325,7 +1325,7 @@ CreateToggle(Pages["🎯 Melee & Guns"], "⚡ Ultra Rapid Fire Loop", 93, functi
                             preferredTool:Activate()
                         end)
                         if not ok then
-                            warn("[ENI-RAPID-FIRE] Activate failed: " .. tostring(err))
+                            warn("[Unknown-RAPID-FIRE] Activate failed: " .. tostring(err))
                         end
                     end)
 
@@ -1357,12 +1357,12 @@ CreateToggle(Pages["🎯 Melee & Guns"], "⚡ Ultra Rapid Fire Loop", 93, functi
             end
         end))
     else
-        getgenv().ENI_RapidFireActive = false
+        getgenv().Unknown_RapidFireActive = false
     end
 end)
 
 RegisterConnection(RunService.RenderStepped:Connect(function()
-    if not getgenv().ENI_SilentAimbot then return end
+    if not getgenv().Unknown_SilentAimbot then return end
     local isHoldingAim = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
     if not isHoldingAim then return end
 
@@ -1378,9 +1378,9 @@ RegisterConnection(RunService.RenderStepped:Connect(function()
 end))
 
 CreateToggle(Pages["🎯 Melee & Guns"], "♾️ Infinite Ammo & Zero Reload", 93, function(state)
-    getgenv().ENI_InfiniteAmmoRLGL = state
+    getgenv().Unknown_InfiniteAmmoRLGL = state
     if not state then
-        getgenv().ENI_InfiniteAmmoRLGL = false
+        getgenv().Unknown_InfiniteAmmoRLGL = false
         return
     end
 
@@ -1447,7 +1447,7 @@ CreateToggle(Pages["🎯 Melee & Guns"], "♾️ Infinite Ammo & Zero Reload", 9
             end
         end
 
-        while getgenv().ENI_InfiniteAmmoRLGL do
+        while getgenv().Unknown_InfiniteAmmoRLGL do
             task.wait(0.1)
             pcall(function()
                 local char = LocalPlayer.Character
@@ -1484,12 +1484,12 @@ CreateToggle(Pages["🎯 Melee & Guns"], "♾️ Infinite Ammo & Zero Reload", 9
 end)
 
 CreateToggle(Pages["🎯 Melee & Guns"], "💀 1-Hit Kill Damage Boost", 136, function(state)
-    getgenv().ENI_OneHitKill = state
+    getgenv().Unknown_OneHitKill = state
     if state then
         RegisterThread(task.spawn(function()
             local gunDmgModule = nil
             pcall(function() gunDmgModule = require(game:GetService("ReplicatedStorage").Modules.GunDamageValues) end)
-            while getgenv().ENI_OneHitKill do
+            while getgenv().Unknown_OneHitKill do
                 task.wait(1.0)
                 pcall(function()
                     if gunDmgModule then
@@ -1503,35 +1503,35 @@ CreateToggle(Pages["🎯 Melee & Guns"], "💀 1-Hit Kill Damage Boost", 136, fu
             end
         end))
     else
-        getgenv().ENI_OneHitKill = false
+        getgenv().Unknown_OneHitKill = false
     end
 end)
 
 local reachSizeVal = 15
 CreateSlider(Pages["🎯 Melee & Guns"], "Extended Melee Reach (Studs)", 5, 50, 15, 5, function(val) reachSizeVal = val end)
-CreateToggle(Pages["🎯 Melee & Guns"], "⚡ Extended Melee Hitbox", 60, function(state) getgenv().ENI_ExtendedReach = state end)
-RegisterThread(task.spawn(function() while true do task.wait(0.3) if getgenv().ENI_ExtendedReach then pcall(function() local char = LocalPlayer.Character if char then for _, tool in ipairs(char:GetChildren()) do if tool:IsA("Tool") then for _, part in ipairs(tool:GetDescendants()) do if part:IsA("BasePart") then part.Size = Vector3.new(reachSizeVal, reachSizeVal, reachSizeVal) part.Transparency = 0.8 part.Color = Color3.fromRGB(255, 0, 150) part.Massless = true part.CanCollide = false end end end end end end) end end end))
+CreateToggle(Pages["🎯 Melee & Guns"], "⚡ Extended Melee Hitbox", 60, function(state) getgenv().Unknown_ExtendedReach = state end)
+RegisterThread(task.spawn(function() while true do task.wait(0.3) if getgenv().Unknown_ExtendedReach then pcall(function() local char = LocalPlayer.Character if char then for _, tool in ipairs(char:GetChildren()) do if tool:IsA("Tool") then for _, part in ipairs(tool:GetDescendants()) do if part:IsA("BasePart") then part.Size = Vector3.new(reachSizeVal, reachSizeVal, reachSizeVal) part.Transparency = 0.8 part.Color = Color3.fromRGB(255, 0, 150) part.Massless = true part.CanCollide = false end end end end end end) end end end))
 
 local ENI_IsAiming = false
 local UserInputService = game:GetService("UserInputService")
 UserInputService.InputBegan:Connect(function(input, gpe)
-    if not gpe and input.UserInputType == Enum.UserInputType.MouseButton2 then getgenv().ENI_IsAiming = true end
+    if not gpe and input.UserInputType == Enum.UserInputType.MouseButton2 then getgenv().Unknown_IsAiming = true end
 end)
 UserInputService.InputEnded:Connect(function(input, gpe)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then getgenv().ENI_IsAiming = false end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then getgenv().Unknown_IsAiming = false end
 end)
 
 CreateToggle(Pages["🔺 Red Light Green Light"], "⚡ RLGL Doll Freeze & Movement Bypass", 5, function(state)
-    getgenv().ENI_RLGLBypass = state
+    getgenv().Unknown_RLGLBypass = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_RLGLBypass do
+            while getgenv().Unknown_RLGLBypass do
                 task.wait(0.2)
                 pcall(function() local char = LocalPlayer.Character if char then char:SetAttribute("ClickedOrJumpedRecently", nil) char:SetAttribute("Freeze", nil) char:SetAttribute("Slowed", nil) end end)
             end
         end))
     else
-        getgenv().ENI_RLGLBypass = false
+        getgenv().Unknown_RLGLBypass = false
     end
 end)
 local function GetRLGLDollOrTree()
@@ -1561,10 +1561,10 @@ CreateButton(Pages["🔺 Red Light Green Light"], "⚡ Teleport to RLGL Tree / D
 end)
 
 CreateToggle(Pages["🔺 Red Light Green Light"], "⚡ Auto-Win RLGL", 91, function(state)
-    getgenv().ENI_AutoRLGL = state
+    getgenv().Unknown_AutoRLGL = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoRLGL do
+            while getgenv().Unknown_AutoRLGL do
                 task.wait(1.0)
                 pcall(function()
                     local currentGame = workspace:FindFirstChild("Values") and workspace.Values:FindFirstChild("CurrentGame") and workspace.Values.CurrentGame.Value
@@ -1582,7 +1582,7 @@ CreateToggle(Pages["🔺 Red Light Green Light"], "⚡ Auto-Win RLGL", 91, funct
             end
         end))
     else
-        getgenv().ENI_AutoRLGL = false
+        getgenv().Unknown_AutoRLGL = false
     end
 end)
 
@@ -1614,16 +1614,16 @@ CreateButton(Pages["🍪 Dalgona Cookie"], "⚡ Hook 1B Dalgona Lighter", 5, fun
             end
         end
 
-        ENI_Notify("Dalgona Lighter", "1B Dalgona Lighter hooked & unlocked!", "Success", 3)
-        print("[ENI-DALGONA] 1B Dalgona Lighter hooked & unlocked!")
+        Unknown_Notify("Dalgona Lighter", "1B Dalgona Lighter hooked & unlocked!", "Success", 3)
+        print("[Unknown-DALGONA] 1B Dalgona Lighter hooked & unlocked!")
     end)
 end)
 
 CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Dalgona Safe Uncrackable Godmode", 48, function(state)
-    getgenv().ENI_DalgonaGodmode = state
+    getgenv().Unknown_DalgonaGodmode = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_DalgonaGodmode do
+            while getgenv().Unknown_DalgonaGodmode do
                 task.wait(0.005) -- 200 FPS ultra-fast tick so game scripts can NEVER catch stress > 0
                 pcall(function()
                     LocalPlayer:SetAttribute("DalgonaStress", 0)
@@ -1670,16 +1670,16 @@ CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Dalgona Safe Uncrackable Godmode
             end
         end))
     else
-        getgenv().ENI_DalgonaGodmode = false
+        getgenv().Unknown_DalgonaGodmode = false
     end
 end)
 
 CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Perfect Auto Cookie Carver", 91, function(state)
-    getgenv().ENI_DalgonaAutoCarve = state
+    getgenv().Unknown_DalgonaAutoCarve = state
     if state then
         RegisterThread(task.spawn(function()
             local VIM = game:GetService("VirtualInputManager")
-            while getgenv().ENI_DalgonaAutoCarve do
+            while getgenv().Unknown_DalgonaAutoCarve do
                 task.wait(0.05)
                 pcall(function()
                     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -1721,16 +1721,16 @@ CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Perfect Auto Cookie Carver", 91,
             end
         end))
     else
-        getgenv().ENI_DalgonaAutoCarve = false
+        getgenv().Unknown_DalgonaAutoCarve = false
     end
 end)
 
 CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Auto-Breathing & Lighter Heat Engine", 134, function(state)
-    getgenv().ENI_DalgonaBreathing = state
+    getgenv().Unknown_DalgonaBreathing = state
     if state then
         RegisterThread(task.spawn(function()
             local VIM = game:GetService("VirtualInputManager")
-            while getgenv().ENI_DalgonaBreathing do
+            while getgenv().Unknown_DalgonaBreathing do
                 task.wait(0.15)
                 pcall(function()
                     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -1760,7 +1760,7 @@ CreateToggle(Pages["🍪 Dalgona Cookie"], "⚡ Auto-Breathing & Lighter Heat En
             end
         end))
     else
-        getgenv().ENI_DalgonaBreathing = false
+        getgenv().Unknown_DalgonaBreathing = false
     end
 end)
 
@@ -1827,17 +1827,17 @@ CreateButton(Pages["🍪 Dalgona Cookie"], "⚡ Instant Dalgona Server Auto-Win"
             end
         end
 
-        ENI_Notify("Dalgona Auto-Win", "Instant Server Auto-Win executed successfully!", "Success", 3)
-        print("[ENI-DALGONA] Instant Server Auto-Win executed successfully!")
+        Unknown_Notify("Dalgona Auto-Win", "Instant Server Auto-Win executed successfully!", "Success", 3)
+        print("[Unknown-DALGONA] Instant Server Auto-Win executed successfully!")
     end)
 end)
 
 CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Pull Tug-Of-War Spam", 5, function(state)
-    getgenv().ENI_AutoTugOfWar = state
+    getgenv().Unknown_AutoTugOfWar = state
     if state then
         RegisterThread(task.spawn(function()
             local VIM = game:GetService("VirtualInputManager")
-            while getgenv().ENI_AutoTugOfWar do
+            while getgenv().Unknown_AutoTugOfWar do
                 task.wait(0.015) -- High-speed 60 FPS tap engine
                 pcall(function()
                     VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
@@ -1880,18 +1880,18 @@ CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Pull Tug-Of-War Spam", 5, funct
             end
         end))
     else
-        getgenv().ENI_AutoTugOfWar = false
+        getgenv().Unknown_AutoTugOfWar = false
     end
 end)
 
 CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Jump-Rope Perfect A / D Balance Solver", 48, function(state)
-    getgenv().ENI_JumpRopeBalance = state
+    getgenv().Unknown_JumpRopeBalance = state
     if state then
         RegisterThread(task.spawn(function()
             local VIM = game:GetService("VirtualInputManager")
-            print("[ENI-JUMPROPE] Overhauled 4-Way Auto Jump-Rope Balance Solver ACTIVE!")
+            print("[Unknown-JUMPROPE] Overhauled 4-Way Auto Jump-Rope Balance Solver ACTIVE!")
             
-            while getgenv().ENI_JumpRopeBalance do
+            while getgenv().Unknown_JumpRopeBalance do
                 task.wait(0.016) -- High-speed 60 FPS balance tick
                 pcall(function()
                     local char = LocalPlayer.Character
@@ -1992,18 +1992,18 @@ CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Jump-Rope Perfect A / D Balance
             end
         end))
     else
-        getgenv().ENI_JumpRopeBalance = false
+        getgenv().Unknown_JumpRopeBalance = false
     end
 end)
 
 CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Reflex Rush", 100, function(state)
-    getgenv().ENI_AutoReflexRush = state
+    getgenv().Unknown_AutoReflexRush = state
     if state then
         RegisterThread(task.spawn(function()
             local VIM = game:GetService("VirtualInputManager")
-            print("[ENI-REFLEX] Auto Reflex Rush 3D Blue Circles Solver ACTIVE!")
+            print("[Unknown-REFLEX] Auto Reflex Rush 3D Blue Circles Solver ACTIVE!")
 
-            while getgenv().ENI_AutoReflexRush do
+            while getgenv().Unknown_AutoReflexRush do
                 task.wait(0.2) -- Stable 5 Hz scan rate (prevents CPU & input thread freeze!)
                 pcall(function()
                     local cam = workspace.CurrentCamera
@@ -2050,7 +2050,7 @@ CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Reflex Rush", 100, function(sta
                     end
 
                     for _, targetPart in ipairs(blueTargets) do
-                        if not getgenv().ENI_AutoReflexRush then break end
+                        if not getgenv().Unknown_AutoReflexRush then break end
 
                         local cd = targetPart:FindFirstChildOfClass("ClickDetector")
                         if cd and fireclickdetector then
@@ -2098,15 +2098,15 @@ CreateToggle(Pages["🪢 Tug Of War"], "⚡ Auto Reflex Rush", 100, function(sta
             end
         end))
     else
-        getgenv().ENI_AutoReflexRush = false
+        getgenv().Unknown_AutoReflexRush = false
     end
 end)
 
 CreateToggle(Pages["🪨 Marbles & QTE"], "⚡ 100% Instant Auto-QTE Solver", 5, function(state)
-    getgenv().ENI_AutoQTE = state
+    getgenv().Unknown_AutoQTE = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoQTE do
+            while getgenv().Unknown_AutoQTE do
                 task.wait(0.05)
                 pcall(function()
                     local mod = qteModuleLoaded
@@ -2132,12 +2132,12 @@ end)
 CreateButton(Pages["🪨 Marbles & QTE"], "🔍 Dump Active Minigame UI Hierarchy", 12, function()
     pcall(function()
         print("--------------------------------------------------")
-        print("⚡ [ENI-DUMPER] Scanning PlayerGui for active minigame GUIs...")
+        print("⚡ [Unknown-DUMPER] Scanning PlayerGui for active minigame GUIs...")
         print("--------------------------------------------------")
 
         local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
         if not playerGui then
-            ENI_Notify("UI Dumper", "PlayerGui not found!", "Error", 3)
+            Unknown_Notify("UI Dumper", "PlayerGui not found!", "Error", 3)
             return
         end
 
@@ -2176,15 +2176,15 @@ CreateButton(Pages["🪨 Marbles & QTE"], "🔍 Dump Active Minigame UI Hierarch
         end
 
         if foundAny then
-            ENI_Notify("UI Dumper", "Active UI dumped to F9 console!", "Success", 4)
+            Unknown_Notify("UI Dumper", "Active UI dumped to F9 console!", "Success", 4)
         else
-            ENI_Notify("UI Dumper", "No active minigame GUI detected!", "Warning", 4)
+            Unknown_Notify("UI Dumper", "No active minigame GUI detected!", "Warning", 4)
         end
     end)
 end)
 
 CreateToggle(Pages["🪨 Marbles & QTE"], "🎯 Universal Auto Space Bar Minigame Solver", 48, function(state)
-    getgenv().ENI_AutoSpaceLineMinigame = state
+    getgenv().Unknown_AutoSpaceLineMinigame = state
     if state then
         RegisterThread(task.spawn(function()
             local VIM = game:GetService("VirtualInputManager")
@@ -2195,9 +2195,9 @@ CreateToggle(Pages["🪨 Marbles & QTE"], "🎯 Universal Auto Space Bar Minigam
                 return (col.G > 0.5 and col.G > col.R + 0.15 and col.G > col.B + 0.15)
             end
 
-            print("[ENI-SPACE] Guard Strength Punch & QTE Universal Solver ACTIVE!")
+            print("[Unknown-SPACE] Guard Strength Punch & QTE Universal Solver ACTIVE!")
 
-            while getgenv().ENI_AutoSpaceLineMinigame do
+            while getgenv().Unknown_AutoSpaceLineMinigame do
                 task.wait(0.01) -- High-speed 100 FPS scan tick
                 pcall(function()
                     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -2270,7 +2270,7 @@ CreateToggle(Pages["🪨 Marbles & QTE"], "🎯 Universal Auto Space Bar Minigam
                                             VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
                                             task.wait(0.01)
                                             VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-                                            print(string.format("[ENI-SPACE] 🎯 PERFECT ALIGNMENT HIT! (Pointer: %.1f, Zone Range: %.1f - %.1f)", (gSize.X >= gSize.Y and pCenterX or pCenterY), (gSize.X >= gSize.Y and gPos.X or gPos.Y), (gSize.X >= gSize.Y and gPos.X + gSize.X or gPos.Y + gSize.Y)))
+                                            print(string.format("[Unknown-SPACE] 🎯 PERFECT ALIGNMENT HIT! (Pointer: %.1f, Zone Range: %.1f - %.1f)", (gSize.X >= gSize.Y and pCenterX or pCenterY), (gSize.X >= gSize.Y and gPos.X or gPos.Y), (gSize.X >= gSize.Y and gPos.X + gSize.X or gPos.Y + gSize.Y)))
 
                                             -- Safe Remote Relay
                                             local RemotesFolder = GetRemotesFolder()
@@ -2305,7 +2305,7 @@ CreateToggle(Pages["🪨 Marbles & QTE"], "🎯 Universal Auto Space Bar Minigam
                                             VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
                                             task.wait(0.01)
                                             VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-                                            print(string.format("[ENI-STRENGTH] ⚡ STRENGTH PUNCH 80%%+ POWER HIT! Ratio: %.2f", fillRatio))
+                                            print(string.format("[Unknown-STRENGTH] ⚡ STRENGTH PUNCH 80%%+ POWER HIT! Ratio: %.2f", fillRatio))
                                             break
                                         end
                                     end
@@ -2318,18 +2318,18 @@ CreateToggle(Pages["🪨 Marbles & QTE"], "🎯 Universal Auto Space Bar Minigam
             end
         end))
     else
-        getgenv().ENI_AutoSpaceLineMinigame = false
+        getgenv().Unknown_AutoSpaceLineMinigame = false
     end
 end)
 
-local StealthStorage = CoreGui:FindFirstChild("ENI_Glass_Storage") or Instance.new("Folder", CoreGui)
-StealthStorage.Name = "ENI_Glass_Storage"
+local StealthStorage = CoreGui:FindFirstChild("Unknown_Glass_Storage") or Instance.new("Folder", CoreGui)
+StealthStorage.Name = "Unknown_Glass_Storage"
 CreateToggle(Pages["🧱 Glass Bridge"], "⚡ Glass Bridge ESP", 5, function(state)
-    getgenv().ENI_GlassESP = state
+    getgenv().Unknown_GlassESP = state
     if state then
         RegisterThread(task.spawn(function()
             local getconnectionsFunc = getconnections or get_signal_cons or function() return {} end
-            while getgenv().ENI_GlassESP do
+            while getgenv().Unknown_GlassESP do
                 task.wait(0.4)
                 pcall(function()
                     StealthStorage:ClearAllChildren()
@@ -2396,7 +2396,7 @@ CreateToggle(Pages["🧱 Glass Bridge"], "⚡ Glass Bridge ESP", 5, function(sta
             StealthStorage:ClearAllChildren()
         end))
     else
-        getgenv().ENI_GlassESP = false
+        getgenv().Unknown_GlassESP = false
         StealthStorage:ClearAllChildren()
     end
 end)
@@ -2419,7 +2419,7 @@ CreateButton(Pages["🙈 Hide & Seek"], "🧹 Clean All Spoofed Keys From Backpa
                 end
             end
         end
-        print("[ENI-HNS] Cleaned all spoofed keys from Backpack!")
+        print("[Unknown-HNS] Cleaned all spoofed keys from Backpack!")
     end)
 end)
 
@@ -2439,15 +2439,15 @@ CreateButton(Pages["🙈 Hide & Seek"], "⚡ Instant Unlock All Nearby Doors", 4
                 end
             end
         end
-        print("[ENI-HNS] All map doors unlocked!")
+        print("[Unknown-HNS] All map doors unlocked!")
     end)
 end)
 
 CreateToggle(Pages["🙈 Hide & Seek"], "⚡ Reveal Invisible Landmine Traps", 91, function(state)
-    getgenv().ENI_RevealLandmines = state
+    getgenv().Unknown_RevealLandmines = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_RevealLandmines do
+            while getgenv().Unknown_RevealLandmines do
                 task.wait(1.5)
                 pcall(function()
                     local searchArea = workspace:FindFirstChild("Map") or workspace:FindFirstChild("Lobby") or workspace
@@ -2468,16 +2468,16 @@ CreateToggle(Pages["🙈 Hide & Seek"], "⚡ Reveal Invisible Landmine Traps", 9
             end
         end))
     else
-        getgenv().ENI_RevealLandmines = false
+        getgenv().Unknown_RevealLandmines = false
     end
 end)
-local HNSEspStorage = CoreGui:FindFirstChild("ENI_HNS_ESP") or Instance.new("Folder", CoreGui)
-HNSEspStorage.Name = "ENI_HNS_ESP"
+local HNSEspStorage = CoreGui:FindFirstChild("Unknown_HNS_ESP") or Instance.new("Folder", CoreGui)
+HNSEspStorage.Name = "Unknown_HNS_ESP"
 CreateToggle(Pages["🙈 Hide & Seek"], "⚡ Hide & Seek Player ESP", 91, function(state)
-    getgenv().ENI_HNSEsp = state
+    getgenv().Unknown_HNSEsp = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_HNSEsp do
+            while getgenv().Unknown_HNSEsp do
                 task.wait(0.4)
                 pcall(function()
                     HNSEspStorage:ClearAllChildren()
@@ -2528,7 +2528,7 @@ CreateToggle(Pages["🙈 Hide & Seek"], "⚡ Hide & Seek Player ESP", 91, functi
             HNSEspStorage:ClearAllChildren()
         end))
     else
-        getgenv().ENI_HNSEsp = false
+        getgenv().Unknown_HNSEsp = false
         HNSEspStorage:ClearAllChildren()
     end
 end)
@@ -2542,10 +2542,10 @@ local function FirePentathlonRemote(actionName, payload)
     end)
 end
 CreateToggle(Pages["🎽 Pentathlon"], "🔥 Pentathlon Auto-Win Sweep", 5, function(state)
-    getgenv().ENI_AutoPentathlon = state
+    getgenv().Unknown_AutoPentathlon = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoPentathlon do
+            while getgenv().Unknown_AutoPentathlon do
                 pcall(function()
                     local char = LocalPlayer.Character
                     local targetPos = char and char.HumanoidRootPart.Position + (char.HumanoidRootPart.CFrame.LookVector * 5) or Vector3.new(0,0,0)
@@ -2565,28 +2565,28 @@ CreateToggle(Pages["🎽 Pentathlon"], "🔥 Pentathlon Auto-Win Sweep", 5, func
             end
         end))
     else
-        getgenv().ENI_AutoPentathlon = false
+        getgenv().Unknown_AutoPentathlon = false
     end
 end)
 
 CreateToggle(Pages["☁️ SkySquid & VIP"], "⚡ Infinite Climbing Stamina", 5, function(state)
-    getgenv().ENI_InfStamina = state
+    getgenv().Unknown_InfStamina = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_InfStamina do
+            while getgenv().Unknown_InfStamina do
                 task.wait(0.2)
                 pcall(function() local char = LocalPlayer.Character if char then local stVal = char:FindFirstChild("CurrentStaminaNumberValue") if stVal then stVal.Value = 1 end end end)
             end
         end))
     else
-        getgenv().ENI_InfStamina = false
+        getgenv().Unknown_InfStamina = false
     end
 end)
 CreateToggle(Pages["☁️ SkySquid & VIP"], "⚡ Auto SSS-Rank VIP Fan Session Win Loop", 48, function(state)
-    getgenv().ENI_AutoVIPFan = state
+    getgenv().Unknown_AutoVIPFan = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoVIPFan do
+            while getgenv().Unknown_AutoVIPFan do
                 task.wait(1.0)
                 pcall(function()
                     local RemotesFolder = GetRemotesFolder()
@@ -2601,18 +2601,18 @@ CreateToggle(Pages["☁️ SkySquid & VIP"], "⚡ Auto SSS-Rank VIP Fan Session 
             end
         end))
     else
-        getgenv().ENI_AutoVIPFan = false
+        getgenv().Unknown_AutoVIPFan = false
     end
 end)
 
-local GuardNpcEspStorage = CoreGui:FindFirstChild("ENI_GuardNPC_ESP") or Instance.new("Folder", CoreGui)
-GuardNpcEspStorage.Name = "ENI_GuardNPC_ESP"
+local GuardNpcEspStorage = CoreGui:FindFirstChild("Unknown_GuardNPC_ESP") or Instance.new("Folder", CoreGui)
+GuardNpcEspStorage.Name = "Unknown_GuardNPC_ESP"
 
 CreateToggle(Pages["👮 Guard & Surgery"], "👮 Rebel Mode: Guard NPC ESP", 5, function(state)
-    getgenv().ENI_GuardNPCEsp = state
+    getgenv().Unknown_GuardNPCEsp = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_GuardNPCEsp do
+            while getgenv().Unknown_GuardNPCEsp do
                 task.wait(0.5)
                 pcall(function()
                     GuardNpcEspStorage:ClearAllChildren()
@@ -2672,13 +2672,13 @@ CreateToggle(Pages["👮 Guard & Surgery"], "👮 Rebel Mode: Guard NPC ESP", 5,
             GuardNpcEspStorage:ClearAllChildren()
         end))
     else
-        getgenv().ENI_GuardNPCEsp = false
+        getgenv().Unknown_GuardNPCEsp = false
         GuardNpcEspStorage:ClearAllChildren()
     end
 end)
 
 CreateToggle(Pages["👮 Guard & Surgery"], "🤖 AI Guard Total Blindness & Brain-Dead Nerfer", 91, function(state)
-    getgenv().ENI_StupidGuards = state
+    getgenv().Unknown_StupidGuards = state
     if state then
         RegisterThread(task.spawn(function()
             pcall(function()
@@ -2697,12 +2697,12 @@ CreateToggle(Pages["👮 Guard & Surgery"], "🤖 AI Guard Total Blindness & Bra
                                 cfg.CanMove = false                 -- Freeze guard movement!
                             end
                         end
-                        print("[ENI-GUARD] GuardInformation client table neutered to 0 stats!")
+                        print("[Unknown-GUARD] GuardInformation client table neutered to 0 stats!")
                     end
                 end
             end)
 
-            while getgenv().ENI_StupidGuards do
+            while getgenv().Unknown_StupidGuards do
                 task.wait(0.2)
                 pcall(function()
                     if LocalPlayer.Character then
@@ -2726,7 +2726,7 @@ CreateToggle(Pages["👮 Guard & Surgery"], "🤖 AI Guard Total Blindness & Bra
             end
         end))
     else
-        getgenv().ENI_StupidGuards = false
+        getgenv().Unknown_StupidGuards = false
         pcall(function()
             if LocalPlayer.Character then
                 LocalPlayer.Character:SetAttribute("IsInvisible", nil)
@@ -2783,8 +2783,8 @@ CreateButton(Pages["👮 Guard & Surgery"], "🟥 Free Square Guard Role Unlocke
         end
 
         -- 4. MarketplaceService Gamepass Ownership Hook (Client Free Unlock - Crash Proof)
-        if setnamecallmethod and getnamecallmethod and hookmetamethod and not getgenv().ENI_NamecallHooked then
-            getgenv().ENI_NamecallHooked = true
+        if setnamecallmethod and getnamecallmethod and hookmetamethod and not getgenv().Unknown_NamecallHooked then
+            getgenv().Unknown_NamecallHooked = true
             local oldNamecall
             oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
                 local method = getnamecallmethod()
@@ -2795,16 +2795,16 @@ CreateButton(Pages["👮 Guard & Surgery"], "🟥 Free Square Guard Role Unlocke
             end)
         end
 
-        ENI_Notify("🟥 Free Square Guard", "Square Guard Role & Gamepass unlocked for free!", "Success", 4)
-        print("[ENI-GUARD] 🟥 Square Guard role & Gamepass ownership spoofed successfully!")
+        Unknown_Notify("🟥 Free Square Guard", "Square Guard Role & Gamepass unlocked for free!", "Success", 4)
+        print("[Unknown-GUARD] 🟥 Square Guard role & Gamepass ownership spoofed successfully!")
     end)
 end)
 
 CreateToggle(Pages["👮 Guard & Surgery"], "⚡ Auto-Maintain Free Square Guard Role On Spawn", 48, function(state)
-    getgenv().ENI_AutoSquareGuard = state
+    getgenv().Unknown_AutoSquareGuard = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoSquareGuard do
+            while getgenv().Unknown_AutoSquareGuard do
                 task.wait(1.5)
                 pcall(function()
                     local attrs = {["Guard"] = true, ["IsGuard"] = true, ["PlayableGuard"] = true, ["GuardRole"] = "Square", ["GuardRank"] = "Square", ["Role"] = "SquareGuard", ["Rank"] = "Square"}
@@ -2816,15 +2816,15 @@ CreateToggle(Pages["👮 Guard & Surgery"], "⚡ Auto-Maintain Free Square Guard
             end
         end))
     else
-        getgenv().ENI_AutoSquareGuard = false
+        getgenv().Unknown_AutoSquareGuard = false
     end
 end)
 
 CreateToggle(Pages["👮 Guard & Surgery"], "🧸 Auto-Win Claw Machine", 177, function(state)
-    getgenv().ENI_AutoClawMachine = state
+    getgenv().Unknown_AutoClawMachine = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoClawMachine do
+            while getgenv().Unknown_AutoClawMachine do
                 task.wait(1.5)
                 pcall(function()
                     local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
@@ -2841,42 +2841,42 @@ CreateToggle(Pages["👮 Guard & Surgery"], "🧸 Auto-Win Claw Machine", 177, f
             end
         end))
     else
-        getgenv().ENI_AutoClawMachine = false
+        getgenv().Unknown_AutoClawMachine = false
     end
 end)
 
 CreateToggle(Pages["🛡️ Protections"], "⚡ Ultra Instinct Auto Dodge", 5, function(state)
-    getgenv().ENI_AutoDodge = state
+    getgenv().Unknown_AutoDodge = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AutoDodge do
+            while getgenv().Unknown_AutoDodge do
                 task.wait(0.5)
                 pcall(function() LocalPlayer:SetAttribute("UltraInstinctAutoDodge", true) end)
             end
         end))
     else
-        getgenv().ENI_AutoDodge = false
+        getgenv().Unknown_AutoDodge = false
     end
 end)
 CreateToggle(Pages["🛡️ Protections"], "⚡ Admin Boss Immunity", 48, function(state)
-    getgenv().ENI_BossImmunity = state
+    getgenv().Unknown_BossImmunity = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_BossImmunity do
+            while getgenv().Unknown_BossImmunity do
                 task.wait(0.3)
                 pcall(function() local effects = workspace:FindFirstChild("Effects") if effects then for _, obj in ipairs(effects:GetChildren()) do if obj.Name:find("RockTemplate") or obj.Name == "LaserBeams" then obj:Destroy() end end end end)
             end
         end))
     else
-        getgenv().ENI_BossImmunity = false
+        getgenv().Unknown_BossImmunity = false
     end
 end)
 CreateToggle(Pages["🛡️ Protections"], "⚡ Stun, InCombat & ActionCheck Bypass", 91, function(state)
-    getgenv().ENI_StunBypass = state
+    getgenv().Unknown_StunBypass = state
     if state then
         RegisterThread(task.spawn(function()
             local badAttrs = {"Ragdoll", "Action", "Freeze", "Slowed", "NoAttack", "Blocking", "LightAction", "InCombat", "Frozen", "Stun"}
-            while getgenv().ENI_StunBypass do
+            while getgenv().Unknown_StunBypass do
                 task.wait(0.2)
                 pcall(function()
                     local currentGame = workspace:FindFirstChild("Values") and workspace.Values:FindFirstChild("CurrentGame") and workspace.Values.CurrentGame.Value
@@ -2931,15 +2931,15 @@ CreateButton(Pages["🛡️ Protections"], "🚨 EMERGENCY FORCE UNFREEZE RESCUE
                 effect.Enabled = false
             end
         end
-        print("[ENI-RESCUE] Screen freeze cleared, character unfrozen, camera & lighting restored!")
+        print("[Unknown-RESCUE] Screen freeze cleared, character unfrozen, camera & lighting restored!")
     end)
 end)
 
 CreateToggle(Pages["🛡️ Protections"], "⚡ Anti-Screen Freeze FPS Guard", 180, function(state)
-    getgenv().ENI_AntiScreenFreeze = state
+    getgenv().Unknown_AntiScreenFreeze = state
     if state then
         RegisterThread(task.spawn(function()
-            while getgenv().ENI_AntiScreenFreeze do
+            while getgenv().Unknown_AntiScreenFreeze do
                 task.wait(0.5)
                 pcall(function()
                     for _, effect in ipairs(game:GetService("Lighting"):GetChildren()) do
@@ -2964,38 +2964,38 @@ CreateToggle(Pages["🛡️ Protections"], "⚡ Anti-Screen Freeze FPS Guard", 1
             end
         end))
     else
-        getgenv().ENI_AntiScreenFreeze = false
+        getgenv().Unknown_AntiScreenFreeze = false
     end
 end)
 
 CreateToggle(Pages["🛡️ Protections"], "🛠️ Live Crash Debugger & Memory Monitor", 220, function(state)
-    getgenv().ENI_CrashDebugger = state
+    getgenv().Unknown_CrashDebugger = state
     if state then
         RegisterThread(task.spawn(function()
-            print("[ENI-DEBUGGER] Live Crash Debugger & Memory Monitor ACTIVE!")
-            while getgenv().ENI_CrashDebugger do
+            print("[Unknown-DEBUGGER] Live Crash Debugger & Memory Monitor ACTIVE!")
+            while getgenv().Unknown_CrashDebugger do
                 task.wait(2.5)
                 pcall(function()
                     local statsService = game:GetService("Stats")
                     local totalMem = math.floor(statsService:GetTotalMemoryUsageMb())
                     local luaMem = math.floor(gcinfo() / 1024)
-                    local activeThreadCount = getgenv().ENI_ActiveThreads and #getgenv().ENI_ActiveThreads or 0
+                    local activeThreadCount = getgenv().Unknown_ActiveThreads and #getgenv().Unknown_ActiveThreads or 0
                     local fps = math.floor(1 / (RunService.RenderStepped:Wait()))
                     local char = LocalPlayer.Character
                     local humState = char and char:FindFirstChild("Humanoid") and char.Humanoid:GetState().Name or "None"
 
                     local statusMsg = string.format("📊 RAM: %d MB (Lua Heap: %d MB) | Active Threads: %d | FPS: %d | HumState: %s", totalMem, luaMem, activeThreadCount, fps, humState)
-                    print("[ENI-MONITOR]", statusMsg)
+                    print("[Unknown-MONITOR]", statusMsg)
 
                     if luaMem > 450 or totalMem > 3800 then
                         warn("⚠️ CRITICAL MEMORY SPIKE DETECTED! Lua Heap: " .. tostring(luaMem) .. " MB | Total: " .. tostring(totalMem) .. " MB. Clearing CoreGui ESP caches...")
-                        if CoreGui:FindFirstChild("ENI_General_ESP") then CoreGui.ENI_General_ESP:ClearAllChildren() end
+                        if CoreGui:FindFirstChild("Unknown_General_ESP") then CoreGui.Unknown_General_ESP:ClearAllChildren() end
                     end
                 end)
             end
         end))
     else
-        print("[ENI-DEBUGGER] Live Crash Debugger Deactivated.")
+        print("[Unknown-DEBUGGER] Live Crash Debugger Deactivated.")
     end
 end)
 
@@ -3038,8 +3038,8 @@ RegisterConnection(UserInputService.InputBegan:Connect(function(input, gpe)
                 end
             end
 
-            ENI_Notify("F4 Rescue Activated", "Instantly unfroze character & camera!", "Success", 3)
-            print("[ENI-F4-RESCUE] Pressed F4 -> Instantly unfroze character physics & camera!")
+            Unknown_Notify("F4 Rescue Activated", "Instantly unfroze character & camera!", "Success", 3)
+            print("[Unknown-F4-RESCUE] Pressed F4 -> Instantly unfroze character physics & camera!")
         end)
     elseif not gpe and input.KeyCode == Enum.KeyCode.RightControl then
         isOpen = not isOpen
@@ -3058,7 +3058,7 @@ end))
 
 CreateButton(Pages["⚡ Secret Exploits & Remotes"], "👑 Full Gamepass Unlocker", 5, function()
     pcall(function()
-        getgenv().ENI_UniversalGamepassSpoof = true
+        getgenv().Unknown_UniversalGamepassSpoof = true
 
         local function ApplyGamepassSpoof()
             local passList = {
@@ -3103,11 +3103,11 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "👑 Full Gamepass Unlocke
 
         ApplyGamepassSpoof()
 
-        if not getgenv().ENI_GamepassSpoofConnected then
-            getgenv().ENI_GamepassSpoofConnected = true
+        if not getgenv().Unknown_GamepassSpoofConnected then
+            getgenv().Unknown_GamepassSpoofConnected = true
             LocalPlayer.CharacterAdded:Connect(function()
                 task.wait(1.0)
-                if getgenv().ENI_UniversalGamepassSpoof then
+                if getgenv().Unknown_UniversalGamepassSpoof then
                     pcall(ApplyGamepassSpoof)
                 end
             end)
@@ -3152,7 +3152,7 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "👑 Full Gamepass Unlocke
             end
         end
 
-        print("[ENI-EXPLOIT] Universal Gamepass Spoofer (VIP, 2x Vote, Perm Guard, Glass) fully activated!")
+        print("[Unknown-EXPLOIT] Universal Gamepass Spoofer (VIP, 2x Vote, Perm Guard, Glass) fully activated!")
     end)
 end)
 
@@ -3182,7 +3182,7 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "🎨 Unlock VIP Custom Clo
                 end
             end
         end
-        print("[ENI-VIP] Custom clothing & suit color features unlocked!")
+        print("[Unknown-VIP] Custom clothing & suit color features unlocked!")
     end)
 end)
 
@@ -3204,7 +3204,7 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "✨ Unlock VIP Special Abi
                 abRemote:FireServer("UnlockVIPAbility")
             end
         end
-        print("[ENI-VIP] VIP Special Ability & Phantom Dash unlocked!")
+        print("[Unknown-VIP] VIP Special Ability & Phantom Dash unlocked!")
     end)
 end)
 
@@ -3248,7 +3248,7 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "🗳️ Unlock 2x Vote Gam
                 pcall(function() voteRemote:FireServer({Multiplier = 2, DoubleVote = true}) end)
             end
         end
-        print("[ENI-VOTE] 2x Vote Gamepass & Double Vote Multiplier successfully spoofed!")
+        print("[Unknown-VOTE] 2x Vote Gamepass & Double Vote Multiplier successfully spoofed!")
     end)
 end)
 
@@ -3265,24 +3265,24 @@ CreateButton(Pages["⚡ Secret Exploits & Remotes"], "🎭 Unlock Extra Emote Pa
                 pcall(function() emoteRemote:FireServer("UnlockAllEmotes") end)
             end
         end
-        print("[ENI-EMOTES] Emote pages & custom tags unlocked!")
+        print("[Unknown-EMOTES] Emote pages & custom tags unlocked!")
     end)
 end)
 
 local TeleportService = game:GetService("TeleportService")
 pcall(function()
     LocalPlayer.OnTeleport:Connect(function()
-        print("[ENI-SAFEGUARD] Teleport in progress -> Triggering global ENI_Cleanup to unload threads & signals!")
-        if getgenv().ENI_Cleanup then pcall(getgenv().ENI_Cleanup) end
+        print("[Unknown-SAFEGUARD] Teleport in progress -> Triggering global ENI_Cleanup to unload threads & signals!")
+        if getgenv().Unknown_Cleanup then pcall(getgenv().Unknown_Cleanup) end
     end)
 end)
 pcall(function()
     TeleportService.TeleportInitFailed:Connect(function()
-        print("[ENI-SAFEGUARD] Teleport failed -> Teleport process aborted.")
+        print("[Unknown-SAFEGUARD] Teleport failed -> Teleport process aborted.")
     end)
 end)
 
-print("⚡ [ENI Hub] Loaded Successfully!")
+print("⚡ [Unknown Hub] Loaded Successfully!")
 pcall(function()
-    ENI_Notify("Unknown Hub", "Loaded Successfully! Press RightControl to Toggle Menu", "Success", 6)
+    Unknown_Notify("Unknown Hub", "Loaded Successfully! Press RightControl to Toggle Menu", "Success", 6)
 end)

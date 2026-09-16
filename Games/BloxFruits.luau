@@ -11,7 +11,7 @@ local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
-local LIBRARY_NAME = "ENI_TabbedHub_UI"
+local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -22,7 +22,7 @@ local function destroyOldGui()
         if parent then
             pcall(function()
                 for _, child in ipairs(parent:GetChildren()) do
-                    if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "ENI_BloxFruits_GuiContainer" or child.Name == "ENI_MainGui") then
+                    if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name == "Unknown_BloxFruits_GuiContainer" or child.Name == "ENI_MainGui") then
                         pcall(function() child:Destroy() end)
                     end
                 end
@@ -98,11 +98,11 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
 end)
 
 -- Clean up previous script global loops
-if _G.ENI_MainFarmLoop then pcall(function() _G.ENI_MainFarmLoop:Disconnect() end) _G.ENI_MainFarmLoop = nil end
-if _G.ENI_FastHitLoop then pcall(function() _G.ENI_FastHitLoop:Disconnect() end) _G.ENI_FastHitLoop = nil end
-if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
-if _G.ENI_GlobalLoop then pcall(function() _G.ENI_GlobalLoop:Disconnect() end) _G.ENI_GlobalLoop = nil end
-if _G.ENI_ChestTween then pcall(function() _G.ENI_ChestTween:Cancel() end) _G.ENI_ChestTween = nil end
+if _G.Unknown_MainFarmLoop then pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end) _G.Unknown_MainFarmLoop = nil end
+if _G.Unknown_FastHitLoop then pcall(function() _G.Unknown_FastHitLoop:Disconnect() end) _G.Unknown_FastHitLoop = nil end
+if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+if _G.Unknown_GlobalLoop then pcall(function() _G.Unknown_GlobalLoop:Disconnect() end) _G.Unknown_GlobalLoop = nil end
+if _G.Unknown_ChestTween then pcall(function() _G.Unknown_ChestTween:Cancel() end) _G.Unknown_ChestTween = nil end
 
 -- UNANCHOR PLAYER & RESTORE MOVEMENT
 pcall(function()
@@ -123,11 +123,11 @@ end)
 
 -- AUTO-ENABLED WALK ON WATER (JESUS WALK) ENGINE
 local isWaterWalkOn = true
-if _G.ENI_WaterWalkConn then pcall(function() _G.ENI_WaterWalkConn:Disconnect() end) end
-local waterPlatform = workspace:FindFirstChild("ENI_WaterPlatform")
+if _G.Unknown_WaterWalkConn then pcall(function() _G.Unknown_WaterWalkConn:Disconnect() end) end
+local waterPlatform = workspace:FindFirstChild("Unknown_WaterPlatform")
 if not waterPlatform then
     waterPlatform = Instance.new("Part")
-    waterPlatform.Name = "ENI_WaterPlatform"
+    waterPlatform.Name = "Unknown_WaterPlatform"
     waterPlatform.Size = Vector3.new(120, 1, 120)
     waterPlatform.Anchored = true
     waterPlatform.CanCollide = true
@@ -136,7 +136,7 @@ if not waterPlatform then
     waterPlatform.Parent = workspace
 end
 
-_G.ENI_WaterWalkConn = RunService.RenderStepped:Connect(function()
+_G.Unknown_WaterWalkConn = RunService.RenderStepped:Connect(function()
     pcall(function()
         if not isWaterWalkOn then
             waterPlatform.CanCollide = false
@@ -211,10 +211,10 @@ local function restoreCharacterPhysics()
     end)
 end
 
-_G.ENI_CancelTween = function()
-    if _G.ENI_TravelTween then
-        pcall(function() _G.ENI_TravelTween:Cancel() end)
-        _G.ENI_TravelTween = nil
+_G.Unknown_CancelTween = function()
+    if _G.Unknown_TravelTween then
+        pcall(function() _G.Unknown_TravelTween:Cancel() end)
+        _G.Unknown_TravelTween = nil
     end
     isTraveling = false
 end
@@ -244,10 +244,10 @@ end
 
 local function getTabBV(hrp)
     if not hrp then return nil end
-    local bv = hrp:FindFirstChild("ENI_TabBV")
+    local bv = hrp:FindFirstChild("Unknown_TabBV")
     if not bv then
         bv = Instance.new("BodyVelocity")
-        bv.Name = "ENI_TabBV"
+        bv.Name = "Unknown_TabBV"
         bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
         bv.Velocity = Vector3.zero
         bv.Parent = hrp
@@ -257,7 +257,7 @@ end
 
 local function removeTabBV(hrp)
     if hrp then
-        local bv = hrp:FindFirstChild("ENI_TabBV")
+        local bv = hrp:FindFirstChild("Unknown_TabBV")
         if bv then bv:Destroy() end
     end
 end
@@ -335,13 +335,13 @@ local shopPage = Hub.createTabButton("Shop", "Shop", "rbxassetid://10709810237",
 do
     Hub.CreateSection(serverPage, "🌐 Smart Server Hopper & Management")
 
-    _G.ENI_SmartServerHop = function(mode)
+    _G.Unknown_SmartServerHop = function(mode)
 
         -- Anti-Spam Debounce Guard (Prevents notification spam and repeating teleport attempts)
-        if _G.ENI_LastServerHopTick and (tick() - _G.ENI_LastServerHopTick) < 8 then
+        if _G.Unknown_LastServerHopTick and (tick() - _G.Unknown_LastServerHopTick) < 8 then
             return
         end
-        _G.ENI_LastServerHopTick = tick()
+        _G.Unknown_LastServerHopTick = tick()
 
         local HttpService = game:GetService("HttpService")
         local TeleportService = game:GetService("TeleportService")
@@ -417,10 +417,10 @@ do
         end)
     end
 
-    CreateButton(serverPage, "🔄 Rejoin Same Server", nil, function() _G.ENI_SmartServerHop("rejoin") end)
-    CreateButton(serverPage, "📉 Hop to Lowest Player Server", nil, function() _G.ENI_SmartServerHop("lowest") end)
-    CreateButton(serverPage, "⏳ Hop to Oldest Server", nil, function() _G.ENI_SmartServerHop("oldest") end)
-    CreateButton(serverPage, "⚡ Hop to Freshest Server", nil, function() _G.ENI_SmartServerHop("freshest") end)
+    CreateButton(serverPage, "🔄 Rejoin Same Server", nil, function() _G.Unknown_SmartServerHop("rejoin") end)
+    CreateButton(serverPage, "📉 Hop to Lowest Player Server", nil, function() _G.Unknown_SmartServerHop("lowest") end)
+    CreateButton(serverPage, "⏳ Hop to Oldest Server", nil, function() _G.Unknown_SmartServerHop("oldest") end)
+    CreateButton(serverPage, "⚡ Hop to Freshest Server", nil, function() _G.Unknown_SmartServerHop("freshest") end)
 
     -- Job ID Box & Controls
     local enteredJobId = ""
@@ -469,7 +469,7 @@ local function createSliderToggle(parent, titleText, defaultState, callback, key
     return getFn, setFn, toggleObj
 end
 
-_G.ENI_FarmDistance = math.max(_G.ENI_FarmDistance or 10.0, 10.0)
+_G.Unknown_FarmDistance = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
 
 -- UNKNOWN LIBRARY SLIDER INTEGRATION
 local function createValueSlider(parent, titleText, minVal, maxVal, defaultVal, unitText, callback)
@@ -624,16 +624,16 @@ do
     local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm", false, function(newState)
         isFarmOn = newState
         if isFarmOn then
-            _G.startENIFarm()
+            _G.startUnknownFarm()
         else
-            _G.stopENIFarm()
+            _G.stopUnknownFarm()
         end
     end, "AutoFarm")
-    _G.ENI_setFarmState = setFarmState
+    _G.Unknown_setFarmState = setFarmState
 
     -- 1b. Auto Farm Distance Slider (Positioned directly below Auto Farm Engine)
-    createValueSlider(farmPage, "📏 Auto Farm Distance", 10.0, 30.0, math.max(_G.ENI_FarmDistance or 10.0, 10.0), "studs", function(newDist)
-        _G.ENI_FarmDistance = math.max(newDist, 10.0)
+    createValueSlider(farmPage, "📏 Auto Farm Distance", 10.0, 30.0, math.max(_G.Unknown_FarmDistance or 10.0, 10.0), "studs", function(newDist)
+        _G.Unknown_FarmDistance = math.max(newDist, 10.0)
     end)
 
     -- 2. Farm Weapon Selection Mode
@@ -789,7 +789,7 @@ local isSaberQuestOn = false
 
                 local lastNotifyMsg = ""
                 local function debugLog(msg)
-                    print("[ENI SABER] " .. msg)
+                    print("[Unknown SABER] " .. msg)
                 end
                 local function debugNotify(msg)
                     if msg ~= lastNotifyMsg then
@@ -806,9 +806,9 @@ local isSaberQuestOn = false
                     debugLog("Traveling to: " .. label)
 
                     -- Pause auto farm while saber quest is running
-                    if _G.ENI_MainFarmLoop then
-                        pcall(function() _G.ENI_MainFarmLoop:Disconnect() end)
-                        _G.ENI_MainFarmLoop = nil
+                    if _G.Unknown_MainFarmLoop then
+                        pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end)
+                        _G.Unknown_MainFarmLoop = nil
                     end
 
                     local char = LocalPlayer.Character
@@ -976,8 +976,8 @@ local isSaberQuestOn = false
 
                         -- Use encrypted hit wrapper if available
                         pcall(function()
-                            if _G.ENI_WrappedHit and enemyHRP then
-                                _G.ENI_WrappedHit.FireServer(_G.ENI_WrappedHit, enemyHRP, {{enemy, enemyHRP}})
+                            if _G.Unknown_WrappedHit and enemyHRP then
+                                _G.Unknown_WrappedHit.FireServer(_G.Unknown_WrappedHit, enemyHRP, {{enemy, enemyHRP}})
                             end
                         end)
 
@@ -1339,9 +1339,9 @@ local isSaberQuestOn = false
             end)
         else
             isTraveling = false
-            if _G.ENI_TravelTween then
-                pcall(function() _G.ENI_TravelTween:Cancel() end)
-                _G.ENI_TravelTween = nil
+            if _G.Unknown_TravelTween then
+                pcall(function() _G.Unknown_TravelTween:Cancel() end)
+                _G.Unknown_TravelTween = nil
             end
             if saberThread then pcall(function() task.cancel(saberThread) end) saberThread = nil end
             pcall(function()
@@ -1362,7 +1362,7 @@ local isSaberQuestOn = false
         isPoleQuestOn = newState
         if isPoleQuestOn then
             ensureBusoHakiActive()
-            if _G.ENI_setBusoState then _G.ENI_setBusoState(true) end
+            if _G.Unknown_setBusoState then _G.Unknown_setBusoState(true) end
             notifyGUI("Pole V1 Quest", "Starting Auto Thunder God Boss Hunter & Auto Buso Haki...", 5)
             poleThread = task.spawn(function()
                 local poleState = "" -- track state to avoid notification spam
@@ -1401,9 +1401,9 @@ local isSaberQuestOn = false
                                 local tDist = (bHrp.CFrame.Position + Vector3.new(0, 14, 0) - hrp.Position).Magnitude
                                 local tDur = math.clamp(tDist / 350, 0.2, 15)
 
-                                if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) end
+                                if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) end
                                 local tw = TweenService:Create(hrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = bHrp.CFrame * CFrame.new(0, 14, 0)})
-                                _G.ENI_TravelTween = tw
+                                _G.Unknown_TravelTween = tw
 
                                 local noclipConn = RunService.Stepped:Connect(function()
                                     if char and isPoleQuestOn then
@@ -1456,8 +1456,8 @@ local isSaberQuestOn = false
                             -- Encrypted hit stream for reliable damage
                             pcall(function()
                                 if bHrp and thunderGod then
-                                    if _G.ENI_PerformFastAttack then
-                                        _G.ENI_PerformFastAttack({{thunderGod, bHrp}}, bHrp)
+                                    if _G.Unknown_PerformFastAttack then
+                                        _G.Unknown_PerformFastAttack({{thunderGod, bHrp}}, bHrp)
                                     end
                                 end
                             end)
@@ -1475,9 +1475,9 @@ local isSaberQuestOn = false
                                 if bv then bv.Velocity = Vector3.zero end
 
                                 local tDur = math.clamp(aDist / 350, 0.2, 20)
-                                if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) end
+                                if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) end
                                 local tw = TweenService:Create(hrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = arenaPos})
-                                _G.ENI_TravelTween = tw
+                                _G.Unknown_TravelTween = tw
 
                                 local noclipConn = RunService.Stepped:Connect(function()
                                     if char and isPoleQuestOn then
@@ -1501,7 +1501,7 @@ local isSaberQuestOn = false
                 end
             end)
         else
-            if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
+            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
             isTraveling = false
             if poleThread then pcall(function() task.cancel(poleThread) end) poleThread = nil end
             notifyGUI("Pole V1", "Pole V1 Automation Stopped.", 3)
@@ -1675,18 +1675,18 @@ do
 
     createSliderToggle(playerPage, "Anti-AFK Protection", true, function(newState)
         isAntiAfkOn = newState
-        _G.ENI_AntiAfkOn = newState
+        _G.Unknown_AntiAfkOn = newState
     end, "AntiAFK")
 
     createSliderToggle(playerPage, "Floating Stats HUD", false, function(newState)
         isHudOn = newState
-        _G.ENI_HudOn = isHudOn
-        if _G.ENI_HudFrame then _G.ENI_HudFrame.Visible = isHudOn end
+        _G.Unknown_HudOn = isHudOn
+        if _G.Unknown_HudFrame then _G.Unknown_HudFrame.Visible = isHudOn end
     end)
 
-    _G.ENI_AntiAfkOn = true
+    _G.Unknown_AntiAfkOn = true
     LocalPlayer.Idled:Connect(function()
-        if _G.ENI_AntiAfkOn then
+        if _G.Unknown_AntiAfkOn then
             pcall(function()
                 local vu = game:GetService("VirtualUser")
                 vu:CaptureController()
@@ -1914,13 +1914,13 @@ local function restoreCharacterPhysics()
     end)
 end
 
-_G.ENI_CancelTween = function()
+_G.Unknown_CancelTween = function()
     isTraveling = false
-    if _G.ENI_TravelTween then
-        pcall(function() _G.ENI_TravelTween:Cancel() end)
-        _G.ENI_TravelTween = nil
+    if _G.Unknown_TravelTween then
+        pcall(function() _G.Unknown_TravelTween:Cancel() end)
+        _G.Unknown_TravelTween = nil
     end
-    _G.ENI_TravelTweenID = nil
+    _G.Unknown_TravelTweenID = nil
     restoreCharacterPhysics()
     if travelStatusLabel then
         travelStatusLabel.Text = "Status: Travel Canceled. Idle."
@@ -1998,13 +1998,13 @@ do
     for i, island in ipairs(islands) do
         travelList:AddItem(island.Name, "Click to start flight", function()
             if activeTravelIsland == island.Name then
-                _G.ENI_CancelTween()
+                _G.Unknown_CancelTween()
                 activeTravelIsland = nil
                 travelStatusLabel.Text = "Status: Idle"
             else
                 activeTravelIsland = island.Name
-                if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
-                if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
+                if _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
+                if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
                 travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
                 safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
                     if activeTravelIsland == island.Name then
@@ -2015,8 +2015,8 @@ do
             end
         end, "Teleport", function()
             activeTravelIsland = island.Name
-            if _G.ENI_setFarmState then _G.ENI_setFarmState(false) end
-            if _G.ENI_setAutoBossState then _G.ENI_setAutoBossState(false) end
+            if _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
+            if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
             travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
             safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
                 if activeTravelIsland == island.Name then
@@ -2084,10 +2084,10 @@ do
         }
     }
 
-    _G.ENI_BossData = isSea2 and allBossData.Sea2 or (isSea3 and allBossData.Sea3 or allBossData.Sea1)
+    _G.Unknown_BossData = isSea2 and allBossData.Sea2 or (isSea3 and allBossData.Sea3 or allBossData.Sea1)
 end
 
-local BossData = _G.ENI_BossData
+local BossData = _G.Unknown_BossData
 local bossCooldowns = {}
 local bossKillTimes = {}
 local bossCheckState = {
@@ -2102,7 +2102,7 @@ local isAutoBossOn = false
 local getBossState, setBossState = createSliderToggle(bossPage, "Enable Auto Boss", false, function(newState)
     isAutoBossOn = newState
 end)
-_G.ENI_setAutoBossState = setBossState
+_G.Unknown_setAutoBossState = setBossState
 
 local isAutoBossHopOn = false
 createSliderToggle(bossPage, "Auto Server Hop when Bosses Dead", false, function(newState)
@@ -2309,7 +2309,7 @@ do
 end
 
 -- GLOBAL BACKGROUND LOOP (Infinite Energy, Fruit Snipe & Auto Chest)
-if _G.ENI_GlobalLoop then pcall(function() _G.ENI_GlobalLoop:Disconnect() end) end
+if _G.Unknown_GlobalLoop then pcall(function() _G.Unknown_GlobalLoop:Disconnect() end) end
 local lastSnipeTime = 0
 local isChestFarming = false
 
@@ -2354,9 +2354,9 @@ end
 
 stopChestFarm = function()
     disableChestNoclip()
-    if _G.ENI_ChestTween then
-        pcall(function() _G.ENI_ChestTween:Cancel() end)
-        _G.ENI_ChestTween = nil
+    if _G.Unknown_ChestTween then
+        pcall(function() _G.Unknown_ChestTween:Cancel() end)
+        _G.Unknown_ChestTween = nil
     end
     activeChestTarget = nil
     pcall(function()
@@ -2413,7 +2413,7 @@ startChestFarm = function()
                         local stuckTime = tick()
 
                         -- Continuous Tween loop until chest collected or timed out
-                        if _G.ENI_ChestTween then pcall(function() _G.ENI_ChestTween:Cancel() end) _G.ENI_ChestTween = nil end
+                        if _G.Unknown_ChestTween then pcall(function() _G.Unknown_ChestTween:Cancel() end) _G.Unknown_ChestTween = nil end
                         while isAutoChestOn and targetChest and targetChest.Parent and (targetChest:FindFirstChildOfClass("TouchTransmitter") or targetChest:FindFirstChild("TouchInterest")) do
                             if not char or not char:FindFirstChild("HumanoidRootPart") then break end
                             
@@ -2421,7 +2421,7 @@ startChestFarm = function()
                             local dist = (currHrp.Position - chestPos).Magnitude
 
                             if dist <= 6 then
-                                if _G.ENI_ChestTween then pcall(function() _G.ENI_ChestTween:Cancel() end) end
+                                if _G.Unknown_ChestTween then pcall(function() _G.Unknown_ChestTween:Cancel() end) end
                                 currHrp.CFrame = CFrame.new(chestPos)
                                 if firetouchinterest then
                                     firetouchinterest(currHrp, targetChest, 0)
@@ -2438,23 +2438,23 @@ startChestFarm = function()
                                 if tick() - stuckTime > 2 then
                                     currHrp.CFrame = currHrp.CFrame + (chestPos - currHrp.Position).Unit * 15
                                     stuckTime = tick()
-                                    if _G.ENI_ChestTween then pcall(function() _G.ENI_ChestTween:Cancel() end) _G.ENI_ChestTween = nil end
+                                    if _G.Unknown_ChestTween then pcall(function() _G.Unknown_ChestTween:Cancel() end) _G.Unknown_ChestTween = nil end
                                 end
                             else
                                 lastHrpPos = currHrp.Position
                                 stuckTime = tick()
                             end
 
-                            if not _G.ENI_ChestTween or _G.ENI_ChestTween.PlaybackState ~= Enum.PlaybackState.Playing then
+                            if not _G.Unknown_ChestTween or _G.Unknown_ChestTween.PlaybackState ~= Enum.PlaybackState.Playing then
                                 local tDur = dist / speed
-                                _G.ENI_ChestTween = TweenService:Create(currHrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = CFrame.new(chestPos)})
-                                _G.ENI_ChestTween:Play()
+                                _G.Unknown_ChestTween = TweenService:Create(currHrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = CFrame.new(chestPos)})
+                                _G.Unknown_ChestTween:Play()
                             end
                             
                             if tick() - startTime > 10 then break end
                             task.wait(0.1)
                         end
-                        if _G.ENI_ChestTween then pcall(function() _G.ENI_ChestTween:Cancel() end) _G.ENI_ChestTween = nil end
+                        if _G.Unknown_ChestTween then pcall(function() _G.Unknown_ChestTween:Cancel() end) _G.Unknown_ChestTween = nil end
                     end
                 else
                     farmStatusLabel.Text = "Status: No chests currently available."
@@ -2472,11 +2472,11 @@ startChestFarm = function()
 end
 
 -- GLOBAL BACKGROUND LOOP (Infinite Energy, Fruit Snipe & Live Stats Refresh)
-if _G.ENI_GlobalLoop then pcall(function() _G.ENI_GlobalLoop:Disconnect() end) end
+if _G.Unknown_GlobalLoop then pcall(function() _G.Unknown_GlobalLoop:Disconnect() end) end
 local lastSnipeTime = 0
 local lastStatsUpdate = 0
 
-_G.ENI_GlobalLoop = RunService.Heartbeat:Connect(function()
+_G.Unknown_GlobalLoop = RunService.Heartbeat:Connect(function()
     if tick() - lastStatsUpdate > 0.5 then
         lastStatsUpdate = tick()
         pcall(function()
@@ -2494,14 +2494,14 @@ _G.ENI_GlobalLoop = RunService.Heartbeat:Connect(function()
             if weaponStatLabel then weaponStatLabel.Text = "Weapon: " .. selectedWeaponType end
 
             -- RGB Rainbow Animated Glow Engine
-            if _G.ENI_RgbGlowOn then
+            if _G.Unknown_RgbGlowOn then
                 local hue = (tick() * 0.4) % 1
                 local rgbColor = Color3.fromHSV(hue, 0.85, 1)
                 setThemeColor(rgbColor)
             end
 
             -- Live Floating HUD Data Refresh
-            if _G.ENI_HudOn and _G.ENI_HudContent then
+            if _G.Unknown_HudOn and _G.Unknown_HudContent then
                 pcall(function()
                     local mem = math.floor(stats:GetTotalMemoryUsageMb())
                     local lighting = game:GetService("Lighting")
@@ -2531,7 +2531,7 @@ _G.ENI_GlobalLoop = RunService.Heartbeat:Connect(function()
                     local beli = data and data:FindFirstChild("Beli") and data.Beli.Value or 0
                     local frags = data and data:FindFirstChild("Fragments") and data.Fragments.Value or 0
 
-                    _G.ENI_HudContent.Text = string.format("⚡ FPS: %d | Ping: %dms | RAM: %dMB\n%s\n⭐ Level: %d | 💵 $%s | 🍇 %s\n🍎 Fruits: %d | 👥 Players: %d/12\n⌛ Hub Uptime: %ds",
+                    _G.Unknown_HudContent.Text = string.format("⚡ FPS: %d | Ping: %dms | RAM: %dMB\n%s\n⭐ Level: %d | 💵 $%s | 🍇 %s\n🍎 Fruits: %d | 👥 Players: %d/12\n⌛ Hub Uptime: %ds",
                         fps, ping, mem, moonStr, level, tostring(beli), tostring(frags), fruitCount, playerNum, math.floor(workspace.DistributedGameTime)
                     )
                 end)
@@ -2580,52 +2580,52 @@ _G.ENI_GlobalLoop = RunService.Heartbeat:Connect(function()
 end)
 
 -- ROBUST MULTI-LAYER FAST ATTACK ENGINE (Blox Fruits Net / CombatFramework / Remotes)
-if _G.ENI_FastHitThread then 
-    pcall(function() task.cancel(_G.ENI_FastHitThread) end)
-    _G.ENI_FastHitThread = nil
+if _G.Unknown_FastHitThread then 
+    pcall(function() task.cancel(_G.Unknown_FastHitThread) end)
+    _G.Unknown_FastHitThread = nil
 end
-if _G.ENI_FastHitLoop then pcall(function() _G.ENI_FastHitLoop:Disconnect() end) end
-if _G.ENI_InputBeganConn then pcall(function() _G.ENI_InputBeganConn:Disconnect() end) end
-if _G.ENI_InputEndedConn then pcall(function() _G.ENI_InputEndedConn:Disconnect() end) end
+if _G.Unknown_FastHitLoop then pcall(function() _G.Unknown_FastHitLoop:Disconnect() end) end
+if _G.Unknown_InputBeganConn then pcall(function() _G.Unknown_InputBeganConn:Disconnect() end) end
+if _G.Unknown_InputEndedConn then pcall(function() _G.Unknown_InputEndedConn:Disconnect() end) end
 
 -- Attempt to retrieve CombatFramework and Net module safely
 pcall(function()
-    _G.ENI_CombatFramework = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
+    _G.Unknown_CombatFramework = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
 end)
 pcall(function()
-    _G.ENI_NetModule = require(ReplicatedStorage.Modules:WaitForChild("Net", 2))
-    _G.ENI_WrappedAtk = _G.ENI_NetModule:RemoteEvent("RegisterAttack")
-    _G.ENI_WrappedHit = _G.ENI_NetModule:RemoteEvent("RegisterHit")
+    _G.Unknown_NetModule = require(ReplicatedStorage.Modules:WaitForChild("Net", 2))
+    _G.Unknown_WrappedAtk = _G.Unknown_NetModule:RemoteEvent("RegisterAttack")
+    _G.Unknown_WrappedHit = _G.Unknown_NetModule:RemoteEvent("RegisterHit")
 end)
 
-_G.ENI_LastHitTime = 0
-_G.ENI_IsManualAttacking = false
+_G.Unknown_LastHitTime = 0
+_G.Unknown_IsManualAttacking = false
 
 -- Global performFastAttack function callable anywhere (Auto Farm, Bosses, Raids, Fast Attack)
-_G.ENI_PerformFastAttack = function(nearbyHits, primaryPart)
+_G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     if not nearbyHits or #nearbyHits == 0 then return end
     primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart")))
     if not primaryPart then return end
 
     -- 1. Net Module (Wrapped Remote Events)
     pcall(function()
-        if not _G.ENI_WrappedAtk or not _G.ENI_WrappedHit then
+        if not _G.Unknown_WrappedAtk or not _G.Unknown_WrappedHit then
             local netM = require(ReplicatedStorage.Modules.Net)
-            _G.ENI_WrappedAtk = netM:RemoteEvent("RegisterAttack")
-            _G.ENI_WrappedHit = netM:RemoteEvent("RegisterHit")
+            _G.Unknown_WrappedAtk = netM:RemoteEvent("RegisterAttack")
+            _G.Unknown_WrappedHit = netM:RemoteEvent("RegisterHit")
         end
-        if _G.ENI_WrappedAtk then
-            if typeof(_G.ENI_WrappedAtk) == "Instance" then
-                _G.ENI_WrappedAtk:FireServer(0)
-            elseif type(_G.ENI_WrappedAtk) == "table" and _G.ENI_WrappedAtk.FireServer then
-                _G.ENI_WrappedAtk:FireServer(0)
+        if _G.Unknown_WrappedAtk then
+            if typeof(_G.Unknown_WrappedAtk) == "Instance" then
+                _G.Unknown_WrappedAtk:FireServer(0)
+            elseif type(_G.Unknown_WrappedAtk) == "table" and _G.Unknown_WrappedAtk.FireServer then
+                _G.Unknown_WrappedAtk:FireServer(0)
             end
         end
-        if _G.ENI_WrappedHit then
-            if typeof(_G.ENI_WrappedHit) == "Instance" then
-                _G.ENI_WrappedHit:FireServer(primaryPart, nearbyHits)
-            elseif type(_G.ENI_WrappedHit) == "table" and _G.ENI_WrappedHit.FireServer then
-                _G.ENI_WrappedHit:FireServer(primaryPart, nearbyHits)
+        if _G.Unknown_WrappedHit then
+            if typeof(_G.Unknown_WrappedHit) == "Instance" then
+                _G.Unknown_WrappedHit:FireServer(primaryPart, nearbyHits)
+            elseif type(_G.Unknown_WrappedHit) == "table" and _G.Unknown_WrappedHit.FireServer then
+                _G.Unknown_WrappedHit:FireServer(primaryPart, nearbyHits)
             end
         end
     end)
@@ -2653,8 +2653,8 @@ _G.ENI_PerformFastAttack = function(nearbyHits, primaryPart)
 
     -- 4. CombatFramework controller bypass
     pcall(function()
-        if _G.ENI_CombatFramework and _G.ENI_CombatFramework.activeController then
-            local ac = _G.ENI_CombatFramework.activeController
+        if _G.Unknown_CombatFramework and _G.Unknown_CombatFramework.activeController then
+            local ac = _G.Unknown_CombatFramework.activeController
             ac.timeToNextAttack = 0
             ac.attacking = false
             ac.blocking = false
@@ -2666,16 +2666,16 @@ _G.ENI_PerformFastAttack = function(nearbyHits, primaryPart)
 end
 
 -- Fast Attack Input detection (Mouse click, Touch screen on mobile, Tool activation)
-_G.ENI_InputBeganConn = UserInputService.InputBegan:Connect(function(input, gpe)
+_G.Unknown_InputBeganConn = UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        _G.ENI_IsManualAttacking = true
+        _G.Unknown_IsManualAttacking = true
     end
 end)
 
-_G.ENI_InputEndedConn = UserInputService.InputEnded:Connect(function(input)
+_G.Unknown_InputEndedConn = UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        _G.ENI_IsManualAttacking = false
+        _G.Unknown_IsManualAttacking = false
     end
 end)
 
@@ -2718,7 +2718,7 @@ local function hookToolFastAttack(tool)
                 end
             end
             if primaryHRP and #hits > 0 then
-                _G.ENI_PerformFastAttack(hits, primaryHRP)
+                _G.Unknown_PerformFastAttack(hits, primaryHRP)
             end
         end)
     end)
@@ -2739,17 +2739,17 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
 end)
 
 -- CALIBRATED FAST ATTACK HEARTBEAT STREAM
-_G.ENI_FastHitLoop = RunService.Heartbeat:Connect(function()
+_G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
     pcall(function()
         if not isAuraHitOn then return end
 
-        local isClicking = _G.ENI_IsManualAttacking or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+        local isClicking = _G.Unknown_IsManualAttacking or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
         local shouldAttack = isFarmOn or isClicking
         if not shouldAttack then return end
 
         local now = tick()
-        if now - _G.ENI_LastHitTime < 0.08 then return end
-        _G.ENI_LastHitTime = now
+        if now - _G.Unknown_LastHitTime < 0.08 then return end
+        _G.Unknown_LastHitTime = now
 
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -2793,7 +2793,7 @@ _G.ENI_FastHitLoop = RunService.Heartbeat:Connect(function()
         end
 
         if primaryHRP and #nearbyHits > 0 then
-            _G.ENI_PerformFastAttack(nearbyHits, primaryHRP)
+            _G.Unknown_PerformFastAttack(nearbyHits, primaryHRP)
         end
     end)
 end)
@@ -2806,8 +2806,8 @@ end)
         GuiService.ErrorMessageChanged:Connect(function()
             task.wait(0.5)
             pcall(function()
-                if _G.ENI_SmartServerHop then
-                    _G.ENI_SmartServerHop("rejoin")
+                if _G.Unknown_SmartServerHop then
+                    _G.Unknown_SmartServerHop("rejoin")
                 else
                     game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
                 end
@@ -2816,9 +2816,9 @@ end)
     end)
 
 -- ESP BACKGROUND RENDERER LOOP
-if _G.ENI_EspLoop then pcall(function() _G.ENI_EspLoop:Disconnect() end) end
-if _G.ENI_EspThread then pcall(function() task.cancel(_G.ENI_EspThread) end) end
-if _G.ENI_FastEspRender then pcall(function() _G.ENI_FastEspRender:Disconnect() end) end
+if _G.Unknown_EspLoop then pcall(function() _G.Unknown_EspLoop:Disconnect() end) end
+if _G.Unknown_EspThread then pcall(function() task.cancel(_G.Unknown_EspThread) end) end
+if _G.Unknown_FastEspRender then pcall(function() _G.Unknown_FastEspRender:Disconnect() end) end
 
 local espGuiParent = nil
 pcall(function()
@@ -2867,7 +2867,7 @@ end
 local cachedEspObjects = {}
 
 -- Layer 1: Background Object Scanner (Scans All Chests, Fruits, Players, Bosses)
-_G.ENI_EspThread = task.spawn(function()
+_G.Unknown_EspThread = task.spawn(function()
     while true do
         task.wait(0.5)
         pcall(function()
@@ -2968,18 +2968,18 @@ _G.ENI_EspThread = task.spawn(function()
                     -- Verified Death Detection: Only register death if player was near mob AND witnessed health <= 0 or spawner empty!
                     local char = LocalPlayer.Character
                     local playerHRP = char and char:FindFirstChild("HumanoidRootPart")
-                    _G.ENI_LastBossHP = _G.ENI_LastBossHP or {}
+                    _G.Unknown_LastBossHP = _G.Unknown_LastBossHP or {}
 
                     for _, bData in ipairs(BossData) do
                         local bName = bData.ExactName
-                        local wasAlive = _G.ENI_LastSpawnedBosses and _G.ENI_LastSpawnedBosses[bName]
+                        local wasAlive = _G.Unknown_LastSpawnedBosses and _G.Unknown_LastSpawnedBosses[bName]
                         local isAliveNow = spawnedBosses[bName]
 
                         if wasAlive and not isAliveNow then
                             -- Only register death if player was in combat range (< 100 studs) when mob disappeared!
                             if playerHRP then
                                 local distToSpawner = (playerHRP.Position - bData.IslandCFrame.Position).Magnitude
-                                local lastHP = _G.ENI_LastBossHP[bName] or 100
+                                local lastHP = _G.Unknown_LastBossHP[bName] or 100
                                 
                                 if distToSpawner <= 100 or lastHP <= 5 then
                                     -- Confirmed Kill!
@@ -2993,7 +2993,7 @@ _G.ENI_EspThread = task.spawn(function()
                             end
                         end
                     end
-                    _G.ENI_LastSpawnedBosses = spawnedBosses
+                    _G.Unknown_LastSpawnedBosses = spawnedBosses
 
                     -- Render ALL Bosses globally in current sea (even if unspawned or despawned due to distance)
                     local now = tick()
@@ -3044,7 +3044,7 @@ _G.ENI_EspThread = task.spawn(function()
 end)
 
 -- Layer 2: 2D Screen-Space Instant Projection Renderer (Infinite Distance 100% Guaranteed)
-_G.ENI_FastEspRender = RunService.RenderStepped:Connect(function()
+_G.Unknown_FastEspRender = RunService.RenderStepped:Connect(function()
     pcall(function()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -3220,14 +3220,14 @@ end
 
 if Hub.registerFeatureStopper then
     Hub.registerFeatureStopper(function()
-        if _G.ENI_MainFarmLoop then pcall(function() _G.ENI_MainFarmLoop:Disconnect() end) _G.ENI_MainFarmLoop = nil end
-        if _G.ENI_FastHitLoop then pcall(function() _G.ENI_FastHitLoop:Disconnect() end) _G.ENI_FastHitLoop = nil end
-        if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
-        if _G.ENI_GlobalLoop then pcall(function() _G.ENI_GlobalLoop:Disconnect() end) _G.ENI_GlobalLoop = nil end
-        if _G.ENI_WaterWalkConn then pcall(function() _G.ENI_WaterWalkConn:Disconnect() end) end
-        if _G.ENI_EspLoop then pcall(function() _G.ENI_EspLoop:Disconnect() end) end
-        if _G.ENI_EspThread then pcall(function() task.cancel(_G.ENI_EspThread) end) end
-        if _G.ENI_FastEspRender then pcall(function() _G.ENI_FastEspRender:Disconnect() end) end
+        if _G.Unknown_MainFarmLoop then pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end) _G.Unknown_MainFarmLoop = nil end
+        if _G.Unknown_FastHitLoop then pcall(function() _G.Unknown_FastHitLoop:Disconnect() end) _G.Unknown_FastHitLoop = nil end
+        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+        if _G.Unknown_GlobalLoop then pcall(function() _G.Unknown_GlobalLoop:Disconnect() end) _G.Unknown_GlobalLoop = nil end
+        if _G.Unknown_WaterWalkConn then pcall(function() _G.Unknown_WaterWalkConn:Disconnect() end) end
+        if _G.Unknown_EspLoop then pcall(function() _G.Unknown_EspLoop:Disconnect() end) end
+        if _G.Unknown_EspThread then pcall(function() task.cancel(_G.Unknown_EspThread) end) end
+        if _G.Unknown_FastEspRender then pcall(function() _G.Unknown_FastEspRender:Disconnect() end) end
     end)
 end
 
@@ -3413,11 +3413,11 @@ local function getBossTarget()
     end
     
     if hasSelected and isAutoBossHopOn then
-        if not _G.ENI_BossHopCooldown or tick() - _G.ENI_BossHopCooldown > 15 then
-            _G.ENI_BossHopCooldown = tick()
+        if not _G.Unknown_BossHopCooldown or tick() - _G.Unknown_BossHopCooldown > 15 then
+            _G.Unknown_BossHopCooldown = tick()
             notifyGUI("Auto Boss", "All bosses dead/cooldown! Auto Hopping...", 5)
-            if _G.ENI_SmartServerHop then
-                _G.ENI_SmartServerHop("lowest")
+            if _G.Unknown_SmartServerHop then
+                _G.Unknown_SmartServerHop("lowest")
             else
                 pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer) end)
             end
@@ -3441,7 +3441,7 @@ local function autoClaimQuest(questName, questLevel)
     end)
 end
 
-_G.ENI_TravelNoclip = game:GetService("RunService").Stepped:Connect(function()
+_G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function()
     pcall(function()
         local char = LocalPlayer.Character
         if not char then return end
@@ -3507,7 +3507,7 @@ safeTweenToIsland = function(targetCFrame, callback)
     end
     local hrp = char.HumanoidRootPart
 
-    local farmDist = math.max(_G.ENI_FarmDistance or 10.0, 10.0)
+    local farmDist = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
     local targetCF
     if typeof(targetCFrame) == "CFrame" then
         targetCF = targetCFrame
@@ -3523,7 +3523,7 @@ safeTweenToIsland = function(targetCFrame, callback)
     local dist = (currentPos - targetPos).Magnitude
 
     if dist <= 14 then
-        if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
+        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
         isTraveling = false
         hrp.CFrame = targetCF
         if callback then callback() end
@@ -3531,9 +3531,9 @@ safeTweenToIsland = function(targetCFrame, callback)
     end
 
     -- Cancel existing flight tween cleanly before starting new destination flight
-    if _G.ENI_TravelTween then 
-        pcall(function() _G.ENI_TravelTween:Cancel() end) 
-        _G.ENI_TravelTween = nil 
+    if _G.Unknown_TravelTween then 
+        pcall(function() _G.Unknown_TravelTween:Cancel() end) 
+        _G.Unknown_TravelTween = nil 
     end
 
     -- Ensure anti-gravity is firmly active before initiating flight
@@ -3613,20 +3613,20 @@ safeTweenToIsland = function(targetCFrame, callback)
 
     isTraveling = true
     local currentTweenID = tick()
-    _G.ENI_TravelTweenID = currentTweenID
+    _G.Unknown_TravelTweenID = currentTweenID
 
     -- Fast smooth travel (320 studs/sec)
     local speed = 320
     local travelTime = math.clamp(dist / speed, 0.1, 45)
     local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 
-    _G.ENI_TravelTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCF})
-    _G.ENI_TravelTween.Completed:Connect(function()
-        if _G.ENI_TravelTweenID ~= currentTweenID then return end
+    _G.Unknown_TravelTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCF})
+    _G.Unknown_TravelTween.Completed:Connect(function()
+        if _G.Unknown_TravelTweenID ~= currentTweenID then return end
         isTraveling = false
         if callback then callback() end
     end)
-    _G.ENI_TravelTween:Play()
+    _G.Unknown_TravelTween:Play()
 end
 
 local function autoEquipSelectedWeapon(forceType)
@@ -3689,13 +3689,13 @@ local function getSpawnersForMob(mobName)
     return spawners
 end
 
-_G.stopENIFarm = function()
+_G.stopUnknownFarm = function()
     isFarmOn = false
-    _G.ENI_CancelTween()
+    _G.Unknown_CancelTween()
     
-    if _G.ENI_MainFarmLoop then 
-        _G.ENI_MainFarmLoop:Disconnect() 
-        _G.ENI_MainFarmLoop = nil 
+    if _G.Unknown_MainFarmLoop then 
+        _G.Unknown_MainFarmLoop:Disconnect() 
+        _G.Unknown_MainFarmLoop = nil 
     end
 
     pcall(function()
@@ -3736,9 +3736,9 @@ _G.stopENIFarm = function()
     if farmStatusLabel then farmStatusLabel.Text = "Status: Auto Farm OFF." end
 end
 
-_G.startENIFarm = function()
-    if _G.ENI_MainFarmLoop then _G.ENI_MainFarmLoop:Disconnect() _G.ENI_MainFarmLoop = nil end
-    if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
+_G.startUnknownFarm = function()
+    if _G.Unknown_MainFarmLoop then _G.Unknown_MainFarmLoop:Disconnect() _G.Unknown_MainFarmLoop = nil end
+    if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
     isTraveling = false
     farmStatusLabel.Text = "Status: Auto Farm Active..."
 
@@ -3755,7 +3755,7 @@ _G.startENIFarm = function()
     local isWaitingAtSpawner = false
     local hasArrivedAtSpawner = false
 
-    _G.ENI_MainFarmLoop = RunService.Heartbeat:Connect(function()
+    _G.Unknown_MainFarmLoop = RunService.Heartbeat:Connect(function()
         if not isFarmOn then return end
         pcall(function()
             local currentLevel = getPlayerLevel()
@@ -3807,7 +3807,7 @@ _G.startENIFarm = function()
                 lastSweepTime = 0
                 isWaitingAtSpawner = false
                 hasArrivedAtSpawner = false
-                if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) end
+                if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) end
                 isTraveling = false
             end
 
@@ -3996,7 +3996,7 @@ _G.startENIFarm = function()
             -- COMBAT MODE & MOB SPAWNER DIRECT TARGETING (ZERO ISLAND CENTER TWEENS AT ALL LEVELS)
             local mobSpawners = getSpawnersForMob(exactMobName)
             local spawnerCF = (#mobSpawners > 0) and mobSpawners[1] or nil
-            local farmDist = math.max(_G.ENI_FarmDistance or 10.0, 10.0)
+            local farmDist = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
 
             if #targetMobs > 0 then
                 local firstMobHRP = targetMobs[1]:FindFirstChild("HumanoidRootPart")
@@ -4013,8 +4013,8 @@ _G.startENIFarm = function()
                         return
                     else
                         -- Arrived within combat range: cancel travel tween immediately and snap into exact distance position
-                        if isTraveling or (_G.ENI_TravelTween and _G.ENI_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                            if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
+                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
+                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
                             isTraveling = false
                         end
                         playerHRP.CFrame = playerHRP.CFrame:Lerp(targetMobCF, 0.12)
@@ -4040,20 +4040,20 @@ _G.startENIFarm = function()
                             end
                             
                             -- Anti-Lock Watchdog: Track if mob is stuck/unhittable for > 3 seconds
-                            local bringStart = mob:GetAttribute("ENI_BringStart") or now
-                            if not mob:GetAttribute("ENI_BringStart") then
-                                mob:SetAttribute("ENI_BringStart", now)
+                            local bringStart = mob:GetAttribute("Unknown_BringStart") or now
+                            if not mob:GetAttribute("Unknown_BringStart") then
+                                mob:SetAttribute("Unknown_BringStart", now)
                             end
 
                             local lastHealth = mob:GetAttribute("ENI_LastHP") or mobHum.Health
                             if mobHum.Health < lastHealth then
                                 mob:SetAttribute("ENI_LastHP", mobHum.Health)
-                                mob:SetAttribute("ENI_BringStart", now) -- Reset timer when damage is taking place!
+                                mob:SetAttribute("Unknown_BringStart", now) -- Reset timer when damage is taking place!
                             end
 
                             -- If mob is frozen/unhittable for > 3.0s, momentarily release it so physics syncs!
                             if now - bringStart > 3.0 then
-                                mob:SetAttribute("ENI_BringStart", now)
+                                mob:SetAttribute("Unknown_BringStart", now)
                                 for _, part in ipairs(mob:GetChildren()) do
                                     if part:IsA("BasePart") then part.CanCollide = true end
                                 end
@@ -4112,7 +4112,7 @@ _G.startENIFarm = function()
                         if #hitList > 0 and (now - (lastFarmHit or 0) >= 0.08) then
                             lastFarmHit = now
                             local primaryHRP = hitList[1][2]
-                            _G.ENI_PerformFastAttack(hitList, primaryHRP)
+                            _G.Unknown_PerformFastAttack(hitList, primaryHRP)
                         end
                     end)
                 end
@@ -4131,8 +4131,8 @@ _G.startENIFarm = function()
                             safeTweenToIsland(spawnerTargetCF)
                         end
                     else
-                        if isTraveling or (_G.ENI_TravelTween and _G.ENI_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                            if _G.ENI_TravelTween then pcall(function() _G.ENI_TravelTween:Cancel() end) _G.ENI_TravelTween = nil end
+                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
+                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
                             isTraveling = false
                         end
                         farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Hovering at " .. displayName .. "... Waiting for spawns."

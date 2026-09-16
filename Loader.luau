@@ -121,7 +121,7 @@ local function getSafeGuiParent()
 end
 
 local function destroyOldCheckerGui()
-    local targetName = "ENI_GameChecker_UI"
+    local targetName = "Unknown_GameChecker_UI"
     local parents = {CoreGui}
     if gethui then pcall(function() table.insert(parents, gethui()) end) end
     if LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") then
@@ -178,7 +178,7 @@ else
     destroyOldCheckerGui()
 
     local sg = Instance.new("ScreenGui")
-    sg.Name = "ENI_GameChecker_UI"
+    sg.Name = "Unknown_GameChecker_UI"
     sg.ResetOnSpawn = false
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     sg.Parent = getSafeGuiParent()
