@@ -184,7 +184,7 @@ local farmTab = Hub.createTabButton("Automation", "⚙️ Factory & Farm", "rbxa
 -- -------------------------------------------------------------------------
 -- Item Info Tab
 -- -------------------------------------------------------------------------
-local itemSec = infoTab.createSection("Game Items Explorer")
+Hub.CreateSection(infoTab, "Game Items Explorer")
 
 local selectedItemName = ItemNamesList[1] or "Plastic Casing"
 
@@ -194,41 +194,46 @@ local function updateItemDetails(itemName)
     selectedItemName = itemName
     local data = ItemDatabase[itemName]
     if data then
-        if selectedCostLbl then selectedCostLbl.Text = string.format("Cost: $%.2f", data.Cost) end
-        if selectedRPLbl then selectedRPLbl.Text = string.format("Research Station 2 RP: %d RP (Base Mult: %.1f)", data.RS2_RP, data.RPMultiplier) end
-        if selectedRecipeLbl then selectedRecipeLbl.Text = "Crafting / Source: " .. tostring(data.Recipe) end
+        if selectedCostLbl and selectedCostLbl.SetText then
+            selectedCostLbl.SetText(string.format("Cost: $%.2f", data.Cost))
+        elseif selectedCostLbl then
+            pcall(function() selectedCostLbl.Text = string.format("Cost: $%.2f", data.Cost) end)
+        end
+
+        if selectedRPLbl and selectedRPLbl.SetText then
+            selectedRPLbl.SetText(string.format("Research Station 2 RP: %d RP (Base Mult: %.1f)", data.RS2_RP, data.RPMultiplier))
+        elseif selectedRPLbl then
+            pcall(function() selectedRPLbl.Text = string.format("Research Station 2 RP: %d RP (Base Mult: %.1f)", data.RS2_RP, data.RPMultiplier) end)
+        end
+
+        if selectedRecipeLbl and selectedRecipeLbl.SetText then
+            selectedRecipeLbl.SetText("Crafting / Source: " .. tostring(data.Recipe))
+        elseif selectedRecipeLbl then
+            pcall(function() selectedRecipeLbl.Text = "Crafting / Source: " .. tostring(data.Recipe) end)
+        end
     end
 end
 
-itemSec.createList({
-    name = "Select Item to View Info",
-    options = ItemNamesList,
-    default = selectedItemName,
-    callback = function(choice)
-        updateItemDetails(choice)
-    end
-})
+Hub.CreateList(infoTab, "Select Item to View Info", ItemNamesList, selectedItemName, function(choice)
+    updateItemDetails(choice)
+end)
 
-itemSec.createButton({
-    name = "🔄 Refresh Live Item Database",
-    callback = function()
-        extractItemDatabase()
-        updateItemDetails(selectedItemName)
-    end
-})
+Hub.CreateButton(infoTab, "🔄 Refresh Live Item Database", function()
+    extractItemDatabase()
+    updateItemDetails(selectedItemName)
+end)
 
-selectedCostLbl = itemSec.createLabel("Cost: $0.00")
-selectedRPLbl   = itemSec.createLabel("Research Station 2 RP: 0 RP")
-selectedRecipeLbl = itemSec.createLabel("Crafting / Source: Loading...")
+selectedCostLbl   = Hub.CreateLabel(infoTab, "Cost: $0.00")
+selectedRPLbl     = Hub.CreateLabel(infoTab, "Research Station 2 RP: 0 RP")
+selectedRecipeLbl = Hub.CreateLabel(infoTab, "Crafting / Source: Loading...")
 
 updateItemDetails(selectedItemName)
 
 -- -------------------------------------------------------------------------
 -- Research Station 2 Tab
 -- -------------------------------------------------------------------------
-local rsSec = rsTab.createSection("Research Station 2 Yield Calculator")
-
-rsSec.createLabel("Research Station 2 Formula: RP Yield = Base RPMultiplier * 5")
+Hub.CreateSection(rsTab, "Research Station 2 Yield Calculator")
+Hub.CreateLabel(rsTab, "Research Station 2 Formula: RP Yield = Base RPMultiplier * 5")
 
 local topItemsList = {}
 for name, data in pairs(ItemDatabase) do
@@ -237,24 +242,15 @@ for name, data in pairs(ItemDatabase) do
     end
 end
 
-rsSec.createList({
-    name = "Top Research Station 2 Items",
-    options = topItemsList,
-    default = topItemsList[1] or "None",
-    callback = function() end
-})
+Hub.CreateList(rsTab, "Top Research Station 2 Items", topItemsList, topItemsList[1] or "None", function() end)
 
 -- -------------------------------------------------------------------------
 -- Automation & Utility
 -- -------------------------------------------------------------------------
-local autoSec = farmTab.createSection("Factory Automation & Utility")
+Hub.CreateSection(farmTab, "Factory Automation & Utility")
 
-autoSec.createToggle({
-    name = "Auto Collect Products / Items",
-    default = false,
-    callback = function(state)
-        getgenv().AutoCollect = state
-    end
-})
+Hub.CreateToggle(farmTab, "Auto Collect Products / Items", false, function(state)
+    getgenv().AutoCollect = state
+end)
 
 print("[UnknownHub] Ugc module successfully initialized!")
