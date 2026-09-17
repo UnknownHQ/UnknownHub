@@ -82,6 +82,48 @@ safeConnect(LocalPlayer.Idled, function()
 end)
 
 -- =========================================================================
+-- Custom Label Component Helper
+-- =========================================================================
+local function createCustomLabel(parentFrame, text)
+    local lblFrame = Instance.new("Frame")
+    lblFrame.Name = "CustomLabelFrame"
+    lblFrame.Size = UDim2.new(1, 0, 0, 36)
+    lblFrame.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+    lblFrame.BorderSizePixel = 0
+    lblFrame.Parent = parentFrame
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = lblFrame
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(40, 48, 66)
+    stroke.Thickness = 1
+    stroke.Parent = lblFrame
+
+    local txt = Instance.new("TextLabel")
+    txt.Name = "LabelText"
+    txt.Size = UDim2.new(1, -20, 1, 0)
+    txt.Position = UDim2.new(0, 10, 0, 0)
+    txt.BackgroundTransparency = 1
+    txt.Text = text
+    txt.TextColor3 = Color3.fromRGB(220, 230, 245)
+    txt.Font = Enum.Font.GothamMedium
+    txt.TextSize = 12
+    txt.TextXAlignment = Enum.TextXAlignment.Left
+    txt.TextWrapped = true
+    txt.Parent = lblFrame
+
+    return {
+        Frame = lblFrame,
+        TextLabel = txt,
+        SetText = function(str)
+            txt.Text = str
+        end
+    }
+end
+
+-- =========================================================================
 -- Load UnknownLibrary
 -- =========================================================================
 local ok, result = pcall(function()
@@ -194,22 +236,16 @@ local function updateItemDetails(itemName)
     selectedItemName = itemName
     local data = ItemDatabase[itemName]
     if data then
-        if selectedCostLbl and selectedCostLbl.SetText then
+        if selectedCostLbl then
             selectedCostLbl.SetText(string.format("Cost: $%.2f", data.Cost))
-        elseif selectedCostLbl then
-            pcall(function() selectedCostLbl.Text = string.format("Cost: $%.2f", data.Cost) end)
         end
 
-        if selectedRPLbl and selectedRPLbl.SetText then
+        if selectedRPLbl then
             selectedRPLbl.SetText(string.format("Research Station 2 RP: %d RP (Base Mult: %.1f)", data.RS2_RP, data.RPMultiplier))
-        elseif selectedRPLbl then
-            pcall(function() selectedRPLbl.Text = string.format("Research Station 2 RP: %d RP (Base Mult: %.1f)", data.RS2_RP, data.RPMultiplier) end)
         end
 
-        if selectedRecipeLbl and selectedRecipeLbl.SetText then
+        if selectedRecipeLbl then
             selectedRecipeLbl.SetText("Crafting / Source: " .. tostring(data.Recipe))
-        elseif selectedRecipeLbl then
-            pcall(function() selectedRecipeLbl.Text = "Crafting / Source: " .. tostring(data.Recipe) end)
         end
     end
 end
@@ -223,9 +259,9 @@ Hub.CreateButton(infoTab, "🔄 Refresh Live Item Database", function()
     updateItemDetails(selectedItemName)
 end)
 
-selectedCostLbl   = Hub.CreateLabel(infoTab, "Cost: $0.00")
-selectedRPLbl     = Hub.CreateLabel(infoTab, "Research Station 2 RP: 0 RP")
-selectedRecipeLbl = Hub.CreateLabel(infoTab, "Crafting / Source: Loading...")
+selectedCostLbl   = createCustomLabel(infoTab, "Cost: $0.00")
+selectedRPLbl     = createCustomLabel(infoTab, "Research Station 2 RP: 0 RP")
+selectedRecipeLbl = createCustomLabel(infoTab, "Crafting / Source: Loading...")
 
 updateItemDetails(selectedItemName)
 
@@ -233,7 +269,7 @@ updateItemDetails(selectedItemName)
 -- Research Station 2 Tab
 -- -------------------------------------------------------------------------
 Hub.CreateSection(rsTab, "Research Station 2 Yield Calculator")
-Hub.CreateLabel(rsTab, "Research Station 2 Formula: RP Yield = Base RPMultiplier * 5")
+createCustomLabel(rsTab, "Research Station 2 Formula: RP Yield = Base RPMultiplier * 5")
 
 local topItemsList = {}
 for name, data in pairs(ItemDatabase) do
