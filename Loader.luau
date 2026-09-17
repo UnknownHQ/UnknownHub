@@ -26,8 +26,8 @@ local SupportedGames = {
     {
         name = "Booga Booga",
         icon = "🏕️",
-        placeIds = { 59004523, 59004524, 117296883, 117296884, 5253198075, 5928812690, 6393433504 },
-        gameIds = { 59004523, 59004524, 117296883, 117296884, 5253198075 },
+        placeIds = { 11729688377, 59004523, 59004524, 117296883, 117296884, 5253198075, 5928812690, 6393433504 },
+        gameIds = { 4154513353, 59004523, 59004524, 117296883, 117296884, 5253198075 },
         scriptUrl = BASE_URL .. "/Games/BoogaBooga.luau",
         desc = "Kill & mob aura, auto harvest trees/ores, magnet loot, godmode & island TP"
     },
