@@ -60,6 +60,14 @@ local SupportedGames = {
         placeIds = { 17625359962, 17625126838 },
         scriptUrl = BASE_URL .. "/Games/InkGame.luau",
         desc = "Mini-game automation, ESP, godmode & remote triggers"
+    },
+    {
+        name = "Ugc / Industrial",
+        icon = "🏭",
+        placeIds = { 9312740628 },
+        gameIds = { 3448264866 },
+        scriptUrl = BASE_URL .. "/Games/Ugc.luau",
+        desc = "Item cost & recipe database, Research Station 2 RP calculator & factory automation"
     }
 }
 

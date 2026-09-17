@@ -159,14 +159,18 @@ local GameFunctions = nil
 pcall(function()
     GameFunctions = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("functions"))
 end)
+local GamePickup = nil
+pcall(function()
+    GamePickup = require(ReplicatedStorage:WaitForChild("Game"):WaitForChild("pickup"))
+end)
 
 -- =========================================================================
 -- State Registry
 -- =========================================================================
 local state = {
-    -- Auto Hit (Single Toggle + Whitelist List: Resources, Mobs, Players)
+    -- Auto Hit (Single Toggle + Whitelist List: Resources, Mobs, Players, Buildings, Gods)
     AutoHit = false,
-    AutoHitTargets = { Resources = true, Mobs = false, Players = false },
+    AutoHitTargets = { Resources = true, Mobs = false, Players = false, Buildings = false, Gods = false },
     AutoHitRange = 500,
     FastHit = true,
     BypassHitLimit = true,
@@ -213,6 +217,21 @@ local state = {
     FlySpeed = 50,
     WaterWalk = false,
 
+    -- Remote Fletching & Alchemy
+    SelectedArrow = "Fire Arrow",
+    ArrowBatchAmount = 10,
+    AutoCraftArrows = false,
+    SelectedPotion = "Healing Potion",
+    PotionBatchAmount = 5,
+    AutoBrewPotions = false,
+
+    -- Panic Fortress & Auto-Repair Aura
+    SelectedWall = "Adurite Wall",
+    FortressShape = "Circular Ring (8 Walls)",
+    FortressRadius = 12,
+    AutoRepairAura = false,
+    AutoRepairRadius = 60,
+
     -- Visuals
     PlayerESP = false,
     ResourceESP = false,
@@ -237,6 +256,11 @@ end
 local function getHumanoid(player)
     local char = getCharacter(player)
     return char and char:FindFirstChildWhichIsA("Humanoid")
+end
+
+local function getEquippedTool(player)
+    local char = getCharacter(player)
+    return char and char:FindFirstChildWhichIsA("Tool")
 end
 
 -- Crash-Proof Part Finder (Never errors on Camera/Terrain/Folders)
@@ -388,16 +412,56 @@ local function getRemotesMatching(patterns)
     return matched
 end
 
--- Resource Whitelist Matcher (All In-Game Resources including Cactus, Trees, Rocks, Crops, Ores, Mounds)
+-- Building & Structure Matcher (Player deployables, structures, walls, plant boxes, chests, totems)
+local BUILDING_KEYWORDS = {
+    "plant box", "wall", "door", "gate", "campfire", "fire", "bed", "spike", "tower", "turret",
+    "forge", "cauldron", "fletch", "table", "chest", "safe", "totem", "furnace", "crafting",
+    "hut", "pillar", "platform", "bridge", "ladder", "window", "fence", "trap", "deployable", "structure", "stand"
+}
+
+local function isTargetBuilding(name, parentFolder)
+    if parentFolder and (parentFolder.Name == "Deployables" or parentFolder.Name == "Structures") then
+        return true
+    end
+    name = name:lower()
+    for _, kw in ipairs(BUILDING_KEYWORDS) do
+        if name:find(kw) then
+            return true
+        end
+    end
+    return false
+end
+
+-- God & Shrine Matcher (All In-Game God Statues & Shrines)
+local GOD_KEYWORDS = {
+    "ancient god", "miserable god", "frozen god", "shadow god", "fire god", "silver god",
+    "golden god", "scary god", "lonely god", "god rock", "easter statue", "god statue", "statue"
+}
+
+local function isTargetGod(name, parentFolder)
+    name = name:lower()
+    for _, kw in ipairs(GOD_KEYWORDS) do
+        if name:find(kw) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Resource Whitelist Matcher (All In-Game Natural Resources - EXCLUDING Buildings & Gods)
 local RESOURCE_KEYWORDS = {
-    "tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient", "chestnut", "trunk",
-    "rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "essence", "magma", "void",
-    "node", "coal", "pink diamond", "mound", "debris", "structure", "chest", "crate", "box", "totem",
-    "berry", "bush", "fruit", "plant", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry",
-    "cactus", "cacti", "crop", "flora", "flower", "grass", "reed", "lily", "coral", "boulder", "shroom", "mushroom"
+    "tree", "wood", "log", "palm", "oak", "birch", "pine", "driftwood", "ancient tree", "chestnut", "trunk", "swoll tree", "blossom",
+    "rock", "ore", "stone", "gold", "iron", "adurite", "crystal", "meteor", "essence", "magma", "void stone", "void rock", "void meteor",
+    "node", "coal", "pink diamond", "mound", "debris", "magnetite", "boulder",
+    "berry", "bush", "fruit", "bloodfruit", "bluefruit", "sunfruit", "jellyfruit", "cloudberry", "oddberry", "frostfruit",
+    "cactus", "cacti", "crop", "flora", "flower", "grass", "reed", "lily", "coral", "shroom", "mushroom"
 }
 
 local function isTargetResource(name, parentFolder)
+    -- Never treat player buildings or gods as basic natural resources
+    if isTargetBuilding(name, parentFolder) or isTargetGod(name, parentFolder) then
+        return false
+    end
     if parentFolder and (parentFolder.Name == "Resources" or parentFolder.Name == "Crops" or parentFolder.Name == "Mounds" or parentFolder.Name == "Nodes" or parentFolder.Name == "Flora" or parentFolder.Name == "Trees" or parentFolder.Name == "Ores") then
         return true
     end
@@ -461,29 +525,127 @@ end
 -- =========================================================================
 -- Tabs Setup
 -- =========================================================================
-local combatTab   = Hub.createTabButton("Combat", "🥊 Combat & Auto Hit", "rbxassetid://10723407390", true)
-local farmTab     = Hub.createTabButton("Farm", "🪵 Auto Pickup & Farm", "rbxassetid://10723407389", false)
+local combatTab   = Hub.createTabButton("Combat", "🥊 Combat & Hit", "rbxassetid://10723407390", true)
+local lootTab     = Hub.createTabButton("Loot", "🧲 Auto Pickup & Loot", "rbxassetid://10723407389", false)
+local farmTab     = Hub.createTabButton("Farm", "🌱 Auto Farm & Crops", "rbxassetid://10723407392", false)
 local playerTab   = Hub.createTabButton("Player", "⚡ Movement", "rbxassetid://10723407392", false)
 local visualsTab  = Hub.createTabButton("Visuals", "👁️ ESP & Visuals", "rbxassetid://10723407395", false)
 local teleportTab = Hub.createTabButton("Teleports", "🌐 Teleports", "rbxassetid://10723407389", false)
 local miscTab     = Hub.createTabButton("Misc", "🛠️ Utility & Server", "rbxassetid://10723407392", false)
+
+-- Native Hitbox Sync Engine (Allows melee hits to register on server at maximum reliable reach in all 360 degrees)
+local function syncHitboxReach(overrideRange)
+    pcall(function()
+        local range = overrideRange or (state.AutoHit and 55) or (state.ReachHitbox and state.ReachSize or 6)
+        if range < 6 then range = 6 end
+        local reachVec = Vector3.new(range, range, range)
+        if GameUtil then
+            GameUtil.hitboxSwingSize = reachVec
+        end
+
+        -- Construct dynamic spatial exclusion filter
+        local excludeList = {}
+        local char = getCharacter()
+        if char then table.insert(excludeList, char) end
+
+        local deployables = Workspace:FindFirstChild("Deployables")
+        if deployables and not state.AutoHitTargets.Buildings then
+            table.insert(excludeList, deployables)
+        end
+        local structures = Workspace:FindFirstChild("Structures")
+        if structures and not state.AutoHitTargets.Buildings then
+            table.insert(excludeList, structures)
+        end
+
+        if ToolModule and ToolModule.swingTool and getupvalues and setupvalue then
+            local uv = getupvalues(ToolModule.swingTool)
+            if uv and uv[4] then
+                if uv[4]["Combat"] then
+                    pcall(function()
+                        setupvalue(uv[4]["Combat"], 7, reachVec)
+                        local cParams = getupvalues(uv[4]["Combat"])[4]
+                        if cParams and typeof(cParams) == "OverlapParams" then
+                            cParams.FilterDescendantsInstances = excludeList
+                            cParams.FilterType = Enum.RaycastFilterType.Exclude
+                        end
+                    end)
+                end
+                if uv[4]["Slash"] then
+                    pcall(function()
+                        setupvalue(uv[4]["Slash"], 7, reachVec)
+                        local sParams = getupvalues(uv[4]["Slash"])[4]
+                        if sParams and typeof(sParams) == "OverlapParams" then
+                            sParams.FilterDescendantsInstances = excludeList
+                            sParams.FilterType = Enum.RaycastFilterType.Exclude
+                        end
+                    end)
+                end
+            end
+            if uv and uv[1] and uv[1].hitboxSwingSize then
+                uv[1].hitboxSwingSize = reachVec
+            end
+        end
+    end)
+end
+
+-- 360-Degree Spatial Centering Engine (Allows hitting objects directly behind or beside the player)
+pcall(function()
+    if GameUtil and GameUtil.getModelsBoundsInBox then
+        local origGetModels = GameUtil.getModelsBoundsInBox
+        GameUtil.getModelsBoundsInBox = function(cf, size, params)
+            local root = getRoot()
+            if state.AutoHit and root then
+                -- Always center bounding box at player's exact position without forward directional offset
+                local centeredCF = CFrame.new(root.Position)
+                local expandedSize = Vector3.new(55, 55, 55)
+                return origGetModels(centeredCF, expandedSize, params)
+            end
+            return origGetModels(cf, size, params)
+        end
+    end
+end)
+
+-- Natural Swing Animation Engine (Prevents animation spam, stutter, and frame-0 flickering)
+pcall(function()
+    if ToolModule and ToolModule.swingTool and getupvalues then
+        local uv = getupvalues(ToolModule.swingTool)
+        local animCtrl = uv and uv[5]
+        if animCtrl and animCtrl.playAnimation then
+            local origPlayAnim = animCtrl.playAnimation
+            local playUvs = getupvalues(origPlayAnim)
+            local tracks = playUvs and playUvs[1]
+            animCtrl.playAnimation = function(animName, ...)
+                if state.AutoHit and tracks then
+                    local track = tracks[animName]
+                    if track and track.IsPlaying then
+                        return track
+                    end
+                end
+                return origPlayAnim(animName, ...)
+            end
+        end
+    end
+end)
 
 -- =========================================================================
 -- 1. COMBAT TAB: AUTO HIT (NATIVE BYTE-NET PACKETS & REMOTE SYNC)
 -- =========================================================================
 Hub.CreateSection(combatTab, "Single Toggle Auto Hit")
 
-Hub.CreateToggle(combatTab, "⚡ Auto Hit", false, function(toggled)
+Hub.CreateToggle(combatTab, "⚡ Auto Hit (Max Reach)", false, function(toggled)
     state.AutoHit = toggled
+    syncHitboxReach()
 end)
 
--- Multi-select List using Hub.CreateList() for Auto Hit Targets: Resources, Mobs, Players
-local autoHitTargetsList = Hub.CreateList(combatTab, "🎯 Auto Hit Targets (Whitelist)", {"Resources", "Mobs", "Players"}, 150, true, true)
+-- Multi-select List using Hub.CreateList() for Auto Hit Targets: Resources, Mobs, Players, Buildings, Gods
+local autoHitTargetsList = Hub.CreateList(combatTab, "🎯 Auto Hit Targets (Whitelist)", {"Resources", "Mobs", "Players", "Buildings", "Gods"}, 150, true, true)
 autoHitTargetsList:SetSelectedItems({"Resources"})
 autoHitTargetsList.OnSelect = function(selectedName, entryData)
     state.AutoHitTargets.Resources = false
     state.AutoHitTargets.Mobs = false
     state.AutoHitTargets.Players = false
+    state.AutoHitTargets.Buildings = false
+    state.AutoHitTargets.Gods = false
 
     local selectedList = autoHitTargetsList.SelectedItems or {}
     for _, item in ipairs(selectedList) do
@@ -493,10 +655,6 @@ autoHitTargetsList.OnSelect = function(selectedName, entryData)
         end
     end
 end
-
-Hub.CreateSlider(combatTab, "Auto Hit Range (Studs - Max 5000)", 10, 5000, 500, " studs", function(val)
-    state.AutoHitRange = val
-end)
 
 Hub.CreateToggle(combatTab, "⚡ Max Hit Speed (0ms Delay)", true, function(toggled)
     state.FastHit = toggled
@@ -556,6 +714,173 @@ Hub.CreateSlider(combatTab, "Eat Threshold (% HP/Hunger)", 20, 80, 60, "%", func
     state.EatThreshold = val
 end)
 
+Hub.CreateSection(combatTab, "🏰 Instant Panic Fortress & Auto-Repair Aura")
+
+local fortressWalls = {
+    "Adurite Wall",
+    "Obsidian Wall",
+    "Crystal Wall",
+    "Emerald Wall",
+    "Iron Wall",
+    "Stone Wall",
+    "Wood Wall",
+    "Ice Wall"
+}
+
+local wallSelector = Hub.CreateList(combatTab, "🧱 Fortress Wall Material", fortressWalls, 160, true)
+wallSelector:SetSelected(state.SelectedWall or "Adurite Wall")
+wallSelector.OnSelect = function(selected)
+    state.SelectedWall = selected
+end
+
+local fortressShapes = {
+    "Circular Ring (8 Walls)",
+    "Dense Hexagon (6 Walls)",
+    "Square Box (4 Walls)",
+    "Double Layer Bunker (16 Walls)"
+}
+
+local shapeSelector = Hub.CreateList(combatTab, "📐 Fortress Shape & Layering", fortressShapes, 150, true)
+shapeSelector:SetSelected(state.FortressShape or "Circular Ring (8 Walls)")
+shapeSelector.OnSelect = function(selected)
+    state.FortressShape = selected
+end
+
+Hub.CreateSlider(combatTab, "Fortress Radius (Studs)", 6, 30, 12, " studs", function(val)
+    state.FortressRadius = val
+end)
+
+local function deployPanicFortress()
+    pcall(function()
+        local root = getRoot()
+        if not root then return end
+        local rootCF = root.CFrame
+        local wallName = state.SelectedWall or "Adurite Wall"
+        local radius = state.FortressRadius or 12
+        local shape = state.FortressShape or "Circular Ring (8 Walls)"
+
+        local wallCFrames = {}
+        if shape == "Circular Ring (8 Walls)" then
+            local count = 8
+            for i = 1, count do
+                local angle = (i - 1) * (2 * math.pi / count)
+                local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+                local pos = rootCF.Position + offset
+                local lookAt = rootCF.Position
+                local cf = CFrame.new(pos, Vector3.new(lookAt.X, pos.Y, lookAt.Z)) * CFrame.Angles(0, math.pi / 2, 0)
+                table.insert(wallCFrames, cf)
+            end
+        elseif shape == "Dense Hexagon (6 Walls)" then
+            local count = 6
+            for i = 1, count do
+                local angle = (i - 1) * (2 * math.pi / count)
+                local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+                local pos = rootCF.Position + offset
+                local lookAt = rootCF.Position
+                local cf = CFrame.new(pos, Vector3.new(lookAt.X, pos.Y, lookAt.Z)) * CFrame.Angles(0, math.pi / 2, 0)
+                table.insert(wallCFrames, cf)
+            end
+        elseif shape == "Square Box (4 Walls)" then
+            local count = 4
+            for i = 1, count do
+                local angle = (i - 1) * (2 * math.pi / count) + (math.pi / 4)
+                local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+                local pos = rootCF.Position + offset
+                local lookAt = rootCF.Position
+                local cf = CFrame.new(pos, Vector3.new(lookAt.X, pos.Y, lookAt.Z)) * CFrame.Angles(0, math.pi / 2, 0)
+                table.insert(wallCFrames, cf)
+            end
+        elseif shape == "Double Layer Bunker (16 Walls)" then
+            for layer = 1, 2 do
+                local r = radius + (layer - 1) * 6
+                local count = 8
+                for i = 1, count do
+                    local angle = (i - 1) * (2 * math.pi / count)
+                    local offset = Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r)
+                    local pos = rootCF.Position + offset
+                    local lookAt = rootCF.Position
+                    local cf = CFrame.new(pos, Vector3.new(lookAt.X, pos.Y, lookAt.Z)) * CFrame.Angles(0, math.pi / 2, 0)
+                    table.insert(wallCFrames, cf)
+                end
+            end
+        end
+
+        for _, cf in ipairs(wallCFrames) do
+            if Packets and Packets.PlaceStructure and Packets.PlaceStructure.send then
+                Packets.PlaceStructure.send({
+                    buildingName = wallName,
+                    cframe = cf
+                })
+            else
+                local placeRemote = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("PlaceStructure")
+                if placeRemote then
+                    placeRemote:FireServer(wallName, cf)
+                end
+            end
+            task.wait(0.01)
+        end
+    end)
+end
+
+Hub.CreateButton(combatTab, "🏰 DEPLOY PANIC FORTRESS NOW", function()
+    deployPanicFortress()
+end)
+
+Hub.CreateToggle(combatTab, "🛠️ Auto-Repair Aura (Damaged Structures)", false, function(toggled)
+    state.AutoRepairAura = toggled
+end)
+
+Hub.CreateSlider(combatTab, "Repair Aura Radius", 10, 300, 60, " studs", function(val)
+    state.AutoRepairRadius = val
+end)
+
+-- Auto-Repair Aura Loop
+task.spawn(function()
+    while isScriptAlive do
+        task.wait(0.2)
+        if state.AutoRepairAura then
+            pcall(function()
+                local root = getRoot()
+                if not root then return end
+                local myPos = root.Position
+                local maxRange = state.AutoRepairRadius or 60
+
+                local itemIDS = nil
+                pcall(function() itemIDS = require(ReplicatedStorage.Modules.ItemIDS) end)
+                local hammerID = (itemIDS and itemIDS["Repair Hammer"]) or 1126
+
+                local deployables = Workspace:FindFirstChild("Deployables")
+                if deployables then
+                    for _, struct in ipairs(deployables:GetChildren()) do
+                        local part = struct:IsA("BasePart") and struct or struct.PrimaryPart or struct:FindFirstChildWhichIsA("BasePart")
+                        if part then
+                            local dist = (myPos - part.Position).Magnitude
+                            if dist <= maxRange then
+                                local entityID = struct:GetAttribute("EntityID") or part:GetAttribute("EntityID")
+                                local health = struct:GetAttribute("Health")
+                                local maxHealth = struct:GetAttribute("MaxHealth")
+                                if entityID and ((health and maxHealth and health < maxHealth) or (not health)) then
+                                    if Packets and Packets.Repair and Packets.Repair.send then
+                                        Packets.Repair.send({
+                                            entityID = entityID,
+                                            itemID = hammerID
+                                        })
+                                    else
+                                        local repairRemote = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Repair")
+                                        if repairRemote then
+                                            repairRemote:FireServer(entityID, hammerID)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
 -- Native High-Speed Animation-Free Packet Auto Hit Loop
 -- Cached Remotes for Auto Hit Fallback (Fetched once, zero frame drops)
 local cachedSwingRemote = nil
@@ -567,42 +892,55 @@ pcall(function()
     end
 end)
 
--- High-Performance Animation-Free Packet Auto Hit Loop (Optimized for 144+ FPS)
+-- High-Performance Animation-Free Packet Auto Hit Loop (Zero Lag, 144+ FPS)
+local lastAutoHitToolType = nil
 task.spawn(function()
     while isScriptAlive do
-        task.wait(state.FastHit and 0.02 or 0.08)
+        task.wait(state.FastHit and 0.05 or 0.12)
         if state.AutoHit then
             pcall(function()
                 local char = getCharacter()
                 local myRoot = getRoot()
                 if not char or not myRoot then return end
 
-                local packetTargets = {}
                 local targetsToHit = {}
                 local myPos = myRoot.Position
-                local maxDist = state.AutoHitRange or 5000
-                local targetResourceCategory = nil
+                local maxDist = 28 -- Core Maximum Server-Validated Reach
 
-                -- 1. Resources Target Scanner (All Resources, Cactus, Crops, Trees, Ores, Mounds)
+                local hasMobOrPlayer = false
+                local hasTree = false
+                local hasOre = false
+                local hasBuilding = false
+                local hasGod = false
+
+                -- 1. Resources Target Scanner (Only scans designated natural resource containers)
                 if state.AutoHitTargets.Resources then
-                    local containers = {}
-                    for _, name in ipairs({"Resources", "Crops", "Mounds", "Trees", "Ores", "Nodes", "Flora", "Entities", "Structures"}) do
-                        local f = Workspace:FindFirstChild(name)
-                        if f then table.insert(containers, f) end
-                    end
-
-                    for _, container in ipairs(containers) do
-                        for _, child in ipairs(container:GetChildren()) do
-                            if child ~= char and (child:IsA("Model") or child:IsA("BasePart")) then
-                                local part = getPrimaryOrAnyPart(child)
-                                if part and isTargetResource(child.Name, container) then
-                                    local dist = (myPos - part.Position).Magnitude
-                                    if dist <= maxDist then
-                                        local entityID = child:GetAttribute("EntityID") or part:GetAttribute("EntityID")
-                                        if entityID then
-                                            table.insert(packetTargets, { entityID = entityID, buffer = nil })
-                                        else
-                                            table.insert(targetsToHit, { part = part, parent = child })
+                    local resourceFolders = {
+                        Workspace:FindFirstChild("Resources"),
+                        Workspace:FindFirstChild("Crops"),
+                        Workspace:FindFirstChild("Mounds"),
+                        Workspace:FindFirstChild("Trees"),
+                        Workspace:FindFirstChild("Ores"),
+                        Workspace:FindFirstChild("Nodes"),
+                        Workspace:FindFirstChild("Flora")
+                    }
+                    for _, container in ipairs(resourceFolders) do
+                        if container then
+                            for _, child in ipairs(container:GetChildren()) do
+                                if child ~= char and (child:IsA("Model") or child:IsA("BasePart")) then
+                                    local part = getPrimaryOrAnyPart(child)
+                                    if part and isTargetResource(child.Name, container) then
+                                        local dist = (myPos - part.Position).Magnitude
+                                        if dist <= maxDist then
+                                            local cName = child.Name:lower()
+                                            local rType = "Ore"
+                                            if cName:find("tree") or cName:find("wood") or cName:find("log") or cName:find("palm") then
+                                                rType = "Tree"
+                                                hasTree = true
+                                            else
+                                                hasOre = true
+                                            end
+                                            table.insert(targetsToHit, { part = part, parent = child, dist = dist, type = rType })
                                         end
                                     end
                                 end
@@ -611,30 +949,65 @@ task.spawn(function()
                     end
                 end
 
-                -- 2. Mobs & Critters Target Scanner (Critters, Animals, NPCs, Bosses)
-                if state.AutoHitTargets.Mobs then
-                    local mobContainers = {}
-                    for _, name in ipairs({"Critters", "HumanoidCritters", "Mobs", "Animals", "NPCs", "Entities", "Enemies", "Fauna"}) do
-                        local f = Workspace:FindFirstChild(name)
-                        if f then table.insert(mobContainers, f) end
-                    end
-
-                    for _, container in ipairs(mobContainers) do
-                        for _, child in ipairs(container:GetChildren()) do
-                            if child ~= char and (child:IsA("Model") or child:IsA("BasePart")) then
-                                local isPlr = Players:GetPlayerFromCharacter(child) ~= nil
-                                if not isPlr then
-                                    local mHum = child:FindFirstChildWhichIsA("Humanoid")
-                                    local mRoot = getPrimaryOrAnyPart(child)
-                                    local isAlive = (not mHum) or (mHum.Health > 0)
-                                    if mRoot and isAlive then
-                                        local dist = (myPos - mRoot.Position).Magnitude
+                -- 2. Buildings & Deployables Target Scanner (Walls, Plant Boxes, Doors, Gates)
+                if state.AutoHitTargets.Buildings then
+                    local buildingFolders = {Workspace:FindFirstChild("Deployables"), Workspace:FindFirstChild("Structures")}
+                    for _, container in ipairs(buildingFolders) do
+                        if container then
+                            for _, child in ipairs(container:GetChildren()) do
+                                if child ~= char and (child:IsA("Model") or child:IsA("BasePart")) then
+                                    local part = getPrimaryOrAnyPart(child)
+                                    if part and isTargetBuilding(child.Name, container) then
+                                        local dist = (myPos - part.Position).Magnitude
                                         if dist <= maxDist then
-                                            local entityID = child:GetAttribute("EntityID") or mRoot:GetAttribute("EntityID")
-                                            if entityID then
-                                                table.insert(packetTargets, { entityID = entityID, buffer = nil })
-                                            else
-                                                table.insert(targetsToHit, { part = mRoot, parent = child })
+                                            hasBuilding = true
+                                            table.insert(targetsToHit, { part = part, parent = child, dist = dist, type = "Building" })
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- 3. Gods & Statues Target Scanner (Ancient God, Fire God, God Rocks)
+                if state.AutoHitTargets.Gods then
+                    local godFolders = {Workspace:FindFirstChild("Gods"), Workspace:FindFirstChild("Totems")}
+                    for _, container in ipairs(godFolders) do
+                        if container then
+                            for _, child in ipairs(container:GetChildren()) do
+                                if child ~= char and (child:IsA("Model") or child:IsA("BasePart")) then
+                                    local part = getPrimaryOrAnyPart(child)
+                                    if part and isTargetGod(child.Name, container) then
+                                        local dist = (myPos - part.Position).Magnitude
+                                        if dist <= maxDist then
+                                            hasGod = true
+                                            table.insert(targetsToHit, { part = part, parent = child, dist = dist, type = "God" })
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- 4. Mobs & Critters Target Scanner
+                if state.AutoHitTargets.Mobs then
+                    local mobFolders = {Workspace:FindFirstChild("Critters"), Workspace:FindFirstChild("HumanoidCritters"), Workspace:FindFirstChild("Mobs")}
+                    for _, container in ipairs(mobFolders) do
+                        if container then
+                            for _, child in ipairs(container:GetChildren()) do
+                                if child ~= char and (child:IsA("Model") or child:IsA("BasePart")) then
+                                    local isPlr = Players:GetPlayerFromCharacter(child) ~= nil
+                                    if not isPlr then
+                                        local mHum = child:FindFirstChildWhichIsA("Humanoid")
+                                        local mRoot = getPrimaryOrAnyPart(child)
+                                        local isAlive = (not mHum) or (mHum.Health > 0)
+                                        if mRoot and isAlive then
+                                            local dist = (myPos - mRoot.Position).Magnitude
+                                            if dist <= maxDist then
+                                                hasMobOrPlayer = true
+                                                table.insert(targetsToHit, { part = mRoot, parent = child, dist = dist, type = "Mob" })
                                             end
                                         end
                                     end
@@ -644,7 +1017,7 @@ task.spawn(function()
                     end
                 end
 
-                -- 3. Players Target Scanner
+                -- 5. Players Target Scanner
                 if state.AutoHitTargets.Players then
                     for _, otherPlr in ipairs(Players:GetPlayers()) do
                         if otherPlr ~= LocalPlayer and otherPlr.Character then
@@ -654,61 +1027,49 @@ task.spawn(function()
                             if oHum and oHum.Health > 0 and oRoot then
                                 local dist = (myPos - oRoot.Position).Magnitude
                                 if dist <= maxDist then
-                                    local entityID = oChar:GetAttribute("EntityID") or oRoot:GetAttribute("EntityID")
-                                    if entityID then
-                                        table.insert(packetTargets, { entityID = entityID, buffer = nil })
-                                    else
-                                        table.insert(targetsToHit, { part = oRoot, parent = oChar })
-                                    end
+                                    hasMobOrPlayer = true
+                                    table.insert(targetsToHit, { part = oRoot, parent = oChar, dist = dist, type = "Player" })
                                 end
                             end
                         end
                     end
                 end
 
-                -- Native Packets.SwingTool.send Execution (Unlimited Chunked Multi-Cleave)
-                if (#packetTargets > 0 or #targetsToHit > 0) and ToolModule and ToolModule.swingTool then
-                    pcall(function() ToolModule.swingTool() end)
-                end
-
-                if #packetTargets > 0 and Packets and Packets.SwingTool then
-                    pcall(function()
-                        local baseTime = Clock and Clock.getServerTime(true) or os.clock()
-                        local bursts = state.BypassHitLimit and (state.HitMultiplier or 5) or 1
-
-                        -- Chunk targets in groups of 60 IDs per packet to prevent ByteNet packet truncation
-                        local chunkSize = 60
-                        for i = 1, #packetTargets, chunkSize do
-                            local chunk = {}
-                            for j = i, math.min(i + chunkSize - 1, #packetTargets) do
-                                table.insert(chunk, packetTargets[j])
-                            end
-
-                            for b = 1, bursts do
-                                Packets.SwingTool.send({
-                                    entityIDs = chunk,
-                                    cframe = char:GetPivot(),
-                                    timestamp = baseTime - (b - 1) * 0.008
-                                })
-                            end
-                        end
-                    end)
-                end
-
-                -- Fallback Execution for Non-Packet Objects Only
+                -- High-Performance Cleave Strike (Simultaneous Multi-Target Hit Connect)
                 if #targetsToHit > 0 then
-                    for _, targetData in ipairs(targetsToHit) do
-                        local targetPart = targetData.part
-                        local targetModel = targetData.parent
+                    syncHitboxReach(32)
+                    table.sort(targetsToHit, function(a, b) return a.dist < b.dist end)
 
-                        if cachedSwingRemote then
-                            pcall(function() cachedSwingRemote:FireServer(targetPart) end)
-                            pcall(function() cachedSwingRemote:FireServer(targetModel) end)
+                    -- Determine Best Tool
+                    local desiredTool = nil
+                    if hasMobOrPlayer then
+                        desiredTool = "Weapon"
+                    elseif hasGod or hasOre or hasBuilding then
+                        if hasTree and lastAutoHitToolType == "Pickaxe" then
+                            desiredTool = "Axe"
+                        else
+                            desiredTool = "Pickaxe"
                         end
+                    elseif hasTree then
+                        desiredTool = "Axe"
+                    else
+                        desiredTool = targetsToHit[1].type == "Tree" and "Axe" or "Pickaxe"
+                    end
 
-                        if cachedInteractStructure then
-                            pcall(function() cachedInteractStructure:FireServer(targetModel or targetPart) end)
-                        end
+                    if desiredTool then
+                        equipBestTool(desiredTool)
+                        lastAutoHitToolType = desiredTool
+                    end
+
+                    -- Cooldown / Debounce Bypass & Instant Cleave Execution
+                    if ToolModule and ToolModule.swingTool then
+                        pcall(function()
+                            local uv = getupvalues(ToolModule.swingTool)
+                            if uv and uv[1] and uv[1].Data then
+                                uv[1].Data.lastToolUse = 0
+                            end
+                            ToolModule.swingTool()
+                        end)
                     end
                 end
             end)
@@ -783,12 +1144,16 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- 2. FARM TAB: NATIVE AUTO PICKUP (EXPANDED SERVER RADIUS)
+-- 2. LOOT TAB: UNIFIED AUTO PICKUP & DROP VACUUM
 -- =========================================================================
-Hub.CreateSection(farmTab, "Native Server Auto Pickup (Fast Loot)")
+Hub.CreateSection(lootTab, "🧲 Unified Auto Pickup & Drop Vacuum")
 
-Hub.CreateToggle(farmTab, "🧲 Auto Pickup (Instant Drops Collector)", false, function(toggled)
+Hub.CreateToggle(lootTab, "🧲 Master Auto Pickup (All Drops & Items)", false, function(toggled)
     state.AutoPickup = toggled
+end)
+
+Hub.CreateSlider(lootTab, "Pickup Radius (Studs - Max 5000)", 10, 5000, 500, " studs", function(val)
+    state.PickupRange = val
 end)
 
 local pickupCategories = {
@@ -799,29 +1164,22 @@ local pickupCategories = {
     "Equipment & Gear",
     "Valuables & Essences"
 }
-local itemCategoryList = Hub.CreateList(farmTab, "🪵 Item Whitelist Category", pickupCategories, 200, true)
+local itemCategoryList = Hub.CreateList(lootTab, "🪵 Whitelist Item Category", pickupCategories, 180, true)
 itemCategoryList:SetSelected(state.PickupCategoryWhitelist or "All Items (Everything)")
 itemCategoryList.OnSelect = function(selected)
     state.PickupCategoryWhitelist = selected
 end
 
-Hub.CreateTextBox(farmTab, "Specific Item Name Filter", "Type item name (e.g. Berry, Adurite)", function(text)
+Hub.CreateTextBox(lootTab, "Specific Item Name Filter", "Type name (e.g. Berry, Adurite)", function(text)
     state.PickupCustomFilter = text
 end)
 
-Hub.CreateSlider(farmTab, "Pickup Radius (Studs - Max 5000)", 10, 5000, 500, " studs", function(val)
-    state.PickupRange = val
-end)
-
-Hub.CreateSection(farmTab, "🚫 Auto Pickup Exclude Blacklist")
-
 local typedExcludeText = ""
-Hub.CreateTextBox(farmTab, "Item Name to Exclude", "Type item name (e.g. Leaves, Log, Rock)", function(text)
+Hub.CreateTextBox(lootTab, "Add to Blacklist (Anti-Pickup)", "Type name (e.g. Leaves, Log, Rock)", function(text)
     typedExcludeText = text
 end)
 
 local excludeListDisplay = nil
-
 local function refreshExcludeList()
     if excludeListDisplay and excludeListDisplay.SetItems then
         local items = {}
@@ -833,7 +1191,7 @@ local function refreshExcludeList()
     end
 end
 
-Hub.CreateButton(farmTab, "➕ Add to Exclude List", function()
+Hub.CreateButton(lootTab, "➕ Add to Blacklist", function()
     if typedExcludeText and typedExcludeText:gsub("%s+", "") ~= "" then
         local clean = typedExcludeText:match("^%s*(.-)%s*$")
         local found = false
@@ -847,16 +1205,14 @@ Hub.CreateButton(farmTab, "➕ Add to Exclude List", function()
     end
 end)
 
-Hub.CreateButton(farmTab, "🗑️ Clear All Excluded Items", function()
+Hub.CreateButton(lootTab, "🗑️ Clear Blacklist", function()
     table.clear(state.PickupExcludeList)
     refreshExcludeList()
 end)
 
-excludeListDisplay = Hub.CreateList(farmTab, "⛔ Currently Blacklisted Items", {"(No Excluded Items)"}, 120, false)
+excludeListDisplay = Hub.CreateList(lootTab, "⛔ Active Blacklisted Items", {"(No Excluded Items)"}, 120, false)
 
-Hub.CreateSection(farmTab, "⚡ Quick Preset Exclusions")
-
-Hub.CreateButton(farmTab, "🚫 + Exclude Leaves & Twigs", function()
+Hub.CreateButton(lootTab, "🚫 Preset: Exclude Leaves & Twigs", function()
     local presets = {"Leaves", "Twig", "Leaf"}
     for _, p in ipairs(presets) do
         local found = false
@@ -868,7 +1224,7 @@ Hub.CreateButton(farmTab, "🚫 + Exclude Leaves & Twigs", function()
     refreshExcludeList()
 end)
 
-Hub.CreateButton(farmTab, "🚫 + Exclude Normal Stone & Rocks", function()
+Hub.CreateButton(lootTab, "🚫 Preset: Exclude Stone & Rocks", function()
     local presets = {"Stone", "Rock"}
     for _, p in ipairs(presets) do
         local found = false
@@ -880,7 +1236,7 @@ Hub.CreateButton(farmTab, "🚫 + Exclude Normal Stone & Rocks", function()
     refreshExcludeList()
 end)
 
-Hub.CreateButton(farmTab, "🚫 + Exclude Normal Wood & Logs", function()
+Hub.CreateButton(lootTab, "🚫 Preset: Exclude Wood & Logs", function()
     local presets = {"Wood", "Log"}
     for _, p in ipairs(presets) do
         local found = false
@@ -892,13 +1248,11 @@ Hub.CreateButton(farmTab, "🚫 + Exclude Normal Wood & Logs", function()
     refreshExcludeList()
 end)
 
-Hub.CreateSection(farmTab, "📦 Remote Chest & Loot Sucker")
-
-Hub.CreateToggle(farmTab, "🧲 Remote Chest & Loot Sucker", false, function(toggled)
+Hub.CreateToggle(lootTab, "📦 Remote Chest & Safe Looter", false, function(toggled)
     state.ChestSucker = toggled
 end)
 
-Hub.CreateSlider(farmTab, "Chest Sucker Radius (Studs)", 50, 1000, 300, " studs", function(val)
+Hub.CreateSlider(lootTab, "Chest Looter Radius", 50, 1000, 300, " studs", function(val)
     state.ChestSuckerRange = val
 end)
 
@@ -1102,6 +1456,176 @@ task.spawn(function()
 end)
 
 -- =========================================================================
+-- FARM TAB: REMOTE FLETCHING & ALCHEMY (MAP-WIDE CRAFTER)
+-- =========================================================================
+Hub.CreateSection(farmTab, "🏹 Remote Fletching (Map-Wide Arrow Crafter)")
+
+local ARROW_ITEM_IDS = {
+    ["Fire Arrow"] = 701,
+    ["Ice Arrow"] = 703,
+    ["Poison Arrow"] = 712,
+    ["Jelly Arrow"] = 713,
+    ["Glowing Arrow"] = 1105,
+    ["Firework Arrow"] = 739,
+    ["Arrow"] = 50
+}
+
+local arrowOptions = {
+    "Fire Arrow",
+    "Ice Arrow",
+    "Poison Arrow",
+    "Jelly Arrow",
+    "Glowing Arrow",
+    "Firework Arrow",
+    "Arrow"
+}
+
+local arrowSelector = Hub.CreateList(farmTab, "🏹 Select Arrow Type to Craft", arrowOptions, 160, true)
+arrowSelector:SetSelected(state.SelectedArrow or "Fire Arrow")
+arrowSelector.OnSelect = function(selected)
+    state.SelectedArrow = selected
+end
+
+Hub.CreateSlider(farmTab, "Arrow Craft Batch Amount", 1, 50, 10, "x", function(val)
+    state.ArrowBatchAmount = val
+end)
+
+local function findRemoteEntity(nameMatch)
+    local deployables = Workspace:FindFirstChild("Deployables")
+    if deployables then
+        for _, obj in ipairs(deployables:GetChildren()) do
+            if obj.Name:lower():find(nameMatch:lower()) then
+                local entityID = obj:GetAttribute("EntityID")
+                if entityID then return entityID, obj end
+            end
+        end
+    end
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name:lower():find(nameMatch:lower()) then
+            local entityID = obj:GetAttribute("EntityID")
+            if entityID then return entityID, obj end
+        end
+    end
+    return 0, nil
+end
+
+local function craftSelectedArrows(count)
+    pcall(function()
+        if not Packets or not Packets.CraftArrow or not Packets.CraftArrow.send then return end
+        local arrowName = state.SelectedArrow or "Fire Arrow"
+        local itemID = ARROW_ITEM_IDS[arrowName] or 50
+        local entityID = findRemoteEntity("fletch")
+        for i = 1, (count or 1) do
+            Packets.CraftArrow.send({
+                itemID = itemID,
+                entityID = entityID
+            })
+            task.wait(0.01)
+        end
+    end)
+end
+
+Hub.CreateButton(farmTab, "🏹 Craft Selected Arrows (Batch)", function()
+    craftSelectedArrows(state.ArrowBatchAmount or 10)
+end)
+
+Hub.CreateToggle(farmTab, "⚡ Auto-Craft Arrows Loop", false, function(toggled)
+    state.AutoCraftArrows = toggled
+end)
+
+task.spawn(function()
+    while isScriptAlive do
+        task.wait(0.3)
+        if state.AutoCraftArrows then
+            craftSelectedArrows(1)
+        end
+    end
+end)
+
+Hub.CreateSection(farmTab, "🧪 Remote Alchemy (Map-Wide Cauldron Brewer)")
+
+local POTION_ITEM_IDS = {
+    ["Healing Potion"] = 902,
+    ["Splash Healing Potion"] = 903,
+    ["Harming Potion"] = 904,
+    ["Splash Harming Potion"] = 905,
+    ["Ice Potion"] = 900,
+    ["Splash Ice Potion"] = 901,
+    ["Poison Potion"] = 890,
+    ["Splash Poison Potion"] = 891,
+    ["Strength Potion"] = 908,
+    ["Splash Strength Potion"] = 909,
+    ["Swiftness Potion"] = 898,
+    ["Splash Swiftness Potion"] = 899,
+    ["Fire Resistance Potion"] = 906,
+    ["Splash Fire Resistance Potion"] = 907,
+    ["Haste Potion"] = 912,
+    ["Splash Haste Potion"] = 913
+}
+
+local potionOptions = {
+    "Healing Potion",
+    "Splash Healing Potion",
+    "Harming Potion",
+    "Splash Harming Potion",
+    "Ice Potion",
+    "Splash Ice Potion",
+    "Poison Potion",
+    "Splash Poison Potion",
+    "Strength Potion",
+    "Splash Strength Potion",
+    "Swiftness Potion",
+    "Splash Swiftness Potion",
+    "Fire Resistance Potion",
+    "Splash Fire Resistance Potion",
+    "Haste Potion",
+    "Splash Haste Potion"
+}
+
+local potionSelector = Hub.CreateList(farmTab, "🧪 Select Potion to Brew", potionOptions, 200, true)
+potionSelector:SetSelected(state.SelectedPotion or "Healing Potion")
+potionSelector.OnSelect = function(selected)
+    state.SelectedPotion = selected
+end
+
+Hub.CreateSlider(farmTab, "Potion Brew Batch Amount", 1, 25, 5, "x", function(val)
+    state.PotionBatchAmount = val
+end)
+
+local function brewSelectedPotions(count)
+    pcall(function()
+        if not Packets or not Packets.CraftPotion or not Packets.CraftPotion.send then return end
+        local potionName = state.SelectedPotion or "Healing Potion"
+        local itemID = POTION_ITEM_IDS[potionName] or 902
+        local entityID = findRemoteEntity("cauldron")
+        for i = 1, (count or 1) do
+            Packets.CraftPotion.send({
+                itemID = itemID,
+                entityID = entityID
+            })
+            task.wait(0.01)
+        end
+    end)
+end
+
+Hub.CreateButton(farmTab, "🧪 Brew Selected Potions (Batch)", function()
+    brewSelectedPotions(state.PotionBatchAmount or 5)
+end)
+
+Hub.CreateToggle(farmTab, "⚡ Auto-Brew Potions Loop", false, function(toggled)
+    state.AutoBrewPotions = toggled
+end)
+
+task.spawn(function()
+    while isScriptAlive do
+        task.wait(0.3)
+        if state.AutoBrewPotions then
+            brewSelectedPotions(1)
+        end
+    end
+end)
+
+-- =========================================================================
 -- INSTANT REACTIVE AUTO PICKUP ENGINE (0ms Drop Sucker + Continuous Frame Sweep)
 -- =========================================================================
 local monitoredContainers = {"Items", "Drops", "Loot", "Debris", "Rubble", "dropChests"}
@@ -1118,27 +1642,42 @@ local function instantPickupItem(item)
         if part and not part:IsDescendantOf(char) then
             local dist = (myRoot.Position - part.Position).Magnitude
             if dist <= (state.PickupRange or 5000) and isWhitelistedItem(item.Name) then
+                -- Disable game's built-in client pickup tween
+                if GameUtil and GameUtil.Data and GameUtil.Data.userSettings then
+                    GameUtil.Data.userSettings.pickupTween = false
+                end
+
+                -- 1. Server-Side Packet Pickup (0ms Delay, Max Range, Zero Movement)
                 local entityID = item:GetAttribute("EntityID") or part:GetAttribute("EntityID")
-                if entityID and Packets and Packets.Pickup then
+                if entityID and Packets and Packets.Pickup and Packets.Pickup.send then
                     Packets.Pickup.send(entityID)
                 end
 
+                -- 2. Native Try Validation
+                if GamePickup and GamePickup.Try then
+                    pcall(function() GamePickup.Try(item) end)
+                end
+
+                -- 3. Touch Interest Fallback (Non-colliding, Never pushes or tweens player)
                 if firetouchinterest then
+                    part.CanCollide = false
                     firetouchinterest(myRoot, part, 0)
                     firetouchinterest(myRoot, part, 1)
                 end
 
+                -- 4. ProximityPrompt & ClickDetector
+                local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt and fireproximityprompt then fireproximityprompt(prompt) end
+
+                local cd = item:FindFirstChildWhichIsA("ClickDetector", true) or part:FindFirstChildWhichIsA("ClickDetector", true)
+                if cd then fireclickdetector(cd) end
+
+                -- 5. Remote fallback
                 local pickupRemote = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("Pickup")
                 if pickupRemote then
                     pickupRemote:FireServer(item)
                     pickupRemote:FireServer(part)
                 end
-
-                local cd = item:FindFirstChildWhichIsA("ClickDetector", true) or part:FindFirstChildWhichIsA("ClickDetector", true)
-                if cd then fireclickdetector(cd) end
-
-                local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
-                if prompt and fireproximityprompt then fireproximityprompt(prompt) end
             end
         end
     end)
@@ -1163,7 +1702,7 @@ safeConnect(Workspace.ChildAdded, function(child)
     end
 end)
 
--- 2. Ultra-Fast Continuous Sweep Loop
+-- 2. Ultra-Fast Continuous Sweep Loop (Pure Packet & Touch, Zero Player Displacement)
 safeConnect(RunService.Heartbeat, function()
     if not isScriptAlive or not state.AutoPickup then return end
     pcall(function()
@@ -1174,6 +1713,11 @@ safeConnect(RunService.Heartbeat, function()
         local myPos = myRoot.Position
         local maxRange = state.PickupRange or 5000
 
+        -- Enforce no pickup tweening
+        if GameUtil and GameUtil.Data and GameUtil.Data.userSettings then
+            GameUtil.Data.userSettings.pickupTween = false
+        end
+
         for _, name in ipairs(monitoredContainers) do
             local container = Workspace:FindFirstChild(name)
             if container then
@@ -1183,13 +1727,19 @@ safeConnect(RunService.Heartbeat, function()
                         local dist = (myPos - part.Position).Magnitude
                         if dist <= maxRange and isWhitelistedItem(item.Name) then
                             local entityID = item:GetAttribute("EntityID") or part:GetAttribute("EntityID")
-                            if entityID and Packets and Packets.Pickup then
+                            if entityID and Packets and Packets.Pickup and Packets.Pickup.send then
                                 Packets.Pickup.send(entityID)
                             end
+                            if GamePickup and GamePickup.Try then
+                                pcall(function() GamePickup.Try(item) end)
+                            end
                             if firetouchinterest then
+                                part.CanCollide = false
                                 firetouchinterest(myRoot, part, 0)
                                 firetouchinterest(myRoot, part, 1)
                             end
+                            local prompt = item:FindFirstChildWhichIsA("ProximityPrompt", true) or part:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            if prompt and fireproximityprompt then fireproximityprompt(prompt) end
                         end
                     end
                 end
