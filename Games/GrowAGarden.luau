@@ -729,7 +729,7 @@ collectWeightModeListObj = Hub.CreateList(farmTab, "Collect: Weight Mode", {
     {Name = "Lower"}
 }, 110, true)
 
-Hub.CreateTextBox(farmTab, "Collect: Weight Multiplier", "Enter weight threshold (0 = inactive)", function(text)
+Hub.CreateInput(farmTab, "Collect Weight Threshold", "", "0 = inactive", function(text)
     local num = tonumber(text)
     State.Collect_Weight = num or 0
 end)
@@ -758,7 +758,7 @@ sellWeightModeListObj = Hub.CreateList(farmTab, "Sell: Exclude Weight Mode", {
     {Name = "Lower"}
 }, 110, true)
 
-Hub.CreateTextBox(farmTab, "Sell: Exclude Weight Multiplier", "Enter weight threshold to exclude (0 = none)", function(text)
+Hub.CreateInput(farmTab, "Sell Exclude Weight", "", "0 = none", function(text)
     local num = tonumber(text)
     State.Sell_Weight = num or 0
 end)

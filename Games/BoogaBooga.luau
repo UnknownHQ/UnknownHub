@@ -1170,12 +1170,12 @@ itemCategoryList.OnSelect = function(selected)
     state.PickupCategoryWhitelist = selected
 end
 
-Hub.CreateTextBox(lootTab, "Specific Item Name Filter", "Type name (e.g. Berry, Adurite)", function(text)
+Hub.CreateInput(lootTab, "Item Name Filter", "", "e.g. Berry, Adurite", function(text)
     state.PickupCustomFilter = text
 end)
 
 local typedExcludeText = ""
-Hub.CreateTextBox(lootTab, "Add to Blacklist (Anti-Pickup)", "Type name (e.g. Leaves, Log, Rock)", function(text)
+Hub.CreateInput(lootTab, "Add to Blacklist", "", "e.g. Leaves, Log, Rock", function(text)
     typedExcludeText = text
 end)
 

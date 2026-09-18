@@ -424,7 +424,7 @@ do
 
     -- Job ID Box & Controls
     local enteredJobId = ""
-    local jobIdBox = Hub.CreateTextBox(serverPage, "Paste Job ID here...", "", function(txt)
+    local jobIdBox = Hub.CreateInput(serverPage, "Target Server Job ID", "", "Paste Job ID...", function(txt)
         enteredJobId = txt
     end)
 
