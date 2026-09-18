@@ -3757,9 +3757,23 @@ return function(opts)
     subTitleLabel.LayoutOrder = 3
     subTitleLabel.ZIndex = 22
     subTitleLabel.Parent = titleGroup
+    local detectedGameName = opts.subTitle or opts.subtitle or opts.gameName or opts.GameName
+    if not detectedGameName or detectedGameName == "v2.0" or detectedGameName == "" then
+        pcall(function()
+            local MarketplaceService = game:GetService("MarketplaceService")
+            local info = MarketplaceService:GetProductInfo(game.PlaceId)
+            if info and info.Name and info.Name ~= "" then
+                detectedGameName = info.Name
+            end
+        end)
+        if not detectedGameName or detectedGameName == "" then
+            detectedGameName = game.Name ~= "" and game.Name or "Roblox"
+        end
+    end
     local livePill = Instance.new("Frame")
     livePill.Name = "LivePill"
-    livePill.Size = UDim2.new(0, 64, 0, 20)
+    livePill.AutomaticSize = Enum.AutomaticSize.X
+    livePill.Size = UDim2.new(0, 0, 0, 20)
     livePill.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
     livePill.BorderSizePixel = 0
     livePill.LayoutOrder = 4
@@ -3767,20 +3781,29 @@ return function(opts)
     livePill.Parent = titleGroup
     applyCorner(livePill, 10)
     applyStroke(livePill, Color3.fromRGB(44, 56, 80), 1, 0)
+    local livePillLayout = Instance.new("UIListLayout")
+    livePillLayout.FillDirection = Enum.FillDirection.Horizontal
+    livePillLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    livePillLayout.Padding = UDim.new(0, 5)
+    livePillLayout.Parent = livePill
+    local livePillPadding = Instance.new("UIPadding")
+    livePillPadding.PaddingLeft = UDim.new(0, 7)
+    livePillPadding.PaddingRight = UDim.new(0, 9)
+    livePillPadding.Parent = livePill
     local liveDot = Instance.new("Frame")
     liveDot.Name = "LiveDot"
     liveDot.Size = UDim2.new(0, 6, 0, 6)
-    liveDot.Position = UDim2.new(0, 7, 0.5, -3)
     liveDot.BackgroundColor3 = Color3.fromRGB(50, 230, 140)
     liveDot.BorderSizePixel = 0
     liveDot.ZIndex = 23
     liveDot.Parent = livePill
     applyCorner(liveDot, 3)
     local liveText = Instance.new("TextLabel")
-    liveText.Size = UDim2.new(1, -18, 1, 0)
-    liveText.Position = UDim2.new(0, 17, 0, 0)
+    liveText.Name = "GameNameLabel"
+    liveText.AutomaticSize = Enum.AutomaticSize.X
+    liveText.Size = UDim2.new(0, 0, 1, 0)
     liveText.BackgroundTransparency = 1
-    liveText.Text = "ONLINE"
+    liveText.Text = string.upper(tostring(detectedGameName))
     liveText.TextColor3 = Color3.fromRGB(170, 240, 200)
     liveText.Font = Enum.Font.GothamBold
     liveText.TextSize = 9
@@ -4371,135 +4394,174 @@ return function(opts)
         hubState.registerThemeText(resTitle)
         local matchedCount = 0
         for id, itemData in pairs(hubState.registeredFunctions) do
-            local titleMatch = itemData.title and tostring(itemData.title):lower():find(cleanQ, 1, true)
-            local subMatch = itemData.subtitle and tostring(itemData.subtitle):lower():find(cleanQ, 1, true)
-            local tabMatch = itemData.tab and tostring(itemData.tab):lower():find(cleanQ, 1, true)
-            if titleMatch or subMatch or tabMatch then
-                matchedCount = matchedCount + 1
-                local isToggle = (itemData.type == "Toggle" and itemData.get and itemData.set)
-                local card = Instance.new("Frame")
-                card.Name = "ResultCard_" .. tostring(id)
-                card.Size = UDim2.new(1, -6, 0, 46)
-                card.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
-                card.BorderSizePixel = 0
-                card.Parent = hubState.searchResultsPage
-                applyCorner(card, 7)
-                local cStroke = applyStroke(card, Color3.fromRGB(36, 46, 66), 1, 0)
-                local cTitle = Instance.new("TextLabel")
-                cTitle.Size = UDim2.new(0.60, 0, 0, 20)
-                cTitle.Position = UDim2.new(0, 14, 0, 5)
-                cTitle.BackgroundTransparency = 1
-                cTitle.Text = tostring(itemData.title or "Function")
-                cTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
-                cTitle.Font = Enum.Font.GothamBold
-                cTitle.TextSize = 12
-                cTitle.TextTruncate = Enum.TextTruncate.AtEnd
-                cTitle.TextXAlignment = Enum.TextXAlignment.Left
-                cTitle.Parent = card
-                local cTabBadge = Instance.new("TextLabel")
-                cTabBadge.Size = UDim2.new(0.60, 0, 0, 16)
-                cTabBadge.Position = UDim2.new(0, 14, 0, 25)
-                cTabBadge.BackgroundTransparency = 1
-                cTabBadge.Text = "📁 " .. tostring(itemData.tab or "Main") .. (itemData.bind and (" • ⌨️ [" .. itemData.bind .. "]") or "")
-                cTabBadge.TextColor3 = Color3.fromRGB(130, 145, 175)
-                cTabBadge.Font = Enum.Font.GothamMedium
-                cTabBadge.TextSize = 10
-                cTabBadge.TextTruncate = Enum.TextTruncate.AtEnd
-                cTabBadge.TextXAlignment = Enum.TextXAlignment.Left
-                cTabBadge.Parent = card
-                if isToggle then
-                    local curState = itemData.get() == true
-                    local statusLabel = Instance.new("TextLabel")
-                    statusLabel.Size = UDim2.new(0, 36, 0, 22)
-                    statusLabel.Position = UDim2.new(1, -100, 0.5, -11)
-                    statusLabel.BackgroundTransparency = 1
-                    statusLabel.Text = curState and "ON" or "OFF"
-                    statusLabel.TextColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
-                    statusLabel.Font = Enum.Font.GothamBlack
-                    statusLabel.TextSize = 10
-                    statusLabel.TextXAlignment = Enum.TextXAlignment.Right
-                    statusLabel.Parent = card
-                    local switch = Instance.new("Frame")
-                    switch.Size = UDim2.new(0, 46, 0, 24)
-                    switch.Position = UDim2.new(1, -58, 0.5, -12)
-                    switch.BackgroundColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
-                    switch.BorderSizePixel = 0
-                    switch.Parent = card
-                    applyCorner(switch, 12)
-                    local sKnob = Instance.new("Frame")
-                    sKnob.Size = UDim2.new(0, 18, 0, 18)
-                    sKnob.Position = curState and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-                    sKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                    sKnob.BorderSizePixel = 0
-                    sKnob.Parent = switch
-                    applyCorner(sKnob, 9)
-                    local function toggleFeature()
-                        local nextState = not (itemData.get() == true)
-                        itemData.set(nextState)
-                        statusLabel.Text = nextState and "ON" or "OFF"
-                        statusLabel.TextColor3 = nextState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
-                        local targetPos = nextState and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-                        local targetColor = nextState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
-                        TweenService:Create(sKnob, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
-                        TweenService:Create(switch, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
-                        TweenService:Create(cStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = nextState and hubState.currentThemeColor or Color3.fromRGB(36, 46, 66)}):Play()
-                    end
-                    local cardHitbox = Instance.new("TextButton")
-                    cardHitbox.Size = UDim2.new(1, 0, 1, 0)
-                    cardHitbox.BackgroundTransparency = 1
-                    cardHitbox.Text = ""
-                    cardHitbox.ZIndex = 25
-                    cardHitbox.Parent = card
-                    cardHitbox.MouseButton1Click:Connect(toggleFeature)
-                elseif itemData.type == "Slider" and itemData.get and itemData.set then
-                    local sValBtn = Instance.new("TextButton")
-                    sValBtn.Size = UDim2.new(0, 74, 0, 24)
-                    sValBtn.Position = UDim2.new(1, -84, 0.5, -12)
-                    sValBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
-                    sValBtn.Text = tostring(itemData.get()) .. (itemData.suffix or "")
-                    sValBtn.TextColor3 = hubState.currentThemeColor
-                    sValBtn.Font = Enum.Font.GothamBold
-                    sValBtn.TextSize = 11
-                    sValBtn.ZIndex = 25
-                    sValBtn.Parent = card
-                    applyCorner(sValBtn, 5)
-                    sValBtn.MouseButton1Click:Connect(function()
-                        if itemData.action then
-                            itemData.action()
-                            sValBtn.Text = tostring(itemData.get()) .. (itemData.suffix or "")
+            if not itemData.isListItem and itemData.type ~= "ListItem" then
+                local titleMatch = itemData.title and tostring(itemData.title):lower():find(cleanQ, 1, true)
+                local subMatch = itemData.subtitle and tostring(itemData.subtitle):lower():find(cleanQ, 1, true)
+                local tabMatch = itemData.tab and tostring(itemData.tab):lower():find(cleanQ, 1, true)
+                if titleMatch or subMatch or tabMatch then
+                    matchedCount = matchedCount + 1
+                    local isToggle = (itemData.type == "Toggle" and itemData.get and itemData.set)
+                    local isButton = (itemData.type == "Button" and itemData.action)
+                    local isList = (itemData.type == "List" or itemData.listObj ~= nil)
+                    local card = Instance.new("Frame")
+                    card.Name = "ResultCard_" .. tostring(id)
+                    card.Size = UDim2.new(1, -6, 0, 48)
+                    card.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+                    card.BorderSizePixel = 0
+                    card.Parent = hubState.searchResultsPage
+                    applyCorner(card, 7)
+                    local cStroke = applyStroke(card, Color3.fromRGB(36, 46, 66), 1, 0)
+                    local cTitle = Instance.new("TextLabel")
+                    cTitle.Size = UDim2.new(0.50, 0, 0, 20)
+                    cTitle.Position = UDim2.new(0, 14, 0, 5)
+                    cTitle.BackgroundTransparency = 1
+                    cTitle.Text = (isList and "📋 " or "") .. tostring(itemData.title or "Function")
+                    cTitle.TextColor3 = Color3.fromRGB(240, 245, 255)
+                    cTitle.Font = Enum.Font.GothamBold
+                    cTitle.TextSize = 12
+                    cTitle.TextTruncate = Enum.TextTruncate.AtEnd
+                    cTitle.TextXAlignment = Enum.TextXAlignment.Left
+                    cTitle.Parent = card
+                    local cTabBadge = Instance.new("TextLabel")
+                    cTabBadge.Size = UDim2.new(0.50, 0, 0, 16)
+                    cTabBadge.Position = UDim2.new(0, 14, 0, 25)
+                    cTabBadge.BackgroundTransparency = 1
+                    cTabBadge.Text = "📁 " .. tostring(itemData.tab or "Main") .. (itemData.bind and (" • ⌨️ [" .. itemData.bind .. "]") or "") .. (isList and " • List" or "")
+                    cTabBadge.TextColor3 = Color3.fromRGB(130, 145, 175)
+                    cTabBadge.Font = Enum.Font.GothamMedium
+                    cTabBadge.TextSize = 10
+                    cTabBadge.TextTruncate = Enum.TextTruncate.AtEnd
+                    cTabBadge.TextXAlignment = Enum.TextXAlignment.Left
+                    cTabBadge.Parent = card
+                    local function goToTarget()
+                        hubState.searchBox.Text = ""
+                        if itemData.tab then
+                            hubState.setTabVisible(itemData.tab)
                         end
-                    end)
-                else
-                    local trigBtn = Instance.new("TextButton")
-                    trigBtn.Size = UDim2.new(0, 68, 0, 24)
-                    trigBtn.Position = UDim2.new(1, -78, 0.5, -12)
-                    trigBtn.BackgroundColor3 = Color3.fromRGB(28, 36, 52)
-                    trigBtn.Text = "Trigger ⚡"
-                    trigBtn.TextColor3 = hubState.currentThemeColor
-                    trigBtn.Font = Enum.Font.GothamBold
-                    trigBtn.TextSize = 10
-                    trigBtn.ZIndex = 25
-                    trigBtn.Parent = card
-                    applyCorner(trigBtn, 5)
-                    local function triggerAction()
-                        TweenService:Create(trigBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hubState.currentThemeColor, TextColor3 = Color3.fromRGB(15, 20, 30)}):Play()
-                        if itemData.action then pcall(itemData.action) end
-                        task.delay(0.15, function()
-                            if trigBtn and trigBtn.Parent then
-                                TweenService:Create(trigBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = Color3.fromRGB(28, 36, 52), TextColor3 = hubState.currentThemeColor}):Play()
+                        if itemData.listObj and itemData.listObj.Open then
+                            pcall(itemData.listObj.Open)
+                        end
+                        if itemData.frame and itemData.frame.Parent then
+                            task.spawn(function()
+                                local targetStroke = itemData.frame:FindFirstChildOfClass("UIStroke")
+                                if targetStroke then
+                                    local origColor = targetStroke.Color
+                                    for i = 1, 2 do
+                                        TweenService:Create(targetStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                                            Color = Color3.fromRGB(0, 240, 255),
+                                            Thickness = 2
+                                        }):Play()
+                                        task.wait(0.25)
+                                        TweenService:Create(targetStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                                            Color = origColor,
+                                            Thickness = 1
+                                        }):Play()
+                                        task.wait(0.25)
+                                    end
+                                end
+                            end)
+                            local scrollPage = itemData.frame:FindFirstAncestorOfClass("ScrollingFrame")
+                            if scrollPage then
+                                pcall(function()
+                                    local targetY = itemData.frame.AbsolutePosition.Y - scrollPage.AbsolutePosition.Y + scrollPage.CanvasPosition.Y
+                                    TweenService:Create(scrollPage, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                                        CanvasPosition = Vector2.new(0, math.max(0, targetY - 40))
+                                    }):Play()
+                                end)
                             end
-                        end)
+                        end
                     end
-                    trigBtn.MouseButton1Click:Connect(triggerAction)
-                    local cardHitbox = Instance.new("TextButton")
-                    cardHitbox.Size = UDim2.new(1, -85, 1, 0)
-                    cardHitbox.BackgroundTransparency = 1
-                    cardHitbox.Text = ""
-                    cardHitbox.ZIndex = 24
-                    cardHitbox.Parent = card
-                    cardHitbox.MouseButton1Click:Connect(triggerAction)
+                    local goToBtn = Instance.new("TextButton")
+                    goToBtn.Name = "GoToButton"
+                    goToBtn.Size = UDim2.new(0, 58, 0, 26)
+                    goToBtn.Position = UDim2.new(1, -66, 0.5, -13)
+                    goToBtn.BackgroundColor3 = Color3.fromRGB(24, 32, 48)
+                    goToBtn.Text = "Go To ➔"
+                    goToBtn.TextColor3 = hubState.currentThemeColor
+                    goToBtn.Font = Enum.Font.GothamBold
+                    goToBtn.TextSize = 10
+                    goToBtn.ZIndex = 25
+                    goToBtn.Parent = card
+                    applyCorner(goToBtn, 6)
+                    local gStroke = applyStroke(goToBtn, Color3.fromRGB(44, 56, 80), 1, 0)
+                    goToBtn.MouseButton1Click:Connect(goToTarget)
+                    if isToggle then
+                        local curState = itemData.get() == true
+                        local statusLabel = Instance.new("TextLabel")
+                        statusLabel.Size = UDim2.new(0, 32, 0, 22)
+                        statusLabel.Position = UDim2.new(1, -156, 0.5, -11)
+                        statusLabel.BackgroundTransparency = 1
+                        statusLabel.Text = curState and "ON" or "OFF"
+                        statusLabel.TextColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
+                        statusLabel.Font = Enum.Font.GothamBlack
+                        statusLabel.TextSize = 10
+                        statusLabel.TextXAlignment = Enum.TextXAlignment.Right
+                        statusLabel.Parent = card
+                        local switch = Instance.new("Frame")
+                        switch.Size = UDim2.new(0, 42, 0, 22)
+                        switch.Position = UDim2.new(1, -118, 0.5, -11)
+                        switch.BackgroundColor3 = curState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
+                        switch.BorderSizePixel = 0
+                        switch.Parent = card
+                        applyCorner(switch, 11)
+                        local sKnob = Instance.new("Frame")
+                        sKnob.Size = UDim2.new(0, 16, 0, 16)
+                        sKnob.Position = curState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+                        sKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                        sKnob.BorderSizePixel = 0
+                        sKnob.Parent = switch
+                        applyCorner(sKnob, 8)
+                        local function toggleFeature()
+                            local nextState = not (itemData.get() == true)
+                            itemData.set(nextState)
+                            statusLabel.Text = nextState and "ON" or "OFF"
+                            statusLabel.TextColor3 = nextState and hubState.currentThemeColor or Color3.fromRGB(130, 140, 160)
+                            local targetPos = nextState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+                            local targetColor = nextState and hubState.currentThemeColor or Color3.fromRGB(38, 44, 60)
+                            TweenService:Create(sKnob, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+                            TweenService:Create(switch, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
+                            TweenService:Create(cStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = nextState and hubState.currentThemeColor or Color3.fromRGB(36, 46, 66)}):Play()
+                        end
+                        local toggleHitbox = Instance.new("TextButton")
+                        toggleHitbox.Size = UDim2.new(0, 42, 0, 22)
+                        toggleHitbox.Position = UDim2.new(1, -118, 0.5, -11)
+                        toggleHitbox.BackgroundTransparency = 1
+                        toggleHitbox.Text = ""
+                        toggleHitbox.ZIndex = 25
+                        toggleHitbox.Parent = card
+                        toggleHitbox.MouseButton1Click:Connect(toggleFeature)
+                    elseif isButton then
+                        local runBtn = Instance.new("TextButton")
+                        runBtn.Size = UDim2.new(0, 56, 0, 26)
+                        runBtn.Position = UDim2.new(1, -128, 0.5, -13)
+                        runBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
+                        runBtn.Text = "Trigger ⚡"
+                        runBtn.TextColor3 = Color3.fromRGB(220, 230, 245)
+                        runBtn.Font = Enum.Font.GothamBold
+                        runBtn.TextSize = 10
+                        runBtn.ZIndex = 25
+                        runBtn.Parent = card
+                        applyCorner(runBtn, 5)
+                        applyStroke(runBtn, Color3.fromRGB(44, 56, 80), 1, 0)
+                        runBtn.MouseButton1Click:Connect(function()
+                            if itemData.action then pcall(itemData.action) end
+                        end)
+                    elseif itemData.type == "Slider" and itemData.get and itemData.set then
+                        local sValBtn = Instance.new("TextButton")
+                        sValBtn.Size = UDim2.new(0, 56, 0, 26)
+                        sValBtn.Position = UDim2.new(1, -128, 0.5, -13)
+                        sValBtn.BackgroundColor3 = Color3.fromRGB(26, 34, 50)
+                        sValBtn.Text = tostring(itemData.get()) .. (itemData.suffix or "")
+                        sValBtn.TextColor3 = hubState.currentThemeColor
+                        sValBtn.Font = Enum.Font.GothamBold
+                        sValBtn.TextSize = 10
+                        sValBtn.ZIndex = 25
+                        sValBtn.Parent = card
+                        applyCorner(sValBtn, 5)
+                        applyStroke(sValBtn, Color3.fromRGB(44, 56, 80), 1, 0)
+                    end
+                    hubState.attachContextMenu(card, itemData)
                 end
-                hubState.attachContextMenu(card, itemData)
             end
         end
         if matchedCount == 0 then
@@ -5280,17 +5342,18 @@ return function(opts)
             if hubState.isModalActive then return end
             if callback then pcall(callback) end
         end)
-        local itemData = {
-            id = "item_" .. tostring(titleText or "Item") .. "_" .. tostring(subtitleText or ""),
-            title = titleText or "Item",
-            subtitle = subtitleText or "",
+                local itemData = {
+            id = "item_" .. tostring(titleText):gsub("%s+", "_"),
             type = "ListItem",
-            tab = hubState.currentActiveTabName,
+            isListItem = true,
+            title = titleText,
+            subtitle = subtitleText,
+            frame = item,
+            tab = (parent and parent.Name) or hubState.currentActiveTabName or "Main",
             action = function()
                 if callback then pcall(callback) end
             end
         }
-        hubState.registerFunctionItem(itemData)
         hubState.attachContextMenu(item, itemData)
         return item, function(isSelected)
             selected = (isSelected == true)
@@ -5729,6 +5792,94 @@ return function(opts)
             table.insert(listObject.SubLists, subList)
             return subList
         end
+        local searchFrame = Instance.new("Frame")
+        searchFrame.Name = "ListSearchBoxFrame"
+        searchFrame.Size = UDim2.new(1, -8, 0, 26)
+        searchFrame.Position = UDim2.new(0, 4, 0, isNestedList and 34 or 36)
+        searchFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+        searchFrame.BorderSizePixel = 0
+        searchFrame.Visible = false
+        searchFrame.ZIndex = 15
+        searchFrame.Parent = frame
+        applyCorner(searchFrame, 5)
+        local sfStroke = applyStroke(searchFrame, Color3.fromRGB(38, 48, 68), 1, 0)
+        local searchIcon = Instance.new("TextLabel")
+        searchIcon.Size = UDim2.new(0, 20, 1, 0)
+        searchIcon.Position = UDim2.new(0, 4, 0, 0)
+        searchIcon.BackgroundTransparency = 1
+        searchIcon.Text = "🔍"
+        searchIcon.TextSize = 10
+        searchIcon.TextColor3 = Color3.fromRGB(120, 135, 160)
+        searchIcon.ZIndex = 16
+        searchIcon.Parent = searchFrame
+        local listSearchInput = Instance.new("TextBox")
+        listSearchInput.Size = UDim2.new(1, -28, 1, 0)
+        listSearchInput.Position = UDim2.new(0, 24, 0, 0)
+        listSearchInput.BackgroundTransparency = 1
+        listSearchInput.ClearTextOnFocus = false
+        listSearchInput.Font = Enum.Font.GothamMedium
+        listSearchInput.PlaceholderText = "Search " .. tostring(itemTitle) .. "..."
+        listSearchInput.PlaceholderColor3 = Color3.fromRGB(110, 125, 150)
+        listSearchInput.Text = ""
+        listSearchInput.TextColor3 = Color3.fromRGB(235, 242, 252)
+        listSearchInput.TextSize = 11
+        listSearchInput.TextXAlignment = Enum.TextXAlignment.Left
+        listSearchInput.ZIndex = 16
+        listSearchInput.Parent = searchFrame
+        local function checkSearchVisibility()
+            local count = #listObject.Items
+            local shouldShow = count >= 10
+            searchFrame.Visible = shouldShow
+            if shouldShow then
+                list.Position = UDim2.new(0, 4, 0, (isNestedList and 34 or 36) + 30)
+            else
+                list.Position = UDim2.new(0, 4, 0, isNestedList and 32 or 34)
+            end
+        end
+        local function filterListItems(query)
+            local cleanQ = query:match("^%s*(.-)%s*$"):lower()
+            for _, entryData in ipairs(listObject.Items) do
+                if entryData.Row then
+                    if cleanQ == "" then
+                        entryData.Row.Visible = true
+                    else
+                        local nameMatch = entryData.Name and tostring(entryData.Name):lower():find(cleanQ, 1, true)
+                        local descMatch = entryData.Desc and tostring(entryData.Desc):lower():find(cleanQ, 1, true)
+                        entryData.Row.Visible = (nameMatch or descMatch) and true or false
+                    end
+                end
+            end
+            updateListHeight(false)
+        end
+        listSearchInput:GetPropertyChangedSignal("Text"):Connect(function()
+            filterListItems(listSearchInput.Text)
+        end)
+        listSearchInput.Focused:Connect(function()
+            TweenService:Create(sfStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
+        end)
+        listSearchInput.FocusLost:Connect(function()
+            TweenService:Create(sfStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(38, 48, 68) }):Play()
+        end)
+        listObject.Open = function()
+            if not open then
+                open = true
+                TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = 0}):Play()
+                updateListHeight(true)
+            end
+        end
+        listObject.Close = function()
+            if open then
+                open = false
+                TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = -90}):Play()
+                updateListHeight(true)
+            end
+        end
+        local origAddEntry = addEntry
+        addEntry = function(entry)
+            local row, entryData = origAddEntry(entry)
+            checkSearchVisibility()
+            return row, entryData
+        end
         listObject.CreateList = listObject.AddList
         if itemBuilder then
             pcall(itemBuilder, listObject)
@@ -5737,6 +5888,20 @@ return function(opts)
                 addEntry(entry)
             end
         end
+        checkSearchVisibility()
+        local listFunctionData = {
+            id = "list_" .. tostring(itemTitle):gsub("%s+", "_"),
+            type = "List",
+            title = itemTitle,
+            subtitle = "List Container (" .. tostring(#listObject.Items) .. " items)",
+            frame = frame,
+            tab = (parentTarget and parentTarget.Name) or hubState.currentActiveTabName or "Main",
+            listObj = listObject,
+            action = function()
+                listObject.Open()
+            end
+        }
+        hubState.registerFunctionItem(listFunctionData)
         return listObject
     end
     function hubState.createDropdown(parent, titleText, options, defaultOption, callback)
