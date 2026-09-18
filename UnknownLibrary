@@ -4828,13 +4828,29 @@ return function(opts)
             Instance = frame,
             Frame = frame,
             Box = box,
-            Set = function(val) box.Text = tostring(val or "") end,
+            Set = function(selfOrVal, val)
+                if val ~= nil then
+                    box.Text = tostring(val or "")
+                else
+                    box.Text = tostring(selfOrVal or "")
+                end
+            end,
             Get = function() return box.Text end,
             Clear = function() box.Text = "" end
         }
         setmetatable(resultObj, {
-            __index = function(_, k)
-                return box[k]
+            __index = function(tbl, k)
+                local val = box[k]
+                if type(val) == "function" then
+                    return function(self, ...)
+                        if self == tbl then
+                            return val(box, ...)
+                        else
+                            return val(self, ...)
+                        end
+                    end
+                end
+                return val
             end,
             __newindex = function(_, k, v)
                 box[k] = v
