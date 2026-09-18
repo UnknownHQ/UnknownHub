@@ -786,8 +786,9 @@ return function(opts)
         return resizer
     end
     function hubState.createCloseConfirmation(container, onConfirm)
-        if not container then return end
-        if container:FindFirstChild("Unknown_CloseConfirmOverlay") then return end
+        local targetParent = hubState.screenGui or container
+        if not targetParent then return end
+        if targetParent:FindFirstChild("Unknown_CloseConfirmOverlay") then return end
         hubState.isModalActive = true
         local blur = Lighting:FindFirstChild("Unknown_HubBlur")
         if not blur then
@@ -800,12 +801,13 @@ return function(opts)
         local overlay = Instance.new("Frame")
         overlay.Name = "Unknown_CloseConfirmOverlay"
         overlay.Size = UDim2.new(1, 0, 1, 0)
+        overlay.Position = UDim2.new(0, 0, 0, 0)
         overlay.BackgroundColor3 = Color3.fromRGB(6, 8, 14)
         overlay.BackgroundTransparency = 1
         overlay.BorderSizePixel = 0
         overlay.Active = true
-        overlay.ZIndex = 40
-        overlay.Parent = container
+        overlay.ZIndex = 150
+        overlay.Parent = targetParent
         local modalBlocker = Instance.new("TextButton")
         modalBlocker.Name = "ModalBlocker"
         modalBlocker.Size = UDim2.new(1, 0, 1, 0)
@@ -813,15 +815,15 @@ return function(opts)
         modalBlocker.Text = ""
         modalBlocker.Active = true
         modalBlocker.AutoButtonColor = false
-        modalBlocker.ZIndex = 40
+        modalBlocker.ZIndex = 150
         modalBlocker.Parent = overlay
         local panel = Instance.new("Frame")
         panel.Name = "ConfirmPanel"
-        panel.Size = UDim2.new(0, 270, 0, 140)
-        panel.Position = UDim2.new(0.5, -135, 0.5, -70)
+        panel.Size = UDim2.new(0, 300, 0, 155)
+        panel.Position = UDim2.new(0.5, -150, 0.5, -77)
         panel.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
         panel.BorderSizePixel = 0
-        panel.ZIndex = 41
+        panel.ZIndex = 151
         panel.Parent = overlay
         applyCorner(panel, 10)
         applyStroke(panel, Color3.fromRGB(255, 175, 75), 1.5, 0)
@@ -835,7 +837,7 @@ return function(opts)
         warnIcon.Font = Enum.Font.GothamBold
         warnIcon.TextColor3 = Color3.fromRGB(255, 190, 80)
         warnIcon.TextXAlignment = Enum.TextXAlignment.Center
-        warnIcon.ZIndex = 42
+        warnIcon.ZIndex = 152
         warnIcon.Parent = panel
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(1, -24, 0, 20)
@@ -846,10 +848,10 @@ return function(opts)
         title.Font = Enum.Font.GothamBold
         title.TextSize = 14
         title.TextXAlignment = Enum.TextXAlignment.Center
-        title.ZIndex = 42
+        title.ZIndex = 152
         title.Parent = panel
         local msg = Instance.new("TextLabel")
-        msg.Size = UDim2.new(1, -26, 0, 24)
+        msg.Size = UDim2.new(1, -26, 0, 32)
         msg.Position = UDim2.new(0, 13, 0, 66)
         msg.BackgroundTransparency = 1
         msg.Text = "This stops all active scripts and destroys the UI."
@@ -858,33 +860,33 @@ return function(opts)
         msg.TextSize = 11
         msg.TextWrapped = true
         msg.TextXAlignment = Enum.TextXAlignment.Center
-        msg.ZIndex = 42
+        msg.ZIndex = 152
         msg.Parent = panel
         local cancelBtn = Instance.new("TextButton")
-        cancelBtn.Size = UDim2.new(0, 88, 0, 28)
-        cancelBtn.Position = UDim2.new(0.5, -98, 1, -38)
+        cancelBtn.Size = UDim2.new(0, 100, 0, 30)
+        cancelBtn.Position = UDim2.new(0.5, -110, 1, -40)
         cancelBtn.BackgroundColor3 = Color3.fromRGB(36, 44, 60)
         cancelBtn.Text = "Cancel"
         cancelBtn.TextColor3 = Color3.fromRGB(240, 244, 250)
         cancelBtn.Font = Enum.Font.GothamBold
         cancelBtn.TextSize = 12
-        cancelBtn.ZIndex = 42
+        cancelBtn.ZIndex = 152
         cancelBtn.Parent = panel
         applyCorner(cancelBtn, 6)
         local confirmBtn = Instance.new("TextButton")
-        confirmBtn.Size = UDim2.new(0, 88, 0, 28)
-        confirmBtn.Position = UDim2.new(0.5, 10, 1, -38)
+        confirmBtn.Size = UDim2.new(0, 100, 0, 30)
+        confirmBtn.Position = UDim2.new(0.5, 10, 1, -40)
         confirmBtn.BackgroundColor3 = Color3.fromRGB(225, 55, 65)
         confirmBtn.Text = "Close Hub"
         confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
         confirmBtn.Font = Enum.Font.GothamBold
         confirmBtn.TextSize = 12
-        confirmBtn.ZIndex = 42
+        confirmBtn.ZIndex = 152
         confirmBtn.Parent = panel
         applyCorner(confirmBtn, 6)
         TweenService:Create(overlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.35}):Play()
-        panel.Position = UDim2.new(0.5, -135, 0.5, -50)
-        TweenService:Create(panel, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, -135, 0.5, -70)}):Play()
+        panel.Position = UDim2.new(0.5, -150, 0.5, -60)
+        TweenService:Create(panel, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, -150, 0.5, -77)}):Play()
         local overlayClosed = false
         local function closeOverlay()
             if overlayClosed then return end
@@ -898,15 +900,177 @@ return function(opts)
             end
             if overlay and overlay.Parent then
                 TweenService:Create(overlay, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
-                TweenService:Create(panel, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0.5, -135, 0.5, -50)}):Play()
+                TweenService:Create(panel, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0.5, -150, 0.5, -60)}):Play()
                 task.delay(0.16, function() pcall(function() overlay:Destroy() end) end)
             end
         end
         cancelBtn.MouseButton1Click:Connect(closeOverlay)
+        modalBlocker.MouseButton1Click:Connect(closeOverlay)
         confirmBtn.MouseButton1Click:Connect(function()
             closeOverlay()
             if onConfirm then pcall(onConfirm) end
         end)
+    end
+    function hubState.ShowWarning(arg1, arg2, arg3, arg4, arg5, arg6)
+        local opts = {}
+        if type(arg1) == "table" then
+            opts = arg1
+        else
+            opts = {
+                title = arg1,
+                name = arg1,
+                description = arg2,
+                desc = arg2,
+                button1 = arg3,
+                buttonName1 = arg3,
+                button2 = arg4,
+                buttonName2 = arg4,
+                onButton1 = arg5,
+                onButton2 = arg6
+            }
+        end
+        local titleText = tostring(opts.title or opts.name or opts.Name or "Warning")
+        local descText = tostring(opts.description or opts.desc or opts.Description or opts.text or "Please confirm this action.")
+        local btn1Text = tostring(opts.button1 or opts.buttonName1 or opts.Button1 or opts.ButtonName1 or "Confirm")
+        local btn2Text = tostring(opts.button2 or opts.buttonName2 or opts.Button2 or opts.ButtonName2 or "Cancel")
+        local onBtn1 = opts.onButton1 or opts.OnButton1 or opts.onConfirm or opts.callback1
+        local onBtn2 = opts.onButton2 or opts.OnButton2 or opts.onCancel or opts.callback2
+        local targetParent = hubState.screenGui or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")) or (pcall(function() return CoreGui end) and CoreGui)
+        if not targetParent then return nil end
+        local existing = targetParent:FindFirstChild("Unknown_WarningModalOverlay")
+        if existing then pcall(function() existing:Destroy() end) end
+        hubState.isModalActive = true
+        local blur = Lighting:FindFirstChild("Unknown_HubBlur")
+        if not blur then
+            blur = Instance.new("BlurEffect")
+            blur.Name = "Unknown_HubBlur"
+            blur.Size = 0
+            blur.Parent = Lighting
+        end
+        TweenService:Create(blur, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 14}):Play()
+        local overlay = Instance.new("Frame")
+        overlay.Name = "Unknown_WarningModalOverlay"
+        overlay.Size = UDim2.new(1, 0, 1, 0)
+        overlay.Position = UDim2.new(0, 0, 0, 0)
+        overlay.BackgroundColor3 = Color3.fromRGB(6, 8, 14)
+        overlay.BackgroundTransparency = 1
+        overlay.BorderSizePixel = 0
+        overlay.Active = true
+        overlay.ZIndex = 145
+        overlay.Parent = targetParent
+        local modalBlocker = Instance.new("TextButton")
+        modalBlocker.Name = "ModalBlocker"
+        modalBlocker.Size = UDim2.new(1, 0, 1, 0)
+        modalBlocker.BackgroundTransparency = 1
+        modalBlocker.Text = ""
+        modalBlocker.Active = true
+        modalBlocker.AutoButtonColor = false
+        modalBlocker.ZIndex = 145
+        modalBlocker.Parent = overlay
+        local panel = Instance.new("Frame")
+        panel.Name = "WarningCard"
+        panel.Size = UDim2.new(0, 330, 0, 165)
+        panel.Position = UDim2.new(0.5, -165, 0.5, -82)
+        panel.BackgroundColor3 = Color3.fromRGB(15, 19, 29)
+        panel.BorderSizePixel = 0
+        panel.ZIndex = 146
+        panel.Parent = overlay
+        applyCorner(panel, 10)
+        local warnStroke = applyStroke(panel, Color3.fromRGB(255, 180, 65), 1.5, 0)
+        local warnIcon = Instance.new("TextLabel")
+        warnIcon.Name = "WarningIcon"
+        warnIcon.Size = UDim2.new(0, 32, 0, 32)
+        warnIcon.Position = UDim2.new(0.5, -16, 0, 10)
+        warnIcon.BackgroundTransparency = 1
+        warnIcon.Text = "⚠️"
+        warnIcon.TextSize = 22
+        warnIcon.Font = Enum.Font.GothamBold
+        warnIcon.TextColor3 = Color3.fromRGB(255, 195, 75)
+        warnIcon.TextXAlignment = Enum.TextXAlignment.Center
+        warnIcon.ZIndex = 147
+        warnIcon.Parent = panel
+        local titleLbl = Instance.new("TextLabel")
+        titleLbl.Size = UDim2.new(1, -24, 0, 20)
+        titleLbl.Position = UDim2.new(0, 12, 0, 44)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.Text = titleText
+        titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        titleLbl.Font = Enum.Font.GothamBlack
+        titleLbl.TextSize = 14
+        titleLbl.TextXAlignment = Enum.TextXAlignment.Center
+        titleLbl.ZIndex = 147
+        titleLbl.Parent = panel
+        local descLbl = Instance.new("TextLabel")
+        descLbl.Size = UDim2.new(1, -26, 0, 38)
+        descLbl.Position = UDim2.new(0, 13, 0, 66)
+        descLbl.BackgroundTransparency = 1
+        descLbl.Text = descText
+        descLbl.TextColor3 = Color3.fromRGB(195, 205, 225)
+        descLbl.Font = Enum.Font.GothamMedium
+        descLbl.TextSize = 11
+        descLbl.TextWrapped = true
+        descLbl.TextXAlignment = Enum.TextXAlignment.Center
+        descLbl.ZIndex = 147
+        descLbl.Parent = panel
+        local btn1 = Instance.new("TextButton")
+        btn1.Size = UDim2.new(0, 110, 0, 30)
+        btn1.Position = UDim2.new(0.5, 10, 1, -40)
+        btn1.BackgroundColor3 = hubState.currentThemeColor
+        btn1.Text = btn1Text
+        btn1.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn1.Font = Enum.Font.GothamBold
+        btn1.TextSize = 12
+        btn1.ZIndex = 147
+        btn1.Parent = panel
+        applyCorner(btn1, 6)
+        local btn2 = Instance.new("TextButton")
+        btn2.Size = UDim2.new(0, 110, 0, 30)
+        btn2.Position = UDim2.new(0.5, -120, 1, -40)
+        btn2.BackgroundColor3 = Color3.fromRGB(36, 44, 60)
+        btn2.Text = btn2Text
+        btn2.TextColor3 = Color3.fromRGB(240, 244, 250)
+        btn2.Font = Enum.Font.GothamBold
+        btn2.TextSize = 12
+        btn2.ZIndex = 147
+        btn2.Parent = panel
+        applyCorner(btn2, 6)
+        TweenService:Create(overlay, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.35}):Play()
+        panel.Position = UDim2.new(0.5, -165, 0.5, -65)
+        TweenService:Create(panel, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, -165, 0.5, -82)}):Play()
+        local isClosed = false
+        local function closeModal()
+            if isClosed then return end
+            isClosed = true
+            hubState.isModalActive = false
+            btn1.Active = false
+            btn2.Active = false
+            if blur and blur.Parent then
+                TweenService:Create(blur, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = 0}):Play()
+                task.delay(0.16, function() pcall(function() blur:Destroy() end) end)
+            end
+            if overlay and overlay.Parent then
+                TweenService:Create(overlay, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+                TweenService:Create(panel, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0.5, -165, 0.5, -65)}):Play()
+                task.delay(0.16, function() pcall(function() overlay:Destroy() end) end)
+            end
+        end
+        btn2.MouseButton1Click:Connect(function()
+            closeModal()
+            if onBtn2 then pcall(onBtn2) end
+        end)
+        modalBlocker.MouseButton1Click:Connect(function()
+            closeModal()
+            if onBtn2 then pcall(onBtn2) end
+        end)
+        btn1.MouseButton1Click:Connect(function()
+            closeModal()
+            if onBtn1 then pcall(onBtn1) end
+        end)
+        return {
+            Close = closeModal,
+            Destroy = closeModal,
+            Instance = overlay
+        }
     end
     function hubState.DisableAllFeatureStates()
         if hubState.disablingAll then return end
@@ -4574,35 +4738,118 @@ return function(opts)
         hubState.attachContextMenu(item, itemData)
         return item
     end
-    function hubState.createTextBox(parent, placeholderText, defaultText, callback)
+    function hubState.CreateInput(parent, nameOrPlaceholder, defaultText, callbackOrPlaceholder, maybeCallback)
+        local targetParent = contentArea
+        local titleName = "Input"
+        local defText = ""
+        local placeholder = "Type..."
+        local callback = nil
+        if typeof(parent) == "Instance" or (type(parent) == "table" and (parent.List or parent.Frame)) then
+            targetParent = (type(parent) == "table" and (parent.List or parent.Frame)) or parent
+            titleName = tostring(nameOrPlaceholder or "Input")
+            if type(callbackOrPlaceholder) == "function" then
+                defText = tostring(defaultText or "")
+                callback = callbackOrPlaceholder
+            elseif type(maybeCallback) == "function" then
+                defText = tostring(defaultText or "")
+                placeholder = tostring(callbackOrPlaceholder or "Type...")
+                callback = maybeCallback
+            else
+                defText = tostring(defaultText or "")
+                placeholder = tostring(callbackOrPlaceholder or "Type...")
+            end
+        else
+            titleName = tostring(parent or "Input")
+            if type(nameOrPlaceholder) == "function" then
+                callback = nameOrPlaceholder
+            elseif type(defaultText) == "function" then
+                defText = tostring(nameOrPlaceholder or "")
+                callback = defaultText
+            elseif type(callbackOrPlaceholder) == "function" then
+                defText = tostring(nameOrPlaceholder or "")
+                placeholder = tostring(defaultText or "Type...")
+                callback = callbackOrPlaceholder
+            else
+                defText = tostring(nameOrPlaceholder or "")
+                placeholder = tostring(defaultText or "Type...")
+            end
+        end
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, -6, 0, 38)
-        frame.BackgroundColor3 = Color3.fromRGB(17, 21, 31)
+        frame.Size = UDim2.new(1, -6, 0, 42)
+        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
         frame.BorderSizePixel = 0
-        frame.Parent = parent or contentArea
+        pcall(function() frame.Parent = targetParent end)
         applyCorner(frame, 7)
-        applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        local itemStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(0.68, -14, 1, 0)
+        nameLabel.Position = UDim2.new(0, 14, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = titleName
+        nameLabel.TextColor3 = Color3.fromRGB(230, 235, 245)
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 12
+        nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.Parent = frame
+        local boxContainer = Instance.new("Frame")
+        boxContainer.Size = UDim2.new(0.30, 0, 0, 28)
+        boxContainer.AnchorPoint = Vector2.new(1, 0.5)
+        boxContainer.Position = UDim2.new(1, -10, 0.5, 0)
+        boxContainer.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        boxContainer.BorderSizePixel = 0
+        boxContainer.Parent = frame
+        applyCorner(boxContainer, 6)
+        local boxStroke = applyStroke(boxContainer, Color3.fromRGB(42, 52, 74), 1, 0)
         local box = Instance.new("TextBox")
-        box.Size = UDim2.new(1, -16, 1, -8)
-        box.Position = UDim2.new(0, 8, 0, 4)
-        box.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
-        box.BorderSizePixel = 0
+        box.Size = UDim2.new(1, -12, 1, 0)
+        box.Position = UDim2.new(0, 6, 0, 0)
+        box.BackgroundTransparency = 1
         box.ClearTextOnFocus = false
         box.Font = Enum.Font.GothamMedium
-        box.PlaceholderText = placeholderText or "Enter text..."
+        box.PlaceholderText = placeholder
         box.PlaceholderColor3 = Color3.fromRGB(120, 132, 155)
-        box.Text = defaultText or ""
+        box.Text = defText
         box.TextColor3 = Color3.fromRGB(235, 240, 250)
-        box.TextSize = 12
+        box.TextSize = 11
         box.TextXAlignment = Enum.TextXAlignment.Left
-        box.Parent = frame
-        applyCorner(box, 5)
-        if callback then
-            box.FocusLost:Connect(function(enterPressed)
-                pcall(callback, box.Text, enterPressed)
-            end)
+        box.TextTruncate = Enum.TextTruncate.AtEnd
+        box.Parent = boxContainer
+        box.Focused:Connect(function()
+            TweenService:Create(boxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
+            TweenService:Create(boxContainer, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(28, 36, 52) }):Play()
+        end)
+        box.FocusLost:Connect(function(enterPressed)
+            TweenService:Create(boxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(42, 52, 74) }):Play()
+            TweenService:Create(boxContainer, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(24, 30, 44) }):Play()
+            if callback then pcall(callback, box.Text, enterPressed) end
+        end)
+        local resultObj = {
+            Instance = frame,
+            Frame = frame,
+            Box = box,
+            Set = function(val) box.Text = tostring(val or "") end,
+            Get = function() return box.Text end,
+            Clear = function() box.Text = "" end
+        }
+        setmetatable(resultObj, {
+            __index = function(_, k)
+                return box[k]
+            end,
+            __newindex = function(_, k, v)
+                box[k] = v
+            end
+        })
+        return resultObj
+    end
+    function hubState.createTextBox(parent, placeholderText, defaultText, callback)
+        if type(parent) == "string" and typeof(placeholderText) ~= "string" and typeof(placeholderText) ~= "nil" then
+            return hubState.CreateInput(contentArea, parent, "", placeholderText, defaultText)
+        elseif typeof(parent) == "Instance" or (type(parent) == "table" and (parent.List or parent.Frame)) then
+            return hubState.CreateInput(parent, placeholderText or "Input", defaultText or "", callback)
+        else
+            return hubState.CreateInput(contentArea, parent or "Input", defaultText or "", placeholderText or "Type...", callback)
         end
-        return box
     end
     function hubState.createToggle(parent, text, defaultState, callbackOrLoop, loopDelay, configTable)
         if type(parent) == "table" and parent.List then
@@ -7342,6 +7589,14 @@ return function(opts)
         end,
         createTextBox = hubState.createTextBox,
         CreateTextBox = hubState.createTextBox,
+        createInput = hubState.CreateInput,
+        CreateInput = hubState.CreateInput,
+        addInput = hubState.CreateInput,
+        AddInput = hubState.CreateInput,
+        showWarning = hubState.ShowWarning,
+        ShowWarning = hubState.ShowWarning,
+        createWarning = hubState.ShowWarning,
+        CreateWarning = hubState.ShowWarning,
         SendNotification = hubState.sendNotification,
         sendNotification = hubState.sendNotification,
         AddNotification = hubState.sendNotification,
