@@ -83,6 +83,7 @@ local PlantRemote = nil
 local BuyPetEggRemote = nil
 local BuyGearStockRemote = nil
 local BuySeedStockRemote = nil
+local BuyDailySeedShopStockRemote = nil
 local BuyCosmeticItemRemote = nil
 local BuyCosmeticCrateRemote = nil
 
@@ -106,6 +107,7 @@ local function resolveRemotes()
             BuyPetEggRemote = ge:FindFirstChild("BuyPetEgg")
             BuyGearStockRemote = ge:FindFirstChild("BuyGearStock")
             BuySeedStockRemote = ge:FindFirstChild("BuySeedStock")
+            BuyDailySeedShopStockRemote = ge:FindFirstChild("BuyDailySeedShopStock")
             BuyCosmeticItemRemote = ge:FindFirstChild("BuyCosmeticItem")
             BuyCosmeticCrateRemote = ge:FindFirstChild("BuyCosmeticCrate")
         end
@@ -363,6 +365,33 @@ end
 -- 4. Pets Catalog (500+ pets, dynamically self-updating)
 local function buildDynamicPetCatalog()
     local petSet = {}
+
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local data = rep:FindFirstChild("Data")
+        local petReg = data and data:FindFirstChild("PetRegistry")
+        if petReg then
+            local res = require(petReg)
+            if res and res.PetList then
+                for pName, _ in pairs(res.PetList) do
+                    local name = tostring(pName)
+                    if name ~= "" and not name:find("Data") then
+                        petSet[name] = true
+                    end
+                end
+            end
+            if res and res.PetEggs then
+                for _, eggInfo in pairs(res.PetEggs) do
+                    if type(eggInfo) == "table" and eggInfo.RarityData and eggInfo.RarityData.Items then
+                        for pName, _ in pairs(eggInfo.RarityData.Items) do
+                            local name = tostring(pName)
+                            if name ~= "" then petSet[name] = true end
+                        end
+                    end
+                end
+            end
+        end
+    end)
 
     if PetData and type(PetData) == "table" then
         local d = PetData.Data or (PetData.RegatherData and PetData.RegatherData()) or PetData
@@ -625,17 +654,55 @@ local function parseSheckles(text)
 end
 
 local function getPlayerSheckles()
+    local ok, res = pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        if dsMod then
+            local ds = require(dsMod)
+            if ds and ds.GetData then
+                local data = ds:GetData()
+                if data and data.Sheckles then
+                    return tonumber(data.Sheckles) or 0
+                end
+            end
+        end
+        return nil
+    end)
+    if ok and type(res) == "number" and res > 0 then
+        return res
+    end
+
     local lp = Players.LocalPlayer
     local valObj = lp and lp:FindFirstChild("leaderstats") and lp.leaderstats:FindFirstChild("Sheckles")
     if valObj then
-        return parseSheckles(tostring(valObj.Value))
+        local num = parseSheckles(tostring(valObj.Value))
+        if num > 0 then return num end
     end
-    return 0
+    
+    -- Fallback: Check PlayerGui currency labels
+    pcall(function()
+        local pGui = lp and lp:FindFirstChild("PlayerGui")
+        if pGui then
+            local currUi = pGui:FindFirstChild("CurrencyUI") or pGui:FindFirstChild("Hud_UI")
+            if currUi then
+                for _, desc in ipairs(currUi:GetDescendants()) do
+                    if desc:IsA("TextLabel") and (desc.Text:find("🌸") or desc.Text:find("¢") or desc.Name:lower():find("sheckle") or desc.Name:lower():find("coin")) then
+                        local num = parseSheckles(desc.Text)
+                        if num > 0 then res = num return end
+                    end
+                end
+            end
+        end
+    end)
+    
+    return res or 0
 end
 
 -- 6. Dynamic Shop Catalogs (Eggs, Gears, Seeds, Cosmetics)
 local function buildDynamicEggCatalog()
     local eggs = {}
+    local seen = {}
+
+    -- 1. Scan PetEggData & PetEggShopData
     pcall(function()
         local rep = game:GetService("ReplicatedStorage")
         local data = rep:FindFirstChild("Data")
@@ -644,19 +711,69 @@ local function buildDynamicEggCatalog()
             local res = require(eggData)
             for k, v in pairs(res) do
                 if type(v) == "table" and k ~= "RefreshTime" then
-                    local name = v.EggName or v.Name or k
+                    local name = tostring(v.EggName or v.Name or k)
                     local price = tonumber(v.Price) or 0
-                    table.insert(eggs, {
-                        Name = tostring(name) .. " (" .. formatCurrency(price) .. "¢)",
-                        ItemName = tostring(name),
-                        Price = price,
-                        Type = "Egg"
-                    })
+                    if not seen[name] then
+                        seen[name] = true
+                        table.insert(eggs, {
+                            Name = name .. (price > 0 and (" (" .. formatCurrency(price) .. "¢)") or ""),
+                            ItemName = name,
+                            Price = price,
+                            Type = "Egg"
+                        })
+                    end
                 end
             end
         end
     end)
-    table.sort(eggs, function(a, b) return a.Price < b.Price end)
+
+    -- 2. Scan PetRegistry.PetEggs
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local data = rep:FindFirstChild("Data")
+        local petReg = data and data:FindFirstChild("PetRegistry")
+        if petReg then
+            local res = require(petReg)
+            if res and res.PetEggs then
+                for eggName, _ in pairs(res.PetEggs) do
+                    local name = tostring(eggName)
+                    if not seen[name] then
+                        seen[name] = true
+                        table.insert(eggs, {
+                            Name = name,
+                            ItemName = name,
+                            Price = 0,
+                            Type = "Egg"
+                        })
+                    end
+                end
+            end
+        end
+    end)
+
+    -- 3. Scan Backpack for any Eggs
+    pcall(function()
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        if bp then
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") and t.Name:lower():find("egg") then
+                    local cleanName = t.Name:gsub("%s*x%d+", ""):gsub("%s*%(.*%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    if not seen[cleanName] then
+                        seen[cleanName] = true
+                        table.insert(eggs, {
+                            Name = cleanName,
+                            ItemName = cleanName,
+                            Price = 0,
+                            Type = "Egg"
+                        })
+                    end
+                end
+            end
+        end
+    end)
+
+    table.sort(eggs, function(a, b) return a.ItemName < b.ItemName end)
+    table.insert(eggs, 1, {Name = "All Eggs", ItemName = "All Eggs", Price = 0, Type = "Egg"})
     return eggs
 end
 
@@ -758,6 +875,74 @@ local function buildDynamicCosmeticCatalog()
     return cosmetics
 end
 
+local function buildDynamicSprinklerCatalog()
+    local spList = {}
+    local seen = {}
+
+    local defaultSprinklers = {
+        "Basic Sprinkler",
+        "Advanced Sprinkler",
+        "Master Sprinkler",
+        "Grandmaster Sprinkler",
+        "Godly Sprinkler",
+        "Lush Sprinkler",
+        "Berry Blusher Sprinkler",
+        "Flower Froster Sprinkler",
+        "Golden Sprinkler"
+    }
+    for _, s in ipairs(defaultSprinklers) do
+        seen[s] = true
+        table.insert(spList, {Name = s, ItemName = s})
+    end
+
+    -- 1. Scan ReplicatedStorage.ObjectModels
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local objModels = rep:FindFirstChild("ObjectModels")
+        if objModels then
+            for _, c in ipairs(objModels:GetChildren()) do
+                if c.Name:lower():find("sprinkler") and not seen[c.Name] then
+                    seen[c.Name] = true
+                    table.insert(spList, {Name = c.Name, ItemName = c.Name})
+                end
+            end
+        end
+    end)
+
+    -- 2. Scan ReplicatedStorage.Data.GearData
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local gearData = rep:FindFirstChild("Data") and rep.Data:FindFirstChild("GearData")
+        if gearData then
+            local g = require(gearData)
+            for k, _ in pairs(g) do
+                if tostring(k):lower():find("sprinkler") and not seen[tostring(k)] then
+                    seen[tostring(k)] = true
+                    table.insert(spList, {Name = tostring(k), ItemName = tostring(k)})
+                end
+            end
+        end
+    end)
+
+    -- 3. Scan Workspace for any placed sprinklers
+    pcall(function()
+        for _, desc in ipairs(game:GetService("Workspace"):GetDescendants()) do
+            if desc.Name:lower():find("sprinkler") and (desc:IsA("Model") or desc:IsA("BasePart")) then
+                local clean = desc.Name
+                if not seen[clean] then
+                    seen[clean] = true
+                    table.insert(spList, {Name = clean, ItemName = clean})
+                end
+            end
+        end
+    end)
+
+    table.sort(spList, function(a, b) return a.Name < b.Name end)
+    table.insert(spList, 1, {Name = "All Sprinklers", ItemName = "All Sprinklers"})
+    table.insert(spList, 1, {Name = "Auto (Highest Tier)", ItemName = "Auto (Highest Tier)"})
+    return spList
+end
+
 local allAvailablePlants = buildDynamicPlantCatalog()
 local allAvailableSeeds = buildDynamicSeedCatalog()
 local allAvailableMutations = buildDynamicMutationCatalog()
@@ -768,6 +953,7 @@ local allAvailableEggs = buildDynamicEggCatalog()
 local allAvailableGears = buildDynamicGearCatalog()
 local allAvailableSeedShop = buildDynamicSeedShopCatalog()
 local allAvailableCosmetics = buildDynamicCosmeticCatalog()
+local allAvailableSprinklers = buildDynamicSprinklerCatalog()
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -850,6 +1036,22 @@ local State = {
     Sell_ExcludePetWeight = 0,
     Sell_ExcludePetWeightMode = "Above",
 
+    -- Pet Tab: Egg Hatching & Egg Placement
+    AutoPlaceEggs = false,
+    PlaceOnlyWhenNoEgg = false,
+    PlaceEgg_Selected = "All Eggs",
+    PlaceEgg_PositionMode = "Row Position",
+    PlaceEgg_Delay = 0.1,
+    PlaceEgg_MaxGarden = 15,
+
+    AutoHatchEggs = false,
+    WaitAllEggsReady = false,
+    HatchEgg_Selected = "All Eggs",
+    Hatch_ExcludePets = {},
+    Hatch_ExcludeWeight = 0,
+    Hatch_ExcludeWeightMode = "None",
+    Hatch_CheckDelay = 0.1,
+
     -- Shop Tab
     AutoBuy_SelectedEgg = false,
     AutoBuy_AllEggs = false,
@@ -861,9 +1063,11 @@ local State = {
     AutoBuy_AllCosmetics = false,
     Shop_BuyDelay = 0.35,
 
-    -- Misc: Visual Optimization
+    -- Misc: Visual Optimization & Glitches
     HidePlants = false,
     HideFruits = false,
+    InfiniteSprinkler = false,
+    InfiniteSprinkler_Target = "All Sprinklers",
 
     -- General
     MaxBackpackCapacity = 500,
@@ -901,8 +1105,21 @@ local sellExcludePetVariantListObj
 local sellExcludePetMutationListObj
 local sellExcludePetWeightModeListObj
 
+local autoPlaceEggsToggle
+local placeOnlyWhenNoEggToggle
+local placeEggListObj
+local placeEggPositionModeListObj
+
+local autoHatchEggsToggle
+local waitAllEggsReadyToggle
+local hatchEggListObj
+local hatchExcludePetListObj
+local hatchExcludeWeightModeListObj
+
 local hidePlantsToggle
 local hideFruitsToggle
+local infiniteSprinklerToggle
+local selectSprinklerListObj
 
 -- Helper Getters for UI State
 local function getUIListVal(listObj, defaultVal)
@@ -917,16 +1134,47 @@ local function getUIListVal(listObj, defaultVal)
     return defaultVal
 end
 
+local function getUIListMultipleVals(listObj, defaultVal)
+    local selected = {}
+    if listObj then
+        if listObj.SelectedItems and #listObj.SelectedItems > 0 then
+            for _, item in ipairs(listObj.SelectedItems) do
+                if type(item) == "table" then
+                    table.insert(selected, item.Name or item[1] or tostring(item))
+                elseif type(item) == "string" then
+                    table.insert(selected, item)
+                end
+            end
+        elseif listObj.SelectedItem then
+            local sel = listObj.SelectedItem
+            if type(sel) == "table" then
+                table.insert(selected, sel.Name or sel[1] or tostring(sel))
+            elseif type(sel) == "string" then
+                table.insert(selected, sel)
+            end
+        end
+    end
+    if #selected == 0 and defaultVal then
+        table.insert(selected, defaultVal)
+    end
+    return selected
+end
+
 local function isToggleActive(toggleObj, defaultState, hubTitle)
-    if toggleObj and toggleObj.Get then
-        local st = toggleObj.Get()
-        if st ~= nil then return st end
+    if type(defaultState) == "boolean" and defaultState == true then
+        return true
     end
-    if Hub.IsActive and hubTitle then
-        local act = Hub.IsActive(hubTitle)
-        if act ~= nil then return act end
+    if toggleObj then
+        if type(toggleObj.Get) == "function" then
+            local st = toggleObj.Get()
+            if st ~= nil then return st end
+        elseif toggleObj.State ~= nil then
+            return toggleObj.State
+        elseif toggleObj.Value ~= nil then
+            return toggleObj.Value
+        end
     end
-    return defaultState
+    return defaultState or false
 end
 
 local function getBackpackCount()
@@ -1754,6 +2002,372 @@ task.spawn(function()
 end)
 
 -- =========================================================================
+-- Pet Egg Engine: Auto Place Eggs & Auto Hatch Eggs
+-- =========================================================================
+
+local function getPlayerFarm()
+    local farm = nil
+    pcall(function()
+        local getFarm = require(ReplicatedStorage.Modules.GetFarm)
+        farm = getFarm(LocalPlayer)
+    end)
+    if not farm then
+        farm = Workspace:FindFirstChild("Farm") and Workspace.Farm:FindFirstChild("Farm")
+    end
+    return farm or (Workspace:FindFirstChild("Farm") or Workspace)
+end
+
+local function getPlacedEggsInGarden()
+    local eggs = {}
+    local seen = {}
+    local farm = getPlayerFarm()
+    if farm then
+        local imp = farm:FindFirstChild("Important")
+        local objFolder = imp and imp:FindFirstChild("Objects_Physical")
+        if objFolder then
+            for _, obj in ipairs(objFolder:GetChildren()) do
+                local isEgg = obj.Name:lower():find("egg") or obj:GetAttribute("EggName") or obj:GetAttribute("TimeToHatch") or (obj:GetAttribute("READY") ~= nil)
+                if isEgg and not seen[obj] then
+                    seen[obj] = true
+                    table.insert(eggs, obj)
+                end
+            end
+        end
+    end
+
+    local objPhy = Workspace:FindFirstChild("Objects_Physical")
+    if objPhy then
+        for _, obj in ipairs(objPhy:GetChildren()) do
+            local owner = obj:GetAttribute("OWNER") or obj:GetAttribute("Owner")
+            local isMyEgg = (not owner) or (tostring(owner) == tostring(LocalPlayer.UserId)) or (tostring(owner) == LocalPlayer.Name)
+            if isMyEgg and (obj.Name:lower():find("egg") or obj:GetAttribute("EggName") or obj:GetAttribute("TimeToHatch")) and not seen[obj] then
+                seen[obj] = true
+                table.insert(eggs, obj)
+            end
+        end
+    end
+
+    return eggs
+end
+
+local currentEggRowIndex = 0
+
+local function getNextEggRowPosition()
+    local farm = getPlayerFarm()
+    local canPlant = farm and farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Plant_Locations") and farm.Important.Plant_Locations:FindFirstChild("Can_Plant")
+    if not canPlant then
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        return root and root.Position or Vector3.new(0, 0, 0)
+    end
+
+    local cf = canPlant.CFrame
+    local size = canPlant.Size
+    local width = size.X
+    local length = size.Z
+
+    local marginX = 2.5
+    local marginZ = 3.0
+    local spacingX = 4.0
+    local spacingZ = 4.0
+
+    local minX = -(width / 2) + marginX
+    local maxX = (width / 2) - marginX
+    local minZ = -(length / 2) + marginZ
+    local maxZ = (length / 2) - marginZ
+
+    local cols = math.max(1, math.floor((maxX - minX) / spacingX) + 1)
+    local rows = math.max(1, math.floor((maxZ - minZ) / spacingZ) + 1)
+    local totalSlots = cols * rows
+
+    currentEggRowIndex = (currentEggRowIndex % totalSlots)
+    local colIndex = currentEggRowIndex % cols
+    local rowIndex = math.floor(currentEggRowIndex / cols)
+    currentEggRowIndex = currentEggRowIndex + 1
+
+    local localX = math.clamp(minX + (colIndex * spacingX), minX, maxX)
+    local localZ = math.clamp(minZ + (rowIndex * spacingZ), minZ, maxZ)
+    local localY = 0.25
+
+    return cf:PointToWorldSpace(Vector3.new(localX, localY, localZ))
+end
+
+local function findEggToolInBackpack(selectedEggName)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local char = LocalPlayer.Character
+    if not bp and not char then return nil end
+
+    local cleanTarget = tostring(selectedEggName or "All Eggs"):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
+    local isAll = (cleanTarget == "alleggs" or cleanTarget == "all" or cleanTarget == "" or cleanTarget == "none")
+
+    -- 1. Check Character first
+    if char then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
+                local cName = tostring(eggAttr):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
+                if isAll and (tool.Name:lower():find("egg") or tool:GetAttribute("h") or tool:GetAttribute("B")) then
+                    return tool
+                elseif not isAll and (cName:find(cleanTarget, 1, true) or cleanTarget:find(cName, 1, true)) then
+                    return tool
+                end
+            end
+        end
+    end
+
+    -- 2. Check Backpack
+    if bp then
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") then
+                local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
+                local cName = tostring(eggAttr):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
+                if isAll and (tool.Name:lower():find("egg") or tool:GetAttribute("h") or tool:GetAttribute("B")) then
+                    return tool
+                elseif not isAll and (cName:find(cleanTarget, 1, true) or cleanTarget:find(cName, 1, true)) then
+                    return tool
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function placeEggAt(targetPos, eggTool)
+    if not eggTool or not targetPos then return end
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+    -- Equip tool
+    if hum and eggTool.Parent ~= char then
+        hum:EquipTool(eggTool)
+        task.wait(0.04)
+    end
+    if eggTool.Parent ~= char then
+        eggTool.Parent = char
+    end
+
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local petEggService = ge and ge:FindFirstChild("PetEggService")
+
+    pcall(function()
+        if petEggService then
+            petEggService:FireServer("CreateEgg", targetPos)
+            petEggService:FireServer("CreateEgg", targetPos, eggTool)
+            petEggService:FireServer("CreateEgg", eggTool, targetPos)
+        end
+    end)
+
+    pcall(function()
+        if firesignal then firesignal(eggTool.Activated) end
+        for _, conn in ipairs(getconnections(eggTool.Activated)) do
+            if conn.Fire then conn:Fire() elseif conn.Function then conn.Function() end
+        end
+    end)
+end
+
+local function isEggReadyToHatch(eggObj)
+    if not eggObj or not eggObj.Parent then return false end
+    if eggObj:GetAttribute("READY") == true then return true end
+    local timeToHatch = tonumber(eggObj:GetAttribute("TimeToHatch"))
+    if timeToHatch and timeToHatch <= Workspace:GetServerTimeNow() then
+        return true
+    end
+    local prompt = eggObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt and prompt.Enabled then return true end
+    return false
+end
+
+local function hatchSingleEgg(eggObj)
+    if not eggObj or not eggObj.Parent then return end
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local petEggService = ge and ge:FindFirstChild("PetEggService")
+    local eggReadyRE = ge and ge:FindFirstChild("EggReadyToHatch_RE")
+    local uuid = eggObj:GetAttribute("OBJECT_UUID") or eggObj:GetAttribute("UUID")
+
+    -- 1. Fire Remote Events
+    pcall(function()
+        if petEggService then
+            petEggService:FireServer("HatchPet", eggObj)
+            if uuid then petEggService:FireServer("HatchPet", uuid) end
+            petEggService:FireServer("Hatch", eggObj)
+            petEggService:FireServer(eggObj)
+        end
+    end)
+
+    pcall(function()
+        if eggReadyRE then
+            eggReadyRE:FireServer(eggObj)
+            if uuid then eggReadyRE:FireServer(uuid) end
+        end
+    end)
+
+    -- 2. Trigger ProximityPrompt if present
+    pcall(function()
+        local prompt = eggObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then
+            if fireproximityprompt then
+                fireproximityprompt(prompt)
+            elseif getconnections then
+                for _, conn in ipairs(getconnections(prompt.Triggered)) do
+                    if conn.Fire then conn:Fire(LocalPlayer) end
+                end
+            end
+        end
+    end)
+
+    -- 3. Trigger PetEggRenderer
+    pcall(function()
+        local rep = ReplicatedStorage:FindFirstChild("Modules")
+        local ps = rep and rep:FindFirstChild("PetServices")
+        local eggRenderer = ps and ps:FindFirstChild("PetEggRenderer")
+        if eggRenderer then
+            local rMod = require(eggRenderer)
+            if rMod and rMod.ActivateEgg then
+                rMod.ActivateEgg(eggObj)
+            end
+        end
+    end)
+end
+
+local function hatchAllReadyEggsNow()
+    local placed = getPlacedEggsInGarden()
+    for _, egg in ipairs(placed) do
+        if isEggReadyToHatch(egg) then
+            hatchSingleEgg(egg)
+        end
+    end
+end
+
+-- =========================================================================
+-- Pet Egg Placement & Hatching Background Loops
+-- =========================================================================
+
+-- 1. Auto Place Eggs Loop
+task.spawn(function()
+    while true do
+        local ok, err = pcall(function()
+            local autoPlace = isToggleActive(autoPlaceEggsToggle, State.AutoPlaceEggs, "🥚 Auto Place Eggs")
+            if not autoPlace then
+                task.wait(0.2)
+                return
+            end
+
+            local onlyNoEgg = isToggleActive(placeOnlyWhenNoEggToggle, State.PlaceOnlyWhenNoEgg)
+            local placedEggs = getPlacedEggsInGarden()
+            local currentPlacedCount = #placedEggs
+
+            if onlyNoEgg and currentPlacedCount > 0 then
+                task.wait(0.25)
+                return
+            end
+
+            local maxGarden = tonumber(State.PlaceEgg_MaxGarden) or 15
+            if currentPlacedCount >= maxGarden then
+                task.wait(0.3)
+                return
+            end
+
+            local selectedEgg = getUIListVal(placeEggListObj, State.PlaceEgg_Selected or "All Eggs")
+            local eggTool = findEggToolInBackpack(selectedEgg)
+            if not eggTool then
+                task.wait(0.4)
+                return
+            end
+
+            local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
+            local targetPos
+            if posMode == "Player Position" then
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                else
+                    targetPos = getNextEggRowPosition()
+                end
+            else
+                targetPos = getNextEggRowPosition()
+            end
+
+            placeEggAt(targetPos, eggTool)
+
+            local delay = math.clamp(tonumber(State.PlaceEgg_Delay) or 0.1, 0.02, 2.0)
+            task.wait(delay)
+        end)
+
+        if not ok and err then
+            task.wait(0.3)
+        end
+    end
+end)
+
+-- 2. Auto Hatch Eggs Loop
+task.spawn(function()
+    while true do
+        local ok, err = pcall(function()
+            local autoHatch = isToggleActive(autoHatchEggsToggle, State.AutoHatchEggs, "🐣 Auto Hatch Eggs")
+            if not autoHatch then
+                task.wait(0.2)
+                return
+            end
+
+            local placedEggs = getPlacedEggsInGarden()
+            if #placedEggs == 0 then
+                task.wait(0.25)
+                return
+            end
+
+            local waitAll = isToggleActive(waitAllEggsReadyToggle, State.WaitAllEggsReady)
+            if waitAll then
+                local allReady = true
+                for _, egg in ipairs(placedEggs) do
+                    if not isEggReadyToHatch(egg) then
+                        allReady = false
+                        break
+                    end
+                end
+                if not allReady then
+                    task.wait(0.2)
+                    return
+                end
+            end
+
+            local selectedHatchEgg = getUIListVal(hatchEggListObj, State.HatchEgg_Selected or "All Eggs")
+            local cleanTargetEgg = tostring(selectedHatchEgg):lower():gsub("[%s%p]", "")
+            local isAllEggs = (cleanTargetEgg == "alleggs" or cleanTargetEgg == "all" or cleanTargetEgg == "" or cleanTargetEgg == "none")
+
+            local excludedPetsList = getUIListMultipleVals(hatchExcludePetListObj, nil)
+            local excludedPetsMap = {}
+            for _, petName in ipairs(excludedPetsList) do
+                local cName = tostring(petName):lower():gsub("[%s%p]", "")
+                if cName ~= "" and cName ~= "none" then
+                    excludedPetsMap[cName] = true
+                end
+            end
+
+            for _, egg in ipairs(placedEggs) do
+                if isEggReadyToHatch(egg) then
+                    local eggName = egg:GetAttribute("EggName") or egg.Name
+                    local cleanEggName = tostring(eggName):lower():gsub("[%s%p]", "")
+                    local matchesEgg = isAllEggs or cleanEggName:find(cleanTargetEgg, 1, true) or cleanTargetEgg:find(cleanEggName, 1, true)
+
+                    if matchesEgg then
+                        hatchSingleEgg(egg)
+                    end
+                end
+            end
+
+            local checkDelay = math.clamp(tonumber(State.Hatch_CheckDelay) or 0.1, 0.05, 1.0)
+            task.wait(checkDelay)
+        end)
+
+        if not ok and err then
+            task.wait(0.25)
+        end
+    end
+end)
+
+-- =========================================================================
 -- Visual Optimization Engine (Hide Plants & Hide Fruits)
 -- =========================================================================
 local function updateFruitVisibility()
@@ -1831,6 +2445,162 @@ task.spawn(function()
     end
 end)
 
+-- =========================================================================
+-- Infinite Sprinkler Engine (Shovels Placed Sprinklers for Glitch & Desync)
+-- =========================================================================
+local lastSprinklerShovelMap = {}
+
+local function getAllPlacedSprinklers()
+    local candidates = {}
+    local seen = {}
+
+    local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+    for _, farm in ipairs(farmFolder:GetChildren()) do
+        local imp = farm:FindFirstChild("Important")
+        if imp then
+            for _, folderName in ipairs({"Objects_Physical", "Plants_Physical", "Cosmetic_Physical"}) do
+                local folder = imp:FindFirstChild(folderName)
+                if folder then
+                    for _, obj in ipairs(folder:GetChildren()) do
+                        if obj.Name:lower():find("sprinkler") and not seen[obj] then
+                            seen[obj] = true
+                            table.insert(candidates, obj)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local spFolder = Workspace:FindFirstChild("Sprinklers")
+    if spFolder then
+        for _, obj in ipairs(spFolder:GetChildren()) do
+            if obj.Name:lower():find("sprinkler") and not seen[obj] then
+                seen[obj] = true
+                table.insert(candidates, obj)
+            end
+        end
+    end
+
+    for _, desc in ipairs(Workspace:GetChildren()) do
+        if desc.Name:lower():find("sprinkler") and (desc:IsA("Model") or desc:IsA("BasePart")) and not seen[desc] then
+            seen[desc] = true
+            table.insert(candidates, desc)
+        end
+    end
+
+    return candidates
+end
+
+local function shovelSingleSprinkler(sp)
+    if not sp or not sp.Parent then return end
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local deleteRemote = ge and ge:FindFirstChild("DeleteObject")
+        local deleteItemRemote = ge and ge:FindFirstChild("Remove_Item")
+        local sprinklerService = ge and ge:FindFirstChild("SprinklerService")
+        local uuid = sp:GetAttribute("OBJECT_UUID")
+
+        if deleteRemote then
+            deleteRemote:FireServer(sp)
+            if uuid then
+                deleteRemote:FireServer(uuid)
+                deleteRemote:FireServer(tostring(sp.Name), uuid)
+            end
+        end
+        if deleteItemRemote then
+            deleteItemRemote:FireServer(sp)
+            if uuid then deleteItemRemote:FireServer(uuid) end
+        end
+        if sprinklerService then
+            sprinklerService:FireServer("Remove", sp)
+            sprinklerService:FireServer("Delete", sp)
+            sprinklerService:FireServer("Destroy", sp)
+            sprinklerService:FireServer(sp)
+            if uuid then
+                sprinklerService:FireServer("Remove", uuid)
+                sprinklerService:FireServer("Delete", uuid)
+            end
+        end
+
+        for _, desc in ipairs(sp:GetDescendants()) do
+            if desc:IsA("BasePart") then
+                desc.LocalTransparencyModifier = 1
+                desc.CanCollide = false
+            elseif desc:IsA("ParticleEmitter") or desc:IsA("BillboardGui") or desc:IsA("SurfaceGui") or desc:IsA("Highlight") then
+                desc.Enabled = false
+            end
+        end
+    end)
+end
+
+local function applyInfiniteSprinklerShovel()
+    pcall(function()
+        if not State.InfiniteSprinkler then return end
+        local selectedList = getUIListMultipleVals(selectSprinklerListObj, "All Sprinklers")
+        local isAll = false
+        local allowedMap = {}
+
+        for _, item in ipairs(selectedList) do
+            local clean = tostring(item):lower():gsub("[%s%p]", "")
+            if clean == "allsprinklers" or clean == "all" or clean == "" or clean == "none" then
+                isAll = true
+            else
+                allowedMap[clean] = true
+            end
+        end
+
+        local placed = getAllPlacedSprinklers()
+        local now = tick()
+
+        for _, sp in ipairs(placed) do
+            if sp and sp.Parent then
+                local spName = sp.Name
+                local cleanName = spName:lower():gsub("[%s%p]", "")
+                local matches = isAll or allowedMap[cleanName]
+
+                if not matches and not isAll then
+                    for selKey, _ in pairs(allowedMap) do
+                        if cleanName:find(selKey, 1, true) or selKey:find(cleanName, 1, true) then
+                            matches = true
+                            break
+                        end
+                    end
+                end
+
+                if matches then
+                    local lastTime = lastSprinklerShovelMap[sp] or 0
+                    if (now - lastTime) >= 0.1 then
+                        lastSprinklerShovelMap[sp] = now
+                        shovelSingleSprinkler(sp)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function shovelActiveSprinklers()
+    pcall(function()
+        local placed = getAllPlacedSprinklers()
+        for _, sp in ipairs(placed) do
+            shovelSingleSprinkler(sp)
+        end
+    end)
+end
+
+-- Continuous Infinite Sprinkler background loop
+task.spawn(function()
+    while true do
+        if State.InfiniteSprinkler then
+            pcall(applyInfiniteSprinklerShovel)
+            task.wait(0.08)
+        else
+            task.wait(0.3)
+        end
+    end
+end)
+
 -- Forward declare Shop UI elements for Auto-Buy Engine
 local autoBuySelectedEggToggle, autoBuyAllEggsToggle, selectEggListObj
 local autoBuySelectedGearToggle, autoBuyAllGearsToggle, selectGearListObj
@@ -1859,102 +2629,319 @@ local function getItemFromCatalog(catalog, selectedDisplayName)
     return catalog[1]
 end
 
+local function purchaseSingleShopItem(shopType, item)
+    if not item then return end
+    local name = item.ItemName or item.Name
+    local rawKey = item.RawKey or name
+
+    -- 1. Direct Remote Invocations with Verified Signatures
+    pcall(function()
+        if shopType == "Seed" then
+            if BuySeedStockRemote then
+                BuySeedStockRemote:FireServer("Shop", rawKey)
+                BuySeedStockRemote:FireServer("Shop", name)
+                BuySeedStockRemote:FireServer(rawKey)
+            end
+            if BuyDailySeedShopStockRemote then
+                BuyDailySeedShopStockRemote:FireServer("Shop", rawKey)
+            end
+        elseif shopType == "Gear" then
+            if BuyGearStockRemote then
+                BuyGearStockRemote:FireServer(name)
+                BuyGearStockRemote:FireServer("Shop", name)
+            end
+        elseif shopType == "Egg" then
+            if BuyPetEggRemote then
+                BuyPetEggRemote:FireServer(name)
+                BuyPetEggRemote:FireServer("Shop", name)
+            end
+        elseif shopType == "Cosmetic" then
+            if item.Type == "Crate" and BuyCosmeticCrateRemote then
+                BuyCosmeticCrateRemote:FireServer(name, "Cosmetics")
+                BuyCosmeticCrateRemote:FireServer(name)
+            elseif BuyCosmeticItemRemote then
+                BuyCosmeticItemRemote:FireServer(name, "Cosmetics")
+                BuyCosmeticItemRemote:FireServer(name)
+            end
+        end
+    end)
+
+    -- 2. Fallback: Trigger matching GUI button activation in PlayerGui
+    pcall(function()
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pGui then return end
+
+        local targetGuiName = (shopType == "Seed" and "Seed_Shop")
+            or (shopType == "Gear" and "Gear_Shop")
+            or (shopType == "Egg" and "PetShop_UI")
+            or (shopType == "Cosmetic" and "CosmeticShop_UI")
+
+        local shopGui = targetGuiName and pGui:FindFirstChild(targetGuiName)
+        if shopGui then
+            local cleanTarget = tostring(name):lower():gsub("[%s%p]", "")
+            for _, desc in ipairs(shopGui:GetDescendants()) do
+                if desc:IsA("GuiObject") then
+                    local dName = desc.Name:lower():gsub("[%s%p]", "")
+                    if dName == cleanTarget or dName:find(cleanTarget, 1, true) or cleanTarget:find(dName, 1, true) then
+                        local buyBtn = desc:FindFirstChild("Sheckles_Buy", true) or desc:FindFirstChild("CashBuy", true)
+                        if buyBtn then
+                            if getconnections then
+                                for _, conn in ipairs(getconnections(buyBtn.Activated)) do
+                                    if conn.Fire then conn:Fire() end
+                                end
+                                for _, conn in ipairs(getconnections(buyBtn.MouseButton1Click)) do
+                                    if conn.Fire then conn:Fire() end
+                                end
+                            end
+                            if firesignal then
+                                firesignal(buyBtn.Activated)
+                                firesignal(buyBtn.MouseButton1Click)
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
 local function executeInstantShopPurchases()
     pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        local ds = dsMod and require(dsMod)
+        local data = ds and ds:GetData()
         local currentSheckles = getPlayerSheckles()
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
 
         -- 1. Egg Shop
-        local buySelEgg = isToggleActive(autoBuySelectedEggToggle, State.AutoBuy_SelectedEgg, "Auto Buy Selected (Egg)")
-        local buyAllEgg = isToggleActive(autoBuyAllEggsToggle, State.AutoBuy_AllEggs, "Auto Buy ALL (Eggs)")
-
-        if (buySelEgg or buyAllEgg) and BuyPetEggRemote then
+        local buySelEgg = State.AutoBuy_SelectedEgg
+        local buyAllEgg = State.AutoBuy_AllEggs
+        if buySelEgg or buyAllEgg then
             if buyAllEgg then
-                for _, item in ipairs(allAvailableEggs) do
-                    if currentSheckles >= item.Price then
-                        pcall(function() BuyPetEggRemote:FireServer(item.ItemName) end)
-                        currentSheckles = currentSheckles - item.Price
+                if data and data.PetEggStock and data.PetEggStock.Stocks then
+                    for _, info in pairs(data.PetEggStock.Stocks) do
+                        local eggName = info.EggName or info.Name
+                        local stock = tonumber(info.Stock) or 0
+                        if eggName and stock > 0 then
+                            if BuyPetEggRemote then
+                                BuyPetEggRemote:FireServer(tostring(eggName))
+                            end
+                            pcall(function()
+                                local pShop = pGui and pGui:FindFirstChild("PetShop_UI")
+                                local eggFrame = pShop and pShop.Frame.ScrollingFrame:FindFirstChild(tostring(eggName))
+                                local btn = eggFrame and eggFrame:FindFirstChild("Sheckles_Buy", true)
+                                if btn and getconnections then
+                                    for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                end
+                            end)
+                        end
                     end
                 end
             elseif buySelEgg then
                 local selVal = tostring(getUIListVal(selectEggListObj, (allAvailableEggs[1] and allAvailableEggs[1].Name) or "None"))
-                local item = getItemFromCatalog(allAvailableEggs, selVal)
-                if item and currentSheckles >= item.Price then
-                    pcall(function() BuyPetEggRemote:FireServer(item.ItemName) end)
-                    currentSheckles = currentSheckles - item.Price
+                local cleanName = selVal:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if cleanName ~= "" and cleanName ~= "None" then
+                    if BuyPetEggRemote then
+                        BuyPetEggRemote:FireServer(cleanName)
+                    end
+                    pcall(function()
+                        local pShop = pGui and pGui:FindFirstChild("PetShop_UI")
+                        local eggFrame = pShop and pShop.Frame.ScrollingFrame:FindFirstChild(cleanName)
+                        local btn = eggFrame and eggFrame:FindFirstChild("Sheckles_Buy", true)
+                        if btn and getconnections then
+                            for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                        end
+                    end)
                 end
             end
         end
 
         -- 2. Gear Shop
-        local buySelGear = isToggleActive(autoBuySelectedGearToggle, State.AutoBuy_SelectedGear, "Auto Buy Selected (Gear)")
-        local buyAllGear = isToggleActive(autoBuyAllGearsToggle, State.AutoBuy_AllGears, "Auto Buy ALL (Gear)")
-
-        if (buySelGear or buyAllGear) and BuyGearStockRemote then
+        local buySelGear = State.AutoBuy_SelectedGear
+        local buyAllGear = State.AutoBuy_AllGears
+        if buySelGear or buyAllGear then
             if buyAllGear then
-                for _, item in ipairs(allAvailableGears) do
-                    if currentSheckles >= item.Price then
-                        pcall(function() BuyGearStockRemote:FireServer(item.ItemName) end)
-                        currentSheckles = currentSheckles - item.Price
+                if data and data.GearStock and data.GearStock.Stocks then
+                    for gearName, info in pairs(data.GearStock.Stocks) do
+                        local stock = tonumber(info.Stock) or 0
+                        if stock > 0 then
+                            if BuyGearStockRemote then
+                                BuyGearStockRemote:FireServer(tostring(gearName))
+                            end
+                            pcall(function()
+                                local gShop = pGui and pGui:FindFirstChild("Gear_Shop")
+                                local gFrame = gShop and gShop.Frame.ScrollingFrame:FindFirstChild(tostring(gearName))
+                                local btn = gFrame and gFrame:FindFirstChild("Sheckles_Buy", true)
+                                if btn and getconnections then
+                                    for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                end
+                            end)
+                        end
                     end
                 end
             elseif buySelGear then
                 local selVal = tostring(getUIListVal(selectGearListObj, (allAvailableGears[1] and allAvailableGears[1].Name) or "None"))
-                local item = getItemFromCatalog(allAvailableGears, selVal)
-                if item and currentSheckles >= item.Price then
-                    pcall(function() BuyGearStockRemote:FireServer(item.ItemName) end)
-                    currentSheckles = currentSheckles - item.Price
+                local cleanName = selVal:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if cleanName ~= "" and cleanName ~= "None" then
+                    if BuyGearStockRemote then
+                        BuyGearStockRemote:FireServer(cleanName)
+                    end
+                    pcall(function()
+                        local gShop = pGui and pGui:FindFirstChild("Gear_Shop")
+                        local gFrame = gShop and gShop.Frame.ScrollingFrame:FindFirstChild(cleanName)
+                        local btn = gFrame and gFrame:FindFirstChild("Sheckles_Buy", true)
+                        if btn and getconnections then
+                            for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                        end
+                    end)
                 end
             end
         end
 
         -- 3. Seed Shop
-        local buySelSeed = isToggleActive(autoBuySelectedSeedToggle, State.AutoBuy_SelectedSeed, "Auto Buy Selected (Seeds)")
-        local buyAllSeed = isToggleActive(autoBuyAllSeedsToggle, State.AutoBuy_AllSeeds, "Auto Buy ALL (Seeds)")
-
-        if (buySelSeed or buyAllSeed) and BuySeedStockRemote then
+        local buySelSeed = State.AutoBuy_SelectedSeed
+        local buyAllSeed = State.AutoBuy_AllSeeds
+        if buySelSeed or buyAllSeed then
             if buyAllSeed then
-                for _, item in ipairs(allAvailableSeedShop) do
-                    if currentSheckles >= item.Price then
-                        pcall(function() BuySeedStockRemote:FireServer(item.RawKey or item.ItemName) end)
-                        currentSheckles = currentSheckles - item.Price
+                if data and data.SeedStocks then
+                    if data.SeedStocks.Shop and data.SeedStocks.Shop.Stocks then
+                        for seedName, info in pairs(data.SeedStocks.Shop.Stocks) do
+                            local stock = tonumber(info.Stock) or 0
+                            if stock > 0 then
+                                if BuySeedStockRemote then
+                                    BuySeedStockRemote:FireServer("Shop", tostring(seedName))
+                                end
+                                pcall(function()
+                                    local sShop = pGui and pGui:FindFirstChild("Seed_Shop")
+                                    local sFrame = sShop and sShop.Frame.ScrollingFrame:FindFirstChild(tostring(seedName))
+                                    local btn = sFrame and sFrame:FindFirstChild("Sheckles_Buy", true)
+                                    if btn and getconnections then
+                                        for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                    end
+                                end)
+                            end
+                        end
+                    end
+                    if data.SeedStocks["Daily Deals"] and data.SeedStocks["Daily Deals"].Stocks then
+                        for seedName, info in pairs(data.SeedStocks["Daily Deals"].Stocks) do
+                            local stock = tonumber(info.Stock) or 0
+                            if stock > 0 then
+                                if BuySeedStockRemote then
+                                    BuySeedStockRemote:FireServer("Shop", tostring(seedName))
+                                end
+                                if BuyDailySeedShopStockRemote then
+                                    BuyDailySeedShopStockRemote:FireServer("Shop", tostring(seedName))
+                                end
+                                pcall(function()
+                                    local sShop = pGui and pGui:FindFirstChild("Seed_Shop")
+                                    local sFrame = sShop and sShop.Frame.ScrollingFrame:FindFirstChild(tostring(seedName))
+                                    local btn = sFrame and sFrame:FindFirstChild("Sheckles_Buy", true)
+                                    if btn and getconnections then
+                                        for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                    end
+                                end)
+                            end
+                        end
                     end
                 end
             elseif buySelSeed then
                 local selVal = tostring(getUIListVal(selectSeedShopListObj, (allAvailableSeedShop[1] and allAvailableSeedShop[1].Name) or "None"))
-                local item = getItemFromCatalog(allAvailableSeedShop, selVal)
-                if item and currentSheckles >= item.Price then
-                    pcall(function() BuySeedStockRemote:FireServer(item.RawKey or item.ItemName) end)
-                    currentSheckles = currentSheckles - item.Price
+                local cleanName = selVal:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if cleanName ~= "" and cleanName ~= "None" then
+                    if BuySeedStockRemote then
+                        BuySeedStockRemote:FireServer("Shop", cleanName)
+                    end
+                    if BuyDailySeedShopStockRemote then
+                        BuyDailySeedShopStockRemote:FireServer("Shop", cleanName)
+                    end
+                    pcall(function()
+                        local sShop = pGui and pGui:FindFirstChild("Seed_Shop")
+                        local sFrame = sShop and sShop.Frame.ScrollingFrame:FindFirstChild(cleanName)
+                        local btn = sFrame and sFrame:FindFirstChild("Sheckles_Buy", true)
+                        if btn and getconnections then
+                            for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                        end
+                    end)
                 end
             end
         end
 
         -- 4. Cosmetics Shop
-        local buySelCosmetic = isToggleActive(autoBuySelectedCosmeticToggle, State.AutoBuy_SelectedCosmetic, "Auto Buy Selected (Cosmetics)")
-        local buyAllCosmetic = isToggleActive(autoBuyAllCosmeticsToggle, State.AutoBuy_AllCosmetics, "Auto Buy ALL (Cosmetics)")
-
-        if (buySelCosmetic or buyAllCosmetic) then
+        local buySelCosmetic = State.AutoBuy_SelectedCosmetic
+        local buyAllCosmetic = State.AutoBuy_AllCosmetics
+        if buySelCosmetic or buyAllCosmetic then
             if buyAllCosmetic then
-                for _, item in ipairs(allAvailableCosmetics) do
-                    if currentSheckles >= item.Price then
-                        if item.Type == "Crate" and BuyCosmeticCrateRemote then
-                            pcall(function() BuyCosmeticCrateRemote:FireServer(item.ItemName) end)
-                        elseif BuyCosmeticItemRemote then
-                            pcall(function() BuyCosmeticItemRemote:FireServer(item.ItemName) end)
+                if data and data.CosmeticStock and data.CosmeticStock.TabStocks then
+                    local cTab = data.CosmeticStock.TabStocks.Cosmetics
+                    if cTab then
+                        if cTab.ItemStocks and BuyCosmeticItemRemote then
+                            for itemName, info in pairs(cTab.ItemStocks) do
+                                local stock = tonumber(info.Stock) or 0
+                                if stock > 0 then
+                                    BuyCosmeticItemRemote:FireServer(tostring(itemName), "Cosmetics")
+                                    pcall(function()
+                                        local cShop = pGui and pGui:FindFirstChild("CosmeticShop_UI")
+                                        if cShop then
+                                            for _, desc in ipairs(cShop:GetDescendants()) do
+                                                if desc:IsA("GuiObject") and desc.Name == tostring(itemName) then
+                                                    local btn = desc:FindFirstChild("CashBuy", true)
+                                                    if btn and getconnections then
+                                                        for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end)
+                                end
+                            end
                         end
-                        currentSheckles = currentSheckles - item.Price
+                        if cTab.CrateStocks and BuyCosmeticCrateRemote then
+                            for crateName, info in pairs(cTab.CrateStocks) do
+                                local stock = tonumber(info.Stock) or 0
+                                if stock > 0 then
+                                    BuyCosmeticCrateRemote:FireServer(tostring(crateName), "Cosmetics")
+                                    pcall(function()
+                                        local cShop = pGui and pGui:FindFirstChild("CosmeticShop_UI")
+                                        if cShop then
+                                            for _, desc in ipairs(cShop:GetDescendants()) do
+                                                if desc:IsA("GuiObject") and desc.Name == tostring(crateName) then
+                                                    local btn = desc:FindFirstChild("CashBuy", true)
+                                                    if btn and getconnections then
+                                                        for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end)
+                                end
+                            end
+                        end
                     end
                 end
             elseif buySelCosmetic then
                 local selVal = tostring(getUIListVal(selectCosmeticListObj, (allAvailableCosmetics[1] and allAvailableCosmetics[1].Name) or "None"))
-                local item = getItemFromCatalog(allAvailableCosmetics, selVal)
-                if item and currentSheckles >= item.Price then
-                    if item.Type == "Crate" and BuyCosmeticCrateRemote then
-                        pcall(function() BuyCosmeticCrateRemote:FireServer(item.ItemName) end)
+                local cleanName = selVal:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if cleanName ~= "" and cleanName ~= "None" then
+                    local isCrate = cleanName:lower():find("crate")
+                    if isCrate and BuyCosmeticCrateRemote then
+                        BuyCosmeticCrateRemote:FireServer(cleanName, "Cosmetics")
                     elseif BuyCosmeticItemRemote then
-                        pcall(function() BuyCosmeticItemRemote:FireServer(item.ItemName) end)
+                        BuyCosmeticItemRemote:FireServer(cleanName, "Cosmetics")
                     end
-                    currentSheckles = currentSheckles - item.Price
+                    pcall(function()
+                        local cShop = pGui and pGui:FindFirstChild("CosmeticShop_UI")
+                        if cShop then
+                            for _, desc in ipairs(cShop:GetDescendants()) do
+                                if desc:IsA("GuiObject") and desc.Name == cleanName then
+                                    local btn = desc:FindFirstChild("CashBuy", true)
+                                    if btn and getconnections then
+                                        for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                    end
+                                end
+                            end
+                        end
+                    end)
                 end
             end
         end
@@ -2014,6 +3001,9 @@ for _, item in ipairs(allAvailableSeedShop) do table.insert(seedShopListItems, {
 
 local cosmeticListItems = {}
 for _, item in ipairs(allAvailableCosmetics) do table.insert(cosmeticListItems, {Name = item.Name}) end
+
+local sprinklerListItems = {}
+for _, item in ipairs(allAvailableSprinklers) do table.insert(sprinklerListItems, {Name = item.Name}) end
 
 local farmTab = Hub.createTabButton("Farm", "🌱 Auto Farm", "rbxassetid://10723407389", true)
 local petTab = Hub.createTabButton("Pets", "🐾 Pets", "rbxassetid://10723407389", false)
@@ -2471,19 +3461,19 @@ end)
 -- ==========================================
 Hub.CreateSection(farmTab, "📦 Collection")
 
-autoCollectAllToggle = Hub.CreateToggle(farmTab, "⚡ Auto Collect ALL", "", false, function(v)
+autoCollectAllToggle = Hub.CreateToggle(farmTab, "⚡ Auto Collect ALL", false, function(v)
     if type(v) == "boolean" then State.AutoCollectAll = v else State.AutoCollectAll = not State.AutoCollectAll end
 end)
 
-instantCollectAllToggle = Hub.CreateToggle(farmTab, "⚡ Instant Collect ALL", "", false, function(v)
+instantCollectAllToggle = Hub.CreateToggle(farmTab, "⚡ Instant Collect ALL", false, function(v)
     if type(v) == "boolean" then State.InstantCollectAll = v else State.InstantCollectAll = not State.InstantCollectAll end
 end)
 
-autoCollectFilteredToggle = Hub.CreateToggle(farmTab, "🌱 Auto Collect (Filtered)", "", false, function(v)
+autoCollectFilteredToggle = Hub.CreateToggle(farmTab, "🌱 Auto Collect (Filtered)", false, function(v)
     if type(v) == "boolean" then State.AutoCollectFiltered = v else State.AutoCollectFiltered = not State.AutoCollectFiltered end
 end)
 
-collectStopWhenFullToggle = Hub.CreateToggle(farmTab, "Stop When Backpack Full", "", false, function(v)
+collectStopWhenFullToggle = Hub.CreateToggle(farmTab, "Stop When Backpack Full", false, function(v)
     if type(v) == "boolean" then State.Collect_StopWhenFull = v else State.Collect_StopWhenFull = not State.Collect_StopWhenFull end
 end)
 
@@ -2507,11 +3497,11 @@ end)
 -- ==========================================
 Hub.CreateSection(farmTab, "🌱 Auto Plant")
 
-autoPlantToggle = Hub.CreateToggle(farmTab, "🌱 Auto Plant", "", false, function(v)
+autoPlantToggle = Hub.CreateToggle(farmTab, "🌱 Auto Plant", false, function(v)
     if type(v) == "boolean" then State.AutoPlant = v else State.AutoPlant = not State.AutoPlant end
 end)
 
-plantInOtherPlantsToggle = Hub.CreateToggle(farmTab, "🌱 Plant In Other Plants", "", false, function(v)
+plantInOtherPlantsToggle = Hub.CreateToggle(farmTab, "🌱 Plant In Other Plants", false, function(v)
     if type(v) == "boolean" then State.PlantInOtherPlants = v else State.PlantInOtherPlants = not State.PlantInOtherPlants end
 end)
 
@@ -2539,11 +3529,11 @@ end)
 -- ==========================================
 Hub.CreateSection(farmTab, "💰 Sell Crops")
 
-autoSellCropsToggle = Hub.CreateToggle(farmTab, "💰 Auto Sell (Crops)", "", false, function(v)
+autoSellCropsToggle = Hub.CreateToggle(farmTab, "💰 Auto Sell (Crops)", false, function(v)
     if type(v) == "boolean" then State.AutoSellCrops = v else State.AutoSellCrops = not State.AutoSellCrops end
 end)
 
-sellWaitMaxToggle = Hub.CreateToggle(farmTab, "Wait Until Max Backpack", "", false, function(v)
+sellWaitMaxToggle = Hub.CreateToggle(farmTab, "Wait Until Max Backpack", false, function(v)
     if type(v) == "boolean" then State.Sell_WaitMaxBackpack = v else State.Sell_WaitMaxBackpack = not State.Sell_WaitMaxBackpack end
 end)
 
@@ -2565,9 +3555,69 @@ end)
 -- ==========================================
 -- Section: Pets Tab
 -- ==========================================
+
+-- 1. 🥚 Auto Place Eggs
+Hub.CreateSection(petTab, "🥚 Auto Place Eggs")
+
+autoPlaceEggsToggle = Hub.CreateToggle(petTab, "🥚 Auto Place Eggs", false, function(v)
+    if type(v) == "boolean" then State.AutoPlaceEggs = v else State.AutoPlaceEggs = not State.AutoPlaceEggs end
+end)
+
+placeOnlyWhenNoEggToggle = Hub.CreateToggle(petTab, "Place Only When No Egg at Garden", false, function(v)
+    if type(v) == "boolean" then State.PlaceOnlyWhenNoEgg = v else State.PlaceOnlyWhenNoEgg = not State.PlaceOnlyWhenNoEgg end
+end)
+
+placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, true)
+
+placeEggPositionModeListObj = Hub.CreateList(petTab, "Place Position Mode", {
+    {Name = "Row Position"},
+    {Name = "Player Position"}
+}, 150, true)
+
+Hub.CreateTextBox(petTab, "Place Delay (0.02 - 2.0s)", "Enter placement delay (default: 0.1)", function(text)
+    local num = tonumber(text)
+    if num then State.PlaceEgg_Delay = math.clamp(num, 0.02, 2.0) end
+end)
+
+Hub.CreateTextBox(petTab, "Max Garden Eggs (1 - 50)", "Enter max garden eggs (default: 15)", function(text)
+    local num = tonumber(text)
+    if num then State.PlaceEgg_MaxGarden = math.clamp(math.floor(num), 1, 50) end
+end)
+
+-- 2. 🐣 Auto Hatch Eggs
+Hub.CreateSection(petTab, "🐣 Auto Hatch Eggs")
+
+autoHatchEggsToggle = Hub.CreateToggle(petTab, "🐣 Auto Hatch Eggs", false, function(v)
+    if type(v) == "boolean" then State.AutoHatchEggs = v else State.AutoHatchEggs = not State.AutoHatchEggs end
+end)
+
+waitAllEggsReadyToggle = Hub.CreateToggle(petTab, "Wait Until All Eggs Ready", false, function(v)
+    if type(v) == "boolean" then State.WaitAllEggsReady = v else State.WaitAllEggsReady = not State.WaitAllEggsReady end
+end)
+
+hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, true)
+
+hatchExcludePetListObj = Hub.CreateList(petTab, "Exclude Pet if in Egg", petListItems, 220, true, true)
+
+hatchExcludeWeightModeListObj = Hub.CreateList(petTab, "Hatch: Exclude Weight Mode", {
+    {Name = "None"},
+    {Name = "Above"},
+    {Name = "Lower"}
+}, 110, true)
+
+Hub.CreateTextBox(petTab, "Hatch: Exclude Weight (KG)", "Enter KG threshold (0 = none)", function(text)
+    local num = tonumber(text)
+    State.Hatch_ExcludeWeight = num or 0
+end)
+
+Hub.CreateButton(petTab, "🐣 Hatch All Ready Eggs Now", function()
+    pcall(hatchAllReadyEggsNow)
+end)
+
+-- 3. 🐾 Auto Sell Pets
 Hub.CreateSection(petTab, "🐾 Auto Sell Pets")
 
-autoSellPetsToggle = Hub.CreateToggle(petTab, "🐾 Auto Sell Pets", "", false, function(v)
+autoSellPetsToggle = Hub.CreateToggle(petTab, "🐾 Auto Sell Pets", false, function(v)
     if type(v) == "boolean" then State.AutoSellPets = v else State.AutoSellPets = not State.AutoSellPets end
 end)
 
@@ -2592,12 +3642,12 @@ end)
 -- 1. 🥚 Egg Shop
 Hub.CreateSection(shopTab, "🥚 Egg Shop")
 
-autoBuySelectedEggToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Egg)", "", false, function(v)
+autoBuySelectedEggToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Egg)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_SelectedEgg = v else State.AutoBuy_SelectedEgg = not State.AutoBuy_SelectedEgg end
     if State.AutoBuy_SelectedEgg then task.spawn(executeInstantShopPurchases) end
 end)
 
-autoBuyAllEggsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Eggs)", "", false, function(v)
+autoBuyAllEggsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Eggs)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_AllEggs = v else State.AutoBuy_AllEggs = not State.AutoBuy_AllEggs end
     if State.AutoBuy_AllEggs then task.spawn(executeInstantShopPurchases) end
 end)
@@ -2607,12 +3657,12 @@ selectEggListObj = Hub.CreateList(shopTab, "Select Egg", eggListItems, 220, true
 -- 2. ⚙️ Gear Shop
 Hub.CreateSection(shopTab, "⚙️ Gear Shop")
 
-autoBuySelectedGearToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Gear)", "", false, function(v)
+autoBuySelectedGearToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Gear)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_SelectedGear = v else State.AutoBuy_SelectedGear = not State.AutoBuy_SelectedGear end
     if State.AutoBuy_SelectedGear then task.spawn(executeInstantShopPurchases) end
 end)
 
-autoBuyAllGearsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Gear)", "", false, function(v)
+autoBuyAllGearsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Gear)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_AllGears = v else State.AutoBuy_AllGears = not State.AutoBuy_AllGears end
     if State.AutoBuy_AllGears then task.spawn(executeInstantShopPurchases) end
 end)
@@ -2622,12 +3672,12 @@ selectGearListObj = Hub.CreateList(shopTab, "Select Gear", gearListItems, 220, t
 -- 3. 🌱 Seed Shop
 Hub.CreateSection(shopTab, "🌱 Seed Shop")
 
-autoBuySelectedSeedToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Seeds)", "", false, function(v)
+autoBuySelectedSeedToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Seeds)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_SelectedSeed = v else State.AutoBuy_SelectedSeed = not State.AutoBuy_SelectedSeed end
     if State.AutoBuy_SelectedSeed then task.spawn(executeInstantShopPurchases) end
 end)
 
-autoBuyAllSeedsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Seeds)", "", false, function(v)
+autoBuyAllSeedsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Seeds)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_AllSeeds = v else State.AutoBuy_AllSeeds = not State.AutoBuy_AllSeeds end
     if State.AutoBuy_AllSeeds then task.spawn(executeInstantShopPurchases) end
 end)
@@ -2637,12 +3687,12 @@ selectSeedShopListObj = Hub.CreateList(shopTab, "Select Seed", seedShopListItems
 -- 4. 🎨 Cosmetics Shop
 Hub.CreateSection(shopTab, "🎨 Cosmetics Shop")
 
-autoBuySelectedCosmeticToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Cosmetics)", "", false, function(v)
+autoBuySelectedCosmeticToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Cosmetics)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_SelectedCosmetic = v else State.AutoBuy_SelectedCosmetic = not State.AutoBuy_SelectedCosmetic end
     if State.AutoBuy_SelectedCosmetic then task.spawn(executeInstantShopPurchases) end
 end)
 
-autoBuyAllCosmeticsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Cosmetics)", "", false, function(v)
+autoBuyAllCosmeticsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Cosmetics)", false, function(v)
     if type(v) == "boolean" then State.AutoBuy_AllCosmetics = v else State.AutoBuy_AllCosmetics = not State.AutoBuy_AllCosmetics end
     if State.AutoBuy_AllCosmetics then task.spawn(executeInstantShopPurchases) end
 end)
@@ -2662,14 +3712,32 @@ end)
 -- ==========================================
 Hub.CreateSection(miscTab, "🌿 Visual Optimization")
 
-hidePlantsToggle = Hub.CreateToggle(miscTab, "🌾 Hide Plants", "", false, function(v)
+hidePlantsToggle = Hub.CreateToggle(miscTab, "🌾 Hide Plants", false, function(v)
     if type(v) == "boolean" then State.HidePlants = v else State.HidePlants = not State.HidePlants end
     pcall(updatePlantVisibility)
 end)
 
-hideFruitsToggle = Hub.CreateToggle(miscTab, "🍎 Hide Fruits", "", false, function(v)
+hideFruitsToggle = Hub.CreateToggle(miscTab, "🍎 Hide Fruits", false, function(v)
     if type(v) == "boolean" then State.HideFruits = v else State.HideFruits = not State.HideFruits end
     pcall(updateFruitVisibility)
+end)
+
+-- ==========================================
+-- Section: Infinite Sprinkler
+-- ==========================================
+Hub.CreateSection(miscTab, "💧 Infinite Sprinkler")
+
+infiniteSprinklerToggle = Hub.CreateToggle(miscTab, "💧 Infinite Sprinkler", false, function(v)
+    if type(v) == "boolean" then State.InfiniteSprinkler = v else State.InfiniteSprinkler = not State.InfiniteSprinkler end
+    if State.InfiniteSprinkler then
+        task.spawn(applyInfiniteSprinklerShovel)
+    end
+end)
+
+selectSprinklerListObj = Hub.CreateList(miscTab, "Select Sprinkler to Shovel", sprinklerListItems, 220, true, true)
+
+Hub.CreateButton(miscTab, "🧹 Shovel Active Sprinklers Now", function()
+    pcall(shovelActiveSprinklers)
 end)
 
 -- ==========================================
