@@ -5369,7 +5369,7 @@ return function(opts)
         local parentTarget = parent
         local itemTitle = title or "List"
         local itemValues = items or {}
-        local itemExpanded = expanded ~= false
+        local itemExpanded = (expanded == true) 
         local multiSelect = selectionOptions == true or (type(selectionOptions) == "table" and (selectionOptions.MultiSelect == true or selectionOptions.multiSelect == true))
         local parentListObj = nil
         local isNestedList = false
@@ -5379,23 +5379,23 @@ return function(opts)
             isNestedList = true
             itemTitle = title or "Sub-List"
             itemValues = items or {}
-            itemExpanded = expanded ~= false
+            itemExpanded = (expanded == true)
         elseif type(parentTarget) == "table" then
             itemValues = parentTarget
             parentTarget = contentArea
             itemTitle = "List"
-            itemExpanded = items ~= false
+            itemExpanded = (items == true)
         elseif type(parentTarget) == "string" then
             if type(title) == "table" then
                 itemTitle = parentTarget
                 itemValues = title
                 parentTarget = contentArea
-                itemExpanded = height ~= false
+                itemExpanded = (height == true)
             else
                 itemTitle = parentTarget
                 parentTarget = title or contentArea
                 itemValues = items or {}
-                itemExpanded = expanded ~= false
+                itemExpanded = (expanded == true)
             end
         end
         if typeof(parentTarget) == "Instance" then
@@ -5407,21 +5407,17 @@ return function(opts)
             end)
         end
         local rawHeight = tonumber(height)
-        local maxAllowedHeight = rawHeight or (isNestedList and 240 or 380)
+        local maxAllowedHeight = rawHeight or (isNestedList and 260 or 400)
         if rawHeight then
             if rawHeight < 100 then
-                maxAllowedHeight = math.max(rawHeight + (isNestedList and 30 or 32) + 16, 120)
+                maxAllowedHeight = math.max(rawHeight + (isNestedList and 30 or 32) + 24, 130)
             else
-                maxAllowedHeight = rawHeight + (isNestedList and 30 or 32) + 16
+                maxAllowedHeight = rawHeight + (isNestedList and 30 or 32) + 24
             end
         end
         local selectionCallback = type(height) == "function" and height or nil
         local itemBuilder = type(items) == "function" and items or nil
         if itemBuilder then itemValues = {} end
-        if selectionCallback then
-            maxAllowedHeight = 320
-            itemExpanded = true
-        end
         if type(itemValues) ~= "table" then itemValues = {} end
         if not parentTarget then parentTarget = contentArea end
         local titleBtnHeight = isNestedList and 30 or 32
@@ -5459,8 +5455,42 @@ return function(opts)
         arrow.Rotation = itemExpanded and 0 or -90
         pcall(function() arrow.Parent = titleBtn end)
         hubState.registerThemeText(arrow)
+        local searchFrame = Instance.new("Frame")
+        searchFrame.Name = "ListSearchBoxFrame"
+        searchFrame.Size = UDim2.new(1, -8, 0, 26)
+        searchFrame.Position = UDim2.new(0, 4, 0, titleBtnHeight + 3)
+        searchFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+        searchFrame.BorderSizePixel = 0
+        searchFrame.Visible = false
+        searchFrame.ZIndex = 15
+        searchFrame.Parent = frame
+        applyCorner(searchFrame, 5)
+        local sfStroke = applyStroke(searchFrame, Color3.fromRGB(38, 48, 68), 1, 0)
+        local searchIcon = Instance.new("TextLabel")
+        searchIcon.Size = UDim2.new(0, 20, 1, 0)
+        searchIcon.Position = UDim2.new(0, 4, 0, 0)
+        searchIcon.BackgroundTransparency = 1
+        searchIcon.Text = "🔍"
+        searchIcon.TextSize = 10
+        searchIcon.TextColor3 = Color3.fromRGB(120, 135, 160)
+        searchIcon.ZIndex = 16
+        searchIcon.Parent = searchFrame
+        local listSearchInput = Instance.new("TextBox")
+        listSearchInput.Size = UDim2.new(1, -28, 1, 0)
+        listSearchInput.Position = UDim2.new(0, 24, 0, 0)
+        listSearchInput.BackgroundTransparency = 1
+        listSearchInput.ClearTextOnFocus = false
+        listSearchInput.Font = Enum.Font.GothamMedium
+        listSearchInput.PlaceholderText = "Search " .. tostring(itemTitle) .. "..."
+        listSearchInput.PlaceholderColor3 = Color3.fromRGB(110, 125, 150)
+        listSearchInput.Text = ""
+        listSearchInput.TextColor3 = Color3.fromRGB(235, 242, 252)
+        listSearchInput.TextSize = 11
+        listSearchInput.TextXAlignment = Enum.TextXAlignment.Left
+        listSearchInput.ZIndex = 16
+        listSearchInput.Parent = searchFrame
         local list = Instance.new("ScrollingFrame")
-        list.Position = UDim2.new(0, 4, 0, isNestedList and 32 or 34)
+        list.Position = UDim2.new(0, 4, 0, titleBtnHeight + 4)
         list.Size = UDim2.new(1, -8, 0, 0)
         list.BackgroundTransparency = 1
         list.ScrollBarThickness = 3
@@ -5470,6 +5500,12 @@ return function(opts)
         list.ClipsDescendants = true
         list.Visible = itemExpanded
         pcall(function() list.Parent = frame end)
+        local listPadding = Instance.new("UIPadding")
+        listPadding.PaddingTop = UDim.new(0, 2)
+        listPadding.PaddingBottom = UDim.new(0, 10)
+        listPadding.PaddingLeft = UDim.new(0, 1)
+        listPadding.PaddingRight = UDim.new(0, 3)
+        listPadding.Parent = list
         local layout = Instance.new("UIListLayout")
         layout.SortOrder = Enum.SortOrder.LayoutOrder
         layout.Padding = UDim.new(0, 5)
@@ -5493,36 +5529,43 @@ return function(opts)
             AddList = nil,
             CreateList = nil,
             BringSelected = nil,
+            Open = nil,
+            Close = nil
         }
         hubState.scrollingFrameToListMap[list] = listObject
-                local function calculateDesiredHeight()
+        local function getSearchOffset()
+            return (searchFrame and searchFrame.Visible) and 32 or 0
+        end
+        local function checkSearchVisibility()
+            local count = #listObject.Items
+            local shouldShow = count >= 10
+            searchFrame.Visible = shouldShow
+            local sOff = shouldShow and 32 or 0
+            list.Position = UDim2.new(0, 4, 0, titleBtnHeight + sOff + 4)
+        end
+        local function calculateDesiredHeight()
             local contentH = 0
-            local visibleCount = 0
             for _, child in ipairs(list:GetChildren()) do
                 if child:IsA("GuiObject") and child.Visible and not child:IsA("UIListLayout") and not child:IsA("UIPadding") and not child:IsA("UIGridLayout") then
-                    visibleCount = visibleCount + 1
                     local chH = child.Size.Y.Offset
                     if chH <= 0 and child.AbsoluteSize.Y > 0 then chH = child.AbsoluteSize.Y end
-                    if chH <= 0 then chH = 34 end
+                    if chH <= 0 then chH = 42 end
                     contentH = contentH + chH + (layout and layout.Padding.Offset or 5)
                 end
             end
             if layout and layout.AbsoluteContentSize.Y > contentH then
                 contentH = layout.AbsoluteContentSize.Y
             end
-            local grid = list:FindFirstChildOfClass("UIGridLayout")
-            if grid and grid.AbsoluteContentSize.Y > contentH then
-                contentH = grid.AbsoluteContentSize.Y
-            end
             if contentH <= 0 and #listObject.Items > 0 then
-                contentH = #listObject.Items * (36 + (layout and layout.Padding.Offset or 5))
+                contentH = #listObject.Items * (42 + (layout and layout.Padding.Offset or 5))
             end
             if contentH <= 0 then
-                contentH = 50
+                contentH = 48
             end
-            local extraPadding = isNestedList and 8 or 12
-            local totalH = titleBtnHeight + contentH + extraPadding
-            local minH = titleBtnHeight + 20
+            local sOff = getSearchOffset()
+            local extraPadding = isNestedList and 14 or 18
+            local totalH = titleBtnHeight + sOff + contentH + extraPadding
+            local minH = titleBtnHeight + sOff + 24
             local maxH = math.max(maxAllowedHeight, minH)
             return math.clamp(totalH, minH, maxH)
         end
@@ -5553,8 +5596,10 @@ return function(opts)
                 return
             end
             list.Visible = true
+            local sOff = getSearchOffset()
+            list.Position = UDim2.new(0, 4, 0, titleBtnHeight + sOff + 4)
             local targetH = calculateDesiredHeight()
-            local listTargetH = math.max(10, targetH - titleBtnHeight - (isNestedList and 6 or 8))
+            local listTargetH = math.max(10, targetH - titleBtnHeight - sOff - (isNestedList and 8 or 12))
             local targetSize = UDim2.new(1, -6, 0, targetH)
             local listSize = UDim2.new(1, -8, 0, listTargetH)
             if animate then
@@ -5612,6 +5657,44 @@ return function(opts)
         listObject.Items = {}
         listObject.SubLists = {}
         listObject.UpdateHeight = updateListHeight
+        local function filterListItems(query)
+            local cleanQ = query:match("^%s*(.-)%s*$"):lower()
+            for _, entryData in ipairs(listObject.Items) do
+                if entryData.Row then
+                    if cleanQ == "" then
+                        entryData.Row.Visible = true
+                    else
+                        local nameMatch = entryData.Name and tostring(entryData.Name):lower():find(cleanQ, 1, true)
+                        local descMatch = entryData.Desc and tostring(entryData.Desc):lower():find(cleanQ, 1, true)
+                        entryData.Row.Visible = (nameMatch or descMatch) and true or false
+                    end
+                end
+            end
+            updateListHeight(false)
+        end
+        listSearchInput:GetPropertyChangedSignal("Text"):Connect(function()
+            filterListItems(listSearchInput.Text)
+        end)
+        listSearchInput.Focused:Connect(function()
+            TweenService:Create(sfStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
+        end)
+        listSearchInput.FocusLost:Connect(function()
+            TweenService:Create(sfStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(38, 48, 68) }):Play()
+        end)
+        listObject.Open = function()
+            if not open then
+                open = true
+                TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = 0}):Play()
+                updateListHeight(true)
+            end
+        end
+        listObject.Close = function()
+            if open then
+                open = false
+                TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = -90}):Play()
+                updateListHeight(true)
+            end
+        end
         listObject.SetSelected = function(value)
             if listObject.MultiSelect then
                 local values = {}
@@ -5687,7 +5770,7 @@ return function(opts)
         hubState.configSetters["list:" .. tostring(itemTitle)] = function(value)
             if listObject.MultiSelect then
                 local values = {}
-                for name in string.gmatch(tostring(value), "[^\t]+") do
+                for name in string.gmatch(tostring(value), "[^	]+") do
                     table.insert(values, name)
                 end
                 listObject.SetSelectedItems(values)
@@ -5741,6 +5824,7 @@ return function(opts)
             end
             entryData.CreateList = entryData.AddList
             table.insert(listObject.Items, entryData)
+            checkSearchVisibility()
             return row, entryData
         end
         listObject.AddItem = function(selfOrName, nameOrSubtitle, subtitleOrCallback, callback, actionText, actionCallback, actionDisabled)
@@ -5791,94 +5875,6 @@ return function(opts)
             subList.ParentList = listObject
             table.insert(listObject.SubLists, subList)
             return subList
-        end
-        local searchFrame = Instance.new("Frame")
-        searchFrame.Name = "ListSearchBoxFrame"
-        searchFrame.Size = UDim2.new(1, -8, 0, 26)
-        searchFrame.Position = UDim2.new(0, 4, 0, isNestedList and 34 or 36)
-        searchFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
-        searchFrame.BorderSizePixel = 0
-        searchFrame.Visible = false
-        searchFrame.ZIndex = 15
-        searchFrame.Parent = frame
-        applyCorner(searchFrame, 5)
-        local sfStroke = applyStroke(searchFrame, Color3.fromRGB(38, 48, 68), 1, 0)
-        local searchIcon = Instance.new("TextLabel")
-        searchIcon.Size = UDim2.new(0, 20, 1, 0)
-        searchIcon.Position = UDim2.new(0, 4, 0, 0)
-        searchIcon.BackgroundTransparency = 1
-        searchIcon.Text = "🔍"
-        searchIcon.TextSize = 10
-        searchIcon.TextColor3 = Color3.fromRGB(120, 135, 160)
-        searchIcon.ZIndex = 16
-        searchIcon.Parent = searchFrame
-        local listSearchInput = Instance.new("TextBox")
-        listSearchInput.Size = UDim2.new(1, -28, 1, 0)
-        listSearchInput.Position = UDim2.new(0, 24, 0, 0)
-        listSearchInput.BackgroundTransparency = 1
-        listSearchInput.ClearTextOnFocus = false
-        listSearchInput.Font = Enum.Font.GothamMedium
-        listSearchInput.PlaceholderText = "Search " .. tostring(itemTitle) .. "..."
-        listSearchInput.PlaceholderColor3 = Color3.fromRGB(110, 125, 150)
-        listSearchInput.Text = ""
-        listSearchInput.TextColor3 = Color3.fromRGB(235, 242, 252)
-        listSearchInput.TextSize = 11
-        listSearchInput.TextXAlignment = Enum.TextXAlignment.Left
-        listSearchInput.ZIndex = 16
-        listSearchInput.Parent = searchFrame
-        local function checkSearchVisibility()
-            local count = #listObject.Items
-            local shouldShow = count >= 10
-            searchFrame.Visible = shouldShow
-            if shouldShow then
-                list.Position = UDim2.new(0, 4, 0, (isNestedList and 34 or 36) + 30)
-            else
-                list.Position = UDim2.new(0, 4, 0, isNestedList and 32 or 34)
-            end
-        end
-        local function filterListItems(query)
-            local cleanQ = query:match("^%s*(.-)%s*$"):lower()
-            for _, entryData in ipairs(listObject.Items) do
-                if entryData.Row then
-                    if cleanQ == "" then
-                        entryData.Row.Visible = true
-                    else
-                        local nameMatch = entryData.Name and tostring(entryData.Name):lower():find(cleanQ, 1, true)
-                        local descMatch = entryData.Desc and tostring(entryData.Desc):lower():find(cleanQ, 1, true)
-                        entryData.Row.Visible = (nameMatch or descMatch) and true or false
-                    end
-                end
-            end
-            updateListHeight(false)
-        end
-        listSearchInput:GetPropertyChangedSignal("Text"):Connect(function()
-            filterListItems(listSearchInput.Text)
-        end)
-        listSearchInput.Focused:Connect(function()
-            TweenService:Create(sfStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
-        end)
-        listSearchInput.FocusLost:Connect(function()
-            TweenService:Create(sfStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(38, 48, 68) }):Play()
-        end)
-        listObject.Open = function()
-            if not open then
-                open = true
-                TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = 0}):Play()
-                updateListHeight(true)
-            end
-        end
-        listObject.Close = function()
-            if open then
-                open = false
-                TweenService:Create(arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Rotation = -90}):Play()
-                updateListHeight(true)
-            end
-        end
-        local origAddEntry = addEntry
-        addEntry = function(entry)
-            local row, entryData = origAddEntry(entry)
-            checkSearchVisibility()
-            return row, entryData
         end
         listObject.CreateList = listObject.AddList
         if itemBuilder then

@@ -29,10 +29,10 @@ pcall(function()
     end)
 end)
 
--- Safe Dynamic Module & Catalog Loading
+-- Safe Instant Module & Catalog Loading (Non-Blocking)
 local PlantTraitsData = nil
 pcall(function()
-    local modules = ReplicatedStorage:WaitForChild("Modules", 5)
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
     if modules and modules:FindFirstChild("PlantTraitsData") then
         PlantTraitsData = require(modules.PlantTraitsData)
     end
@@ -40,7 +40,7 @@ end)
 
 local SeedData = nil
 pcall(function()
-    local dataFolder = ReplicatedStorage:WaitForChild("Data", 5)
+    local dataFolder = ReplicatedStorage:FindFirstChild("Data")
     if dataFolder and dataFolder:FindFirstChild("SeedData") then
         SeedData = require(dataFolder.SeedData)
     end
@@ -48,33 +48,121 @@ end)
 
 local MutationData = nil
 pcall(function()
-    local ggModules = ReplicatedStorage:WaitForChild("Modules", 5):WaitForChild("GardenGuideModules", 5):WaitForChild("DataModules", 5)
-    if ggModules and ggModules:FindFirstChild("MutationData") then
-        MutationData = require(ggModules.MutationData)
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
+    local gg = modules and modules:FindFirstChild("GardenGuideModules")
+    local dm = gg and gg:FindFirstChild("DataModules")
+    if dm and dm:FindFirstChild("MutationData") then
+        MutationData = require(dm.MutationData)
     end
 end)
 
 local PetData = nil
 pcall(function()
-    local ggModules = ReplicatedStorage:WaitForChild("Modules", 5):WaitForChild("GardenGuideModules", 5):WaitForChild("DataModules", 5)
-    if ggModules and ggModules:FindFirstChild("PetData") then
-        PetData = require(ggModules.PetData)
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
+    local gg = modules and modules:FindFirstChild("GardenGuideModules")
+    local dm = gg and gg:FindFirstChild("DataModules")
+    if dm and dm:FindFirstChild("PetData") then
+        PetData = require(dm.PetData)
     end
 end)
 
 local PetEggData = nil
 pcall(function()
-    local dataFolder = ReplicatedStorage:WaitForChild("Data", 5)
+    local dataFolder = ReplicatedStorage:FindFirstChild("Data")
     if dataFolder and dataFolder:FindFirstChild("PetEggData") then
         PetEggData = require(dataFolder.PetEggData)
     end
 end)
 
--- Remotes
-local CollectRemote = ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("Crops"):WaitForChild("Collect")
-local SellInvRemote = ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("Sell_Inventory")
-local SellItemRemote = ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("Sell_Item")
-local SellAllPetsRemote = ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("SellAllPets_RE")
+-- Remotes (Safe Non-Blocking Initialization with Dynamic Getters)
+local CollectRemote = nil
+local SellInvRemote = nil
+local SellItemRemote = nil
+local SellAllPetsRemote = nil
+local PlantRemote = nil
+local BuyPetEggRemote = nil
+local BuyGearStockRemote = nil
+local BuySeedStockRemote = nil
+local BuyCosmeticItemRemote = nil
+local BuyCosmeticCrateRemote = nil
+
+local function resolveRemotes()
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents") or (ReplicatedStorage.WaitForChild and ReplicatedStorage:WaitForChild("GameEvents", 2))
+        if ge then
+            PlantRemote = ge:FindFirstChild("Plant_RE") or ge:FindFirstChild("Plant") or ge:FindFirstChild("PlantCrop") or ge:FindFirstChild("PlantSeed")
+            local crops = ge:FindFirstChild("Crops") or (ge.WaitForChild and ge:WaitForChild("Crops", 2))
+            if crops and not PlantRemote then
+                CollectRemote = crops:FindFirstChild("Collect") or (crops.WaitForChild and crops:WaitForChild("Collect", 2))
+                PlantRemote = crops:FindFirstChild("Plant") or crops:FindFirstChild("PlantCrop") or crops:FindFirstChild("PlantSeed") or crops:FindFirstChild("UseSeed")
+            elseif crops then
+                CollectRemote = crops:FindFirstChild("Collect") or (crops.WaitForChild and crops:WaitForChild("Collect", 2))
+            end
+            SellInvRemote = ge:FindFirstChild("Sell_Inventory") or ge:FindFirstChild("SellInventory") or ge:FindFirstChild("Sell")
+            SellItemRemote = ge:FindFirstChild("Sell_Item") or ge:FindFirstChild("SellItem")
+            SellAllPetsRemote = ge:FindFirstChild("SellAllPets_RE") or ge:FindFirstChild("SellAllPets") or ge:FindFirstChild("SellPets")
+            
+            -- Shop Remotes
+            BuyPetEggRemote = ge:FindFirstChild("BuyPetEgg")
+            BuyGearStockRemote = ge:FindFirstChild("BuyGearStock")
+            BuySeedStockRemote = ge:FindFirstChild("BuySeedStock")
+            BuyCosmeticItemRemote = ge:FindFirstChild("BuyCosmeticItem")
+            BuyCosmeticCrateRemote = ge:FindFirstChild("BuyCosmeticCrate")
+        end
+    end)
+end
+resolveRemotes()
+
+local function getCollectRemote()
+    if CollectRemote and CollectRemote.Parent then return CollectRemote end
+    resolveRemotes()
+    return CollectRemote
+end
+
+local function getPlantRemote()
+    if PlantRemote and PlantRemote.Parent then return PlantRemote end
+    resolveRemotes()
+    return PlantRemote
+end
+
+local function getSellInvRemote()
+    if SellInvRemote and SellInvRemote.Parent then return SellInvRemote end
+    resolveRemotes()
+    return SellInvRemote
+end
+
+local function getSellItemRemote()
+    if SellItemRemote and SellItemRemote.Parent then return SellItemRemote end
+    resolveRemotes()
+    return SellItemRemote
+end
+
+local function getSellAllPetsRemote()
+    if SellAllPetsRemote and SellAllPetsRemote.Parent then return SellAllPetsRemote end
+    resolveRemotes()
+    return SellAllPetsRemote
+end
+
+local function getAllPlayerTools()
+    local tools = {}
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, t in ipairs(backpack:GetChildren()) do
+            if t:IsA("Tool") then
+                table.insert(tools, t)
+            end
+        end
+    end
+    local char = LocalPlayer.Character
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") then
+                table.insert(tools, t)
+            end
+        end
+    end
+    return tools
+end
 
 -- =========================================================================
 -- Dynamic Self-Updating Catalogs
@@ -121,6 +209,66 @@ local function buildDynamicPlantCatalog()
     local temp = {}
     for plantName, _ in pairs(plantSet) do
         table.insert(temp, plantName)
+    end
+    table.sort(temp)
+    for _, name in ipairs(temp) do
+        table.insert(sortedList, name)
+    end
+    return sortedList
+end
+
+-- 1b. Seeds Catalog (dynamically self-updating from SeedData, inventory, and farm)
+local function buildDynamicSeedCatalog()
+    local seedSet = {}
+
+    if SeedData and type(SeedData) == "table" then
+        for name, _ in pairs(SeedData) do
+            if type(name) == "string" and name ~= "" then
+                local clean = name:gsub("%s*[sS]eed%s*", "")
+                seedSet[clean] = true
+                seedSet[clean .. " Seed"] = true
+            end
+        end
+    end
+
+    if PlantTraitsData and type(PlantTraitsData) == "table" then
+        for _, plantMap in pairs(PlantTraitsData) do
+            if type(plantMap) == "table" then
+                for name, _ in pairs(plantMap) do
+                    if type(name) == "string" and name ~= "" then
+                        local clean = name:gsub("%s*[sS]eed%s*", "")
+                        seedSet[clean] = true
+                        seedSet[clean .. " Seed"] = true
+                    end
+                end
+            end
+        end
+    end
+
+    pcall(function()
+        local allTools = getAllPlayerTools()
+        for _, t in ipairs(allTools) do
+            if t.Name:lower():find("seed") then
+                local sName = t:GetAttribute("f") or t:GetAttribute("Seed") or t.Name
+                seedSet[tostring(sName)] = true
+            end
+        end
+    end)
+
+    local fallbackSeeds = {
+        "Carrot Seed", "Tomato Seed", "Corn Seed", "Pumpkin Seed", "Watermelon Seed",
+        "Strawberry Seed", "Blueberry Seed", "Wheat Seed", "Potato Seed", "Cabbage Seed",
+        "Pepper Seed", "Chili Seed", "Grape Seed", "Eggplant Seed", "Mushroom Seed",
+        "Dragonfruit Seed", "Pineapple Seed", "Apple Seed", "Orange Seed", "Golden Seed"
+    }
+    for _, s in ipairs(fallbackSeeds) do
+        seedSet[s] = true
+    end
+
+    local sortedList = {"All Seeds"}
+    local temp = {}
+    for sName, _ in pairs(seedSet) do
+        table.insert(temp, sName)
     end
     table.sort(temp)
     for _, name in ipairs(temp) do
@@ -265,28 +413,124 @@ local function buildDynamicPetCatalog()
     return sortedList
 end
 
--- 5. Products & Gamepasses Catalog (Dynamically self-updating)
+-- 5. Products & Gamepasses Catalog (Comprehensive & Dynamically Self-Updating)
 local function buildDynamicProductCatalog()
     local productMap = {}
 
-    -- Scan ReplicatedStorage.Data / Modules
-    pcall(function()
-        local data = ReplicatedStorage:FindFirstChild("Data")
-        if data then
-            for _, child in ipairs(data:GetChildren()) do
-                if child:IsA("ModuleScript") and (child.Name:find("Product") or child.Name:find("Pass") or child.Name:find("Shop") or child.Name:find("Store") or child.Name:find("IAP")) then
-                    local res = require(child)
-                    if type(res) == "table" then
-                        for k, v in pairs(res) do
-                            local name = (type(v) == "table" and (v.Name or v.Title or v.DisplayName or k)) or k
-                            local id = (type(v) == "table" and (v.Id or v.ID or v.ProductId or v.GamepassId or v.AssetId)) or tonumber(k)
-                            local price = (type(v) == "table" and (v.Price or v.Cost or v.Tokens or v.Robux)) or 0
-                            local pType = (type(v) == "table" and (v.Type or v.Category)) or (tostring(child.Name):find("Pass") and "Gamepass" or "Product")
-                            if type(name) == "string" and name ~= "" then
-                                productMap[name] = {Name = name, Id = id or 0, Price = price or 10, Type = pType}
-                            end
-                        end
+    local function isValidItemName(name)
+        if type(name) ~= "string" or name == "" then return false end
+        local lower = name:lower():gsub("^%s+", ""):gsub("%s+$", "")
+        if lower == "" or #lower < 2 then return false end
+        
+        -- Strict rejection of structural UI containers and non-item shop headers
+        local bannedWords = {
+            "shop", "market", "frame", "ui", "layout", "container", "template", "scrollbar",
+            "background", "holder", "padding", "section", "config", "settings",
+            "options", "close", "button", "header", "title", "inventory", "mainmenu", "root",
+            "tab", "page", "dialog", "prompt", "window", "panel", "view", "label"
+        }
+        for _, term in ipairs(bannedWords) do
+            if lower == term then
+                return false
+            end
+        end
+
+        if lower:find("gear shop") or lower:find("market gear") or lower:find("seed shop") or lower:find("egg shop") or lower:find("event shop") or lower:find("pet shop") or lower:find("fall market") then
+            return false
+        end
+
+        return true
+    end
+
+    local function sanitizePrice(val, defaultPrice)
+        local num = tonumber(val)
+        if num and num > 0 then
+            return num
+        end
+        return defaultPrice or 50
+    end
+
+    -- Pre-populate official Grow a Garden Gamepasses and Developer Products
+    local defaultProducts = {
+        -- Official Gamepasses
+        {Name = "Harvest All", Id = 931892840, Type = "Gamepass", Price = 450, Robux = 450},
+        {Name = "Auto Harvester", Id = 931892840, Type = "Gamepass", Price = 450, Robux = 450},
+        {Name = "Auto Planter", Id = 931892839, Type = "Gamepass", Price = 299, Robux = 299},
+        {Name = "VIP Gamepass", Id = 931892837, Type = "Gamepass", Price = 499, Robux = 499},
+        {Name = "2x Shekels (Coins)", Id = 931892838, Type = "Gamepass", Price = 399, Robux = 399},
+        {Name = "Infinite Backpack", Id = 931892841, Type = "Gamepass", Price = 599, Robux = 599},
+        {Name = "2x Mutation Luck", Id = 931892842, Type = "Gamepass", Price = 799, Robux = 799},
+        {Name = "Fast Growth / Sprinkler Pass", Id = 931892843, Type = "Gamepass", Price = 350, Robux = 350},
+        {Name = "Extra Pet Slot (+1)", Id = 931892844, Type = "Gamepass", Price = 250, Robux = 250},
+        {Name = "Extra Pet Slot (+3)", Id = 931892845, Type = "Gamepass", Price = 600, Robux = 600},
+        {Name = "Extra Pet Slot (+5)", Id = 931892847, Type = "Gamepass", Price = 950, Robux = 950},
+        {Name = "Trade Plaza Access", Id = 931892846, Type = "Gamepass", Price = 100, Robux = 100},
+        {Name = "Instant Plant Growth", Id = 931892848, Type = "Gamepass", Price = 500, Robux = 500},
+        {Name = "Rare Mutation Magnet Pass", Id = 931892849, Type = "Gamepass", Price = 650, Robux = 650},
+        {Name = "Weather Controller Pass", Id = 931892850, Type = "Gamepass", Price = 850, Robux = 850},
+        {Name = "Double Pet XP Pass", Id = 931892851, Type = "Gamepass", Price = 400, Robux = 400},
+
+        -- Official Developer Products & Gear (Purchasable with Tokens or Robux)
+        {Name = "Horseshoe Magnet", Id = 189201945, Type = "Product", Price = 75, Robux = 75},
+        {Name = "Golden Horseshoe Magnet", Id = 189201946, Type = "Product", Price = 150, Robux = 150},
+        {Name = "Golden Shovel", Id = 189201947, Type = "Product", Price = 50, Robux = 50},
+        {Name = "Master Watering Can", Id = 189201948, Type = "Product", Price = 60, Robux = 60},
+        {Name = "100 Trade Tokens", Id = 189201928, Type = "Product", Price = 99, Robux = 99},
+        {Name = "500 Trade Tokens", Id = 189201929, Type = "Product", Price = 399, Robux = 399},
+        {Name = "1,500 Trade Tokens", Id = 189201930, Type = "Product", Price = 999, Robux = 999},
+        {Name = "5,000 Trade Tokens", Id = 189201931, Type = "Product", Price = 2499, Robux = 2499},
+        {Name = "10,000 Trade Tokens", Id = 189201932, Type = "Product", Price = 4499, Robux = 4499},
+        {Name = "25,000 Trade Tokens", Id = 189201937, Type = "Product", Price = 8999, Robux = 8999},
+        {Name = "10,000 Shekels", Id = 189201938, Type = "Product", Price = 50, Robux = 50},
+        {Name = "50,000 Shekels", Id = 189201939, Type = "Product", Price = 150, Robux = 150},
+        {Name = "250,000 Shekels", Id = 189201940, Type = "Product", Price = 450, Robux = 450},
+        {Name = "1,000,000 Shekels", Id = 189201941, Type = "Product", Price = 1200, Robux = 1200},
+        {Name = "Grand Seed Pack", Id = 189201935, Type = "Product", Price = 99, Robux = 99},
+        {Name = "Mega Growth Potion", Id = 189201936, Type = "Product", Price = 50, Robux = 50},
+        {Name = "Mythical Pet Egg", Id = 189201933, Type = "Product", Price = 149, Robux = 149},
+        {Name = "Prismatic Pet Egg", Id = 189201934, Type = "Product", Price = 299, Robux = 299}
+    }
+
+    for _, p in ipairs(defaultProducts) do
+        productMap[p.Name] = p
+    end
+
+    -- Safely scan Gamepass / Developer Product module scripts in ReplicatedStorage
+    local function parseProductModule(tbl, moduleName)
+        if type(tbl) ~= "table" then return end
+        for k, v in pairs(tbl) do
+            if type(v) == "table" then
+                local itemName = v.Name or v.Title or v.DisplayName or v.ProductName or v.PassName or (type(k) == "string" and k)
+                local itemId = tonumber(v.Id or v.ID or v.ProductId or v.GamepassId or v.PassId or v.AssetId or v.DevProductId) or tonumber(k) or 0
+                local itemRobux = tonumber(v.Robux or v.CostRobux or v.PriceRobux or v.Price or v.Cost) or 50
+                local itemTokens = tonumber(v.Tokens or v.TokenPrice or v.PriceTokens or v.Price or v.Cost) or itemRobux
+                local itemType = v.Type or (tostring(moduleName):find("Pass") and "Gamepass" or "Product")
+
+                if itemName and type(itemName) == "string" and isValidItemName(itemName) then
+                    -- Only accept if it is a genuine gamepass or product with an ID or explicit product typing
+                    if itemId > 0 or v.Robux or v.ProductId or v.GamepassId or itemType == "Gamepass" or itemType == "Product" then
+                        productMap[itemName] = {
+                            Name = tostring(itemName),
+                            Id = itemId,
+                            Price = itemTokens,
+                            Robux = itemRobux,
+                            Type = tostring(itemType)
+                        }
                     end
+                end
+            end
+        end
+    end
+
+    pcall(function()
+        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+        if dataFolder then
+            for _, child in ipairs(dataFolder:GetChildren()) do
+                if child:IsA("ModuleScript") and (child.Name:find("Pass") or child.Name:find("Product") or child.Name:find("IAP") or child.Name:find("Gamepass") or child.Name:find("Shop")) then
+                    pcall(function()
+                        local res = require(child)
+                        parseProductModule(res, child.Name)
+                    end)
                 end
             end
         end
@@ -295,53 +539,42 @@ local function buildDynamicProductCatalog()
     pcall(function()
         local modules = ReplicatedStorage:FindFirstChild("Modules")
         if modules then
-            for _, child in ipairs(modules:GetDescendants()) do
-                if child:IsA("ModuleScript") and (child.Name:find("Product") or child.Name:find("Pass") or child.Name:find("Shop") or child.Name:find("Store")) then
-                    local res = require(child)
-                    if type(res) == "table" then
-                        for k, v in pairs(res) do
-                            local name = (type(v) == "table" and (v.Name or v.Title or v.DisplayName or k)) or k
-                            local id = (type(v) == "table" and (v.Id or v.ID or v.ProductId or v.GamepassId or v.AssetId)) or tonumber(k)
-                            local price = (type(v) == "table" and (v.Price or v.Cost or v.Tokens or v.Robux)) or 0
-                            local pType = (type(v) == "table" and (v.Type or v.Category)) or (tostring(child.Name):find("Pass") and "Gamepass" or "Product")
-                            if type(name) == "string" and name ~= "" then
-                                productMap[name] = {Name = name, Id = id or 0, Price = price or 10, Type = pType}
-                            end
-                        end
-                    end
+            for _, child in ipairs(modules:GetChildren()) do
+                if child:IsA("ModuleScript") and (child.Name:find("Pass") or child.Name:find("Product") or child.Name:find("IAP") or child.Name:find("Gamepass") or child.Name:find("Shop")) then
+                    pcall(function()
+                        local res = require(child)
+                        parseProductModule(res, child.Name)
+                    end)
                 end
             end
         end
     end)
 
-    -- Ingest all standard Grow a Garden Gamepasses & Products as baseline
-    local defaultProducts = {
-        {Name = "VIP Gamepass", Id = 931892837, Type = "Gamepass", Price = 499},
-        {Name = "2x Shekels (Coins)", Id = 931892838, Type = "Gamepass", Price = 399},
-        {Name = "Auto Planter", Id = 931892839, Type = "Gamepass", Price = 299},
-        {Name = "Auto Harvester", Id = 931892840, Type = "Gamepass", Price = 450},
-        {Name = "Infinite Backpack", Id = 931892841, Type = "Gamepass", Price = 599},
-        {Name = "2x Mutation Luck", Id = 931892842, Type = "Gamepass", Price = 799},
-        {Name = "Fast Growth / Sprinkler Pass", Id = 931892843, Type = "Gamepass", Price = 350},
-        {Name = "Extra Pet Slot (+1)", Id = 931892844, Type = "Gamepass", Price = 250},
-        {Name = "Extra Pet Slot (+3)", Id = 931892845, Type = "Gamepass", Price = 600},
-        {Name = "Trade Plaza Access", Id = 931892846, Type = "Gamepass", Price = 100},
-        {Name = "100 Trade Tokens", Id = 189201928, Type = "Product", Price = 99},
-        {Name = "500 Trade Tokens", Id = 189201929, Type = "Product", Price = 399},
-        {Name = "1,500 Trade Tokens", Id = 189201930, Type = "Product", Price = 999},
-        {Name = "5,000 Trade Tokens", Id = 189201931, Type = "Product", Price = 2499},
-        {Name = "10,000 Trade Tokens", Id = 189201932, Type = "Product", Price = 4499},
-        {Name = "Mythical Pet Egg", Id = 189201933, Type = "Product", Price = 149},
-        {Name = "Prismatic Pet Egg", Id = 189201934, Type = "Product", Price = 299},
-        {Name = "Grand Seed Pack", Id = 189201935, Type = "Product", Price = 99},
-        {Name = "Mega Growth Potion", Id = 189201936, Type = "Product", Price = 50}
-    }
-
-    for _, p in ipairs(defaultProducts) do
-        if not productMap[p.Name] then
-            productMap[p.Name] = p
+    -- Scan PlayerGui for active in-game Shop / Gamepass buttons
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pGui then
+            for _, desc in ipairs(pGui:GetDescendants()) do
+                if desc:IsA("GuiButton") then
+                    local name = desc:GetAttribute("ProductName") or desc:GetAttribute("PassName") or desc:GetAttribute("Product")
+                    if not name and desc:IsA("TextButton") and #desc.Text > 2 and not desc.Text:find("Close") and not desc.Text:find("Back") then
+                        name = desc.Text:gsub("\n.*", "")
+                    end
+                    local id = tonumber(desc:GetAttribute("ProductId") or desc:GetAttribute("GamepassId") or desc:GetAttribute("Id") or desc:GetAttribute("AssetId")) or 0
+                    local price = tonumber(desc:GetAttribute("Robux") or desc:GetAttribute("Price") or desc:GetAttribute("Cost")) or 50
+                    if name and type(name) == "string" and isValidItemName(name) and id > 0 then
+                        productMap[name] = {
+                            Name = tostring(name),
+                            Id = id,
+                            Price = price,
+                            Robux = price,
+                            Type = desc:GetAttribute("GamepassId") and "Gamepass" or "Product"
+                        }
+                    end
+                end
+            end
         end
-    end
+    end)
 
     local sortedList = {}
     for _, item in pairs(productMap) do
@@ -351,11 +584,190 @@ local function buildDynamicProductCatalog()
     return sortedList
 end
 
+local function formatCurrency(n)
+    n = tonumber(n) or 0
+    if n >= 1e12 then return string.format("%.1fT", n / 1e12)
+    elseif n >= 1e9 then return string.format("%.1fB", n / 1e9)
+    elseif n >= 1e6 then return string.format("%.1fM", n / 1e6)
+    elseif n >= 1e3 then return string.format("%.1fK", n / 1e3)
+    else return tostring(math.floor(n)) end
+end
+
+local function parseSheckles(text)
+    if type(text) == "number" then return text end
+    if type(text) ~= "string" then return 0 end
+    local sheckleStr = text
+    if text:find("🌸") then
+        sheckleStr = text:match("🌸%s*(.*)") or text
+    end
+    sheckleStr = sheckleStr:gsub("[¢, ]", "")
+    
+    local num, suffix = sheckleStr:match("([%d%.]+)%s*([%a]*)")
+    if not num then return 0 end
+    num = tonumber(num) or 0
+    suffix = suffix and suffix:upper() or ""
+    
+    local mults = {
+        ["K"] = 1e3,
+        ["M"] = 1e6,
+        ["B"] = 1e9,
+        ["T"] = 1e12,
+        ["QD"] = 1e15,
+        ["QN"] = 1e18,
+        ["SX"] = 1e21,
+        ["SP"] = 1e24,
+        ["O"] = 1e27,
+        ["N"] = 1e30,
+        ["D"] = 1e33
+    }
+    
+    return num * (mults[suffix] or 1)
+end
+
+local function getPlayerSheckles()
+    local lp = Players.LocalPlayer
+    local valObj = lp and lp:FindFirstChild("leaderstats") and lp.leaderstats:FindFirstChild("Sheckles")
+    if valObj then
+        return parseSheckles(tostring(valObj.Value))
+    end
+    return 0
+end
+
+-- 6. Dynamic Shop Catalogs (Eggs, Gears, Seeds, Cosmetics)
+local function buildDynamicEggCatalog()
+    local eggs = {}
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local data = rep:FindFirstChild("Data")
+        local eggData = data and (data:FindFirstChild("PetEggData") or data:FindFirstChild("PetEggShopData"))
+        if eggData then
+            local res = require(eggData)
+            for k, v in pairs(res) do
+                if type(v) == "table" and k ~= "RefreshTime" then
+                    local name = v.EggName or v.Name or k
+                    local price = tonumber(v.Price) or 0
+                    table.insert(eggs, {
+                        Name = tostring(name) .. " (" .. formatCurrency(price) .. "¢)",
+                        ItemName = tostring(name),
+                        Price = price,
+                        Type = "Egg"
+                    })
+                end
+            end
+        end
+    end)
+    table.sort(eggs, function(a, b) return a.Price < b.Price end)
+    return eggs
+end
+
+local function buildDynamicGearCatalog()
+    local gears = {}
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local data = rep:FindFirstChild("Data")
+        local gearData = data and data:FindFirstChild("GearShopData")
+        if gearData then
+            local res = require(gearData)
+            local gTable = res.Gear or res
+            for k, v in pairs(gTable) do
+                if type(v) == "table" and k ~= "RefreshTime" then
+                    local name = v.GearName or v.Name or k
+                    local price = tonumber(v.Price) or 0
+                    table.insert(gears, {
+                        Name = tostring(name) .. " (" .. formatCurrency(price) .. "¢)",
+                        ItemName = tostring(name),
+                        Price = price,
+                        Type = "Gear"
+                    })
+                end
+            end
+        end
+    end)
+    table.sort(gears, function(a, b) return a.Price < b.Price end)
+    return gears
+end
+
+local function buildDynamicSeedShopCatalog()
+    local seeds = {}
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local data = rep:FindFirstChild("Data")
+        local seedData = data and data:FindFirstChild("SeedShopData")
+        if seedData then
+            local res = require(seedData)
+            for k, v in pairs(res) do
+                if type(v) == "table" then
+                    local rawName = (type(v.Seed) == "table" and (v.Seed.SeedName or v.Seed.Name)) or (type(v.Seed) == "string" and v.Seed) or v.Name or tostring(k)
+                    local cleanName = tostring(rawName):gsub("%s*[sS]eed%s*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    if cleanName == "" then cleanName = tostring(k) end
+                    local price = tonumber(v.Price) or 0
+                    table.insert(seeds, {
+                        Name = cleanName .. " (" .. formatCurrency(price) .. "¢)",
+                        ItemName = cleanName,
+                        RawKey = tostring(k),
+                        Price = price,
+                        Type = "Seed"
+                    })
+                end
+            end
+        end
+    end)
+    table.sort(seeds, function(a, b) return a.Price < b.Price end)
+    return seeds
+end
+
+local function buildDynamicCosmeticCatalog()
+    local cosmetics = {}
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local data = rep:FindFirstChild("Data")
+        local cData = data and data:FindFirstChild("CosmeticItemShopData")
+        if cData then
+            local res = require(cData)
+            for k, v in pairs(res) do
+                if type(v) == "table" then
+                    local name = v.CosmeticName or v.Name or k
+                    local price = tonumber(v.Price) or 0
+                    table.insert(cosmetics, {
+                        Name = tostring(name) .. " (" .. formatCurrency(price) .. "¢)",
+                        ItemName = tostring(name),
+                        Price = price,
+                        Type = "Item"
+                    })
+                end
+            end
+        end
+        local crateData = data and data:FindFirstChild("CosmeticCrateShopData")
+        if crateData then
+            local res = require(crateData)
+            for k, v in pairs(res) do
+                if type(v) == "table" then
+                    local name = v.CrateName or v.Name or k
+                    local price = tonumber(v.Price) or 0
+                    table.insert(cosmetics, {
+                        Name = "[Crate] " .. tostring(name) .. " (" .. formatCurrency(price) .. "¢)",
+                        ItemName = tostring(name),
+                        Price = price,
+                        Type = "Crate"
+                    })
+                end
+            end
+        end
+    end)
+    table.sort(cosmetics, function(a, b) return a.Price < b.Price end)
+    return cosmetics
+end
+
 local allAvailablePlants = buildDynamicPlantCatalog()
+local allAvailableSeeds = buildDynamicSeedCatalog()
 local allAvailableMutations = buildDynamicMutationCatalog()
 local allAvailableCategories = buildDynamicCategoryCatalog()
 local allAvailablePets = buildDynamicPetCatalog()
 local allAvailableProducts = buildDynamicProductCatalog()
+local allAvailableEggs = buildDynamicEggCatalog()
+local allAvailableGears = buildDynamicGearCatalog()
+local allAvailableSeedShop = buildDynamicSeedShopCatalog()
+local allAvailableCosmetics = buildDynamicCosmeticCatalog()
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -403,6 +815,7 @@ assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
 local State = {
     -- Collection
     AutoCollectAll = false,
+    InstantCollectAll = false,
     AutoCollectFiltered = false,
     Collect_Fruit = "None",
     Collect_Category = "None",
@@ -411,6 +824,13 @@ local State = {
     Collect_Weight = 0,
     Collect_WeightMode = "Above",
     Collect_StopWhenFull = false,
+
+    -- Planting
+    AutoPlant = false,
+    PlantInOtherPlants = false,
+    Plant_SelectedSeed = "All Seeds",
+    Plant_PositionMode = "Player Position",
+    Plant_Delay = 0.05,
 
     -- Selling: Crops
     AutoSellCrops = false,
@@ -422,7 +842,7 @@ local State = {
     Sell_Weight = 0,
     Sell_WeightMode = "Above",
 
-    -- Selling: Pets
+    -- Selling: Pets (Moved to Pets Tab)
     AutoSellPets = false,
     Sell_TargetPet = "None", -- Whitelist: Only this pet species will be sold!
     Sell_ExcludePetVariant = "None",
@@ -430,19 +850,31 @@ local State = {
     Sell_ExcludePetWeight = 0,
     Sell_ExcludePetWeightMode = "Above",
 
+    -- Shop Tab
+    AutoBuy_SelectedEgg = false,
+    AutoBuy_AllEggs = false,
+    AutoBuy_SelectedGear = false,
+    AutoBuy_AllGears = false,
+    AutoBuy_SelectedSeed = false,
+    AutoBuy_AllSeeds = false,
+    AutoBuy_SelectedCosmetic = false,
+    AutoBuy_AllCosmetics = false,
+    Shop_BuyDelay = 0.35,
+
     -- Misc: Visual Optimization
     HidePlants = false,
     HideFruits = false,
 
     -- General
     MaxBackpackCapacity = 500,
-    BatchSize = 25,
-    HarvestDelay = 0.15,
-    SellCheckDelay = 1.0
+    BatchSize = 35,
+    HarvestDelay = 0.1,
+    SellCheckDelay = 0.25
 }
 
 -- Forward References for UI Objects
 local autoCollectAllToggle
+local instantCollectAllToggle
 local autoCollectFilteredToggle
 local collectStopWhenFullToggle
 local collectFruitListObj
@@ -450,6 +882,10 @@ local collectCategoryListObj
 local collectVariantListObj
 local collectMutationListObj
 local collectWeightModeListObj
+
+local autoPlantToggle
+local plantSeedListObj
+local plantPositionModeListObj
 
 local autoSellCropsToggle
 local sellWaitMaxToggle
@@ -829,148 +1265,490 @@ local function shouldSellPetTool(info)
 end
 
 -- =========================================================================
--- True Remote Harvest Engine
+-- True Remote Harvest Engine (Instant Collect & Rapid Filtered Vacuum)
 -- =========================================================================
 task.spawn(function()
     while true do
-        task.wait(State.HarvestDelay)
-        local collectAll = isToggleActive(autoCollectAllToggle, State.AutoCollectAll, "⚡ Auto Collect ALL (No Filter)")
-        local collectFiltered = isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered, "🌱 Auto Collect (Filtered)")
-        local stopFull = isToggleActive(collectStopWhenFullToggle, State.Collect_StopWhenFull)
+        task.wait(State.HarvestDelay or 0.08)
+        pcall(function()
+            local collectAll = isToggleActive(autoCollectAllToggle, State.AutoCollectAll, "⚡ Auto Collect ALL (No Filter)")
+            local instantAll = isToggleActive(instantCollectAllToggle, State.InstantCollectAll, "⚡ Instant Collect ALL")
+            local collectFiltered = isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered, "🌱 Auto Collect (Filtered)")
+            local stopFull = isToggleActive(collectStopWhenFullToggle, State.Collect_StopWhenFull)
 
-        if (collectAll or collectFiltered) then
-            if stopFull and isBackpackFull() then
-                task.wait(1)
-            else
-                local batch = {}
-                local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+            if (collectAll or instantAll or collectFiltered) then
+                if stopFull and isBackpackFull() then
+                    task.wait(0.3)
+                else
+                    local colRemote = getCollectRemote()
+                    if colRemote then
+                        local batch = {}
+                        local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
 
-                for _, farm in ipairs(farmFolder:GetChildren()) do
-                    if not (collectAll or collectFiltered) then break end
-                    if stopFull and isBackpackFull() then break end
-
-                    local important = farm:FindFirstChild("Important")
-                    local plantsFolder = important and important:FindFirstChild("Plants_Physical")
-                    if plantsFolder then
-                        for _, plant in ipairs(plantsFolder:GetChildren()) do
-                            if not (collectAll or collectFiltered) then break end
+                        for _, farm in ipairs(farmFolder:GetChildren()) do
+                            if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                               and not isToggleActive(instantCollectAllToggle, State.InstantCollectAll) 
+                               and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                                break 
+                            end
                             if stopFull and isBackpackFull() then break end
 
-                            local fruitsFolder = plant:FindFirstChild("Fruits")
-                            if fruitsFolder then
-                                for _, fg in ipairs(fruitsFolder:GetChildren()) do
-                                    if not (collectAll or collectFiltered) then break end
+                            local important = farm:FindFirstChild("Important")
+                            local plantsFolder = important and important:FindFirstChild("Plants_Physical")
+                            if plantsFolder then
+                                for _, plant in ipairs(plantsFolder:GetChildren()) do
+                                    if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                                       and not isToggleActive(instantCollectAllToggle, State.InstantCollectAll) 
+                                       and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                                        break 
+                                    end
                                     if stopFull and isBackpackFull() then break end
 
-                                    local shouldCollect = false
-                                    if collectAll then
-                                        shouldCollect = true
-                                    elseif collectFiltered then
-                                        local info = getFruitGroupInfo(plant, fg)
-                                        if matchesCollectFilters(info) then
-                                            shouldCollect = true
-                                        end
-                                    end
+                                    local fruitsFolder = plant:FindFirstChild("Fruits")
+                                    if fruitsFolder then
+                                        for _, fg in ipairs(fruitsFolder:GetChildren()) do
+                                            if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                                               and not isToggleActive(instantCollectAllToggle, State.InstantCollectAll) 
+                                               and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                                                break 
+                                            end
+                                            if stopFull and isBackpackFull() then break end
 
-                                    if shouldCollect then
-                                        table.insert(batch, fg)
-                                        if #batch >= State.BatchSize then
-                                            pcall(function()
-                                                CollectRemote:FireServer(batch)
-                                            end)
-                                            batch = {}
-                                            task.wait(0.06)
+                                            local shouldCollect = false
+                                            if collectAll or instantAll then
+                                                shouldCollect = true
+                                            elseif collectFiltered then
+                                                local info = getFruitGroupInfo(plant, fg)
+                                                if matchesCollectFilters(info) then
+                                                    shouldCollect = true
+                                                end
+                                            end
+
+                                            if shouldCollect then
+                                                table.insert(batch, fg)
+                                                local maxBatch = instantAll and 150 or (State.BatchSize or 35)
+                                                if #batch >= maxBatch then
+                                                    pcall(function()
+                                                        colRemote:FireServer(batch)
+                                                    end)
+                                                    batch = {}
+                                                    if not instantAll then
+                                                        task.wait(0.04)
+                                                    end
+                                                end
+                                            end
                                         end
                                     end
                                 end
                             end
                         end
+
+                        if #batch > 0 and (isToggleActive(autoCollectAllToggle, State.AutoCollectAll) or isToggleActive(instantCollectAllToggle, State.InstantCollectAll) or isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered)) then
+                            pcall(function()
+                                colRemote:FireServer(batch)
+                            end)
+                            batch = {}
+                        end
                     end
                 end
-
-                if #batch > 0 and (collectAll or collectFiltered) then
-                    pcall(function()
-                        CollectRemote:FireServer(batch)
-                    end)
-                    batch = {}
-                end
             end
-        end
+        end)
     end
 end)
 
 -- =========================================================================
--- Smart Auto-Sell Engine (Crops & Pets)
+-- Auto-Plant Engine (Player Position, Random Position, Existing Plant)
 -- =========================================================================
 task.spawn(function()
     while true do
-        if _G.GAG_SESSION ~= currentSession then break end
-        task.wait(State.SellCheckDelay)
-        if _G.GAG_SESSION ~= currentSession then break end
-        local autoSellCrops = isToggleActive(autoSellCropsToggle, State.AutoSellCrops, "💰 Auto Sell (Crops)")
-        local autoSellPets = isToggleActive(autoSellPetsToggle, State.AutoSellPets, "🐾 Auto Sell Pets")
-        local waitMax = isToggleActive(sellWaitMaxToggle, State.Sell_WaitMaxBackpack)
+        local delayTime = math.clamp(tonumber(State.Plant_Delay) or 0.05, 0.01, 1.0)
+        task.wait(delayTime)
 
-        local backpack = LocalPlayer:FindFirstChild("Backpack")
-        if backpack and (autoSellCrops or autoSellPets) then
-            local shouldRunSell = not waitMax or isBackpackFull()
-            if shouldRunSell then
-                -- 1. Auto Sell Pets (Strict Whitelist + Batch Remote)
-                if autoSellPets then
-                    local petUUIDBatch = {}
-                    for _, tool in ipairs(backpack:GetChildren()) do
-                        if not isToggleActive(autoSellPetsToggle, State.AutoSellPets) or _G.GAG_SESSION ~= currentSession then break end
-                        if tool:IsA("Tool") and tool:GetAttribute("PET_UUID") then
-                            local petInfo = getPetToolInfo(tool)
-                            if shouldSellPetTool(petInfo) then
-                                table.insert(petUUIDBatch, petInfo.UUID)
-                                if #petUUIDBatch >= 30 then
-                                    pcall(function()
-                                        SellAllPetsRemote:FireServer(petUUIDBatch)
-                                    end)
-                                    petUUIDBatch = {}
-                                    task.wait(0.1)
-                                end
+        pcall(function()
+            local autoPlant = isToggleActive(autoPlantToggle, State.AutoPlant, "🌱 Auto Plant")
+            if not autoPlant then return end
+
+            local selectedSeed = tostring(getUIListVal(plantSeedListObj, State.Plant_SelectedSeed or "All Seeds"))
+            local posMode = tostring(getUIListVal(plantPositionModeListObj, State.Plant_PositionMode or "Player Position"))
+
+            -- Find candidate seed tools in Backpack or Character
+            local allTools = getAllPlayerTools()
+            local seedTool = nil
+
+            for _, tool in ipairs(allTools) do
+                if tool.Parent and tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
+                    local tName = tool.Name
+                    local lowerName = tName:lower()
+                    local seedAttr = tool:GetAttribute("Seed") or tool:GetAttribute("f") or ""
+
+                    if lowerName:find("seed") or tostring(seedAttr):lower():find("seed") then
+                        if selectedSeed == "All Seeds" or selectedSeed == "None" then
+                            seedTool = tool
+                            break
+                        else
+                            local cleanSelected = selectedSeed:lower():gsub("%s*[sS]eed%s*", "")
+                            if lowerName:find(cleanSelected, 1, true) or tostring(seedAttr):lower():find(cleanSelected, 1, true) then
+                                seedTool = tool
+                                break
                             end
                         end
                     end
-                    if #petUUIDBatch > 0 and isToggleActive(autoSellPetsToggle, State.AutoSellPets) and _G.GAG_SESSION == currentSession then
-                        pcall(function()
-                            SellAllPetsRemote:FireServer(petUUIDBatch)
-                        end)
-                        petUUIDBatch = {}
-                    end
                 end
+            end
 
-                -- 2. Auto Sell Crops
-                if autoSellCrops then
-                    local hasExclusions = (getUIListVal(sellExcludeFruitListObj, "None") ~= "None")
-                        or (getUIListVal(sellExcludeCategoryListObj, "None") ~= "None")
-                        or (getUIListVal(sellExcludeVariantListObj, "None") ~= "None")
-                        or (getUIListVal(sellExcludeMutationListObj, "None") ~= "None")
-                        or ((State.Sell_Weight or 0) > 0)
+            if not seedTool then return end
 
-                    if not hasExclusions then
-                        pcall(function()
-                            SellInvRemote:FireServer()
-                        end)
-                    else
-                        for _, tool in ipairs(backpack:GetChildren()) do
-                            if not isToggleActive(autoSellCropsToggle, State.AutoSellCrops) or _G.GAG_SESSION ~= currentSession then break end
-                            if tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
-                                local info = getCropToolInfo(tool)
-                                if shouldSellCropTool(info) then
-                                    pcall(function()
-                                        SellInvRemote:FireServer()
-                                    end)
-                                    task.wait(0.2)
+            -- Calculate target plant position based on selected mode
+            local targetPos = nil
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+
+            if posMode == "Player Position" then
+                if root then
+                    targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                end
+            elseif posMode == "Random Position" then
+                if root then
+                    local rx = math.random(-25, 25)
+                    local rz = math.random(-25, 25)
+                    targetPos = root.Position + Vector3.new(rx, -2.5, rz)
+                end
+            elseif posMode == "Existing Plant" then
+                local seedBaseName = seedTool.Name:gsub("%s*[sS]eed%s*", ""):gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                local seedLower = seedBaseName:lower()
+                local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+                local matchedPlantPart = nil
+
+                for _, farm in ipairs(farmFolder:GetChildren()) do
+                    local imp = farm:FindFirstChild("Important")
+                    local plants = imp and imp:FindFirstChild("Plants_Physical")
+                    if plants then
+                        for _, plant in ipairs(plants:GetChildren()) do
+                            local pNameLower = plant.Name:lower()
+                            if pNameLower:find(seedLower, 1, true) or seedLower:find(pNameLower, 1, true) then
+                                local pPart = plant:FindFirstChildWhichIsA("BasePart", true)
+                                if pPart then
+                                    matchedPlantPart = pPart
                                     break
                                 end
                             end
                         end
                     end
+                    if matchedPlantPart then break end
+                end
+
+                if matchedPlantPart then
+                    targetPos = matchedPlantPart.Position
+                elseif root then
+                    targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                end
+            elseif posMode == "Inside Other Plant" or posMode == "Inside Any Plant" then
+                local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+                local allPlants = {}
+                for _, farm in ipairs(farmFolder:GetChildren()) do
+                    local imp = farm:FindFirstChild("Important")
+                    local plants = imp and imp:FindFirstChild("Plants_Physical")
+                    if plants then
+                        for _, plant in ipairs(plants:GetChildren()) do
+                            local pPart = plant:FindFirstChildWhichIsA("BasePart", true)
+                            if pPart then
+                                table.insert(allPlants, pPart)
+                            end
+                        end
+                    end
+                end
+                if #allPlants > 0 then
+                    local chosen = allPlants[math.random(1, #allPlants)]
+                    targetPos = chosen.Position + Vector3.new((math.random() - 0.5) * 0.4, 0, (math.random() - 0.5) * 0.4)
+                elseif root then
+                    targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                end
+            elseif posMode == "In Mid-Air (Floating)" or posMode == "In Mid-Air" or posMode == "In Mid-Air (Above Player)" then
+                if root then
+                    local airHeight = tonumber(State.AirPlantHeight) or 15
+                    targetPos = root.Position + Vector3.new(0, airHeight, 0)
+                end
+            elseif posMode == "Out of Garden" then
+                if root then
+                    local angle = math.random() * math.pi * 2
+                    local dist = math.random(90, 220)
+                    targetPos = root.Position + Vector3.new(math.cos(angle) * dist, -2.5, math.sin(angle) * dist)
+                end
+            elseif posMode == "Anywhere (Free Spatial)" or posMode == "Anywhere" then
+                if root then
+                    local rx = math.random(-150, 150)
+                    local ry = math.random(-5, 60)
+                    local rz = math.random(-150, 150)
+                    targetPos = root.Position + Vector3.new(rx, ry, rz)
                 end
             end
+
+            if not targetPos and root then
+                targetPos = root.Position - Vector3.new(0, 2.5, 0)
+            end
+
+            if targetPos then
+                local pRemote = getPlantRemote()
+                if pRemote then
+                    pcall(function()
+                        pRemote:FireServer(seedTool, targetPos)
+                    end)
+                    pcall(function()
+                        pRemote:FireServer(seedTool.Name, targetPos)
+                    end)
+                    pcall(function()
+                        pRemote:FireServer(targetPos, seedTool)
+                    end)
+                end
+
+                -- Also simulate tool activation if equipped or equip and click
+                pcall(function()
+                    if seedTool.Parent ~= char and char:FindFirstChild("Humanoid") then
+                        char.Humanoid:EquipTool(seedTool)
+                    end
+                    seedTool:Activate()
+                end)
+            end
+        end)
+    end
+end)
+
+-- =========================================================================
+-- Manual Plant in Other Plants / Seeds Engine
+-- =========================================================================
+local lastManualPlantTime = 0
+local UserInputService = game:GetService("UserInputService")
+
+local function triggerManualPlant(customTargetPos)
+    local isPlantInOthersActive = isToggleActive(plantInOtherPlantsToggle, State.PlantInOtherPlants, "🌱 Plant In Other Plants")
+    if not isPlantInOthersActive then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    -- Check if player has a Seed tool equipped in Character
+    local seedTool = nil
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and not item:GetAttribute("PET_UUID") then
+            local tName = item.Name:lower()
+            local seedAttr = tostring(item:GetAttribute("Seed") or item:GetAttribute("f") or ""):lower()
+            if tName:find("seed") or seedAttr:find("seed") then
+                seedTool = item
+                break
+            end
+        end
+    end
+
+    if not seedTool then return end
+
+    local now = tick()
+    if now - lastManualPlantTime < 0.04 then return end
+    lastManualPlantTime = now
+
+    local targetPos = customTargetPos
+
+    if not targetPos then
+        local mouse = LocalPlayer:GetMouse()
+        local mouseTarget = mouse and mouse.Target
+        local mouseHit = mouse and mouse.Hit
+
+        local foundPlantPart = nil
+        if mouseTarget then
+            local current = mouseTarget
+            while current and current ~= Workspace do
+                if current.Parent and (current.Parent.Name == "Plants_Physical" or current.Parent.Name == "Plant_Locations" or current.Name:find("Plant") or current.Name:find("Crop")) then
+                    foundPlantPart = mouseTarget:IsA("BasePart") and mouseTarget or current:FindFirstChildWhichIsA("BasePart", true)
+                    break
+                end
+                current = current.Parent
+            end
+        end
+
+        if foundPlantPart then
+            targetPos = foundPlantPart.Position + Vector3.new((math.random() - 0.5) * 0.2, 0, (math.random() - 0.5) * 0.2)
+        elseif mouseHit then
+            local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+            local closestPart = nil
+            local minDist = 35
+            for _, farm in ipairs(farmFolder:GetChildren()) do
+                local imp = farm:FindFirstChild("Important")
+                local plants = imp and imp:FindFirstChild("Plants_Physical")
+                if plants then
+                    for _, plant in ipairs(plants:GetChildren()) do
+                        local pPart = plant:FindFirstChildWhichIsA("BasePart", true)
+                        if pPart then
+                            local d = (pPart.Position - mouseHit.Position).Magnitude
+                            if d < minDist then
+                                minDist = d
+                                closestPart = pPart
+                            end
+                        end
+                    end
+                end
+            end
+            if closestPart then
+                targetPos = closestPart.Position + Vector3.new((math.random() - 0.5) * 0.2, 0, (math.random() - 0.5) * 0.2)
+            else
+                targetPos = mouseHit.Position
+            end
+        else
+            targetPos = root.Position - Vector3.new(0, 2.5, 0)
+        end
+    end
+
+    if targetPos then
+        local pRemote = getPlantRemote()
+        if pRemote then
+            pcall(function() pRemote:FireServer(seedTool, targetPos) end)
+            pcall(function() pRemote:FireServer(seedTool.Name, targetPos) end)
+            pcall(function() pRemote:FireServer(targetPos, seedTool) end)
+        end
+    end
+end
+
+-- Hook UserInputService for direct manual clicks / screen taps with equipped seed
+pcall(function()
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            triggerManualPlant()
+        end
+    end)
+end)
+
+-- Tool activation hook on character
+local function hookToolActivation(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    pcall(function()
+        tool.Activated:Connect(function()
+            triggerManualPlant()
+        end)
+    end)
+end
+
+local function hookCharacterTools(char)
+    if not char then return end
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") then
+            hookToolActivation(item)
+        end
+    end
+    char.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then
+            hookToolActivation(child)
+        end
+    end)
+end
+
+pcall(function()
+    if LocalPlayer.Character then
+        hookCharacterTools(LocalPlayer.Character)
+    end
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        task.wait(0.2)
+        hookCharacterTools(char)
+    end)
+end)
+
+-- =========================================================================
+-- Smart Auto-Sell Engine (Fast Crops & Pets) - Resilient & Self-Healing
+-- =========================================================================
+task.spawn(function()
+    while true do
+        task.wait(State.SellCheckDelay or 0.25)
+
+        local ok, err = pcall(function()
+            local autoSellCrops = isToggleActive(autoSellCropsToggle, State.AutoSellCrops, "💰 Auto Sell (Crops)")
+            local autoSellPets = isToggleActive(autoSellPetsToggle, State.AutoSellPets, "🐾 Auto Sell Pets")
+            local waitMax = isToggleActive(sellWaitMaxToggle, State.Sell_WaitMaxBackpack)
+
+            if not (autoSellCrops or autoSellPets) then
+                return
+            end
+
+            local allTools = getAllPlayerTools()
+            if #allTools == 0 then
+                return
+            end
+
+            local shouldRunSell = not waitMax or isBackpackFull()
+            if not shouldRunSell then
+                return
+            end
+
+            -- 1. Auto Sell Pets (Strict Whitelist + Batch Remote)
+            if autoSellPets then
+                local petRemote = getSellAllPetsRemote()
+                if petRemote then
+                    local petUUIDBatch = {}
+                    for _, tool in ipairs(allTools) do
+                        if tool.Parent and tool:IsA("Tool") and tool:GetAttribute("PET_UUID") then
+                            local petInfo = getPetToolInfo(tool)
+                            if shouldSellPetTool(petInfo) then
+                                table.insert(petUUIDBatch, petInfo.UUID)
+                                if #petUUIDBatch >= 30 then
+                                    pcall(function()
+                                        petRemote:FireServer(petUUIDBatch)
+                                    end)
+                                    petUUIDBatch = {}
+                                    task.wait(0.05)
+                                end
+                            end
+                        end
+                    end
+                    if #petUUIDBatch > 0 then
+                        pcall(function()
+                            petRemote:FireServer(petUUIDBatch)
+                        end)
+                        petUUIDBatch = {}
+                    end
+                end
+            end
+
+            -- 2. Auto Sell Crops
+            if autoSellCrops then
+                local sellInv = getSellInvRemote()
+                local sellItem = getSellItemRemote()
+
+                local hasExclusions = (getUIListVal(sellExcludeFruitListObj, "None") ~= "None")
+                    or (getUIListVal(sellExcludeCategoryListObj, "None") ~= "None")
+                    or (getUIListVal(sellExcludeVariantListObj, "None") ~= "None")
+                    or (getUIListVal(sellExcludeMutationListObj, "None") ~= "None")
+                    or ((State.Sell_Weight or 0) > 0)
+
+                if not hasExclusions then
+                    if sellInv then
+                        pcall(function()
+                            sellInv:FireServer()
+                        end)
+                    end
+                else
+                    local foundSellable = false
+                    for _, tool in ipairs(allTools) do
+                        if tool.Parent and tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
+                            local info = getCropToolInfo(tool)
+                            if shouldSellCropTool(info) then
+                                foundSellable = true
+                                if sellItem then
+                                    pcall(function()
+                                        sellItem:FireServer(tool)
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                    if foundSellable and sellInv then
+                        pcall(function()
+                            sellInv:FireServer()
+                        end)
+                    end
+                end
+            end
+        end)
+
+        if not ok and err then
+            task.wait(0.2)
         end
     end
 end)
@@ -1053,6 +1831,153 @@ task.spawn(function()
     end
 end)
 
+-- Forward declare Shop UI elements for Auto-Buy Engine
+local autoBuySelectedEggToggle, autoBuyAllEggsToggle, selectEggListObj
+local autoBuySelectedGearToggle, autoBuyAllGearsToggle, selectGearListObj
+local autoBuySelectedSeedToggle, autoBuyAllSeedsToggle, selectSeedShopListObj
+local autoBuySelectedCosmeticToggle, autoBuyAllCosmeticsToggle, selectCosmeticListObj
+
+-- =========================================================================
+-- Ultra-Fast / Instant Auto-Buy Engine (Eggs, Gears, Seeds, Cosmetics)
+-- =========================================================================
+local function getItemFromCatalog(catalog, selectedDisplayName)
+    if not selectedDisplayName or selectedDisplayName == "" or selectedDisplayName == "None" then
+        return catalog[1]
+    end
+    for _, item in ipairs(catalog) do
+        if item.Name == selectedDisplayName or item.ItemName == selectedDisplayName then
+            return item
+        end
+    end
+    local clean = selectedDisplayName:lower():gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("[%s%p]", "")
+    for _, item in ipairs(catalog) do
+        local cItem = item.ItemName:lower():gsub("[%s%p]", "")
+        if cItem == clean or cItem:find(clean, 1, true) or clean:find(cItem, 1, true) then
+            return item
+        end
+    end
+    return catalog[1]
+end
+
+local function executeInstantShopPurchases()
+    pcall(function()
+        local currentSheckles = getPlayerSheckles()
+
+        -- 1. Egg Shop
+        local buySelEgg = isToggleActive(autoBuySelectedEggToggle, State.AutoBuy_SelectedEgg, "Auto Buy Selected (Egg)")
+        local buyAllEgg = isToggleActive(autoBuyAllEggsToggle, State.AutoBuy_AllEggs, "Auto Buy ALL (Eggs)")
+
+        if (buySelEgg or buyAllEgg) and BuyPetEggRemote then
+            if buyAllEgg then
+                for _, item in ipairs(allAvailableEggs) do
+                    if currentSheckles >= item.Price then
+                        pcall(function() BuyPetEggRemote:FireServer(item.ItemName) end)
+                        currentSheckles = currentSheckles - item.Price
+                    end
+                end
+            elseif buySelEgg then
+                local selVal = tostring(getUIListVal(selectEggListObj, (allAvailableEggs[1] and allAvailableEggs[1].Name) or "None"))
+                local item = getItemFromCatalog(allAvailableEggs, selVal)
+                if item and currentSheckles >= item.Price then
+                    pcall(function() BuyPetEggRemote:FireServer(item.ItemName) end)
+                    currentSheckles = currentSheckles - item.Price
+                end
+            end
+        end
+
+        -- 2. Gear Shop
+        local buySelGear = isToggleActive(autoBuySelectedGearToggle, State.AutoBuy_SelectedGear, "Auto Buy Selected (Gear)")
+        local buyAllGear = isToggleActive(autoBuyAllGearsToggle, State.AutoBuy_AllGears, "Auto Buy ALL (Gear)")
+
+        if (buySelGear or buyAllGear) and BuyGearStockRemote then
+            if buyAllGear then
+                for _, item in ipairs(allAvailableGears) do
+                    if currentSheckles >= item.Price then
+                        pcall(function() BuyGearStockRemote:FireServer(item.ItemName) end)
+                        currentSheckles = currentSheckles - item.Price
+                    end
+                end
+            elseif buySelGear then
+                local selVal = tostring(getUIListVal(selectGearListObj, (allAvailableGears[1] and allAvailableGears[1].Name) or "None"))
+                local item = getItemFromCatalog(allAvailableGears, selVal)
+                if item and currentSheckles >= item.Price then
+                    pcall(function() BuyGearStockRemote:FireServer(item.ItemName) end)
+                    currentSheckles = currentSheckles - item.Price
+                end
+            end
+        end
+
+        -- 3. Seed Shop
+        local buySelSeed = isToggleActive(autoBuySelectedSeedToggle, State.AutoBuy_SelectedSeed, "Auto Buy Selected (Seeds)")
+        local buyAllSeed = isToggleActive(autoBuyAllSeedsToggle, State.AutoBuy_AllSeeds, "Auto Buy ALL (Seeds)")
+
+        if (buySelSeed or buyAllSeed) and BuySeedStockRemote then
+            if buyAllSeed then
+                for _, item in ipairs(allAvailableSeedShop) do
+                    if currentSheckles >= item.Price then
+                        pcall(function() BuySeedStockRemote:FireServer(item.RawKey or item.ItemName) end)
+                        currentSheckles = currentSheckles - item.Price
+                    end
+                end
+            elseif buySelSeed then
+                local selVal = tostring(getUIListVal(selectSeedShopListObj, (allAvailableSeedShop[1] and allAvailableSeedShop[1].Name) or "None"))
+                local item = getItemFromCatalog(allAvailableSeedShop, selVal)
+                if item and currentSheckles >= item.Price then
+                    pcall(function() BuySeedStockRemote:FireServer(item.RawKey or item.ItemName) end)
+                    currentSheckles = currentSheckles - item.Price
+                end
+            end
+        end
+
+        -- 4. Cosmetics Shop
+        local buySelCosmetic = isToggleActive(autoBuySelectedCosmeticToggle, State.AutoBuy_SelectedCosmetic, "Auto Buy Selected (Cosmetics)")
+        local buyAllCosmetic = isToggleActive(autoBuyAllCosmeticsToggle, State.AutoBuy_AllCosmetics, "Auto Buy ALL (Cosmetics)")
+
+        if (buySelCosmetic or buyAllCosmetic) then
+            if buyAllCosmetic then
+                for _, item in ipairs(allAvailableCosmetics) do
+                    if currentSheckles >= item.Price then
+                        if item.Type == "Crate" and BuyCosmeticCrateRemote then
+                            pcall(function() BuyCosmeticCrateRemote:FireServer(item.ItemName) end)
+                        elseif BuyCosmeticItemRemote then
+                            pcall(function() BuyCosmeticItemRemote:FireServer(item.ItemName) end)
+                        end
+                        currentSheckles = currentSheckles - item.Price
+                    end
+                end
+            elseif buySelCosmetic then
+                local selVal = tostring(getUIListVal(selectCosmeticListObj, (allAvailableCosmetics[1] and allAvailableCosmetics[1].Name) or "None"))
+                local item = getItemFromCatalog(allAvailableCosmetics, selVal)
+                if item and currentSheckles >= item.Price then
+                    if item.Type == "Crate" and BuyCosmeticCrateRemote then
+                        pcall(function() BuyCosmeticCrateRemote:FireServer(item.ItemName) end)
+                    elseif BuyCosmeticItemRemote then
+                        pcall(function() BuyCosmeticItemRemote:FireServer(item.ItemName) end)
+                    end
+                    currentSheckles = currentSheckles - item.Price
+                end
+            end
+        end
+    end)
+end
+
+task.spawn(function()
+    while true do
+        local isAnyShopActive = State.AutoBuy_SelectedEgg or State.AutoBuy_AllEggs
+            or State.AutoBuy_SelectedGear or State.AutoBuy_AllGears
+            or State.AutoBuy_SelectedSeed or State.AutoBuy_AllSeeds
+            or State.AutoBuy_SelectedCosmetic or State.AutoBuy_AllCosmetics
+
+        if isAnyShopActive then
+            local delay = math.clamp(tonumber(State.Shop_BuyDelay) or 0.01, 0.005, 1.0)
+            task.wait(delay)
+            executeInstantShopPurchases()
+        else
+            task.wait(0.15)
+        end
+    end
+end)
+
 -- =========================================================================
 -- UI Tabs & Control Layout
 -- =========================================================================
@@ -1066,6 +1991,9 @@ for _, name in ipairs(allAvailableMutations) do table.insert(mutationItems, {Nam
 local specificFruitItems = {}
 for _, name in ipairs(allAvailablePlants) do table.insert(specificFruitItems, {Name = name}) end
 
+local seedListItems = {}
+for _, name in ipairs(allAvailableSeeds) do table.insert(seedListItems, {Name = name}) end
+
 local categoryItems = {}
 for _, name in ipairs(allAvailableCategories) do table.insert(categoryItems, {Name = name}) end
 
@@ -1075,7 +2003,21 @@ for _, name in ipairs(allAvailablePets) do table.insert(petListItems, {Name = na
 local productListItems = {}
 for _, item in ipairs(allAvailableProducts) do table.insert(productListItems, {Name = item.Name}) end
 
+local eggListItems = {}
+for _, item in ipairs(allAvailableEggs) do table.insert(eggListItems, {Name = item.Name}) end
+
+local gearListItems = {}
+for _, item in ipairs(allAvailableGears) do table.insert(gearListItems, {Name = item.Name}) end
+
+local seedShopListItems = {}
+for _, item in ipairs(allAvailableSeedShop) do table.insert(seedShopListItems, {Name = item.Name}) end
+
+local cosmeticListItems = {}
+for _, item in ipairs(allAvailableCosmetics) do table.insert(cosmeticListItems, {Name = item.Name}) end
+
 local farmTab = Hub.createTabButton("Farm", "🌱 Auto Farm", "rbxassetid://10723407389", true)
+local petTab = Hub.createTabButton("Pets", "🐾 Pets", "rbxassetid://10723407389", false)
+local shopTab = Hub.createTabButton("Shop", "🛍️ Shop", "rbxassetid://10723407389", false)
 local tradeTab = Hub.createTabButton("Trade", "🔄 Trade Plaza", "rbxassetid://10723407389", false)
 local miscTab = Hub.createTabButton("Misc", "🔮 Misc", "rbxassetid://10723407389", false)
 local settingsTab = Hub.createTabButton("Settings", "⚙️ Settings", "rbxassetid://10723407392", false)
@@ -1529,21 +2471,24 @@ end)
 -- ==========================================
 Hub.CreateSection(farmTab, "📦 Collection")
 
-autoCollectAllToggle = Hub.CreateToggle(farmTab, "⚡ Auto Collect ALL (No Filter)", "Instantly vacuums EVERY fruit on the farm without applying any filters", false, function(v)
-    State.AutoCollectAll = (v ~= nil and v) or not State.AutoCollectAll
+autoCollectAllToggle = Hub.CreateToggle(farmTab, "⚡ Auto Collect ALL", "", false, function(v)
+    if type(v) == "boolean" then State.AutoCollectAll = v else State.AutoCollectAll = not State.AutoCollectAll end
 end)
 
-autoCollectFilteredToggle = Hub.CreateToggle(farmTab, "🌱 Auto Collect (Filtered)", "Collects fruits matching your selected filters (if none selected, does nothing)", false, function(v)
-    State.AutoCollectFiltered = (v ~= nil and v) or not State.AutoCollectFiltered
+instantCollectAllToggle = Hub.CreateToggle(farmTab, "⚡ Instant Collect ALL", "", false, function(v)
+    if type(v) == "boolean" then State.InstantCollectAll = v else State.InstantCollectAll = not State.InstantCollectAll end
 end)
 
-collectStopWhenFullToggle = Hub.CreateToggle(farmTab, "Stop When Backpack Full", "Halts collection automatically when your backpack reaches capacity", false, function(v)
-    State.Collect_StopWhenFull = (v ~= nil and v) or not State.Collect_StopWhenFull
+autoCollectFilteredToggle = Hub.CreateToggle(farmTab, "🌱 Auto Collect (Filtered)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoCollectFiltered = v else State.AutoCollectFiltered = not State.AutoCollectFiltered end
 end)
 
--- Collection Dropdowns
+collectStopWhenFullToggle = Hub.CreateToggle(farmTab, "Stop When Backpack Full", "", false, function(v)
+    if type(v) == "boolean" then State.Collect_StopWhenFull = v else State.Collect_StopWhenFull = not State.Collect_StopWhenFull end
+end)
+
 collectVariantListObj = Hub.CreateList(farmTab, "Collect: Target Variant", variantItems, 160, true)
-collectMutationListObj = Hub.CreateList(farmTab, "Collect: Target Mutation (Traits)", mutationItems, 220, true)
+collectMutationListObj = Hub.CreateList(farmTab, "Collect: Target Mutation", mutationItems, 220, true)
 collectFruitListObj = Hub.CreateList(farmTab, "Collect: Specific Fruit", specificFruitItems, 220, true)
 collectCategoryListObj = Hub.CreateList(farmTab, "Collect: Fruit Category", categoryItems, 180, true)
 
@@ -1558,19 +2503,50 @@ Hub.CreateTextBox(farmTab, "Collect: Weight Multiplier", "Enter weight threshold
 end)
 
 -- ==========================================
+-- Section: Auto Plant
+-- ==========================================
+Hub.CreateSection(farmTab, "🌱 Auto Plant")
+
+autoPlantToggle = Hub.CreateToggle(farmTab, "🌱 Auto Plant", "", false, function(v)
+    if type(v) == "boolean" then State.AutoPlant = v else State.AutoPlant = not State.AutoPlant end
+end)
+
+plantInOtherPlantsToggle = Hub.CreateToggle(farmTab, "🌱 Plant In Other Plants", "", false, function(v)
+    if type(v) == "boolean" then State.PlantInOtherPlants = v else State.PlantInOtherPlants = not State.PlantInOtherPlants end
+end)
+
+plantSeedListObj = Hub.CreateList(farmTab, "Select Seed", seedListItems, 220, true)
+
+plantPositionModeListObj = Hub.CreateList(farmTab, "Plant Position Mode", {
+    {Name = "Player Position"},
+    {Name = "Random Position"},
+    {Name = "Existing Plant"},
+    {Name = "Inside Other Plant"},
+    {Name = "In Mid-Air (Above Player)"},
+    {Name = "Out of Garden"},
+    {Name = "Anywhere (Free Spatial)"}
+}, 180, true)
+
+Hub.CreateTextBox(farmTab, "Plant Delay (0.01 - 1.0s)", "Enter planting delay (default: 0.05)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.Plant_Delay = math.clamp(num, 0.01, 1.0)
+    end
+end)
+
+-- ==========================================
 -- Section: Sell Crops
 -- ==========================================
 Hub.CreateSection(farmTab, "💰 Sell Crops")
 
-autoSellCropsToggle = Hub.CreateToggle(farmTab, "💰 Auto Sell (Crops)", "Automatically sells harvested crops from your inventory", false, function(v)
-    State.AutoSellCrops = (v ~= nil and v) or not State.AutoSellCrops
+autoSellCropsToggle = Hub.CreateToggle(farmTab, "💰 Auto Sell (Crops)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoSellCrops = v else State.AutoSellCrops = not State.AutoSellCrops end
 end)
 
-sellWaitMaxToggle = Hub.CreateToggle(farmTab, "Wait Until Max Backpack", "Only triggers auto-sell when backpack capacity is reached", false, function(v)
-    State.Sell_WaitMaxBackpack = (v ~= nil and v) or not State.Sell_WaitMaxBackpack
+sellWaitMaxToggle = Hub.CreateToggle(farmTab, "Wait Until Max Backpack", "", false, function(v)
+    if type(v) == "boolean" then State.Sell_WaitMaxBackpack = v else State.Sell_WaitMaxBackpack = not State.Sell_WaitMaxBackpack end
 end)
 
--- Crop Sell Exclusion Dropdowns
 sellExcludeVariantListObj = Hub.CreateList(farmTab, "Sell: Exclude Variant", variantItems, 160, true)
 sellExcludeMutationListObj = Hub.CreateList(farmTab, "Sell: Exclude Mutation", mutationItems, 220, true)
 sellExcludeFruitListObj = Hub.CreateList(farmTab, "Sell: Exclude Specific Fruit", specificFruitItems, 220, true)
@@ -1581,37 +2557,104 @@ sellWeightModeListObj = Hub.CreateList(farmTab, "Sell: Exclude Weight Mode", {
     {Name = "Lower"}
 }, 110, true)
 
-Hub.CreateTextBox(farmTab, "Sell: Exclude Weight Multiplier", "Enter weight threshold to exclude (0 = none)", function(text)
+Hub.CreateTextBox(farmTab, "Sell: Exclude Weight Multiplier", "Enter weight threshold (0 = none)", function(text)
     local num = tonumber(text)
     State.Sell_Weight = num or 0
 end)
 
-
-
 -- ==========================================
--- Section: Sell Pets
+-- Section: Pets Tab
 -- ==========================================
-Hub.CreateSection(farmTab, "🐾 Sell Pets")
+Hub.CreateSection(petTab, "🐾 Auto Sell Pets")
 
-autoSellPetsToggle = Hub.CreateToggle(farmTab, "🐾 Auto Sell Pets", "Automatically sells ONLY the selected pet species (protects all other pets)", false, function(v)
-    State.AutoSellPets = (v ~= nil and v) or not State.AutoSellPets
+autoSellPetsToggle = Hub.CreateToggle(petTab, "🐾 Auto Sell Pets", "", false, function(v)
+    if type(v) == "boolean" then State.AutoSellPets = v else State.AutoSellPets = not State.AutoSellPets end
 end)
 
--- 1. Whitelist: Target Pet to Sell (500+ dynamic self-updating pets)
-sellTargetPetListObj = Hub.CreateList(farmTab, "Pet: Select Pet to Sell", petListItems, 220, true)
+sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, true)
+sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, true)
+sellExcludePetMutationListObj = Hub.CreateList(petTab, "Pet: Exclude Mutation", mutationItems, 220, true)
 
--- 2. Exclusions for Pets
-sellExcludePetVariantListObj = Hub.CreateList(farmTab, "Pet: Exclude Variant", variantItems, 160, true)
-sellExcludePetMutationListObj = Hub.CreateList(farmTab, "Pet: Exclude Mutation", mutationItems, 220, true)
-
-sellExcludePetWeightModeListObj = Hub.CreateList(farmTab, "Pet: Exclude Weight Mode", {
+sellExcludePetWeightModeListObj = Hub.CreateList(petTab, "Pet: Exclude Weight Mode", {
     {Name = "Above"},
     {Name = "Lower"}
 }, 110, true)
 
-Hub.CreateTextBox(farmTab, "Pet: Exclude Weight (KG)", "Enter KG cutoff to exclude (0 = none)", function(text)
+Hub.CreateTextBox(petTab, "Pet: Exclude Weight (KG)", "Enter KG cutoff (0 = none)", function(text)
     local num = tonumber(text)
     State.Sell_ExcludePetWeight = num or 0
+end)
+
+-- ==========================================
+-- Section: Shop Tab (Eggs, Gears, Seeds, Cosmetics)
+-- ==========================================
+
+-- 1. 🥚 Egg Shop
+Hub.CreateSection(shopTab, "🥚 Egg Shop")
+
+autoBuySelectedEggToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Egg)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_SelectedEgg = v else State.AutoBuy_SelectedEgg = not State.AutoBuy_SelectedEgg end
+    if State.AutoBuy_SelectedEgg then task.spawn(executeInstantShopPurchases) end
+end)
+
+autoBuyAllEggsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Eggs)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_AllEggs = v else State.AutoBuy_AllEggs = not State.AutoBuy_AllEggs end
+    if State.AutoBuy_AllEggs then task.spawn(executeInstantShopPurchases) end
+end)
+
+selectEggListObj = Hub.CreateList(shopTab, "Select Egg", eggListItems, 220, true)
+
+-- 2. ⚙️ Gear Shop
+Hub.CreateSection(shopTab, "⚙️ Gear Shop")
+
+autoBuySelectedGearToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Gear)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_SelectedGear = v else State.AutoBuy_SelectedGear = not State.AutoBuy_SelectedGear end
+    if State.AutoBuy_SelectedGear then task.spawn(executeInstantShopPurchases) end
+end)
+
+autoBuyAllGearsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Gear)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_AllGears = v else State.AutoBuy_AllGears = not State.AutoBuy_AllGears end
+    if State.AutoBuy_AllGears then task.spawn(executeInstantShopPurchases) end
+end)
+
+selectGearListObj = Hub.CreateList(shopTab, "Select Gear", gearListItems, 220, true)
+
+-- 3. 🌱 Seed Shop
+Hub.CreateSection(shopTab, "🌱 Seed Shop")
+
+autoBuySelectedSeedToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Seeds)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_SelectedSeed = v else State.AutoBuy_SelectedSeed = not State.AutoBuy_SelectedSeed end
+    if State.AutoBuy_SelectedSeed then task.spawn(executeInstantShopPurchases) end
+end)
+
+autoBuyAllSeedsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Seeds)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_AllSeeds = v else State.AutoBuy_AllSeeds = not State.AutoBuy_AllSeeds end
+    if State.AutoBuy_AllSeeds then task.spawn(executeInstantShopPurchases) end
+end)
+
+selectSeedShopListObj = Hub.CreateList(shopTab, "Select Seed", seedShopListItems, 220, true)
+
+-- 4. 🎨 Cosmetics Shop
+Hub.CreateSection(shopTab, "🎨 Cosmetics Shop")
+
+autoBuySelectedCosmeticToggle = Hub.CreateToggle(shopTab, "Auto Buy Selected (Cosmetics)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_SelectedCosmetic = v else State.AutoBuy_SelectedCosmetic = not State.AutoBuy_SelectedCosmetic end
+    if State.AutoBuy_SelectedCosmetic then task.spawn(executeInstantShopPurchases) end
+end)
+
+autoBuyAllCosmeticsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Cosmetics)", "", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_AllCosmetics = v else State.AutoBuy_AllCosmetics = not State.AutoBuy_AllCosmetics end
+    if State.AutoBuy_AllCosmetics then task.spawn(executeInstantShopPurchases) end
+end)
+
+selectCosmeticListObj = Hub.CreateList(shopTab, "Select Cosmetic", cosmeticListItems, 220, true)
+
+-- 5. ⚙️ Auto Buy Speed Setting
+Hub.CreateTextBox(shopTab, "Auto Buy Delay (0.01 - 1.0s)", "Enter loop interval (default: 0.01)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.Shop_BuyDelay = math.clamp(num, 0.005, 1.0)
+    end
 end)
 
 -- ==========================================
@@ -1619,13 +2662,13 @@ end)
 -- ==========================================
 Hub.CreateSection(miscTab, "🌿 Visual Optimization")
 
-hidePlantsToggle = Hub.CreateToggle(miscTab, "🌾 Hide Plants", "Hides all plant models (stems, leaves, trunks) for maximum FPS and clean visibility", false, function(v)
-    State.HidePlants = (v ~= nil and v) or not State.HidePlants
+hidePlantsToggle = Hub.CreateToggle(miscTab, "🌾 Hide Plants", "", false, function(v)
+    if type(v) == "boolean" then State.HidePlants = v else State.HidePlants = not State.HidePlants end
     pcall(updatePlantVisibility)
 end)
 
-hideFruitsToggle = Hub.CreateToggle(miscTab, "🍎 Hide Fruits", "Hides all crop fruit models while keeping auto-harvesting 100% functional", false, function(v)
-    State.HideFruits = (v ~= nil and v) or not State.HideFruits
+hideFruitsToggle = Hub.CreateToggle(miscTab, "🍎 Hide Fruits", "", false, function(v)
+    if type(v) == "boolean" then State.HideFruits = v else State.HideFruits = not State.HideFruits end
     pcall(updateFruitVisibility)
 end)
 
@@ -1643,213 +2686,406 @@ local selectPaymentMethodListObj = Hub.CreateList(miscTab, "Select Payment Metho
     {Name = "Robux / Roblox Prompt"}
 }, 180, true)
 
--- Helper to find product details by name
+-- Helper to find product details by name (Exact & Fuzzy matching)
 local function findProductDetails(targetName)
     if not targetName or targetName == "" or targetName == "None" then
-        return allAvailableProducts[1]
+        return allAvailableProducts[1] or {Name = "Harvest All", Id = 931892840, Price = 450, Robux = 450, Type = "Gamepass"}
     end
     for _, item in ipairs(allAvailableProducts) do
         if item.Name == targetName or item.Name:lower() == targetName:lower() then
             return item
         end
     end
+    local cleanTarget = targetName:lower():gsub("[%s%p]", "")
+    for _, item in ipairs(allAvailableProducts) do
+        local cleanItem = item.Name:lower():gsub("[%s%p]", "")
+        if cleanItem == cleanTarget or cleanItem:find(cleanTarget, 1, true) or cleanTarget:find(cleanItem, 1, true) then
+            return item
+        end
+    end
     for _, p in ipairs(allAvailablePets) do
         if p == targetName or p:lower() == targetName:lower() then
-            return {Name = p, Id = 0, Price = 10, Type = "Pet"}
+            return {Name = p, Id = 0, Price = 10, Robux = 10, Type = "Pet"}
         end
     end
     for _, p in ipairs(allAvailablePlants) do
         if p == targetName or p:lower() == targetName:lower() then
-            return {Name = p, Id = 0, Price = 10, Type = "Seed"}
+            return {Name = p, Id = 0, Price = 10, Robux = 10, Type = "Seed"}
         end
     end
-    return {Name = targetName, Id = 0, Price = 10, Type = "Product"}
+    return {Name = targetName, Id = 0, Price = 50, Robux = 50, Type = "Product"}
+end
+
+-- Helper to find and click in-game shop buttons directly on PlayerGui
+local function triggerInGameShopButton(targetName)
+    local triggered = false
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pGui then return end
+        local cleanTarget = tostring(targetName):lower():gsub("[%s%p]", "")
+        for _, desc in ipairs(pGui:GetDescendants()) do
+            if desc:IsA("GuiButton") then
+                local bText = desc:IsA("TextButton") and desc.Text:lower():gsub("[%s%p]", "") or ""
+                local bName = desc.Name:lower():gsub("[%s%p]", "")
+                if bText:find(cleanTarget, 1, true) or bName:find(cleanTarget, 1, true) or cleanTarget:find(bName, 1, true) then
+                    pcall(function()
+                        if firesignal then
+                            firesignal(desc.MouseButton1Click)
+                            firesignal(desc.Activated)
+                        end
+                    end)
+                    pcall(function()
+                        if getconnections then
+                            for _, conn in ipairs(getconnections(desc.MouseButton1Click)) do
+                                if conn.Fire then conn:Fire() end
+                            end
+                            for _, conn in ipairs(getconnections(desc.Activated)) do
+                                if conn.Fire then conn:Fire() end
+                            end
+                        end
+                    end)
+                    triggered = true
+                end
+            end
+        end
+    end)
+    return triggered
 end
 
 -- 3. Fire Purchase Action
 Hub.CreateButton(miscTab, "🛒 Fire Purchase", function()
-    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "VIP Gamepass"
+    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "Harvest All"
     local chosenProductName = tostring(getUIListVal(selectProductListObj, defaultName))
     local chosenPaymentMethod = tostring(getUIListVal(selectPaymentMethodListObj, "Trade Tokens"))
     local prodObj = findProductDetails(chosenProductName)
 
     local prodName = prodObj.Name or chosenProductName
     local prodId = tonumber(prodObj.Id) or 0
-    local prodPrice = tonumber(prodObj.Price) or 10
+    local rawPrice = tonumber(prodObj.Price) or 0
+    local prodPrice = rawPrice > 0 and rawPrice or 25
+    local robuxPrice = tonumber(prodObj.Robux) or prodPrice
+    local itemType = tostring(prodObj.Type or "Product")
 
-    print(string.format("[Unknown Hub] Firing purchase for '%s' via %s...", prodName, chosenPaymentMethod))
+    print(string.format("[Unknown Hub] Initiating purchase for '%s' (ID: %d, Type: %s, Price: %d Tokens, Robux: %d) via %s...", prodName, prodId, itemType, prodPrice, robuxPrice, chosenPaymentMethod))
 
-    if chosenPaymentMethod:find("Token") then
-        local prompted = false
-
-        -- Method 1: Trading Plaza TradeBoothBuyItemController
+    -- Function to execute all server-side purchase remotes for this item
+    local function executeServerBuyRemotes(methodName)
         pcall(function()
+            local gameEvents = ReplicatedStorage:FindFirstChild("GameEvents")
+            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+            local events = ReplicatedStorage:FindFirstChild("Events")
+
+            -- Remote Candidates
+            local candidates = {
+                gameEvents and gameEvents:FindFirstChild("BuyItem"),
+                gameEvents and gameEvents:FindFirstChild("BuyGear"),
+                gameEvents and gameEvents:FindFirstChild("BuySeed"),
+                gameEvents and gameEvents:FindFirstChild("BuyEgg"),
+                gameEvents and gameEvents:FindFirstChild("BuyProduct"),
+                gameEvents and gameEvents:FindFirstChild("PurchaseItem"),
+                gameEvents and gameEvents:FindFirstChild("PurchaseProduct"),
+                gameEvents and gameEvents:FindFirstChild("Shop"),
+                remotes and remotes:FindFirstChild("BuyItem"),
+                remotes and remotes:FindFirstChild("BuyListing"),
+                remotes and remotes:FindFirstChild("PurchaseItem"),
+                remotes and remotes:FindFirstChild("ShopRemote"),
+                events and events:FindFirstChild("BuyItem")
+            }
+
+            for _, remote in ipairs(candidates) do
+                if remote then
+                    pcall(function()
+                        if remote:IsA("RemoteFunction") then
+                            remote:InvokeServer(tostring(prodName), prodPrice, methodName)
+                        elseif remote:IsA("RemoteEvent") then
+                            remote:FireServer(tostring(prodName), prodPrice, methodName)
+                        end
+                    end)
+                end
+            end
+
+            -- Plaza Booth Controller
             local modules = ReplicatedStorage:FindFirstChild("Modules")
             local tbc = modules and modules:FindFirstChild("TradeBoothControllers")
             if tbc and tbc:FindFirstChild("TradeBoothBuyItemController") then
-                local buyCtrl = require(tbc.TradeBoothBuyItemController)
-                local cardData = {
-                    listingOwner = "Server",
-                    listingUUID = tostring(prodName),
-                    listingPrice = prodPrice,
-                    Price = prodPrice,
-                    Name = prodName,
-                    ItemName = prodName,
-                    PetType = prodName,
-                    ItemType = prodObj.Type or "Product",
-                    type = prodObj.Type or "Product",
-                    id = tostring(prodId > 0 and prodId or prodName),
-                    data = {
-                        Name = prodName,
+                pcall(function()
+                    local buyCtrl = require(tbc.TradeBoothBuyItemController)
+                    local cardData = {
+                        listingOwner = "Server",
+                        listingUUID = tostring(prodName),
+                        listingPrice = prodPrice,
                         Price = prodPrice,
-                        Id = prodId
+                        Name = prodName,
+                        ItemName = prodName,
+                        ItemType = itemType,
+                        type = itemType,
+                        id = tostring(prodId > 0 and prodId or prodName),
+                        data = {Name = prodName, Price = prodPrice, Id = prodId}
                     }
-                }
-                buyCtrl.PromptBuyListing(cardData, cardData.data)
-                prompted = true
+                    buyCtrl.PromptBuyListing(cardData, cardData.data)
+                end)
+            end
+        end)
+    end
+
+    -- Trigger in-game GUI button if found
+    triggerInGameShopButton(prodName)
+
+    local guiParent = (gethui and gethui()) or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
+
+    if chosenPaymentMethod:find("Token") then
+        -- ==========================================
+        -- Token Payment Method
+        -- ==========================================
+        pcall(function()
+            if guiParent then
+                local existingPrompt = guiParent:FindFirstChild("Unknown_TokenBuyPrompt")
+                if existingPrompt then existingPrompt:Destroy() end
+
+                local sg = Instance.new("ScreenGui")
+                sg.Name = "Unknown_TokenBuyPrompt"
+                sg.ResetOnSpawn = false
+                sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+                sg.DisplayOrder = 999999999
+                sg.IgnoreGuiInset = true
+
+                local card = Instance.new("Frame")
+                card.Size = UDim2.new(0, 360, 0, 220)
+                card.Position = UDim2.new(0.5, -180, 0.5, -110)
+                card.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
+                card.BorderSizePixel = 0
+                card.ZIndex = 500
+                card.Parent = sg
+
+                local corner = Instance.new("UICorner")
+                corner.CornerRadius = UDim.new(0, 10)
+                corner.Parent = card
+
+                local stroke = Instance.new("UIStroke")
+                stroke.Color = Color3.fromRGB(0, 162, 255)
+                stroke.Thickness = 2
+                stroke.Parent = card
+
+                local title = Instance.new("TextLabel")
+                title.Size = UDim2.new(1, -20, 0, 30)
+                title.Position = UDim2.new(0, 10, 0, 10)
+                title.BackgroundTransparency = 1
+                title.Text = "🪙 Purchase with Trade Tokens"
+                title.TextColor3 = Color3.fromRGB(255, 215, 0)
+                title.Font = Enum.Font.GothamBold
+                title.TextSize = 14
+                title.ZIndex = 501
+                title.Parent = card
+
+                local desc = Instance.new("TextLabel")
+                desc.Size = UDim2.new(1, -20, 0, 60)
+                desc.Position = UDim2.new(0, 10, 0, 45)
+                desc.BackgroundTransparency = 1
+                desc.Text = string.format("Item: %s\nType: %s\nCost: %d Trade Tokens", prodName, itemType, prodPrice)
+                desc.TextColor3 = Color3.fromRGB(240, 245, 255)
+                desc.Font = Enum.Font.GothamMedium
+                desc.TextSize = 13
+                desc.TextWrapped = true
+                desc.ZIndex = 501
+                desc.Parent = card
+
+                local confirmBtn = Instance.new("TextButton")
+                confirmBtn.Size = UDim2.new(0.44, 0, 0, 36)
+                confirmBtn.Position = UDim2.new(0.04, 0, 1, -50)
+                confirmBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+                confirmBtn.Text = "Confirm Buy"
+                confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                confirmBtn.Font = Enum.Font.GothamBold
+                confirmBtn.TextSize = 12
+                confirmBtn.ZIndex = 502
+                confirmBtn.Parent = card
+
+                local cbCorner = Instance.new("UICorner")
+                cbCorner.CornerRadius = UDim.new(0, 6)
+                cbCorner.Parent = confirmBtn
+
+                local cancelBtn = Instance.new("TextButton")
+                cancelBtn.Size = UDim2.new(0.44, 0, 0, 36)
+                cancelBtn.Position = UDim2.new(0.52, 0, 1, -50)
+                cancelBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
+                cancelBtn.Text = "Cancel"
+                cancelBtn.TextColor3 = Color3.fromRGB(200, 210, 230)
+                cancelBtn.Font = Enum.Font.GothamBold
+                cancelBtn.TextSize = 12
+                cancelBtn.ZIndex = 502
+                cancelBtn.Parent = card
+
+                local cbcCorner = Instance.new("UICorner")
+                cbcCorner.CornerRadius = UDim.new(0, 6)
+                cbcCorner.Parent = cancelBtn
+
+                cancelBtn.MouseButton1Click:Connect(function()
+                    sg:Destroy()
+                end)
+
+                confirmBtn.MouseButton1Click:Connect(function()
+                    executeServerBuyRemotes("Tokens")
+                    triggerInGameShopButton(prodName)
+                    print(string.format("[Unknown Hub] Fired token buy remote for '%s' (%d Tokens)!", prodName, prodPrice))
+                    sg:Destroy()
+                end)
+
+                sg.Parent = guiParent
             end
         end)
 
-        -- Method 2: In-Game Token Confirmation Modal on PlayerGui
-        if not prompted then
-            pcall(function()
-                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-                if pGui then
-                    local existingPrompt = pGui:FindFirstChild("Unknown_TokenBuyPrompt")
-                    if existingPrompt then existingPrompt:Destroy() end
+        print(string.format("[Unknown Hub] In-Game Token Payment GUI opened for '%s' (%d Tokens)!", prodName, prodPrice))
+        pcall(function()
+            if Hub.Notify then
+                Hub.Notify({
+                    Title = "🪙 Token Purchase Prompt",
+                    Content = string.format("Opening Token Prompt for %s (%d Tokens)", prodName, prodPrice),
+                    Duration = 3
+                })
+            end
+        end)
+    else
+        -- ==========================================
+        -- Robux Payment Method
+        -- ==========================================
+        local MarketplaceService = game:GetService("MarketplaceService")
 
-                    local sg = Instance.new("ScreenGui")
-                    sg.Name = "Unknown_TokenBuyPrompt"
-                    sg.ResetOnSpawn = false
-                    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        -- 1. Try native Roblox Marketplace Prompt
+        pcall(function()
+            if prodId > 0 then
+                if itemType == "Gamepass" then
+                    MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
+                elseif itemType == "Bundle" then
+                    MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
+                elseif itemType == "Product" then
+                    MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
+                else
+                    MarketplaceService:PromptPurchase(LocalPlayer, prodId)
+                end
+            end
+        end)
 
-                    local card = Instance.new("Frame")
-                    card.Size = UDim2.new(0, 320, 0, 190)
-                    card.Position = UDim2.new(0.5, -160, 0.5, -95)
-                    card.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
-                    card.BorderSizePixel = 0
-                    card.Parent = sg
+        -- 2. Display dedicated on-screen Robux Purchase GUI
+        pcall(function()
+            if guiParent then
+                local existingPrompt = guiParent:FindFirstChild("Unknown_RobuxBuyPrompt")
+                if existingPrompt then existingPrompt:Destroy() end
 
-                    local corner = Instance.new("UICorner")
-                    corner.CornerRadius = UDim.new(0, 10)
-                    corner.Parent = card
+                local sg = Instance.new("ScreenGui")
+                sg.Name = "Unknown_RobuxBuyPrompt"
+                sg.ResetOnSpawn = false
+                sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+                sg.DisplayOrder = 999999999
+                sg.IgnoreGuiInset = true
 
-                    local stroke = Instance.new("UIStroke")
-                    stroke.Color = Color3.fromRGB(0, 162, 255)
-                    stroke.Thickness = 1.5
-                    stroke.Parent = card
+                local card = Instance.new("Frame")
+                card.Size = UDim2.new(0, 360, 0, 220)
+                card.Position = UDim2.new(0.5, -180, 0.5, -110)
+                card.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
+                card.BorderSizePixel = 0
+                card.ZIndex = 500
+                card.Parent = sg
 
-                    local title = Instance.new("TextLabel")
-                    title.Size = UDim2.new(1, -20, 0, 30)
-                    title.Position = UDim2.new(0, 10, 0, 10)
-                    title.BackgroundTransparency = 1
-                    title.Text = "🪙 Purchase with Trade Tokens"
-                    title.TextColor3 = Color3.fromRGB(255, 215, 0)
-                    title.Font = Enum.Font.GothamBold
-                    title.TextSize = 14
-                    title.Parent = card
+                local corner = Instance.new("UICorner")
+                corner.CornerRadius = UDim.new(0, 10)
+                corner.Parent = card
 
-                    local desc = Instance.new("TextLabel")
-                    desc.Size = UDim2.new(1, -20, 0, 45)
-                    desc.Position = UDim2.new(0, 10, 0, 45)
-                    desc.BackgroundTransparency = 1
-                    desc.Text = string.format("Item: %s\nPrice: %d Trade Tokens", prodName, prodPrice)
-                    desc.TextColor3 = Color3.fromRGB(240, 245, 255)
-                    desc.Font = Enum.Font.GothamMedium
-                    desc.TextSize = 13
-                    desc.TextWrapped = true
-                    desc.Parent = card
+                local stroke = Instance.new("UIStroke")
+                stroke.Color = Color3.fromRGB(46, 204, 113)
+                stroke.Thickness = 2
+                stroke.Parent = card
 
-                    local yesBtn = Instance.new("TextButton")
-                    yesBtn.Size = UDim2.new(0, 130, 0, 38)
-                    yesBtn.Position = UDim2.new(0, 20, 1, -50)
-                    yesBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 90)
-                    yesBtn.Text = "Confirm Buy"
-                    yesBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    yesBtn.Font = Enum.Font.GothamBold
-                    yesBtn.TextSize = 13
-                    yesBtn.Parent = card
-                    local yCorner = Instance.new("UICorner")
-                    yCorner.CornerRadius = UDim.new(0, 6)
-                    yCorner.Parent = yesBtn
+                local title = Instance.new("TextLabel")
+                title.Size = UDim2.new(1, -20, 0, 30)
+                title.Position = UDim2.new(0, 10, 0, 10)
+                title.BackgroundTransparency = 1
+                title.Text = "💎 Robux / Marketplace Purchase"
+                title.TextColor3 = Color3.fromRGB(46, 204, 113)
+                title.Font = Enum.Font.GothamBold
+                title.TextSize = 14
+                title.ZIndex = 501
+                title.Parent = card
 
-                    local noBtn = Instance.new("TextButton")
-                    noBtn.Size = UDim2.new(0, 130, 0, 38)
-                    noBtn.Position = UDim2.new(1, -150, 1, -50)
-                    noBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-                    noBtn.Text = "Cancel"
-                    noBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    noBtn.Font = Enum.Font.GothamBold
-                    noBtn.TextSize = 13
-                    noBtn.Parent = card
-                    local nCorner = Instance.new("UICorner")
-                    nCorner.CornerRadius = UDim.new(0, 6)
-                    nCorner.Parent = noBtn
+                local desc = Instance.new("TextLabel")
+                desc.Size = UDim2.new(1, -20, 0, 60)
+                desc.Position = UDim2.new(0, 10, 0, 45)
+                desc.BackgroundTransparency = 1
+                desc.Text = string.format("Item: %s\nType: %s\nAsset/Product ID: %s\nPrice: %d R$", prodName, itemType, (prodId > 0 and tostring(prodId) or "In-Game Store"), robuxPrice)
+                desc.TextColor3 = Color3.fromRGB(240, 245, 255)
+                desc.Font = Enum.Font.GothamMedium
+                desc.TextSize = 13
+                desc.TextWrapped = true
+                desc.ZIndex = 501
+                desc.Parent = card
 
-                    yesBtn.MouseButton1Click:Connect(function()
-                        print(string.format("[Unknown Hub] Token payment confirmed for %s!", prodName))
+                local promptBtn = Instance.new("TextButton")
+                promptBtn.Size = UDim2.new(0.44, 0, 0, 36)
+                promptBtn.Position = UDim2.new(0.04, 0, 1, -50)
+                promptBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+                promptBtn.Text = "Prompt Purchase"
+                promptBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                promptBtn.Font = Enum.Font.GothamBold
+                promptBtn.TextSize = 12
+                promptBtn.ZIndex = 502
+                promptBtn.Parent = card
+
+                local pbCorner = Instance.new("UICorner")
+                pbCorner.CornerRadius = UDim.new(0, 6)
+                pbCorner.Parent = promptBtn
+
+                local cancelBtn = Instance.new("TextButton")
+                cancelBtn.Size = UDim2.new(0.44, 0, 0, 36)
+                cancelBtn.Position = UDim2.new(0.52, 0, 1, -50)
+                cancelBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
+                cancelBtn.Text = "Cancel"
+                cancelBtn.TextColor3 = Color3.fromRGB(200, 210, 230)
+                cancelBtn.Font = Enum.Font.GothamBold
+                cancelBtn.TextSize = 12
+                cancelBtn.ZIndex = 502
+                cancelBtn.Parent = card
+
+                local cbcCorner = Instance.new("UICorner")
+                cbcCorner.CornerRadius = UDim.new(0, 6)
+                cbcCorner.Parent = cancelBtn
+
+                cancelBtn.MouseButton1Click:Connect(function()
+                    sg:Destroy()
+                end)
+
+                promptBtn.MouseButton1Click:Connect(function()
+                    if prodId > 0 then
                         pcall(function()
-                            local buyRemote = ReplicatedStorage:FindFirstChild("GameEvents")
-                                and ReplicatedStorage.GameEvents:FindFirstChild("TradeEvents")
-                                and ReplicatedStorage.GameEvents.TradeEvents:FindFirstChild("Booths")
-                                and ReplicatedStorage.GameEvents.TradeEvents.Booths:FindFirstChild("BuyListing")
-                            if buyRemote then
-                                buyRemote:InvokeServer(tostring(prodName), tostring(prodPrice))
+                            if itemType == "Gamepass" then
+                                MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
+                            elseif itemType == "Bundle" then
+                                MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
+                            elseif itemType == "Product" then
+                                MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
+                            else
+                                MarketplaceService:PromptPurchase(LocalPlayer, prodId)
                             end
                         end)
-                        sg:Destroy()
-                    end)
+                    end
+                    triggerInGameShopButton(prodName)
+                    executeServerBuyRemotes("Robux")
+                    print(string.format("[Unknown Hub] Fired Robux purchase prompt routine for '%s' (ID: %d)!", prodName, prodId))
+                    sg:Destroy()
+                end)
 
-                    noBtn.MouseButton1Click:Connect(function()
-                        sg:Destroy()
-                    end)
+                sg.Parent = guiParent
+            end
+        end)
 
-                    local targetParent = (gethui and gethui()) or pGui
-                    sg.Parent = targetParent
-                    prompted = true
-                end
-            end)
-        end
-
-        if prompted then
-            print(string.format("[Unknown Hub] In-Game Token Payment GUI opened for '%s' (%d Tokens)!", prodName, prodPrice))
-            pcall(function()
-                if Hub.Notify then
-                    Hub.Notify({
-                        Title = "Token Payment Prompt",
-                        Content = string.format("Paying %d Tokens for %s", prodPrice, prodName),
-                        Duration = 3
-                    })
-                end
-            end)
-        end
-    else
-        -- Robux / Official Marketplace Modal
-        if prodId > 0 then
-            pcall(function()
-                if prodObj.Type == "Gamepass" then
-                    MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
-                elseif prodObj.Type == "Bundle" then
-                    MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
-                else
-                    MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
-                end
-            end)
-            print(string.format("[Unknown Hub] Prompted Roblox Purchase Modal for %s (ID: %d)", prodName, prodId))
-            pcall(function()
-                if Hub.Notify then
-                    Hub.Notify({
-                        Title = "Roblox Purchase Prompt",
-                        Content = string.format("Prompting ID: %d (%s)", prodId, prodName),
-                        Duration = 3
-                    })
-                end
-            end)
-        else
-            pcall(function()
-                MarketplaceService:PromptPurchase(LocalPlayer, prodId)
-            end)
-        end
+        print(string.format("[Unknown Hub] Opened Robux Purchase Dialog for %s (ID: %d, Robux: %d)", prodName, prodId, robuxPrice))
+        pcall(function()
+            if Hub.Notify then
+                Hub.Notify({
+                    Title = "💎 Robux Purchase Prompt",
+                    Content = string.format("Opening Robux Prompt for %s", prodName),
+                    Duration = 3
+                })
+            end
+        end)
     end
 end)
 
