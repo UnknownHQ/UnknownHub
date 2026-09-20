@@ -197,49 +197,26 @@ local function getPlayerFarm()
     return farm or (Workspace:FindFirstChild("Farm") or Workspace)
 end
 
--- Dynamic list of plants currently growing in the player's garden
-local function buildPlantsInGardenCatalog()
-    local plantSet = {}
-    pcall(function()
-        local farm = getPlayerFarm()
-        if farm then
-            local imp = farm:FindFirstChild("Important")
-            local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
-            if plantsFolder then
-                for _, plant in ipairs(plantsFolder:GetChildren()) do
-                    if plant and plant.Name and plant.Name ~= "" then
-                        plantSet[plant.Name] = true
-                    end
-                end
-            end
+local function getPlantGrowthInfo(plant)
+    if not plant or not plant.Parent then return nil end
+    local maxAge = tonumber(plant:GetAttribute("MaxAge")) or 100
+    local currentParts = 0
+    for _, c in ipairs(plant:GetChildren()) do
+        local n = tonumber(c.Name)
+        if n and n > currentParts then
+            currentParts = n
         end
-        if next(plantSet) == nil then
-            local farmFolder = Workspace:FindFirstChild("Farm")
-            if farmFolder then
-                for _, plot in ipairs(farmFolder:GetChildren()) do
-                    local imp = plot:FindFirstChild("Important")
-                    local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
-                    if plantsFolder then
-                        for _, plant in ipairs(plantsFolder:GetChildren()) do
-                            if plant and plant.Name and plant.Name ~= "" then
-                                plantSet[plant.Name] = true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-    local sortedList = {"All Garden Plants"}
-    local temp = {}
-    for pName, _ in pairs(plantSet) do
-        table.insert(temp, pName)
     end
-    table.sort(temp)
-    for _, name in ipairs(temp) do
-        table.insert(sortedList, name)
-    end
-    return sortedList
+    local pct = math.clamp((currentParts / maxAge) * 100, 0, 100)
+    local isGrowing = pct < 100
+    local displayName = string.format("%s (%.2f%%)", plant.Name, pct)
+    return {
+        plant = plant,
+        name = plant.Name,
+        pct = pct,
+        isGrowing = isGrowing,
+        displayName = displayName
+    }
 end
 
 local function getMyGardenPlants()
@@ -271,6 +248,49 @@ local function getMyGardenPlants()
         end
     end)
     return plants
+end
+
+-- Dynamic list of plants currently growing in the player's garden (all plants)
+local function buildPlantsInGardenCatalog()
+    local plantSet = {}
+    pcall(function()
+        local plants = getMyGardenPlants()
+        for _, plant in ipairs(plants) do
+            if plant and plant.Name and plant.Name ~= "" then
+                plantSet[plant.Name] = true
+            end
+        end
+    end)
+    local sortedList = {"All Garden Plants"}
+    local temp = {}
+    for pName, _ in pairs(plantSet) do
+        table.insert(temp, pName)
+    end
+    table.sort(temp)
+    for _, name in ipairs(temp) do
+        table.insert(sortedList, name)
+    end
+    return sortedList
+end
+
+-- Dynamic list of ONLY GROWING plants in garden with real-time percentage
+local function buildGrowingPlantsInGardenCatalog()
+    local growingEntries = {}
+    pcall(function()
+        local plants = getMyGardenPlants()
+        for _, plant in ipairs(plants) do
+            local info = getPlantGrowthInfo(plant)
+            if info and info.isGrowing then
+                table.insert(growingEntries, info.displayName)
+            end
+        end
+    end)
+    local sortedList = {"All Growing Plants"}
+    table.sort(growingEntries)
+    for _, item in ipairs(growingEntries) do
+        table.insert(sortedList, item)
+    end
+    return sortedList
 end
 
 local function findWateringCanTool()
@@ -3942,7 +3962,18 @@ autoWateringToggle = Hub.CreateToggle(farmTab, "💧 Auto Watering", false, func
     if type(v) == "boolean" then State.AutoWatering = v else State.AutoWatering = not State.AutoWatering end
 end)
 
-wateringPlantListObj = Hub.CreateList(farmTab, "Watering: Target Plants (In Garden)", buildPlantsInGardenCatalog(), nil, false, true)
+wateringPlantListObj = Hub.CreateList(farmTab, "Watering: Target Plants (Growing Only)", buildGrowingPlantsInGardenCatalog(), nil, false, true)
+
+Hub.CreateButton(farmTab, "🔄 Refresh Growing Plants List", function()
+    if wateringPlantListObj then
+        local growingPlants = buildGrowingPlantsInGardenCatalog()
+        if wateringPlantListObj.Items then
+            for _, entry in ipairs(growingPlants) do
+                wateringPlantListObj.AddItem(entry)
+            end
+        end
+    end
+end)
 
 Hub.CreateInput(farmTab, "Watering Delay (s)", "0.5", "e.g. 0.5", function(text)
     local num = tonumber(text)
@@ -3954,32 +3985,34 @@ Hub.CreateSlider(farmTab, "Uses Per Delay", 1, 10, 3, " uses", function(val)
 end)
 
 Hub.CreateButton(farmTab, "⚡ Water One Selected Plant (1-Use)", function()
-    local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Garden Plants")
+    local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Growing Plants")
     local plants = getMyGardenPlants()
     for _, plant in ipairs(plants) do
+        local info = getPlantGrowthInfo(plant)
         local isMatch = false
         for _, sName in ipairs(selectedNames) do
-            if sName == "All Garden Plants" or sName == plant.Name then
+            if sName == "All Growing Plants" or sName == "All Garden Plants" or (info and sName == info.displayName) or sName == plant.Name then
                 isMatch = true
                 break
             end
         end
         if isMatch then
             executeWaterSinglePlant(plant, 1)
-            Hub.Notify({ Title = "Watering", Content = "Watered: " .. plant.Name, Duration = 2 })
+            Hub.Notify({ Title = "Watering", Content = "Watered: " .. (info and info.displayName or plant.Name), Duration = 2 })
             break
         end
     end
 end)
 
 Hub.CreateButton(farmTab, "⚡ Water All Garden Plants (1-Use)", function()
-    local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Garden Plants")
+    local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Growing Plants")
     local plants = getMyGardenPlants()
     local wateredCount = 0
     for _, plant in ipairs(plants) do
+        local info = getPlantGrowthInfo(plant)
         local isMatch = false
         for _, sName in ipairs(selectedNames) do
-            if sName == "All Garden Plants" or sName == plant.Name then
+            if sName == "All Growing Plants" or sName == "All Garden Plants" or (info and sName == info.displayName) or sName == plant.Name then
                 isMatch = true
                 break
             end
@@ -4754,13 +4787,22 @@ task.spawn(function()
         local uses = math.clamp(tonumber(State.Water_UsesPerDelay) or 3, 1, 20)
         if isToggleActive(autoWateringToggle, State.AutoWatering) then
             pcall(function()
-                local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Garden Plants")
+                local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Growing Plants")
                 local plants = getMyGardenPlants()
                 for _, plant in ipairs(plants) do
                     if not isToggleActive(autoWateringToggle, State.AutoWatering) then break end
+                    local info = getPlantGrowthInfo(plant)
                     local isMatch = false
                     for _, sName in ipairs(selectedNames) do
-                        if sName == "All Garden Plants" or sName == plant.Name then
+                        if sName == "All Growing Plants" or sName == "All Garden Plants" then
+                            if info and info.isGrowing then
+                                isMatch = true
+                                break
+                            end
+                        elseif info and sName == info.displayName then
+                            isMatch = true
+                            break
+                        elseif sName == plant.Name then
                             isMatch = true
                             break
                         end
@@ -4773,5 +4815,76 @@ task.spawn(function()
             end)
         end
         task.wait(delayTime)
+    end
+end)
+
+-- =========================================================================
+-- Dynamic Garden Listener & List Auto-Updater
+-- =========================================================================
+task.spawn(function()
+    local function hookPlantFolder(folder)
+        if not folder then return end
+        folder.ChildAdded:Connect(function(child)
+            task.wait(0.2)
+            pcall(function()
+                if reclaimerPlantListObj and reclaimerPlantListObj.AddItem then
+                    reclaimerPlantListObj.AddItem(child.Name)
+                end
+                if shovelPlantListObj and shovelPlantListObj.AddItem then
+                    shovelPlantListObj.AddItem(child.Name)
+                end
+                if wateringPlantListObj and wateringPlantListObj.AddItem then
+                    local info = getPlantGrowthInfo(child)
+                    if info and info.isGrowing then
+                        wateringPlantListObj.AddItem(info.displayName)
+                    else
+                        wateringPlantListObj.AddItem(child.Name)
+                    end
+                end
+            end)
+        end)
+    end
+
+    pcall(function()
+        local farm = getPlayerFarm()
+        if farm and farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Plants_Physical") then
+            hookPlantFolder(farm.Important.Plants_Physical)
+        end
+        local farmFolder = Workspace:FindFirstChild("Farm")
+        if farmFolder then
+            for _, plot in ipairs(farmFolder:GetChildren()) do
+                local imp = plot:FindFirstChild("Important")
+                local pPhys = imp and imp:FindFirstChild("Plants_Physical")
+                if pPhys then
+                    hookPlantFolder(pPhys)
+                end
+            end
+        end
+    end)
+
+    -- Background Periodic Refresh every 5 seconds for growth % progression
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        task.wait(5)
+        pcall(function()
+            if wateringPlantListObj and wateringPlantListObj.Items then
+                local growingPlants = buildGrowingPlantsInGardenCatalog()
+                for _, entry in ipairs(growingPlants) do
+                    wateringPlantListObj.AddItem(entry)
+                end
+            end
+            if reclaimerPlantListObj and reclaimerPlantListObj.Items then
+                local allPlants = buildPlantsInGardenCatalog()
+                for _, entry in ipairs(allPlants) do
+                    reclaimerPlantListObj.AddItem(entry)
+                end
+            end
+            if shovelPlantListObj and shovelPlantListObj.Items then
+                local allPlants = buildPlantsInGardenCatalog()
+                for _, entry in ipairs(allPlants) do
+                    shovelPlantListObj.AddItem(entry)
+                end
+            end
+        end)
     end
 end)
