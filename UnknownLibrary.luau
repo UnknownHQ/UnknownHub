@@ -3880,11 +3880,54 @@ return function(opts)
     footerDot.ZIndex = 17
     footerDot.Parent = footerBar
     applyCorner(footerDot, 3)
+    local detectedExecutorName = "Unknown"
+    pcall(function()
+        local getgenvFn = (type(getgenv) == "function" and getgenv) or function() return _G end
+        local genv = getgenvFn()
+        if type(identifyexecutor) == "function" then
+            local name, ver = identifyexecutor()
+            if name and tostring(name) ~= "" then
+                detectedExecutorName = tostring(name)
+                if ver and tostring(ver) ~= "" then
+                    detectedExecutorName = detectedExecutorName .. " " .. tostring(ver)
+                end
+            end
+        elseif genv and type(genv.identifyexecutor) == "function" then
+            local name, ver = genv.identifyexecutor()
+            if name and tostring(name) ~= "" then
+                detectedExecutorName = tostring(name)
+                if ver and tostring(ver) ~= "" then
+                    detectedExecutorName = detectedExecutorName .. " " .. tostring(ver)
+                end
+            end
+        elseif type(getexecutorname) == "function" then
+            local name = getexecutorname()
+            if name and tostring(name) ~= "" then
+                detectedExecutorName = tostring(name)
+            end
+        elseif genv and type(genv.getexecutorname) == "function" then
+            local name = genv.getexecutorname()
+            if name and tostring(name) ~= "" then
+                detectedExecutorName = tostring(name)
+            end
+        elseif genv and genv.KRNL_LOADED then
+            detectedExecutorName = "Krnl"
+        elseif genv and genv.syn then
+            detectedExecutorName = "Synapse X"
+        elseif genv and genv.fluxus then
+            detectedExecutorName = "Fluxus"
+        elseif genv and genv.is_sirhurt_closure then
+            detectedExecutorName = "Sirhurt"
+        end
+    end)
+    if detectedExecutorName == "Unknown" or detectedExecutorName == "" then
+        detectedExecutorName = "Real"
+    end
     local footerStatus = Instance.new("TextLabel")
     footerStatus.Size = UDim2.new(0.5, 0, 1, 0)
     footerStatus.Position = UDim2.new(0, 22, 0, 0)
     footerStatus.BackgroundTransparency = 1
-    footerStatus.Text = "Real 2.6.3  •  Unknown Hub"
+    footerStatus.Text = detectedExecutorName .. "  •  Unknown Hub"
     footerStatus.TextColor3 = Color3.fromRGB(120, 135, 160)
     footerStatus.Font = Enum.Font.GothamBold
     footerStatus.TextSize = 9
