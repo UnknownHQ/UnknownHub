@@ -273,6 +273,51 @@ local function getMyGardenPlants()
     return plants
 end
 
+local function findWateringCanTool()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local char = LocalPlayer.Character
+    local candidates = {}
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") then
+                table.insert(candidates, { tool = t, isEquipped = true })
+            end
+        end
+    end
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") then
+                table.insert(candidates, { tool = t, isEquipped = false })
+            end
+        end
+    end
+
+    -- Priority 1: Standard "Watering Can" (strictly not "Super")
+    for _, item in ipairs(candidates) do
+        local n = item.tool.Name:lower()
+        if n:find("watering can", 1, true) and not n:find("super", 1, true) then
+            return item.tool, item.isEquipped
+        end
+    end
+
+    -- Priority 2: Any tool containing "watering can" or "water"
+    for _, item in ipairs(candidates) do
+        local n = item.tool.Name:lower()
+        if n:find("watering can", 1, true) then
+            return item.tool, item.isEquipped
+        end
+    end
+
+    for _, item in ipairs(candidates) do
+        local n = item.tool.Name:lower()
+        if (n:find("can", 1, true) or n:find("water", 1, true)) and not n:find("seed", 1, true) and not n:find("sprinkler", 1, true) and not n:find("melon", 1, true) then
+            return item.tool, item.isEquipped
+        end
+    end
+
+    return nil, false
+end
+
 local function findToolByNameOrClass(keyword)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local char = LocalPlayer.Character
@@ -410,8 +455,8 @@ local function executeWaterSinglePlant(plantObj, repeatCount)
     pcall(function()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
         local waterFunction = ge and ge:FindFirstChild("WaterYourGardens")
-        local superWaterRemote = ge and ge:FindFirstChild("TrySuperWateringCan")
-        local waterTool = findToolByNameOrClass("water") or findToolByNameOrClass("can")
+        local waterRE = ge and ge:FindFirstChild("Water_RE")
+        local waterTool = findWateringCanTool()
 
         if waterTool then
             equipTool(waterTool)
@@ -421,6 +466,21 @@ local function executeWaterSinglePlant(plantObj, repeatCount)
         local targetPos = pPart and pPart.Position or Vector3.zero
 
         for i = 1, times do
+            -- 1. Direct Infinite Distance Server Remotes (Bypasses character distance limitations)
+            if waterRE and waterRE:IsA("RemoteEvent") then
+                waterRE:FireServer(plantObj, targetPos)
+                waterRE:FireServer(plantObj)
+            end
+
+            if waterFunction and waterFunction:IsA("RemoteFunction") then
+                pcall(function()
+                    waterFunction:InvokeServer(plantObj)
+                end)
+            elseif waterFunction and waterFunction:IsA("RemoteEvent") then
+                waterFunction:FireServer(plantObj, targetPos)
+            end
+
+            -- 2. Tool Activation & Internal Tool Remote Handler
             if waterTool and waterTool.Parent == LocalPlayer.Character then
                 waterTool:Activate()
                 local toolRemote = waterTool:FindFirstChildWhichIsA("RemoteEvent") or waterTool:FindFirstChildWhichIsA("RemoteFunction")
@@ -433,22 +493,13 @@ local function executeWaterSinglePlant(plantObj, repeatCount)
                 end
             end
 
-            if superWaterRemote then
-                superWaterRemote:FireServer(plantObj, targetPos)
-            end
-
-            if waterFunction and waterFunction:IsA("RemoteFunction") then
-                waterFunction:InvokeServer(plantObj)
-            elseif waterFunction and waterFunction:IsA("RemoteEvent") then
-                waterFunction:FireServer(plantObj)
-            end
-
+            -- 3. Proximity Prompt Fallback
             local prompt = plantObj:FindFirstChildWhichIsA("ProximityPrompt", true)
             if prompt and prompt.Enabled and prompt.ActionText:lower():find("water") then
                 if fireproximityprompt then fireproximityprompt(prompt) end
             end
 
-            if times > 1 then task.wait(0.05) end
+            if times > 1 then task.wait(0.04) end
         end
     end)
     return true
