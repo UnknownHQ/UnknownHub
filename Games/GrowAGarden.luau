@@ -171,6 +171,234 @@ end
 -- =========================================================================
 
 -- 1. Plants Catalog (660+ plants, dynamically self-updating)
+
+-- Dynamic list of plants currently growing in the player's garden
+local function buildPlantsInGardenCatalog()
+    local plantSet = {}
+    pcall(function()
+        local farm = getPlayerFarm()
+        if farm then
+            local imp = farm:FindFirstChild("Important")
+            local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
+            if plantsFolder then
+                for _, plant in ipairs(plantsFolder:GetChildren()) do
+                    if plant and plant.Name and plant.Name ~= "" then
+                        plantSet[plant.Name] = true
+                    end
+                end
+            end
+        end
+    end)
+    local sortedList = {"All Garden Plants"}
+    local temp = {}
+    for pName, _ in pairs(plantSet) do
+        table.insert(temp, pName)
+    end
+    table.sort(temp)
+    for _, name in ipairs(temp) do
+        table.insert(sortedList, name)
+    end
+    return sortedList
+end
+
+local function getMyGardenPlants()
+    local plants = {}
+    pcall(function()
+        local farm = getPlayerFarm()
+        if farm then
+            local imp = farm:FindFirstChild("Important")
+            local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
+            if plantsFolder then
+                for _, plant in ipairs(plantsFolder:GetChildren()) do
+                    table.insert(plants, plant)
+                end
+            end
+        end
+    end)
+    return plants
+end
+
+local function findToolByNameOrClass(keyword)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local char = LocalPlayer.Character
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") and t.Name:lower():find(keyword:lower(), 1, true) then
+                return t, true
+            end
+        end
+    end
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") and t.Name:lower():find(keyword:lower(), 1, true) then
+                return t, false
+            end
+        end
+    end
+    return nil, false
+end
+
+local function equipTool(tool)
+    if not tool or not tool.Parent then return false end
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum and tool.Parent ~= char then
+        hum:EquipTool(tool)
+        task.wait(0.05)
+    end
+    return tool.Parent == char
+end
+
+-- =========================================================================
+-- Reclaim Action
+-- =========================================================================
+local function executeReclaimSinglePlant(plantObj)
+    if not plantObj or not plantObj.Parent then return false end
+    local pName = plantObj.Name
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local reclaimRemote = ge and (ge:FindFirstChild("ReclaimPlant") or ge:FindFirstChild("Reclaim") or ge:FindFirstChild("PlantReclaim") or ge:FindFirstChild("ReclaimService"))
+        local uuid = plantObj:GetAttribute("PLANT_UUID") or plantObj:GetAttribute("UUID")
+
+        if reclaimRemote then
+            if reclaimRemote:IsA("RemoteEvent") then
+                reclaimRemote:FireServer(plantObj)
+                if uuid then reclaimRemote:FireServer(uuid) end
+            elseif reclaimRemote:IsA("RemoteFunction") then
+                reclaimRemote:InvokeServer(plantObj)
+            end
+        end
+
+        -- Tool based reclaim fallback (Reclaimer tool)
+        local reclaimerTool, isEquipped = findToolByNameOrClass("reclaim")
+        if reclaimerTool then
+            equipTool(reclaimerTool)
+            local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local pPart = plantObj:FindFirstChildWhichIsA("BasePart") or (plantObj:IsA("BasePart") and plantObj)
+            if pPart and root then
+                reclaimerTool:Activate()
+                local toolRemote = reclaimerTool:FindFirstChildWhichIsA("RemoteEvent") or reclaimerTool:FindFirstChildWhichIsA("RemoteFunction")
+                if toolRemote then
+                    if toolRemote:IsA("RemoteEvent") then
+                        toolRemote:FireServer(plantObj, pPart.Position)
+                    else
+                        toolRemote:InvokeServer(plantObj, pPart.Position)
+                    end
+                end
+            end
+        end
+
+        local prompt = plantObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.Enabled and prompt.ActionText:lower():find("reclaim") then
+            if fireproximityprompt then
+                fireproximityprompt(prompt)
+            end
+        end
+    end)
+    return true
+end
+
+-- =========================================================================
+-- Shovel Action
+-- =========================================================================
+local function executeShovelSinglePlant(plantObj)
+    if not plantObj or not plantObj.Parent then return false end
+    local pName = plantObj.Name
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local shovelRemote = ge and (ge:FindFirstChild("ShovelPlant") or ge:FindFirstChild("Shovel") or ge:FindFirstChild("ShovelAllPlants") or ge:FindFirstChild("DeletePlant") or ge:FindFirstChild("RemovePlant"))
+        local uuid = plantObj:GetAttribute("PLANT_UUID") or plantObj:GetAttribute("UUID")
+
+        if shovelRemote then
+            if shovelRemote:IsA("RemoteEvent") then
+                shovelRemote:FireServer(plantObj)
+                if uuid then shovelRemote:FireServer(uuid) end
+            elseif shovelRemote:IsA("RemoteFunction") then
+                shovelRemote:InvokeServer(plantObj)
+            end
+        end
+
+        -- Tool based shovel fallback (Golden Shovel / Standard Shovel)
+        local shovelTool = findToolByNameOrClass("shovel")
+        if shovelTool then
+            equipTool(shovelTool)
+            local pPart = plantObj:FindFirstChildWhichIsA("BasePart") or (plantObj:IsA("BasePart") and plantObj)
+            if pPart then
+                shovelTool:Activate()
+                local toolRemote = shovelTool:FindFirstChildWhichIsA("RemoteEvent") or shovelTool:FindFirstChildWhichIsA("RemoteFunction")
+                if toolRemote then
+                    if toolRemote:IsA("RemoteEvent") then
+                        toolRemote:FireServer(plantObj, pPart.Position)
+                    else
+                        toolRemote:InvokeServer(plantObj, pPart.Position)
+                    end
+                end
+            end
+        end
+
+        local prompt = plantObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.Enabled and (prompt.ActionText:lower():find("shovel") or prompt.ActionText:lower():find("remove") or prompt.ActionText:lower():find("dig")) then
+            if fireproximityprompt then
+                fireproximityprompt(prompt)
+            end
+        end
+    end)
+    return true
+end
+
+-- =========================================================================
+-- Water Action (with Watering Can)
+-- =========================================================================
+local function executeWaterSinglePlant(plantObj, repeatCount)
+    if not plantObj or not plantObj.Parent then return false end
+    local times = math.clamp(repeatCount or 1, 1, 20)
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local waterFunction = ge and ge:FindFirstChild("WaterYourGardens")
+        local superWaterRemote = ge and ge:FindFirstChild("TrySuperWateringCan")
+        local waterTool = findToolByNameOrClass("water") or findToolByNameOrClass("can")
+
+        if waterTool then
+            equipTool(waterTool)
+        end
+
+        local pPart = plantObj:FindFirstChildWhichIsA("BasePart") or (plantObj:IsA("BasePart") and plantObj)
+        local targetPos = pPart and pPart.Position or Vector3.zero
+
+        for i = 1, times do
+            if waterTool and waterTool.Parent == LocalPlayer.Character then
+                waterTool:Activate()
+                local toolRemote = waterTool:FindFirstChildWhichIsA("RemoteEvent") or waterTool:FindFirstChildWhichIsA("RemoteFunction")
+                if toolRemote then
+                    if toolRemote:IsA("RemoteEvent") then
+                        toolRemote:FireServer(plantObj, targetPos)
+                    else
+                        toolRemote:InvokeServer(plantObj, targetPos)
+                    end
+                end
+            end
+
+            if superWaterRemote then
+                superWaterRemote:FireServer(plantObj, targetPos)
+            end
+
+            if waterFunction and waterFunction:IsA("RemoteFunction") then
+                waterFunction:InvokeServer(plantObj)
+            elseif waterFunction and waterFunction:IsA("RemoteEvent") then
+                waterFunction:FireServer(plantObj)
+            end
+
+            local prompt = plantObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and prompt.Enabled and prompt.ActionText:lower():find("water") then
+                if fireproximityprompt then fireproximityprompt(prompt) end
+            end
+
+            if times > 1 then task.wait(0.05) end
+        end
+    end)
+    return true
+end
+
 local function buildDynamicPlantCatalog()
     local plantSet = {}
 
@@ -1013,6 +1241,19 @@ local State = {
 
     -- Planting
     AutoPlant = false,
+    AutoReclaimer = false,
+    Reclaim_SelectedPlants = {},
+    Reclaim_Delay = 0.5,
+
+    AutoShovel = false,
+    Shovel_SelectedPlants = {},
+    Shovel_Delay = 0.5,
+
+    AutoWatering = false,
+    Water_SelectedPlants = {},
+    Water_Delay = 0.5,
+    Water_UsesPerDelay = 3,
+
     PlantInOtherPlants = false,
     Plant_SelectedSeed = "All Seeds",
     Plant_PositionMode = "Player Position",
@@ -3495,6 +3736,156 @@ end)
 -- ==========================================
 -- Section: Auto Plant
 -- ==========================================
+
+-- ==========================================
+-- Section: Auto Reclaimer
+-- ==========================================
+Hub.CreateSection(farmTab, "🔄 Auto Reclaimer")
+
+local autoReclaimerToggle
+local reclaimerPlantListObj
+
+autoReclaimerToggle = Hub.CreateToggle(farmTab, "🔄 Auto Reclaimer", false, function(v)
+    if type(v) == "boolean" then State.AutoReclaimer = v else State.AutoReclaimer = not State.AutoReclaimer end
+end)
+
+reclaimerPlantListObj = Hub.CreateList(farmTab, "Reclaimer: Target Plants (In Garden)", buildPlantsInGardenCatalog(), nil, false, true)
+
+Hub.CreateButton(farmTab, "🔄 Refresh Garden Plants List", function()
+    if reclaimerPlantListObj then
+        local gardenPlants = buildPlantsInGardenCatalog()
+        if reclaimerPlantListObj.Items then
+            for _, entry in ipairs(gardenPlants) do
+                reclaimerPlantListObj.AddItem(entry)
+            end
+        end
+    end
+end)
+
+Hub.CreateInput(farmTab, "Reclaimer Delay (s)", "0.5", "e.g. 0.5", function(text)
+    local num = tonumber(text)
+    if num and num > 0 then State.Reclaim_Delay = num end
+end)
+
+Hub.CreateButton(farmTab, "⚡ Reclaim One Selected Plant", function()
+    local selectedNames = getUIListMultipleVals(reclaimerPlantListObj, "All Garden Plants")
+    local plants = getMyGardenPlants()
+    for _, plant in ipairs(plants) do
+        local isMatch = false
+        for _, sName in ipairs(selectedNames) do
+            if sName == "All Garden Plants" or sName == plant.Name then
+                isMatch = true
+                break
+            end
+        end
+        if isMatch then
+            executeReclaimSinglePlant(plant)
+            Hub.Notify({ Title = "Reclaimer", Content = "Reclaimed: " .. plant.Name, Duration = 2 })
+            break
+        end
+    end
+end)
+
+-- ==========================================
+-- Section: Auto Shovel
+-- ==========================================
+Hub.CreateSection(farmTab, "⛏️ Auto Shovel")
+
+local autoShovelToggle
+local shovelPlantListObj
+
+autoShovelToggle = Hub.CreateToggle(farmTab, "⛏️ Auto Shovel", false, function(v)
+    if type(v) == "boolean" then State.AutoShovel = v else State.AutoShovel = not State.AutoShovel end
+end)
+
+shovelPlantListObj = Hub.CreateList(farmTab, "Shovel: Target Plants (In Garden)", buildPlantsInGardenCatalog(), nil, false, true)
+
+Hub.CreateInput(farmTab, "Shovel Delay (s)", "0.5", "e.g. 0.5", function(text)
+    local num = tonumber(text)
+    if num and num > 0 then State.Shovel_Delay = num end
+end)
+
+Hub.CreateButton(farmTab, "⚡ Shovel One Selected Plant", function()
+    local selectedNames = getUIListMultipleVals(shovelPlantListObj, "All Garden Plants")
+    local plants = getMyGardenPlants()
+    for _, plant in ipairs(plants) do
+        local isMatch = false
+        for _, sName in ipairs(selectedNames) do
+            if sName == "All Garden Plants" or sName == plant.Name then
+                isMatch = true
+                break
+            end
+        end
+        if isMatch then
+            executeShovelSinglePlant(plant)
+            Hub.Notify({ Title = "Auto Shovel", Content = "Shoveled: " .. plant.Name, Duration = 2 })
+            break
+        end
+    end
+end)
+
+-- ==========================================
+-- Section: Auto Watering
+-- ==========================================
+Hub.CreateSection(farmTab, "💧 Auto Watering (Watering Can)")
+
+local autoWateringToggle
+local wateringPlantListObj
+
+autoWateringToggle = Hub.CreateToggle(farmTab, "💧 Auto Watering", false, function(v)
+    if type(v) == "boolean" then State.AutoWatering = v else State.AutoWatering = not State.AutoWatering end
+end)
+
+wateringPlantListObj = Hub.CreateList(farmTab, "Watering: Target Plants (In Garden)", buildPlantsInGardenCatalog(), nil, false, true)
+
+Hub.CreateInput(farmTab, "Watering Delay (s)", "0.5", "e.g. 0.5", function(text)
+    local num = tonumber(text)
+    if num and num > 0 then State.Water_Delay = num end
+end)
+
+Hub.CreateSlider(farmTab, "Uses Per Delay", 1, 10, 3, " uses", function(val)
+    State.Water_UsesPerDelay = val
+end)
+
+Hub.CreateButton(farmTab, "⚡ Water One Selected Plant (1-Use)", function()
+    local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Garden Plants")
+    local plants = getMyGardenPlants()
+    for _, plant in ipairs(plants) do
+        local isMatch = false
+        for _, sName in ipairs(selectedNames) do
+            if sName == "All Garden Plants" or sName == plant.Name then
+                isMatch = true
+                break
+            end
+        end
+        if isMatch then
+            executeWaterSinglePlant(plant, 1)
+            Hub.Notify({ Title = "Watering", Content = "Watered: " .. plant.Name, Duration = 2 })
+            break
+        end
+    end
+end)
+
+Hub.CreateButton(farmTab, "⚡ Water All Garden Plants (1-Use)", function()
+    local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Garden Plants")
+    local plants = getMyGardenPlants()
+    local wateredCount = 0
+    for _, plant in ipairs(plants) do
+        local isMatch = false
+        for _, sName in ipairs(selectedNames) do
+            if sName == "All Garden Plants" or sName == plant.Name then
+                isMatch = true
+                break
+            end
+        end
+        if isMatch then
+            executeWaterSinglePlant(plant, 1)
+            wateredCount = wateredCount + 1
+        end
+    end
+    Hub.Notify({ Title = "Watering", Content = "Watered " .. tostring(wateredCount) .. " plants!", Duration = 2 })
+end)
+
 Hub.CreateSection(farmTab, "🌱 Auto Plant")
 
 autoPlantToggle = Hub.CreateToggle(farmTab, "🌱 Auto Plant", false, function(v)
@@ -4183,3 +4574,98 @@ Hub.CreateList(settingsTab, "Max Backpack Threshold", {
 }, 140, true)
 
 print("[Unknown Hub] Grow a Garden (Auto Sell Pets & Complete Module) Loaded Successfully!")
+
+
+-- =========================================================================
+-- Auto Reclaimer Background Loop
+-- =========================================================================
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        local delayTime = math.max(tonumber(State.Reclaim_Delay) or 0.5, 0.05)
+        if isToggleActive(autoReclaimerToggle, State.AutoReclaimer) then
+            pcall(function()
+                local selectedNames = getUIListMultipleVals(reclaimerPlantListObj, "All Garden Plants")
+                local plants = getMyGardenPlants()
+                for _, plant in ipairs(plants) do
+                    if not isToggleActive(autoReclaimerToggle, State.AutoReclaimer) then break end
+                    local isMatch = false
+                    for _, sName in ipairs(selectedNames) do
+                        if sName == "All Garden Plants" or sName == plant.Name then
+                            isMatch = true
+                            break
+                        end
+                    end
+                    if isMatch then
+                        executeReclaimSinglePlant(plant)
+                        task.wait(delayTime)
+                    end
+                end
+            end)
+        end
+        task.wait(delayTime)
+    end
+end)
+
+-- =========================================================================
+-- Auto Shovel Background Loop
+-- =========================================================================
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        local delayTime = math.max(tonumber(State.Shovel_Delay) or 0.5, 0.05)
+        if isToggleActive(autoShovelToggle, State.AutoShovel) then
+            pcall(function()
+                local selectedNames = getUIListMultipleVals(shovelPlantListObj, "All Garden Plants")
+                local plants = getMyGardenPlants()
+                for _, plant in ipairs(plants) do
+                    if not isToggleActive(autoShovelToggle, State.AutoShovel) then break end
+                    local isMatch = false
+                    for _, sName in ipairs(selectedNames) do
+                        if sName == "All Garden Plants" or sName == plant.Name then
+                            isMatch = true
+                            break
+                        end
+                    end
+                    if isMatch then
+                        executeShovelSinglePlant(plant)
+                        task.wait(delayTime)
+                    end
+                end
+            end)
+        end
+        task.wait(delayTime)
+    end
+end)
+
+-- =========================================================================
+-- Auto Watering Background Loop
+-- =========================================================================
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        local delayTime = math.max(tonumber(State.Water_Delay) or 0.5, 0.05)
+        local uses = math.clamp(tonumber(State.Water_UsesPerDelay) or 3, 1, 20)
+        if isToggleActive(autoWateringToggle, State.AutoWatering) then
+            pcall(function()
+                local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Garden Plants")
+                local plants = getMyGardenPlants()
+                for _, plant in ipairs(plants) do
+                    if not isToggleActive(autoWateringToggle, State.AutoWatering) then break end
+                    local isMatch = false
+                    for _, sName in ipairs(selectedNames) do
+                        if sName == "All Garden Plants" or sName == plant.Name then
+                            isMatch = true
+                            break
+                        end
+                    end
+                    if isMatch then
+                        executeWaterSinglePlant(plant, uses)
+                        task.wait(delayTime)
+                    end
+                end
+            end)
+        end
+        task.wait(delayTime)
+    end
+end)
