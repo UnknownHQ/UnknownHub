@@ -293,6 +293,25 @@ local function buildGrowingPlantsInGardenCatalog()
     return sortedList
 end
 
+-- Helper to safely add an item to a Hub List without creating duplicates
+local function safeAddToList(listObj, newItem)
+    if not listObj or not newItem or newItem == "" then return end
+    if not listObj.AddItem then return end
+
+    local nameToAdd = type(newItem) == "table" and (newItem.Name or newItem[1] or tostring(newItem)) or tostring(newItem)
+    
+    if listObj.Items and type(listObj.Items) == "table" then
+        for _, existing in ipairs(listObj.Items) do
+            local existingName = type(existing) == "table" and (existing.Name or existing[1] or tostring(existing)) or tostring(existing)
+            if existingName == nameToAdd then
+                return
+            end
+        end
+    end
+
+    listObj.AddItem(newItem)
+end
+
 local function findWateringCanTool()
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local char = LocalPlayer.Character
@@ -3880,10 +3899,8 @@ reclaimerPlantListObj = Hub.CreateList(farmTab, "Reclaimer: Target Plants (In Ga
 Hub.CreateButton(farmTab, "🔄 Refresh Garden Plants List", function()
     if reclaimerPlantListObj then
         local gardenPlants = buildPlantsInGardenCatalog()
-        if reclaimerPlantListObj.Items then
-            for _, entry in ipairs(gardenPlants) do
-                reclaimerPlantListObj.AddItem(entry)
-            end
+        for _, entry in ipairs(gardenPlants) do
+            safeAddToList(reclaimerPlantListObj, entry)
         end
     end
 end)
@@ -3967,10 +3984,8 @@ wateringPlantListObj = Hub.CreateList(farmTab, "Watering: Target Plants (Growing
 Hub.CreateButton(farmTab, "🔄 Refresh Growing Plants List", function()
     if wateringPlantListObj then
         local growingPlants = buildGrowingPlantsInGardenCatalog()
-        if wateringPlantListObj.Items then
-            for _, entry in ipairs(growingPlants) do
-                wateringPlantListObj.AddItem(entry)
-            end
+        for _, entry in ipairs(growingPlants) do
+            safeAddToList(wateringPlantListObj, entry)
         end
     end
 end)
@@ -4827,18 +4842,18 @@ task.spawn(function()
         folder.ChildAdded:Connect(function(child)
             task.wait(0.2)
             pcall(function()
-                if reclaimerPlantListObj and reclaimerPlantListObj.AddItem then
-                    reclaimerPlantListObj.AddItem(child.Name)
+                if reclaimerPlantListObj then
+                    safeAddToList(reclaimerPlantListObj, child.Name)
                 end
-                if shovelPlantListObj and shovelPlantListObj.AddItem then
-                    shovelPlantListObj.AddItem(child.Name)
+                if shovelPlantListObj then
+                    safeAddToList(shovelPlantListObj, child.Name)
                 end
-                if wateringPlantListObj and wateringPlantListObj.AddItem then
+                if wateringPlantListObj then
                     local info = getPlantGrowthInfo(child)
                     if info and info.isGrowing then
-                        wateringPlantListObj.AddItem(info.displayName)
+                        safeAddToList(wateringPlantListObj, info.displayName)
                     else
-                        wateringPlantListObj.AddItem(child.Name)
+                        safeAddToList(wateringPlantListObj, child.Name)
                     end
                 end
             end)
@@ -4867,22 +4882,22 @@ task.spawn(function()
         if _G.GAG_SESSION ~= currentSession then break end
         task.wait(5)
         pcall(function()
-            if wateringPlantListObj and wateringPlantListObj.Items then
+            if wateringPlantListObj then
                 local growingPlants = buildGrowingPlantsInGardenCatalog()
                 for _, entry in ipairs(growingPlants) do
-                    wateringPlantListObj.AddItem(entry)
+                    safeAddToList(wateringPlantListObj, entry)
                 end
             end
-            if reclaimerPlantListObj and reclaimerPlantListObj.Items then
+            if reclaimerPlantListObj then
                 local allPlants = buildPlantsInGardenCatalog()
                 for _, entry in ipairs(allPlants) do
-                    reclaimerPlantListObj.AddItem(entry)
+                    safeAddToList(reclaimerPlantListObj, entry)
                 end
             end
-            if shovelPlantListObj and shovelPlantListObj.Items then
+            if shovelPlantListObj then
                 local allPlants = buildPlantsInGardenCatalog()
                 for _, entry in ipairs(allPlants) do
-                    shovelPlantListObj.AddItem(entry)
+                    safeAddToList(shovelPlantListObj, entry)
                 end
             end
         end)
