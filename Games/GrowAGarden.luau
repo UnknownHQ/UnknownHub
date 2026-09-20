@@ -172,6 +172,31 @@ end
 
 -- 1. Plants Catalog (660+ plants, dynamically self-updating)
 
+local function getPlayerFarm()
+    local farm = nil
+    pcall(function()
+        local getFarm = require(ReplicatedStorage.Modules.GetFarm)
+        farm = getFarm(LocalPlayer)
+    end)
+    if not farm then
+        local farmFolder = Workspace:FindFirstChild("Farm")
+        if farmFolder then
+            for _, plot in ipairs(farmFolder:GetChildren()) do
+                local imp = plot:FindFirstChild("Important")
+                local ownerVal = imp and imp:FindFirstChild("Data") and imp.Data:FindFirstChild("Owner")
+                if ownerVal and (tostring(ownerVal.Value) == LocalPlayer.Name or tostring(ownerVal.Value) == tostring(LocalPlayer.UserId)) then
+                    farm = plot
+                    break
+                end
+            end
+            if not farm then
+                farm = farmFolder:FindFirstChild("Farm") or farmFolder:GetChildren()[1]
+            end
+        end
+    end
+    return farm or (Workspace:FindFirstChild("Farm") or Workspace)
+end
+
 -- Dynamic list of plants currently growing in the player's garden
 local function buildPlantsInGardenCatalog()
     local plantSet = {}
@@ -184,6 +209,22 @@ local function buildPlantsInGardenCatalog()
                 for _, plant in ipairs(plantsFolder:GetChildren()) do
                     if plant and plant.Name and plant.Name ~= "" then
                         plantSet[plant.Name] = true
+                    end
+                end
+            end
+        end
+        if next(plantSet) == nil then
+            local farmFolder = Workspace:FindFirstChild("Farm")
+            if farmFolder then
+                for _, plot in ipairs(farmFolder:GetChildren()) do
+                    local imp = plot:FindFirstChild("Important")
+                    local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
+                    if plantsFolder then
+                        for _, plant in ipairs(plantsFolder:GetChildren()) do
+                            if plant and plant.Name and plant.Name ~= "" then
+                                plantSet[plant.Name] = true
+                            end
+                        end
                     end
                 end
             end
@@ -211,6 +252,20 @@ local function getMyGardenPlants()
             if plantsFolder then
                 for _, plant in ipairs(plantsFolder:GetChildren()) do
                     table.insert(plants, plant)
+                end
+            end
+        end
+        if #plants == 0 then
+            local farmFolder = Workspace:FindFirstChild("Farm")
+            if farmFolder then
+                for _, plot in ipairs(farmFolder:GetChildren()) do
+                    local imp = plot:FindFirstChild("Important")
+                    local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
+                    if plantsFolder then
+                        for _, plant in ipairs(plantsFolder:GetChildren()) do
+                            table.insert(plants, plant)
+                        end
+                    end
                 end
             end
         end
