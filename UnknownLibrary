@@ -3821,13 +3821,12 @@ return function(opts)
     end)
     local sidebar = Instance.new("ScrollingFrame")
     sidebar.Name = "Sidebar"
-    sidebar.Size = UDim2.new(0.26, 0, 1, -47)
+    sidebar.Size = UDim2.new(0, 52, 1, -69)
     sidebar.Position = UDim2.new(0, 0, 0, 47)
     sidebar.BackgroundColor3 = Color3.fromRGB(13, 16, 24)
     sidebar.BackgroundTransparency = 0.4
     sidebar.BorderSizePixel = 0
-    sidebar.ScrollBarThickness = 3
-    sidebar.ScrollBarImageColor3 = Color3.fromRGB(48, 58, 80)
+    sidebar.ScrollBarThickness = 0
     sidebar.AutomaticCanvasSize = Enum.AutomaticSize.Y
     sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
     sidebar.ZIndex = 10
@@ -3836,33 +3835,125 @@ return function(opts)
     local sidebarPadding = Instance.new("UIPadding")
     sidebarPadding.PaddingTop = UDim.new(0, 8)
     sidebarPadding.PaddingBottom = UDim.new(0, 8)
-    sidebarPadding.PaddingLeft = UDim.new(0, 8)
-    sidebarPadding.PaddingRight = UDim.new(0, 8)
+    sidebarPadding.PaddingLeft = UDim.new(0, 7)
+    sidebarPadding.PaddingRight = UDim.new(0, 7)
     sidebarPadding.Parent = sidebar
     local sidebarLayout = Instance.new("UIListLayout")
     sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     sidebarLayout.Padding = UDim.new(0, 6)
     sidebarLayout.Parent = sidebar
     local sidebarDivider = Instance.new("Frame")
-    sidebarDivider.Size = UDim2.new(0, 1, 1, -47)
-    sidebarDivider.Position = UDim2.new(0.26, 0, 0, 47)
-    sidebarDivider.BackgroundColor3 = Color3.fromRGB(32, 40, 58)
+    sidebarDivider.Size = UDim2.new(0, 1, 1, -69)
+    sidebarDivider.Position = UDim2.new(0, 52, 0, 47)
+    sidebarDivider.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
     sidebarDivider.BorderSizePixel = 0
     sidebarDivider.ZIndex = 11
     sidebarDivider.Parent = hubState.mainFrame
     local contentArea = Instance.new("Frame")
     contentArea.Name = "ContentArea"
-    contentArea.Size = UDim2.new(0.74, -1, 1, -47)
-    contentArea.Position = UDim2.new(0.26, 1, 0, 47)
+    contentArea.Size = UDim2.new(1, -53, 1, -69)
+    contentArea.Position = UDim2.new(0, 53, 0, 47)
     contentArea.BackgroundTransparency = 1
     contentArea.ZIndex = 10
     contentArea.Parent = hubState.mainFrame
+    local footerBar = Instance.new("Frame")
+    footerBar.Name = "FooterBar"
+    footerBar.Size = UDim2.new(1, 0, 0, 22)
+    footerBar.Position = UDim2.new(0, 0, 1, -22)
+    footerBar.BackgroundColor3 = Color3.fromRGB(11, 14, 20)
+    footerBar.BorderSizePixel = 0
+    footerBar.ZIndex = 15
+    footerBar.Parent = hubState.mainFrame
+    local footerDivider = Instance.new("Frame")
+    footerDivider.Size = UDim2.new(1, 0, 0, 1)
+    footerDivider.Position = UDim2.new(0, 0, 0, 0)
+    footerDivider.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+    footerDivider.BorderSizePixel = 0
+    footerDivider.ZIndex = 16
+    footerDivider.Parent = footerBar
+    local footerDot = Instance.new("Frame")
+    footerDot.Size = UDim2.new(0, 6, 0, 6)
+    footerDot.Position = UDim2.new(0, 10, 0.5, -3)
+    footerDot.BackgroundColor3 = Color3.fromRGB(50, 230, 140)
+    footerDot.BorderSizePixel = 0
+    footerDot.ZIndex = 17
+    footerDot.Parent = footerBar
+    applyCorner(footerDot, 3)
+    local footerStatus = Instance.new("TextLabel")
+    footerStatus.Size = UDim2.new(0.5, 0, 1, 0)
+    footerStatus.Position = UDim2.new(0, 22, 0, 0)
+    footerStatus.BackgroundTransparency = 1
+    footerStatus.Text = "Real 2.6.3  •  Unknown Hub"
+    footerStatus.TextColor3 = Color3.fromRGB(120, 135, 160)
+    footerStatus.Font = Enum.Font.GothamBold
+    footerStatus.TextSize = 9
+    footerStatus.TextXAlignment = Enum.TextXAlignment.Left
+    footerStatus.ZIndex = 17
+    footerStatus.Parent = footerBar
+    local footerHint = Instance.new("TextLabel")
+    footerHint.Size = UDim2.new(0.45, 0, 1, 0)
+    footerHint.Position = UDim2.new(0.55, -10, 0, 0)
+    footerHint.BackgroundTransparency = 1
+    footerHint.Text = "RightShift / Ctrl toggle"
+    footerHint.TextColor3 = Color3.fromRGB(90, 105, 125)
+    footerHint.Font = Enum.Font.GothamMedium
+    footerHint.TextSize = 9
+    footerHint.TextXAlignment = Enum.TextXAlignment.Right
+    footerHint.ZIndex = 17
+    footerHint.Parent = footerBar
+    local sidebarTooltip = Instance.new("Frame")
+    sidebarTooltip.Name = "SidebarTooltip"
+    sidebarTooltip.Size = UDim2.new(0, 0, 0, 26)
+    sidebarTooltip.AutomaticSize = Enum.AutomaticSize.X
+    sidebarTooltip.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+    sidebarTooltip.BorderSizePixel = 0
+    sidebarTooltip.ZIndex = 60
+    sidebarTooltip.Visible = false
+    sidebarTooltip.Parent = hubState.mainFrame
+    applyCorner(sidebarTooltip, 6)
+    applyStroke(sidebarTooltip, Color3.fromRGB(44, 56, 80), 1, 0.2)
+    local tooltipPad = Instance.new("UIPadding")
+    tooltipPad.PaddingLeft = UDim.new(0, 8)
+    tooltipPad.PaddingRight = UDim.new(0, 8)
+    tooltipPad.Parent = sidebarTooltip
+    local tooltipLabel = Instance.new("TextLabel")
+    tooltipLabel.Name = "TooltipLabel"
+    tooltipLabel.Size = UDim2.new(0, 0, 1, 0)
+    tooltipLabel.AutomaticSize = Enum.AutomaticSize.X
+    tooltipLabel.BackgroundTransparency = 1
+    tooltipLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
+    tooltipLabel.Font = Enum.Font.GothamBold
+    tooltipLabel.TextSize = 11
+    tooltipLabel.ZIndex = 61
+    tooltipLabel.Parent = sidebarTooltip
+    local function showSidebarTooltip(btn, text)
+        if not btn or not btn.Parent then return end
+        tooltipLabel.Text = tostring(text or "")
+        local yPos = btn.AbsolutePosition.Y - hubState.mainFrame.AbsolutePosition.Y + 5
+        sidebarTooltip.Position = UDim2.new(0, 58, 0, yPos)
+        sidebarTooltip.Visible = true
+    end
+    local function hideSidebarTooltip()
+        sidebarTooltip.Visible = false
+    end
     hubState.isWindowCollapsed = false
     hubState.uncollapsedWindowHeight = 390
+    function hubState.bindHeaderButton(btn, callback)
+        local debounce = false
+        local function trigger()
+            if debounce then return end
+            debounce = true
+            task.delay(0.18, function() debounce = false end)
+            pcall(callback)
+        end
+        hubState.trackConnection(btn.Activated:Connect(trigger))
+        hubState.trackConnection(btn.MouseButton1Click:Connect(trigger))
+    end
     local notifBtn = Instance.new("TextButton")
     notifBtn.Name = "NotificationBtn"
     notifBtn.Size = UDim2.new(0, 26, 0, 26)
-    notifBtn.Position = UDim2.new(1, -194, 0.5, -13)
+    notifBtn.Position = UDim2.new(1, -242, 0.5, -13)
     notifBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
     notifBtn.Text = "🔔"
     notifBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
@@ -3902,24 +3993,13 @@ return function(opts)
             BackgroundColor3 = Color3.fromRGB(24, 30, 44)
         }):Play()
     end)
-    function hubState.bindHeaderButton(btn, callback)
-        local debounce = false
-        local function trigger()
-            if debounce then return end
-            debounce = true
-            task.delay(0.18, function() debounce = false end)
-            pcall(callback)
-        end
-        hubState.trackConnection(btn.Activated:Connect(trigger))
-        hubState.trackConnection(btn.MouseButton1Click:Connect(trigger))
-    end
     hubState.bindHeaderButton(notifBtn, function()
         if hubState.openNotificationCenterModal then hubState.openNotificationCenterModal() end
     end)
     local announceBtn = Instance.new("TextButton")
     announceBtn.Name = "AnnounceBtn"
     announceBtn.Size = UDim2.new(0, 26, 0, 26)
-    announceBtn.Position = UDim2.new(1, -226, 0.5, -13)
+    announceBtn.Position = UDim2.new(1, -272, 0.5, -13)
     announceBtn.BackgroundColor3 = Color3.fromRGB(36, 26, 52)
     announceBtn.Text = "📢"
     announceBtn.TextColor3 = Color3.fromRGB(220, 160, 255)
@@ -3948,7 +4028,7 @@ return function(opts)
     local feedbackBtn = Instance.new("TextButton")
     feedbackBtn.Name = "FeedbackBtn"
     feedbackBtn.Size = UDim2.new(0, 26, 0, 26)
-    feedbackBtn.Position = UDim2.new(1, -162, 0.5, -13)
+    feedbackBtn.Position = UDim2.new(1, -212, 0.5, -13)
     feedbackBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
     feedbackBtn.Text = "🛠"
     feedbackBtn.TextColor3 = Color3.fromRGB(220, 230, 250)
@@ -3974,7 +4054,7 @@ return function(opts)
     local headerRepoBtn = Instance.new("TextButton")
     headerRepoBtn.Name = "HeaderRepoBtn"
     headerRepoBtn.Size = UDim2.new(0, 26, 0, 26)
-    headerRepoBtn.Position = UDim2.new(1, -130, 0.5, -13)
+    headerRepoBtn.Position = UDim2.new(1, -182, 0.5, -13)
     headerRepoBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
     headerRepoBtn.Text = "📜"
     headerRepoBtn.TextColor3 = Color3.fromRGB(220, 230, 250)
@@ -4010,7 +4090,7 @@ return function(opts)
     local headerFavBtn = Instance.new("TextButton")
     headerFavBtn.Name = "HeaderFavBtn"
     headerFavBtn.Size = UDim2.new(0, 26, 0, 26)
-    headerFavBtn.Position = UDim2.new(1, -98, 0.5, -13)
+    headerFavBtn.Position = UDim2.new(1, -152, 0.5, -13)
     headerFavBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
     headerFavBtn.Text = "⭐"
     headerFavBtn.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -4043,10 +4123,50 @@ return function(opts)
             hubState.setTabVisible("Favorites")
         end
     end)
+    local searchBtn = Instance.new("TextButton")
+    searchBtn.Name = "HeaderSearchBtn"
+    searchBtn.Size = UDim2.new(0, 26, 0, 26)
+    searchBtn.Position = UDim2.new(1, -122, 0.5, -13)
+    searchBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+    searchBtn.Text = "🔍"
+    searchBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
+    searchBtn.Font = Enum.Font.GothamBold
+    searchBtn.TextSize = 11
+    searchBtn.ZIndex = 30
+    searchBtn.Parent = header
+    applyCorner(searchBtn, 6)
+    applyStroke(searchBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
+    local themeBtn = Instance.new("TextButton")
+    themeBtn.Name = "ThemeBtn"
+    themeBtn.Size = UDim2.new(0, 26, 0, 26)
+    themeBtn.Position = UDim2.new(1, -92, 0.5, -13)
+    themeBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+    themeBtn.Text = "🎨"
+    themeBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
+    themeBtn.Font = Enum.Font.GothamBold
+    themeBtn.TextSize = 11
+    themeBtn.ZIndex = 30
+    themeBtn.Parent = header
+    applyCorner(themeBtn, 6)
+    applyStroke(themeBtn, Color3.fromRGB(45, 55, 80), 1, 0.4)
+    themeBtn.MouseEnter:Connect(function()
+        TweenService:Create(themeBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(34, 44, 66)
+        }):Play()
+    end)
+    themeBtn.MouseLeave:Connect(function()
+        TweenService:Create(themeBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        }):Play()
+    end)
+    hubState.bindHeaderButton(themeBtn, function()
+        if hubState.ensureConfigTab then pcall(hubState.ensureConfigTab) end
+        if hubState.setTabVisible then hubState.setTabVisible("Config") end
+    end)
     local minimizeBtn = Instance.new("TextButton")
     minimizeBtn.Name = "MinimizeBtn"
     minimizeBtn.Size = UDim2.new(0, 26, 0, 26)
-    minimizeBtn.Position = UDim2.new(1, -66, 0.5, -13)
+    minimizeBtn.Position = UDim2.new(1, -62, 0.5, -13)
     minimizeBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 52)
     minimizeBtn.Text = "-"
     minimizeBtn.TextColor3 = Color3.fromRGB(210, 220, 240)
@@ -4084,6 +4204,7 @@ return function(opts)
             sidebar.Visible = false
             sidebarDivider.Visible = false
             contentArea.Visible = false
+            if footerBar then footerBar.Visible = false end
             TweenService:Create(hubState.mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, 46)
             }):Play()
@@ -4096,6 +4217,7 @@ return function(opts)
             sidebar.Visible = true
             sidebarDivider.Visible = true
             contentArea.Visible = true
+            if footerBar then footerBar.Visible = true end
             if resizerGrip then resizerGrip.Visible = true end
             TweenService:Create(hubState.mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                 Size = UDim2.new(hubState.mainFrame.Size.X.Scale, hubState.mainFrame.Size.X.Offset, 0, hubState.uncollapsedWindowHeight)
@@ -4105,7 +4227,7 @@ return function(opts)
     local closeBtn = Instance.new("TextButton")
     closeBtn.Name = "CloseBtn"
     closeBtn.Size = UDim2.new(0, 26, 0, 26)
-    closeBtn.Position = UDim2.new(1, -34, 0.5, -13)
+    closeBtn.Position = UDim2.new(1, -32, 0.5, -13)
     closeBtn.BackgroundColor3 = Color3.fromRGB(225, 50, 65)
     closeBtn.Text = "X"
     closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -4120,6 +4242,68 @@ return function(opts)
             if opts.onClose then pcall(opts.onClose) end
             if hubState.screenGui then hubState.screenGui:Destroy() end
         end)
+    end)
+    local searchContainer = Instance.new("Frame")
+    searchContainer.Name = "HeaderSearchContainer"
+    searchContainer.Size = UDim2.new(0, 180, 0, 28)
+    searchContainer.Position = UDim2.new(1, -310, 0.5, -14)
+    searchContainer.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+    searchContainer.ZIndex = 35
+    searchContainer.Visible = false
+    searchContainer.Parent = header
+    applyCorner(searchContainer, 6)
+    local searchStroke = applyStroke(searchContainer, Color3.fromRGB(38, 48, 70), 1, 0.4)
+    local searchIcon = Instance.new("TextLabel")
+    searchIcon.Size = UDim2.new(0, 22, 1, 0)
+    searchIcon.Position = UDim2.new(0, 3, 0, 0)
+    searchIcon.BackgroundTransparency = 1
+    searchIcon.Text = "🔍"
+    searchIcon.TextColor3 = Color3.fromRGB(140, 150, 175)
+    searchIcon.Font = Enum.Font.GothamBold
+    searchIcon.TextSize = 10
+    searchIcon.ZIndex = 36
+    searchIcon.Parent = searchContainer
+    local clearSearchBtn = Instance.new("TextButton")
+    clearSearchBtn.Size = UDim2.new(0, 18, 0, 18)
+    clearSearchBtn.Position = UDim2.new(1, -22, 0.5, -9)
+    clearSearchBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+    clearSearchBtn.Text = "X"
+    clearSearchBtn.TextColor3 = Color3.fromRGB(180, 190, 210)
+    clearSearchBtn.Font = Enum.Font.GothamBold
+    clearSearchBtn.TextSize = 9
+    clearSearchBtn.Visible = false
+    clearSearchBtn.ZIndex = 37
+    clearSearchBtn.Parent = searchContainer
+    applyCorner(clearSearchBtn, 4)
+    hubState.searchBox = Instance.new("TextBox")
+    hubState.searchBox.Size = UDim2.new(1, -46, 1, 0)
+    hubState.searchBox.Position = UDim2.new(0, 24, 0, 0)
+    hubState.searchBox.BackgroundTransparency = 1
+    hubState.searchBox.PlaceholderText = "Search functions..."
+    hubState.searchBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
+    hubState.searchBox.Text = ""
+    hubState.searchBox.TextColor3 = Color3.fromRGB(240, 245, 255)
+    hubState.searchBox.Font = Enum.Font.GothamMedium
+    hubState.searchBox.TextSize = 11
+    hubState.searchBox.ClearTextOnFocus = false
+    hubState.searchBox.TextXAlignment = Enum.TextXAlignment.Left
+    hubState.searchBox.ZIndex = 36
+    hubState.searchBox.Parent = searchContainer
+    searchBtn.MouseEnter:Connect(function()
+        TweenService:Create(searchBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(34, 44, 66)
+        }):Play()
+    end)
+    searchBtn.MouseLeave:Connect(function()
+        TweenService:Create(searchBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        }):Play()
+    end)
+    hubState.bindHeaderButton(searchBtn, function()
+        searchContainer.Visible = not searchContainer.Visible
+        if searchContainer.Visible then
+            hubState.searchBox:CaptureFocus()
+        end
     end)
     function hubState.setTabVisible(tabName)
         hubState.currentActiveTabName = tabName
@@ -4147,6 +4331,16 @@ return function(opts)
                         Size = UDim2.new(0, 3, 0, 20)
                     }):Play()
                 end
+                local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
+                if icon and icon:IsA("ImageLabel") then
+                    TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        ImageColor3 = c1
+                    }):Play()
+                elseif icon and icon:IsA("TextLabel") then
+                    TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        TextColor3 = c1
+                    }):Play()
+                end
             else
                 if btn then
                     TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -4157,6 +4351,16 @@ return function(opts)
                         TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                             BackgroundTransparency = 1,
                             Size = UDim2.new(0, 3, 0, 10)
+                        }):Play()
+                    end
+                    local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
+                    if icon and icon:IsA("ImageLabel") then
+                        TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            ImageColor3 = Color3.fromRGB(160, 175, 200)
+                        }):Play()
+                    elseif icon and icon:IsA("TextLabel") then
+                        TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            TextColor3 = Color3.fromRGB(160, 175, 200)
                         }):Play()
                     end
                 end
@@ -4195,7 +4399,7 @@ return function(opts)
         page.Name = name
         page.Size = UDim2.new(1, 0, 1, 0)
         page.BackgroundTransparency = 1
-        page.ScrollBarThickness = 4
+        page.ScrollBarThickness = 3
         page.ScrollBarImageColor3 = Color3.fromRGB(56, 68, 92)
         page.AutomaticCanvasSize = Enum.AutomaticSize.Y
         page.CanvasSize = UDim2.new(0, 0, 0, 0)
@@ -4250,7 +4454,7 @@ return function(opts)
         if not existingBtn then
             local btn = Instance.new("TextButton")
             btn.Name = name
-            btn.Size = UDim2.new(1, 0, 0, 34)
+            btn.Size = UDim2.new(0, 36, 0, 36)
             btn.BackgroundColor3 = Color3.fromRGB(19, 23, 34)
             btn.Text = ""
             btn.AutoButtonColor = false
@@ -4262,7 +4466,8 @@ return function(opts)
                 btn.LayoutOrder = #hubState.tabButtons + 1
             end
             btn.Parent = sidebar
-            applyCorner(btn, 6)
+            applyCorner(btn, 8)
+            local btnStroke = applyStroke(btn, Color3.fromRGB(34, 42, 60), 1, 0.4)
             local indicator = Instance.new("Frame")
             indicator.Name = "ActiveIndicator"
             indicator.Size = UDim2.new(0, 3, 0, 12)
@@ -4273,31 +4478,73 @@ return function(opts)
             indicator.Parent = btn
             applyCorner(indicator, 2)
             hubState.registerThemeFrame(indicator)
-            local icon
-            local textOffset = 12
+            local glyphText = "✦"
+            local lowerName = name:lower()
+            if lowerName:find("main") or lowerName:find("home") then
+                glyphText = "🏠"
+            elseif lowerName:find("farm") or lowerName:find("garden") or lowerName:find("grow") then
+                glyphText = "🌾"
+            elseif lowerName:find("config") or lowerName:find("setting") then
+                glyphText = "⚙️"
+            elseif lowerName:find("universal") or lowerName:find("util") then
+                glyphText = "🌐"
+            elseif lowerName:find("combat") or lowerName:find("pvp") or lowerName:find("kill") or lowerName:find("attack") then
+                glyphText = "⚔️"
+            elseif lowerName:find("player") or lowerName:find("local") or lowerName:find("char") then
+                glyphText = "👤"
+            elseif lowerName:find("visual") or lowerName:find("esp") or lowerName:find("render") then
+                glyphText = "👁️"
+            elseif lowerName:find("teleport") or lowerName:find("tp") or lowerName:find("world") then
+                glyphText = "📍"
+            elseif lowerName:find("shop") or lowerName:find("buy") or lowerName:find("merchant") then
+                glyphText = "🛒"
+            elseif lowerName:find("quest") or lowerName:find("task") or lowerName:find("mission") then
+                glyphText = "📜"
+            elseif lowerName:find("stat") or lowerName:find("info") then
+                glyphText = "📊"
+            else
+                glyphText = name:sub(1, 2):upper()
+            end
             if iconAssetId then
-                icon = Instance.new("ImageLabel")
+                local icon = Instance.new("ImageLabel")
                 icon.Name = "TabIcon"
-                icon.Size = UDim2.new(0, 16, 0, 16)
-                icon.Position = UDim2.new(0, 8, 0.5, -8)
+                icon.Size = UDim2.new(0, 20, 0, 20)
+                icon.Position = UDim2.new(0.5, -10, 0.5, -10)
                 icon.BackgroundTransparency = 1
                 icon.Image = tostring(iconAssetId):find("rbxassetid://") and iconAssetId or ("rbxassetid://" .. tostring(iconAssetId))
-                icon.ImageColor3 = Color3.fromRGB(210, 220, 240)
+                icon.ImageColor3 = Color3.fromRGB(170, 185, 210)
                 icon.Parent = btn
-                textOffset = 30
+            else
+                local glyph = Instance.new("TextLabel")
+                glyph.Name = "TabGlyph"
+                glyph.Size = UDim2.new(1, 0, 1, 0)
+                glyph.BackgroundTransparency = 1
+                glyph.Text = glyphText
+                glyph.TextColor3 = Color3.fromRGB(170, 185, 210)
+                glyph.Font = Enum.Font.GothamBold
+                glyph.TextSize = 13
+                glyph.TextXAlignment = Enum.TextXAlignment.Center
+                glyph.TextYAlignment = Enum.TextYAlignment.Center
+                glyph.Parent = btn
             end
-            local lbl = Instance.new("TextLabel")
-            lbl.Size = UDim2.new(1, -(textOffset + 6), 1, 0)
-            lbl.Position = UDim2.new(0, textOffset, 0, 0)
-            lbl.BackgroundTransparency = 1
-            lbl.Text = text or name
-            lbl.TextColor3 = Color3.fromRGB(225, 232, 245)
-            lbl.Font = Enum.Font.GothamBold
-            lbl.TextSize = 12
-            lbl.TextTruncate = Enum.TextTruncate.AtEnd
-            lbl.TextXAlignment = Enum.TextXAlignment.Left
-            lbl.Parent = btn
+            btn.MouseEnter:Connect(function()
+                showSidebarTooltip(btn, text or name)
+                if hubState.currentActiveTabName ~= name then
+                    TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+                    }):Play()
+                end
+            end)
+            btn.MouseLeave:Connect(function()
+                hideSidebarTooltip()
+                if hubState.currentActiveTabName ~= name then
+                    TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundColor3 = Color3.fromRGB(19, 23, 34)
+                    }):Play()
+                end
+            end)
             btn.MouseButton1Click:Connect(function()
+                hideSidebarTooltip()
                 if hubState.searchBox and hubState.searchBox.Text ~= "" then
                     hubState.searchBox.Text = ""
                 end
@@ -4313,51 +4560,6 @@ return function(opts)
         end
         return page
     end
-    local searchContainer = Instance.new("Frame")
-    searchContainer.Name = "SidebarSearchContainer"
-    searchContainer.Size = UDim2.new(1, 0, 0, 32)
-    searchContainer.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
-    searchContainer.LayoutOrder = -100
-    searchContainer.ZIndex = 12
-    searchContainer.Parent = sidebar
-    applyCorner(searchContainer, 6)
-    local searchStroke = applyStroke(searchContainer, Color3.fromRGB(38, 48, 70), 1, 0.4)
-    local searchIcon = Instance.new("TextLabel")
-    searchIcon.Size = UDim2.new(0, 24, 1, 0)
-    searchIcon.Position = UDim2.new(0, 4, 0, 0)
-    searchIcon.BackgroundTransparency = 1
-    searchIcon.Text = "🔍"
-    searchIcon.TextColor3 = Color3.fromRGB(140, 150, 175)
-    searchIcon.Font = Enum.Font.GothamBold
-    searchIcon.TextSize = 11
-    searchIcon.ZIndex = 13
-    searchIcon.Parent = searchContainer
-    local clearSearchBtn = Instance.new("TextButton")
-    clearSearchBtn.Size = UDim2.new(0, 20, 0, 20)
-    clearSearchBtn.Position = UDim2.new(1, -24, 0.5, -10)
-    clearSearchBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
-    clearSearchBtn.Text = "X"
-    clearSearchBtn.TextColor3 = Color3.fromRGB(180, 190, 210)
-    clearSearchBtn.Font = Enum.Font.GothamBold
-    clearSearchBtn.TextSize = 10
-    clearSearchBtn.Visible = false
-    clearSearchBtn.ZIndex = 14
-    clearSearchBtn.Parent = searchContainer
-    applyCorner(clearSearchBtn, 4)
-    hubState.searchBox = Instance.new("TextBox")
-    hubState.searchBox.Size = UDim2.new(1, -52, 1, 0)
-    hubState.searchBox.Position = UDim2.new(0, 26, 0, 0)
-    hubState.searchBox.BackgroundTransparency = 1
-    hubState.searchBox.PlaceholderText = "Search functions..."
-    hubState.searchBox.PlaceholderColor3 = Color3.fromRGB(110, 120, 145)
-    hubState.searchBox.Text = ""
-    hubState.searchBox.TextColor3 = Color3.fromRGB(240, 245, 255)
-    hubState.searchBox.Font = Enum.Font.GothamMedium
-    hubState.searchBox.TextSize = 11
-    hubState.searchBox.ClearTextOnFocus = false
-    hubState.searchBox.TextXAlignment = Enum.TextXAlignment.Left
-    hubState.searchBox.ZIndex = 13
-    hubState.searchBox.Parent = searchContainer
     hubState.searchResultsPage = hubState.createPage("__SearchResults__")
         function hubState.renderSearchResults(query)
         for _, child in ipairs(hubState.searchResultsPage:GetChildren()) do
@@ -4738,6 +4940,17 @@ return function(opts)
         pcall(function() item.Parent = parent end)
         applyCorner(item, 7)
         local btnStroke = applyStroke(item, Color3.fromRGB(36, 46, 66), 1, 0)
+        local chevron = Instance.new("TextLabel")
+        chevron.Name = "Chevron"
+        chevron.Size = UDim2.new(0, 20, 1, 0)
+        chevron.Position = UDim2.new(1, -24, 0, 0)
+        chevron.BackgroundTransparency = 1
+        chevron.Text = "›"
+        chevron.TextColor3 = Color3.fromRGB(120, 135, 165)
+        chevron.Font = Enum.Font.GothamBold
+        chevron.TextSize = 16
+        chevron.TextXAlignment = Enum.TextXAlignment.Center
+        chevron.Parent = item
         local sheen = Instance.new("Frame")
         sheen.Name = "SheenRipple"
         sheen.Size = UDim2.new(0, 0, 1, 0)
@@ -5102,15 +5315,24 @@ return function(opts)
         label.TextTruncate = Enum.TextTruncate.AtEnd
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.Parent = frame
+        local badge = Instance.new("Frame")
+        badge.Name = "ValueBadge"
+        badge.Size = UDim2.new(0, 46, 0, 18)
+        badge.AnchorPoint = Vector2.new(1, 0)
+        badge.Position = UDim2.new(1, -14, 0, 7)
+        badge.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        badge.BorderSizePixel = 0
+        badge.Parent = frame
+        applyCorner(badge, 4)
+        applyStroke(badge, Color3.fromRGB(38, 48, 70), 1, 0)
         local valueLabel = Instance.new("TextLabel")
-        valueLabel.Size = UDim2.new(0.3, 0, 0, 20)
-        valueLabel.Position = UDim2.new(0.68, 0, 0, 6)
+        valueLabel.Size = UDim2.new(1, 0, 1, 0)
         valueLabel.BackgroundTransparency = 1
         valueLabel.TextColor3 = hubState.currentThemeColor
         valueLabel.Font = Enum.Font.GothamBold
-        valueLabel.TextSize = 11
-        valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-        valueLabel.Parent = frame
+        valueLabel.TextSize = 10
+        valueLabel.TextXAlignment = Enum.TextXAlignment.Center
+        valueLabel.Parent = badge
         hubState.registerThemeText(valueLabel)
         local track = Instance.new("TextButton")
         track.Size = UDim2.new(1, -28, 0, 8)
