@@ -205,10 +205,23 @@ local function buyAffordableUpgrades()
 
     -- Primary: Multi-World Mathematical Affordability Engine
     if UpgradesModule and InfMaths and playerUpgrades then
+        -- Track virtual balances across all currencies for the current cycle
+        local simBalances = {}
+        local function getSimBal(currName)
+            if simBalances[currName] == nil then
+                local raw = getPlayerBalance(currName)
+                if raw ~= nil then
+                    simBalances[currName] = InfMaths.new(raw)
+                else
+                    simBalances[currName] = false
+                end
+            end
+            return simBalances[currName]
+        end
+
         for id, data in pairs(UpgradesModule) do
             local numId = tonumber(id)
             if numId and type(data) == "table" then
-                -- Check failure backoff
                 local failInfo = failedAttempts[numId]
                 if not failInfo or (now - failInfo.time > 5) then
                     local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
@@ -226,20 +239,22 @@ local function buyAffordableUpgrades()
                                 end
 
                                 local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
-                                local rawBal = getPlayerBalance(currName)
+                                local currentSimBal = getSimBal(currName)
 
-                                if rawBal ~= nil then
-                                    local playerBal = InfMaths.new(rawBal)
-                                    -- Disallow buying 0-cost if balance is 0 and currency is not Points
-                                    local isZeroZero = (currName ~= "Points" and tostring(rawBal) == "0" and tostring(basePrice) == "0")
-                                    if not isZeroZero and playerBal >= price then
+                                if currentSimBal and currentSimBal ~= false then
+                                    local isZeroZero = (currName ~= "Points" and tostring(currentSimBal) == "0" and tostring(basePrice) == "0")
+                                    if not isZeroZero and currentSimBal >= price then
+                                        -- Deduct from local simulation to avoid over-purchasing within the same tick
+                                        pcall(function()
+                                            simBalances[currName] = simBalances[currName] - price
+                                        end)
+
                                         local prevLevel = curLevel
                                         pcall(function()
                                             BuyUpgRemote:FireServer(numId)
                                         end)
                                         boughtCount = boughtCount + 1
 
-                                        -- Check if purchase went through, else backoff
                                         task.delay(0.4, function()
                                             local updatedObj = playerUpgrades:FindFirstChild(tostring(numId))
                                             local newLevel = updatedObj and tonumber(updatedObj.Value) or 0
