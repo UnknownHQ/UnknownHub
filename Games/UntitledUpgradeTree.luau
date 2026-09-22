@@ -106,6 +106,59 @@ local function resolveVal(v)
     return v
 end
 
+local failedAttempts = {}
+
+local function isUpgradeUnlocked(data, playerData, playerUpgrades)
+    local rawUnlock = resolveVal(data.Unlock)
+    local rawHasUnlock = resolveVal(data.HasUnlock)
+
+    -- Currency unlock flags check
+    local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
+    if currName ~= "Points" and playerData then
+        local unlockFlag1 = playerData:FindFirstChild("Unlocked" .. currName)
+        if unlockFlag1 and unlockFlag1:IsA("BoolValue") and unlockFlag1.Value == false then
+            return false
+        end
+        local unlockFlag2 = playerData:FindFirstChild("Unlocked" .. currName .. "s")
+        if unlockFlag2 and unlockFlag2:IsA("BoolValue") and unlockFlag2.Value == false then
+            return false
+        end
+    end
+
+    -- Stat-based unlock requirement (e.g. Loop, Stage)
+    if type(rawUnlock) == "string" and playerData and playerData:FindFirstChild(rawUnlock) then
+        local statVal = tonumber(playerData[rawUnlock].Value) or 0
+        local reqVal = tonumber(rawHasUnlock) or 1
+        if statVal < reqVal then
+            return false
+        end
+        return true
+    end
+
+    local unlockNum = tonumber(rawUnlock)
+    local hasUnlockNum = tonumber(rawHasUnlock)
+
+    -- Parent upgrade requirement 1
+    if unlockNum and unlockNum > 0 and playerUpgrades then
+        local pObj = playerUpgrades:FindFirstChild(tostring(unlockNum))
+        local pLvl = pObj and tonumber(pObj.Value) or 0
+        if pLvl < 1 then
+            return false
+        end
+    end
+
+    -- Parent upgrade requirement 2
+    if hasUnlockNum and hasUnlockNum > 0 and hasUnlockNum ~= unlockNum and playerUpgrades then
+        local pObj = playerUpgrades:FindFirstChild(tostring(hasUnlockNum))
+        local pLvl = pObj and tonumber(pObj.Value) or 0
+        if pLvl < 1 then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function getPlayerBalance(currName)
     local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
     if playerData then
@@ -133,48 +186,60 @@ local function buyAffordableUpgrades()
     end
     if not BuyUpgRemote then return 0 end
 
+    local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
     local playerUpgrades = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Upgrades")
+
+    local boughtCount = 0
+    local now = tick()
 
     -- Primary: Multi-World Mathematical Affordability Engine
     if UpgradesModule and InfMaths and playerUpgrades then
-        local boughtCount = 0
         for id, data in pairs(UpgradesModule) do
             local numId = tonumber(id)
             if numId and type(data) == "table" then
-                local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
-                local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
-                local maxLevel = tonumber(resolveVal(data.Max)) or 1
+                -- Check failure backoff
+                local failInfo = failedAttempts[numId]
+                if not failInfo or (now - failInfo.time > 5) then
+                    local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
+                    local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
+                    local maxLevel = tonumber(resolveVal(data.Max)) or 1
 
-                if curLevel < maxLevel then
-                    local unlocked = true
-                    local unlockId = resolveVal(data.Unlock)
-                    if unlockId and tonumber(unlockId) and tonumber(unlockId) > 0 then
-                        local pUpg = playerUpgrades:FindFirstChild(tostring(unlockId))
-                        local pLvl = pUpg and tonumber(pUpg.Value) or 0
-                        local reqLvl = tonumber(resolveVal(data.HasUnlock)) or 1
-                        if pLvl < reqLvl then
-                            unlocked = false
-                        end
-                    end
+                    if curLevel < maxLevel then
+                        if isUpgradeUnlocked(data, playerData, playerUpgrades) then
+                            local basePrice = resolveVal(data.Price)
+                            if basePrice ~= nil then
+                                local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
+                                local price = InfMaths.new(basePrice)
+                                if curLevel > 0 and priceInc > 1 then
+                                    price = price * (priceInc ^ curLevel)
+                                end
 
-                    if unlocked then
-                        local basePrice = resolveVal(data.Price) or 0
-                        local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
-                        local price = InfMaths.new(basePrice)
-                        if curLevel > 0 and priceInc > 1 then
-                            price = price * (priceInc ^ curLevel)
-                        end
+                                local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
+                                local rawBal = getPlayerBalance(currName)
 
-                        local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
-                        local rawBal = getPlayerBalance(currName)
+                                if rawBal ~= nil then
+                                    local playerBal = InfMaths.new(rawBal)
+                                    -- Disallow buying 0-cost if balance is 0 and currency is not Points
+                                    local isZeroZero = (currName ~= "Points" and tostring(rawBal) == "0" and tostring(basePrice) == "0")
+                                    if not isZeroZero and playerBal >= price then
+                                        local prevLevel = curLevel
+                                        pcall(function()
+                                            BuyUpgRemote:FireServer(numId)
+                                        end)
+                                        boughtCount = boughtCount + 1
 
-                        if rawBal ~= nil then
-                            local playerBal = InfMaths.new(rawBal)
-                            if playerBal >= price then
-                                pcall(function()
-                                    BuyUpgRemote:FireServer(numId)
-                                end)
-                                boughtCount = boughtCount + 1
+                                        -- Check if purchase went through, else backoff
+                                        task.delay(0.4, function()
+                                            local updatedObj = playerUpgrades:FindFirstChild(tostring(numId))
+                                            local newLevel = updatedObj and tonumber(updatedObj.Value) or 0
+                                            if newLevel == prevLevel then
+                                                failedAttempts[numId] = { time = tick(), fails = ((failInfo and failInfo.fails or 0) + 1) }
+                                            else
+                                                failedAttempts[numId] = nil
+                                            end
+                                        end)
+                                    end
+                                end
                             end
                         end
                     end
@@ -187,17 +252,16 @@ local function buyAffordableUpgrades()
     -- Fallback: Physical Workspace Upgrades
     local wsUpgrades = Workspace:FindFirstChild("Upgrades")
     if wsUpgrades then
-        local count = 0
         for _, upg in ipairs(wsUpgrades:GetChildren()) do
             local upgId = tonumber(upg.Name)
             if upgId then
                 pcall(function()
                     BuyUpgRemote:FireServer(upgId)
                 end)
-                count = count + 1
+                boughtCount = boughtCount + 1
             end
         end
-        return count
+        return boughtCount
     end
 
     return 0
