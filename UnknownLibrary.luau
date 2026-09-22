@@ -3481,11 +3481,11 @@ return function(opts)
     headerDivider.Parent = header
         local titleGroup = Instance.new("Frame")
     titleGroup.Name = "TitleGroup"
-    titleGroup.Size = UDim2.new(1, -235, 1, 0)
+    titleGroup.Size = UDim2.new(1, -285, 1, 0)
     titleGroup.Position = UDim2.new(0, 14, 0, 0)
     titleGroup.BackgroundTransparency = 1
     titleGroup.ZIndex = 22
-    titleGroup.ClipsDescendants = false
+    titleGroup.ClipsDescendants = true
     titleGroup.Parent = header
     local titleLayout = Instance.new("UIListLayout")
     titleLayout.FillDirection = Enum.FillDirection.Horizontal
@@ -3807,6 +3807,7 @@ return function(opts)
     liveText.TextColor3 = Color3.fromRGB(170, 240, 200)
     liveText.Font = Enum.Font.GothamBold
     liveText.TextSize = 9
+    liveText.TextTruncate = Enum.TextTruncate.AtEnd
     liveText.TextXAlignment = Enum.TextXAlignment.Left
     liveText.ZIndex = 23
     liveText.Parent = livePill
@@ -4434,7 +4435,7 @@ return function(opts)
             end
         end
     end
-    function hubState.createPage(name)
+    function hubState.getOrCreatePage(name)
         for _, p in ipairs(hubState.tabPages) do
             if p.Name == name then return p end
         end
@@ -4465,7 +4466,7 @@ return function(opts)
     function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
         if name == "Favorites" or name == "Repository" or name == "⭐ Favorites" or name == "📦 Repository" then
             local pageName = (name == "Favorites" or name == "⭐ Favorites") and "Favorites" or "Repository"
-            local p = hubState.createPage(pageName)
+            local p = hubState.getOrCreatePage(pageName)
             if defaultVisible then
                 hubState.currentActiveTabName = pageName
                 task.defer(function() hubState.setTabVisible(pageName) end)
@@ -4486,7 +4487,7 @@ return function(opts)
             end
             return hubState.universalTabPage
         end
-        local page = hubState.createPage(name)
+        local page = hubState.getOrCreatePage(name)
         local existingBtn = nil
         for _, b in ipairs(hubState.tabButtons) do
             if b.Name == name then
@@ -4527,6 +4528,8 @@ return function(opts)
                 glyphText = "🏠"
             elseif lowerName:find("farm") or lowerName:find("garden") or lowerName:find("grow") then
                 glyphText = "🌾"
+            elseif lowerName:find("tree") or lowerName:find("upgrade") then
+                glyphText = "🌳"
             elseif lowerName:find("config") or lowerName:find("setting") then
                 glyphText = "⚙️"
             elseif lowerName:find("universal") or lowerName:find("util") then
@@ -4597,11 +4600,24 @@ return function(opts)
             if not hubState.tabButtons then hubState.tabButtons = {} end
             table.insert(hubState.tabButtons, btn)
         end
-        if defaultVisible then
+        local isFirst = defaultVisible
+        if isFirst == nil then
+            isFirst = (hubState.firstUserTabCreated ~= true and name ~= "Config" and name ~= "Universal")
+        end
+        if name ~= "Config" and name ~= "Universal" then
+            hubState.firstUserTabCreated = true
+        end
+        if isFirst then
             hubState.currentActiveTabName = name
             task.defer(function() hubState.setTabVisible(name) end)
         end
         return page
+    end
+    function hubState.createPage(name)
+        if name == "__SearchResults__" then
+            return hubState.getOrCreatePage(name)
+        end
+        return hubState.createTabButton(name, name, nil, nil)
     end
     hubState.searchResultsPage = hubState.createPage("__SearchResults__")
         function hubState.renderSearchResults(query)
@@ -8022,8 +8038,11 @@ return function(opts)
         GetItemFromList = hubState.GetItemFromList,
         createTabButton = hubState.createTabButton,
         CreateTabButton = hubState.createTabButton,
-        BringSelectedItem = hubState.BringSelectedItem,
+        createTab = hubState.createPage,
+        CreateTab = hubState.createPage,
         createPage = hubState.createPage,
+        CreatePage = hubState.createPage,
+        BringSelectedItem = hubState.BringSelectedItem,
         createSliderToggle = hubState.createToggle,
         createValueSlider = hubState.createSlider,
         addSectionDivider = function(parent)

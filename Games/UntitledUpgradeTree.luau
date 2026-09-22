@@ -1,7 +1,7 @@
 -- =========================================================================
 -- UNKNOWN HUB - UNTITLED UPGRADE TREE
 -- Game: Untitled Upgrade Tree
--- Features: Auto Upgrade (Auto Buy Buttons)
+-- Features: Multi-World Mathematical Auto Upgrade & Value Affordability Engine
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
@@ -76,17 +76,55 @@ end
 destroyOldGui()
 
 -- =========================================================================
--- Remotes & Upgrade Logic
+-- Game Upgrade Modules & Mathematical Engine
 -- =========================================================================
+local InfMaths = nil
+local UpgradesModule = nil
 local BuyUpgRemote = nil
+
 pcall(function()
+    local modules = ReplicatedStorage:FindFirstChild("Modules")
+    if modules then
+        if modules:FindFirstChild("InfMaths") then
+            InfMaths = require(modules.InfMaths)
+        end
+        if modules:FindFirstChild("Upgrades") then
+            UpgradesModule = require(modules.Upgrades)
+        end
+    end
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     if remotes and remotes:FindFirstChild("BuyUpg") then
         BuyUpgRemote = remotes.BuyUpg
     end
 end)
 
-local function buyAllAvailableUpgrades()
+local function resolveVal(v)
+    if type(v) == "function" then
+        local success, res = pcall(v)
+        return success and res or nil
+    end
+    return v
+end
+
+local function getPlayerBalance(currName)
+    local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+    if playerData then
+        local valObj = playerData:FindFirstChild(currName)
+        if valObj then
+            return valObj.Value
+        end
+    end
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        local valObj = leaderstats:FindFirstChild(currName)
+        if valObj then
+            return valObj.Value
+        end
+    end
+    return nil
+end
+
+local function buyAffordableUpgrades()
     if not BuyUpgRemote then
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
         if remotes and remotes:FindFirstChild("BuyUpg") then
@@ -95,20 +133,74 @@ local function buyAllAvailableUpgrades()
     end
     if not BuyUpgRemote then return 0 end
 
-    local wsUpgrades = Workspace:FindFirstChild("Upgrades")
-    if not wsUpgrades then return 0 end
+    local playerUpgrades = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Upgrades")
 
-    local count = 0
-    for _, upg in ipairs(wsUpgrades:GetChildren()) do
-        local upgId = tonumber(upg.Name)
-        if upgId then
-            pcall(function()
-                BuyUpgRemote:FireServer(upgId)
-            end)
-            count = count + 1
+    -- Primary: Multi-World Mathematical Affordability Engine
+    if UpgradesModule and InfMaths and playerUpgrades then
+        local boughtCount = 0
+        for id, data in pairs(UpgradesModule) do
+            local numId = tonumber(id)
+            if numId and type(data) == "table" then
+                local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
+                local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
+                local maxLevel = tonumber(resolveVal(data.Max)) or 1
+
+                if curLevel < maxLevel then
+                    local unlocked = true
+                    local unlockId = resolveVal(data.Unlock)
+                    if unlockId and tonumber(unlockId) and tonumber(unlockId) > 0 then
+                        local pUpg = playerUpgrades:FindFirstChild(tostring(unlockId))
+                        local pLvl = pUpg and tonumber(pUpg.Value) or 0
+                        local reqLvl = tonumber(resolveVal(data.HasUnlock)) or 1
+                        if pLvl < reqLvl then
+                            unlocked = false
+                        end
+                    end
+
+                    if unlocked then
+                        local basePrice = resolveVal(data.Price) or 0
+                        local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
+                        local price = InfMaths.new(basePrice)
+                        if curLevel > 0 and priceInc > 1 then
+                            price = price * (priceInc ^ curLevel)
+                        end
+
+                        local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
+                        local rawBal = getPlayerBalance(currName)
+
+                        if rawBal ~= nil then
+                            local playerBal = InfMaths.new(rawBal)
+                            if playerBal >= price then
+                                pcall(function()
+                                    BuyUpgRemote:FireServer(numId)
+                                end)
+                                boughtCount = boughtCount + 1
+                            end
+                        end
+                    end
+                end
+            end
         end
+        return boughtCount
     end
-    return count
+
+    -- Fallback: Physical Workspace Upgrades
+    local wsUpgrades = Workspace:FindFirstChild("Upgrades")
+    if wsUpgrades then
+        local count = 0
+        for _, upg in ipairs(wsUpgrades:GetChildren()) do
+            local upgId = tonumber(upg.Name)
+            if upgId then
+                pcall(function()
+                    BuyUpgRemote:FireServer(upgId)
+                end)
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    return 0
 end
 
 -- =========================================================================
@@ -116,7 +208,7 @@ end
 -- =========================================================================
 local State = {
     AutoUpgrade = false,
-    UpgradeInterval = 0.1
+    UpgradeInterval = 0.2
 }
 
 -- =========================================================================
@@ -147,29 +239,29 @@ Hub.CreateToggle(mainTab, "Auto Buy Upgrades", false, function(enabled)
     if enabled then
         task.spawn(function()
             while State.AutoUpgrade and _G.UUT_SESSION == currentSession do
-                buyAllAvailableUpgrades()
-                task.wait(State.UpgradeInterval or 0.1)
+                pcall(buyAffordableUpgrades)
+                task.wait(State.UpgradeInterval or 0.2)
             end
         end)
-        Hub.Notify({
+        Hub.SendNotification({
             Title = "Auto Upgrade",
-            Content = "Auto buying all tree upgrades...",
+            Content = "Auto buying all affordable tree upgrades...",
             Duration = 2
         })
     end
 end)
 
 -- Upgrade Speed / Delay Slider
-Hub.CreateSlider(mainTab, "Upgrade Delay", 0.05, 1.0, 0.1, "s", function(val)
+Hub.CreateSlider(mainTab, "Upgrade Delay", 0.05, 2.0, 0.2, "s", function(val)
     State.UpgradeInterval = val
 end)
 
 -- 1-Click Buy All Button
-Hub.CreateButton(mainTab, "Buy All Upgrades (1-Click)", function()
-    local bought = buyAllAvailableUpgrades()
-    Hub.Notify({
+Hub.CreateButton(mainTab, "Buy All Affordable (1-Click)", function()
+    local bought = buyAffordableUpgrades()
+    Hub.SendNotification({
         Title = "Upgrades",
-        Content = string.format("Fired buy for %d available upgrades!", bought),
+        Content = string.format("Fired buy for %d affordable upgrades!", bought),
         Duration = 2
     })
 end)
@@ -177,7 +269,7 @@ end)
 -- =========================================================================
 -- Startup Notification
 -- =========================================================================
-Hub.Notify({
+Hub.SendNotification({
     Title = "Unknown Hub",
     Content = "Untitled Upgrade Tree loaded!",
     Duration = 3
