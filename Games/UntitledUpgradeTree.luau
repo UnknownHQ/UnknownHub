@@ -149,10 +149,21 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
 
     -- Parent upgrade requirement 2
     if hasUnlockNum and hasUnlockNum > 0 and hasUnlockNum ~= unlockNum and playerUpgrades then
-        local pObj = playerUpgrades:FindFirstChild(tostring(hasUnlockNum))
-        local pLvl = pObj and tonumber(pObj.Value) or 0
-        if pLvl < 1 then
-            return false
+        if unlockNum and unlockNum > 0 then
+            -- When both Unlock and HasUnlock exist: HasUnlock == 1 denotes required level of parent (Unlock), not upgrade #1
+            if hasUnlockNum > 1 then
+                local pObj = playerUpgrades:FindFirstChild(tostring(hasUnlockNum))
+                local pLvl = pObj and tonumber(pObj.Value) or 0
+                if pLvl < 1 then
+                    return false
+                end
+            end
+        else
+            local pObj = playerUpgrades:FindFirstChild(tostring(hasUnlockNum))
+            local pLvl = pObj and tonumber(pObj.Value) or 0
+            if pLvl < 1 then
+                return false
+            end
         end
     end
 
