@@ -3753,6 +3753,7 @@ return function(opts)
     subTitleLabel.TextColor3 = Color3.fromRGB(130, 140, 165)
     subTitleLabel.Font = Enum.Font.GothamBold
     subTitleLabel.TextSize = 11
+    subTitleLabel.TextTruncate = Enum.TextTruncate.AtEnd
     subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
     subTitleLabel.LayoutOrder = 3
     subTitleLabel.ZIndex = 22
