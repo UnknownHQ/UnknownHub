@@ -4,7 +4,7 @@
 -- Features: Multi-World Mathematical Auto Upgrade & Value Affordability Engine
 -- =========================================================================
 
-local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
+local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
 local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
 local currentSession = tick()
