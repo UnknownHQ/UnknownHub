@@ -1,7 +1,7 @@
 -- =========================================================================
 -- UNKNOWN HUB - UNTITLED UPGRADE TREE
 -- Game: Untitled Upgrade Tree
--- Features: Multi-World Mathematical Auto Upgrade & Value Affordability Engine
+-- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -76,7 +76,7 @@ end
 destroyOldGui()
 
 -- =========================================================================
--- Game Upgrade Modules & Mathematical Engine
+-- Dynamic Universal Game Modules & Mathematical Engine
 -- =========================================================================
 local InfMaths = nil
 local UpgradesModule = nil
@@ -106,13 +106,39 @@ local function resolveVal(v)
     return v
 end
 
-local failedAttempts = {}
+-- Universal Dynamic Balance Resolver across all game folders & statistics
+local function getPlayerBalance(currName)
+    if not currName or currName == "" then return nil end
+    local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+    if playerData then
+        local valObj = playerData:FindFirstChild(currName)
+        if valObj then
+            return valObj.Value
+        end
+    end
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        local valObj = leaderstats:FindFirstChild(currName)
+        if valObj then
+            return valObj.Value
+        end
+    end
+    local dataFolder = LocalPlayer:FindFirstChild("Data")
+    if dataFolder then
+        local valObj = dataFolder:FindFirstChild(currName)
+        if valObj then
+            return valObj.Value
+        end
+    end
+    return nil
+end
 
+-- Universal Unlock Verification Engine
 local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     local rawUnlock = resolveVal(data.Unlock)
     local rawHasUnlock = resolveVal(data.HasUnlock)
 
-    -- Currency unlock flags check
+    -- Dynamic Currency & World Unlock Flags Check (if explicitly disabled)
     local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
     if currName ~= "Points" and playerData then
         local unlockFlag1 = playerData:FindFirstChild("Unlocked" .. currName)
@@ -125,7 +151,7 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
         end
     end
 
-    -- Stat-based unlock requirement (e.g. Loop, Stage)
+    -- Stat-based unlock requirement (e.g. Loop, Stage, or newly added player stats)
     if type(rawUnlock) == "string" and playerData and playerData:FindFirstChild(rawUnlock) then
         local statVal = tonumber(playerData[rawUnlock].Value) or 0
         local reqVal = tonumber(rawHasUnlock) or 1
@@ -138,7 +164,7 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     local unlockNum = tonumber(rawUnlock)
     local hasUnlockNum = tonumber(rawHasUnlock)
 
-    -- Parent upgrade requirement 1
+    -- Parent Upgrade Requirement 1
     if unlockNum and unlockNum > 0 and playerUpgrades then
         local pObj = playerUpgrades:FindFirstChild(tostring(unlockNum))
         local pLvl = pObj and tonumber(pObj.Value) or 0
@@ -147,10 +173,10 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
         end
     end
 
-    -- Parent upgrade requirement 2
+    -- Parent Upgrade Requirement 2
     if hasUnlockNum and hasUnlockNum > 0 and hasUnlockNum ~= unlockNum and playerUpgrades then
         if unlockNum and unlockNum > 0 then
-            -- When both Unlock and HasUnlock exist: HasUnlock == 1 denotes required level of parent (Unlock), not upgrade #1
+            -- HasUnlock == 1 denotes required level of parent node (Unlock)
             if hasUnlockNum > 1 then
                 local pObj = playerUpgrades:FindFirstChild(tostring(hasUnlockNum))
                 local pLvl = pObj and tonumber(pObj.Value) or 0
@@ -170,24 +196,7 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     return true
 end
 
-local function getPlayerBalance(currName)
-    local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
-    if playerData then
-        local valObj = playerData:FindFirstChild(currName)
-        if valObj then
-            return valObj.Value
-        end
-    end
-    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-    if leaderstats then
-        local valObj = leaderstats:FindFirstChild(currName)
-        if valObj then
-            return valObj.Value
-        end
-    end
-    return nil
-end
-
+-- Universal Real-Time Upgrade Execution Engine
 local function buyAffordableUpgrades()
     if not BuyUpgRemote then
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
@@ -197,28 +206,31 @@ local function buyAffordableUpgrades()
     end
     if not BuyUpgRemote then return 0 end
 
+    -- Dynamically re-require Upgrades module if available to pick up new dev updates instantly
+    if not UpgradesModule then
+        pcall(function()
+            local modules = ReplicatedStorage:FindFirstChild("Modules")
+            if modules and modules:FindFirstChild("Upgrades") then
+                UpgradesModule = require(modules.Upgrades)
+            end
+        end)
+    end
+    if not InfMaths then
+        pcall(function()
+            local modules = ReplicatedStorage:FindFirstChild("Modules")
+            if modules and modules:FindFirstChild("InfMaths") then
+                InfMaths = require(modules.InfMaths)
+            end
+        end)
+    end
+
     local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
     local playerUpgrades = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Upgrades")
 
     local boughtCount = 0
-    local now = tick()
 
-    -- Primary: Multi-World Mathematical Affordability Engine
+    -- 1. Primary: Dynamic Multi-World Mathematical Affordability Engine
     if UpgradesModule and InfMaths and playerUpgrades then
-        -- Track virtual balances across all currencies for the current cycle
-        local simBalances = {}
-        local function getSimBal(currName)
-            if simBalances[currName] == nil then
-                local raw = getPlayerBalance(currName)
-                if raw ~= nil then
-                    simBalances[currName] = InfMaths.new(raw)
-                else
-                    simBalances[currName] = false
-                end
-            end
-            return simBalances[currName]
-        end
-
         for id, data in pairs(UpgradesModule) do
             local numId = tonumber(id)
             if numId and type(data) == "table" then
@@ -230,27 +242,34 @@ local function buyAffordableUpgrades()
                     if isUpgradeUnlocked(data, playerData, playerUpgrades) then
                         local basePrice = resolveVal(data.Price)
                         if basePrice ~= nil then
-                            local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
-                            local price = InfMaths.new(basePrice)
-                            if curLevel > 0 and priceInc > 1 then
-                                price = price * (priceInc ^ curLevel)
-                            end
+                            -- Check if upgrade is completely Free (Price == 0)
+                            local isFree = (basePrice == 0 or basePrice == "0" or tostring(basePrice) == "0")
 
-                            local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
-                            local currentSimBal = getSimBal(currName)
+                            if isFree then
+                                pcall(function()
+                                    BuyUpgRemote:FireServer(numId)
+                                end)
+                                boughtCount = boughtCount + 1
+                            else
+                                -- Calculate scaled mathematical price
+                                local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
+                                local price = InfMaths.new(basePrice)
+                                if curLevel > 0 and priceInc > 1 then
+                                    price = price * (priceInc ^ curLevel)
+                                end
 
-                            if currentSimBal and currentSimBal ~= false then
-                                local isZeroZero = (currName ~= "Points" and tostring(currentSimBal) == "0" and tostring(basePrice) == "0")
-                                if not isZeroZero and currentSimBal >= price then
-                                    -- Deduct from local simulation to avoid double counting within the same tick
-                                    pcall(function()
-                                        simBalances[currName] = simBalances[currName] - price
-                                    end)
+                                local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
+                                local rawBal = getPlayerBalance(currName)
 
-                                    pcall(function()
-                                        BuyUpgRemote:FireServer(numId)
-                                    end)
-                                    boughtCount = boughtCount + 1
+                                if rawBal ~= nil then
+                                    local playerBal = InfMaths.new(rawBal)
+                                    -- Buy when balance >= price (including exact equality)
+                                    if playerBal >= price then
+                                        pcall(function()
+                                            BuyUpgRemote:FireServer(numId)
+                                        end)
+                                        boughtCount = boughtCount + 1
+                                    end
                                 end
                             end
                         end
@@ -258,25 +277,23 @@ local function buyAffordableUpgrades()
                 end
             end
         end
-        return boughtCount
     end
 
-    -- Fallback: Physical Workspace Upgrades
+    -- 2. Secondary Fallback: Workspace Physical Buttons Scanner (Catches new dev buttons live)
     local wsUpgrades = Workspace:FindFirstChild("Upgrades")
     if wsUpgrades then
         for _, upg in ipairs(wsUpgrades:GetChildren()) do
             local upgId = tonumber(upg.Name)
-            if upgId then
+            if upgId and (not UpgradesModule or not UpgradesModule[upgId]) then
                 pcall(function()
                     BuyUpgRemote:FireServer(upgId)
                 end)
                 boughtCount = boughtCount + 1
             end
         end
-        return boughtCount
     end
 
-    return 0
+    return boughtCount
 end
 
 -- =========================================================================
