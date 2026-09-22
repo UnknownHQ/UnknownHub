@@ -222,49 +222,35 @@ local function buyAffordableUpgrades()
         for id, data in pairs(UpgradesModule) do
             local numId = tonumber(id)
             if numId and type(data) == "table" then
-                local failInfo = failedAttempts[numId]
-                if not failInfo or (now - failInfo.time > 5) then
-                    local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
-                    local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
-                    local maxLevel = tonumber(resolveVal(data.Max)) or 1
+                local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
+                local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
+                local maxLevel = tonumber(resolveVal(data.Max)) or 1
 
-                    if curLevel < maxLevel then
-                        if isUpgradeUnlocked(data, playerData, playerUpgrades) then
-                            local basePrice = resolveVal(data.Price)
-                            if basePrice ~= nil then
-                                local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
-                                local price = InfMaths.new(basePrice)
-                                if curLevel > 0 and priceInc > 1 then
-                                    price = price * (priceInc ^ curLevel)
-                                end
+                if curLevel < maxLevel then
+                    if isUpgradeUnlocked(data, playerData, playerUpgrades) then
+                        local basePrice = resolveVal(data.Price)
+                        if basePrice ~= nil then
+                            local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
+                            local price = InfMaths.new(basePrice)
+                            if curLevel > 0 and priceInc > 1 then
+                                price = price * (priceInc ^ curLevel)
+                            end
 
-                                local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
-                                local currentSimBal = getSimBal(currName)
+                            local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
+                            local currentSimBal = getSimBal(currName)
 
-                                if currentSimBal and currentSimBal ~= false then
-                                    local isZeroZero = (currName ~= "Points" and tostring(currentSimBal) == "0" and tostring(basePrice) == "0")
-                                    if not isZeroZero and currentSimBal >= price then
-                                        -- Deduct from local simulation to avoid over-purchasing within the same tick
-                                        pcall(function()
-                                            simBalances[currName] = simBalances[currName] - price
-                                        end)
+                            if currentSimBal and currentSimBal ~= false then
+                                local isZeroZero = (currName ~= "Points" and tostring(currentSimBal) == "0" and tostring(basePrice) == "0")
+                                if not isZeroZero and currentSimBal >= price then
+                                    -- Deduct from local simulation to avoid double counting within the same tick
+                                    pcall(function()
+                                        simBalances[currName] = simBalances[currName] - price
+                                    end)
 
-                                        local prevLevel = curLevel
-                                        pcall(function()
-                                            BuyUpgRemote:FireServer(numId)
-                                        end)
-                                        boughtCount = boughtCount + 1
-
-                                        task.delay(0.4, function()
-                                            local updatedObj = playerUpgrades:FindFirstChild(tostring(numId))
-                                            local newLevel = updatedObj and tonumber(updatedObj.Value) or 0
-                                            if newLevel == prevLevel then
-                                                failedAttempts[numId] = { time = tick(), fails = ((failInfo and failInfo.fails or 0) + 1) }
-                                            else
-                                                failedAttempts[numId] = nil
-                                            end
-                                        end)
-                                    end
+                                    pcall(function()
+                                        BuyUpgRemote:FireServer(numId)
+                                    end)
+                                    boughtCount = boughtCount + 1
                                 end
                             end
                         end
