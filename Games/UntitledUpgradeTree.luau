@@ -2,6 +2,7 @@
 -- UNKNOWN HUB - UNTITLED UPGRADE TREE
 -- Game: Untitled Upgrade Tree
 -- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine,
+--           InfMaths Exponentiation, Upgrade #4 (Buy Max) Integration,
 --           High-Speed Network-Safe Auto Clicker, Smart Auto Prestige,
 --           Auto Evil, Auto Dark Prestige & Auto Dark Evil Resets
 -- =========================================================================
@@ -219,7 +220,7 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     return true
 end
 
--- Universal Real-Time Upgrade Execution Engine with Budget Management
+-- Universal Real-Time Upgrade Execution Engine with InfMaths & Buy Max Support
 local function buyAffordableUpgrades()
     if not BuyUpgRemote then
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
@@ -243,12 +244,20 @@ local function buyAffordableUpgrades()
         if currencyBudgets[cName] == nil then
             local raw = getPlayerBalance(cName)
             if raw ~= nil and InfMaths then
-                currencyBudgets[cName] = InfMaths.new(raw)
+                currencyBudgets[cName] = InfMaths.new(tostring(raw))
             else
                 currencyBudgets[cName] = false
             end
         end
         return currencyBudgets[cName]
+    end
+
+    local hasBuyMax = false
+    if playerUpgrades then
+        local u4 = playerUpgrades:FindFirstChild("4")
+        if u4 and tonumber(u4.Value) and tonumber(u4.Value) >= 1 then
+            hasBuyMax = true
+        end
     end
 
     -- 1. Primary: Dynamic Multi-World Mathematical Affordability Engine
@@ -259,12 +268,8 @@ local function buyAffordableUpgrades()
                 local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
                 local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
 
-                local maxLevel = nil
-                if type(data.Max) == "number" then
-                    maxLevel = data.Max
-                elseif type(data.Max) == "string" and tonumber(data.Max) then
-                    maxLevel = tonumber(data.Max)
-                end
+                local rawMax = resolveVal(data.Max)
+                local maxLevel = rawMax and tonumber(rawMax) or nil
 
                 if not maxLevel or curLevel < maxLevel then
                     if isUpgradeUnlocked(data, playerData, playerUpgrades) then
@@ -283,26 +288,47 @@ local function buyAffordableUpgrades()
 
                                 if budget and budget ~= false then
                                     local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
-                                    local price = InfMaths.new(basePrice)
+                                    local infBase = InfMaths.new(tostring(basePrice))
+                                    local infInc = InfMaths.new(tostring(priceInc))
+
+                                    -- Calculate starting price using InfMaths power to prevent IEEE-754 overflow
+                                    local price = infBase
                                     if curLevel > 0 and priceInc > 1 then
-                                        price = price * (priceInc ^ curLevel)
+                                        price = infBase * (infInc ^ curLevel)
                                     end
 
-                                    local tempLevel = curLevel
-                                    local burstLimit = 25
+                                    if hasBuyMax then
+                                        -- Upgrade #4 (Buy Max) owned: 1 remote call buys max affordable tiers on server!
+                                        if budget >= price then
+                                            pcall(function()
+                                                BuyUpgRemote:FireServer(numId)
+                                            end)
+                                            boughtCount = boughtCount + 1
+                                            if budget > price then
+                                                budget = budget - price
+                                                currencyBudgets[currName] = budget
+                                            else
+                                                currencyBudgets[currName] = InfMaths.new(0)
+                                            end
+                                        end
+                                    else
+                                        -- Standard burst loop when Buy Max is not yet unlocked
+                                        local tempLevel = curLevel
+                                        local burstLimit = 25
 
-                                    while (not maxLevel or tempLevel < maxLevel) and budget >= price and burstLimit > 0 do
-                                        pcall(function()
-                                            BuyUpgRemote:FireServer(numId)
-                                        end)
-                                        boughtCount = boughtCount + 1
-                                        budget = budget - price
-                                        currencyBudgets[currName] = budget
-                                        burstLimit = burstLimit - 1
-                                        tempLevel = tempLevel + 1
+                                        while (not maxLevel or tempLevel < maxLevel) and budget >= price and burstLimit > 0 do
+                                            pcall(function()
+                                                BuyUpgRemote:FireServer(numId)
+                                            end)
+                                            boughtCount = boughtCount + 1
+                                            budget = budget - price
+                                            currencyBudgets[currName] = budget
+                                            burstLimit = burstLimit - 1
+                                            tempLevel = tempLevel + 1
 
-                                        if priceInc > 1 then
-                                            price = price * priceInc
+                                            if priceInc > 1 then
+                                                price = price * infInc
+                                            end
                                         end
                                     end
                                 end
