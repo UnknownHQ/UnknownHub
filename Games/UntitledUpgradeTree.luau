@@ -111,8 +111,10 @@ end)
 
 local function resolveVal(v)
     if type(v) == "function" then
-        local success, res = pcall(v)
-        return success and res or nil
+        local success, res = pcall(v, LocalPlayer)
+        if success and res ~= nil then return res end
+        local success2, res2 = pcall(v)
+        return success2 and res2 or nil
     end
     return v
 end
