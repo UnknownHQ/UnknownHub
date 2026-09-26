@@ -1316,6 +1316,10 @@ local function buildDynamicCraftCatalogs()
                 displayName = string.split(tostring(recipeId), "@")[1]
             end
 
+            local mTypes = recipe.MachineTypes or {}
+            local primaryMachine = mTypes[1] or "GearEventWorkbench"
+            local isLegacyEvent = not (primaryMachine == "SeedEventWorkbench" or primaryMachine == "GearEventWorkbench")
+
             local isPlant = (outType == "Seed" or outType == "Seed Pack" or outType == "Crop" or outType == "Plant")
             local recLow = tostring(recipeId):lower()
             if not isPlant then
@@ -1332,15 +1336,26 @@ local function buildDynamicCraftCatalogs()
                 isPlant = false
             end
 
+            local tag = ""
+            if isLegacyEvent then
+                if primaryMachine:find("Dino") then tag = " [Dino Event]"
+                elseif primaryMachine:find("Fairy") then tag = " [Fairy Event]"
+                elseif primaryMachine:find("Smith") then tag = " [Smithing]"
+                elseif primaryMachine:find("Bean") then tag = " [Giant Beanstalk]"
+                else tag = " [" .. primaryMachine .. "]"
+                end
+            end
+            local fullLabel = displayName .. tag
+
             if isPlant then
-                if not plantSeen[displayName] then
-                    plantSeen[displayName] = true
-                    table.insert(craftPlants, {Name = displayName, RecipeId = tostring(recipeId)})
+                if not plantSeen[fullLabel] then
+                    plantSeen[fullLabel] = true
+                    table.insert(craftPlants, {Name = fullLabel, BaseName = displayName, RecipeId = tostring(recipeId), MachineTypes = mTypes})
                 end
             else
-                if not gearSeen[displayName] then
-                    gearSeen[displayName] = true
-                    table.insert(craftGears, {Name = displayName, RecipeId = tostring(recipeId)})
+                if not gearSeen[fullLabel] then
+                    gearSeen[fullLabel] = true
+                    table.insert(craftGears, {Name = fullLabel, BaseName = displayName, RecipeId = tostring(recipeId), MachineTypes = mTypes})
                 end
             end
         end
@@ -1349,8 +1364,8 @@ local function buildDynamicCraftCatalogs()
     table.sort(craftPlants, function(a, b) return a.Name < b.Name end)
     table.sort(craftGears, function(a, b) return a.Name < b.Name end)
 
-    table.insert(craftPlants, 1, {Name = "None", RecipeId = "None"})
-    table.insert(craftGears, 1, {Name = "None", RecipeId = "None"})
+    table.insert(craftPlants, 1, {Name = "None", BaseName = "None", RecipeId = "None", MachineTypes = {}})
+    table.insert(craftGears, 1, {Name = "None", BaseName = "None", RecipeId = "None", MachineTypes = {}})
 
     return craftPlants, craftGears
 end
@@ -4005,20 +4020,35 @@ local function executeAutoCraftCycle()
             return nil, nil
         end
 
-        local function processBenchCraft(bench, slotKey, listObj, defaultSel)
-            if not bench or not slotKey then return end
+        local function processBenchCraft(fallbackBenchType, listObj, defaultSel)
             local chosenName = tostring(getUIListVal(listObj, defaultSel or "None"))
             if chosenName == "None" or chosenName == "" then return end
 
             local targetRecipeId = chosenName
+            local targetMachines = {}
             for _, item in ipairs(allAvailableCraftPlants) do
-                if item.Name == chosenName then targetRecipeId = item.RecipeId break end
+                if item.Name == chosenName or item.BaseName == chosenName then
+                    targetRecipeId = item.RecipeId
+                    targetMachines = item.MachineTypes or {}
+                    break
+                end
             end
             if targetRecipeId == chosenName then
                 for _, item in ipairs(allAvailableCraftGears) do
-                    if item.Name == chosenName then targetRecipeId = item.RecipeId break end
+                    if item.Name == chosenName or item.BaseName == chosenName then
+                        targetRecipeId = item.RecipeId
+                        targetMachines = item.MachineTypes or {}
+                        break
+                    end
                 end
             end
+
+            local prefType = targetMachines[1] or fallbackBenchType
+            local bench, slotKey = getBench(prefType)
+            if not bench or not slotKey then
+                bench, slotKey = getBench(fallbackBenchType)
+            end
+            if not bench or not slotKey then return end
 
             local mData = nil
             if cgos then
@@ -4084,13 +4114,11 @@ local function executeAutoCraftCycle()
         end
 
         if autoPlants then
-            local sBench, sKey = getBench("SeedEventWorkbench")
-            processBenchCraft(sBench, sKey, selectCraftPlantListObj, State.AutoCraft_SelectedPlant)
+            processBenchCraft("SeedEventWorkbench", selectCraftPlantListObj, State.AutoCraft_SelectedPlant)
         end
 
         if autoGears then
-            local gBench, gKey = getBench("GearEventWorkbench")
-            processBenchCraft(gBench, gKey, selectCraftGearListObj, State.AutoCraft_SelectedGear)
+            processBenchCraft("GearEventWorkbench", selectCraftGearListObj, State.AutoCraft_SelectedGear)
         end
     end)
 end
