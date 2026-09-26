@@ -3,8 +3,8 @@
 -- Game: Untitled Upgrade Tree
 -- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine,
 --           InfMaths Exponentiation, Upgrade #4 (Buy Max) Integration,
---           High-Speed Network-Safe Auto Clicker, Smart Auto Prestige,
---           Auto Evil, Auto Dark Prestige & Auto Dark Evil Resets
+--           Wish Safeguard & GUI Shop Blacklist, High-Speed Network-Safe
+--           Auto Clicker, Smart Auto Prestige, Auto Evil & Dark Resets
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -220,7 +220,34 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     return true
 end
 
--- Universal Real-Time Upgrade Execution Engine with InfMaths & Buy Max Support
+-- =========================================================================
+-- State Management
+-- =========================================================================
+local State = {
+    AutoUpgrade = false,
+    UpgradeInterval = 0.2,
+    IncludeWishUpgrades = false,
+    AutoClick = false,
+    AutoPrestige = false,
+    AutoEvil = false,
+    AutoDarkPrestige = false,
+    AutoDarkEvil = false
+}
+
+-- Currency & ID Blacklist for GUI Menus / Wishes (Preserves player wishes & daily points)
+local GUI_BLACKLIST_CURRENCIES = {
+    ["WishToken"] = true,
+    ["Wish"] = true,
+    ["Wishes"] = true,
+    ["DailyPoints"] = true
+}
+
+local GUI_BLACKLIST_IDS = {
+    [58] = true, [59] = true, [60] = true, [61] = true,
+    [290] = true, [291] = true, [292] = true, [293] = true, [303] = true, [304] = true
+}
+
+-- Universal Real-Time Upgrade Execution Engine with Wish Safeguard
 local function buyAffordableUpgrades()
     if not BuyUpgRemote then
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
@@ -265,69 +292,74 @@ local function buyAffordableUpgrades()
         for id, data in pairs(UpgradesModule) do
             local numId = tonumber(id)
             if numId and type(data) == "table" then
-                local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
-                local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
+                local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
 
-                local rawMax = resolveVal(data.Max)
-                local maxLevel = rawMax and tonumber(rawMax) or nil
+                -- Check GUI / Wish Blacklist unless user explicitly enables them
+                local isGuiOrWish = GUI_BLACKLIST_CURRENCIES[currName] or GUI_BLACKLIST_IDS[numId]
+                if not (isGuiOrWish and not State.IncludeWishUpgrades) then
+                    local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
+                    local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
 
-                if not maxLevel or curLevel < maxLevel then
-                    if isUpgradeUnlocked(data, playerData, playerUpgrades) then
-                        local basePrice = resolveVal(data.Price)
-                        if basePrice ~= nil then
-                            local isFree = (basePrice == 0 or basePrice == "0" or tostring(basePrice) == "0")
+                    local rawMax = resolveVal(data.Max)
+                    local maxLevel = rawMax and tonumber(rawMax) or nil
 
-                            if isFree then
-                                pcall(function()
-                                    BuyUpgRemote:FireServer(numId)
-                                end)
-                                boughtCount = boughtCount + 1
-                            else
-                                local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
-                                local budget = getTrackedBudget(currName)
+                    if not maxLevel or curLevel < maxLevel then
+                        if isUpgradeUnlocked(data, playerData, playerUpgrades) then
+                            local basePrice = resolveVal(data.Price)
+                            if basePrice ~= nil then
+                                local isFree = (basePrice == 0 or basePrice == "0" or tostring(basePrice) == "0")
 
-                                if budget and budget ~= false then
-                                    local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
-                                    local infBase = InfMaths.new(tostring(basePrice))
-                                    local infInc = InfMaths.new(tostring(priceInc))
+                                if isFree then
+                                    pcall(function()
+                                        BuyUpgRemote:FireServer(numId)
+                                    end)
+                                    boughtCount = boughtCount + 1
+                                else
+                                    local budget = getTrackedBudget(currName)
 
-                                    -- Calculate starting price using InfMaths power to prevent IEEE-754 overflow
-                                    local price = infBase
-                                    if curLevel > 0 and priceInc > 1 then
-                                        price = infBase * (infInc ^ curLevel)
-                                    end
+                                    if budget and budget ~= false then
+                                        local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
+                                        local infBase = InfMaths.new(tostring(basePrice))
+                                        local infInc = InfMaths.new(tostring(priceInc))
 
-                                    if hasBuyMax then
-                                        -- Upgrade #4 (Buy Max) owned: 1 remote call buys max affordable tiers on server!
-                                        if budget >= price then
-                                            pcall(function()
-                                                BuyUpgRemote:FireServer(numId)
-                                            end)
-                                            boughtCount = boughtCount + 1
-                                            if budget > price then
+                                        -- Calculate starting price using InfMaths power to prevent IEEE-754 overflow
+                                        local price = infBase
+                                        if curLevel > 0 and priceInc > 1 then
+                                            price = infBase * (infInc ^ curLevel)
+                                        end
+
+                                        if hasBuyMax then
+                                            -- Upgrade #4 (Buy Max) owned: 1 remote call buys max affordable tiers on server!
+                                            if budget >= price then
+                                                pcall(function()
+                                                    BuyUpgRemote:FireServer(numId)
+                                                end)
+                                                boughtCount = boughtCount + 1
+                                                if budget > price then
+                                                    budget = budget - price
+                                                    currencyBudgets[currName] = budget
+                                                else
+                                                    currencyBudgets[currName] = InfMaths.new(0)
+                                                end
+                                            end
+                                        else
+                                            -- Standard burst loop when Buy Max is not yet unlocked
+                                            local tempLevel = curLevel
+                                            local burstLimit = 25
+
+                                            while (not maxLevel or tempLevel < maxLevel) and budget >= price and burstLimit > 0 do
+                                                pcall(function()
+                                                    BuyUpgRemote:FireServer(numId)
+                                                end)
+                                                boughtCount = boughtCount + 1
                                                 budget = budget - price
                                                 currencyBudgets[currName] = budget
-                                            else
-                                                currencyBudgets[currName] = InfMaths.new(0)
-                                            end
-                                        end
-                                    else
-                                        -- Standard burst loop when Buy Max is not yet unlocked
-                                        local tempLevel = curLevel
-                                        local burstLimit = 25
+                                                burstLimit = burstLimit - 1
+                                                tempLevel = tempLevel + 1
 
-                                        while (not maxLevel or tempLevel < maxLevel) and budget >= price and burstLimit > 0 do
-                                            pcall(function()
-                                                BuyUpgRemote:FireServer(numId)
-                                            end)
-                                            boughtCount = boughtCount + 1
-                                            budget = budget - price
-                                            currencyBudgets[currName] = budget
-                                            burstLimit = burstLimit - 1
-                                            tempLevel = tempLevel + 1
-
-                                            if priceInc > 1 then
-                                                price = price * infInc
+                                                if priceInc > 1 then
+                                                    price = price * infInc
+                                                end
                                             end
                                         end
                                     end
@@ -346,29 +378,18 @@ local function buyAffordableUpgrades()
         for _, upg in ipairs(wsUpgrades:GetChildren()) do
             local upgId = tonumber(upg.Name)
             if upgId and (not UpgradesModule or not UpgradesModule[upgId]) then
-                pcall(function()
-                    BuyUpgRemote:FireServer(upgId)
-                end)
-                boughtCount = boughtCount + 1
+                if not GUI_BLACKLIST_IDS[upgId] then
+                    pcall(function()
+                        BuyUpgRemote:FireServer(upgId)
+                    end)
+                    boughtCount = boughtCount + 1
+                end
             end
         end
     end
 
     return boughtCount
 end
-
--- =========================================================================
--- State Management
--- =========================================================================
-local State = {
-    AutoUpgrade = false,
-    UpgradeInterval = 0.2,
-    AutoClick = false,
-    AutoPrestige = false,
-    AutoEvil = false,
-    AutoDarkPrestige = false,
-    AutoDarkEvil = false
-}
 
 -- =========================================================================
 -- Initialize Unknown Hub Instance
@@ -418,6 +439,11 @@ end)
 -- Upgrade Speed / Delay Slider
 Hub.CreateSlider(mainTab, "Upgrade Delay", 0.05, 2.0, 0.2, "s", function(val)
     State.UpgradeInterval = val
+end)
+
+-- Safeguard Toggle: Include Wishes & GUI Shop Upgrades
+Hub.CreateToggle(mainTab, "Include Wishes & GUI Menus", false, function(enabled)
+    State.IncludeWishUpgrades = enabled
 end)
 
 -- 1-Click Buy All Button
