@@ -1400,6 +1400,7 @@ local State = {
     Sell_ExcludePetMutation = "None",
     Sell_ExcludePetWeight = 0,
     Sell_ExcludePetWeightMode = "Above",
+    Sell_EquipSlot = "None",
 
     -- Pet Tab: Egg Hatching & Egg Placement
     Egg_ESP = false,
@@ -1409,6 +1410,7 @@ local State = {
     PlaceEgg_PositionMode = "Row Position",
     PlaceEgg_Delay = 0.1,
     PlaceEgg_MaxGarden = 15,
+    PlaceEgg_EquipSlot = "None",
 
     AutoHatchEggs = false,
     WaitAllEggsReady = false,
@@ -1417,6 +1419,7 @@ local State = {
     Hatch_ExcludeWeight = 0,
     Hatch_ExcludeWeightMode = "None",
     Hatch_CheckDelay = 0.1,
+    HatchEgg_EquipSlot = "None",
 
     -- Shop Tab
     AutoBuy_SelectedEgg = false,
@@ -1477,18 +1480,21 @@ local sellTargetPetListObj
 local sellExcludePetVariantListObj
 local sellExcludePetMutationListObj
 local sellExcludePetWeightModeListObj
+local sellPetSlotListObj
 
 local eggEspToggle
 local autoPlaceEggsToggle
 local placeOnlyWhenNoEggToggle
 local placeEggListObj
 local placeEggPositionModeListObj
+local placeEggSlotListObj
 
 local autoHatchEggsToggle
 local waitAllEggsReadyToggle
 local hatchEggListObj
 local hatchExcludePetListObj
 local hatchExcludeWeightModeListObj
+local hatchEggSlotListObj
 
 local hidePlantsToggle
 local hideFruitsToggle
@@ -2447,7 +2453,7 @@ task.spawn(function()
                 return
             end
 
-            -- 1. Auto Sell Pets (Strict Whitelist + Batch Remote)
+            -- 1. Auto Sell Pets (Strict Whitelist + Batch Remote with Auto-Equip Slot)
             if autoSellPets then
                 local petRemote = getSellAllPetsRemote()
                 if petRemote then
@@ -2457,21 +2463,27 @@ task.spawn(function()
                             local petInfo = getPetToolInfo(tool)
                             if shouldSellPetTool(petInfo) then
                                 table.insert(petUUIDBatch, petInfo.UUID)
-                                if #petUUIDBatch >= 30 then
-                                    pcall(function()
-                                        petRemote:FireServer(petUUIDBatch)
-                                    end)
-                                    petUUIDBatch = {}
-                                    task.wait(0.05)
-                                end
                             end
                         end
                     end
+
                     if #petUUIDBatch > 0 then
-                        pcall(function()
-                            petRemote:FireServer(petUUIDBatch)
-                        end)
-                        petUUIDBatch = {}
+                        local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
+                        if sellSlot ~= "None" then
+                            equipPetSlot(sellSlot)
+                            task.wait(0.08)
+                        end
+
+                        for i = 1, #petUUIDBatch, 30 do
+                            local chunk = {}
+                            for j = i, math.min(i + 29, #petUUIDBatch) do
+                                table.insert(chunk, petUUIDBatch[j])
+                            end
+                            pcall(function()
+                                petRemote:FireServer(chunk)
+                            end)
+                            task.wait(0.05)
+                        end
                     end
                 end
             end
@@ -2794,7 +2806,47 @@ end
 -- Pet Egg Placement & Hatching Background Loops
 -- =========================================================================
 
--- 1. Auto Place Eggs Loop
+local function equipPetSlot(slotVal)
+    if not slotVal or slotVal == "None" or slotVal == "" then return end
+    local slotNum = tonumber(tostring(slotVal):match("%d+"))
+    if not slotNum then return end
+
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local teamService = ge and (ge:FindFirstChild("PetTeamService") or ge:FindFirstChild("PetServices") or ge:FindFirstChild("PetEquipService") or ge:FindFirstChild("PetEggService"))
+        if teamService then
+            teamService:FireServer("EquipTeam", slotNum)
+            teamService:FireServer("LoadTeam", slotNum)
+            teamService:FireServer("EquipSlot", slotNum)
+            teamService:FireServer("SelectTeam", slotNum)
+            teamService:FireServer("Equip", slotNum)
+            teamService:FireServer(slotNum)
+        end
+
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes then
+            local equipRem = remotes:FindFirstChild("EquipTeam") or remotes:FindFirstChild("LoadTeam") or remotes:FindFirstChild("EquipPetSlot")
+            if equipRem then
+                equipRem:FireServer(slotNum)
+            end
+        end
+
+        local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if pGui then
+            local petGui = pGui:FindFirstChild("Pet_UI") or pGui:FindFirstChild("Pets_UI") or pGui:FindFirstChild("PetTeam_UI")
+            if petGui then
+                for _, desc in ipairs(petGui:GetDescendants()) do
+                    if (desc:IsA("TextButton") or desc:IsA("ImageButton")) and desc.Name:find(tostring(slotNum)) then
+                        if firesignal then firesignal(desc.MouseButton1Click) firesignal(desc.Activated) end
+                        for _, conn in ipairs(getconnections(desc.MouseButton1Click)) do if conn.Fire then conn:Fire() end end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- 1. Auto Place Eggs Loop (Cycle Step 1: Equip Slot, Place Eggs, Wait For Hatch)
 task.spawn(function()
     while true do
         local ok, err = pcall(function()
@@ -2826,6 +2878,15 @@ task.spawn(function()
                 return
             end
 
+            -- If there are 0 eggs or starting placement, equip Place Egg Slot to reduce time
+            if currentPlacedCount == 0 then
+                local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
+                if placeSlot ~= "None" then
+                    equipPetSlot(placeSlot)
+                    task.wait(0.08)
+                end
+            end
+
             local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
             local targetPos
             if posMode == "Player Position" then
@@ -2852,7 +2913,7 @@ task.spawn(function()
     end
 end)
 
--- 2. Auto Hatch Eggs Loop
+-- 2. Auto Hatch Eggs Loop (Cycle Step 2: Equip Hatch Slot, Hatch Eggs When Ready)
 task.spawn(function()
     while true do
         local ok, err = pcall(function()
@@ -2880,6 +2941,23 @@ task.spawn(function()
                 if not allReady then
                     task.wait(0.2)
                     return
+                end
+            end
+
+            -- Equip Hatch Slot when eggs are ready to hatch
+            local hasReadyEggs = false
+            for _, egg in ipairs(placedEggs) do
+                if isEggReadyToHatch(egg) then
+                    hasReadyEggs = true
+                    break
+                end
+            end
+
+            if hasReadyEggs then
+                local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
+                if hatchSlot ~= "None" then
+                    equipPetSlot(hatchSlot)
+                    task.wait(0.08)
                 end
             end
 
@@ -3868,6 +3946,16 @@ for _, item in ipairs(allAvailableCosmetics) do table.insert(cosmeticListItems, 
 local sprinklerListItems = {}
 for _, item in ipairs(allAvailableSprinklers) do table.insert(sprinklerListItems, {Name = item.Name}) end
 
+local slotListItems = {
+    {Name = "None"},
+    {Name = "Slot 1"},
+    {Name = "Slot 2"},
+    {Name = "Slot 3"},
+    {Name = "Slot 4"},
+    {Name = "Slot 5"},
+    {Name = "Slot 6"}
+}
+
 local farmTab = Hub.createTabButton("Farm", "🌱 Auto Farm", "rbxassetid://10723407389", true)
 local petTab = Hub.createTabButton("Pets", "🐾 Pets", "rbxassetid://10723407389", false)
 local shopTab = Hub.createTabButton("Shop", "🛍️ Shop", "rbxassetid://10723407389", false)
@@ -4588,6 +4676,8 @@ placeOnlyWhenNoEggToggle = Hub.CreateToggle(petTab, "Place Only When No Egg at G
     if type(v) == "boolean" then State.PlaceOnlyWhenNoEgg = v else State.PlaceOnlyWhenNoEgg = not State.PlaceOnlyWhenNoEgg end
 end)
 
+placeEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Place / Reduce Time)", slotListItems, 160, false)
+
 placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, false)
 
 placeEggPositionModeListObj = Hub.CreateList(petTab, "Place Position Mode", {
@@ -4616,6 +4706,8 @@ waitAllEggsReadyToggle = Hub.CreateToggle(petTab, "Wait Until All Eggs Ready", f
     if type(v) == "boolean" then State.WaitAllEggsReady = v else State.WaitAllEggsReady = not State.WaitAllEggsReady end
 end)
 
+hatchEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Hatching Boost)", slotListItems, 160, false)
+
 hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false)
 
 hatchExcludePetListObj = Hub.CreateList(petTab, "Exclude Pet if in Egg", petListItems, 220, false, true)
@@ -4641,6 +4733,8 @@ Hub.CreateSection(petTab, "🐾 Auto Sell Pets")
 autoSellPetsToggle = Hub.CreateToggle(petTab, "🐾 Auto Sell Pets", false, function(v)
     if type(v) == "boolean" then State.AutoSellPets = v else State.AutoSellPets = not State.AutoSellPets end
 end)
+
+sellPetSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Selling Boost)", slotListItems, 160, false)
 
 sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, false)
 sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, false)
