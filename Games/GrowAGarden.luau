@@ -3863,15 +3863,15 @@ collectStopWhenFullToggle = Hub.CreateToggle(farmTab, "Stop When Backpack Full",
     if type(v) == "boolean" then State.Collect_StopWhenFull = v else State.Collect_StopWhenFull = not State.Collect_StopWhenFull end
 end)
 
-collectVariantListObj = Hub.CreateList(farmTab, "Collect: Target Variant", variantItems, 160, true)
-collectMutationListObj = Hub.CreateList(farmTab, "Collect: Target Mutation", mutationItems, 220, true)
-collectFruitListObj = Hub.CreateList(farmTab, "Collect: Specific Fruit", specificFruitItems, 220, true)
-collectCategoryListObj = Hub.CreateList(farmTab, "Collect: Fruit Category", categoryItems, 180, true)
+collectVariantListObj = Hub.CreateList(farmTab, "Collect: Target Variant", variantItems, 160, false)
+collectMutationListObj = Hub.CreateList(farmTab, "Collect: Target Mutation", mutationItems, 220, false)
+collectFruitListObj = Hub.CreateList(farmTab, "Collect: Specific Fruit", specificFruitItems, 220, false)
+collectCategoryListObj = Hub.CreateList(farmTab, "Collect: Fruit Category", categoryItems, 180, false)
 
 collectWeightModeListObj = Hub.CreateList(farmTab, "Collect: Weight Mode", {
     {Name = "Above"},
     {Name = "Lower"}
-}, 110, true)
+}, 110, false)
 
 Hub.CreateTextBox(farmTab, "Collect: Weight Multiplier", "Enter weight threshold (0 = inactive)", function(text)
     local num = tonumber(text)
@@ -4050,7 +4050,7 @@ plantInOtherPlantsToggle = Hub.CreateToggle(farmTab, "🌱 Plant In Other Plants
     if type(v) == "boolean" then State.PlantInOtherPlants = v else State.PlantInOtherPlants = not State.PlantInOtherPlants end
 end)
 
-plantSeedListObj = Hub.CreateList(farmTab, "Select Seed", seedListItems, 220, true)
+plantSeedListObj = Hub.CreateList(farmTab, "Select Seed", seedListItems, 220, false)
 
 plantPositionModeListObj = Hub.CreateList(farmTab, "Plant Position Mode", {
     {Name = "Player Position"},
@@ -4060,7 +4060,7 @@ plantPositionModeListObj = Hub.CreateList(farmTab, "Plant Position Mode", {
     {Name = "In Mid-Air (Above Player)"},
     {Name = "Out of Garden"},
     {Name = "Anywhere (Free Spatial)"}
-}, 180, true)
+}, 180, false)
 
 Hub.CreateTextBox(farmTab, "Plant Delay (0.01 - 1.0s)", "Enter planting delay (default: 0.05)", function(text)
     local num = tonumber(text)
@@ -4082,15 +4082,15 @@ sellWaitMaxToggle = Hub.CreateToggle(farmTab, "Wait Until Max Backpack", false, 
     if type(v) == "boolean" then State.Sell_WaitMaxBackpack = v else State.Sell_WaitMaxBackpack = not State.Sell_WaitMaxBackpack end
 end)
 
-sellExcludeVariantListObj = Hub.CreateList(farmTab, "Sell: Exclude Variant", variantItems, 160, true)
-sellExcludeMutationListObj = Hub.CreateList(farmTab, "Sell: Exclude Mutation", mutationItems, 220, true)
-sellExcludeFruitListObj = Hub.CreateList(farmTab, "Sell: Exclude Specific Fruit", specificFruitItems, 220, true)
-sellExcludeCategoryListObj = Hub.CreateList(farmTab, "Sell: Exclude Category", categoryItems, 180, true)
+sellExcludeVariantListObj = Hub.CreateList(farmTab, "Sell: Exclude Variant", variantItems, 160, false)
+sellExcludeMutationListObj = Hub.CreateList(farmTab, "Sell: Exclude Mutation", mutationItems, 220, false)
+sellExcludeFruitListObj = Hub.CreateList(farmTab, "Sell: Exclude Specific Fruit", specificFruitItems, 220, false)
+sellExcludeCategoryListObj = Hub.CreateList(farmTab, "Sell: Exclude Category", categoryItems, 180, false)
 
 sellWeightModeListObj = Hub.CreateList(farmTab, "Sell: Exclude Weight Mode", {
     {Name = "Above"},
     {Name = "Lower"}
-}, 110, true)
+}, 110, false)
 
 Hub.CreateTextBox(farmTab, "Sell: Exclude Weight Multiplier", "Enter weight threshold (0 = none)", function(text)
     local num = tonumber(text)
@@ -4112,12 +4112,12 @@ placeOnlyWhenNoEggToggle = Hub.CreateToggle(petTab, "Place Only When No Egg at G
     if type(v) == "boolean" then State.PlaceOnlyWhenNoEgg = v else State.PlaceOnlyWhenNoEgg = not State.PlaceOnlyWhenNoEgg end
 end)
 
-placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, true)
+placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, false)
 
 placeEggPositionModeListObj = Hub.CreateList(petTab, "Place Position Mode", {
     {Name = "Row Position"},
     {Name = "Player Position"}
-}, 150, true)
+}, 150, false)
 
 Hub.CreateTextBox(petTab, "Place Delay (0.02 - 2.0s)", "Enter placement delay (default: 0.1)", function(text)
     local num = tonumber(text)
@@ -4140,15 +4140,15 @@ waitAllEggsReadyToggle = Hub.CreateToggle(petTab, "Wait Until All Eggs Ready", f
     if type(v) == "boolean" then State.WaitAllEggsReady = v else State.WaitAllEggsReady = not State.WaitAllEggsReady end
 end)
 
-hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, true)
+hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false)
 
-hatchExcludePetListObj = Hub.CreateList(petTab, "Exclude Pet if in Egg", petListItems, 220, true, true)
+hatchExcludePetListObj = Hub.CreateList(petTab, "Exclude Pet if in Egg", petListItems, 220, false, true)
 
 hatchExcludeWeightModeListObj = Hub.CreateList(petTab, "Hatch: Exclude Weight Mode", {
     {Name = "None"},
     {Name = "Above"},
     {Name = "Lower"}
-}, 110, true)
+}, 110, false)
 
 Hub.CreateTextBox(petTab, "Hatch: Exclude Weight (KG)", "Enter KG threshold (0 = none)", function(text)
     local num = tonumber(text)
@@ -4166,14 +4166,14 @@ autoSellPetsToggle = Hub.CreateToggle(petTab, "🐾 Auto Sell Pets", false, func
     if type(v) == "boolean" then State.AutoSellPets = v else State.AutoSellPets = not State.AutoSellPets end
 end)
 
-sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, true)
-sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, true)
-sellExcludePetMutationListObj = Hub.CreateList(petTab, "Pet: Exclude Mutation", mutationItems, 220, true)
+sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, false)
+sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, false)
+sellExcludePetMutationListObj = Hub.CreateList(petTab, "Pet: Exclude Mutation", mutationItems, 220, false)
 
 sellExcludePetWeightModeListObj = Hub.CreateList(petTab, "Pet: Exclude Weight Mode", {
     {Name = "Above"},
     {Name = "Lower"}
-}, 110, true)
+}, 110, false)
 
 Hub.CreateTextBox(petTab, "Pet: Exclude Weight (KG)", "Enter KG cutoff (0 = none)", function(text)
     local num = tonumber(text)
@@ -4197,7 +4197,7 @@ autoBuyAllEggsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Eggs)", false, f
     if State.AutoBuy_AllEggs then task.spawn(executeInstantShopPurchases) end
 end)
 
-selectEggListObj = Hub.CreateList(shopTab, "Select Egg", eggListItems, 220, true)
+selectEggListObj = Hub.CreateList(shopTab, "Select Egg", eggListItems, 220, false)
 
 -- 2. ⚙️ Gear Shop
 Hub.CreateSection(shopTab, "⚙️ Gear Shop")
@@ -4212,7 +4212,7 @@ autoBuyAllGearsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Gear)", false, 
     if State.AutoBuy_AllGears then task.spawn(executeInstantShopPurchases) end
 end)
 
-selectGearListObj = Hub.CreateList(shopTab, "Select Gear", gearListItems, 220, true)
+selectGearListObj = Hub.CreateList(shopTab, "Select Gear", gearListItems, 220, false)
 
 -- 3. 🌱 Seed Shop
 Hub.CreateSection(shopTab, "🌱 Seed Shop")
@@ -4227,7 +4227,7 @@ autoBuyAllSeedsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Seeds)", false,
     if State.AutoBuy_AllSeeds then task.spawn(executeInstantShopPurchases) end
 end)
 
-selectSeedShopListObj = Hub.CreateList(shopTab, "Select Seed", seedShopListItems, 220, true)
+selectSeedShopListObj = Hub.CreateList(shopTab, "Select Seed", seedShopListItems, 220, false)
 
 -- 4. 🎨 Cosmetics Shop
 Hub.CreateSection(shopTab, "🎨 Cosmetics Shop")
@@ -4242,7 +4242,7 @@ autoBuyAllCosmeticsToggle = Hub.CreateToggle(shopTab, "Auto Buy ALL (Cosmetics)"
     if State.AutoBuy_AllCosmetics then task.spawn(executeInstantShopPurchases) end
 end)
 
-selectCosmeticListObj = Hub.CreateList(shopTab, "Select Cosmetic", cosmeticListItems, 220, true)
+selectCosmeticListObj = Hub.CreateList(shopTab, "Select Cosmetic", cosmeticListItems, 220, false)
 
 -- 5. ⚙️ Auto Buy Speed Setting
 Hub.CreateTextBox(shopTab, "Auto Buy Delay (0.01 - 1.0s)", "Enter loop interval (default: 0.01)", function(text)
@@ -4279,7 +4279,7 @@ infiniteSprinklerToggle = Hub.CreateToggle(miscTab, "💧 Infinite Sprinkler", f
     end
 end)
 
-selectSprinklerListObj = Hub.CreateList(miscTab, "Select Sprinkler to Shovel", sprinklerListItems, 220, true, true)
+selectSprinklerListObj = Hub.CreateList(miscTab, "Select Sprinkler to Shovel", sprinklerListItems, 220, false, true)
 
 Hub.CreateButton(miscTab, "🧹 Shovel Active Sprinklers Now", function()
     pcall(shovelActiveSprinklers)
@@ -4291,13 +4291,13 @@ end)
 Hub.CreateSection(miscTab, "🛒 Products & Gamepasses")
 
 -- 1. Select Product Dropdown (Dynamically self-updating list of all products & gamepasses)
-local selectProductListObj = Hub.CreateList(miscTab, "Select Product", productListItems, 220, true)
+local selectProductListObj = Hub.CreateList(miscTab, "Select Product", productListItems, 220, false)
 
 -- 2. Select Payment Method Dropdown
 local selectPaymentMethodListObj = Hub.CreateList(miscTab, "Select Payment Method", {
     {Name = "Trade Tokens"},
     {Name = "Robux / Roblox Prompt"}
-}, 180, true)
+}, 180, false)
 
 -- Helper to find product details by name (Exact & Fuzzy matching)
 local function findProductDetails(targetName)
@@ -4710,14 +4710,14 @@ Hub.CreateList(settingsTab, "Batch Collection Size", {
     {Name = "25 per batch"},
     {Name = "50 per batch"},
     {Name = "100 per batch"}
-}, 140, true)
+}, 140, false)
 
 Hub.CreateList(settingsTab, "Harvest Speed / Delay", {
     {Name = "Ultra Fast (0.05s)"},
     {Name = "Fast (0.1s)"},
     {Name = "Normal (0.15s)"},
     {Name = "Safe (0.3s)"}
-}, 140, true)
+}, 140, false)
 
 Hub.CreateList(settingsTab, "Max Backpack Threshold", {
     {Name = "250 Tools"},
@@ -4725,7 +4725,7 @@ Hub.CreateList(settingsTab, "Max Backpack Threshold", {
     {Name = "1000 Tools"},
     {Name = "2000 Tools"},
     {Name = "5000 Tools"}
-}, 140, true)
+}, 140, false)
 
 print("[Unknown Hub] Grow a Garden (Auto Sell Pets & Complete Module) Loaded Successfully!")
 

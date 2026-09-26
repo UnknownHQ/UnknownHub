@@ -3744,83 +3744,7 @@ return function(opts)
             end
         end
     end)
-    local subTitleLabel = Instance.new("TextLabel")
-    subTitleLabel.Name = "SubTitle"
-    subTitleLabel.AutomaticSize = Enum.AutomaticSize.X
-    subTitleLabel.Size = UDim2.new(0, 0, 1, 0)
-    subTitleLabel.BackgroundTransparency = 1
-    subTitleLabel.Text = opts.subTitle or opts.subtitle or "v2.0"
-    subTitleLabel.TextColor3 = Color3.fromRGB(130, 140, 165)
-    subTitleLabel.Font = Enum.Font.GothamBold
-    subTitleLabel.TextSize = 11
-    subTitleLabel.TextTruncate = Enum.TextTruncate.AtEnd
-    subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    subTitleLabel.LayoutOrder = 3
-    subTitleLabel.ZIndex = 22
-    subTitleLabel.Parent = titleGroup
-    local detectedGameName = opts.subTitle or opts.subtitle or opts.gameName or opts.GameName
-    if not detectedGameName or detectedGameName == "v2.0" or detectedGameName == "" then
-        pcall(function()
-            local MarketplaceService = game:GetService("MarketplaceService")
-            local info = MarketplaceService:GetProductInfo(game.PlaceId)
-            if info and info.Name and info.Name ~= "" then
-                detectedGameName = info.Name
-            end
-        end)
-        if not detectedGameName or detectedGameName == "" then
-            detectedGameName = game.Name ~= "" and game.Name or "Roblox"
-        end
-    end
-    local livePill = Instance.new("Frame")
-    livePill.Name = "LivePill"
-    livePill.AutomaticSize = Enum.AutomaticSize.X
-    livePill.Size = UDim2.new(0, 0, 0, 20)
-    livePill.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
-    livePill.BorderSizePixel = 0
-    livePill.LayoutOrder = 4
-    livePill.ZIndex = 22
-    livePill.Parent = titleGroup
-    applyCorner(livePill, 10)
-    applyStroke(livePill, Color3.fromRGB(44, 56, 80), 1, 0)
-    local livePillLayout = Instance.new("UIListLayout")
-    livePillLayout.FillDirection = Enum.FillDirection.Horizontal
-    livePillLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    livePillLayout.Padding = UDim.new(0, 5)
-    livePillLayout.Parent = livePill
-    local livePillPadding = Instance.new("UIPadding")
-    livePillPadding.PaddingLeft = UDim.new(0, 7)
-    livePillPadding.PaddingRight = UDim.new(0, 9)
-    livePillPadding.Parent = livePill
-    local liveDot = Instance.new("Frame")
-    liveDot.Name = "LiveDot"
-    liveDot.Size = UDim2.new(0, 6, 0, 6)
-    liveDot.BackgroundColor3 = Color3.fromRGB(50, 230, 140)
-    liveDot.BorderSizePixel = 0
-    liveDot.ZIndex = 23
-    liveDot.Parent = livePill
-    applyCorner(liveDot, 3)
-    local liveText = Instance.new("TextLabel")
-    liveText.Name = "GameNameLabel"
-    liveText.AutomaticSize = Enum.AutomaticSize.X
-    liveText.Size = UDim2.new(0, 0, 1, 0)
-    liveText.BackgroundTransparency = 1
-    liveText.Text = string.upper(tostring(detectedGameName))
-    liveText.TextColor3 = Color3.fromRGB(170, 240, 200)
-    liveText.Font = Enum.Font.GothamBold
-    liveText.TextSize = 9
-    liveText.TextTruncate = Enum.TextTruncate.AtEnd
-    liveText.TextXAlignment = Enum.TextXAlignment.Left
-    liveText.ZIndex = 23
-    liveText.Parent = livePill
-    task.spawn(function()
-        local dotStart = tick()
-        while liveDot and liveDot.Parent do
-            local dotElapsed = tick() - dotStart
-            local dotAlpha = (math.sin(dotElapsed * 3) * 0.3) + 0.7
-            liveDot.BackgroundTransparency = 1 - dotAlpha
-            task.wait(0.08)
-        end
-    end)
+    -- Subtitle and live pill removed per user request for clean header presentation
     local sidebar = Instance.new("ScrollingFrame")
     sidebar.Name = "Sidebar"
     sidebar.Size = UDim2.new(0, 52, 1, -69)
@@ -3953,11 +3877,12 @@ return function(opts)
     sidebarTooltip.AutomaticSize = Enum.AutomaticSize.X
     sidebarTooltip.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
     sidebarTooltip.BorderSizePixel = 0
+    sidebarTooltip.BackgroundTransparency = 1
     sidebarTooltip.ZIndex = 60
     sidebarTooltip.Visible = false
     sidebarTooltip.Parent = hubState.mainFrame
     applyCorner(sidebarTooltip, 6)
-    applyStroke(sidebarTooltip, Color3.fromRGB(44, 56, 80), 1, 0.2)
+    local tooltipStroke = applyStroke(sidebarTooltip, Color3.fromRGB(44, 56, 80), 1, 1)
     local tooltipPad = Instance.new("UIPadding")
     tooltipPad.PaddingLeft = UDim.new(0, 8)
     tooltipPad.PaddingRight = UDim.new(0, 8)
@@ -3967,20 +3892,50 @@ return function(opts)
     tooltipLabel.Size = UDim2.new(0, 0, 1, 0)
     tooltipLabel.AutomaticSize = Enum.AutomaticSize.X
     tooltipLabel.BackgroundTransparency = 1
+    tooltipLabel.TextTransparency = 1
     tooltipLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
     tooltipLabel.Font = Enum.Font.GothamBold
     tooltipLabel.TextSize = 11
     tooltipLabel.ZIndex = 61
     tooltipLabel.Parent = sidebarTooltip
+    local currentTooltipSession = 0
     local function showSidebarTooltip(btn, text)
         if not btn or not btn.Parent then return end
+        currentTooltipSession = currentTooltipSession + 1
+        local session = currentTooltipSession
         tooltipLabel.Text = tostring(text or "")
         local yPos = btn.AbsolutePosition.Y - hubState.mainFrame.AbsolutePosition.Y + 5
-        sidebarTooltip.Position = UDim2.new(0, 58, 0, yPos)
+        sidebarTooltip.Position = UDim2.new(0, 52, 0, yPos)
         sidebarTooltip.Visible = true
+        local ti = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        TweenService:Create(sidebarTooltip, ti, {
+            BackgroundTransparency = 0,
+            Position = UDim2.new(0, 58, 0, yPos)
+        }):Play()
+        TweenService:Create(tooltipLabel, ti, { TextTransparency = 0 }):Play()
+        if tooltipStroke then
+            TweenService:Create(tooltipStroke, ti, { Transparency = 0.2 }):Play()
+        end
     end
     local function hideSidebarTooltip()
-        sidebarTooltip.Visible = false
+        currentTooltipSession = currentTooltipSession + 1
+        local session = currentTooltipSession
+        local ti = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local curY = sidebarTooltip.Position.Y.Offset
+        local curScale = sidebarTooltip.Position.Y.Scale
+        TweenService:Create(sidebarTooltip, ti, {
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, 52, curScale, curY)
+        }):Play()
+        TweenService:Create(tooltipLabel, ti, { TextTransparency = 1 }):Play()
+        if tooltipStroke then
+            TweenService:Create(tooltipStroke, ti, { Transparency = 1 }):Play()
+        end
+        task.delay(0.13, function()
+            if currentTooltipSession == session and sidebarTooltip.BackgroundTransparency >= 0.95 then
+                sidebarTooltip.Visible = false
+            end
+        end)
     end
     hubState.isWindowCollapsed = false
     hubState.uncollapsedWindowHeight = 390
@@ -4373,7 +4328,7 @@ return function(opts)
                     indicator.BackgroundColor3 = c1
                     TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                         BackgroundTransparency = 0,
-                        Size = UDim2.new(0, 3, 0, 20)
+                        Size = UDim2.new(0, 3, 0, 18)
                     }):Play()
                 end
                 local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
@@ -4395,7 +4350,7 @@ return function(opts)
                     if indicator then
                         TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                             BackgroundTransparency = 1,
-                            Size = UDim2.new(0, 3, 0, 10)
+                            Size = UDim2.new(0, 3, 0, 8)
                         }):Play()
                     end
                     local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
@@ -4515,8 +4470,9 @@ return function(opts)
             local btnStroke = applyStroke(btn, Color3.fromRGB(34, 42, 60), 1, 0.4)
             local indicator = Instance.new("Frame")
             indicator.Name = "ActiveIndicator"
-            indicator.Size = UDim2.new(0, 3, 0, 12)
-            indicator.Position = UDim2.new(0, 0, 0.5, -6)
+            indicator.AnchorPoint = Vector2.new(0, 0.5)
+            indicator.Size = UDim2.new(0, 3, 0, 8)
+            indicator.Position = UDim2.new(0, 2, 0.5, 0)
             indicator.BackgroundColor3 = hubState.currentThemeColor
             indicator.BorderSizePixel = 0
             indicator.BackgroundTransparency = 1
@@ -5074,7 +5030,7 @@ return function(opts)
         return item
     end
     function hubState.CreateInput(parent, nameOrPlaceholder, defaultText, callbackOrPlaceholder, maybeCallback)
-        local targetParent = contentArea
+        local targetParent = (hubState.tabPages and hubState.tabPages[1]) or contentArea
         local titleName = "Input"
         local defText = ""
         local placeholder = "Type..."
@@ -5194,12 +5150,13 @@ return function(opts)
         return resultObj
     end
     function hubState.createTextBox(parent, placeholderText, defaultText, callback)
+        local fallbackPage = (hubState.tabPages and hubState.tabPages[1]) or contentArea
         if type(parent) == "string" and typeof(placeholderText) ~= "string" and typeof(placeholderText) ~= "nil" then
-            return hubState.CreateInput(contentArea, parent, "", placeholderText, defaultText)
+            return hubState.CreateInput(fallbackPage, parent, "", placeholderText, defaultText)
         elseif typeof(parent) == "Instance" or (type(parent) == "table" and (parent.List or parent.Frame)) then
             return hubState.CreateInput(parent, placeholderText or "Input", defaultText or "", callback)
         else
-            return hubState.CreateInput(contentArea, parent or "Input", defaultText or "", placeholderText or "Type...", callback)
+            return hubState.CreateInput(fallbackPage, parent or "Input", defaultText or "", placeholderText or "Type...", callback)
         end
     end
     function hubState.createToggle(parent, text, defaultState, callbackOrLoop, loopDelay, configTable)
@@ -5208,7 +5165,7 @@ return function(opts)
         elseif type(parent) == "table" and parent.Frame then
             parent = parent.Frame
         elseif not parent or typeof(parent) ~= "Instance" then
-            parent = contentArea
+            parent = (hubState.tabPages and hubState.tabPages[1]) or contentArea
         end
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
@@ -5651,7 +5608,7 @@ return function(opts)
         local parentTarget = parent
         local itemTitle = title or "List"
         local itemValues = items or {}
-        local itemExpanded = (expanded == true) 
+        local itemExpanded = false
         local multiSelect = selectionOptions == true or (type(selectionOptions) == "table" and (selectionOptions.MultiSelect == true or selectionOptions.multiSelect == true))
         local parentListObj = nil
         local isNestedList = false
@@ -5661,23 +5618,23 @@ return function(opts)
             isNestedList = true
             itemTitle = title or "Sub-List"
             itemValues = items or {}
-            itemExpanded = (expanded == true)
+            itemExpanded = false
         elseif type(parentTarget) == "table" then
             itemValues = parentTarget
             parentTarget = contentArea
             itemTitle = "List"
-            itemExpanded = (items == true)
+            itemExpanded = false
         elseif type(parentTarget) == "string" then
             if type(title) == "table" then
                 itemTitle = parentTarget
                 itemValues = title
                 parentTarget = contentArea
-                itemExpanded = (height == true)
+                itemExpanded = false
             else
                 itemTitle = parentTarget
                 parentTarget = title or contentArea
                 itemValues = items or {}
-                itemExpanded = (expanded == true)
+                itemExpanded = false
             end
         end
         if typeof(parentTarget) == "Instance" then
@@ -6989,8 +6946,8 @@ return function(opts)
                 end
             end)
         end
-        local universalListContainer = hubState.CreateList(hubState.repoPage, "🌐 Universal Scripts", {}, 230, true)
-        local gameListContainer = hubState.CreateList(hubState.repoPage, "🎮 Unknown Hub Games", {}, 230, true)
+        local universalListContainer = hubState.CreateList(hubState.repoPage, "🌐 Universal Scripts", {}, 230, false)
+        local gameListContainer = hubState.CreateList(hubState.repoPage, "🎮 Unknown Hub Games", {}, 230, false)
         local universalScriptsData = {
             { name = "Dark Dex V3", desc = "Hierarchy explorer, property inspector & decompiler", url = "https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/BypassedDarkDexV3.luau" },
             { name = "SimpleSpy V3", desc = "Real-time RemoteEvent & RemoteFunction logger", url = "https://raw.githubusercontent.com/infyiff/backup/main/SimpleSpyV3/main.lua" },
@@ -7473,7 +7430,7 @@ return function(opts)
         status.TextSize = 10
         status.TextXAlignment = Enum.TextXAlignment.Left
         status.Parent = hubState.configTabPage
-        local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, true)
+        local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, false)
         local selectedName
         local saveNameBox
         local renameNameBox
