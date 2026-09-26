@@ -236,9 +236,16 @@ local function buyAffordableUpgrades()
             if numId and type(data) == "table" then
                 local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
                 local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
-                local maxLevel = tonumber(resolveVal(data.Max)) or 1
 
-                if curLevel < maxLevel then
+                -- Only enforce static numerical caps; function/dynamic Max is uncapped
+                local maxLevel = nil
+                if type(data.Max) == "number" then
+                    maxLevel = data.Max
+                elseif type(data.Max) == "string" and tonumber(data.Max) then
+                    maxLevel = tonumber(data.Max)
+                end
+
+                if not maxLevel or curLevel < maxLevel then
                     if isUpgradeUnlocked(data, playerData, playerUpgrades) then
                         local basePrice = resolveVal(data.Price)
                         if basePrice ~= nil then
