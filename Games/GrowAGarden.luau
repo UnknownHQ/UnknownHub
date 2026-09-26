@@ -1402,6 +1402,7 @@ local State = {
     Sell_ExcludePetWeightMode = "Above",
 
     -- Pet Tab: Egg Hatching & Egg Placement
+    Egg_ESP = false,
     AutoPlaceEggs = false,
     PlaceOnlyWhenNoEgg = false,
     PlaceEgg_Selected = "All Eggs",
@@ -1477,6 +1478,7 @@ local sellExcludePetVariantListObj
 local sellExcludePetMutationListObj
 local sellExcludePetWeightModeListObj
 
+local eggEspToggle
 local autoPlaceEggsToggle
 local placeOnlyWhenNoEggToggle
 local placeEggListObj
@@ -2917,6 +2919,240 @@ task.spawn(function()
 end)
 
 -- =========================================================================
+-- Pet Egg ESP Engine (Pet Name, Weight in KG, Hatch Cooldown Timer)
+-- =========================================================================
+local activeEggEspBillboards = {}
+
+local function removeEggEspFrom(eggObj)
+    if activeEggEspBillboards[eggObj] then
+        pcall(function() activeEggEspBillboards[eggObj]:Destroy() end)
+        activeEggEspBillboards[eggObj] = nil
+    end
+    pcall(function()
+        local existing = eggObj:FindFirstChild("UnknownHub_EggESP")
+        if existing then existing:Destroy() end
+    end)
+end
+
+local function cleanAllEggEsp()
+    for eggObj, bb in pairs(activeEggEspBillboards) do
+        pcall(function() bb:Destroy() end)
+    end
+    activeEggEspBillboards = {}
+    pcall(function()
+        local placed = getPlacedEggsInGarden()
+        for _, egg in ipairs(placed) do
+            local existing = egg:FindFirstChild("UnknownHub_EggESP")
+            if existing then existing:Destroy() end
+        end
+    end)
+end
+
+local function formatHatchCooldown(remainingSeconds)
+    if remainingSeconds <= 0 then
+        return "READY TO HATCH! 🐣"
+    end
+    local hours = math.floor(remainingSeconds / 3600)
+    local mins = math.floor((remainingSeconds % 3600) / 60)
+    local secs = math.floor(remainingSeconds % 60)
+    if hours > 0 then
+        return string.format("%02d:%02d:%02d", hours, mins, secs)
+    else
+        return string.format("%02d:%02d", mins, secs)
+    end
+end
+
+local function resolveEggInfo(eggObj)
+    local eggName = eggObj:GetAttribute("EggName") or eggObj:GetAttribute("NAME") or eggObj.Name or "Egg"
+    local petName = eggObj:GetAttribute("Pet") or eggObj:GetAttribute("f") or eggObj:GetAttribute("PetName") or eggObj:GetAttribute("PET_NAME") or eggObj:GetAttribute("TargetPet")
+    local petWeight = tonumber(eggObj:GetAttribute("Weight") or eggObj:GetAttribute("w") or eggObj:GetAttribute("PetWeight") or eggObj:GetAttribute("KG") or eggObj:GetAttribute("kg"))
+    
+    -- Check inside egg models/children
+    if not petName then
+        for _, ch in ipairs(eggObj:GetChildren()) do
+            if ch:IsA("Model") and ch.Name ~= "Model" and not ch.Name:lower():find("egg") and not ch.Name:lower():find("hitbox") then
+                petName = ch.Name
+                break
+            end
+        end
+    end
+
+    -- Check pet weight in name if present
+    if not petWeight and petName then
+        local matchKg = petName:match("%[([%d%.]+)%s*[kK][gG]%]")
+        if matchKg then
+            petWeight = tonumber(matchKg)
+        end
+    end
+
+    -- Calculate cooldown
+    local isReady = eggObj:GetAttribute("READY") == true
+    local timeToHatch = tonumber(eggObj:GetAttribute("TimeToHatch"))
+    local remaining = 0
+    if not isReady and timeToHatch then
+        local nowTime = Workspace:GetServerTimeNow()
+        if timeToHatch > nowTime then
+            remaining = timeToHatch - nowTime
+        else
+            isReady = true
+        end
+    elseif not isReady then
+        local prompt = eggObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.Enabled then
+            isReady = true
+        end
+    end
+
+    return {
+        eggName = tostring(eggName),
+        petName = petName and tostring(petName) or nil,
+        petWeight = petWeight,
+        isReady = isReady,
+        remaining = remaining
+    }
+end
+
+local function updateSingleEggEsp(eggObj)
+    if not eggObj or not eggObj.Parent then
+        removeEggEspFrom(eggObj)
+        return
+    end
+
+    local primaryPart = eggObj:FindFirstChildWhichIsA("BasePart", true)
+    if not primaryPart then return end
+
+    local info = resolveEggInfo(eggObj)
+    local bb = activeEggEspBillboards[eggObj]
+    
+    if not bb or not bb.Parent or bb.Adornee ~= primaryPart then
+        if bb then pcall(function() bb:Destroy() end) end
+        
+        bb = Instance.new("BillboardGui")
+        bb.Name = "UnknownHub_EggESP"
+        bb.Adornee = primaryPart
+        bb.Size = UDim2.new(0, 180, 0, 70)
+        bb.StudsOffset = Vector3.new(0, 3.2, 0)
+        bb.AlwaysOnTop = true
+        bb.MaxDistance = 250
+        bb.ClipsDescendants = false
+        bb.ResetOnSpawn = false
+
+        local container = Instance.new("Frame")
+        container.Name = "Container"
+        container.Size = UDim2.new(1, 0, 1, 0)
+        container.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+        container.BackgroundTransparency = 0.25
+        container.BorderSizePixel = 0
+        container.Parent = bb
+
+        local uicorner = Instance.new("UICorner")
+        uicorner.CornerRadius = UDim.new(0, 6)
+        uicorner.Parent = container
+
+        local uistroke = Instance.new("UIStroke")
+        uistroke.Name = "Stroke"
+        uistroke.Thickness = 1.2
+        uistroke.Color = info.isReady and Color3.fromRGB(72, 239, 128) or Color3.fromRGB(245, 158, 11)
+        uistroke.Parent = container
+
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "Title"
+        titleLabel.Size = UDim2.new(1, -8, 0, 20)
+        titleLabel.Position = UDim2.new(0, 4, 0, 3)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.GothamBold
+        titleLabel.TextSize = 12
+        titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        titleLabel.TextStrokeTransparency = 0.5
+        titleLabel.Text = info.eggName
+        titleLabel.Parent = container
+
+        local petLabel = Instance.new("TextLabel")
+        petLabel.Name = "PetInfo"
+        petLabel.Size = UDim2.new(1, -8, 0, 18)
+        petLabel.Position = UDim2.new(0, 4, 0, 24)
+        petLabel.BackgroundTransparency = 1
+        petLabel.Font = Enum.Font.GothamMedium
+        petLabel.TextSize = 11
+        petLabel.TextColor3 = Color3.fromRGB(56, 189, 248)
+        petLabel.TextStrokeTransparency = 0.5
+        petLabel.Text = "🐾 Pet: " .. (info.petName or "Mystery Pet") .. (info.petWeight and string.format(" [%.2f KG]", info.petWeight) or "")
+        petLabel.Parent = container
+
+        local cdLabel = Instance.new("TextLabel")
+        cdLabel.Name = "Cooldown"
+        cdLabel.Size = UDim2.new(1, -8, 0, 18)
+        cdLabel.Position = UDim2.new(0, 4, 0, 44)
+        cdLabel.BackgroundTransparency = 1
+        cdLabel.Font = Enum.Font.GothamBold
+        cdLabel.TextSize = 11
+        cdLabel.TextColor3 = info.isReady and Color3.fromRGB(72, 239, 128) or Color3.fromRGB(251, 191, 36)
+        cdLabel.TextStrokeTransparency = 0.5
+        cdLabel.Text = "⏳ " .. formatHatchCooldown(info.remaining)
+        cdLabel.Parent = container
+
+        bb.Parent = eggObj
+        activeEggEspBillboards[eggObj] = bb
+    else
+        -- Update existing labels
+        local container = bb:FindFirstChild("Container")
+        if container then
+            local stroke = container:FindFirstChild("Stroke")
+            if stroke then
+                stroke.Color = info.isReady and Color3.fromRGB(72, 239, 128) or Color3.fromRGB(245, 158, 11)
+            end
+
+            local titleLabel = container:FindFirstChild("Title")
+            if titleLabel then
+                titleLabel.Text = info.eggName
+            end
+
+            local petLabel = container:FindFirstChild("PetInfo")
+            if petLabel then
+                petLabel.Text = "🐾 Pet: " .. (info.petName or "Mystery Pet") .. (info.petWeight and string.format(" [%.2f KG]", info.petWeight) or "")
+            end
+
+            local cdLabel = container:FindFirstChild("Cooldown")
+            if cdLabel then
+                cdLabel.TextColor3 = info.isReady and Color3.fromRGB(72, 239, 128) or Color3.fromRGB(251, 191, 36)
+                cdLabel.Text = "⏳ " .. formatHatchCooldown(info.remaining)
+            end
+        end
+    end
+end
+
+-- Continuous Egg ESP Background Loop
+task.spawn(function()
+    while true do
+        local ok, err = pcall(function()
+            local isEspActive = isToggleActive(eggEspToggle, State.Egg_ESP, "🥚 Egg ESP (Pet, KG & Cooldown)")
+            if isEspActive then
+                local placed = getPlacedEggsInGarden()
+                local seenEggs = {}
+                for _, egg in ipairs(placed) do
+                    seenEggs[egg] = true
+                    updateSingleEggEsp(egg)
+                end
+                for eggObj, bb in pairs(activeEggEspBillboards) do
+                    if not seenEggs[eggObj] or not eggObj.Parent then
+                        removeEggEspFrom(eggObj)
+                    end
+                end
+                task.wait(0.25)
+            else
+                if next(activeEggEspBillboards) ~= nil then
+                    cleanAllEggEsp()
+                end
+                task.wait(0.5)
+            end
+        end)
+        if not ok and err then
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- =========================================================================
 -- Visual Optimization Engine (Hide Plants & Hide Fruits)
 -- =========================================================================
 local function updateFruitVisibility()
@@ -4249,6 +4485,13 @@ end)
 -- ==========================================
 -- Section: Pets Tab
 -- ==========================================
+
+-- 0. 🥚 Pet Egg ESP (Vision)
+Hub.CreateSection(petTab, "👁️ Pet Egg ESP")
+
+eggEspToggle = Hub.CreateToggle(petTab, "🥚 Egg ESP (Pet, KG & Cooldown)", false, function(v)
+    if type(v) == "boolean" then State.Egg_ESP = v else State.Egg_ESP = not State.Egg_ESP end
+end)
 
 -- 1. 🥚 Auto Place Eggs
 Hub.CreateSection(petTab, "🥚 Auto Place Eggs")
