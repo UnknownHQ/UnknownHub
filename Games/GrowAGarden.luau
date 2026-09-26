@@ -5099,8 +5099,9 @@ Hub.CreateButton(shopTab, "📋 View Recipe Ingredients & Craft Status", functio
 
         local invCounts = {}
         for _, item in pairs(inv) do
-            local name = item.ItemName or (item.ItemData and item.ItemData.ItemName) or item.Name or "Unknown"
-            invCounts[name] = (invCounts[name] or 0) + (item.Quantity or 1)
+            local name = item.ItemName or (item.ItemData and (item.ItemData.ItemName or item.ItemData.EggName)) or item.Name or "Unknown"
+            local count = item.Quantity or (item.ItemData and item.ItemData.Uses) or 1
+            invCounts[name] = (invCounts[name] or 0) + count
         end
 
         local chosenPlant = tostring(getUIListVal(selectCraftPlantListObj, State.AutoCraft_SelectedPlant))
