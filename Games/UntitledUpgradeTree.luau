@@ -258,24 +258,35 @@ local function buyAffordableUpgrades()
                                 end)
                                 boughtCount = boughtCount + 1
                             else
-                                -- Calculate scaled mathematical price
-                                local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
-                                local price = InfMaths.new(basePrice)
-                                if curLevel > 0 and priceInc > 1 then
-                                    price = price * (priceInc ^ curLevel)
-                                end
-
                                 local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
                                 local rawBal = getPlayerBalance(currName)
 
                                 if rawBal ~= nil then
                                     local playerBal = InfMaths.new(rawBal)
-                                    -- Buy when balance >= price (including exact equality)
-                                    if playerBal >= price then
+                                    local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
+                                    
+                                    -- Calculate starting price for current level
+                                    local price = InfMaths.new(basePrice)
+                                    if curLevel > 0 and priceInc > 1 then
+                                        price = price * (priceInc ^ curLevel)
+                                    end
+
+                                    -- Instant Max/Burst Loop: fire multiple times in one tick if affordable
+                                    local tempLevel = curLevel
+                                    local tempBal = playerBal
+                                    local burstLimit = 25
+
+                                    while (not maxLevel or tempLevel < maxLevel) and tempBal >= price and burstLimit > 0 do
                                         pcall(function()
                                             BuyUpgRemote:FireServer(numId)
                                         end)
                                         boughtCount = boughtCount + 1
+                                        burstLimit = burstLimit - 1
+                                        tempLevel = tempLevel + 1
+                                        
+                                        if priceInc > 1 then
+                                            price = price * priceInc
+                                        end
                                     end
                                 end
                             end
