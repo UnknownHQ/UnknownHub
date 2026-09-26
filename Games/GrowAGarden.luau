@@ -1965,7 +1965,8 @@ local function shouldSellPetTool(info)
 end
 
 -- =========================================================================
--- True Remote Harvest Engine (Instant Collect & Rapid Filtered Vacuum)
+-- =========================================================================
+-- True Remote Harvest Engine (Instant Burst Flood & Filtered Vacuum)
 -- =========================================================================
 task.spawn(function()
     while true do
@@ -1976,88 +1977,131 @@ task.spawn(function()
             local collectFiltered = isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered, "🌱 Auto Collect (Filtered)")
             local stopFull = isToggleActive(collectStopWhenFullToggle, State.Collect_StopWhenFull)
 
-            if (collectAll or instantAll or collectFiltered) then
-                if stopFull and isBackpackFull() then
-                    task.wait(0.3)
-                else
-                    local colRemote = getCollectRemote()
-                    if colRemote then
-                        local batch = {}
-                        local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+            if not (collectAll or instantAll or collectFiltered) then return end
 
-                        for _, farm in ipairs(farmFolder:GetChildren()) do
-                            if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
-                               and not isToggleActive(instantCollectAllToggle, State.InstantCollectAll) 
-                               and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
-                                break 
-                            end
-                            if stopFull and isBackpackFull() then break end
+            local colRemote = getCollectRemote()
+            if not colRemote then return end
 
-                            local important = farm:FindFirstChild("Important")
-                            local plantsFolder = important and important:FindFirstChild("Plants_Physical")
-                            if plantsFolder then
-                                for _, plant in ipairs(plantsFolder:GetChildren()) do
-                                    if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
-                                       and not isToggleActive(instantCollectAllToggle, State.InstantCollectAll) 
-                                       and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
-                                        break 
-                                    end
-                                    if stopFull and isBackpackFull() then break end
+            local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
 
-                                    local fruitsFolder = plant:FindFirstChild("Fruits")
-                                    if fruitsFolder then
-                                        for _, fg in ipairs(fruitsFolder:GetChildren()) do
-                                            if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
-                                               and not isToggleActive(instantCollectAllToggle, State.InstantCollectAll) 
-                                               and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
-                                                break 
-                                            end
-                                            if stopFull and isBackpackFull() then break end
+            -- 1) HIGH-CONCURRENCY 2-3 SECOND NETWORK BURST ENGINE (Instant Collect ALL Only)
+            if instantAll then
+                local burstDuration = 2.5
+                local burstStart = tick()
 
-                                            local shouldCollect = false
-                                            if collectAll or instantAll then
-                                                shouldCollect = true
-                                            elseif collectFiltered then
-                                                local info = getFruitGroupInfo(plant, fg)
-                                                if matchesCollectFilters(info) then
-                                                    shouldCollect = true
-                                                end
-                                            end
+                while (tick() - burstStart < burstDuration) and isToggleActive(instantCollectAllToggle, State.InstantCollectAll) do
+                    local allFruits = {}
 
-                                            if shouldCollect then
-                                                table.insert(batch, fg)
-                                                local maxBatch = instantAll and 150 or (State.BatchSize or 35)
-                                                if #batch >= maxBatch then
-                                                    pcall(function()
-                                                        colRemote:FireServer(batch)
-                                                    end)
-                                                    batch = {}
-                                                    if not instantAll then
-                                                        task.wait(0.04)
-                                                    end
-                                                end
-                                            end
-                                        end
+                    for _, farm in ipairs(farmFolder:GetChildren()) do
+                        local important = farm:FindFirstChild("Important")
+                        local plantsFolder = important and important:FindFirstChild("Plants_Physical")
+                        if plantsFolder then
+                            for _, plant in ipairs(plantsFolder:GetChildren()) do
+                                local fruitsFolder = plant:FindFirstChild("Fruits")
+                                if fruitsFolder then
+                                    for _, fg in ipairs(fruitsFolder:GetChildren()) do
+                                        table.insert(allFruits, fg)
                                     end
                                 end
                             end
                         end
+                    end
 
-                        if #batch > 0 and (isToggleActive(autoCollectAllToggle, State.AutoCollectAll) or isToggleActive(instantCollectAllToggle, State.InstantCollectAll) or isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered)) then
+                    if #allFruits == 0 then break end
+
+                    -- Rapid parallel batch dispatch to saturate packet pipeline and bypass backpack checks
+                    local batchSize = 35
+                    for i = 1, #allFruits, batchSize do
+                        local subBatch = {}
+                        for j = i, math.min(i + batchSize - 1, #allFruits) do
+                            table.insert(subBatch, allFruits[j])
+                        end
+                        task.spawn(function()
                             pcall(function()
-                                colRemote:FireServer(batch)
+                                colRemote:FireServer(subBatch)
                             end)
-                            batch = {}
+                        end)
+                    end
+
+                    task.wait(0.03) -- Micro-yield maintains high network throughput without freezing VM
+                end
+
+                -- Brief cooldown between multi-second burst waves
+                if isToggleActive(instantCollectAllToggle, State.InstantCollectAll) then
+                    task.wait(0.35)
+                end
+                return
+            end
+
+            -- 2) STANDARD CONTROLLED HARVEST ENGINE (Auto Collect ALL & Filtered)
+            if stopFull and isBackpackFull() then
+                task.wait(0.3)
+                return
+            end
+
+            local batch = {}
+            for _, farm in ipairs(farmFolder:GetChildren()) do
+                if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                   and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                    break 
+                end
+                if stopFull and isBackpackFull() then break end
+
+                local important = farm:FindFirstChild("Important")
+                local plantsFolder = important and important:FindFirstChild("Plants_Physical")
+                if plantsFolder then
+                    for _, plant in ipairs(plantsFolder:GetChildren()) do
+                        if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                           and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                            break 
+                        end
+                        if stopFull and isBackpackFull() then break end
+
+                        local fruitsFolder = plant:FindFirstChild("Fruits")
+                        if fruitsFolder then
+                            for _, fg in ipairs(fruitsFolder:GetChildren()) do
+                                if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                                   and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                                    break 
+                                end
+                                if stopFull and isBackpackFull() then break end
+
+                                local shouldCollect = false
+                                if collectAll then
+                                    shouldCollect = true
+                                elseif collectFiltered then
+                                    local info = getFruitGroupInfo(plant, fg)
+                                    if matchesCollectFilters(info) then
+                                        shouldCollect = true
+                                    end
+                                end
+
+                                if shouldCollect then
+                                    table.insert(batch, fg)
+                                    local maxBatch = State.BatchSize or 35
+                                    if #batch >= maxBatch then
+                                        pcall(function()
+                                            colRemote:FireServer(batch)
+                                        end)
+                                        batch = {}
+                                        task.wait(0.04)
+                                    end
+                                end
+                            end
                         end
                     end
                 end
             end
+
+            if #batch > 0 and (isToggleActive(autoCollectAllToggle, State.AutoCollectAll) or isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered)) then
+                pcall(function()
+                    colRemote:FireServer(batch)
+                end)
+                batch = {}
+            end
         end)
     end
 end)
-
--- =========================================================================
--- =========================================================================
 -- Auto-Plant Engine (Player Position, Random Position, Existing Plant)
 -- =========================================================================
 task.spawn(function()
