@@ -3,8 +3,8 @@
 -- Game: Untitled Upgrade Tree
 -- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine,
 --           InfMaths Exponentiation, Upgrade #4 (Buy Max) Integration,
---           Wish Safeguard & GUI Shop Blacklist, High-Speed Network-Safe
---           Auto Clicker, Smart Auto Prestige, Auto Evil & Dark Resets
+--           Wish Safeguard & GUI Shop Blacklist, Auto Daily Claim Engine,
+--           High-Speed Network-Safe Auto Clicker, Smart Auto Prestige & Resets
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -91,6 +91,7 @@ local EvilRemote = nil
 local DarkPrestigeRemote = nil
 local DarkEvilRemote = nil
 local TowerPrestigeRemote = nil
+local DailyRemote = nil
 
 local function loadGameModules()
     pcall(function()
@@ -115,6 +116,7 @@ local function loadGameModules()
             DarkPrestigeRemote = remotes:FindFirstChild("DarkPrestige")
             DarkEvilRemote = remotes:FindFirstChild("DarkEvil")
             TowerPrestigeRemote = remotes:FindFirstChild("TowerPrestige")
+            DailyRemote = remotes:FindFirstChild("Daily")
         end
     end)
 end
@@ -227,6 +229,7 @@ local State = {
     AutoUpgrade = false,
     UpgradeInterval = 0.2,
     IncludeWishUpgrades = false,
+    AutoDaily = true,
     AutoClick = false,
     AutoPrestige = false,
     AutoEvil = false,
@@ -403,6 +406,7 @@ local Hub = factory({
     onClose = function()
         _G.UUT_SESSION = nil
         State.AutoUpgrade = false
+        State.AutoDaily = false
         State.AutoClick = false
         State.AutoPrestige = false
         State.AutoEvil = false
@@ -454,6 +458,47 @@ Hub.CreateButton(mainTab, "Buy All Affordable (1-Click)", function()
         Content = string.format("Fired buy for %d affordable upgrades!", bought),
         Duration = 2
     })
+end)
+
+Hub.CreateSection(mainTab, "REWARDS & CLAIMS")
+
+-- Auto Daily Claim Toggle
+Hub.CreateToggle(mainTab, "Auto Daily Claim", true, function(enabled)
+    State.AutoDaily = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoDaily and _G.UUT_SESSION == currentSession do
+                if not DailyRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then DailyRemote = remotes:FindFirstChild("Daily") end
+                end
+                if DailyRemote then
+                    pcall(function()
+                        DailyRemote:FireServer()
+                    end)
+                end
+                task.wait(5)
+            end
+        end)
+    end
+end)
+
+-- 1-Click Claim Daily Button
+Hub.CreateButton(mainTab, "Claim Daily Reward Now", function()
+    if not DailyRemote then
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes then DailyRemote = remotes:FindFirstChild("Daily") end
+    end
+    if DailyRemote then
+        pcall(function()
+            DailyRemote:FireServer()
+        end)
+        Hub.SendNotification({
+            Title = "Daily Reward",
+            Content = "Daily claim remote triggered!",
+            Duration = 2
+        })
+    end
 end)
 
 Hub.CreateSection(mainTab, "CLICKER & RESET AUTOMATION")
@@ -618,6 +663,18 @@ Hub.CreateToggle(mainTab, "Auto Dark Evil", false, function(enabled)
                 task.wait(0.3)
             end
         end)
+    end
+end)
+
+-- Start default background workers
+task.spawn(function()
+    while _G.UUT_SESSION == currentSession do
+        if State.AutoDaily and DailyRemote then
+            pcall(function()
+                DailyRemote:FireServer()
+            end)
+        end
+        task.wait(5)
     end
 end)
 
