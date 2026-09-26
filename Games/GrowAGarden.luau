@@ -5088,6 +5088,38 @@ Hub.CreateTextBox(shopTab, "Craft Delay (0.05 - 5.0s)", "Enter loop interval (de
     end
 end)
 
+Hub.CreateButton(shopTab, "🛠️ Spawn Event Crafting Tables (Dino, Fairy, Smith, Bean)", function()
+    pcall(function()
+        local csh = require(ReplicatedStorage.Modules.CraftingStationHandler)
+        local baseBench = Workspace.NPCS.CraftingTables:FindFirstChild("EventCraftingWorkBench") or Workspace.NPCS.CraftingTables:FindFirstChild("SeedEventCraftingWorkBench")
+        if not baseBench then return end
+
+        local eventBenches = {
+            {name = "DinoEventCraftingWorkBench", cot = "DinoEventWorkbench", cid = "DinoEventWorkbench", offset = Vector3.new(6, 0, 0)},
+            {name = "FairyEventCraftingWorkBench", cot = "FairyWorldCraftingWorkBench", cid = "FairyWorldCraftingWorkBench", offset = Vector3.new(12, 0, 0)},
+            {name = "SmithingEventCraftingWorkBench", cot = "SmithingEventGearWorkbench", cid = "SmithingEventGearWorkbench", offset = Vector3.new(18, 0, 0)},
+            {name = "GiantBeanstalkEventCraftingWorkBench", cot = "GiantBeanstalkEventWorkbench", cid = "GiantBeanstalkEventWorkbench", offset = Vector3.new(24, 0, 0)}
+        }
+
+        local count = 0
+        for _, info in ipairs(eventBenches) do
+            local existing = Workspace.NPCS.CraftingTables:FindFirstChild(info.name)
+            if not existing then
+                local clone = baseBench:Clone()
+                clone.Name = info.name
+                clone:SetAttribute("CraftingObjectType", info.cot)
+                clone:SetAttribute("CraftingObjectId", info.cid)
+                clone.Parent = Workspace.NPCS.CraftingTables
+                clone:PivotTo(baseBench:GetPivot() * CFrame.new(info.offset))
+                CollectionService:AddTag(clone, "CraftingObject")
+                pcall(function() csh:SetupProximityPromptForCraftingStation(clone) end)
+                count = count + 1
+            end
+        end
+        Hub.Notify({ Title = "Crafting Tables", Content = "Spawned " .. tostring(count) .. " event workbenches!", Duration = 3 })
+    end)
+end)
+
 -- ==========================================
 -- Section: Events Tab (Acorn Chaos & Weekly Events)
 -- ==========================================
