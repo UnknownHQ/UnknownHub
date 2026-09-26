@@ -2,7 +2,8 @@
 -- UNKNOWN HUB - UNTITLED UPGRADE TREE
 -- Game: Untitled Upgrade Tree
 -- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine,
---           Auto Clicker, Auto Prestige & Auto Evil Reset
+--           High-Speed Network-Safe Auto Clicker, Smart Auto Prestige,
+--           Auto Evil, Auto Dark Prestige & Auto Dark Evil Resets
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -81,33 +82,43 @@ destroyOldGui()
 -- =========================================================================
 local InfMaths = nil
 local UpgradesModule = nil
+local ReadPlayerMulti = nil
 local BuyUpgRemote = nil
 local ClickerRemote = nil
 local PrestigeRemote = nil
 local EvilRemote = nil
 local DarkPrestigeRemote = nil
 local DarkEvilRemote = nil
+local TowerPrestigeRemote = nil
 
-pcall(function()
-    local modules = ReplicatedStorage:FindFirstChild("Modules")
-    if modules then
-        if modules:FindFirstChild("InfMaths") then
-            InfMaths = require(modules.InfMaths)
+local function loadGameModules()
+    pcall(function()
+        local modules = ReplicatedStorage:FindFirstChild("Modules")
+        if modules then
+            if modules:FindFirstChild("InfMaths") then
+                InfMaths = require(modules.InfMaths)
+            end
+            if modules:FindFirstChild("Upgrades") then
+                UpgradesModule = require(modules.Upgrades)
+            end
+            if modules:FindFirstChild("ReadPlayerMulti") then
+                ReadPlayerMulti = require(modules.ReadPlayerMulti)
+            end
         end
-        if modules:FindFirstChild("Upgrades") then
-            UpgradesModule = require(modules.Upgrades)
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes then
+            BuyUpgRemote = remotes:FindFirstChild("BuyUpg")
+            ClickerRemote = remotes:FindFirstChild("Clicker")
+            PrestigeRemote = remotes:FindFirstChild("Prestige")
+            EvilRemote = remotes:FindFirstChild("Evil")
+            DarkPrestigeRemote = remotes:FindFirstChild("DarkPrestige")
+            DarkEvilRemote = remotes:FindFirstChild("DarkEvil")
+            TowerPrestigeRemote = remotes:FindFirstChild("TowerPrestige")
         end
-    end
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if remotes then
-        BuyUpgRemote = remotes:FindFirstChild("BuyUpg")
-        ClickerRemote = remotes:FindFirstChild("Clicker")
-        PrestigeRemote = remotes:FindFirstChild("Prestige")
-        EvilRemote = remotes:FindFirstChild("Evil")
-        DarkPrestigeRemote = remotes:FindFirstChild("DarkPrestige")
-        DarkEvilRemote = remotes:FindFirstChild("DarkEvil")
-    end
-end)
+    end)
+end
+
+loadGameModules()
 
 local function resolveVal(v)
     if type(v) == "function" then
@@ -151,7 +162,7 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     local rawUnlock = resolveVal(data.Unlock)
     local rawHasUnlock = resolveVal(data.HasUnlock)
 
-    -- Dynamic Currency & World Unlock Flags Check (if explicitly disabled)
+    -- Dynamic Currency & World Unlock Flags Check
     local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
     if currName ~= "Points" and playerData then
         local unlockFlag1 = playerData:FindFirstChild("Unlocked" .. currName)
@@ -164,7 +175,7 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
         end
     end
 
-    -- Stat-based unlock requirement (e.g. Loop, Stage, or newly added player stats)
+    -- Stat-based unlock requirement (e.g. Loop, Stage, or custom player stats)
     if type(rawUnlock) == "string" and playerData and playerData:FindFirstChild(rawUnlock) then
         local statVal = tonumber(playerData[rawUnlock].Value) or 0
         local reqVal = tonumber(rawHasUnlock) or 1
@@ -189,7 +200,6 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     -- Parent Upgrade Requirement 2
     if hasUnlockNum and hasUnlockNum > 0 and hasUnlockNum ~= unlockNum and playerUpgrades then
         if unlockNum and unlockNum > 0 then
-            -- HasUnlock == 1 denotes required level of parent node (Unlock)
             if hasUnlockNum > 1 then
                 local pObj = playerUpgrades:FindFirstChild(tostring(hasUnlockNum))
                 local pLvl = pObj and tonumber(pObj.Value) or 0
@@ -209,7 +219,7 @@ local function isUpgradeUnlocked(data, playerData, playerUpgrades)
     return true
 end
 
--- Universal Real-Time Upgrade Execution Engine
+-- Universal Real-Time Upgrade Execution Engine with Budget Management
 local function buyAffordableUpgrades()
     if not BuyUpgRemote then
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
@@ -219,28 +229,27 @@ local function buyAffordableUpgrades()
     end
     if not BuyUpgRemote then return 0 end
 
-    -- Dynamically re-require Upgrades module if available to pick up new dev updates instantly
-    if not UpgradesModule then
-        pcall(function()
-            local modules = ReplicatedStorage:FindFirstChild("Modules")
-            if modules and modules:FindFirstChild("Upgrades") then
-                UpgradesModule = require(modules.Upgrades)
-            end
-        end)
-    end
-    if not InfMaths then
-        pcall(function()
-            local modules = ReplicatedStorage:FindFirstChild("Modules")
-            if modules and modules:FindFirstChild("InfMaths") then
-                InfMaths = require(modules.InfMaths)
-            end
-        end)
+    if not UpgradesModule or not InfMaths or not ReadPlayerMulti then
+        loadGameModules()
     end
 
     local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
     local playerUpgrades = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Upgrades")
 
     local boughtCount = 0
+    local currencyBudgets = {}
+
+    local function getTrackedBudget(cName)
+        if currencyBudgets[cName] == nil then
+            local raw = getPlayerBalance(cName)
+            if raw ~= nil and InfMaths then
+                currencyBudgets[cName] = InfMaths.new(raw)
+            else
+                currencyBudgets[cName] = false
+            end
+        end
+        return currencyBudgets[cName]
+    end
 
     -- 1. Primary: Dynamic Multi-World Mathematical Affordability Engine
     if UpgradesModule and InfMaths and playerUpgrades then
@@ -250,7 +259,6 @@ local function buyAffordableUpgrades()
                 local upgValObj = playerUpgrades:FindFirstChild(tostring(numId))
                 local curLevel = upgValObj and tonumber(upgValObj.Value) or 0
 
-                -- Only enforce static numerical caps; function/dynamic Max is uncapped
                 local maxLevel = nil
                 if type(data.Max) == "number" then
                     maxLevel = data.Max
@@ -262,7 +270,6 @@ local function buyAffordableUpgrades()
                     if isUpgradeUnlocked(data, playerData, playerUpgrades) then
                         local basePrice = resolveVal(data.Price)
                         if basePrice ~= nil then
-                            -- Check if upgrade is completely Free (Price == 0)
                             local isFree = (basePrice == 0 or basePrice == "0" or tostring(basePrice) == "0")
 
                             if isFree then
@@ -272,31 +279,28 @@ local function buyAffordableUpgrades()
                                 boughtCount = boughtCount + 1
                             else
                                 local currName = tostring(resolveVal(data.CurrencyCost) or "Points")
-                                local rawBal = getPlayerBalance(currName)
+                                local budget = getTrackedBudget(currName)
 
-                                if rawBal ~= nil then
-                                    local playerBal = InfMaths.new(rawBal)
+                                if budget and budget ~= false then
                                     local priceInc = tonumber(resolveVal(data.PriceInc)) or 1
-                                    
-                                    -- Calculate starting price for current level
                                     local price = InfMaths.new(basePrice)
                                     if curLevel > 0 and priceInc > 1 then
                                         price = price * (priceInc ^ curLevel)
                                     end
 
-                                    -- Instant Max/Burst Loop: fire multiple times in one tick if affordable
                                     local tempLevel = curLevel
-                                    local tempBal = playerBal
                                     local burstLimit = 25
 
-                                    while (not maxLevel or tempLevel < maxLevel) and tempBal >= price and burstLimit > 0 do
+                                    while (not maxLevel or tempLevel < maxLevel) and budget >= price and burstLimit > 0 do
                                         pcall(function()
                                             BuyUpgRemote:FireServer(numId)
                                         end)
                                         boughtCount = boughtCount + 1
+                                        budget = budget - price
+                                        currencyBudgets[currName] = budget
                                         burstLimit = burstLimit - 1
                                         tempLevel = tempLevel + 1
-                                        
+
                                         if priceInc > 1 then
                                             price = price * priceInc
                                         end
@@ -310,7 +314,7 @@ local function buyAffordableUpgrades()
         end
     end
 
-    -- 2. Secondary Fallback: Workspace Physical Buttons Scanner (Catches new dev buttons live)
+    -- 2. Secondary Fallback: Workspace Physical Buttons Scanner
     local wsUpgrades = Workspace:FindFirstChild("Upgrades")
     if wsUpgrades then
         for _, upg in ipairs(wsUpgrades:GetChildren()) do
@@ -334,13 +338,10 @@ local State = {
     AutoUpgrade = false,
     UpgradeInterval = 0.2,
     AutoClick = false,
-    ClickInterval = 0.05,
     AutoPrestige = false,
-    PrestigeInterval = 1.0,
     AutoEvil = false,
-    EvilInterval = 2.0,
     AutoDarkPrestige = false,
-    DarkPrestigeInterval = 2.0
+    AutoDarkEvil = false
 }
 
 -- =========================================================================
@@ -359,6 +360,7 @@ local Hub = factory({
         State.AutoPrestige = false
         State.AutoEvil = false
         State.AutoDarkPrestige = false
+        State.AutoDarkEvil = false
     end
 })
 
@@ -404,7 +406,7 @@ end)
 
 Hub.CreateSection(mainTab, "CLICKER & RESET AUTOMATION")
 
--- Auto Click Toggle (High-Speed Burst Mode)
+-- Auto Click Toggle (High-Speed Network-Safe Click Engine)
 Hub.CreateToggle(mainTab, "Auto Click (Instant)", false, function(enabled)
     State.AutoClick = enabled
     if enabled then
@@ -415,19 +417,19 @@ Hub.CreateToggle(mainTab, "Auto Click (Instant)", false, function(enabled)
                     if remotes then ClickerRemote = remotes:FindFirstChild("Clicker") end
                 end
                 if ClickerRemote then
-                    for _ = 1, 20 do
+                    for _ = 1, 3 do
                         pcall(function()
                             ClickerRemote:FireServer()
                         end)
                     end
                 end
-                task.wait()
+                task.wait(0.06)
             end
         end)
     end
 end)
 
--- Auto Prestige Toggle (Rapid Reset Mode)
+-- Smart Auto Prestige Toggle
 Hub.CreateToggle(mainTab, "Auto Prestige", false, function(enabled)
     State.AutoPrestige = enabled
     if enabled then
@@ -437,18 +439,32 @@ Hub.CreateToggle(mainTab, "Auto Prestige", false, function(enabled)
                     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
                     if remotes then PrestigeRemote = remotes:FindFirstChild("Prestige") end
                 end
-                if PrestigeRemote then
-                    pcall(function()
-                        PrestigeRemote:FireServer()
-                    end)
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (not playerData or not playerData:FindFirstChild("UnlockedPrestiges")) or (playerData.UnlockedPrestiges.Value == true)
+                
+                if PrestigeRemote and isUnlocked then
+                    local shouldPrestige = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerPrestigeCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldPrestige = false
+                            end
+                        end)
+                    end
+                    if shouldPrestige then
+                        pcall(function()
+                            PrestigeRemote:FireServer()
+                        end)
+                    end
                 end
-                task.wait(0.05)
+                task.wait(0.25)
             end
         end)
     end
 end)
 
--- Auto Evil Reset Toggle (Rapid Reset Mode)
+-- Smart Auto Evil Reset Toggle
 Hub.CreateToggle(mainTab, "Auto Evil Reset", false, function(enabled)
     State.AutoEvil = enabled
     if enabled then
@@ -458,18 +474,32 @@ Hub.CreateToggle(mainTab, "Auto Evil Reset", false, function(enabled)
                     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
                     if remotes then EvilRemote = remotes:FindFirstChild("Evil") end
                 end
-                if EvilRemote then
-                    pcall(function()
-                        EvilRemote:FireServer()
-                    end)
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedEvil") and playerData.UnlockedEvil.Value == true)
+                
+                if EvilRemote and isUnlocked then
+                    local shouldEvil = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerEvilCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldEvil = false
+                            end
+                        end)
+                    end
+                    if shouldEvil then
+                        pcall(function()
+                            EvilRemote:FireServer()
+                        end)
+                    end
                 end
-                task.wait(0.05)
+                task.wait(0.3)
             end
         end)
     end
 end)
 
--- Auto Dark Prestige Toggle (Rapid Reset Mode)
+-- Smart Auto Dark Prestige Toggle
 Hub.CreateToggle(mainTab, "Auto Dark Prestige", false, function(enabled)
     State.AutoDarkPrestige = enabled
     if enabled then
@@ -479,12 +509,61 @@ Hub.CreateToggle(mainTab, "Auto Dark Prestige", false, function(enabled)
                     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
                     if remotes then DarkPrestigeRemote = remotes:FindFirstChild("DarkPrestige") end
                 end
-                if DarkPrestigeRemote then
-                    pcall(function()
-                        DarkPrestigeRemote:FireServer()
-                    end)
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedDarkPrestiges") and playerData.UnlockedDarkPrestiges.Value == true)
+                
+                if DarkPrestigeRemote and isUnlocked then
+                    local shouldDarkPrestige = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerDarkPrestigeEnergieCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldDarkPrestige = false
+                            end
+                        end)
+                    end
+                    if shouldDarkPrestige then
+                        pcall(function()
+                            DarkPrestigeRemote:FireServer()
+                        end)
+                    end
                 end
-                task.wait(0.05)
+                task.wait(0.3)
+            end
+        end)
+    end
+end)
+
+-- Smart Auto Dark Evil Toggle
+Hub.CreateToggle(mainTab, "Auto Dark Evil", false, function(enabled)
+    State.AutoDarkEvil = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoDarkEvil and _G.UUT_SESSION == currentSession do
+                if not DarkEvilRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then DarkEvilRemote = remotes:FindFirstChild("DarkEvil") end
+                end
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedDarkEvil") and playerData.UnlockedDarkEvil.Value == true)
+                
+                if DarkEvilRemote and isUnlocked then
+                    local shouldDarkEvil = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerDarkEvilEnergieCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldDarkEvil = false
+                            end
+                        end)
+                    end
+                    if shouldDarkEvil then
+                        pcall(function()
+                            DarkEvilRemote:FireServer()
+                        end)
+                    end
+                end
+                task.wait(0.3)
             end
         end)
     end
