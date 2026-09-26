@@ -7499,16 +7499,72 @@ return function(opts)
         end
         local function createConfigActionRow(buttonText, boxPlaceholder, boxOnLeft, callback)
             local row = Instance.new("Frame")
-            row.Size = UDim2.new(1, -6, 0, 38)
+            row.Size = UDim2.new(1, -6, 0, 36)
             row.BackgroundTransparency = 1
+            row.BorderSizePixel = 0
             row.Parent = hubState.configTabPage
-            local button = hubState.createButton(row, buttonText, callback)
-            button.Size = UDim2.new(0.48, -4, 1, 0)
-            button.Position = boxOnLeft and UDim2.new(0.52, 4, 0, 0) or UDim2.new(0, 0, 0, 0)
-            local box = hubState.createTextBox(row, boxPlaceholder)
-            local boxFrame = box.Parent
+
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(0.48, -4, 1, 0)
+            btn.Position = boxOnLeft and UDim2.new(0.52, 4, 0, 0) or UDim2.new(0, 0, 0, 0)
+            btn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+            btn.BorderSizePixel = 0
+            btn.Text = buttonText
+            btn.TextColor3 = Color3.fromRGB(225, 235, 250)
+            btn.Font = Enum.Font.GothamBold
+            btn.TextSize = 11
+            btn.AutoButtonColor = false
+            btn.Parent = row
+            applyCorner(btn, 6)
+            local btnStroke = applyStroke(btn, Color3.fromRGB(42, 52, 74), 1, 0)
+
+            btn.MouseEnter:Connect(function()
+                TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    BackgroundColor3 = Color3.fromRGB(34, 44, 66)
+                }):Play()
+            end)
+            btn.MouseLeave:Connect(function()
+                TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+                }):Play()
+            end)
+            if callback then
+                btn.MouseButton1Click:Connect(function() pcall(callback) end)
+            end
+
+            local boxFrame = Instance.new("Frame")
             boxFrame.Size = UDim2.new(0.52, -4, 1, 0)
             boxFrame.Position = boxOnLeft and UDim2.new(0, 0, 0, 0) or UDim2.new(0.48, 4, 0, 0)
+            boxFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+            boxFrame.BorderSizePixel = 0
+            boxFrame.Parent = row
+            applyCorner(boxFrame, 6)
+            local boxStroke = applyStroke(boxFrame, Color3.fromRGB(42, 52, 74), 1, 0)
+
+            local box = Instance.new("TextBox")
+            box.Size = UDim2.new(1, -12, 1, 0)
+            box.Position = UDim2.new(0, 6, 0, 0)
+            box.BackgroundTransparency = 1
+            box.ClearTextOnFocus = false
+            box.Font = Enum.Font.GothamMedium
+            box.PlaceholderText = boxPlaceholder or "Type name..."
+            box.PlaceholderColor3 = Color3.fromRGB(120, 132, 155)
+            box.Text = ""
+            box.TextColor3 = Color3.fromRGB(235, 240, 250)
+            box.TextSize = 11
+            box.TextXAlignment = Enum.TextXAlignment.Left
+            box.TextTruncate = Enum.TextTruncate.AtEnd
+            box.Parent = boxFrame
+
+            box.Focused:Connect(function()
+                TweenService:Create(boxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
+                TweenService:Create(boxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(26, 34, 48) }):Play()
+            end)
+            box.FocusLost:Connect(function()
+                TweenService:Create(boxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(42, 52, 74) }):Play()
+                TweenService:Create(boxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(18, 22, 32) }):Play()
+            end)
+
             return box
         end
         local function saveConfig(overwrite)
@@ -7574,7 +7630,37 @@ return function(opts)
                 Color = hubState.currentThemeColor
             })
         end)
-        local importBox = hubState.createTextBox(hubState.configTabPage, "Paste exported config string here...", "")
+        local importBoxFrame = Instance.new("Frame")
+        importBoxFrame.Size = UDim2.new(1, -6, 0, 36)
+        importBoxFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        importBoxFrame.BorderSizePixel = 0
+        importBoxFrame.Parent = hubState.configTabPage
+        applyCorner(importBoxFrame, 6)
+        local importStroke = applyStroke(importBoxFrame, Color3.fromRGB(42, 52, 74), 1, 0)
+
+        local importBox = Instance.new("TextBox")
+        importBox.Size = UDim2.new(1, -16, 1, 0)
+        importBox.Position = UDim2.new(0, 8, 0, 0)
+        importBox.BackgroundTransparency = 1
+        importBox.ClearTextOnFocus = false
+        importBox.Font = Enum.Font.GothamMedium
+        importBox.PlaceholderText = "Paste exported config string here..."
+        importBox.PlaceholderColor3 = Color3.fromRGB(120, 132, 155)
+        importBox.Text = ""
+        importBox.TextColor3 = Color3.fromRGB(235, 240, 250)
+        importBox.TextSize = 11
+        importBox.TextXAlignment = Enum.TextXAlignment.Left
+        importBox.TextTruncate = Enum.TextTruncate.AtEnd
+        importBox.Parent = importBoxFrame
+
+        importBox.Focused:Connect(function()
+            TweenService:Create(importStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
+            TweenService:Create(importBoxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(26, 34, 48) }):Play()
+        end)
+        importBox.FocusLost:Connect(function()
+            TweenService:Create(importStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(42, 52, 74) }):Play()
+            TweenService:Create(importBoxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(18, 22, 32) }):Play()
+        end)
         hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Text", function()
             local rawText = importBox and importBox.Text or ""
             if rawText == "" then
