@@ -2560,46 +2560,85 @@ local function getPlacedEggsInGarden()
     return eggs
 end
 
-local currentEggRowIndex = 0
-
 local function getNextEggRowPosition()
     local farm = getPlayerFarm()
-    local canPlant = farm and farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Plant_Locations") and farm.Important.Plant_Locations:FindFirstChild("Can_Plant")
-    if not canPlant then
-        local char = LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        return root and root.Position or Vector3.new(0, 0, 0)
+    local canPlantParts = {}
+    if farm and farm:FindFirstChild("Important") then
+        local locs = farm.Important:FindFirstChild("Plant_Locations")
+        if locs then
+            for _, ch in ipairs(locs:GetChildren()) do
+                if ch:IsA("BasePart") then
+                    table.insert(canPlantParts, ch)
+                end
+            end
+        end
     end
 
-    local cf = canPlant.CFrame
-    local size = canPlant.Size
-    local width = size.X
-    local length = size.Z
+    if #canPlantParts == 0 then
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        return root and (root.Position - Vector3.new(0, 2.5, 0)) or Vector3.new(0, 0, 0)
+    end
 
-    local marginX = 2.5
-    local marginZ = 3.0
+    table.sort(canPlantParts, function(a, b) return a.Position.X < b.Position.X end)
+
+    local placedEggs = getPlacedEggsInGarden()
+    local occupiedPositions = {}
+    for _, eggObj in ipairs(placedEggs) do
+        local pPart = eggObj:FindFirstChildWhichIsA("BasePart", true)
+        if pPart then
+            table.insert(occupiedPositions, pPart.Position)
+        end
+    end
+
     local spacingX = 4.0
     local spacingZ = 4.0
+    local marginX = 2.5
+    local marginZ = 3.0
 
-    local minX = -(width / 2) + marginX
-    local maxX = (width / 2) - marginX
-    local minZ = -(length / 2) + marginZ
-    local maxZ = (length / 2) - marginZ
+    local slots = {}
 
-    local cols = math.max(1, math.floor((maxX - minX) / spacingX) + 1)
-    local rows = math.max(1, math.floor((maxZ - minZ) / spacingZ) + 1)
-    local totalSlots = cols * rows
+    for _, cp in ipairs(canPlantParts) do
+        local cf = cp.CFrame
+        local sz = cp.Size
+        local minX = -(sz.X / 2) + marginX
+        local maxX = (sz.X / 2) - marginX
+        local minZ = -(sz.Z / 2) + marginZ
+        local maxZ = (sz.Z / 2) - marginZ
 
-    currentEggRowIndex = (currentEggRowIndex % totalSlots)
-    local colIndex = currentEggRowIndex % cols
-    local rowIndex = math.floor(currentEggRowIndex / cols)
-    currentEggRowIndex = currentEggRowIndex + 1
+        local cols = math.max(1, math.floor((maxX - minX) / spacingX) + 1)
+        local rows = math.max(1, math.floor((maxZ - minZ) / spacingZ) + 1)
 
-    local localX = math.clamp(minX + (colIndex * spacingX), minX, maxX)
-    local localZ = math.clamp(minZ + (rowIndex * spacingZ), minZ, maxZ)
-    local localY = 0.25
+        -- Align down furrows (column by column along Z)
+        for c = 0, cols - 1 do
+            local lx = minX + (c * spacingX)
+            for r = 0, rows - 1 do
+                local lz = minZ + (r * spacingZ)
+                local worldPos = cf:PointToWorldSpace(Vector3.new(lx, 0.25, lz))
+                table.insert(slots, worldPos)
+            end
+        end
+    end
 
-    return cf:PointToWorldSpace(Vector3.new(localX, localY, localZ))
+    for _, slotPos in ipairs(slots) do
+        local isOccupied = false
+        for _, eggPos in ipairs(occupiedPositions) do
+            local dist2D = (Vector3.new(slotPos.X, 0, slotPos.Z) - Vector3.new(eggPos.X, 0, eggPos.Z)).Magnitude
+            if dist2D < 2.2 then
+                isOccupied = true
+                break
+            end
+        end
+        if not isOccupied then
+            return slotPos
+        end
+    end
+
+    if #slots > 0 then
+        return slots[1] + Vector3.new((math.random() - 0.5) * 0.5, 0, (math.random() - 0.5) * 0.5)
+    end
+
+    return canPlantParts[1].Position + Vector3.new(0, 0.25, 0)
 end
 
 local function findEggToolInBackpack(selectedEggName)
