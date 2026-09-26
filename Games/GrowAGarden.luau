@@ -87,6 +87,17 @@ local BuyDailySeedShopStockRemote = nil
 local BuyCosmeticItemRemote = nil
 local BuyCosmeticCrateRemote = nil
 
+-- Event Remotes
+local AcornCrackRemote = nil
+local AcornStartRemote = nil
+local AcornRewardRemote = nil
+local TryAcornBellRemote = nil
+local TryGoldenAcornRemote = nil
+local TryMapleSyrupRemote = nil
+local TryHarvestBasketRemote = nil
+local ClaimChipmunkRewardsRemote = nil
+local SubmitChipmunkFruitRemote = nil
+
 local function resolveRemotes()
     pcall(function()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents") or (ReplicatedStorage.WaitForChild and ReplicatedStorage:WaitForChild("GameEvents", 2))
@@ -110,6 +121,20 @@ local function resolveRemotes()
             BuyDailySeedShopStockRemote = ge:FindFirstChild("BuyDailySeedShopStock")
             BuyCosmeticItemRemote = ge:FindFirstChild("BuyCosmeticItem")
             BuyCosmeticCrateRemote = ge:FindFirstChild("BuyCosmeticCrate")
+
+            -- Event Remotes
+            local ac = ge:FindFirstChild("AcornChaos")
+            if ac then
+                AcornCrackRemote = ac:FindFirstChild("Crack")
+                AcornStartRemote = ac:FindFirstChild("Start")
+                AcornRewardRemote = ac:FindFirstChild("Reward")
+            end
+            TryAcornBellRemote = ge:FindFirstChild("TryAcornBell")
+            TryGoldenAcornRemote = ge:FindFirstChild("TryGoldenAcorn")
+            TryMapleSyrupRemote = ge:FindFirstChild("TryMapleSyrup")
+            TryHarvestBasketRemote = ge:FindFirstChild("TryHarvestBasket")
+            ClaimChipmunkRewardsRemote = ge:FindFirstChild("ClaimChipmunkRewards")
+            SubmitChipmunkFruitRemote = ge:FindFirstChild("SubmitChipmunkFruit")
         end
     end)
 end
@@ -1430,6 +1455,12 @@ local State = {
     InfiniteSprinkler = false,
     InfiniteSprinkler_Target = "All Sprinklers",
 
+    -- Events Tab: Acorn Chaos & Weekly Events
+    AutoAttackAcorns = false,
+    AcornAttackMode = "Instant (All Acorns)",
+    AcornAttackDelay = 0.05,
+    AutoEquipShovel = true,
+
     -- General
     MaxBackpackCapacity = 500,
     BatchSize = 35,
@@ -1481,6 +1512,86 @@ local hidePlantsToggle
 local hideFruitsToggle
 local infiniteSprinklerToggle
 local selectSprinklerListObj
+
+local autoAttackAcornsToggle
+local autoEquipShovelToggle
+local acornAttackModeListObj
+local acornAttackDelayListObj
+
+-- Acorn Chaos Tracking & Execution Engine
+local activeAcornIds = {}
+
+local function getShovelTool()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
+    if character then
+        for _, item in ipairs(character:GetChildren()) do
+            if item:IsA("Tool") and (item.Name == "Shovel [Destroy Plants]" or item.Name:find("Shovel")) then
+                return item
+            end
+        end
+    end
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") and (item.Name == "Shovel [Destroy Plants]" or item.Name:find("Shovel")) then
+                return item
+            end
+        end
+    end
+    return nil
+end
+
+local function equipShovelTool()
+    local shovel = getShovelTool()
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if shovel and humanoid and shovel.Parent ~= character then
+        pcall(function()
+            humanoid:EquipTool(shovel)
+        end)
+    end
+    return shovel
+end
+
+local function crackAcornById(acornId)
+    if not acornId then return end
+    activeAcornIds[acornId] = nil
+    if State.AutoEquipShovel then
+        equipShovelTool()
+    end
+    local crackRemote = AcornCrackRemote or (ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("AcornChaos") and ReplicatedStorage.GameEvents.AcornChaos:FindFirstChild("Crack"))
+    if crackRemote then
+        crackRemote:FireServer(acornId)
+    end
+    local shovel = getShovelTool()
+    if shovel and shovel.Parent == LocalPlayer.Character then
+        pcall(function()
+            shovel:Activate()
+        end)
+    end
+end
+
+local function crackAllActiveAcorns()
+    local count = 0
+    if State.AutoEquipShovel then
+        equipShovelTool()
+    end
+    for id, _ in pairs(activeAcornIds) do
+        crackAcornById(id)
+        count = count + 1
+    end
+    local acl = Workspace:FindFirstChild("AcornChaosLocal")
+    if acl then
+        for _, child in ipairs(acl:GetChildren()) do
+            local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
+            if id then
+                crackAcornById(id)
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
 
 -- Helper Getters for UI State
 local function getUIListVal(listObj, defaultVal)
@@ -3359,6 +3470,7 @@ for _, item in ipairs(allAvailableSprinklers) do table.insert(sprinklerListItems
 local farmTab = Hub.createTabButton("Farm", "🌱 Auto Farm", "rbxassetid://10723407389", true)
 local petTab = Hub.createTabButton("Pets", "🐾 Pets", "rbxassetid://10723407389", false)
 local shopTab = Hub.createTabButton("Shop", "🛍️ Shop", "rbxassetid://10723407389", false)
+local eventTab = Hub.createTabButton("Events", "🎪 Events", "rbxassetid://10723407389", false)
 local tradeTab = Hub.createTabButton("Trade", "🔄 Trade Plaza", "rbxassetid://10723407389", false)
 local miscTab = Hub.createTabButton("Misc", "🔮 Misc", "rbxassetid://10723407389", false)
 local settingsTab = Hub.createTabButton("Settings", "⚙️ Settings", "rbxassetid://10723407392", false)
@@ -4218,6 +4330,101 @@ Hub.CreateTextBox(shopTab, "Auto Buy Delay (0.01 - 1.0s)", "Enter loop interval 
 end)
 
 -- ==========================================
+-- Section: Events Tab (Acorn Chaos & Weekly Events)
+-- ==========================================
+Hub.CreateSection(eventTab, "Acorn Chaos (Weekly Event)")
+
+autoAttackAcornsToggle = Hub.CreateToggle(eventTab, "Auto Attack Acorns (Instant Crack)", false, function(v)
+    if type(v) == "boolean" then State.AutoAttackAcorns = v else State.AutoAttackAcorns = not State.AutoAttackAcorns end
+    if State.AutoAttackAcorns then
+        if State.AutoEquipShovel then
+            equipShovelTool()
+        end
+        task.spawn(crackAllActiveAcorns)
+    end
+end)
+
+autoEquipShovelToggle = Hub.CreateToggle(eventTab, "Auto Equip Shovel", true, function(v)
+    if type(v) == "boolean" then State.AutoEquipShovel = v else State.AutoEquipShovel = not State.AutoEquipShovel end
+end)
+
+acornAttackModeListObj = Hub.CreateList(eventTab, "Attack Mode", {
+    {Name = "Instant (All Acorns)"},
+    {Name = "Nearest Acorn Only"}
+}, 120, false)
+
+acornAttackDelayListObj = Hub.CreateList(eventTab, "Attack Interval", {
+    {Name = "Ultra Fast (0.05s)"},
+    {Name = "Fast (0.1s)"},
+    {Name = "Normal (0.25s)"},
+    {Name = "Safe (0.5s)"}
+}, 120, false)
+
+Hub.CreateButton(eventTab, "Instant Crack All Acorns Now", function()
+    local cracked = crackAllActiveAcorns()
+    print(string.format("[Unknown Hub] Cracked %d active acorns!", cracked))
+end)
+
+Hub.CreateButton(eventTab, "Ring Acorn Bell", function()
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local remote = (ge and ge:FindFirstChild("TryAcornBell")) or TryAcornBellRemote
+    if remote then
+        remote:FireServer()
+        print("[Unknown Hub] Fired TryAcornBell remote!")
+    end
+end)
+
+Hub.CreateButton(eventTab, "Use Golden Acorn", function()
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local remote = (ge and ge:FindFirstChild("TryGoldenAcorn")) or TryGoldenAcornRemote
+    if remote then
+        remote:FireServer()
+        print("[Unknown Hub] Fired TryGoldenAcorn remote!")
+    end
+end)
+
+-- ==========================================
+-- Section: Weekly & Seasonal Event Utilities
+-- ==========================================
+Hub.CreateSection(eventTab, "Weekly Event Utilities")
+
+Hub.CreateButton(eventTab, "Use Maple Syrup", function()
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local remote = (ge and ge:FindFirstChild("TryMapleSyrup")) or TryMapleSyrupRemote
+    if remote then
+        remote:FireServer()
+        print("[Unknown Hub] Fired TryMapleSyrup remote!")
+    end
+end)
+
+Hub.CreateButton(eventTab, "Collect Harvest Basket", function()
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local remote = (ge and ge:FindFirstChild("TryHarvestBasket")) or TryHarvestBasketRemote
+    if remote then
+        remote:FireServer()
+        print("[Unknown Hub] Fired TryHarvestBasket remote!")
+    end
+end)
+
+Hub.CreateButton(eventTab, "Claim Chipmunk Rewards", function()
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local remote = (ge and ge:FindFirstChild("ClaimChipmunkRewards")) or ClaimChipmunkRewardsRemote
+    if remote then
+        remote:FireServer()
+        print("[Unknown Hub] Fired ClaimChipmunkRewards remote!")
+    end
+end)
+
+Hub.CreateButton(eventTab, "Submit Chipmunk Fruit", function()
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local remote = (ge and ge:FindFirstChild("SubmitChipmunkFruit")) or SubmitChipmunkFruitRemote
+    if remote then
+        remote:FireServer()
+        print("[Unknown Hub] Fired SubmitChipmunkFruit remote!")
+    end
+end)
+
+-- ==========================================
 -- Section: Misc Tab
 -- ==========================================
 Hub.CreateSection(miscTab, "🌿 Visual Optimization")
@@ -4877,3 +5084,80 @@ task.spawn(function()
         syncGardenPlantLists()
     end
 end)
+
+-- =========================================================================
+-- Acorn Chaos Event Listener & Background Auto Attack Engine
+-- =========================================================================
+task.spawn(function()
+    local function bindAcornRemotes()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ac = ge and ge:FindFirstChild("AcornChaos")
+        local startRem = ac and ac:FindFirstChild("Start")
+        if startRem then
+            startRem.OnClientEvent:Connect(function(data)
+                if typeof(data) == "table" then
+                    for _, entry in ipairs(data) do
+                        if entry and entry.Id then
+                            activeAcornIds[entry.Id] = entry
+                            if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
+                                task.spawn(function()
+                                    crackAcornById(entry.Id)
+                                end)
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        local rewardRem = ac and ac:FindFirstChild("Reward")
+        if rewardRem then
+            rewardRem.OnClientEvent:Connect(function(data)
+                if typeof(data) == "table" and data.Id then
+                    activeAcornIds[data.Id] = nil
+                end
+            end)
+        end
+    end
+    pcall(bindAcornRemotes)
+
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        local delaySetting = tostring(getUIListVal(acornAttackDelayListObj, "Ultra Fast (0.05s)"))
+        local delayTime = 0.05
+        if delaySetting:find("0.1") then
+            delayTime = 0.1
+        elseif delaySetting:find("0.25") then
+            delayTime = 0.25
+        elseif delaySetting:find("0.5") then
+            delayTime = 0.5
+        end
+
+        if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
+            pcall(function()
+                if State.AutoEquipShovel then
+                    equipShovelTool()
+                end
+
+                for id, _ in pairs(activeAcornIds) do
+                    if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
+                    crackAcornById(id)
+                    task.wait(delayTime)
+                end
+
+                local acl = Workspace:FindFirstChild("AcornChaosLocal")
+                if acl then
+                    for _, child in ipairs(acl:GetChildren()) do
+                        if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
+                        local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
+                        if id then
+                            crackAcornById(id)
+                            task.wait(delayTime)
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(delayTime)
+    end
+end)
+
