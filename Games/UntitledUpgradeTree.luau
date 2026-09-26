@@ -3,9 +3,9 @@
 -- Game: Untitled Upgrade Tree
 -- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine,
 --           InfMaths Exponentiation, Upgrade #4 (Buy Max) Integration,
---           Wish Safeguard & GUI Shop Blacklist, Auto Daily Claim Engine,
---           Super-Fast Auto Roll (RNG Engine), High-Speed Network-Safe
---           Auto Clicker, Smart Auto Prestige & Resets
+--           Big-Bang & Multi-World Reset Suite (Prestige, Evil, Dark, Anti,
+--           Tower, Supernova, Ascend, BigBang, Cycle), Auto Drops Collector,
+--           Auto Battle Attack, Super-Fast Auto Roll & Auto Daily Claims
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -85,15 +85,26 @@ destroyOldGui()
 local InfMaths = nil
 local UpgradesModule = nil
 local ReadPlayerMulti = nil
+
 local BuyUpgRemote = nil
 local ClickerRemote = nil
 local PrestigeRemote = nil
 local EvilRemote = nil
 local DarkPrestigeRemote = nil
 local DarkEvilRemote = nil
+local AntiPrestigeRemote = nil
+local AntiEvilRemote = nil
 local TowerPrestigeRemote = nil
+local SupernovaRemote = nil
+local AscendRemote = nil
+local BigbangRemote = nil
+local CycleRemote = nil
 local DailyRemote = nil
 local RollRemote = nil
+local CollectRockRemote = nil
+local BlockCollectedRemote = nil
+local RocketPartsRemote = nil
+local BattleAttackRemote = nil
 
 local function loadGameModules()
     pcall(function()
@@ -117,9 +128,19 @@ local function loadGameModules()
             EvilRemote = remotes:FindFirstChild("Evil")
             DarkPrestigeRemote = remotes:FindFirstChild("DarkPrestige")
             DarkEvilRemote = remotes:FindFirstChild("DarkEvil")
+            AntiPrestigeRemote = remotes:FindFirstChild("AntiPrestige")
+            AntiEvilRemote = remotes:FindFirstChild("AntiEvil")
             TowerPrestigeRemote = remotes:FindFirstChild("TowerPrestige")
+            SupernovaRemote = remotes:FindFirstChild("Supernova")
+            AscendRemote = remotes:FindFirstChild("Ascend")
+            BigbangRemote = remotes:FindFirstChild("Bigbang")
+            CycleRemote = remotes:FindFirstChild("Cycle")
             DailyRemote = remotes:FindFirstChild("Daily")
             RollRemote = remotes:FindFirstChild("Roll")
+            CollectRockRemote = remotes:FindFirstChild("CollectRock")
+            BlockCollectedRemote = remotes:FindFirstChild("BlockCollected")
+            RocketPartsRemote = remotes:FindFirstChild("RocketParts")
+            BattleAttackRemote = remotes:FindFirstChild("BattleAttack")
         end
     end)
 end
@@ -238,7 +259,16 @@ local State = {
     AutoPrestige = false,
     AutoEvil = false,
     AutoDarkPrestige = false,
-    AutoDarkEvil = false
+    AutoDarkEvil = false,
+    AutoAntiPrestige = false,
+    AutoAntiEvil = false,
+    AutoTowerPrestige = false,
+    AutoSupernova = false,
+    AutoAscend = false,
+    AutoBigBang = false,
+    AutoCycle = false,
+    AutoCollectDrops = false,
+    AutoBattleAttack = false
 }
 
 -- Currency & ID Blacklist for GUI Menus / Wishes (Preserves player wishes & daily points)
@@ -404,7 +434,7 @@ end
 local Hub = factory({
     name = LIBRARY_NAME,
     title = "UNTITLED UPGRADE TREE",
-    subTitle = "Auto Farm & Upgrade",
+    subTitle = "Auto Farm & Multi-World",
     theme = Color3.fromRGB(0, 215, 255),
     secondaryTheme = Color3.fromRGB(165, 95, 255),
     onClose = function()
@@ -417,6 +447,15 @@ local Hub = factory({
         State.AutoEvil = false
         State.AutoDarkPrestige = false
         State.AutoDarkEvil = false
+        State.AutoAntiPrestige = false
+        State.AutoAntiEvil = false
+        State.AutoTowerPrestige = false
+        State.AutoSupernova = false
+        State.AutoAscend = false
+        State.AutoBigBang = false
+        State.AutoCycle = false
+        State.AutoCollectDrops = false
+        State.AutoBattleAttack = false
     end
 })
 
@@ -554,9 +593,9 @@ Hub.CreateButton(mainTab, "Claim Daily Reward Now", function()
     end
 end)
 
-Hub.CreateSection(mainTab, "CLICKER & RESET AUTOMATION")
+Hub.CreateSection(mainTab, "CLICKER & WORLD DROPS")
 
--- Auto Click Toggle (High-Speed Network-Safe Click Engine)
+-- Auto Click Toggle
 Hub.CreateToggle(mainTab, "Auto Click (Instant)", false, function(enabled)
     State.AutoClick = enabled
     if enabled then
@@ -579,8 +618,59 @@ Hub.CreateToggle(mainTab, "Auto Click (Instant)", false, function(enabled)
     end
 end)
 
+-- Auto Collect Drops (Rocks, Blocks, Rocket Parts)
+Hub.CreateToggle(mainTab, "Auto Collect Drops (All Worlds)", false, function(enabled)
+    State.AutoCollectDrops = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoCollectDrops and _G.UUT_SESSION == currentSession do
+                if not CollectRockRemote or not BlockCollectedRemote or not RocketPartsRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then
+                        CollectRockRemote = remotes:FindFirstChild("CollectRock")
+                        BlockCollectedRemote = remotes:FindFirstChild("BlockCollected")
+                        RocketPartsRemote = remotes:FindFirstChild("RocketParts")
+                    end
+                end
+                if CollectRockRemote then pcall(function() CollectRockRemote:FireServer() end) end
+                if BlockCollectedRemote then pcall(function() BlockCollectedRemote:FireServer() end) end
+                if RocketPartsRemote then pcall(function() RocketPartsRemote:FireServer() end) end
+                task.wait(0.2)
+            end
+        end)
+    end
+end)
+
+-- Auto Battle Attack
+Hub.CreateToggle(mainTab, "Auto Battle Attack", false, function(enabled)
+    State.AutoBattleAttack = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoBattleAttack and _G.UUT_SESSION == currentSession do
+                if not BattleAttackRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then BattleAttackRemote = remotes:FindFirstChild("BattleAttack") end
+                end
+                if BattleAttackRemote then
+                    pcall(function()
+                        BattleAttackRemote:FireServer()
+                    end)
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
+
+-- =========================================================================
+-- Resets Tab: Multi-World Reset Suite
+-- =========================================================================
+local resetTab = Hub.createPage("🌀 Resets")
+
+Hub.CreateSection(resetTab, "SPAWN & DARK REALM RESETS")
+
 -- Smart Auto Prestige Toggle
-Hub.CreateToggle(mainTab, "Auto Prestige", false, function(enabled)
+Hub.CreateToggle(resetTab, "Auto Prestige", false, function(enabled)
     State.AutoPrestige = enabled
     if enabled then
         task.spawn(function()
@@ -615,7 +705,7 @@ Hub.CreateToggle(mainTab, "Auto Prestige", false, function(enabled)
 end)
 
 -- Smart Auto Evil Reset Toggle
-Hub.CreateToggle(mainTab, "Auto Evil Reset", false, function(enabled)
+Hub.CreateToggle(resetTab, "Auto Evil Reset", false, function(enabled)
     State.AutoEvil = enabled
     if enabled then
         task.spawn(function()
@@ -650,7 +740,7 @@ Hub.CreateToggle(mainTab, "Auto Evil Reset", false, function(enabled)
 end)
 
 -- Smart Auto Dark Prestige Toggle
-Hub.CreateToggle(mainTab, "Auto Dark Prestige", false, function(enabled)
+Hub.CreateToggle(resetTab, "Auto Dark Prestige", false, function(enabled)
     State.AutoDarkPrestige = enabled
     if enabled then
         task.spawn(function()
@@ -685,7 +775,7 @@ Hub.CreateToggle(mainTab, "Auto Dark Prestige", false, function(enabled)
 end)
 
 -- Smart Auto Dark Evil Toggle
-Hub.CreateToggle(mainTab, "Auto Dark Evil", false, function(enabled)
+Hub.CreateToggle(resetTab, "Auto Dark Evil", false, function(enabled)
     State.AutoDarkEvil = enabled
     if enabled then
         task.spawn(function()
@@ -719,6 +809,234 @@ Hub.CreateToggle(mainTab, "Auto Dark Evil", false, function(enabled)
     end
 end)
 
+Hub.CreateSection(resetTab, "ANTI-WORLD & TOWER RESETS")
+
+-- Smart Auto Anti-Prestige Toggle
+Hub.CreateToggle(resetTab, "Auto Anti-Prestige", false, function(enabled)
+    State.AutoAntiPrestige = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoAntiPrestige and _G.UUT_SESSION == currentSession do
+                if not AntiPrestigeRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then AntiPrestigeRemote = remotes:FindFirstChild("AntiPrestige") end
+                end
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedAntiPrestige") and playerData.UnlockedAntiPrestige.Value == true)
+                
+                if AntiPrestigeRemote and isUnlocked then
+                    local shouldReset = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerAntiPrestigePointsCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldReset = false
+                            end
+                        end)
+                    end
+                    if shouldReset then
+                        pcall(function()
+                            AntiPrestigeRemote:FireServer()
+                        end)
+                    end
+                end
+                task.wait(0.3)
+            end
+        end)
+    end
+end)
+
+-- Smart Auto Anti-Evil Toggle
+Hub.CreateToggle(resetTab, "Auto Anti-Evil", false, function(enabled)
+    State.AutoAntiEvil = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoAntiEvil and _G.UUT_SESSION == currentSession do
+                if not AntiEvilRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then AntiEvilRemote = remotes:FindFirstChild("AntiEvil") end
+                end
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedAntiEvil") and playerData.UnlockedAntiEvil.Value == true)
+                
+                if AntiEvilRemote and isUnlocked then
+                    local shouldReset = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerAntiEvilPointsCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldReset = false
+                            end
+                        end)
+                    end
+                    if shouldReset then
+                        pcall(function()
+                            AntiEvilRemote:FireServer()
+                        end)
+                    end
+                end
+                task.wait(0.3)
+            end
+        end)
+    end
+end)
+
+-- Smart Auto Tower Prestige Toggle
+Hub.CreateToggle(resetTab, "Auto Tower Prestige", false, function(enabled)
+    State.AutoTowerPrestige = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoTowerPrestige and _G.UUT_SESSION == currentSession do
+                if not TowerPrestigeRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then TowerPrestigeRemote = remotes:FindFirstChild("TowerPrestige") end
+                end
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedTowerPrestige") and playerData.UnlockedTowerPrestige.Value == true)
+                
+                if TowerPrestigeRemote and isUnlocked then
+                    local shouldReset = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerTowerPrestigePointsCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldReset = false
+                            end
+                        end)
+                    end
+                    if shouldReset then
+                        pcall(function()
+                            TowerPrestigeRemote:FireServer()
+                        end)
+                    end
+                end
+                task.wait(0.5)
+            end
+        end)
+    end
+end)
+
+Hub.CreateSection(resetTab, "BIG-BANG & COSMIC RESETS")
+
+-- Smart Auto Big-Bang Reset Toggle
+Hub.CreateToggle(resetTab, "Auto Big-Bang Reset", false, function(enabled)
+    State.AutoBigBang = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoBigBang and _G.UUT_SESSION == currentSession do
+                if not BigbangRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then BigbangRemote = remotes:FindFirstChild("Bigbang") end
+                end
+                local playerUpgrades = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Upgrades")
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                
+                local u348 = playerUpgrades and playerUpgrades:FindFirstChild("348")
+                local u348Val = u348 and tonumber(u348.Value) or 0
+                local bigbangVal = playerData and playerData:FindFirstChild("Bigbang") and tonumber(playerData.Bigbang.Value) or 0
+                
+                if BigbangRemote and u348Val > 0 and bigbangVal < 5 then
+                    pcall(function()
+                        BigbangRemote:FireServer()
+                    end)
+                end
+                task.wait(1.0)
+            end
+        end)
+    end
+end)
+
+-- Smart Auto Supernova Toggle
+Hub.CreateToggle(resetTab, "Auto Supernova", false, function(enabled)
+    State.AutoSupernova = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoSupernova and _G.UUT_SESSION == currentSession do
+                if not SupernovaRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then SupernovaRemote = remotes:FindFirstChild("Supernova") end
+                end
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedSupernova") and playerData.UnlockedSupernova.Value == true)
+                
+                if SupernovaRemote and isUnlocked then
+                    local shouldReset = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerSupernovaPointsCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldReset = false
+                            end
+                        end)
+                    end
+                    if shouldReset then
+                        pcall(function()
+                            SupernovaRemote:FireServer()
+                        end)
+                    end
+                end
+                task.wait(0.5)
+            end
+        end)
+    end
+end)
+
+-- Smart Auto Ascend Toggle
+Hub.CreateToggle(resetTab, "Auto Ascend", false, function(enabled)
+    State.AutoAscend = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoAscend and _G.UUT_SESSION == currentSession do
+                if not AscendRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then AscendRemote = remotes:FindFirstChild("Ascend") end
+                end
+                local playerData = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("PlayerData")
+                local isUnlocked = (playerData and playerData:FindFirstChild("UnlockedAscend") and playerData.UnlockedAscend.Value == true)
+                
+                if AscendRemote and isUnlocked then
+                    local shouldReset = true
+                    if ReadPlayerMulti and InfMaths then
+                        pcall(function()
+                            local gain = ReadPlayerMulti.PlayerAscendTokenCount(LocalPlayer)
+                            if gain and InfMaths.new(gain) <= InfMaths.new(0) then
+                                shouldReset = false
+                            end
+                        end)
+                    end
+                    if shouldReset then
+                        pcall(function()
+                            AscendRemote:FireServer()
+                        end)
+                    end
+                end
+                task.wait(0.5)
+            end
+        end)
+    end
+end)
+
+-- Smart Auto Cycle Toggle
+Hub.CreateToggle(resetTab, "Auto Cycle", false, function(enabled)
+    State.AutoCycle = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoCycle and _G.UUT_SESSION == currentSession do
+                if not CycleRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then CycleRemote = remotes:FindFirstChild("Cycle") end
+                end
+                if CycleRemote then
+                    pcall(function()
+                        CycleRemote:FireServer()
+                    end)
+                end
+                task.wait(1.0)
+            end
+        end)
+    end
+end)
+
 -- Start default background workers
 task.spawn(function()
     while _G.UUT_SESSION == currentSession do
@@ -736,6 +1054,6 @@ end)
 -- =========================================================================
 Hub.SendNotification({
     Title = "Unknown Hub",
-    Content = "Untitled Upgrade Tree loaded!",
+    Content = "Untitled Upgrade Tree loaded with Multi-World automation!",
     Duration = 3
 })
