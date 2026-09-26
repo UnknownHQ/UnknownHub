@@ -5088,6 +5088,101 @@ Hub.CreateTextBox(shopTab, "Craft Delay (0.05 - 5.0s)", "Enter loop interval (de
     end
 end)
 
+Hub.CreateButton(shopTab, "📋 View Recipe Ingredients & Craft Status", function()
+    pcall(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local CraftingData = require(RS.Data.CraftingData)
+        local ItemRecipes = (CraftingData.CraftingRecipeRegistry and CraftingData.CraftingRecipeRegistry.ItemRecipes) or CraftingData.ItemRecipes or CraftingData
+        local DataService = require(RS.Modules.DataService)
+        local playerData = DataService:GetData()
+        local inv = playerData and playerData.InventoryData or {}
+
+        local invCounts = {}
+        for _, item in pairs(inv) do
+            local name = item.ItemName or (item.ItemData and item.ItemData.ItemName) or item.Name or "Unknown"
+            invCounts[name] = (invCounts[name] or 0) + (item.Quantity or 1)
+        end
+
+        local chosenPlant = tostring(getUIListVal(selectCraftPlantListObj, State.AutoCraft_SelectedPlant))
+        local chosenGear = tostring(getUIListVal(selectCraftGearListObj, State.AutoCraft_SelectedGear))
+
+        local targetRecipeId = "None"
+        local targetDisplayName = "None"
+
+        if chosenPlant ~= "None" and chosenPlant ~= "" then
+            targetDisplayName = chosenPlant
+            for _, item in ipairs(allAvailableCraftPlants) do
+                if item.Name == chosenPlant or item.BaseName == chosenPlant then
+                    targetRecipeId = item.RecipeId
+                    break
+                end
+            end
+        elseif chosenGear ~= "None" and chosenGear ~= "" then
+            targetDisplayName = chosenGear
+            for _, item in ipairs(allAvailableCraftGears) do
+                if item.Name == chosenGear or item.BaseName == chosenGear then
+                    targetRecipeId = item.RecipeId
+                    break
+                end
+            end
+        end
+
+        if targetRecipeId == "None" then
+            Hub.Notify({ Title = "Craft Inspector", Content = "Please select a Plant or Gear recipe first!", Duration = 3 })
+            return
+        end
+
+        local rec = ItemRecipes[targetRecipeId]
+        if not rec then
+            Hub.Notify({ Title = "Craft Inspector", Content = "Recipe data not found for " .. targetDisplayName, Duration = 3 })
+            return
+        end
+
+        local missing = {}
+        local ownedList = {}
+        local canCraft = true
+
+        for _, inp in ipairs(rec.Inputs or {}) do
+            local reqName = inp.ItemData and inp.ItemData.ItemName or "Unknown"
+            local reqAmount = inp.Quantity or (inp.ItemData and inp.ItemData.Quantity) or 1
+            local owned = invCounts[reqName] or 0
+            if owned < reqAmount then
+                canCraft = false
+                table.insert(missing, string.format("%s (Have: %d/%d)", reqName, owned, reqAmount))
+            else
+                table.insert(ownedList, string.format("%s (Have: %d/%d)", reqName, owned, reqAmount))
+            end
+        end
+
+        local msg = ""
+        if canCraft then
+            msg = string.format("✅ Ready to Craft! All %d ingredients owned! Time: %ds", #(rec.Inputs or {}), rec.TimeToCraft or 0)
+        else
+            msg = string.format("❌ Missing: %s", table.concat(missing, ", "))
+        end
+
+        print(string.format("[Unknown Hub Craft Inspector] Recipe: %s | Status: %s | Ingredients: %s", targetRecipeId, canCraft and "READY" or "INCOMPLETE", table.concat(ownedList, ", ")))
+        Hub.Notify({ Title = targetDisplayName, Content = msg, Duration = 6 })
+    end)
+end)
+
+Hub.CreateButton(shopTab, "📖 Open Game Recipe Selection UI", function()
+    pcall(function()
+        local csh = require(ReplicatedStorage.Modules.CraftingStationHandler)
+        local baseBench = Workspace.NPCS.CraftingTables:FindFirstChild("EventCraftingWorkBench") or Workspace.NPCS.CraftingTables:FindFirstChild("SeedEventCraftingWorkBench")
+        if baseBench then
+            local prompt = baseBench:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and fireproximityprompt then
+                fireproximityprompt(prompt)
+            else
+                local pGui = LocalPlayer.PlayerGui
+                local rUi = pGui:FindFirstChild("RecipeSelection_UI")
+                if rUi then rUi.Enabled = true end
+            end
+        end
+    end)
+end)
+
 Hub.CreateButton(shopTab, "🛠️ Spawn Event Crafting Tables (Dino, Fairy, Smith, Bean)", function()
     pcall(function()
         local csh = require(ReplicatedStorage.Modules.CraftingStationHandler)
