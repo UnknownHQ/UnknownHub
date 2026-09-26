@@ -1295,6 +1295,66 @@ local function buildDynamicSprinklerCatalog()
     return spList
 end
 
+local function buildDynamicCraftCatalogs()
+    local craftPlants = {}
+    local craftGears = {}
+    local plantSeen = {}
+    local gearSeen = {}
+
+    pcall(function()
+        local dataMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("CraftingData")
+        if not dataMod then return end
+        local craftingData = require(dataMod)
+        local recipes = (craftingData.CraftingRecipeRegistry and craftingData.CraftingRecipeRegistry.ItemRecipes) or craftingData.ItemRecipes or craftingData
+
+        for recipeId, recipe in pairs(recipes) do
+            local out = recipe.Outputs and recipe.Outputs[1]
+            local outType = out and out.ItemType or ""
+            local outName = (out and out.ItemData and out.ItemData.ItemName) or tostring(recipeId)
+            local displayName = outName
+            if string.find(tostring(recipeId), "@") then
+                displayName = string.split(tostring(recipeId), "@")[1]
+            end
+
+            local isPlant = (outType == "Seed" or outType == "Seed Pack" or outType == "Crop" or outType == "Plant")
+            local recLow = tostring(recipeId):lower()
+            if not isPlant then
+                if recLow:find("seed") or recLow:find("pack") or recLow:find("sprout") or recLow:find("flower") or recLow:find("bamboo") 
+                    or recLow:find("aloe") or recLow:find("dandelion") or recLow:find("lumira") or recLow:find("yarrow") 
+                    or recLow:find("veinpetal") or recLow:find("mandrake") or recLow:find("honeysuckle") or recLow:find("nectar") 
+                    or recLow:find("apple") or recLow:find("bean") or recLow:find("lingonberry") or recLow:find("guanabana") 
+                    or recLow:find("olive") or recLow:find("suncoil") or recLow:find("manuka") or recLow:find("horsetail")
+                    or recLow:find("peace lily") or recLow:find("egg melon") or recLow:find("spray") then
+                    isPlant = true
+                end
+            end
+            if recLow:find("sprinkler") or recLow:find("crate") or recLow:find("egg") or recLow:find("toy") or recLow:find("treat") or recLow:find("statue") or recLow:find("ingot") or recLow:find("box") or recLow:find("pouch") or recLow:find("forger") or recLow:find("reclaimer") or recLow:find("anvil") or recLow:find("grinder") or recLow:find("wand") or recLow:find("radar") or recLow:find("lantern") or recLow:find("magnet") or recLow:find("rod") or recLow:find("hammer") or recLow:find("thundelbringer") or recLow:find("dog") or recLow:find("cat") or recLow:find("cheetah") or recLow:find("stone") or recLow:find("mirror") or recLow:find("table") or recLow:find("light") or recLow:find("mushroom") or recLow:find("memories") or recLow:find("rack") then
+                isPlant = false
+            end
+
+            if isPlant then
+                if not plantSeen[displayName] then
+                    plantSeen[displayName] = true
+                    table.insert(craftPlants, {Name = displayName, RecipeId = tostring(recipeId)})
+                end
+            else
+                if not gearSeen[displayName] then
+                    gearSeen[displayName] = true
+                    table.insert(craftGears, {Name = displayName, RecipeId = tostring(recipeId)})
+                end
+            end
+        end
+    end)
+
+    table.sort(craftPlants, function(a, b) return a.Name < b.Name end)
+    table.sort(craftGears, function(a, b) return a.Name < b.Name end)
+
+    table.insert(craftPlants, 1, {Name = "None", RecipeId = "None"})
+    table.insert(craftGears, 1, {Name = "None", RecipeId = "None"})
+
+    return craftPlants, craftGears
+end
+
 local allAvailablePlants = buildDynamicPlantCatalog()
 local allAvailableSeeds = buildDynamicSeedCatalog()
 local allAvailableMutations = buildDynamicMutationCatalog()
@@ -1306,6 +1366,7 @@ local allAvailableGears = buildDynamicGearCatalog()
 local allAvailableSeedShop = buildDynamicSeedShopCatalog()
 local allAvailableCosmetics = buildDynamicCosmeticCatalog()
 local allAvailableSprinklers = buildDynamicSprinklerCatalog()
+local allAvailableCraftPlants, allAvailableCraftGears = buildDynamicCraftCatalogs()
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -1432,6 +1493,13 @@ local State = {
     AutoBuy_AllCosmetics = false,
     Shop_BuyDelay = 0.35,
 
+    -- Shop Tab: Auto Craft
+    AutoCraft_Plants = false,
+    AutoCraft_SelectedPlant = "None",
+    AutoCraft_Gears = false,
+    AutoCraft_SelectedGear = "None",
+    AutoCraft_Delay = 0.5,
+
     -- Misc: Visual Optimization & Glitches
     HidePlants = false,
     HideFruits = false,
@@ -1495,6 +1563,11 @@ local hatchEggListObj
 local hatchExcludePetListObj
 local hatchExcludeWeightModeListObj
 local hatchEggSlotListObj
+
+local autoCraftPlantsToggle
+local selectCraftPlantListObj
+local autoCraftGearsToggle
+local selectCraftGearListObj
 
 local hidePlantsToggle
 local hideFruitsToggle
@@ -3906,6 +3979,135 @@ task.spawn(function()
     end
 end)
 
+local function executeAutoCraftCycle()
+    local autoPlants = isToggleActive(autoCraftPlantsToggle, State.AutoCraft_Plants)
+    local autoGears = isToggleActive(autoCraftGearsToggle, State.AutoCraft_Gears)
+    if not autoPlants and not autoGears then return end
+
+    pcall(function()
+        local cgosMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("CraftingService") and ReplicatedStorage.Modules.CraftingService:FindFirstChild("CraftingGlobalObjectService")
+        local cgos = cgosMod and require(cgosMod)
+        local cshMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("CraftingStationHandler")
+        local csh = cshMod and require(cshMod)
+        local craftRemote = ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("CraftingGlobalObjectService")
+
+        local function getBench(prefType)
+            for _, b in ipairs(CollectionService:GetTagged("CraftingObject")) do
+                if b:IsDescendantOf(Workspace) and b:GetAttribute("CraftingObjectType") == prefType then
+                    return b, prefType
+                end
+            end
+            for _, b in ipairs(CollectionService:GetTagged("CraftingObject")) do
+                if b:IsDescendantOf(Workspace) then
+                    return b, b:GetAttribute("CraftingObjectType")
+                end
+            end
+            return nil, nil
+        end
+
+        local function processBenchCraft(bench, slotKey, listObj, defaultSel)
+            if not bench or not slotKey then return end
+            local chosenName = tostring(getUIListVal(listObj, defaultSel or "None"))
+            if chosenName == "None" or chosenName == "" then return end
+
+            local targetRecipeId = chosenName
+            for _, item in ipairs(allAvailableCraftPlants) do
+                if item.Name == chosenName then targetRecipeId = item.RecipeId break end
+            end
+            if targetRecipeId == chosenName then
+                for _, item in ipairs(allAvailableCraftGears) do
+                    if item.Name == chosenName then targetRecipeId = item.RecipeId break end
+                end
+            end
+
+            local mData = nil
+            if cgos then
+                pcall(function() mData = cgos:GetIndividualCraftingMachineData(bench, slotKey) end)
+            end
+
+            -- 1. Check if crafted item is ready to claim
+            if mData and mData.CraftingItems and #mData.CraftingItems > 0 then
+                local firstCraft = mData.CraftingItems[1]
+                if firstCraft and firstCraft.IsDone then
+                    if cgos then
+                        pcall(function() cgos:Claim(bench, slotKey, 1) end)
+                    elseif craftRemote then
+                        pcall(function() craftRemote:FireServer("Claim", bench, slotKey, 1) end)
+                    end
+                    task.wait(0.15)
+                else
+                    if cgos then
+                        pcall(function() cgos:Skip(bench, slotKey, 1) end)
+                    elseif craftRemote then
+                        pcall(function() craftRemote:FireServer("AuthoriseSkip", bench, slotKey, 1) end)
+                    end
+                end
+                return
+            end
+
+            -- 2. If recipe is mismatched or unset, switch recipe
+            local currentRecipeId = mData and mData.RecipeId
+            if currentRecipeId ~= targetRecipeId then
+                if currentRecipeId ~= nil then
+                    if csh then
+                        pcall(function() csh:CancelRecipe(bench) end)
+                    elseif cgos then
+                        pcall(function() cgos:Cancel(bench, slotKey) end)
+                    elseif craftRemote then
+                        pcall(function() craftRemote:FireServer("Cancel", bench, slotKey) end)
+                    end
+                    task.wait(0.15)
+                end
+
+                if cgos then
+                    pcall(function() cgos:SetRecipe(bench, slotKey, targetRecipeId) end)
+                elseif craftRemote then
+                    pcall(function() craftRemote:FireServer("SetRecipe", bench, slotKey, targetRecipeId) end)
+                end
+                task.wait(0.2)
+            end
+
+            -- 3. Submit all required items from inventory
+            if csh then
+                pcall(function() csh:SubmitAllRequiredItems(bench) end)
+            elseif craftRemote then
+                pcall(function() craftRemote:FireServer("SubmitAllRequiredItems", bench) end)
+            end
+            task.wait(0.15)
+
+            -- 4. Trigger Craft start
+            if cgos then
+                pcall(function() cgos:Craft(bench, slotKey) end)
+            elseif craftRemote then
+                pcall(function() craftRemote:FireServer("Craft", bench, slotKey) end)
+            end
+        end
+
+        if autoPlants then
+            local sBench, sKey = getBench("SeedEventWorkbench")
+            processBenchCraft(sBench, sKey, selectCraftPlantListObj, State.AutoCraft_SelectedPlant)
+        end
+
+        if autoGears then
+            local gBench, gKey = getBench("GearEventWorkbench")
+            processBenchCraft(gBench, gKey, selectCraftGearListObj, State.AutoCraft_SelectedGear)
+        end
+    end)
+end
+
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        if State.AutoCraft_Plants or State.AutoCraft_Gears then
+            local delayVal = math.clamp(tonumber(State.AutoCraft_Delay) or 0.5, 0.05, 5.0)
+            executeAutoCraftCycle()
+            task.wait(delayVal)
+        else
+            task.wait(0.25)
+        end
+    end
+end)
+
 -- =========================================================================
 -- UI Tabs & Control Layout
 -- =========================================================================
@@ -3945,6 +4147,12 @@ for _, item in ipairs(allAvailableCosmetics) do table.insert(cosmeticListItems, 
 
 local sprinklerListItems = {}
 for _, item in ipairs(allAvailableSprinklers) do table.insert(sprinklerListItems, {Name = item.Name}) end
+
+local craftablePlantsListItems = {}
+for _, item in ipairs(allAvailableCraftPlants) do table.insert(craftablePlantsListItems, {Name = item.Name}) end
+
+local craftableGearsListItems = {}
+for _, item in ipairs(allAvailableCraftGears) do table.insert(craftableGearsListItems, {Name = item.Name}) end
 
 local slotListItems = {
     {Name = "None"},
@@ -4819,6 +5027,36 @@ Hub.CreateTextBox(shopTab, "Auto Buy Delay (0.01 - 1.0s)", "Enter loop interval 
     local num = tonumber(text)
     if num then
         State.Shop_BuyDelay = math.clamp(num, 0.005, 1.0)
+    end
+end)
+
+-- 6. 🔨 Auto Crafting
+Hub.CreateSection(shopTab, "🔨 Auto Crafting")
+
+autoCraftPlantsToggle = Hub.CreateToggle(shopTab, "Auto Craft (Plants)", false, function(v)
+    if type(v) == "boolean" then State.AutoCraft_Plants = v else State.AutoCraft_Plants = not State.AutoCraft_Plants end
+    if State.AutoCraft_Plants then task.spawn(executeAutoCraftCycle) end
+end)
+
+selectCraftPlantListObj = Hub.CreateList(shopTab, "Select Plant to Craft", craftablePlantsListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.AutoCraft_SelectedPlant = name
+end)
+
+autoCraftGearsToggle = Hub.CreateToggle(shopTab, "Auto Craft (Gears)", false, function(v)
+    if type(v) == "boolean" then State.AutoCraft_Gears = v else State.AutoCraft_Gears = not State.AutoCraft_Gears end
+    if State.AutoCraft_Gears then task.spawn(executeAutoCraftCycle) end
+end)
+
+selectCraftGearListObj = Hub.CreateList(shopTab, "Select Gear to Craft", craftableGearsListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.AutoCraft_SelectedGear = name
+end)
+
+Hub.CreateTextBox(shopTab, "Craft Delay (0.05 - 5.0s)", "Enter loop interval (default: 0.5)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.AutoCraft_Delay = math.clamp(num, 0.05, 5.0)
     end
 end)
 
