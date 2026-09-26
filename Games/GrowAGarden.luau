@@ -75,99 +75,78 @@ pcall(function()
 end)
 
 -- Remotes (Safe Non-Blocking Initialization with Dynamic Getters)
-local CollectRemote = nil
-local SellInvRemote = nil
-local SellItemRemote = nil
-local SellAllPetsRemote = nil
-local PlantRemote = nil
-local BuyPetEggRemote = nil
-local BuyGearStockRemote = nil
-local BuySeedStockRemote = nil
-local BuyDailySeedShopStockRemote = nil
-local BuyCosmeticItemRemote = nil
-local BuyCosmeticCrateRemote = nil
-
--- Event Remotes
-local AcornCrackRemote = nil
-local AcornStartRemote = nil
-local AcornRewardRemote = nil
-local TryAcornBellRemote = nil
-local TryGoldenAcornRemote = nil
-local TryMapleSyrupRemote = nil
-local TryHarvestBasketRemote = nil
-local ClaimChipmunkRewardsRemote = nil
-local SubmitChipmunkFruitRemote = nil
+local Remotes = {}
 
 local function resolveRemotes()
     pcall(function()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents") or (ReplicatedStorage.WaitForChild and ReplicatedStorage:WaitForChild("GameEvents", 2))
         if ge then
-            PlantRemote = ge:FindFirstChild("Plant_RE") or ge:FindFirstChild("Plant") or ge:FindFirstChild("PlantCrop") or ge:FindFirstChild("PlantSeed")
+            Remotes.Plant = ge:FindFirstChild("Plant_RE") or ge:FindFirstChild("Plant") or ge:FindFirstChild("PlantCrop") or ge:FindFirstChild("PlantSeed")
             local crops = ge:FindFirstChild("Crops") or (ge.WaitForChild and ge:WaitForChild("Crops", 2))
-            if crops and not PlantRemote then
-                CollectRemote = crops:FindFirstChild("Collect") or (crops.WaitForChild and crops:WaitForChild("Collect", 2))
-                PlantRemote = crops:FindFirstChild("Plant") or crops:FindFirstChild("PlantCrop") or crops:FindFirstChild("PlantSeed") or crops:FindFirstChild("UseSeed")
+            if crops and not Remotes.Plant then
+                Remotes.Collect = crops:FindFirstChild("Collect") or (crops.WaitForChild and crops:WaitForChild("Collect", 2))
+                Remotes.Plant = crops:FindFirstChild("Plant") or crops:FindFirstChild("PlantCrop") or crops:FindFirstChild("PlantSeed") or crops:FindFirstChild("UseSeed")
             elseif crops then
-                CollectRemote = crops:FindFirstChild("Collect") or (crops.WaitForChild and crops:WaitForChild("Collect", 2))
+                Remotes.Collect = crops:FindFirstChild("Collect") or (crops.WaitForChild and crops:WaitForChild("Collect", 2))
             end
-            SellInvRemote = ge:FindFirstChild("Sell_Inventory") or ge:FindFirstChild("SellInventory") or ge:FindFirstChild("Sell")
-            SellItemRemote = ge:FindFirstChild("Sell_Item") or ge:FindFirstChild("SellItem")
-            SellAllPetsRemote = ge:FindFirstChild("SellAllPets_RE") or ge:FindFirstChild("SellAllPets") or ge:FindFirstChild("SellPets")
+            Remotes.SellInv = ge:FindFirstChild("Sell_Inventory") or ge:FindFirstChild("SellInventory") or ge:FindFirstChild("Sell")
+            Remotes.SellItem = ge:FindFirstChild("Sell_Item") or ge:FindFirstChild("SellItem")
+            Remotes.SellAllPets = ge:FindFirstChild("SellAllPets_RE") or ge:FindFirstChild("SellAllPets") or ge:FindFirstChild("SellPets")
             
             -- Shop Remotes
-            BuyPetEggRemote = ge:FindFirstChild("BuyPetEgg")
-            BuyGearStockRemote = ge:FindFirstChild("BuyGearStock")
-            BuySeedStockRemote = ge:FindFirstChild("BuySeedStock")
-            BuyDailySeedShopStockRemote = ge:FindFirstChild("BuyDailySeedShopStock")
-            BuyCosmeticItemRemote = ge:FindFirstChild("BuyCosmeticItem")
-            BuyCosmeticCrateRemote = ge:FindFirstChild("BuyCosmeticCrate")
+            Remotes.BuyPetEgg = ge:FindFirstChild("BuyPetEgg")
+            Remotes.BuyGearStock = ge:FindFirstChild("BuyGearStock")
+            Remotes.BuySeedStock = ge:FindFirstChild("BuySeedStock")
+            Remotes.BuyDailySeedShopStock = ge:FindFirstChild("BuyDailySeedShopStock")
+            Remotes.BuyCosmeticItem = ge:FindFirstChild("BuyCosmeticItem")
+            Remotes.BuyCosmeticCrate = ge:FindFirstChild("BuyCosmeticCrate")
 
             -- Event Remotes
             local ac = ge:FindFirstChild("AcornChaos")
             if ac then
-                AcornCrackRemote = ac:FindFirstChild("Crack")
-                AcornStartRemote = ac:FindFirstChild("Start")
-                AcornRewardRemote = ac:FindFirstChild("Reward")
+                Remotes.AcornCrack = ac:FindFirstChild("Crack")
+                Remotes.AcornStart = ac:FindFirstChild("Start")
+                Remotes.AcornReward = ac:FindFirstChild("Reward")
             end
-            TryAcornBellRemote = ge:FindFirstChild("TryAcornBell")
-            TryGoldenAcornRemote = ge:FindFirstChild("TryGoldenAcorn")
-            TryMapleSyrupRemote = ge:FindFirstChild("TryMapleSyrup")
-            TryHarvestBasketRemote = ge:FindFirstChild("TryHarvestBasket")
-            ClaimChipmunkRewardsRemote = ge:FindFirstChild("ClaimChipmunkRewards")
-            SubmitChipmunkFruitRemote = ge:FindFirstChild("SubmitChipmunkFruit")
+            Remotes.TryAcornBell = ge:FindFirstChild("TryAcornBell")
+            Remotes.TryGoldenAcorn = ge:FindFirstChild("TryGoldenAcorn")
+            Remotes.TryMapleSyrup = ge:FindFirstChild("TryMapleSyrup")
+            Remotes.TryHarvestBasket = ge:FindFirstChild("TryHarvestBasket")
+            Remotes.ClaimChipmunkRewards = ge:FindFirstChild("ClaimChipmunkRewards")
+            Remotes.SubmitChipmunkFruit = ge:FindFirstChild("SubmitChipmunkFruit")
         end
     end)
 end
 resolveRemotes()
 
 local function getCollectRemote()
-    if CollectRemote and CollectRemote.Parent then return CollectRemote end
+    if Remotes.Collect and Remotes.Collect.Parent then return Remotes.Collect end
     resolveRemotes()
-    return CollectRemote
+    return Remotes.Collect
 end
 
 local function getPlantRemote()
-    if PlantRemote and PlantRemote.Parent then return PlantRemote end
+    if Remotes.Plant and Remotes.Plant.Parent then return Remotes.Plant end
     resolveRemotes()
-    return PlantRemote
+    return Remotes.Plant
 end
 
 local function getSellInvRemote()
-    if SellInvRemote and SellInvRemote.Parent then return SellInvRemote end
+    if Remotes.SellInv and Remotes.SellInv.Parent then return Remotes.SellInv end
     resolveRemotes()
-    return SellInvRemote
+    return Remotes.SellInv
 end
 
 local function getSellItemRemote()
-    if SellItemRemote and SellItemRemote.Parent then return SellItemRemote end
+    if Remotes.SellItem and Remotes.SellItem.Parent then return Remotes.SellItem end
     resolveRemotes()
-    return SellItemRemote
+    return Remotes.SellItem
 end
 
 local function getSellAllPetsRemote()
-    if SellAllPetsRemote and SellAllPetsRemote.Parent then return SellAllPetsRemote end
+    if Remotes.SellAllPets and Remotes.SellAllPets.Parent then return Remotes.SellAllPets end
     resolveRemotes()
-    return SellAllPetsRemote
+    return Remotes.SellAllPets
 end
 
 local function getAllPlayerTools()
@@ -3063,12 +3042,6 @@ task.spawn(function()
     end
 end)
 
--- Forward declare Shop UI elements for Auto-Buy Engine
-local autoBuySelectedEggToggle, autoBuyAllEggsToggle, selectEggListObj
-local autoBuySelectedGearToggle, autoBuyAllGearsToggle, selectGearListObj
-local autoBuySelectedSeedToggle, autoBuyAllSeedsToggle, selectSeedShopListObj
-local autoBuySelectedCosmeticToggle, autoBuyAllCosmeticsToggle, selectCosmeticListObj
-
 -- =========================================================================
 -- Ultra-Fast / Instant Auto-Buy Engine (Eggs, Gears, Seeds, Cosmetics)
 -- =========================================================================
@@ -3964,9 +3937,6 @@ end)
 -- ==========================================
 Hub.CreateSection(farmTab, "🔄 Auto Reclaimer")
 
-local autoReclaimerToggle
-local reclaimerPlantListObj
-
 autoReclaimerToggle = Hub.CreateToggle(farmTab, "🔄 Auto Reclaimer", false, function(v)
     if type(v) == "boolean" then State.AutoReclaimer = v else State.AutoReclaimer = not State.AutoReclaimer end
 end)
@@ -4011,9 +3981,6 @@ end)
 -- ==========================================
 Hub.CreateSection(farmTab, "⛏️ Auto Shovel")
 
-local autoShovelToggle
-local shovelPlantListObj
-
 autoShovelToggle = Hub.CreateToggle(farmTab, "⛏️ Auto Shovel", false, function(v)
     if type(v) == "boolean" then State.AutoShovel = v else State.AutoShovel = not State.AutoShovel end
 end)
@@ -4048,9 +4015,6 @@ end)
 -- Section: Auto Watering
 -- ==========================================
 Hub.CreateSection(farmTab, "💧 Auto Watering (Watering Can)")
-
-local autoWateringToggle
-local wateringPlantListObj
 
 autoWateringToggle = Hub.CreateToggle(farmTab, "💧 Auto Watering", false, function(v)
     if type(v) == "boolean" then State.AutoWatering = v else State.AutoWatering = not State.AutoWatering end
