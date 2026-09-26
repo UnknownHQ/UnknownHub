@@ -4,7 +4,8 @@
 -- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine,
 --           InfMaths Exponentiation, Upgrade #4 (Buy Max) Integration,
 --           Wish Safeguard & GUI Shop Blacklist, Auto Daily Claim Engine,
---           High-Speed Network-Safe Auto Clicker, Smart Auto Prestige & Resets
+--           Super-Fast Auto Roll (RNG Engine), High-Speed Network-Safe
+--           Auto Clicker, Smart Auto Prestige & Resets
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -92,6 +93,7 @@ local DarkPrestigeRemote = nil
 local DarkEvilRemote = nil
 local TowerPrestigeRemote = nil
 local DailyRemote = nil
+local RollRemote = nil
 
 local function loadGameModules()
     pcall(function()
@@ -117,6 +119,7 @@ local function loadGameModules()
             DarkEvilRemote = remotes:FindFirstChild("DarkEvil")
             TowerPrestigeRemote = remotes:FindFirstChild("TowerPrestige")
             DailyRemote = remotes:FindFirstChild("Daily")
+            RollRemote = remotes:FindFirstChild("Roll")
         end
     end)
 end
@@ -230,6 +233,7 @@ local State = {
     UpgradeInterval = 0.2,
     IncludeWishUpgrades = false,
     AutoDaily = true,
+    AutoRoll = false,
     AutoClick = false,
     AutoPrestige = false,
     AutoEvil = false,
@@ -407,6 +411,7 @@ local Hub = factory({
         _G.UUT_SESSION = nil
         State.AutoUpgrade = false
         State.AutoDaily = false
+        State.AutoRoll = false
         State.AutoClick = false
         State.AutoPrestige = false
         State.AutoEvil = false
@@ -458,6 +463,54 @@ Hub.CreateButton(mainTab, "Buy All Affordable (1-Click)", function()
         Content = string.format("Fired buy for %d affordable upgrades!", bought),
         Duration = 2
     })
+end)
+
+Hub.CreateSection(mainTab, "RNG & ROLLING AUTOMATION")
+
+-- Super-Fast Auto Roll Toggle
+Hub.CreateToggle(mainTab, "Auto Roll (Super Fast)", false, function(enabled)
+    State.AutoRoll = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoRoll and _G.UUT_SESSION == currentSession do
+                if not RollRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then RollRemote = remotes:FindFirstChild("Roll") end
+                end
+                if RollRemote then
+                    pcall(function()
+                        RollRemote:InvokeServer()
+                    end)
+                end
+                task.wait()
+            end
+        end)
+        Hub.SendNotification({
+            Title = "Auto Roll",
+            Content = "Super fast roll automation active!",
+            Duration = 2
+        })
+    end
+end)
+
+-- 1-Click Manual Roll Button
+Hub.CreateButton(mainTab, "Roll Once (Burst)", function()
+    if not RollRemote then
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes then RollRemote = remotes:FindFirstChild("Roll") end
+    end
+    if RollRemote then
+        local res = nil
+        pcall(function()
+            res = RollRemote:InvokeServer()
+        end)
+        local count = (type(res) == "table" and res.Processed) or 1
+        Hub.SendNotification({
+            Title = "Roll Result",
+            Content = string.format("Processed %s rolls in burst!", tostring(count)),
+            Duration = 2
+        })
+    end
 end)
 
 Hub.CreateSection(mainTab, "REWARDS & CLAIMS")
