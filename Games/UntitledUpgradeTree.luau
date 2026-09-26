@@ -1,7 +1,8 @@
 -- =========================================================================
 -- UNKNOWN HUB - UNTITLED UPGRADE TREE
 -- Game: Untitled Upgrade Tree
--- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine
+-- Features: Universal Dynamic Multi-World Mathematical Auto Upgrade Engine,
+--           Auto Clicker, Auto Prestige & Auto Evil Reset
 -- =========================================================================
 
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -76,11 +77,16 @@ end
 destroyOldGui()
 
 -- =========================================================================
--- Dynamic Universal Game Modules & Mathematical Engine
+-- Dynamic Universal Game Modules & Remotes Engine
 -- =========================================================================
 local InfMaths = nil
 local UpgradesModule = nil
 local BuyUpgRemote = nil
+local ClickerRemote = nil
+local PrestigeRemote = nil
+local EvilRemote = nil
+local DarkPrestigeRemote = nil
+local DarkEvilRemote = nil
 
 pcall(function()
     local modules = ReplicatedStorage:FindFirstChild("Modules")
@@ -93,8 +99,13 @@ pcall(function()
         end
     end
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if remotes and remotes:FindFirstChild("BuyUpg") then
-        BuyUpgRemote = remotes.BuyUpg
+    if remotes then
+        BuyUpgRemote = remotes:FindFirstChild("BuyUpg")
+        ClickerRemote = remotes:FindFirstChild("Clicker")
+        PrestigeRemote = remotes:FindFirstChild("Prestige")
+        EvilRemote = remotes:FindFirstChild("Evil")
+        DarkPrestigeRemote = remotes:FindFirstChild("DarkPrestige")
+        DarkEvilRemote = remotes:FindFirstChild("DarkEvil")
     end
 end)
 
@@ -319,7 +330,15 @@ end
 -- =========================================================================
 local State = {
     AutoUpgrade = false,
-    UpgradeInterval = 0.2
+    UpgradeInterval = 0.2,
+    AutoClick = false,
+    ClickInterval = 0.05,
+    AutoPrestige = false,
+    PrestigeInterval = 1.0,
+    AutoEvil = false,
+    EvilInterval = 2.0,
+    AutoDarkPrestige = false,
+    DarkPrestigeInterval = 2.0
 }
 
 -- =========================================================================
@@ -328,12 +347,16 @@ local State = {
 local Hub = factory({
     name = LIBRARY_NAME,
     title = "UNTITLED UPGRADE TREE",
-    subTitle = "Auto Upgrade",
+    subTitle = "Auto Farm & Upgrade",
     theme = Color3.fromRGB(0, 215, 255),
     secondaryTheme = Color3.fromRGB(165, 95, 255),
     onClose = function()
         _G.UUT_SESSION = nil
         State.AutoUpgrade = false
+        State.AutoClick = false
+        State.AutoPrestige = false
+        State.AutoEvil = false
+        State.AutoDarkPrestige = false
     end
 })
 
@@ -375,6 +398,92 @@ Hub.CreateButton(mainTab, "Buy All Affordable (1-Click)", function()
         Content = string.format("Fired buy for %d affordable upgrades!", bought),
         Duration = 2
     })
+end)
+
+Hub.CreateSection(mainTab, "CLICKER & RESET AUTOMATION")
+
+-- Auto Click Toggle
+Hub.CreateToggle(mainTab, "Auto Click", false, function(enabled)
+    State.AutoClick = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoClick and _G.UUT_SESSION == currentSession do
+                if not ClickerRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then ClickerRemote = remotes:FindFirstChild("Clicker") end
+                end
+                if ClickerRemote then
+                    pcall(function()
+                        ClickerRemote:FireServer()
+                    end)
+                end
+                task.wait(State.ClickInterval or 0.05)
+            end
+        end)
+    end
+end)
+
+-- Auto Prestige Toggle
+Hub.CreateToggle(mainTab, "Auto Prestige", false, function(enabled)
+    State.AutoPrestige = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoPrestige and _G.UUT_SESSION == currentSession do
+                if not PrestigeRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then PrestigeRemote = remotes:FindFirstChild("Prestige") end
+                end
+                if PrestigeRemote then
+                    pcall(function()
+                        PrestigeRemote:FireServer()
+                    end)
+                end
+                task.wait(State.PrestigeInterval or 1.0)
+            end
+        end)
+    end
+end)
+
+-- Auto Evil Reset Toggle
+Hub.CreateToggle(mainTab, "Auto Evil Reset", false, function(enabled)
+    State.AutoEvil = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoEvil and _G.UUT_SESSION == currentSession do
+                if not EvilRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then EvilRemote = remotes:FindFirstChild("Evil") end
+                end
+                if EvilRemote then
+                    pcall(function()
+                        EvilRemote:FireServer()
+                    end)
+                end
+                task.wait(State.EvilInterval or 2.0)
+            end
+        end)
+    end
+end)
+
+-- Auto Dark Prestige Toggle
+Hub.CreateToggle(mainTab, "Auto Dark Prestige", false, function(enabled)
+    State.AutoDarkPrestige = enabled
+    if enabled then
+        task.spawn(function()
+            while State.AutoDarkPrestige and _G.UUT_SESSION == currentSession do
+                if not DarkPrestigeRemote then
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes then DarkPrestigeRemote = remotes:FindFirstChild("DarkPrestige") end
+                end
+                if DarkPrestigeRemote then
+                    pcall(function()
+                        DarkPrestigeRemote:FireServer()
+                    end)
+                end
+                task.wait(State.DarkPrestigeInterval or 2.0)
+            end
+        end)
+    end
 end)
 
 -- =========================================================================
