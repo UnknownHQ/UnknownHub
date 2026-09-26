@@ -175,9 +175,15 @@ end
 local function getPlayerFarm()
     local farm = nil
     pcall(function()
-        local getFarm = require(ReplicatedStorage.Modules.GetFarm)
-        farm = getFarm(LocalPlayer)
+        local getFarmAsync = require(ReplicatedStorage.Modules.GetFarmAsync)
+        farm = getFarmAsync(LocalPlayer)
     end)
+    if not farm then
+        pcall(function()
+            local getFarm = require(ReplicatedStorage.Modules.GetFarm)
+            farm = getFarm(LocalPlayer)
+        end)
+    end
     if not farm then
         local farmFolder = Workspace:FindFirstChild("Farm")
         if farmFolder then
@@ -189,12 +195,9 @@ local function getPlayerFarm()
                     break
                 end
             end
-            if not farm then
-                farm = farmFolder:FindFirstChild("Farm") or farmFolder:GetChildren()[1]
-            end
         end
     end
-    return farm or (Workspace:FindFirstChild("Farm") or Workspace)
+    return farm
 end
 
 local function getPlantGrowthInfo(plant)
@@ -224,25 +227,10 @@ local function getMyGardenPlants()
     pcall(function()
         local farm = getPlayerFarm()
         if farm then
-            local imp = farm:FindFirstChild("Important")
-            local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
+            local plantsFolder = farm:FindFirstChild("Plants_Physical", true)
             if plantsFolder then
                 for _, plant in ipairs(plantsFolder:GetChildren()) do
                     table.insert(plants, plant)
-                end
-            end
-        end
-        if #plants == 0 then
-            local farmFolder = Workspace:FindFirstChild("Farm")
-            if farmFolder then
-                for _, plot in ipairs(farmFolder:GetChildren()) do
-                    local imp = plot:FindFirstChild("Important")
-                    local plantsFolder = imp and imp:FindFirstChild("Plants_Physical")
-                    if plantsFolder then
-                        for _, plant in ipairs(plantsFolder:GetChildren()) do
-                            table.insert(plants, plant)
-                        end
-                    end
                 end
             end
         end
@@ -393,37 +381,23 @@ end
 -- =========================================================================
 local function executeReclaimSinglePlant(plantObj)
     if not plantObj or not plantObj.Parent then return false end
-    local pName = plantObj.Name
+    local success = false
     pcall(function()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local reclaimRemote = ge and (ge:FindFirstChild("ReclaimPlant") or ge:FindFirstChild("Reclaim") or ge:FindFirstChild("PlantReclaim") or ge:FindFirstChild("ReclaimService"))
-        local uuid = plantObj:GetAttribute("PLANT_UUID") or plantObj:GetAttribute("UUID")
-
-        if reclaimRemote then
-            if reclaimRemote:IsA("RemoteEvent") then
-                reclaimRemote:FireServer(plantObj)
-                if uuid then reclaimRemote:FireServer(uuid) end
-            elseif reclaimRemote:IsA("RemoteFunction") then
-                reclaimRemote:InvokeServer(plantObj)
-            end
-        end
-
-        -- Tool based reclaim fallback (Reclaimer tool)
-        local reclaimerTool, isEquipped = findToolByNameOrClass("reclaim")
+        local reclaimRemote = ge and (ge:FindFirstChild("ReclaimerService_RE") or ge:FindFirstChild("ReclaimPlant") or ge:FindFirstChild("Reclaim"))
+        
+        local reclaimerTool = findToolByNameOrClass("reclaim")
         if reclaimerTool then
             equipTool(reclaimerTool)
-            local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            local pPart = plantObj:FindFirstChildWhichIsA("BasePart") or (plantObj:IsA("BasePart") and plantObj)
-            if pPart and root then
-                reclaimerTool:Activate()
-                local toolRemote = reclaimerTool:FindFirstChildWhichIsA("RemoteEvent") or reclaimerTool:FindFirstChildWhichIsA("RemoteFunction")
-                if toolRemote then
-                    if toolRemote:IsA("RemoteEvent") then
-                        toolRemote:FireServer(plantObj, pPart.Position)
-                    else
-                        toolRemote:InvokeServer(plantObj, pPart.Position)
-                    end
-                end
+        end
+
+        if reclaimRemote then
+            if reclaimRemote.Name == "ReclaimerService_RE" then
+                reclaimRemote:FireServer("TryReclaim", plantObj)
+                success = true
+            else
+                reclaimRemote:FireServer(plantObj)
+                success = true
             end
         end
 
@@ -431,10 +405,11 @@ local function executeReclaimSinglePlant(plantObj)
         if prompt and prompt.Enabled and prompt.ActionText:lower():find("reclaim") then
             if fireproximityprompt then
                 fireproximityprompt(prompt)
+                success = true
             end
         end
     end)
-    return true
+    return success
 end
 
 -- =========================================================================
@@ -2391,17 +2366,7 @@ end)
 -- Pet Egg Engine: Auto Place Eggs & Auto Hatch Eggs
 -- =========================================================================
 
-local function getPlayerFarm()
-    local farm = nil
-    pcall(function()
-        local getFarm = require(ReplicatedStorage.Modules.GetFarm)
-        farm = getFarm(LocalPlayer)
-    end)
-    if not farm then
-        farm = Workspace:FindFirstChild("Farm") and Workspace.Farm:FindFirstChild("Farm")
-    end
-    return farm or (Workspace:FindFirstChild("Farm") or Workspace)
-end
+
 
 local function getPlacedEggsInGarden()
     local eggs = {}
@@ -4860,46 +4825,55 @@ task.spawn(function()
         end)
     end
 
-    pcall(function()
-        local farm = getPlayerFarm()
-        if farm and farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Plants_Physical") then
-            hookPlantFolder(farm.Important.Plants_Physical)
-        end
-        local farmFolder = Workspace:FindFirstChild("Farm")
-        if farmFolder then
-            for _, plot in ipairs(farmFolder:GetChildren()) do
-                local imp = plot:FindFirstChild("Important")
-                local pPhys = imp and imp:FindFirstChild("Plants_Physical")
-                if pPhys then
-                    hookPlantFolder(pPhys)
+    local function syncGardenPlantLists()
+        pcall(function()
+            local allPlants = buildPlantsInGardenCatalog()
+            if reclaimerPlantListObj then
+                for _, entry in ipairs(allPlants) do
+                    safeAddToList(reclaimerPlantListObj, entry)
                 end
             end
-        end
-    end)
-
-    -- Background Periodic Refresh every 5 seconds for growth % progression
-    while true do
-        if _G.GAG_SESSION ~= currentSession then break end
-        task.wait(5)
-        pcall(function()
+            if shovelPlantListObj then
+                for _, entry in ipairs(allPlants) do
+                    safeAddToList(shovelPlantListObj, entry)
+                end
+            end
             if wateringPlantListObj then
                 local growingPlants = buildGrowingPlantsInGardenCatalog()
                 for _, entry in ipairs(growingPlants) do
                     safeAddToList(wateringPlantListObj, entry)
                 end
             end
-            if reclaimerPlantListObj then
-                local allPlants = buildPlantsInGardenCatalog()
-                for _, entry in ipairs(allPlants) do
-                    safeAddToList(reclaimerPlantListObj, entry)
-                end
-            end
-            if shovelPlantListObj then
-                local allPlants = buildPlantsInGardenCatalog()
-                for _, entry in ipairs(allPlants) do
-                    safeAddToList(shovelPlantListObj, entry)
-                end
+        end)
+    end
+
+    local hookedFolders = {}
+    local function ensureFarmHooked()
+        pcall(function()
+            local farm = getPlayerFarm()
+            local pPhys = farm and farm:FindFirstChild("Plants_Physical", true)
+            if pPhys and not hookedFolders[pPhys] then
+                hookedFolders[pPhys] = true
+                pPhys.ChildAdded:Connect(function(child)
+                    task.wait(0.15)
+                    syncGardenPlantLists()
+                end)
+                pPhys.ChildRemoved:Connect(function(child)
+                    task.wait(0.15)
+                    syncGardenPlantLists()
+                end)
+                syncGardenPlantLists()
             end
         end)
+    end
+
+    ensureFarmHooked()
+
+    -- Background Periodic Refresh every 3 seconds
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        task.wait(3)
+        ensureFarmHooked()
+        syncGardenPlantLists()
     end
 end)

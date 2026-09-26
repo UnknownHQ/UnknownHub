@@ -6064,6 +6064,7 @@ return function(opts)
             entryData.CreateList = entryData.AddList
             table.insert(listObject.Items, entryData)
             checkSearchVisibility()
+            if open then updateListHeight(false) end
             return row, entryData
         end
         listObject.AddItem = function(selfOrName, nameOrSubtitle, subtitleOrCallback, callback, actionText, actionCallback, actionDisabled)
