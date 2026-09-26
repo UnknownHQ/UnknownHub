@@ -1459,6 +1459,7 @@ local collectMutationListObj
 local collectWeightModeListObj
 
 local autoPlantToggle
+local plantInOtherPlantsToggle
 local plantSeedListObj
 local plantPositionModeListObj
 
@@ -2056,6 +2057,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
+-- =========================================================================
 -- Auto-Plant Engine (Player Position, Random Position, Existing Plant)
 -- =========================================================================
 task.spawn(function()
@@ -2073,21 +2075,27 @@ task.spawn(function()
             -- Find candidate seed tools in Backpack or Character
             local allTools = getAllPlayerTools()
             local seedTool = nil
+            local seedName = nil
 
             for _, tool in ipairs(allTools) do
                 if tool.Parent and tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
                     local tName = tool.Name
                     local lowerName = tName:lower()
-                    local seedAttr = tool:GetAttribute("Seed") or tool:GetAttribute("f") or ""
+                    local sAttr = tool:GetAttribute("Seed") or tool:GetAttribute("f")
+                    local sAttrStr = sAttr and tostring(sAttr):lower() or ""
 
-                    if lowerName:find("seed") or tostring(seedAttr):lower():find("seed") then
-                        if selectedSeed == "All Seeds" or selectedSeed == "None" then
+                    if lowerName:find("seed") or sAttrStr:find("seed") or (sAttr ~= nil and sAttr ~= "") then
+                        local derivedSeed = sAttr and tostring(sAttr) or tName:gsub("%s*[sS]eed.*", ""):gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                        
+                        if selectedSeed == "All Seeds" or selectedSeed == "None" or selectedSeed == "" then
                             seedTool = tool
+                            seedName = derivedSeed
                             break
                         else
-                            local cleanSelected = selectedSeed:lower():gsub("%s*[sS]eed%s*", "")
-                            if lowerName:find(cleanSelected, 1, true) or tostring(seedAttr):lower():find(cleanSelected, 1, true) then
+                            local cleanSelected = selectedSeed:lower():gsub("%s*[sS]eed%s*", ""):gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                            if lowerName:find(cleanSelected, 1, true) or sAttrStr:find(cleanSelected, 1, true) or derivedSeed:lower():find(cleanSelected, 1, true) then
                                 seedTool = tool
+                                seedName = derivedSeed
                                 break
                             end
                         end
@@ -2095,30 +2103,55 @@ task.spawn(function()
                 end
             end
 
-            if not seedTool then return end
+            if not seedTool or not seedName then return end
 
-            -- Calculate target plant position based on selected mode
-            local targetPos = nil
             local char = LocalPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
+            local targetPos = nil
+
+            local function getMyFarmPlot()
+                local farmFolder = Workspace:FindFirstChild("Farm")
+                if not farmFolder then return nil end
+                for _, f in ipairs(farmFolder:GetChildren()) do
+                    local imp = f:FindFirstChild("Important")
+                    local data = imp and imp:FindFirstChild("Data")
+                    local ownerVal = (data and data:FindFirstChild("Owner") and data.Owner.Value) or f:GetAttribute("Owner")
+                    if ownerVal == LocalPlayer.Name or ownerVal == tostring(LocalPlayer.UserId) then
+                        return f
+                    end
+                end
+                return nil
+            end
 
             if posMode == "Player Position" then
                 if root then
                     targetPos = root.Position - Vector3.new(0, 2.5, 0)
                 end
             elseif posMode == "Random Position" then
-                if root then
-                    local rx = math.random(-25, 25)
-                    local rz = math.random(-25, 25)
-                    targetPos = root.Position + Vector3.new(rx, -2.5, rz)
+                local myFarm = getMyFarmPlot()
+                if myFarm and myFarm:FindFirstChild("Important") then
+                    local locs = myFarm.Important:FindFirstChild("Plant_Locations")
+                    if locs and #locs:GetChildren() > 0 then
+                        local spots = locs:GetChildren()
+                        local spot = spots[math.random(1, #spots)]
+                        if spot:IsA("BasePart") then
+                            local hx = spot.Size.X * 0.45
+                            local hz = spot.Size.Z * 0.45
+                            targetPos = spot.Position + Vector3.new((math.random() - 0.5) * 2 * hx, 0.1, (math.random() - 0.5) * 2 * hz)
+                        end
+                    end
+                end
+                if not targetPos and root then
+                    targetPos = root.Position + Vector3.new(math.random(-15, 15), -2.5, math.random(-15, 15))
                 end
             elseif posMode == "Existing Plant" then
-                local seedBaseName = seedTool.Name:gsub("%s*[sS]eed%s*", ""):gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                local seedLower = seedBaseName:lower()
+                local seedLower = seedName:lower()
+                local myFarm = getMyFarmPlot()
                 local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+                local searchFarms = myFarm and {myFarm} or farmFolder:GetChildren()
                 local matchedPlantPart = nil
 
-                for _, farm in ipairs(farmFolder:GetChildren()) do
+                for _, farm in ipairs(searchFarms) do
                     local imp = farm:FindFirstChild("Important")
                     local plants = imp and imp:FindFirstChild("Plants_Physical")
                     if plants then
@@ -2137,14 +2170,16 @@ task.spawn(function()
                 end
 
                 if matchedPlantPart then
-                    targetPos = matchedPlantPart.Position
+                    targetPos = matchedPlantPart.Position + Vector3.new((math.random() - 0.5) * 0.2, 0, (math.random() - 0.5) * 0.2)
                 elseif root then
                     targetPos = root.Position - Vector3.new(0, 2.5, 0)
                 end
             elseif posMode == "Inside Other Plant" or posMode == "Inside Any Plant" then
+                local myFarm = getMyFarmPlot()
                 local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+                local searchFarms = myFarm and {myFarm} or farmFolder:GetChildren()
                 local allPlants = {}
-                for _, farm in ipairs(farmFolder:GetChildren()) do
+                for _, farm in ipairs(searchFarms) do
                     local imp = farm:FindFirstChild("Important")
                     local plants = imp and imp:FindFirstChild("Plants_Physical")
                     if plants then
@@ -2158,11 +2193,11 @@ task.spawn(function()
                 end
                 if #allPlants > 0 then
                     local chosen = allPlants[math.random(1, #allPlants)]
-                    targetPos = chosen.Position + Vector3.new((math.random() - 0.5) * 0.4, 0, (math.random() - 0.5) * 0.4)
+                    targetPos = chosen.Position + Vector3.new((math.random() - 0.5) * 0.2, 0, (math.random() - 0.5) * 0.2)
                 elseif root then
                     targetPos = root.Position - Vector3.new(0, 2.5, 0)
                 end
-            elseif posMode == "In Mid-Air (Floating)" or posMode == "In Mid-Air" or posMode == "In Mid-Air (Above Player)" then
+            elseif posMode == "In Mid-Air (Above Player)" or posMode == "In Mid-Air (Floating)" or posMode == "In Mid-Air" then
                 if root then
                     local airHeight = tonumber(State.AirPlantHeight) or 15
                     targetPos = root.Position + Vector3.new(0, airHeight, 0)
@@ -2175,10 +2210,7 @@ task.spawn(function()
                 end
             elseif posMode == "Anywhere (Free Spatial)" or posMode == "Anywhere" then
                 if root then
-                    local rx = math.random(-150, 150)
-                    local ry = math.random(-5, 60)
-                    local rz = math.random(-150, 150)
-                    targetPos = root.Position + Vector3.new(rx, ry, rz)
+                    targetPos = root.Position + Vector3.new(math.random(-150, 150), math.random(-5, 60), math.random(-150, 150))
                 end
             end
 
@@ -2186,27 +2218,21 @@ task.spawn(function()
                 targetPos = root.Position - Vector3.new(0, 2.5, 0)
             end
 
-            if targetPos then
+            if targetPos and seedName then
                 local pRemote = getPlantRemote()
                 if pRemote then
                     pcall(function()
-                        pRemote:FireServer(seedTool, targetPos)
+                        if seedTool.Parent ~= char and char:FindFirstChild("Humanoid") then
+                            char.Humanoid:EquipTool(seedTool)
+                        end
                     end)
                     pcall(function()
-                        pRemote:FireServer(seedTool.Name, targetPos)
+                        pRemote:FireServer(targetPos, seedName)
                     end)
                     pcall(function()
-                        pRemote:FireServer(targetPos, seedTool)
+                        seedTool:Activate()
                     end)
                 end
-
-                -- Also simulate tool activation if equipped or equip and click
-                pcall(function()
-                    if seedTool.Parent ~= char and char:FindFirstChild("Humanoid") then
-                        char.Humanoid:EquipTool(seedTool)
-                    end
-                    seedTool:Activate()
-                end)
             end
         end)
     end
@@ -2233,7 +2259,7 @@ local function triggerManualPlant(customTargetPos)
         if item:IsA("Tool") and not item:GetAttribute("PET_UUID") then
             local tName = item.Name:lower()
             local seedAttr = tostring(item:GetAttribute("Seed") or item:GetAttribute("f") or ""):lower()
-            if tName:find("seed") or seedAttr:find("seed") then
+            if tName:find("seed") or seedAttr:find("seed") or item:GetAttribute("Seed") ~= nil then
                 seedTool = item
                 break
             end
@@ -2241,6 +2267,7 @@ local function triggerManualPlant(customTargetPos)
     end
 
     if not seedTool then return end
+    local seedName = seedTool:GetAttribute("Seed") or seedTool:GetAttribute("f") or seedTool.Name:gsub("%s*[sS]eed.*", ""):gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
 
     local now = tick()
     if now - lastManualPlantTime < 0.04 then return end
@@ -2297,12 +2324,10 @@ local function triggerManualPlant(customTargetPos)
         end
     end
 
-    if targetPos then
+    if targetPos and seedName then
         local pRemote = getPlantRemote()
         if pRemote then
-            pcall(function() pRemote:FireServer(seedTool, targetPos) end)
-            pcall(function() pRemote:FireServer(seedTool.Name, targetPos) end)
-            pcall(function() pRemote:FireServer(targetPos, seedTool) end)
+            pcall(function() pRemote:FireServer(targetPos, seedName) end)
         end
     end
 end
