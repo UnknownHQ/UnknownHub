@@ -2963,21 +2963,105 @@ local function formatHatchCooldown(remainingSeconds)
 end
 
 local function resolveEggInfo(eggObj)
-    local eggName = eggObj:GetAttribute("EggName") or eggObj:GetAttribute("NAME") or eggObj.Name or "Egg"
-    local petName = eggObj:GetAttribute("Pet") or eggObj:GetAttribute("f") or eggObj:GetAttribute("PetName") or eggObj:GetAttribute("PET_NAME") or eggObj:GetAttribute("TargetPet")
-    local petWeight = tonumber(eggObj:GetAttribute("Weight") or eggObj:GetAttribute("w") or eggObj:GetAttribute("PetWeight") or eggObj:GetAttribute("KG") or eggObj:GetAttribute("kg"))
+    local eggName = eggObj:GetAttribute("EggName") or eggObj:GetAttribute("NAME") or eggObj:GetAttribute("EggType") or eggObj.Name or "Egg"
+    local petName = eggObj:GetAttribute("Pet") or eggObj:GetAttribute("f") or eggObj:GetAttribute("PetName") or eggObj:GetAttribute("PET_NAME") or eggObj:GetAttribute("TargetPet") or eggObj:GetAttribute("HatchedPet")
+    local petWeight = tonumber(eggObj:GetAttribute("Weight") or eggObj:GetAttribute("w") or eggObj:GetAttribute("PetWeight") or eggObj:GetAttribute("KG") or eggObj:GetAttribute("kg") or eggObj:GetAttribute("PetKG"))
     
-    -- Check inside egg models/children
+    -- 1. Scan all attributes for any string matching pet data or names
     if not petName then
-        for _, ch in ipairs(eggObj:GetChildren()) do
-            if ch:IsA("Model") and ch.Name ~= "Model" and not ch.Name:lower():find("egg") and not ch.Name:lower():find("hitbox") then
-                petName = ch.Name
+        for attrName, attrVal in pairs(eggObj:GetAttributes()) do
+            if type(attrVal) == "string" and attrVal ~= "" and attrVal ~= tostring(eggName) and attrName ~= "OBJECT_UUID" and attrName ~= "OWNER" and attrName ~= "OBJECT_TYPE" then
+                if not attrName:lower():find("uuid") and not attrName:lower():find("owner") and not attrName:lower():find("type") then
+                    petName = attrVal
+                    break
+                end
+            end
+        end
+    end
+
+    -- 2. Check inside egg models/children/values/text
+    if not petName then
+        for _, desc in ipairs(eggObj:GetDescendants()) do
+            if desc:IsA("StringValue") and (desc.Name:lower():find("pet") or desc.Name:lower():find("target")) and desc.Value ~= "" then
+                petName = desc.Value
+                break
+            elseif desc:IsA("TextLabel") and desc.Text ~= "" and not desc.Text:lower():find("egg") and not desc.Text:lower():find("hatch") and not desc.Text:lower():find("hold") and not desc.Text:lower():find("press") then
+                petName = desc.Text:gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                break
+            elseif desc:IsA("Model") and desc.Name ~= "Model" and not desc.Name:lower():find("egg") and not desc.Name:lower():find("hitbox") and not desc.Name:lower():find("petegg") then
+                petName = desc.Name
                 break
             end
         end
     end
 
-    -- Check pet weight in name if present
+    -- 3. Check PetEggRenderer internal tracking if available
+    if not petName then
+        pcall(function()
+            local rep = ReplicatedStorage:FindFirstChild("Modules")
+            local ps = rep and rep:FindFirstChild("PetServices")
+            local eggRenderer = ps and ps:FindFirstChild("PetEggRenderer")
+            if eggRenderer then
+                local rMod = require(eggRenderer)
+                if rMod and rMod.GetEggData then
+                    local d = rMod.GetEggData(eggObj)
+                    if d and (d.Pet or d.PetName or d.Name) then
+                        petName = d.Pet or d.PetName or d.Name
+                        petWeight = petWeight or tonumber(d.Weight or d.KG or d.kg)
+                    end
+                end
+            end
+        end)
+    end
+
+    -- 4. Fallback: Lookup Egg Drop Pool from PetRegistry / PetEggData to display possible hatchable pet
+    if not petName or petName == "" then
+        pcall(function()
+            local cleanEgg = tostring(eggName):lower():gsub("[%s%p]", "")
+            local rep = ReplicatedStorage:FindFirstChild("Data")
+            local petReg = rep and rep:FindFirstChild("PetRegistry")
+            if petReg then
+                local res = require(petReg)
+                if res and res.PetEggs then
+                    for eName, eData in pairs(res.PetEggs) do
+                        if tostring(eName):lower():gsub("[%s%p]", ""):find(cleanEgg, 1, true) or cleanEgg:find(tostring(eName):lower():gsub("[%s%p]", ""), 1, true) then
+                            if eData and eData.RarityData and eData.RarityData.Items then
+                                local drops = {}
+                                for p, _ in pairs(eData.RarityData.Items) do
+                                    table.insert(drops, tostring(p))
+                                end
+                                if #drops > 0 then
+                                    petName = table.concat(drops, " / ")
+                                end
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    if not petName or petName == "" then
+        pcall(function()
+            if PetEggData and type(PetEggData) == "table" then
+                local cleanEgg = tostring(eggName):lower():gsub("[%s%p]", "")
+                for eName, eData in pairs(PetEggData) do
+                    if tostring(eName):lower():gsub("[%s%p]", ""):find(cleanEgg, 1, true) or cleanEgg:find(tostring(eName):lower():gsub("[%s%p]", ""), 1, true) then
+                        local list = eData.Pets or eData.Drops or eData.Rarities
+                        if type(list) == "table" then
+                            local drops = {}
+                            for p, _ in pairs(list) do table.insert(drops, tostring(p)) end
+                            if #drops > 0 then petName = table.concat(drops, " / ") end
+                        end
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    -- 5. Check pet weight in name or attributes if present
     if not petWeight and petName then
         local matchKg = petName:match("%[([%d%.]+)%s*[kK][gG]%]")
         if matchKg then
@@ -2985,7 +3069,7 @@ local function resolveEggInfo(eggObj)
         end
     end
 
-    -- Calculate cooldown
+    -- 6. Calculate cooldown
     local isReady = eggObj:GetAttribute("READY") == true
     local timeToHatch = tonumber(eggObj:GetAttribute("TimeToHatch"))
     local remaining = 0
@@ -3005,7 +3089,7 @@ local function resolveEggInfo(eggObj)
 
     return {
         eggName = tostring(eggName),
-        petName = petName and tostring(petName) or nil,
+        petName = (petName and petName ~= "") and tostring(petName) or tostring(eggName) .. " Pet",
         petWeight = petWeight,
         isReady = isReady,
         remaining = remaining
