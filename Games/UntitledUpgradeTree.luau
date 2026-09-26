@@ -402,8 +402,8 @@ end)
 
 Hub.CreateSection(mainTab, "CLICKER & RESET AUTOMATION")
 
--- Auto Click Toggle
-Hub.CreateToggle(mainTab, "Auto Click", false, function(enabled)
+-- Auto Click Toggle (High-Speed Burst Mode)
+Hub.CreateToggle(mainTab, "Auto Click (Instant)", false, function(enabled)
     State.AutoClick = enabled
     if enabled then
         task.spawn(function()
@@ -413,17 +413,19 @@ Hub.CreateToggle(mainTab, "Auto Click", false, function(enabled)
                     if remotes then ClickerRemote = remotes:FindFirstChild("Clicker") end
                 end
                 if ClickerRemote then
-                    pcall(function()
-                        ClickerRemote:FireServer()
-                    end)
+                    for _ = 1, 20 do
+                        pcall(function()
+                            ClickerRemote:FireServer()
+                        end)
+                    end
                 end
-                task.wait(State.ClickInterval or 0.05)
+                task.wait()
             end
         end)
     end
 end)
 
--- Auto Prestige Toggle
+-- Auto Prestige Toggle (Rapid Reset Mode)
 Hub.CreateToggle(mainTab, "Auto Prestige", false, function(enabled)
     State.AutoPrestige = enabled
     if enabled then
@@ -438,13 +440,13 @@ Hub.CreateToggle(mainTab, "Auto Prestige", false, function(enabled)
                         PrestigeRemote:FireServer()
                     end)
                 end
-                task.wait(State.PrestigeInterval or 1.0)
+                task.wait(0.05)
             end
         end)
     end
 end)
 
--- Auto Evil Reset Toggle
+-- Auto Evil Reset Toggle (Rapid Reset Mode)
 Hub.CreateToggle(mainTab, "Auto Evil Reset", false, function(enabled)
     State.AutoEvil = enabled
     if enabled then
@@ -459,13 +461,13 @@ Hub.CreateToggle(mainTab, "Auto Evil Reset", false, function(enabled)
                         EvilRemote:FireServer()
                     end)
                 end
-                task.wait(State.EvilInterval or 2.0)
+                task.wait(0.05)
             end
         end)
     end
 end)
 
--- Auto Dark Prestige Toggle
+-- Auto Dark Prestige Toggle (Rapid Reset Mode)
 Hub.CreateToggle(mainTab, "Auto Dark Prestige", false, function(enabled)
     State.AutoDarkPrestige = enabled
     if enabled then
@@ -480,7 +482,7 @@ Hub.CreateToggle(mainTab, "Auto Dark Prestige", false, function(enabled)
                         DarkPrestigeRemote:FireServer()
                     end)
                 end
-                task.wait(State.DarkPrestigeInterval or 2.0)
+                task.wait(0.05)
             end
         end)
     end
