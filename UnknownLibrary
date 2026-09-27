@@ -5073,7 +5073,7 @@ return function(opts)
         applyCorner(frame, 7)
         local itemStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
         local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(0.68, -14, 1, 0)
+        nameLabel.Size = UDim2.new(0.48, -14, 1, 0)
         nameLabel.Position = UDim2.new(0, 14, 0, 0)
         nameLabel.BackgroundTransparency = 1
         nameLabel.Text = titleName
@@ -5084,7 +5084,7 @@ return function(opts)
         nameLabel.TextXAlignment = Enum.TextXAlignment.Left
         nameLabel.Parent = frame
         local boxContainer = Instance.new("Frame")
-        boxContainer.Size = UDim2.new(0.30, 0, 0, 28)
+        boxContainer.Size = UDim2.new(0.50, 0, 0, 28)
         boxContainer.AnchorPoint = Vector2.new(1, 0.5)
         boxContainer.Position = UDim2.new(1, -10, 0.5, 0)
         boxContainer.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
@@ -7433,6 +7433,8 @@ return function(opts)
         status.Parent = hubState.configTabPage
         local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, false)
         local selectedName
+        local profileNameInput
+        local importTextInput
         local function setStatus(message, isError)
             status.Text = message
             status.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
@@ -7447,47 +7449,88 @@ return function(opts)
             for _, name in ipairs(hubState.getConfigNames()) do
                 configList:AddItem(name, "Click to select", function()
                     selectedName = name
+                    if profileNameInput and profileNameInput.Set then
+                        profileNameInput:Set(name)
+                    end
                     setStatus("Selected: " .. name, false)
                 end)
             end
         end
-        local function saveConfig(name, overwrite)
-            local profileName = sanitizeName(name or selectedName or ("Profile_" .. tostring(os.date("%m%d_%H%M%S"))))
-            if profileName == "" or profileName == "Unknown" then
-                setStatus("Select or provide a valid config name", true)
+        local function getTypedProfileName()
+            local raw = (profileNameInput and profileNameInput.Get and profileNameInput.Get()) or ""
+            return sanitizeName(raw:match("^%s*(.-)%s*$"))
+        end
+        local function saveConfig(overwrite)
+            local typed = getTypedProfileName()
+            local targetName = (typed ~= "" and typed) or selectedName or ("Profile_" .. tostring(os.date("%m%d_%H%M%S")))
+            targetName = sanitizeName(targetName)
+            if targetName == "" or targetName == "Unknown" then
+                setStatus("Type a valid profile name first", true)
                 return
             end
             if not ensureConfigFolders() then
                 setStatus("Executor file APIs unavailable", true)
                 return
             end
-            local path = configPath(profileName)
+            local path = configPath(targetName)
             if not overwrite and type(isfile) == "function" and isfile(path) then
-                setStatus("Config already exists; click Overwrite", true)
+                setStatus("Config '" .. targetName .. "' exists; use Overwrite", true)
+                hubState.notify({ Title = "Profile Exists", Content = "Profile '" .. targetName .. "' exists. Click Overwrite or rename.", Color = Color3.fromRGB(255, 180, 50) })
                 return
             end
             local ok = pcall(writefile, path, hubState.serializeConfig())
-            setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. profileName) or "Failed to write config", not ok)
+            setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. targetName) or "Failed to write config", not ok)
             if ok then
-                selectedName = profileName
+                selectedName = targetName
+                if profileNameInput and profileNameInput.Set then profileNameInput:Set(targetName) end
                 refreshConfigs()
-                hubState.notify({ Title = "Config", Content = "Profile '" .. profileName .. "' saved." })
+                hubState.notify({ Title = "Config Saved", Content = "Profile '" .. targetName .. "' saved." })
             end
         end
-        hubState.createButton(hubState.configTabPage, "💾 Save Current Config (New Profile)", function()
-            local autoName = "Profile_" .. tostring(os.date("%m%d_%H%M%S"))
-            saveConfig(autoName, false)
-        end)
-        hubState.createButton(hubState.configTabPage, "Overwrite Selected", function()
+        local function renameConfig()
             if not selectedName then
-                setStatus("Select a profile first to overwrite", true)
+                setStatus("Select a profile from list to rename first", true)
                 return
             end
-            saveConfig(selectedName, true)
+            local newName = getTypedProfileName()
+            if newName == "" or newName == selectedName then
+                setStatus("Type a new different name in Profile Name box", true)
+                return
+            end
+            if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
+            local ok, contents = pcall(readfile, configPath(selectedName))
+            if not ok or not contents or (type(isfile) == "function" and isfile(configPath(newName))) then
+                setStatus("Target already exists or source missing", true)
+                return
+            end
+            local wrote = pcall(writefile, configPath(newName), contents)
+            if wrote then
+                pcall(delfile, configPath(selectedName))
+                local old = selectedName
+                selectedName = newName
+                refreshConfigs()
+                setStatus("Renamed '" .. old .. "' to '" .. newName .. "'", false)
+                hubState.notify({ Title = "Config Renamed", Content = "Renamed to '" .. newName .. "'." })
+            else
+                setStatus("Rename failed", true)
+            end
+        end
+
+        profileNameInput = hubState.CreateInput(hubState.configTabPage, "Profile Name", "", "Type profile name...", function(text)
+            -- Profile name input
         end)
-        hubState.createButton(hubState.configTabPage, "Load Selected", function()
-            local name = selectedName
-            if not name then setStatus("Select a profile first", true); return end
+        hubState.createButton(hubState.configTabPage, "💾 Save Profile (Using Name Above)", function() saveConfig(false) end)
+        hubState.createButton(hubState.configTabPage, "🔄 Overwrite Selected Profile", function()
+            local target = selectedName or getTypedProfileName()
+            if not target or target == "" then
+                setStatus("Select a profile or type a name first", true)
+                return
+            end
+            saveConfig(true)
+        end)
+        hubState.createButton(hubState.configTabPage, "📂 Load Selected Profile", function()
+            local name = selectedName or getTypedProfileName()
+            if not name or name == "" then setStatus("Select or type a profile first", true); return end
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok, contents = pcall(readfile, configPath(name))
             if ok and contents then
@@ -7498,16 +7541,37 @@ return function(opts)
                 setStatus("Config file not found", true)
             end
         end)
-        hubState.createButton(hubState.configTabPage, "Delete Selected", function()
-            local name = selectedName
-            if not name then setStatus("Select a profile first", true); return end
+        hubState.createButton(hubState.configTabPage, "✏️ Rename Selected Profile", function() renameConfig() end)
+        hubState.createButton(hubState.configTabPage, "🗑️ Delete Selected Profile", function()
+            local name = selectedName or getTypedProfileName()
+            if not name or name == "" then setStatus("Select a profile first", true); return end
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok = pcall(delfile, configPath(name))
             selectedName = nil
+            if profileNameInput and profileNameInput.Set then profileNameInput:Set("") end
             refreshConfigs()
             setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
         end)
+
         hubState.createSection(hubState.configTabPage, "Cloud & Clipboard Share")
+        importTextInput = hubState.CreateInput(hubState.configTabPage, "Import Config String", "", "Paste config string here...", function(text)
+            -- Import string input
+        end)
+        hubState.createButton(hubState.configTabPage, "📥 Apply Config from Text Input", function()
+            local rawText = (importTextInput and importTextInput.Get and importTextInput.Get()) or ""
+            rawText = rawText:match("^%s*(.-)%s*$")
+            if not rawText or rawText == "" then
+                setStatus("Paste a valid config string into the box above first", true)
+                return
+            end
+            local ok = pcall(function() hubState.applyConfig(rawText) end)
+            if ok then
+                setStatus("Config string imported & applied from text!", false)
+                hubState.notify({ Title = "Config Imported", Content = "Imported configuration applied.", Color = Color3.fromRGB(50, 230, 140) })
+            else
+                setStatus("Failed to parse config string", true)
+            end
+        end)
         hubState.createButton(hubState.configTabPage, "📋 Copy Current Config to Clipboard", function()
             local serialized = hubState.serializeConfig()
             if setclipboard then
@@ -7523,7 +7587,7 @@ return function(opts)
                 Color = hubState.currentThemeColor
             })
         end)
-        hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Clipboard", function()
+        hubState.createButton(hubState.configTabPage, "📋 Paste & Apply Directly from Clipboard", function()
             local rawText = ""
             if getclipboard then
                 local ok, clip = pcall(getclipboard)
@@ -7536,10 +7600,13 @@ return function(opts)
                 setStatus("No config string detected on clipboard", true)
                 hubState.notify({
                     Title = "Clipboard Empty",
-                    Content = "Copy a config string to clipboard first, then click Import.",
+                    Content = "Copy a config string to clipboard first, then click Paste & Apply.",
                     Color = Color3.fromRGB(255, 120, 120)
                 })
                 return
+            end
+            if importTextInput and importTextInput.Set then
+                importTextInput:Set(rawText:sub(1, 80) .. (#rawText > 80 and "..." or ""))
             end
             local ok = pcall(function() hubState.applyConfig(rawText) end)
             if ok then
