@@ -805,10 +805,12 @@ local function buildDynamicPetCatalog()
         end
     end)
 
-    local sortedList = {"None"}
+    local sortedList = {"All Pets", "None"}
     local temp = {}
     for petName, _ in pairs(petSet) do
-        table.insert(temp, petName)
+        if petName ~= "All Pets" and petName ~= "None" then
+            table.insert(temp, petName)
+        end
     end
     table.sort(temp)
     for _, name in ipairs(temp) do
@@ -1619,7 +1621,7 @@ local State = {
 
     -- Selling: Pets (Moved to Pets Tab)
     AutoSellPets = false,
-    Sell_TargetPet = "None", -- Whitelist: Only this pet species will be sold!
+    Sell_TargetPet = "All Pets", -- Whitelist / Selection: All Pets or specific species
     Sell_ExcludePetVariant = "None",
     Sell_ExcludePetMutation = "None",
     Sell_ExcludePetWeight = 0,
@@ -1941,24 +1943,49 @@ local function getPetBackpackCapacity()
         local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
         if data then
-            local purchased = tonumber(data.PurchasedInventorySlots) or 0
-            local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
-            local coinSlots = 0
-            if pLife then
-                coinSlots = (tonumber(pLife["Pet Inventory Capacity"]) or 0) * 10
-                          + (tonumber(pLife["Pet Inventory Capacity +"]) or 0) * 10
-                          + (tonumber(pLife["Pet Inventory Capacity ++"]) or 0) * 10
-                          + (tonumber(pLife["Pet Inventory Capacity Deluxe"]) or 0) * 5
+            local maxSlots = tonumber(data.MaxPetSlots or data.PetCapacity or data.MaxInventorySlots)
+            if maxSlots and maxSlots > 0 then
+                cap = maxSlots
+            else
+                local purchased = tonumber(data.PurchasedInventorySlots) or 0
+                local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
+                local coinSlots = 0
+                if pLife then
+                    coinSlots = (tonumber(pLife["Pet Inventory Capacity"]) or 0) * 10
+                              + (tonumber(pLife["Pet Inventory Capacity +"]) or 0) * 10
+                              + (tonumber(pLife["Pet Inventory Capacity ++"]) or 0) * 10
+                              + (tonumber(pLife["Pet Inventory Capacity Deluxe"]) or 0) * 5
+                end
+                cap = 50 + purchased + coinSlots
             end
-            cap = 50 + purchased + coinSlots
         end
     end)
+
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if pGui then
+            for _, label in ipairs(pGui:GetDescendants()) do
+                if label:IsA("TextLabel") and label.Visible then
+                    local cur, maxVal = label.Text:match("(%d+)%s*/%s*(%d+)")
+                    if cur and maxVal then
+                        local mNum = tonumber(maxVal)
+                        if mNum and mNum >= 50 and (label.Name:lower():find("pet") or label.Parent.Name:lower():find("pet") or label.Text:find("🐾") or label.Text:find("Pet")) then
+                            cap = mNum
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
     return cap
 end
 
 local function isPetBackpackFull()
     local cap = getPetBackpackCapacity()
-    return getPetBackpackCount() >= cap
+    local count = getPetBackpackCount()
+    return count >= cap or (cap > 5 and count >= (cap - 3))
 end
 
 local function isBackpackFull()
@@ -2081,14 +2108,14 @@ end
 -- 3. Extract info from Pet Tool in Backpack (for Pet Selling)
 local function getPetToolInfo(tool)
     if not tool or not tool:IsA("Tool") then return nil end
-    if not tool:GetAttribute("PET_UUID") and not tool:GetAttribute("PetType") and not tool.Name:find("Age") then
+    local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("Id") or tool.Name:match("%b{}")
+    if not uuid and not tool:GetAttribute("PetType") and not tool.Name:find("Age") then
         return nil
     end
 
     local toolName = tostring(tool.Name)
     local petSpecies = tool:GetAttribute("f") or toolName
     petSpecies = tostring(petSpecies)
-    local uuid = tool:GetAttribute("PET_UUID")
     local weight = tonumber(toolName:match("%[([%d%.]+)%s*[kK][gG]%]") or 1)
     local variant = "Basic"
     local mutationsFound = {}
@@ -2112,7 +2139,7 @@ local function getPetToolInfo(tool)
 
     -- Clean extracted pet species name
     for _, petName in ipairs(allAvailablePets) do
-        if type(petName) == "string" and petName ~= "None" and nameLower:find(petName:lower()) then
+        if type(petName) == "string" and petName ~= "None" and petName ~= "All Pets" and nameLower:find(petName:lower()) then
             petSpecies = petName
             break
         end
@@ -2241,36 +2268,38 @@ end
 local function shouldSellPetTool(info)
     if not info or not info.Tool or not info.UUID then return false end
 
-    local targetPet = tostring(getUIListVal(sellTargetPetListObj, State.Sell_TargetPet))
+    local targetPet = tostring(getUIListVal(sellTargetPetListObj, State.Sell_TargetPet or "All Pets"))
     if targetPet == "None" then
-        return false -- No pet target selected -> NEVER sell any pets!
+        return false -- None selected -> NEVER sell any pets!
     end
 
-    -- Whitelist Check: Must match selected pet species
-    local nameLower = info.ToolName:lower()
-    local targetLower = targetPet:lower()
-    if info.PetSpecies:lower() ~= targetLower and not nameLower:find(targetLower) then
-        return false -- Different pet species -> 100% PROTECTED!
+    -- Species Whitelist Check: If not "All Pets" / "All", must match selected pet species
+    if targetPet ~= "All Pets" and targetPet ~= "All" then
+        local nameLower = info.ToolName:lower()
+        local targetLower = targetPet:lower()
+        if info.PetSpecies:lower() ~= targetLower and not nameLower:find(targetLower, 1, true) then
+            return false
+        end
     end
 
     -- Exclusion 1: Pet Variant Exclusion
-    local exVar = tostring(getUIListVal(sellExcludePetVariantListObj, State.Sell_ExcludePetVariant))
+    local exVar = tostring(getUIListVal(sellExcludePetVariantListObj, State.Sell_ExcludePetVariant or "None"))
     if exVar ~= "None" and info.Variant:lower() == exVar:lower() then
         return false
     end
 
     -- Exclusion 2: Pet Mutation Exclusion
-    local exMut = tostring(getUIListVal(sellExcludePetMutationListObj, State.Sell_ExcludePetMutation))
+    local exMut = tostring(getUIListVal(sellExcludePetMutationListObj, State.Sell_ExcludePetMutation or "None"))
     if exMut ~= "None" then
         local mutKey = exMut:lower()
-        if info.Mutations[mutKey] or info.Tool:GetAttribute(exMut) == true or nameLower:find(mutKey) then
+        if info.Mutations[mutKey] or info.Tool:GetAttribute(exMut) == true or info.ToolName:lower():find(mutKey, 1, true) then
             return false
         end
     end
 
     -- Exclusion 3: Pet Weight Exclusion (Above / Lower)
-    local weightThreshold = State.Sell_ExcludePetWeight or 0
-    local weightMode = tostring(getUIListVal(sellExcludePetWeightModeListObj, State.Sell_ExcludePetWeightMode))
+    local weightThreshold = tonumber(State.Sell_ExcludePetWeight) or 0
+    local weightMode = tostring(getUIListVal(sellExcludePetWeightModeListObj, State.Sell_ExcludePetWeightMode or "Above"))
     if weightThreshold > 0 then
         if weightMode == "Above" and info.Weight >= weightThreshold then return false end
         if weightMode == "Lower" and info.Weight <= weightThreshold then return false end
@@ -2763,11 +2792,6 @@ task.spawn(function()
                 return
             end
 
-            local shouldRunSell = not waitMax or isBackpackFull()
-            if not shouldRunSell then
-                return
-            end
-
             -- 1. Auto Sell Pets (Strict Whitelist + Direct Fast Batch Remote with Auto-Equip Slot)
             if autoSellPets then
                 local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
@@ -2779,51 +2803,60 @@ task.spawn(function()
                 local canSellPets = (not hasSlotSelected) or petBackpackFull
 
                 if canSellPets then
-                    local petRemote = getSellAllPetsRemote()
-                    if petRemote then
-                        local petUUIDBatch = {}
-                        for _, tool in ipairs(allTools) do
-                            if tool.Parent and tool:IsA("Tool") and tool:GetAttribute("PET_UUID") then
-                                local petInfo = getPetToolInfo(tool)
-                                if shouldSellPetTool(petInfo) then
-                                    table.insert(petUUIDBatch, petInfo.UUID)
+                    local petUUIDBatch = {}
+                    for _, tool in ipairs(allTools) do
+                        if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age")) then
+                            local petInfo = getPetToolInfo(tool)
+                            if petInfo and shouldSellPetTool(petInfo) then
+                                table.insert(petUUIDBatch, petInfo.UUID)
+                            end
+                        end
+                    end
+
+                    if #petUUIDBatch > 0 then
+                        if hasSlotSelected then
+                            local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
+                            if sellSlotNum then
+                                local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
+                                if lastEquippedSlotNumber ~= sellSlotNum or (tick() - lastSlotEquipTick) > 15 then
+                                    equipPetSlot(sellSlot, true, sellCooldown)
+                                else
+                                    local elapsed = tick() - lastSlotEquipTick
+                                    if elapsed < sellCooldown then
+                                        task.wait(sellCooldown - elapsed)
+                                    end
                                 end
                             end
                         end
 
-                        if #petUUIDBatch > 0 then
-                            if hasSlotSelected then
-                                local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
-                                if sellSlotNum then
-                                    local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
-                                    if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) then
-                                        local loaded = equipPetSlot(sellSlot, true, sellCooldown)
-                                        if not loaded then
-                                            task.wait(0.25)
-                                            return
-                                        end
-                                    end
-                                    if (tick() - lastSlotEquipTick) < sellCooldown then
-                                        task.wait(0.25)
-                                        return
-                                    end
-                                    if not isPetSlotLoaded(sellSlotNum) then
-                                        task.wait(0.25)
-                                        return
-                                    end
-                                end
-                            end
+                        local petRemote = getSellAllPetsRemote()
+                        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
 
-                            -- Super Fast Multi-Batch Remote Selling (chunks of 30-50 pets)
-                            for i = 1, #petUUIDBatch, 50 do
-                                local chunk = {}
-                                for j = i, math.min(i + 49, #petUUIDBatch) do
-                                    table.insert(chunk, petUUIDBatch[j])
-                                end
+                        -- Super Fast Multi-Batch Remote Selling (chunks of 50 pets)
+                        for i = 1, #petUUIDBatch, 50 do
+                            local chunk = {}
+                            for j = i, math.min(i + 49, #petUUIDBatch) do
+                                table.insert(chunk, petUUIDBatch[j])
+                            end
+                            if petRemote then
                                 pcall(function()
                                     petRemote:FireServer(chunk)
                                 end)
                             end
+                            pcall(function()
+                                local sellShop = ge and ge:FindFirstChild("SellPetShopSelected")
+                                if sellShop then
+                                    sellShop:FireServer(chunk)
+                                end
+                            end)
+                            pcall(function()
+                                local sellOne = ge and ge:FindFirstChild("SellPet_RE")
+                                if sellOne and not petRemote then
+                                    for _, uuid in ipairs(chunk) do
+                                        sellOne:FireServer(uuid)
+                                    end
+                                end
+                            end)
                         end
                     end
                 end
@@ -2831,8 +2864,10 @@ task.spawn(function()
 
             -- 2. Auto Sell Crops
             if autoSellCrops then
-                local sellInv = getSellInvRemote()
-                local sellItem = getSellItemRemote()
+                local shouldRunCropSell = not waitMax or isBackpackFull()
+                if shouldRunCropSell then
+                    local sellInv = getSellInvRemote()
+                    local sellItem = getSellItemRemote()
 
                 local hasExclusions = (getUIListVal(sellExcludeFruitListObj, "None") ~= "None")
                     or (getUIListVal(sellExcludeCategoryListObj, "None") ~= "None")
@@ -2866,6 +2901,7 @@ task.spawn(function()
                             sellInv:FireServer()
                         end)
                     end
+                end
                 end
             end
         end)
@@ -3194,50 +3230,49 @@ end
 -- =========================================================================
 
 local function isPetSlotLoaded(slotNum)
-    local ok, res = pcall(function()
+    if not slotNum then return true end
+    local isLoaded = true
+    pcall(function()
         local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
         local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
-        local petsData = data and data.PetsData
+        local petsData = (data and data.PetsData) or data
 
-        local currentSlot = petsData and tonumber(petsData.SelectedPetLoadout)
-        if currentSlot and currentSlot ~= tonumber(slotNum) then
-            return false
-        end
+        if petsData then
+            local currentSlot = tonumber(petsData.SelectedPetLoadout or petsData.SelectedTeam or petsData.EquippedSlot or petsData.ActiveLoadout)
+            if currentSlot and currentSlot ~= tonumber(slotNum) then
+                isLoaded = false
+                return
+            end
 
-        local targetLoadout = petsData and petsData.PetLoadouts and (petsData.PetLoadouts[slotNum] or petsData.PetLoadouts[tostring(slotNum)] or petsData.PetLoadouts[tonumber(slotNum)])
-        local expectedCount = 0
-        if typeof(targetLoadout) == "table" then
-            for _ in pairs(targetLoadout) do expectedCount = expectedCount + 1 end
-        end
+            local targetLoadout = petsData.PetLoadouts and (petsData.PetLoadouts[slotNum] or petsData.PetLoadouts[tostring(slotNum)] or petsData.PetLoadouts[tonumber(slotNum)])
+            local expectedCount = 0
+            if typeof(targetLoadout) == "table" then
+                for _ in pairs(targetLoadout) do expectedCount = expectedCount + 1 end
+            end
 
-        -- 1. Check DataService EquippedPets
-        if expectedCount > 0 and petsData and typeof(petsData.EquippedPets) == "table" then
-            local eqCount = 0
-            for _ in pairs(petsData.EquippedPets) do eqCount = eqCount + 1 end
-            if eqCount < expectedCount then
-                return false
+            if expectedCount > 0 and typeof(petsData.EquippedPets) == "table" then
+                local eqCount = 0
+                for _ in pairs(petsData.EquippedPets) do eqCount = eqCount + 1 end
+                if eqCount < expectedCount then
+                    isLoaded = false
+                    return
+                end
             end
         end
 
-        -- 2. Check ActivePetUI rendered pet cards (game loads them sequentially)
         local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
         local activePetUI = pGui and pGui:FindFirstChild("ActivePetUI")
-        if activePetUI and expectedCount > 0 then
+        if activePetUI then
             local cardCount = 0
             for _, desc in ipairs(activePetUI:GetDescendants()) do
                 if desc:IsA("Frame") and (desc.Name:match("^%b{}") or desc.Name:match("%x%x%x%x%x%x%x%x%-%x%x%x%x")) then
                     cardCount = cardCount + 1
                 end
             end
-            if cardCount < expectedCount then
-                return false
-            end
         end
-
-        return true
     end)
-    return ok and res
+    return isLoaded
 end
 
 local function equipPetSlot(slotVal, waitForLoad, minCooldown)
@@ -3246,7 +3281,7 @@ local function equipPetSlot(slotVal, waitForLoad, minCooldown)
     if not slotNum then return true end
 
     local isNewSlot = (lastEquippedSlotNumber ~= slotNum)
-    if isNewSlot or not isPetSlotLoaded(slotNum) then
+    if isNewSlot or (tick() - lastSlotEquipTick > 15) then
         lastEquippedSlotNumber = slotNum
         lastSlotEquipTick = tick()
 
@@ -3315,20 +3350,12 @@ local function equipPetSlot(slotVal, waitForLoad, minCooldown)
     end
 
     if waitForLoad then
-        local startTick = tick()
-        local maxWait = 10.0 -- Allow ample time for all pets to load sequentially
-        while (tick() - startTick < maxWait) do
-            if isPetSlotLoaded(slotNum) then
-                break
-            end
+        local targetCooldown = minCooldown or math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
+        local startWait = tick()
+        while (tick() - lastSlotEquipTick < targetCooldown) and (tick() - startWait < targetCooldown + 2) do
             task.wait(0.2)
         end
-        local targetCooldown = minCooldown or math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
-        local elapsed = tick() - lastSlotEquipTick
-        if elapsed < targetCooldown then
-            task.wait(targetCooldown - elapsed)
-        end
-        return isPetSlotLoaded(slotNum)
+        return true
     end
     return true
 end
