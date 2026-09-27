@@ -1913,6 +1913,54 @@ local function getBackpackCount()
     return count
 end
 
+local function getPetBackpackCount()
+    local count = 0
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") and item:GetAttribute("PET_UUID") then
+                count = count + 1
+            end
+        end
+    end
+    local char = LocalPlayer.Character
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") and item:GetAttribute("PET_UUID") then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+local function getPetBackpackCapacity()
+    local cap = 50
+    pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        local ds = dsMod and require(dsMod)
+        local data = ds and ds:GetData()
+        if data then
+            local purchased = tonumber(data.PurchasedInventorySlots) or 0
+            local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
+            local coinSlots = 0
+            if pLife then
+                coinSlots = (tonumber(pLife["Pet Inventory Capacity"]) or 0) * 10
+                          + (tonumber(pLife["Pet Inventory Capacity +"]) or 0) * 10
+                          + (tonumber(pLife["Pet Inventory Capacity ++"]) or 0) * 10
+                          + (tonumber(pLife["Pet Inventory Capacity Deluxe"]) or 0) * 5
+            end
+            cap = 50 + purchased + coinSlots
+        end
+    end)
+    return cap
+end
+
+local function isPetBackpackFull()
+    local cap = getPetBackpackCapacity()
+    return getPetBackpackCount() >= cap
+end
+
 local function isBackpackFull()
     return getBackpackCount() >= State.MaxBackpackCapacity
 end
@@ -2720,53 +2768,62 @@ task.spawn(function()
                 return
             end
 
-            -- 1. Auto Sell Pets (Strict Whitelist + Batch Remote with Auto-Equip Slot)
+            -- 1. Auto Sell Pets (Strict Whitelist + Direct Fast Batch Remote with Auto-Equip Slot)
             if autoSellPets then
-                local petRemote = getSellAllPetsRemote()
-                if petRemote then
-                    local petUUIDBatch = {}
-                    for _, tool in ipairs(allTools) do
-                        if tool.Parent and tool:IsA("Tool") and tool:GetAttribute("PET_UUID") then
-                            local petInfo = getPetToolInfo(tool)
-                            if shouldSellPetTool(petInfo) then
-                                table.insert(petUUIDBatch, petInfo.UUID)
+                local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
+                local hasSlotSelected = (sellSlot ~= "None" and sellSlot ~= "")
+
+                -- Rule: If a slot is selected, wait until pet backpack is full (or near full) before selling
+                -- If NO slot selected (None), sell immediately as soon as sellable pets exist!
+                local petBackpackFull = isPetBackpackFull()
+                local canSellPets = (not hasSlotSelected) or petBackpackFull
+
+                if canSellPets then
+                    local petRemote = getSellAllPetsRemote()
+                    if petRemote then
+                        local petUUIDBatch = {}
+                        for _, tool in ipairs(allTools) do
+                            if tool.Parent and tool:IsA("Tool") and tool:GetAttribute("PET_UUID") then
+                                local petInfo = getPetToolInfo(tool)
+                                if shouldSellPetTool(petInfo) then
+                                    table.insert(petUUIDBatch, petInfo.UUID)
+                                end
                             end
                         end
-                    end
 
-                    if #petUUIDBatch > 0 then
-                        local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
-                        if sellSlot ~= "None" then
-                            local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
-                            if sellSlotNum then
-                                local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
-                                if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) then
-                                    local loaded = equipPetSlot(sellSlot, true, sellCooldown)
-                                    if not loaded then
+                        if #petUUIDBatch > 0 then
+                            if hasSlotSelected then
+                                local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
+                                if sellSlotNum then
+                                    local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
+                                    if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) then
+                                        local loaded = equipPetSlot(sellSlot, true, sellCooldown)
+                                        if not loaded then
+                                            task.wait(0.25)
+                                            return
+                                        end
+                                    end
+                                    if (tick() - lastSlotEquipTick) < sellCooldown then
+                                        task.wait(0.25)
+                                        return
+                                    end
+                                    if not isPetSlotLoaded(sellSlotNum) then
                                         task.wait(0.25)
                                         return
                                     end
                                 end
-                                if (tick() - lastSlotEquipTick) < sellCooldown then
-                                    task.wait(0.25)
-                                    return
-                                end
-                                if not isPetSlotLoaded(sellSlotNum) then
-                                    task.wait(0.25)
-                                    return
-                                end
                             end
-                        end
 
-                        for i = 1, #petUUIDBatch, 30 do
-                            local chunk = {}
-                            for j = i, math.min(i + 29, #petUUIDBatch) do
-                                table.insert(chunk, petUUIDBatch[j])
+                            -- Super Fast Multi-Batch Remote Selling (chunks of 30-50 pets)
+                            for i = 1, #petUUIDBatch, 50 do
+                                local chunk = {}
+                                for j = i, math.min(i + 49, #petUUIDBatch) do
+                                    table.insert(chunk, petUUIDBatch[j])
+                                end
+                                pcall(function()
+                                    petRemote:FireServer(chunk)
+                                end)
                             end
-                            pcall(function()
-                                petRemote:FireServer(chunk)
-                            end)
-                            task.wait(0.05)
                         end
                     end
                 end
