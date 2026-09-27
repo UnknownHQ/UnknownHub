@@ -3004,10 +3004,10 @@ local function getNextEggRowPosition()
         end
     end
 
-    local spacingX = 4.0
-    local spacingZ = 4.0
-    local marginX = 2.5
-    local marginZ = 3.0
+    local spacingX = 2.4
+    local spacingZ = 2.4
+    local marginX = 1.0
+    local marginZ = 1.0
 
     local slots = {}
 
@@ -3037,7 +3037,7 @@ local function getNextEggRowPosition()
         local isOccupied = false
         for _, eggPos in ipairs(occupiedPositions) do
             local dist2D = (Vector3.new(slotPos.X, 0, slotPos.Z) - Vector3.new(eggPos.X, 0, eggPos.Z)).Magnitude
-            if dist2D < 2.2 then
+            if dist2D < 1.8 then
                 isOccupied = true
                 break
             end
@@ -3102,7 +3102,8 @@ local function getMaxEggCapacity()
         local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
         if data then
-            local pEggSlots = tonumber(data.PurchasedEggSlots) or 0
+            local pets = data.PetsData
+            local pEggSlots = (pets and tonumber(pets.PurchasedEggSlots)) or tonumber(data.PurchasedEggSlots) or 0
             local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
             local coinEggSlots = pLife and tonumber(pLife["Egg Capacity"]) or 0
             maxCap = 3 + pEggSlots + coinEggSlots

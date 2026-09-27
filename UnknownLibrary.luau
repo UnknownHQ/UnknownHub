@@ -7433,8 +7433,6 @@ return function(opts)
         status.Parent = hubState.configTabPage
         local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, false)
         local selectedName
-        local saveNameBox
-        local renameNameBox
         local function setStatus(message, isError)
             status.Text = message
             status.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
@@ -7449,109 +7447,47 @@ return function(opts)
             for _, name in ipairs(hubState.getConfigNames()) do
                 configList:AddItem(name, "Click to select", function()
                     selectedName = name
-                    if saveNameBox then saveNameBox.Text = name end
-                    if renameNameBox then renameNameBox.Text = name end
                     setStatus("Selected: " .. name, false)
                 end)
             end
         end
-        local function createConfigActionRow(buttonText, boxPlaceholder, boxOnLeft, callback)
-            local row = Instance.new("Frame")
-            row.Size = UDim2.new(1, -6, 0, 36)
-            row.BackgroundTransparency = 1
-            row.BorderSizePixel = 0
-            row.Parent = hubState.configTabPage
-
-            local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(0.48, -4, 1, 0)
-            btn.Position = boxOnLeft and UDim2.new(0.52, 4, 0, 0) or UDim2.new(0, 0, 0, 0)
-            btn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
-            btn.BorderSizePixel = 0
-            btn.Text = buttonText
-            btn.TextColor3 = Color3.fromRGB(225, 235, 250)
-            btn.Font = Enum.Font.GothamBold
-            btn.TextSize = 11
-            btn.AutoButtonColor = false
-            btn.Parent = row
-            applyCorner(btn, 6)
-            local btnStroke = applyStroke(btn, Color3.fromRGB(42, 52, 74), 1, 0)
-
-            btn.MouseEnter:Connect(function()
-                TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    BackgroundColor3 = Color3.fromRGB(34, 44, 66)
-                }):Play()
-            end)
-            btn.MouseLeave:Connect(function()
-                TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    BackgroundColor3 = Color3.fromRGB(24, 30, 44)
-                }):Play()
-            end)
-            if callback then
-                btn.MouseButton1Click:Connect(function() pcall(callback) end)
-            end
-
-            local boxFrame = Instance.new("Frame")
-            boxFrame.Size = UDim2.new(0.52, -4, 1, 0)
-            boxFrame.Position = boxOnLeft and UDim2.new(0, 0, 0, 0) or UDim2.new(0.48, 4, 0, 0)
-            boxFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
-            boxFrame.BorderSizePixel = 0
-            boxFrame.Parent = row
-            applyCorner(boxFrame, 6)
-            local boxStroke = applyStroke(boxFrame, Color3.fromRGB(42, 52, 74), 1, 0)
-
-            local box = Instance.new("TextBox")
-            box.Size = UDim2.new(1, -12, 1, 0)
-            box.Position = UDim2.new(0, 6, 0, 0)
-            box.BackgroundTransparency = 1
-            box.ClearTextOnFocus = false
-            box.Font = Enum.Font.GothamMedium
-            box.PlaceholderText = boxPlaceholder or "Type name..."
-            box.PlaceholderColor3 = Color3.fromRGB(120, 132, 155)
-            box.Text = ""
-            box.TextColor3 = Color3.fromRGB(235, 240, 250)
-            box.TextSize = 11
-            box.TextXAlignment = Enum.TextXAlignment.Left
-            box.TextTruncate = Enum.TextTruncate.AtEnd
-            box.Parent = boxFrame
-
-            box.Focused:Connect(function()
-                TweenService:Create(boxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
-                TweenService:Create(boxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(26, 34, 48) }):Play()
-            end)
-            box.FocusLost:Connect(function()
-                TweenService:Create(boxStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(42, 52, 74) }):Play()
-                TweenService:Create(boxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(18, 22, 32) }):Play()
-            end)
-
-            return box
-        end
-        local function saveConfig(overwrite)
-            local name = sanitizeName(saveNameBox and saveNameBox.Text or "")
-            if name == "" or name == "Unknown" then
-                setStatus("Enter a valid config name first", true)
+        local function saveConfig(name, overwrite)
+            local profileName = sanitizeName(name or selectedName or ("Profile_" .. tostring(os.date("%m%d_%H%M%S"))))
+            if profileName == "" or profileName == "Unknown" then
+                setStatus("Select or provide a valid config name", true)
                 return
             end
             if not ensureConfigFolders() then
                 setStatus("Executor file APIs unavailable", true)
                 return
             end
-            local path = configPath(name)
+            local path = configPath(profileName)
             if not overwrite and type(isfile) == "function" and isfile(path) then
-                setStatus("Config already exists; use Overwrite", true)
+                setStatus("Config already exists; click Overwrite", true)
                 return
             end
             local ok = pcall(writefile, path, hubState.serializeConfig())
-            setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. name) or "Failed to write config", not ok)
+            setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. profileName) or "Failed to write config", not ok)
             if ok then
-                selectedName = name
+                selectedName = profileName
                 refreshConfigs()
-                hubState.notify({ Title = "Config", Content = "Profile '" .. name .. "' saved." })
+                hubState.notify({ Title = "Config", Content = "Profile '" .. profileName .. "' saved." })
             end
         end
-        saveNameBox = createConfigActionRow("Save Config", "Profile name", false, function() saveConfig(false) end)
-        hubState.createButton(hubState.configTabPage, "Overwrite Selected", function() saveConfig(true) end)
+        hubState.createButton(hubState.configTabPage, "💾 Save Current Config (New Profile)", function()
+            local autoName = "Profile_" .. tostring(os.date("%m%d_%H%M%S"))
+            saveConfig(autoName, false)
+        end)
+        hubState.createButton(hubState.configTabPage, "Overwrite Selected", function()
+            if not selectedName then
+                setStatus("Select a profile first to overwrite", true)
+                return
+            end
+            saveConfig(selectedName, true)
+        end)
         hubState.createButton(hubState.configTabPage, "Load Selected", function()
-            local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
+            local name = selectedName
+            if not name then setStatus("Select a profile first", true); return end
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok, contents = pcall(readfile, configPath(name))
             if ok and contents then
@@ -7563,12 +7499,11 @@ return function(opts)
             end
         end)
         hubState.createButton(hubState.configTabPage, "Delete Selected", function()
-            local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
+            local name = selectedName
+            if not name then setStatus("Select a profile first", true); return end
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok = pcall(delfile, configPath(name))
             selectedName = nil
-            if saveNameBox then saveNameBox.Text = "" end
-            if renameNameBox then renameNameBox.Text = "" end
             refreshConfigs()
             setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
         end)
@@ -7588,46 +7523,27 @@ return function(opts)
                 Color = hubState.currentThemeColor
             })
         end)
-        local importBoxFrame = Instance.new("Frame")
-        importBoxFrame.Size = UDim2.new(1, -6, 0, 36)
-        importBoxFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
-        importBoxFrame.BorderSizePixel = 0
-        importBoxFrame.Parent = hubState.configTabPage
-        applyCorner(importBoxFrame, 6)
-        local importStroke = applyStroke(importBoxFrame, Color3.fromRGB(42, 52, 74), 1, 0)
-
-        local importBox = Instance.new("TextBox")
-        importBox.Size = UDim2.new(1, -16, 1, 0)
-        importBox.Position = UDim2.new(0, 8, 0, 0)
-        importBox.BackgroundTransparency = 1
-        importBox.ClearTextOnFocus = false
-        importBox.Font = Enum.Font.GothamMedium
-        importBox.PlaceholderText = "Paste exported config string here..."
-        importBox.PlaceholderColor3 = Color3.fromRGB(120, 132, 155)
-        importBox.Text = ""
-        importBox.TextColor3 = Color3.fromRGB(235, 240, 250)
-        importBox.TextSize = 11
-        importBox.TextXAlignment = Enum.TextXAlignment.Left
-        importBox.TextTruncate = Enum.TextTruncate.AtEnd
-        importBox.Parent = importBoxFrame
-
-        importBox.Focused:Connect(function()
-            TweenService:Create(importStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
-            TweenService:Create(importBoxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(26, 34, 48) }):Play()
-        end)
-        importBox.FocusLost:Connect(function()
-            TweenService:Create(importStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(42, 52, 74) }):Play()
-            TweenService:Create(importBoxFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = Color3.fromRGB(18, 22, 32) }):Play()
-        end)
-        hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Text", function()
-            local rawText = importBox and importBox.Text or ""
+        hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Clipboard", function()
+            local rawText = ""
+            if getclipboard then
+                local ok, clip = pcall(getclipboard)
+                if ok and type(clip) == "string" then rawText = clip end
+            elseif fromclipboard then
+                local ok, clip = pcall(fromclipboard)
+                if ok and type(clip) == "string" then rawText = clip end
+            end
             if rawText == "" then
-                setStatus("Paste a valid config string first", true)
+                setStatus("No config string detected on clipboard", true)
+                hubState.notify({
+                    Title = "Clipboard Empty",
+                    Content = "Copy a config string to clipboard first, then click Import.",
+                    Color = Color3.fromRGB(255, 120, 120)
+                })
                 return
             end
             local ok = pcall(function() hubState.applyConfig(rawText) end)
             if ok then
-                setStatus("Config string imported & applied!", false)
+                setStatus("Config string imported & applied from clipboard!", false)
                 hubState.notify({
                     Title = "Config Imported",
                     Content = "Imported configuration applied successfully.",
@@ -7637,29 +7553,6 @@ return function(opts)
             else
                 setStatus("Failed to parse config string", true)
             end
-        end)
-        renameNameBox = createConfigActionRow("Rename Config", "New profile name", true, function()
-            local oldName = selectedName
-            local newName = sanitizeName(renameNameBox and renameNameBox.Text or "")
-            if not oldName or newName == "" or oldName == newName then
-                setStatus("Select a profile and enter a new name", true)
-                return
-            end
-            if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
-            local ok, contents = pcall(readfile, configPath(oldName))
-            if not ok or not contents or (type(isfile) == "function" and isfile(configPath(newName))) then
-                setStatus("Target already exists or source missing", true)
-                return
-            end
-            local wrote = pcall(writefile, configPath(newName), contents)
-            if wrote then
-                pcall(delfile, configPath(oldName))
-                selectedName = newName
-                if saveNameBox then saveNameBox.Text = newName end
-                if renameNameBox then renameNameBox.Text = newName end
-                refreshConfigs()
-            end
-            setStatus(wrote and ("Renamed to: " .. newName) or "Rename failed", not wrote)
         end)
         hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
         hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
