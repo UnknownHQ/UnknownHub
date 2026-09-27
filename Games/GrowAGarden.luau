@@ -1915,12 +1915,48 @@ local function getBackpackCount()
     return count
 end
 
+local function getPetBackpackStatus()
+    local curCount = 0
+    local maxCap = 0
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:FindFirstChild("PlayerGui")
+        if pGui then
+            local bpGui = pGui:FindFirstChild("BackpackGui")
+            if bpGui then
+                for _, l in ipairs(bpGui:GetDescendants()) do
+                    if l:IsA("TextLabel") and l.Text:lower():find("pet") and l.Text:find("/") then
+                        local c, m = l.Text:match("(%d+)%s*/%s*(%d+)")
+                        if c and m and tonumber(m) >= 20 then
+                            curCount = tonumber(c)
+                            maxCap = tonumber(m)
+                            return
+                        end
+                    end
+                end
+            end
+            for _, l in ipairs(pGui:GetDescendants()) do
+                if l:IsA("TextLabel") and (l.Text:find("Pet Items") or (l.Text:lower():find("pet") and not l.Text:lower():find("active"))) and l.Text:find("/") then
+                    local c, m = l.Text:match("(%d+)%s*/%s*(%d+)")
+                    if c and m and tonumber(m) >= 20 then
+                        curCount = tonumber(c)
+                        maxCap = tonumber(m)
+                        return
+                    end
+                end
+            end
+        end
+    end)
+    return curCount, maxCap
+end
+
 local function getPetBackpackCount()
+    local cur, cap = getPetBackpackStatus()
+    if cur and cur > 0 then return cur end
     local count = 0
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
         for _, item in ipairs(bp:GetChildren()) do
-            if item:IsA("Tool") and item:GetAttribute("PET_UUID") then
+            if item:IsA("Tool") and (item:GetAttribute("PET_UUID") or item:GetAttribute("PetType") or item.Name:find("Age")) then
                 count = count + 1
             end
         end
@@ -1928,7 +1964,7 @@ local function getPetBackpackCount()
     local char = LocalPlayer.Character
     if char then
         for _, item in ipairs(char:GetChildren()) do
-            if item:IsA("Tool") and item:GetAttribute("PET_UUID") then
+            if item:IsA("Tool") and (item:GetAttribute("PET_UUID") or item:GetAttribute("PetType") or item.Name:find("Age")) then
                 count = count + 1
             end
         end
@@ -1937,55 +1973,38 @@ local function getPetBackpackCount()
 end
 
 local function getPetBackpackCapacity()
-    local cap = 50
+    local cur, cap = getPetBackpackStatus()
+    if cap and cap > 0 then return cap end
+    local maxCap = 50
     pcall(function()
         local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
         local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
         if data then
-            local maxSlots = tonumber(data.MaxPetSlots or data.PetCapacity or data.MaxInventorySlots)
-            if maxSlots and maxSlots > 0 then
-                cap = maxSlots
-            else
-                local purchased = tonumber(data.PurchasedInventorySlots) or 0
-                local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
-                local coinSlots = 0
-                if pLife then
-                    coinSlots = (tonumber(pLife["Pet Inventory Capacity"]) or 0) * 10
-                              + (tonumber(pLife["Pet Inventory Capacity +"]) or 0) * 10
-                              + (tonumber(pLife["Pet Inventory Capacity ++"]) or 0) * 10
-                              + (tonumber(pLife["Pet Inventory Capacity Deluxe"]) or 0) * 5
-                end
-                cap = 50 + purchased + coinSlots
+            local pets = data.PetsData
+            local purchased = (pets and tonumber(pets.PurchasedPetInventorySlots)) or tonumber(data.PurchasedInventorySlots) or 0
+            local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
+            local coinSlots = 0
+            if pLife then
+                coinSlots = (tonumber(pLife["Pet Inventory Capacity"]) or 0) * 10
+                          + (tonumber(pLife["Pet Inventory Capacity +"]) or 0) * 10
+                          + (tonumber(pLife["Pet Inventory Capacity ++"]) or 0) * 10
+                          + (tonumber(pLife["Pet Inventory Capacity Deluxe"]) or 0) * 5
             end
+            maxCap = 50 + (purchased * 10) + coinSlots
         end
     end)
-
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if pGui then
-            for _, label in ipairs(pGui:GetDescendants()) do
-                if label:IsA("TextLabel") and label.Visible then
-                    local cur, maxVal = label.Text:match("(%d+)%s*/%s*(%d+)")
-                    if cur and maxVal then
-                        local mNum = tonumber(maxVal)
-                        if mNum and mNum >= 50 and (label.Name:lower():find("pet") or label.Parent.Name:lower():find("pet") or label.Text:find("🐾") or label.Text:find("Pet")) then
-                            cap = mNum
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end)
-
-    return cap
+    return maxCap
 end
 
 local function isPetBackpackFull()
-    local cap = getPetBackpackCapacity()
-    local count = getPetBackpackCount()
-    return count >= cap or (cap > 5 and count >= (cap - 3))
+    local cur, cap = getPetBackpackStatus()
+    if cur and cap and cap > 0 then
+        return cur >= cap or (cur >= (cap - 4))
+    end
+    local c = getPetBackpackCount()
+    local m = getPetBackpackCapacity()
+    return c >= m or (m > 5 and c >= (m - 4))
 end
 
 local function isBackpackFull()
@@ -3316,18 +3335,20 @@ local function equipPetSlot(slotVal, waitForLoad, minCooldown)
                         if desc.Name == "PET_LOADOUT_" .. tostring(slotNum) or desc.Name:find("LOADOUT_" .. tostring(slotNum)) then
                             local sensor = desc:FindFirstChild("SENSOR") or desc:FindFirstChildWhichIsA("GuiButton", true)
                             if sensor then
-                                if firesignal then
-                                    firesignal(sensor.MouseButton1Click)
-                                    firesignal(sensor.Activated)
-                                end
-                                if getconnections then
-                                    for _, conn in ipairs(getconnections(sensor.MouseButton1Click)) do
-                                        if conn.Fire then conn:Fire() end
+                                pcall(function()
+                                    if getconnections then
+                                        for _, conn in ipairs(getconnections(sensor.MouseButton1Click)) do
+                                            if conn.Fire then conn:Fire() elseif conn.Function then conn.Function() end
+                                        end
+                                        for _, conn in ipairs(getconnections(sensor.Activated)) do
+                                            if conn.Fire then conn:Fire() elseif conn.Function then conn.Function() end
+                                        end
                                     end
-                                    for _, conn in ipairs(getconnections(sensor.Activated)) do
-                                        if conn.Fire then conn:Fire() end
+                                    if firesignal then
+                                        firesignal(sensor.MouseButton1Click)
+                                        firesignal(sensor.Activated)
                                     end
-                                end
+                                end)
                             end
                         end
                     end
@@ -5370,14 +5391,23 @@ placeOnlyWhenNoEggToggle = Hub.CreateToggle(petTab, "Place Only When No Egg at G
     if type(v) == "boolean" then State.PlaceOnlyWhenNoEgg = v else State.PlaceOnlyWhenNoEgg = not State.PlaceOnlyWhenNoEgg end
 end)
 
-placeEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Place / Reduce Time)", slotListItems, 160, false)
+placeEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Place / Reduce Time)", slotListItems, 160, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.PlaceEgg_EquipSlot = name
+end)
 
-placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, false)
+placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.PlaceEgg_Selected = name
+end)
 
 placeEggPositionModeListObj = Hub.CreateList(petTab, "Place Position Mode", {
     {Name = "Row Position"},
     {Name = "Player Position"}
-}, 150, false)
+}, 150, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.PlaceEgg_PositionMode = name
+end)
 
 -- 2. 🐣 Auto Hatch Eggs
 Hub.CreateSection(petTab, "🐣 Auto Hatch Eggs")
@@ -5390,7 +5420,10 @@ waitAllEggsReadyToggle = Hub.CreateToggle(petTab, "Wait Until All Eggs Ready", f
     if type(v) == "boolean" then State.WaitAllEggsReady = v else State.WaitAllEggsReady = not State.WaitAllEggsReady end
 end)
 
-hatchEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Hatching Boost)", slotListItems, 160, false)
+hatchEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Hatching Boost)", slotListItems, 160, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.HatchEgg_EquipSlot = name
+end)
 
 Hub.CreateTextBox(petTab, "Hatch Slot Cooldown (s, min: 5)", "Cooldown after equipping slot (min: 5, default: 7.0)", function(text)
     local num = tonumber(text)
@@ -5401,7 +5434,10 @@ Hub.CreateTextBox(petTab, "Hatch Slot Cooldown (s, min: 5)", "Cooldown after equ
     end
 end)
 
-hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false)
+hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.HatchEgg_Selected = name
+end)
 
 hatchExcludePetListObj = Hub.CreateList(petTab, "Exclude Pet if in Egg", petListItems, 220, false, true)
 
@@ -5409,7 +5445,10 @@ hatchExcludeWeightModeListObj = Hub.CreateList(petTab, "Hatch: Exclude Weight Mo
     {Name = "None"},
     {Name = "Above"},
     {Name = "Lower"}
-}, 110, false)
+}, 110, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.Hatch_ExcludeWeightMode = name
+end)
 
 Hub.CreateTextBox(petTab, "Hatch: Exclude Weight (KG)", "Enter KG threshold (0 = none)", function(text)
     local num = tonumber(text)
@@ -5427,7 +5466,10 @@ autoSellPetsToggle = Hub.CreateToggle(petTab, "🐾 Auto Sell Pets", false, func
     if type(v) == "boolean" then State.AutoSellPets = v else State.AutoSellPets = not State.AutoSellPets end
 end)
 
-sellPetSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Selling Boost)", slotListItems, 160, false)
+sellPetSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Selling Boost)", slotListItems, 160, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.Sell_EquipSlot = name
+end)
 
 Hub.CreateTextBox(petTab, "Sell Slot Cooldown (s, min: 3)", "Cooldown after equipping slot (min: 3, default: 5.0)", function(text)
     local num = tonumber(text)
@@ -5438,14 +5480,28 @@ Hub.CreateTextBox(petTab, "Sell Slot Cooldown (s, min: 3)", "Cooldown after equi
     end
 end)
 
-sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, false)
-sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, false)
-sellExcludePetMutationListObj = Hub.CreateList(petTab, "Pet: Exclude Mutation", mutationItems, 220, false)
+sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.Sell_TargetPet = name
+end)
+
+sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.Sell_ExcludePetVariant = name
+end)
+
+sellExcludePetMutationListObj = Hub.CreateList(petTab, "Pet: Exclude Mutation", mutationItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.Sell_ExcludePetMutation = name
+end)
 
 sellExcludePetWeightModeListObj = Hub.CreateList(petTab, "Pet: Exclude Weight Mode", {
     {Name = "Above"},
     {Name = "Lower"}
-}, 110, false)
+}, 110, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.Sell_ExcludePetWeightMode = name
+end)
 
 Hub.CreateTextBox(petTab, "Pet: Exclude Weight (KG)", "Enter KG cutoff (0 = none)", function(text)
     local num = tonumber(text)
