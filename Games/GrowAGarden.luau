@@ -2167,151 +2167,156 @@ end
 -- =========================================================================
 task.spawn(function()
     while true do
-        task.wait(State.HarvestDelay or 0.08)
-        pcall(function()
-            local collectAll = isToggleActive(autoCollectAllToggle, State.AutoCollectAll, "⚡ Auto Collect ALL (No Filter)")
-            local instantAll = isToggleActive(instantCollectAllToggle, State.InstantCollectAll, "⚡ Instant Collect ALL")
-            local collectFiltered = isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered, "🌱 Auto Collect (Filtered)")
-            local stopFull = isToggleActive(collectStopWhenFullToggle, State.Collect_StopWhenFull)
+        if _G.GAG_SESSION ~= currentSession then break end
 
-            if not (collectAll or instantAll or collectFiltered) then return end
+        local collectAll = isToggleActive(autoCollectAllToggle, State.AutoCollectAll, "⚡ Auto Collect ALL (No Filter)")
+        local instantAll = isToggleActive(instantCollectAllToggle, State.InstantCollectAll, "⚡ Instant Collect ALL")
+        local collectFiltered = isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered, "🌱 Auto Collect (Filtered)")
+        local stopFull = isToggleActive(collectStopWhenFullToggle, State.Collect_StopWhenFull)
 
-            local colRemote = getCollectRemote()
-            if not colRemote then return end
+        if collectAll or instantAll or collectFiltered then
+            task.wait(State.HarvestDelay or 0.08)
+            pcall(function()
+                local colRemote = getCollectRemote()
+                if not colRemote then return end
 
-            local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+                local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
 
-            -- 1) HIGH-CONCURRENCY 2-3 SECOND NETWORK BURST ENGINE (Instant Collect ALL Only)
-            if instantAll then
-                local burstDuration = 2.5
-                local burstStart = tick()
+                -- 1) HIGH-CONCURRENCY 2-3 SECOND NETWORK BURST ENGINE (Instant Collect ALL Only)
+                if instantAll then
+                    local burstDuration = 2.5
+                    local burstStart = tick()
 
-                while (tick() - burstStart < burstDuration) and isToggleActive(instantCollectAllToggle, State.InstantCollectAll) do
-                    local allFruits = {}
+                    while (tick() - burstStart < burstDuration) and isToggleActive(instantCollectAllToggle, State.InstantCollectAll) do
+                        local allFruits = {}
 
-                    for _, farm in ipairs(farmFolder:GetChildren()) do
-                        local important = farm:FindFirstChild("Important")
-                        local plantsFolder = important and important:FindFirstChild("Plants_Physical")
-                        if plantsFolder then
-                            for _, plant in ipairs(plantsFolder:GetChildren()) do
-                                local fruitsFolder = plant:FindFirstChild("Fruits")
-                                if fruitsFolder then
-                                    for _, fg in ipairs(fruitsFolder:GetChildren()) do
-                                        table.insert(allFruits, fg)
+                        for _, farm in ipairs(farmFolder:GetChildren()) do
+                            local important = farm:FindFirstChild("Important")
+                            local plantsFolder = important and important:FindFirstChild("Plants_Physical")
+                            if plantsFolder then
+                                for _, plant in ipairs(plantsFolder:GetChildren()) do
+                                    local fruitsFolder = plant:FindFirstChild("Fruits")
+                                    if fruitsFolder then
+                                        for _, fg in ipairs(fruitsFolder:GetChildren()) do
+                                            table.insert(allFruits, fg)
+                                        end
                                     end
                                 end
                             end
                         end
-                    end
 
-                    if #allFruits == 0 then break end
+                        if #allFruits == 0 then break end
 
-                    -- Rapid parallel batch dispatch to saturate packet pipeline and bypass backpack checks
-                    local batchSize = 35
-                    for i = 1, #allFruits, batchSize do
-                        local subBatch = {}
-                        for j = i, math.min(i + batchSize - 1, #allFruits) do
-                            table.insert(subBatch, allFruits[j])
-                        end
-                        task.spawn(function()
-                            pcall(function()
-                                colRemote:FireServer(subBatch)
+                        -- Rapid parallel batch dispatch to saturate packet pipeline and bypass backpack checks
+                        local batchSize = 35
+                        for i = 1, #allFruits, batchSize do
+                            local subBatch = {}
+                            for j = i, math.min(i + batchSize - 1, #allFruits) do
+                                table.insert(subBatch, allFruits[j])
+                            end
+                            task.spawn(function()
+                                pcall(function()
+                                    colRemote:FireServer(subBatch)
+                                end)
                             end)
-                        end)
+                        end
+
+                        task.wait(0.03) -- Micro-yield maintains high network throughput without freezing VM
                     end
 
-                    task.wait(0.03) -- Micro-yield maintains high network throughput without freezing VM
+                    -- Brief cooldown between multi-second burst waves
+                    if isToggleActive(instantCollectAllToggle, State.InstantCollectAll) then
+                        task.wait(0.35)
+                    end
+                    return
                 end
 
-                -- Brief cooldown between multi-second burst waves
-                if isToggleActive(instantCollectAllToggle, State.InstantCollectAll) then
-                    task.wait(0.35)
+                -- 2) STANDARD CONTROLLED HARVEST ENGINE (Auto Collect ALL & Filtered)
+                if stopFull and isBackpackFull() then
+                    task.wait(0.3)
+                    return
                 end
-                return
-            end
 
-            -- 2) STANDARD CONTROLLED HARVEST ENGINE (Auto Collect ALL & Filtered)
-            if stopFull and isBackpackFull() then
-                task.wait(0.3)
-                return
-            end
+                local batch = {}
+                for _, farm in ipairs(farmFolder:GetChildren()) do
+                    if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                       and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                        break 
+                    end
+                    if stopFull and isBackpackFull() then break end
 
-            local batch = {}
-            for _, farm in ipairs(farmFolder:GetChildren()) do
-                if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
-                   and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
-                    break 
-                end
-                if stopFull and isBackpackFull() then break end
+                    local important = farm:FindFirstChild("Important")
+                    local plantsFolder = important and important:FindFirstChild("Plants_Physical")
+                    if plantsFolder then
+                        for _, plant in ipairs(plantsFolder:GetChildren()) do
+                            if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                               and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                                break 
+                            end
+                            if stopFull and isBackpackFull() then break end
 
-                local important = farm:FindFirstChild("Important")
-                local plantsFolder = important and important:FindFirstChild("Plants_Physical")
-                if plantsFolder then
-                    for _, plant in ipairs(plantsFolder:GetChildren()) do
-                        if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
-                           and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
-                            break 
-                        end
-                        if stopFull and isBackpackFull() then break end
-
-                        local fruitsFolder = plant:FindFirstChild("Fruits")
-                        if fruitsFolder then
-                            for _, fg in ipairs(fruitsFolder:GetChildren()) do
-                                if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
-                                   and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
-                                    break 
-                                end
-                                if stopFull and isBackpackFull() then break end
-
-                                local shouldCollect = false
-                                if collectAll then
-                                    shouldCollect = true
-                                elseif collectFiltered then
-                                    local info = getFruitGroupInfo(plant, fg)
-                                    if matchesCollectFilters(info) then
-                                        shouldCollect = true
+                            local fruitsFolder = plant:FindFirstChild("Fruits")
+                            if fruitsFolder then
+                                for _, fg in ipairs(fruitsFolder:GetChildren()) do
+                                    if not isToggleActive(autoCollectAllToggle, State.AutoCollectAll) 
+                                       and not isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered) then 
+                                        break 
                                     end
-                                end
+                                    if stopFull and isBackpackFull() then break end
 
-                                if shouldCollect then
-                                    table.insert(batch, fg)
-                                    local maxBatch = State.BatchSize or 35
-                                    if #batch >= maxBatch then
-                                        pcall(function()
-                                            colRemote:FireServer(batch)
-                                        end)
-                                        batch = {}
-                                        task.wait(0.04)
+                                    local shouldCollect = false
+                                    if collectAll then
+                                        shouldCollect = true
+                                    elseif collectFiltered then
+                                        local info = getFruitGroupInfo(plant, fg)
+                                        if matchesCollectFilters(info) then
+                                            shouldCollect = true
+                                        end
+                                    end
+
+                                    if shouldCollect then
+                                        table.insert(batch, fg)
+                                        local maxBatch = State.BatchSize or 35
+                                        if #batch >= maxBatch then
+                                            pcall(function()
+                                                colRemote:FireServer(batch)
+                                            end)
+                                            batch = {}
+                                            task.wait(0.04)
+                                        end
                                     end
                                 end
                             end
                         end
                     end
                 end
-            end
 
-            if #batch > 0 and (isToggleActive(autoCollectAllToggle, State.AutoCollectAll) or isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered)) then
-                pcall(function()
-                    colRemote:FireServer(batch)
-                end)
-                batch = {}
-            end
-        end)
+                if #batch > 0 and (isToggleActive(autoCollectAllToggle, State.AutoCollectAll) or isToggleActive(autoCollectFilteredToggle, State.AutoCollectFiltered)) then
+                    pcall(function()
+                        colRemote:FireServer(batch)
+                    end)
+                    batch = {}
+                end
+            end)
+        else
+            task.wait(0.5)
+        end
     end
 end)
 -- Auto-Plant Engine (Player Position, Random Position, Existing Plant)
 -- =========================================================================
 task.spawn(function()
     while true do
-        local delayTime = math.clamp(tonumber(State.Plant_Delay) or 0.05, 0.01, 1.0)
-        task.wait(delayTime)
+        if _G.GAG_SESSION ~= currentSession then break end
 
-        pcall(function()
-            local autoPlant = isToggleActive(autoPlantToggle, State.AutoPlant, "🌱 Auto Plant")
-            if not autoPlant then return end
+        local autoPlant = isToggleActive(autoPlantToggle, State.AutoPlant, "🌱 Auto Plant")
+        if autoPlant then
+            local delayTime = math.clamp(tonumber(State.Plant_Delay) or 0.05, 0.01, 1.0)
+            task.wait(delayTime)
 
-            local selectedSeed = tostring(getUIListVal(plantSeedListObj, State.Plant_SelectedSeed or "All Seeds"))
-            local posMode = tostring(getUIListVal(plantPositionModeListObj, State.Plant_PositionMode or "Player Position"))
+            pcall(function()
+                local selectedSeed = tostring(getUIListVal(plantSeedListObj, State.Plant_SelectedSeed or "All Seeds"))
+                local posMode = tostring(getUIListVal(plantPositionModeListObj, State.Plant_PositionMode or "Player Position"))
 
             -- Find candidate seed tools in Backpack or Character
             local allTools = getAllPlayerTools()
@@ -2476,6 +2481,9 @@ task.spawn(function()
                 end
             end
         end)
+    else
+        task.wait(0.5)
+    end
     end
 end)
 
@@ -2621,16 +2629,16 @@ end)
 -- =========================================================================
 task.spawn(function()
     while true do
-        task.wait(State.SellCheckDelay or 0.25)
+        if _G.GAG_SESSION ~= currentSession then break end
 
-        local ok, err = pcall(function()
-            local autoSellCrops = isToggleActive(autoSellCropsToggle, State.AutoSellCrops, "💰 Auto Sell (Crops)")
-            local autoSellPets = isToggleActive(autoSellPetsToggle, State.AutoSellPets, "🐾 Auto Sell Pets")
+        local autoSellCrops = isToggleActive(autoSellCropsToggle, State.AutoSellCrops, "💰 Auto Sell (Crops)")
+        local autoSellPets = isToggleActive(autoSellPetsToggle, State.AutoSellPets, "🐾 Auto Sell Pets")
+
+        if autoSellCrops or autoSellPets then
+            task.wait(State.SellCheckDelay or 0.25)
+
+            local ok, err = pcall(function()
             local waitMax = isToggleActive(sellWaitMaxToggle, State.Sell_WaitMaxBackpack)
-
-            if not (autoSellCrops or autoSellPets) then
-                return
-            end
 
             local allTools = getAllPlayerTools()
             if #allTools == 0 then
@@ -2721,6 +2729,9 @@ task.spawn(function()
         if not ok and err then
             task.wait(0.2)
         end
+    else
+        task.wait(0.5)
+    end
     end
 end)
 
@@ -3059,66 +3070,67 @@ end
 -- 1. Auto Place Eggs Loop (Cycle Step 1: Equip Slot, Place Eggs, Wait For Hatch)
 task.spawn(function()
     while true do
-        local ok, err = pcall(function()
-            local autoPlace = isToggleActive(autoPlaceEggsToggle, State.AutoPlaceEggs, "🥚 Auto Place Eggs")
-            if not autoPlace then
-                task.wait(0.2)
-                return
-            end
+        if _G.GAG_SESSION ~= currentSession then break end
 
-            local onlyNoEgg = isToggleActive(placeOnlyWhenNoEggToggle, State.PlaceOnlyWhenNoEgg)
-            local placedEggs = getPlacedEggsInGarden()
-            local currentPlacedCount = #placedEggs
+        local autoPlace = isToggleActive(autoPlaceEggsToggle, State.AutoPlaceEggs, "🥚 Auto Place Eggs")
+        if autoPlace then
+            local ok, err = pcall(function()
+                local onlyNoEgg = isToggleActive(placeOnlyWhenNoEggToggle, State.PlaceOnlyWhenNoEgg)
+                local placedEggs = getPlacedEggsInGarden()
+                local currentPlacedCount = #placedEggs
 
-            if onlyNoEgg and currentPlacedCount > 0 then
-                task.wait(0.25)
-                return
-            end
-
-            local maxGarden = tonumber(State.PlaceEgg_MaxGarden) or 15
-            if currentPlacedCount >= maxGarden then
-                task.wait(0.3)
-                return
-            end
-
-            local selectedEgg = getUIListVal(placeEggListObj, State.PlaceEgg_Selected or "All Eggs")
-            local eggTool = findEggToolInBackpack(selectedEgg)
-            if not eggTool then
-                task.wait(0.4)
-                return
-            end
-
-            -- If there are 0 eggs or starting placement, equip Place Egg Slot to reduce time
-            if currentPlacedCount == 0 then
-                local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
-                if placeSlot ~= "None" then
-                    equipPetSlot(placeSlot)
-                    task.wait(0.08)
+                if onlyNoEgg and currentPlacedCount > 0 then
+                    task.wait(0.25)
+                    return
                 end
-            end
 
-            local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
-            local targetPos
-            if posMode == "Player Position" then
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                local maxGarden = tonumber(State.PlaceEgg_MaxGarden) or 15
+                if currentPlacedCount >= maxGarden then
+                    task.wait(0.3)
+                    return
+                end
+
+                local selectedEgg = getUIListVal(placeEggListObj, State.PlaceEgg_Selected or "All Eggs")
+                local eggTool = findEggToolInBackpack(selectedEgg)
+                if not eggTool then
+                    task.wait(0.4)
+                    return
+                end
+
+                -- If there are 0 eggs or starting placement, equip Place Egg Slot to reduce time
+                if currentPlacedCount == 0 then
+                    local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
+                    if placeSlot ~= "None" then
+                        equipPetSlot(placeSlot)
+                        task.wait(0.08)
+                    end
+                end
+
+                local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
+                local targetPos
+                if posMode == "Player Position" then
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                    else
+                        targetPos = getNextEggRowPosition()
+                    end
                 else
                     targetPos = getNextEggRowPosition()
                 end
-            else
-                targetPos = getNextEggRowPosition()
+
+                placeEggAt(targetPos, eggTool)
+
+                local delay = math.clamp(tonumber(State.PlaceEgg_Delay) or 0.1, 0.02, 2.0)
+                task.wait(delay)
+            end)
+
+            if not ok and err then
+                task.wait(0.3)
             end
-
-            placeEggAt(targetPos, eggTool)
-
-            local delay = math.clamp(tonumber(State.PlaceEgg_Delay) or 0.1, 0.02, 2.0)
-            task.wait(delay)
-        end)
-
-        if not ok and err then
-            task.wait(0.3)
+        else
+            task.wait(0.5)
         end
     end
 end)
@@ -3126,82 +3138,83 @@ end)
 -- 2. Auto Hatch Eggs Loop (Cycle Step 2: Equip Hatch Slot, Hatch Eggs When Ready)
 task.spawn(function()
     while true do
-        local ok, err = pcall(function()
-            local autoHatch = isToggleActive(autoHatchEggsToggle, State.AutoHatchEggs, "🐣 Auto Hatch Eggs")
-            if not autoHatch then
-                task.wait(0.2)
-                return
-            end
+        if _G.GAG_SESSION ~= currentSession then break end
 
-            local placedEggs = getPlacedEggsInGarden()
-            if #placedEggs == 0 then
-                task.wait(0.25)
-                return
-            end
+        local autoHatch = isToggleActive(autoHatchEggsToggle, State.AutoHatchEggs, "🐣 Auto Hatch Eggs")
+        if autoHatch then
+            local ok, err = pcall(function()
+                local placedEggs = getPlacedEggsInGarden()
+                if #placedEggs == 0 then
+                    task.wait(0.25)
+                    return
+                end
 
-            local waitAll = isToggleActive(waitAllEggsReadyToggle, State.WaitAllEggsReady)
-            if waitAll then
-                local allReady = true
+                local waitAll = isToggleActive(waitAllEggsReadyToggle, State.WaitAllEggsReady)
+                if waitAll then
+                    local allReady = true
+                    for _, egg in ipairs(placedEggs) do
+                        if not isEggReadyToHatch(egg) then
+                            allReady = false
+                            break
+                        end
+                    end
+                    if not allReady then
+                        task.wait(0.2)
+                        return
+                    end
+                end
+
+                -- Equip Hatch Slot when eggs are ready to hatch
+                local hasReadyEggs = false
                 for _, egg in ipairs(placedEggs) do
-                    if not isEggReadyToHatch(egg) then
-                        allReady = false
+                    if isEggReadyToHatch(egg) then
+                        hasReadyEggs = true
                         break
                     end
                 end
-                if not allReady then
-                    task.wait(0.2)
-                    return
-                end
-            end
 
-            -- Equip Hatch Slot when eggs are ready to hatch
-            local hasReadyEggs = false
-            for _, egg in ipairs(placedEggs) do
-                if isEggReadyToHatch(egg) then
-                    hasReadyEggs = true
-                    break
-                end
-            end
-
-            if hasReadyEggs then
-                local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
-                if hatchSlot ~= "None" then
-                    equipPetSlot(hatchSlot)
-                    task.wait(0.08)
-                end
-            end
-
-            local selectedHatchEgg = getUIListVal(hatchEggListObj, State.HatchEgg_Selected or "All Eggs")
-            local cleanTargetEgg = tostring(selectedHatchEgg):lower():gsub("[%s%p]", "")
-            local isAllEggs = (cleanTargetEgg == "alleggs" or cleanTargetEgg == "all" or cleanTargetEgg == "" or cleanTargetEgg == "none")
-
-            local excludedPetsList = getUIListMultipleVals(hatchExcludePetListObj, nil)
-            local excludedPetsMap = {}
-            for _, petName in ipairs(excludedPetsList) do
-                local cName = tostring(petName):lower():gsub("[%s%p]", "")
-                if cName ~= "" and cName ~= "none" then
-                    excludedPetsMap[cName] = true
-                end
-            end
-
-            for _, egg in ipairs(placedEggs) do
-                if isEggReadyToHatch(egg) then
-                    local eggName = egg:GetAttribute("EggName") or egg.Name
-                    local cleanEggName = tostring(eggName):lower():gsub("[%s%p]", "")
-                    local matchesEgg = isAllEggs or cleanEggName:find(cleanTargetEgg, 1, true) or cleanTargetEgg:find(cleanEggName, 1, true)
-
-                    if matchesEgg then
-                        hatchSingleEgg(egg)
+                if hasReadyEggs then
+                    local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
+                    if hatchSlot ~= "None" then
+                        equipPetSlot(hatchSlot)
+                        task.wait(0.08)
                     end
                 end
+
+                local selectedHatchEgg = getUIListVal(hatchEggListObj, State.HatchEgg_Selected or "All Eggs")
+                local cleanTargetEgg = tostring(selectedHatchEgg):lower():gsub("[%s%p]", "")
+                local isAllEggs = (cleanTargetEgg == "alleggs" or cleanTargetEgg == "all" or cleanTargetEgg == "" or cleanTargetEgg == "none")
+
+                local excludedPetsList = getUIListMultipleVals(hatchExcludePetListObj, nil)
+                local excludedPetsMap = {}
+                for _, petName in ipairs(excludedPetsList) do
+                    local cName = tostring(petName):lower():gsub("[%s%p]", "")
+                    if cName ~= "" and cName ~= "none" then
+                        excludedPetsMap[cName] = true
+                    end
+                end
+
+                for _, egg in ipairs(placedEggs) do
+                    if isEggReadyToHatch(egg) then
+                        local eggName = egg:GetAttribute("EggName") or egg.Name
+                        local cleanEggName = tostring(eggName):lower():gsub("[%s%p]", "")
+                        local matchesEgg = isAllEggs or cleanEggName:find(cleanTargetEgg, 1, true) or cleanTargetEgg:find(cleanEggName, 1, true)
+
+                        if matchesEgg then
+                            hatchSingleEgg(egg)
+                        end
+                    end
+                end
+
+                local checkDelay = math.clamp(tonumber(State.Hatch_CheckDelay) or 0.1, 0.05, 1.0)
+                task.wait(checkDelay)
+            end)
+
+            if not ok and err then
+                task.wait(0.25)
             end
-
-            local checkDelay = math.clamp(tonumber(State.Hatch_CheckDelay) or 0.1, 0.05, 1.0)
-            task.wait(checkDelay)
-        end)
-
-        if not ok and err then
-            task.wait(0.25)
+        else
+            task.wait(0.5)
         end
     end
 end)
@@ -3274,7 +3287,7 @@ end
 -- Periodic refresh loop to automatically hide newly spawned plants / fruits
 task.spawn(function()
     while true do
-        task.wait(1.0)
+        if _G.GAG_SESSION ~= currentSession then break end
         local hf = isToggleActive(hideFruitsToggle, State.HideFruits, "🍎 Hide Fruits")
         local hp = isToggleActive(hidePlantsToggle, State.HidePlants, "🌾 Hide Plants")
         if hf then
@@ -3282,6 +3295,11 @@ task.spawn(function()
         end
         if hp then
             pcall(updatePlantVisibility)
+        end
+        if hf or hp then
+            task.wait(1.0)
+        else
+            task.wait(2.0)
         end
     end
 end)
@@ -3433,11 +3451,12 @@ end
 -- Continuous Infinite Sprinkler background loop
 task.spawn(function()
     while true do
+        if _G.GAG_SESSION ~= currentSession then break end
         if State.InfiniteSprinkler then
             pcall(applyInfiniteSprinklerShovel)
             task.wait(0.08)
         else
-            task.wait(0.3)
+            task.wait(0.5)
         end
     end
 end)
@@ -3785,6 +3804,7 @@ end
 
 task.spawn(function()
     while true do
+        if _G.GAG_SESSION ~= currentSession then break end
         local isAnyShopActive = State.AutoBuy_SelectedEgg or State.AutoBuy_AllEggs
             or State.AutoBuy_SelectedGear or State.AutoBuy_AllGears
             or State.AutoBuy_SelectedSeed or State.AutoBuy_AllSeeds
@@ -3795,7 +3815,7 @@ task.spawn(function()
             task.wait(delay)
             executeInstantShopPurchases()
         else
-            task.wait(0.15)
+            task.wait(0.5)
         end
     end
 end)
@@ -3937,7 +3957,7 @@ task.spawn(function()
             executeAutoCraftCycle()
             task.wait(delayVal)
         else
-            task.wait(0.25)
+            task.wait(0.5)
         end
     end
 end)
@@ -6031,8 +6051,8 @@ print("[Unknown Hub] Grow a Garden (Auto Sell Pets & Complete Module) Loaded Suc
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        local delayTime = math.max(tonumber(State.Reclaim_Delay) or 0.5, 0.05)
         if isToggleActive(autoReclaimerToggle, State.AutoReclaimer) then
+            local delayTime = math.max(tonumber(State.Reclaim_Delay) or 0.5, 0.05)
             pcall(function()
                 local selectedNames = getUIListMultipleVals(reclaimerPlantListObj, "All Garden Plants")
                 local plants = getMyGardenPlants()
@@ -6051,8 +6071,10 @@ task.spawn(function()
                     end
                 end
             end)
+            task.wait(delayTime)
+        else
+            task.wait(0.5)
         end
-        task.wait(delayTime)
     end
 end)
 
@@ -6062,8 +6084,8 @@ end)
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        local delayTime = math.max(tonumber(State.Shovel_Delay) or 0.5, 0.05)
         if isToggleActive(autoShovelToggle, State.AutoShovel) then
+            local delayTime = math.max(tonumber(State.Shovel_Delay) or 0.5, 0.05)
             pcall(function()
                 local selectedNames = getUIListMultipleVals(shovelPlantListObj, "All Garden Plants")
                 local plants = getMyGardenPlants()
@@ -6082,8 +6104,10 @@ task.spawn(function()
                     end
                 end
             end)
+            task.wait(delayTime)
+        else
+            task.wait(0.5)
         end
-        task.wait(delayTime)
     end
 end)
 
@@ -6093,9 +6117,9 @@ end)
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        local delayTime = math.max(tonumber(State.Water_Delay) or 0.5, 0.05)
-        local uses = math.clamp(tonumber(State.Water_UsesPerDelay) or 3, 1, 20)
         if isToggleActive(autoWateringToggle, State.AutoWatering) then
+            local delayTime = math.max(tonumber(State.Water_Delay) or 0.5, 0.05)
+            local uses = math.clamp(tonumber(State.Water_UsesPerDelay) or 3, 1, 20)
             pcall(function()
                 local selectedNames = getUIListMultipleVals(wateringPlantListObj, "All Growing Plants")
                 local plants = getMyGardenPlants()
@@ -6123,8 +6147,10 @@ task.spawn(function()
                     end
                 end
             end)
+            task.wait(delayTime)
+        else
+            task.wait(0.5)
         end
-        task.wait(delayTime)
     end
 end)
 
@@ -6132,30 +6158,14 @@ end)
 -- Dynamic Garden Listener & List Auto-Updater
 -- =========================================================================
 task.spawn(function()
-    local function hookPlantFolder(folder)
-        if not folder then return end
-        folder.ChildAdded:Connect(function(child)
-            task.wait(0.2)
-            pcall(function()
-                if reclaimerPlantListObj then
-                    safeAddToList(reclaimerPlantListObj, child.Name)
-                end
-                if shovelPlantListObj then
-                    safeAddToList(shovelPlantListObj, child.Name)
-                end
-                if wateringPlantListObj then
-                    local info = getPlantGrowthInfo(child)
-                    if info and info.isGrowing then
-                        safeAddToList(wateringPlantListObj, info.displayName)
-                    else
-                        safeAddToList(wateringPlantListObj, child.Name)
-                    end
-                end
-            end)
-        end)
-    end
+    local isSyncing = false
+    local lastSyncTick = 0
 
     local function syncGardenPlantLists()
+        if isSyncing then return end
+        if not (reclaimerPlantListObj or shovelPlantListObj or wateringPlantListObj) then return end
+        isSyncing = true
+
         pcall(function()
             local allPlants = buildPlantsInGardenCatalog()
             if reclaimerPlantListObj then
@@ -6175,6 +6185,16 @@ task.spawn(function()
                 end
             end
         end)
+        isSyncing = false
+        lastSyncTick = tick()
+    end
+
+    local function debouncedSync()
+        task.delay(0.5, function()
+            if tick() - lastSyncTick >= 0.5 then
+                syncGardenPlantLists()
+            end
+        end)
     end
 
     local hookedFolders = {}
@@ -6185,24 +6205,22 @@ task.spawn(function()
             if pPhys and not hookedFolders[pPhys] then
                 hookedFolders[pPhys] = true
                 pPhys.ChildAdded:Connect(function(child)
-                    task.wait(0.15)
-                    syncGardenPlantLists()
+                    debouncedSync()
                 end)
                 pPhys.ChildRemoved:Connect(function(child)
-                    task.wait(0.15)
-                    syncGardenPlantLists()
+                    debouncedSync()
                 end)
-                syncGardenPlantLists()
+                debouncedSync()
             end
         end)
     end
 
     ensureFarmHooked()
 
-    -- Background Periodic Refresh every 3 seconds
+    -- Background Periodic Refresh every 20 seconds (lightweight fallback)
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        task.wait(3)
+        task.wait(20)
         ensureFarmHooked()
         syncGardenPlantLists()
     end
@@ -6245,17 +6263,17 @@ task.spawn(function()
 
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        local delaySetting = tostring(getUIListVal(acornAttackDelayListObj, "Ultra Fast (0.05s)"))
-        local delayTime = 0.05
-        if delaySetting:find("0.1") then
-            delayTime = 0.1
-        elseif delaySetting:find("0.25") then
-            delayTime = 0.25
-        elseif delaySetting:find("0.5") then
-            delayTime = 0.5
-        end
-
         if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
+            local delaySetting = tostring(getUIListVal(acornAttackDelayListObj, "Ultra Fast (0.05s)"))
+            local delayTime = 0.05
+            if delaySetting:find("0.1") then
+                delayTime = 0.1
+            elseif delaySetting:find("0.25") then
+                delayTime = 0.25
+            elseif delaySetting:find("0.5") then
+                delayTime = 0.5
+            end
+
             pcall(function()
                 if State.AutoEquipShovel then
                     equipShovelTool()
@@ -6279,8 +6297,10 @@ task.spawn(function()
                     end
                 end
             end)
+            task.wait(delayTime)
+        else
+            task.wait(0.5)
         end
-        task.wait(delayTime)
     end
 end)
 
