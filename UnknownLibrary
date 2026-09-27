@@ -246,6 +246,8 @@ return function(opts)
         activeNotifFilter = "all",
         isHudEnabled = false,
         hudOpacity = 0.9,
+        hudScale = 1.0,
+        tabIconProps = {},
         isGuiOpen = true,
         capturingToggleKey = false,
         lastFeedbackTime = 0,
@@ -413,7 +415,6 @@ return function(opts)
         if hubState.mainFrame and hubState.mainFrame.Parent then hubState.mainFrame.BackgroundColor3 = mainBg end
         if hubState.sidebar and hubState.sidebar.Parent then hubState.sidebar.BackgroundColor3 = sidebarBg end
         if hubState.header and hubState.header.Parent then hubState.header.BackgroundColor3 = headerBg end
-        local buttonBg = Color3.fromRGB(math.floor(c2.R * 85 + 24), math.floor(c2.G * 85 + 30), math.floor(c2.B * 85 + 42))
         for _, label in ipairs(hubState.themeLabels) do
             if label and label.Parent then label.TextColor3 = c1 end
         end
@@ -427,7 +428,7 @@ return function(opts)
             if sFrame and sFrame.Parent then sFrame.BackgroundColor3 = sectionBg end
         end
         for _, bFrame in ipairs(hubState.themeButtonFrames or {}) do
-            if bFrame and bFrame.Parent then bFrame.BackgroundColor3 = buttonBg end
+            if bFrame and bFrame.Parent then bFrame.BackgroundColor3 = Color3.fromRGB(20, 25, 36) end
         end
         local seq = hubState.getThemeColorSequence(c1, c2)
         for _, grad in ipairs(hubState.themeGradients) do
@@ -1792,6 +1793,11 @@ return function(opts)
         hubState.hudFrame.Active = true
         hubState.hudFrame.Parent = hubState.screenGui
         applyCorner(hubState.hudFrame, 8)
+        local hudScaleObj = Instance.new("UIScale")
+        hudScaleObj.Name = "HUDScale"
+        hudScaleObj.Scale = hubState.hudScale or 1.0
+        hudScaleObj.Parent = hubState.hudFrame
+        hubState.hudScaleObj = hudScaleObj
         local hudStroke = applyStroke(hubState.hudFrame, hubState.currentThemeColor, 1.2, 0.4)
         hubState.registerThemeStroke(hudStroke)
         hubState.makeSmoothDraggable(hubState.hudFrame, hubState.hudFrame)
@@ -2024,6 +2030,19 @@ return function(opts)
         hubState.hudOpacity = math.clamp(opacity or 0.35, 0.05, 0.95)
         hubState.configValues.hudOpacity = hubState.hudOpacity
         if hubState.hudFrame then hubState.hudFrame.BackgroundTransparency = hubState.hudOpacity end
+    end
+    hubState.setHudScale = function(scale)
+        local s = math.clamp(tonumber(scale) or 1.0, 0.4, 2.5)
+        hubState.hudScale = s
+        hubState.configValues.hudScale = s
+        if not hubState.hudFrame then hubState.createHudStatsWindow() end
+        if hubState.hudScaleObj and hubState.hudScaleObj.Parent then
+            hubState.hudScaleObj.Scale = s
+        elseif hubState.hudFrame then
+            local scaleInstance = hubState.hudFrame:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", hubState.hudFrame)
+            scaleInstance.Scale = s
+            hubState.hudScaleObj = scaleInstance
+        end
     end
     function hubState.syncOfflineAndPendingAnnouncements()
         local list = loadStoredAnnouncements()
@@ -4332,13 +4351,14 @@ return function(opts)
                     }):Play()
                 end
                 local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
+                local activeIconColor = (hubState.tabIconProps and hubState.tabIconProps[btn.Name] and hubState.tabIconProps[btn.Name].activeColor) or c1
                 if icon and icon:IsA("ImageLabel") then
                     TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        ImageColor3 = c1
+                        ImageColor3 = activeIconColor
                     }):Play()
                 elseif icon and icon:IsA("TextLabel") then
                     TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                        TextColor3 = c1
+                        TextColor3 = activeIconColor
                     }):Play()
                 end
             else
@@ -4354,13 +4374,14 @@ return function(opts)
                         }):Play()
                     end
                     local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
+                    local inactiveIconColor = (hubState.tabIconProps and hubState.tabIconProps[btn.Name] and (hubState.tabIconProps[btn.Name].inactiveColor or hubState.tabIconProps[btn.Name].color)) or Color3.fromRGB(160, 175, 200)
                     if icon and icon:IsA("ImageLabel") then
                         TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                            ImageColor3 = Color3.fromRGB(160, 175, 200)
+                            ImageColor3 = inactiveIconColor
                         }):Play()
                     elseif icon and icon:IsA("TextLabel") then
                         TweenService:Create(icon, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                            TextColor3 = Color3.fromRGB(160, 175, 200)
+                            TextColor3 = inactiveIconColor
                         }):Play()
                     end
                 end
@@ -4419,7 +4440,7 @@ return function(opts)
         table.insert(hubState.tabPages, page)
         return page
     end
-    function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
+    function hubState.createTabButton(name, text, iconAssetIdOrProps, defaultVisible, maybeProps)
         if name == "Favorites" or name == "Repository" or name == "⭐ Favorites" or name == "📦 Repository" then
             local pageName = (name == "Favorites" or name == "⭐ Favorites") and "Favorites" or "Repository"
             local p = hubState.getOrCreatePage(pageName)
@@ -4443,6 +4464,31 @@ return function(opts)
             end
             return hubState.universalTabPage
         end
+
+        local props = {}
+        if type(iconAssetIdOrProps) == "table" then
+            props = iconAssetIdOrProps
+        elseif type(maybeProps) == "table" then
+            props = maybeProps
+        end
+
+        local rawIcon = (type(iconAssetIdOrProps) ~= "table" and iconAssetIdOrProps) or props.Icon or props.icon or props.IconAssetId or props.AssetId
+        local iconSizeVal = props.IconSize or props.iconSize or props.Size or props.size or 20
+        local iconColorVal = props.IconColor or props.iconColor or props.Color or props.color or Color3.fromRGB(170, 185, 210)
+        local iconActiveColorVal = props.ActiveColor or props.activeColor or props.ActiveIconColor
+        local iconInactiveColorVal = props.InactiveColor or props.inactiveColor or props.InactiveIconColor or iconColorVal
+        local textSizeVal = props.TextSize or props.textSize or props.FontSize or 13
+
+        hubState.tabIconProps = hubState.tabIconProps or {}
+        hubState.tabIconProps[name] = {
+            icon = rawIcon,
+            size = iconSizeVal,
+            color = iconColorVal,
+            activeColor = iconActiveColorVal,
+            inactiveColor = iconInactiveColorVal,
+            textSize = textSizeVal
+        }
+
         local page = hubState.getOrCreatePage(name)
         local existingBtn = nil
         for _, b in ipairs(hubState.tabButtons) do
@@ -4479,43 +4525,61 @@ return function(opts)
             indicator.Parent = btn
             applyCorner(indicator, 2)
             hubState.registerThemeFrame(indicator)
-            local glyphText = "✦"
-            local lowerName = name:lower()
-            if lowerName:find("main") or lowerName:find("home") then
-                glyphText = "🏠"
-            elseif lowerName:find("farm") or lowerName:find("garden") or lowerName:find("grow") then
-                glyphText = "🌾"
-            elseif lowerName:find("tree") or lowerName:find("upgrade") then
-                glyphText = "🌳"
-            elseif lowerName:find("config") or lowerName:find("setting") then
-                glyphText = "⚙️"
-            elseif lowerName:find("universal") or lowerName:find("util") then
-                glyphText = "🌐"
-            elseif lowerName:find("combat") or lowerName:find("pvp") or lowerName:find("kill") or lowerName:find("attack") then
-                glyphText = "⚔️"
-            elseif lowerName:find("player") or lowerName:find("local") or lowerName:find("char") then
-                glyphText = "👤"
-            elseif lowerName:find("visual") or lowerName:find("esp") or lowerName:find("render") then
-                glyphText = "👁️"
-            elseif lowerName:find("teleport") or lowerName:find("tp") or lowerName:find("world") then
-                glyphText = "📍"
-            elseif lowerName:find("shop") or lowerName:find("buy") or lowerName:find("merchant") then
-                glyphText = "🛒"
-            elseif lowerName:find("quest") or lowerName:find("task") or lowerName:find("mission") then
-                glyphText = "📜"
-            elseif lowerName:find("stat") or lowerName:find("info") then
-                glyphText = "📊"
-            else
-                glyphText = name:sub(1, 2):upper()
+
+            local isImage = false
+            local imageId = ""
+            if rawIcon and (type(rawIcon) == "number" or (type(rawIcon) == "string" and (rawIcon:find("rbxassetid://") or rawIcon:match("^%d+$")))) then
+                isImage = true
+                imageId = tostring(rawIcon):find("rbxassetid://") and tostring(rawIcon) or ("rbxassetid://" .. tostring(rawIcon))
             end
-            if iconAssetId then
+
+            local glyphText = (rawIcon and type(rawIcon) == "string" and not isImage and rawIcon) or "✦"
+            if not rawIcon or (type(rawIcon) == "string" and rawIcon == "") then
+                local lowerName = name:lower()
+                if lowerName:find("main") or lowerName:find("home") then
+                    glyphText = "🏠"
+                elseif lowerName:find("farm") or lowerName:find("garden") or lowerName:find("grow") then
+                    glyphText = "🌾"
+                elseif lowerName:find("tree") or lowerName:find("upgrade") then
+                    glyphText = "🌳"
+                elseif lowerName:find("config") or lowerName:find("setting") then
+                    glyphText = "⚙️"
+                elseif lowerName:find("universal") or lowerName:find("util") then
+                    glyphText = "🌐"
+                elseif lowerName:find("combat") or lowerName:find("pvp") or lowerName:find("kill") or lowerName:find("attack") then
+                    glyphText = "⚔️"
+                elseif lowerName:find("player") or lowerName:find("local") or lowerName:find("char") then
+                    glyphText = "👤"
+                elseif lowerName:find("visual") or lowerName:find("esp") or lowerName:find("render") then
+                    glyphText = "👁️"
+                elseif lowerName:find("teleport") or lowerName:find("tp") or lowerName:find("world") then
+                    glyphText = "📍"
+                elseif lowerName:find("shop") or lowerName:find("buy") or lowerName:find("merchant") then
+                    glyphText = "🛒"
+                elseif lowerName:find("quest") or lowerName:find("task") or lowerName:find("mission") then
+                    glyphText = "📜"
+                elseif lowerName:find("stat") or lowerName:find("info") then
+                    glyphText = "📊"
+                else
+                    glyphText = name:sub(1, 2):upper()
+                end
+            end
+
+            if isImage then
                 local icon = Instance.new("ImageLabel")
                 icon.Name = "TabIcon"
-                icon.Size = UDim2.new(0, 20, 0, 20)
-                icon.Position = UDim2.new(0.5, -10, 0.5, -10)
+                local numSize = typeof(iconSizeVal) == "number" and iconSizeVal or 20
+                if typeof(iconSizeVal) == "UDim2" then
+                    icon.Size = iconSizeVal
+                    icon.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    icon.AnchorPoint = Vector2.new(0.5, 0.5)
+                else
+                    icon.Size = UDim2.new(0, numSize, 0, numSize)
+                    icon.Position = UDim2.new(0.5, -math.floor(numSize / 2), 0.5, -math.floor(numSize / 2))
+                end
                 icon.BackgroundTransparency = 1
-                icon.Image = tostring(iconAssetId):find("rbxassetid://") and iconAssetId or ("rbxassetid://" .. tostring(iconAssetId))
-                icon.ImageColor3 = Color3.fromRGB(170, 185, 210)
+                icon.Image = imageId
+                icon.ImageColor3 = iconInactiveColorVal
                 icon.Parent = btn
             else
                 local glyph = Instance.new("TextLabel")
@@ -4523,13 +4587,14 @@ return function(opts)
                 glyph.Size = UDim2.new(1, 0, 1, 0)
                 glyph.BackgroundTransparency = 1
                 glyph.Text = glyphText
-                glyph.TextColor3 = Color3.fromRGB(170, 185, 210)
+                glyph.TextColor3 = iconInactiveColorVal
                 glyph.Font = Enum.Font.GothamBold
-                glyph.TextSize = 13
+                glyph.TextSize = tonumber(textSizeVal) or 13
                 glyph.TextXAlignment = Enum.TextXAlignment.Center
                 glyph.TextYAlignment = Enum.TextYAlignment.Center
                 glyph.Parent = btn
             end
+
             btn.MouseEnter:Connect(function()
                 showSidebarTooltip(btn, text or name)
                 if hubState.currentActiveTabName ~= name then
@@ -4557,6 +4622,88 @@ return function(opts)
             if not hubState.tabButtons then hubState.tabButtons = {} end
             table.insert(hubState.tabButtons, btn)
         end
+
+        local function applyIconToTab(tabBtnName, newIcon, newSize, newColor, newActiveColor)
+            local tProps = hubState.tabIconProps[tabBtnName] or {}
+            if newIcon ~= nil then tProps.icon = newIcon end
+            if newSize ~= nil then tProps.size = newSize end
+            if newColor ~= nil then tProps.color = newColor; tProps.inactiveColor = newColor end
+            if newActiveColor ~= nil then tProps.activeColor = newActiveColor end
+            hubState.tabIconProps[tabBtnName] = tProps
+
+            local targetBtn = nil
+            for _, b in ipairs(hubState.tabButtons or {}) do
+                if b.Name == tabBtnName then targetBtn = b; break end
+            end
+            if not targetBtn then return end
+
+            local oldIcon = targetBtn:FindFirstChild("TabIcon") or targetBtn:FindFirstChild("TabGlyph")
+            if oldIcon then oldIcon:Destroy() end
+
+            local cIcon = tProps.icon
+            local isImg = false
+            local imgId = ""
+            if cIcon and (type(cIcon) == "number" or (type(cIcon) == "string" and (cIcon:find("rbxassetid://") or cIcon:match("^%d+$")))) then
+                isImg = true
+                imgId = tostring(cIcon):find("rbxassetid://") and tostring(cIcon) or ("rbxassetid://" .. tostring(cIcon))
+            end
+            local isActive = (hubState.currentActiveTabName == tabBtnName)
+            local currentColor = isActive and (tProps.activeColor or hubState.currentThemeColor) or (tProps.inactiveColor or Color3.fromRGB(170, 185, 210))
+
+            if isImg then
+                local icon = Instance.new("ImageLabel")
+                icon.Name = "TabIcon"
+                local numSize = typeof(tProps.size) == "number" and tProps.size or 20
+                if typeof(tProps.size) == "UDim2" then
+                    icon.Size = tProps.size
+                    icon.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    icon.AnchorPoint = Vector2.new(0.5, 0.5)
+                else
+                    icon.Size = UDim2.new(0, numSize, 0, numSize)
+                    icon.Position = UDim2.new(0.5, -math.floor(numSize / 2), 0.5, -math.floor(numSize / 2))
+                end
+                icon.BackgroundTransparency = 1
+                icon.Image = imgId
+                icon.ImageColor3 = currentColor
+                icon.Parent = targetBtn
+            else
+                local glyph = Instance.new("TextLabel")
+                glyph.Name = "TabGlyph"
+                glyph.Size = UDim2.new(1, 0, 1, 0)
+                glyph.BackgroundTransparency = 1
+                glyph.Text = tostring(cIcon or name:sub(1, 2):upper())
+                glyph.TextColor3 = currentColor
+                glyph.Font = Enum.Font.GothamBold
+                glyph.TextSize = tonumber(tProps.textSize) or (typeof(tProps.size) == "number" and tProps.size) or 13
+                glyph.TextXAlignment = Enum.TextXAlignment.Center
+                glyph.TextYAlignment = Enum.TextYAlignment.Center
+                glyph.Parent = targetBtn
+            end
+        end
+
+        page.SetIcon = function(selfOrIcon, maybeIcon, maybeSize, maybeColor, maybeActive)
+            local iconVal = (selfOrIcon == page) and maybeIcon or selfOrIcon
+            local sizeVal = (selfOrIcon == page) and maybeSize or maybeIcon
+            local colorVal = (selfOrIcon == page) and maybeColor or maybeSize
+            local activeVal = (selfOrIcon == page) and maybeActive or maybeColor
+            applyIconToTab(name, iconVal, sizeVal, colorVal, activeVal)
+        end
+        page.SetIconSize = function(selfOrSize, maybeSize)
+            local sizeVal = (selfOrSize == page) and maybeSize or selfOrSize
+            applyIconToTab(name, nil, sizeVal, nil, nil)
+        end
+        page.SetIconColor = function(selfOrColor, maybeColor, maybeActive)
+            local colorVal = (selfOrColor == page) and maybeColor or selfOrColor
+            local activeVal = (selfOrColor == page) and maybeActive or maybeColor
+            applyIconToTab(name, nil, nil, colorVal, activeVal)
+        end
+        page.GetTabButton = function()
+            for _, b in ipairs(hubState.tabButtons or {}) do
+                if b.Name == name then return b end
+            end
+            return nil
+        end
+
         local isFirst = defaultVisible
         if isFirst == nil then
             isFirst = (hubState.firstUserTabCreated ~= true and name ~= "Config" and name ~= "Universal")
@@ -4570,11 +4717,11 @@ return function(opts)
         end
         return page
     end
-    function hubState.createPage(name)
+    function hubState.createPage(name, iconAssetIdOrProps, maybeProps)
         if name == "__SearchResults__" then
             return hubState.getOrCreatePage(name)
         end
-        return hubState.createTabButton(name, name, nil, nil)
+        return hubState.createTabButton(name, name, iconAssetIdOrProps, nil, maybeProps)
     end
     hubState.searchResultsPage = hubState.createPage("__SearchResults__")
         function hubState.renderSearchResults(query)
@@ -7626,6 +7773,9 @@ return function(opts)
         hubState.createToggle(hubState.configTabPage, "Show HUD Stats Overlay", hubState.isHudEnabled, function(enabled)
             hubState.setHudVisible(enabled)
         end)
+        hubState.createSlider(hubState.configTabPage, "HUD Stats Size", 50, 200, math.floor((hubState.hudScale or 1.0) * 100), "%", function(val)
+            hubState.setHudScale(val / 100)
+        end)
         hubState.createSlider(hubState.configTabPage, "HUD Background Opacity", 5, 95, math.floor(hubState.hudOpacity * 100), "%", function(val)
             hubState.setHudOpacity(val / 100)
         end)
@@ -8025,6 +8175,44 @@ return function(opts)
         CreateTab = hubState.createPage,
         createPage = hubState.createPage,
         CreatePage = hubState.createPage,
+        SetTabIcon = function(tabName, icon, size, color, activeColor)
+            local targetPage = nil
+            for _, p in ipairs(hubState.tabPages or {}) do
+                if p.Name == tabName then targetPage = p; break end
+            end
+            if targetPage and targetPage.SetIcon then
+                targetPage.SetIcon(icon, size, color, activeColor)
+            end
+        end,
+        setTabIcon = function(tabName, icon, size, color, activeColor)
+            local targetPage = nil
+            for _, p in ipairs(hubState.tabPages or {}) do
+                if p.Name == tabName then targetPage = p; break end
+            end
+            if targetPage and targetPage.SetIcon then
+                targetPage.SetIcon(icon, size, color, activeColor)
+            end
+        end,
+        SetTabIconSize = function(tabName, size)
+            local targetPage = nil
+            for _, p in ipairs(hubState.tabPages or {}) do
+                if p.Name == tabName then targetPage = p; break end
+            end
+            if targetPage and targetPage.SetIconSize then targetPage.SetIconSize(size) end
+        end,
+        SetTabIconColor = function(tabName, color, activeColor)
+            local targetPage = nil
+            for _, p in ipairs(hubState.tabPages or {}) do
+                if p.Name == tabName then targetPage = p; break end
+            end
+            if targetPage and targetPage.SetIconColor then targetPage.SetIconColor(color, activeColor) end
+        end,
+        SetHudScale = hubState.setHudScale,
+        setHudScale = hubState.setHudScale,
+        SetHudVisible = hubState.setHudVisible,
+        setHudVisible = hubState.setHudVisible,
+        SetHudOpacity = hubState.setHudOpacity,
+        setHudOpacity = hubState.setHudOpacity,
         BringSelectedItem = hubState.BringSelectedItem,
         createSliderToggle = hubState.createToggle,
         createValueSlider = hubState.createSlider,
