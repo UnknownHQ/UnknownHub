@@ -1726,6 +1726,7 @@ local sellWeightModeListObj
 
 local autoSellPetsToggle
 local sellTargetPetListObj
+local sellExcludePetListObj
 local sellExcludePetVariantListObj
 local sellExcludePetMutationListObj
 local sellExcludePetWeightModeListObj
@@ -2289,16 +2290,54 @@ end
 local function shouldSellPetTool(info)
     if not info or not info.Tool or not info.UUID then return false end
 
-    local targetPet = tostring(getUIListVal(sellTargetPetListObj, State.Sell_TargetPet or "All Pets"))
-    if targetPet == "None" then
-        return false -- None selected -> NEVER sell any pets!
+    -- Exclusion 0: Specific Pet Exclusions (Multi-Select)
+    local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
+    if #excludedPets > 0 then
+        local nameLower = info.ToolName:lower()
+        local speciesLower = info.PetSpecies:lower()
+        local cleanSpecies = speciesLower:gsub("[%s%p]", "")
+        local cleanName = nameLower:gsub("[%s%p]", "")
+        for _, exPet in ipairs(excludedPets) do
+            local exLower = tostring(exPet):lower():gsub("[%s%p]", "")
+            if exLower ~= "none" and exLower ~= "" then
+                if cleanSpecies == exLower or cleanSpecies:find(exLower, 1, true) or exLower:find(cleanSpecies, 1, true) or cleanName:find(exLower, 1, true) then
+                    return false -- Excluded from selling!
+                end
+            end
+        end
     end
 
-    -- Species Whitelist Check: If not "All Pets" / "All", must match selected pet species
-    if targetPet ~= "All Pets" and targetPet ~= "All" then
+    -- Target Pet Whitelist Check (Multi-Select or Single-Select)
+    local targetPets = getUIListMultipleVals(sellTargetPetListObj, {State.Sell_TargetPet or "All Pets"})
+    local isAllPets = false
+    if #targetPets == 0 then
+        isAllPets = true
+    else
+        for _, tp in ipairs(targetPets) do
+            local clean = tostring(tp):lower():gsub("[%s%p]", "")
+            if clean == "allpets" or clean == "all" or clean == "" then
+                isAllPets = true
+                break
+            end
+        end
+    end
+
+    if not isAllPets then
+        local matchedTarget = false
         local nameLower = info.ToolName:lower()
-        local targetLower = targetPet:lower()
-        if info.PetSpecies:lower() ~= targetLower and not nameLower:find(targetLower, 1, true) then
+        local speciesLower = info.PetSpecies:lower()
+        local cleanSpecies = speciesLower:gsub("[%s%p]", "")
+        local cleanName = nameLower:gsub("[%s%p]", "")
+        for _, tp in ipairs(targetPets) do
+            local targetLower = tostring(tp):lower():gsub("[%s%p]", "")
+            if targetLower ~= "none" and targetLower ~= "" then
+                if cleanSpecies == targetLower or cleanSpecies:find(targetLower, 1, true) or targetLower:find(cleanSpecies, 1, true) or cleanName:find(targetLower, 1, true) then
+                    matchedTarget = true
+                    break
+                end
+            end
+        end
+        if not matchedTarget then
             return false
         end
     end
@@ -2818,23 +2857,21 @@ task.spawn(function()
                 local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
                 local hasSlotSelected = (sellSlot ~= "None" and sellSlot ~= "")
 
-                -- Rule: If a slot is selected, wait until pet backpack is full (or near full) before selling
-                -- If NO slot selected (None), sell immediately as soon as sellable pets exist!
-                local petBackpackFull = isPetBackpackFull()
-                local canSellPets = (not hasSlotSelected) or petBackpackFull
-
-                if canSellPets then
-                    local petUUIDBatch = {}
-                    for _, tool in ipairs(allTools) do
-                        if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age")) then
-                            local petInfo = getPetToolInfo(tool)
-                            if petInfo and shouldSellPetTool(petInfo) then
-                                table.insert(petUUIDBatch, petInfo.UUID)
-                            end
+                local petUUIDBatch = {}
+                for _, tool in ipairs(allTools) do
+                    if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age")) then
+                        local petInfo = getPetToolInfo(tool)
+                        if petInfo and shouldSellPetTool(petInfo) then
+                            table.insert(petUUIDBatch, petInfo.UUID)
                         end
                     end
+                end
 
-                    if #petUUIDBatch > 0 then
+                if #petUUIDBatch > 0 then
+                    local petBackpackFull = isPetBackpackFull()
+                    local canSellPets = (not hasSlotSelected) or petBackpackFull or (#petUUIDBatch >= 5)
+
+                    if canSellPets then
                         if hasSlotSelected then
                             local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
                             if sellSlotNum then
@@ -5541,10 +5578,9 @@ Hub.CreateTextBox(petTab, "Sell Slot Cooldown (s, min: 3)", "Cooldown after equi
     end
 end)
 
-sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.Sell_TargetPet = name
-end)
+sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, false, { MultiSelect = true })
+
+sellExcludePetListObj = Hub.CreateList(petTab, "Pet: Exclude Pet from Selling", petListItems, 220, false, { MultiSelect = true })
 
 sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, false, function(selected)
     local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
