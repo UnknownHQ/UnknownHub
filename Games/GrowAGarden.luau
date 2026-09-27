@@ -2864,127 +2864,38 @@ task.spawn(function()
 
         local autoSellPets = isToggleActive(autoSellPetsToggle, State.AutoSellPets, "🐾 Auto Sell Pets")
         if autoSellPets then
-            task.wait(0.2)
-
             local ok, err = pcall(function()
                 local allTools = getAllPlayerTools()
                 local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
                 local hasSlotSelected = (sellSlot ~= "None" and sellSlot ~= "")
 
-                local petUUIDBatch = {}
                 local petToolBatch = {}
-
                 for _, tool in ipairs(allTools) do
                     if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age")) then
                         local petInfo = getPetToolInfo(tool)
                         if petInfo and shouldSellPetTool(petInfo) then
-                            table.insert(petUUIDBatch, petInfo.UUID)
                             table.insert(petToolBatch, tool)
                         end
                     end
                 end
 
-                pcall(function()
-                    local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
-                    local ds = dsMod and require(dsMod)
-                    local data = ds and ds:GetData()
-                    local petDataMap = data and data.PetsData and data.PetsData.PetInventory and data.PetsData.PetInventory.Data
-                    if petDataMap then
-                        local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
-                        local excludedMap = {}
-                        for _, exPet in ipairs(excludedPets) do
-                            local exLower = tostring(exPet):lower():gsub("[%s%p]", "")
-                            if exLower ~= "none" and exLower ~= "" then
-                                excludedMap[exLower] = true
-                            end
-                        end
-
-                        local targetPets = getUIListMultipleVals(sellTargetPetListObj, {State.Sell_TargetPet or "All Pets"})
-                        local isAllPets = false
-                        if #targetPets == 0 then
-                            isAllPets = true
-                        else
-                            for _, tp in ipairs(targetPets) do
-                                local clean = tostring(tp):lower():gsub("[%s%p]", "")
-                                if clean == "allpets" or clean == "all" or clean == "" then
-                                    isAllPets = true
-                                    break
-                                end
-                            end
-                        end
-
-                        local knownUUIDs = {}
-                        for _, u in ipairs(petUUIDBatch) do knownUUIDs[u] = true end
-
-                        for uuid, item in pairs(petDataMap) do
-                            if not knownUUIDs[uuid] then
-                                local species = item.PetType or (item.PetData and item.PetData.Name) or "Unknown"
-                                local cleanSpecies = tostring(species):lower():gsub("[%s%p]", "")
-                                local isExcluded = false
-                                for exLower, _ in pairs(excludedMap) do
-                                    if cleanSpecies == exLower or cleanSpecies:find(exLower, 1, true) or exLower:find(cleanSpecies, 1, true) then
-                                        isExcluded = true
-                                        break
-                                    end
-                                end
-
-                                if not isExcluded then
-                                    local matchedTarget = isAllPets
-                                    if not matchedTarget then
-                                        for _, tp in ipairs(targetPets) do
-                                            local targetLower = tostring(tp):lower():gsub("[%s%p]", "")
-                                            if targetLower ~= "none" and targetLower ~= "" then
-                                                if cleanSpecies == targetLower or cleanSpecies:find(targetLower, 1, true) or targetLower:find(cleanSpecies, 1, true) then
-                                                    matchedTarget = true
-                                                    break
-                                                end
-                                            end
-                                        end
-                                    end
-
-                                    if matchedTarget then
-                                        table.insert(petUUIDBatch, uuid)
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end)
-
-                if #petToolBatch > 0 or #petUUIDBatch > 0 then
+                if #petToolBatch > 0 then
                     _G._gag_selling_pets = true
                     if hasSlotSelected then
                         local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
                         if sellSlotNum then
                             local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
-                            if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) or (tick() - lastSlotEquipTick) > 10 then
+                            if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) then
                                 equipPetSlot(sellSlot, true, sellCooldown)
-                            else
-                                local elapsed = tick() - lastSlotEquipTick
-                                if elapsed < sellCooldown then
-                                    task.wait(sellCooldown - elapsed)
-                                end
                             end
                         end
                     end
 
                     local ge = ReplicatedStorage:FindFirstChild("GameEvents")
                     local sellShop = ge and ge:FindFirstChild("SellPetShopSelected")
-                    local sellAllRemote = ge and ge:FindFirstChild("SellAllPets_RE")
                     local sellOne = ge and ge:FindFirstChild("SellPet_RE")
 
-                    local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
-                    local hasPetExclusions = false
-                    for _, ex in ipairs(excludedPets) do
-                        local exL = tostring(ex):lower():gsub("[%s%p]", "")
-                        if exL ~= "none" and exL ~= "" then
-                            hasPetExclusions = true
-                            break
-                        end
-                    end
-
-                    -- Direct individual selling via SellPetShopSelected
-                    if #petToolBatch > 0 and sellShop then
+                    if sellShop then
                         for _, toolItem in ipairs(petToolBatch) do
                             if toolItem and toolItem.Parent then
                                 pcall(function()
@@ -2995,28 +2906,22 @@ task.spawn(function()
                                         sellOne:FireServer(toolItem)
                                     end)
                                 end
-                                task.wait(0.02)
+                                task.wait(0.015)
                             end
                         end
                     end
-
-                    -- If no specific exclusions, fire SellAllPets_RE as bulk fallback
-                    if not hasPetExclusions and sellAllRemote then
-                        pcall(function()
-                            sellAllRemote:FireServer()
-                        end)
-                    end
+                    task.wait(0.2)
                     _G._gag_selling_pets = false
                 else
                     _G._gag_selling_pets = false
                 end
             end)
 
-            if not ok and err then
-                task.wait(0.2)
-            end
+            if not ok then _G._gag_selling_pets = false end
+            task.wait(0.2)
         else
-            task.wait(0.4)
+            _G._gag_selling_pets = false
+            task.wait(0.5)
         end
     end
 end)
@@ -3575,10 +3480,13 @@ task.spawn(function()
                     return
                 end
 
+                -- Unequip any pet currently held in hand before placing
+                unequipHatchedPetTool()
+
                 -- Always equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
                 local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
                 if placeSlot ~= "None" and not _G._gag_selling_pets then
-                    equipPetSlot(placeSlot)
+                    equipPetSlot(placeSlot, false)
                 end
 
                 local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
@@ -3596,11 +3504,11 @@ task.spawn(function()
                 end
 
                 placeEggAt(targetPos, eggTool)
-                task.wait(0.12)
+                task.wait(0.18)
             end)
 
             if not ok and err then
-                task.wait(0.15)
+                task.wait(0.2)
             end
         else
             task.wait(0.4)
@@ -3651,7 +3559,7 @@ task.spawn(function()
                     end
                 end
 
-                if hasReadyEggs then
+                if hasReadyEggs and not _G._gag_selling_pets then
                     local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
                     if hatchSlot ~= "None" then
                         local hatchSlotNum = tonumber(tostring(hatchSlot):match("%d+"))
@@ -3665,10 +3573,6 @@ task.spawn(function()
                             end
                             local targetCooldown = math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
                             if (tick() - lastSlotEquipTick) < targetCooldown then
-                                task.wait(0.25)
-                                return
-                            end
-                            if not isPetSlotLoaded(hatchSlotNum) then
                                 task.wait(0.25)
                                 return
                             end
