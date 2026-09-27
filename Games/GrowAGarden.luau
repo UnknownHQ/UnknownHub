@@ -3407,14 +3407,14 @@ local function equipPetSlot(slotVal, waitForLoad, minCooldown)
     end
 
     if waitForLoad then
-        local targetCooldown = minCooldown or math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
+        local targetCooldown = minCooldown or math.max(3.0, tonumber(State.Hatch_SlotCooldown) or 5.0)
         local startWait = tick()
-        while (tick() - lastSlotEquipTick < targetCooldown) and (tick() - startWait < targetCooldown + 1) do
-            task.wait(0.2)
+        while (not isPetSlotLoaded(slotNum) or (tick() - lastSlotEquipTick < targetCooldown)) and (tick() - startWait < targetCooldown + 1.5) do
+            task.wait(0.15)
         end
-        return true
+        return isPetSlotLoaded(slotNum)
     end
-    return true
+    return isPetSlotLoaded(slotNum)
 end
 
 -- 1. Auto Place Eggs Loop (Cycle Step 1: Equip Slot, Place Eggs, Wait For Hatch)
@@ -3458,7 +3458,7 @@ task.spawn(function()
                 -- Always equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
                 local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
                 if placeSlot ~= "None" and not _G._gag_selling_pets then
-                    equipPetSlot(placeSlot, false)
+                    equipPetSlot(placeSlot, true, 2.0)
                 end
 
                 local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
