@@ -3481,11 +3481,11 @@ return function(opts)
     headerDivider.Parent = header
         local titleGroup = Instance.new("Frame")
     titleGroup.Name = "TitleGroup"
-    titleGroup.Size = UDim2.new(1, -235, 1, 0)
+    titleGroup.Size = UDim2.new(1, -285, 1, 0)
     titleGroup.Position = UDim2.new(0, 14, 0, 0)
     titleGroup.BackgroundTransparency = 1
     titleGroup.ZIndex = 22
-    titleGroup.ClipsDescendants = false
+    titleGroup.ClipsDescendants = true
     titleGroup.Parent = header
     local titleLayout = Instance.new("UIListLayout")
     titleLayout.FillDirection = Enum.FillDirection.Horizontal
@@ -3744,81 +3744,7 @@ return function(opts)
             end
         end
     end)
-    local subTitleLabel = Instance.new("TextLabel")
-    subTitleLabel.Name = "SubTitle"
-    subTitleLabel.AutomaticSize = Enum.AutomaticSize.X
-    subTitleLabel.Size = UDim2.new(0, 0, 1, 0)
-    subTitleLabel.BackgroundTransparency = 1
-    subTitleLabel.Text = opts.subTitle or opts.subtitle or "v2.0"
-    subTitleLabel.TextColor3 = Color3.fromRGB(130, 140, 165)
-    subTitleLabel.Font = Enum.Font.GothamBold
-    subTitleLabel.TextSize = 11
-    subTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    subTitleLabel.LayoutOrder = 3
-    subTitleLabel.ZIndex = 22
-    subTitleLabel.Parent = titleGroup
-    local detectedGameName = opts.subTitle or opts.subtitle or opts.gameName or opts.GameName
-    if not detectedGameName or detectedGameName == "v2.0" or detectedGameName == "" then
-        pcall(function()
-            local MarketplaceService = game:GetService("MarketplaceService")
-            local info = MarketplaceService:GetProductInfo(game.PlaceId)
-            if info and info.Name and info.Name ~= "" then
-                detectedGameName = info.Name
-            end
-        end)
-        if not detectedGameName or detectedGameName == "" then
-            detectedGameName = game.Name ~= "" and game.Name or "Roblox"
-        end
-    end
-    local livePill = Instance.new("Frame")
-    livePill.Name = "LivePill"
-    livePill.AutomaticSize = Enum.AutomaticSize.X
-    livePill.Size = UDim2.new(0, 0, 0, 20)
-    livePill.BackgroundColor3 = Color3.fromRGB(18, 24, 36)
-    livePill.BorderSizePixel = 0
-    livePill.LayoutOrder = 4
-    livePill.ZIndex = 22
-    livePill.Parent = titleGroup
-    applyCorner(livePill, 10)
-    applyStroke(livePill, Color3.fromRGB(44, 56, 80), 1, 0)
-    local livePillLayout = Instance.new("UIListLayout")
-    livePillLayout.FillDirection = Enum.FillDirection.Horizontal
-    livePillLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    livePillLayout.Padding = UDim.new(0, 5)
-    livePillLayout.Parent = livePill
-    local livePillPadding = Instance.new("UIPadding")
-    livePillPadding.PaddingLeft = UDim.new(0, 7)
-    livePillPadding.PaddingRight = UDim.new(0, 9)
-    livePillPadding.Parent = livePill
-    local liveDot = Instance.new("Frame")
-    liveDot.Name = "LiveDot"
-    liveDot.Size = UDim2.new(0, 6, 0, 6)
-    liveDot.BackgroundColor3 = Color3.fromRGB(50, 230, 140)
-    liveDot.BorderSizePixel = 0
-    liveDot.ZIndex = 23
-    liveDot.Parent = livePill
-    applyCorner(liveDot, 3)
-    local liveText = Instance.new("TextLabel")
-    liveText.Name = "GameNameLabel"
-    liveText.AutomaticSize = Enum.AutomaticSize.X
-    liveText.Size = UDim2.new(0, 0, 1, 0)
-    liveText.BackgroundTransparency = 1
-    liveText.Text = string.upper(tostring(detectedGameName))
-    liveText.TextColor3 = Color3.fromRGB(170, 240, 200)
-    liveText.Font = Enum.Font.GothamBold
-    liveText.TextSize = 9
-    liveText.TextXAlignment = Enum.TextXAlignment.Left
-    liveText.ZIndex = 23
-    liveText.Parent = livePill
-    task.spawn(function()
-        local dotStart = tick()
-        while liveDot and liveDot.Parent do
-            local dotElapsed = tick() - dotStart
-            local dotAlpha = (math.sin(dotElapsed * 3) * 0.3) + 0.7
-            liveDot.BackgroundTransparency = 1 - dotAlpha
-            task.wait(0.08)
-        end
-    end)
+    -- Subtitle and live pill removed per user request for clean header presentation
     local sidebar = Instance.new("ScrollingFrame")
     sidebar.Name = "Sidebar"
     sidebar.Size = UDim2.new(0, 52, 1, -69)
@@ -3951,11 +3877,12 @@ return function(opts)
     sidebarTooltip.AutomaticSize = Enum.AutomaticSize.X
     sidebarTooltip.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
     sidebarTooltip.BorderSizePixel = 0
+    sidebarTooltip.BackgroundTransparency = 1
     sidebarTooltip.ZIndex = 60
     sidebarTooltip.Visible = false
     sidebarTooltip.Parent = hubState.mainFrame
     applyCorner(sidebarTooltip, 6)
-    applyStroke(sidebarTooltip, Color3.fromRGB(44, 56, 80), 1, 0.2)
+    local tooltipStroke = applyStroke(sidebarTooltip, Color3.fromRGB(44, 56, 80), 1, 1)
     local tooltipPad = Instance.new("UIPadding")
     tooltipPad.PaddingLeft = UDim.new(0, 8)
     tooltipPad.PaddingRight = UDim.new(0, 8)
@@ -3965,20 +3892,50 @@ return function(opts)
     tooltipLabel.Size = UDim2.new(0, 0, 1, 0)
     tooltipLabel.AutomaticSize = Enum.AutomaticSize.X
     tooltipLabel.BackgroundTransparency = 1
+    tooltipLabel.TextTransparency = 1
     tooltipLabel.TextColor3 = Color3.fromRGB(240, 245, 255)
     tooltipLabel.Font = Enum.Font.GothamBold
     tooltipLabel.TextSize = 11
     tooltipLabel.ZIndex = 61
     tooltipLabel.Parent = sidebarTooltip
+    local currentTooltipSession = 0
     local function showSidebarTooltip(btn, text)
         if not btn or not btn.Parent then return end
+        currentTooltipSession = currentTooltipSession + 1
+        local session = currentTooltipSession
         tooltipLabel.Text = tostring(text or "")
         local yPos = btn.AbsolutePosition.Y - hubState.mainFrame.AbsolutePosition.Y + 5
-        sidebarTooltip.Position = UDim2.new(0, 58, 0, yPos)
+        sidebarTooltip.Position = UDim2.new(0, 52, 0, yPos)
         sidebarTooltip.Visible = true
+        local ti = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        TweenService:Create(sidebarTooltip, ti, {
+            BackgroundTransparency = 0,
+            Position = UDim2.new(0, 58, 0, yPos)
+        }):Play()
+        TweenService:Create(tooltipLabel, ti, { TextTransparency = 0 }):Play()
+        if tooltipStroke then
+            TweenService:Create(tooltipStroke, ti, { Transparency = 0.2 }):Play()
+        end
     end
     local function hideSidebarTooltip()
-        sidebarTooltip.Visible = false
+        currentTooltipSession = currentTooltipSession + 1
+        local session = currentTooltipSession
+        local ti = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local curY = sidebarTooltip.Position.Y.Offset
+        local curScale = sidebarTooltip.Position.Y.Scale
+        TweenService:Create(sidebarTooltip, ti, {
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, 52, curScale, curY)
+        }):Play()
+        TweenService:Create(tooltipLabel, ti, { TextTransparency = 1 }):Play()
+        if tooltipStroke then
+            TweenService:Create(tooltipStroke, ti, { Transparency = 1 }):Play()
+        end
+        task.delay(0.13, function()
+            if currentTooltipSession == session and sidebarTooltip.BackgroundTransparency >= 0.95 then
+                sidebarTooltip.Visible = false
+            end
+        end)
     end
     hubState.isWindowCollapsed = false
     hubState.uncollapsedWindowHeight = 390
@@ -4371,7 +4328,7 @@ return function(opts)
                     indicator.BackgroundColor3 = c1
                     TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                         BackgroundTransparency = 0,
-                        Size = UDim2.new(0, 3, 0, 20)
+                        Size = UDim2.new(0, 3, 0, 18)
                     }):Play()
                 end
                 local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
@@ -4393,7 +4350,7 @@ return function(opts)
                     if indicator then
                         TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                             BackgroundTransparency = 1,
-                            Size = UDim2.new(0, 3, 0, 10)
+                            Size = UDim2.new(0, 3, 0, 8)
                         }):Play()
                     end
                     local icon = btn:FindFirstChild("TabIcon") or btn:FindFirstChild("TabGlyph")
@@ -4434,7 +4391,7 @@ return function(opts)
             end
         end
     end
-    function hubState.createPage(name)
+    function hubState.getOrCreatePage(name)
         for _, p in ipairs(hubState.tabPages) do
             if p.Name == name then return p end
         end
@@ -4465,7 +4422,7 @@ return function(opts)
     function hubState.createTabButton(name, text, iconAssetId, defaultVisible)
         if name == "Favorites" or name == "Repository" or name == "⭐ Favorites" or name == "📦 Repository" then
             local pageName = (name == "Favorites" or name == "⭐ Favorites") and "Favorites" or "Repository"
-            local p = hubState.createPage(pageName)
+            local p = hubState.getOrCreatePage(pageName)
             if defaultVisible then
                 hubState.currentActiveTabName = pageName
                 task.defer(function() hubState.setTabVisible(pageName) end)
@@ -4486,7 +4443,7 @@ return function(opts)
             end
             return hubState.universalTabPage
         end
-        local page = hubState.createPage(name)
+        local page = hubState.getOrCreatePage(name)
         local existingBtn = nil
         for _, b in ipairs(hubState.tabButtons) do
             if b.Name == name then
@@ -4513,8 +4470,9 @@ return function(opts)
             local btnStroke = applyStroke(btn, Color3.fromRGB(34, 42, 60), 1, 0.4)
             local indicator = Instance.new("Frame")
             indicator.Name = "ActiveIndicator"
-            indicator.Size = UDim2.new(0, 3, 0, 12)
-            indicator.Position = UDim2.new(0, 0, 0.5, -6)
+            indicator.AnchorPoint = Vector2.new(0, 0.5)
+            indicator.Size = UDim2.new(0, 3, 0, 8)
+            indicator.Position = UDim2.new(0, 2, 0.5, 0)
             indicator.BackgroundColor3 = hubState.currentThemeColor
             indicator.BorderSizePixel = 0
             indicator.BackgroundTransparency = 1
@@ -4527,6 +4485,8 @@ return function(opts)
                 glyphText = "🏠"
             elseif lowerName:find("farm") or lowerName:find("garden") or lowerName:find("grow") then
                 glyphText = "🌾"
+            elseif lowerName:find("tree") or lowerName:find("upgrade") then
+                glyphText = "🌳"
             elseif lowerName:find("config") or lowerName:find("setting") then
                 glyphText = "⚙️"
             elseif lowerName:find("universal") or lowerName:find("util") then
@@ -4597,11 +4557,24 @@ return function(opts)
             if not hubState.tabButtons then hubState.tabButtons = {} end
             table.insert(hubState.tabButtons, btn)
         end
-        if defaultVisible then
+        local isFirst = defaultVisible
+        if isFirst == nil then
+            isFirst = (hubState.firstUserTabCreated ~= true and name ~= "Config" and name ~= "Universal")
+        end
+        if name ~= "Config" and name ~= "Universal" then
+            hubState.firstUserTabCreated = true
+        end
+        if isFirst then
             hubState.currentActiveTabName = name
             task.defer(function() hubState.setTabVisible(name) end)
         end
         return page
+    end
+    function hubState.createPage(name)
+        if name == "__SearchResults__" then
+            return hubState.getOrCreatePage(name)
+        end
+        return hubState.createTabButton(name, name, nil, nil)
     end
     hubState.searchResultsPage = hubState.createPage("__SearchResults__")
         function hubState.renderSearchResults(query)
@@ -5057,7 +5030,7 @@ return function(opts)
         return item
     end
     function hubState.CreateInput(parent, nameOrPlaceholder, defaultText, callbackOrPlaceholder, maybeCallback)
-        local targetParent = contentArea
+        local targetParent = (hubState.tabPages and hubState.tabPages[1]) or contentArea
         local titleName = "Input"
         local defText = ""
         local placeholder = "Type..."
@@ -5177,12 +5150,13 @@ return function(opts)
         return resultObj
     end
     function hubState.createTextBox(parent, placeholderText, defaultText, callback)
+        local fallbackPage = (hubState.tabPages and hubState.tabPages[1]) or contentArea
         if type(parent) == "string" and typeof(placeholderText) ~= "string" and typeof(placeholderText) ~= "nil" then
-            return hubState.CreateInput(contentArea, parent, "", placeholderText, defaultText)
+            return hubState.CreateInput(fallbackPage, parent, "", placeholderText, defaultText)
         elseif typeof(parent) == "Instance" or (type(parent) == "table" and (parent.List or parent.Frame)) then
             return hubState.CreateInput(parent, placeholderText or "Input", defaultText or "", callback)
         else
-            return hubState.CreateInput(contentArea, parent or "Input", defaultText or "", placeholderText or "Type...", callback)
+            return hubState.CreateInput(fallbackPage, parent or "Input", defaultText or "", placeholderText or "Type...", callback)
         end
     end
     function hubState.createToggle(parent, text, defaultState, callbackOrLoop, loopDelay, configTable)
@@ -5191,7 +5165,7 @@ return function(opts)
         elseif type(parent) == "table" and parent.Frame then
             parent = parent.Frame
         elseif not parent or typeof(parent) ~= "Instance" then
-            parent = contentArea
+            parent = (hubState.tabPages and hubState.tabPages[1]) or contentArea
         end
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
@@ -5634,7 +5608,7 @@ return function(opts)
         local parentTarget = parent
         local itemTitle = title or "List"
         local itemValues = items or {}
-        local itemExpanded = (expanded == true) 
+        local itemExpanded = false
         local multiSelect = selectionOptions == true or (type(selectionOptions) == "table" and (selectionOptions.MultiSelect == true or selectionOptions.multiSelect == true))
         local parentListObj = nil
         local isNestedList = false
@@ -5644,23 +5618,23 @@ return function(opts)
             isNestedList = true
             itemTitle = title or "Sub-List"
             itemValues = items or {}
-            itemExpanded = (expanded == true)
+            itemExpanded = false
         elseif type(parentTarget) == "table" then
             itemValues = parentTarget
             parentTarget = contentArea
             itemTitle = "List"
-            itemExpanded = (items == true)
+            itemExpanded = false
         elseif type(parentTarget) == "string" then
             if type(title) == "table" then
                 itemTitle = parentTarget
                 itemValues = title
                 parentTarget = contentArea
-                itemExpanded = (height == true)
+                itemExpanded = false
             else
                 itemTitle = parentTarget
                 parentTarget = title or contentArea
                 itemValues = items or {}
-                itemExpanded = (expanded == true)
+                itemExpanded = false
             end
         end
         if typeof(parentTarget) == "Instance" then
@@ -6090,6 +6064,7 @@ return function(opts)
             entryData.CreateList = entryData.AddList
             table.insert(listObject.Items, entryData)
             checkSearchVisibility()
+            if open then updateListHeight(false) end
             return row, entryData
         end
         listObject.AddItem = function(selfOrName, nameOrSubtitle, subtitleOrCallback, callback, actionText, actionCallback, actionDisabled)
@@ -6972,8 +6947,8 @@ return function(opts)
                 end
             end)
         end
-        local universalListContainer = hubState.CreateList(hubState.repoPage, "🌐 Universal Scripts", {}, 230, true)
-        local gameListContainer = hubState.CreateList(hubState.repoPage, "🎮 Unknown Hub Games", {}, 230, true)
+        local universalListContainer = hubState.CreateList(hubState.repoPage, "🌐 Universal Scripts", {}, 230, false)
+        local gameListContainer = hubState.CreateList(hubState.repoPage, "🎮 Unknown Hub Games", {}, 230, false)
         local universalScriptsData = {
             { name = "Dark Dex V3", desc = "Hierarchy explorer, property inspector & decompiler", url = "https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/BypassedDarkDexV3.luau" },
             { name = "SimpleSpy V3", desc = "Real-time RemoteEvent & RemoteFunction logger", url = "https://raw.githubusercontent.com/infyiff/backup/main/SimpleSpyV3/main.lua" },
@@ -7456,10 +7431,8 @@ return function(opts)
         status.TextSize = 10
         status.TextXAlignment = Enum.TextXAlignment.Left
         status.Parent = hubState.configTabPage
-        local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, true)
+        local configList = hubState.CreateList(hubState.configTabPage, "Saved Configs", {}, 140, false)
         local selectedName
-        local saveNameBox
-        local renameNameBox
         local function setStatus(message, isError)
             status.Text = message
             status.TextColor3 = isError and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(140, 225, 165)
@@ -7474,53 +7447,47 @@ return function(opts)
             for _, name in ipairs(hubState.getConfigNames()) do
                 configList:AddItem(name, "Click to select", function()
                     selectedName = name
-                    if saveNameBox then saveNameBox.Text = name end
-                    if renameNameBox then renameNameBox.Text = name end
                     setStatus("Selected: " .. name, false)
                 end)
             end
         end
-        local function createConfigActionRow(buttonText, boxPlaceholder, boxOnLeft, callback)
-            local row = Instance.new("Frame")
-            row.Size = UDim2.new(1, -6, 0, 38)
-            row.BackgroundTransparency = 1
-            row.Parent = hubState.configTabPage
-            local button = hubState.createButton(row, buttonText, callback)
-            button.Size = UDim2.new(0.48, -4, 1, 0)
-            button.Position = boxOnLeft and UDim2.new(0.52, 4, 0, 0) or UDim2.new(0, 0, 0, 0)
-            local box = hubState.createTextBox(row, boxPlaceholder)
-            local boxFrame = box.Parent
-            boxFrame.Size = UDim2.new(0.52, -4, 1, 0)
-            boxFrame.Position = boxOnLeft and UDim2.new(0, 0, 0, 0) or UDim2.new(0.48, 4, 0, 0)
-            return box
-        end
-        local function saveConfig(overwrite)
-            local name = sanitizeName(saveNameBox and saveNameBox.Text or "")
-            if name == "" or name == "Unknown" then
-                setStatus("Enter a valid config name first", true)
+        local function saveConfig(name, overwrite)
+            local profileName = sanitizeName(name or selectedName or ("Profile_" .. tostring(os.date("%m%d_%H%M%S"))))
+            if profileName == "" or profileName == "Unknown" then
+                setStatus("Select or provide a valid config name", true)
                 return
             end
             if not ensureConfigFolders() then
                 setStatus("Executor file APIs unavailable", true)
                 return
             end
-            local path = configPath(name)
+            local path = configPath(profileName)
             if not overwrite and type(isfile) == "function" and isfile(path) then
-                setStatus("Config already exists; use Overwrite", true)
+                setStatus("Config already exists; click Overwrite", true)
                 return
             end
             local ok = pcall(writefile, path, hubState.serializeConfig())
-            setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. name) or "Failed to write config", not ok)
+            setStatus(ok and ((overwrite and "Overwritten: " or "Saved: ") .. profileName) or "Failed to write config", not ok)
             if ok then
-                selectedName = name
+                selectedName = profileName
                 refreshConfigs()
-                hubState.notify({ Title = "Config", Content = "Profile '" .. name .. "' saved." })
+                hubState.notify({ Title = "Config", Content = "Profile '" .. profileName .. "' saved." })
             end
         end
-        saveNameBox = createConfigActionRow("Save Config", "Profile name", false, function() saveConfig(false) end)
-        hubState.createButton(hubState.configTabPage, "Overwrite Selected", function() saveConfig(true) end)
+        hubState.createButton(hubState.configTabPage, "💾 Save Current Config (New Profile)", function()
+            local autoName = "Profile_" .. tostring(os.date("%m%d_%H%M%S"))
+            saveConfig(autoName, false)
+        end)
+        hubState.createButton(hubState.configTabPage, "Overwrite Selected", function()
+            if not selectedName then
+                setStatus("Select a profile first to overwrite", true)
+                return
+            end
+            saveConfig(selectedName, true)
+        end)
         hubState.createButton(hubState.configTabPage, "Load Selected", function()
-            local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
+            local name = selectedName
+            if not name then setStatus("Select a profile first", true); return end
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok, contents = pcall(readfile, configPath(name))
             if ok and contents then
@@ -7532,12 +7499,11 @@ return function(opts)
             end
         end)
         hubState.createButton(hubState.configTabPage, "Delete Selected", function()
-            local name = selectedName or sanitizeName(saveNameBox and saveNameBox.Text or "")
+            local name = selectedName
+            if not name then setStatus("Select a profile first", true); return end
             if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
             local ok = pcall(delfile, configPath(name))
             selectedName = nil
-            if saveNameBox then saveNameBox.Text = "" end
-            if renameNameBox then renameNameBox.Text = "" end
             refreshConfigs()
             setStatus(ok and ("Deleted profile: " .. name) or "Could not delete config", not ok)
         end)
@@ -7557,16 +7523,27 @@ return function(opts)
                 Color = hubState.currentThemeColor
             })
         end)
-        local importBox = hubState.createTextBox(hubState.configTabPage, "Paste exported config string here...", "")
-        hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Text", function()
-            local rawText = importBox and importBox.Text or ""
+        hubState.createButton(hubState.configTabPage, "📥 Import & Apply Config from Clipboard", function()
+            local rawText = ""
+            if getclipboard then
+                local ok, clip = pcall(getclipboard)
+                if ok and type(clip) == "string" then rawText = clip end
+            elseif fromclipboard then
+                local ok, clip = pcall(fromclipboard)
+                if ok and type(clip) == "string" then rawText = clip end
+            end
             if rawText == "" then
-                setStatus("Paste a valid config string first", true)
+                setStatus("No config string detected on clipboard", true)
+                hubState.notify({
+                    Title = "Clipboard Empty",
+                    Content = "Copy a config string to clipboard first, then click Import.",
+                    Color = Color3.fromRGB(255, 120, 120)
+                })
                 return
             end
             local ok = pcall(function() hubState.applyConfig(rawText) end)
             if ok then
-                setStatus("Config string imported & applied!", false)
+                setStatus("Config string imported & applied from clipboard!", false)
                 hubState.notify({
                     Title = "Config Imported",
                     Content = "Imported configuration applied successfully.",
@@ -7576,29 +7553,6 @@ return function(opts)
             else
                 setStatus("Failed to parse config string", true)
             end
-        end)
-        renameNameBox = createConfigActionRow("Rename Config", "New profile name", true, function()
-            local oldName = selectedName
-            local newName = sanitizeName(renameNameBox and renameNameBox.Text or "")
-            if not oldName or newName == "" or oldName == newName then
-                setStatus("Select a profile and enter a new name", true)
-                return
-            end
-            if not ensureConfigFolders() then setStatus("Executor file APIs unavailable", true); return end
-            local ok, contents = pcall(readfile, configPath(oldName))
-            if not ok or not contents or (type(isfile) == "function" and isfile(configPath(newName))) then
-                setStatus("Target already exists or source missing", true)
-                return
-            end
-            local wrote = pcall(writefile, configPath(newName), contents)
-            if wrote then
-                pcall(delfile, configPath(oldName))
-                selectedName = newName
-                if saveNameBox then saveNameBox.Text = newName end
-                if renameNameBox then renameNameBox.Text = newName end
-                refreshConfigs()
-            end
-            setStatus(wrote and ("Renamed to: " .. newName) or "Rename failed", not wrote)
         end)
         hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
         hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
@@ -8022,8 +7976,11 @@ return function(opts)
         GetItemFromList = hubState.GetItemFromList,
         createTabButton = hubState.createTabButton,
         CreateTabButton = hubState.createTabButton,
-        BringSelectedItem = hubState.BringSelectedItem,
+        createTab = hubState.createPage,
+        CreateTab = hubState.createPage,
         createPage = hubState.createPage,
+        CreatePage = hubState.createPage,
+        BringSelectedItem = hubState.BringSelectedItem,
         createSliderToggle = hubState.createToggle,
         createValueSlider = hubState.createSlider,
         addSectionDivider = function(parent)

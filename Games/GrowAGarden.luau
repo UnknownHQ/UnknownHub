@@ -1,4 +1,4 @@
-local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
+local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
 local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
 local currentSession = tick()
@@ -1536,15 +1536,17 @@ local allAvailableEventSeeds, allAvailableEventGears, allAvailableEventPets, all
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
     if gethui then pcall(function() table.insert(parents, gethui()) end) end
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local playerGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
     if playerGui then table.insert(parents, playerGui) end
     for _, parent in ipairs(parents) do
         if parent then
-            for _, child in ipairs(parent:GetChildren()) do
-                if child:IsA("ScreenGui") and child.Name == LIBRARY_NAME then
-                    pcall(function() child:Destroy() end)
+            pcall(function()
+                for _, child in ipairs(parent:GetDescendants()) do
+                    if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name:find("Unknown_TabbedHub_UI")) then
+                        pcall(function() child:Destroy() end)
+                    end
                 end
-            end
+            end)
         end
     end
 end
