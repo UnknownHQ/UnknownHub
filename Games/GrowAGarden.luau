@@ -4681,10 +4681,10 @@ local slotListItems = {
 
 local farmTab = Hub.createTabButton("Farm", "🌱 Auto Farm", "rbxassetid://111808451137805", true)
 local petTab = Hub.createTabButton("Pets", "🐾 Pets", "rbxassetid://88557327752325", false)
-local shopTab = Hub.createTabButton("Shop", "🛍️ Shop", "rbxassetid://75777971774733", false)
+local shopTab = Hub.createTabButton("Shop", "🛍️ Shop", "rbxassetid://126537660819583", false)
 local eventTab = Hub.createTabButton("Events", "🎪 Events", "rbxassetid://96398631300809", false)
-local tradeTab = Hub.createTabButton("Trade", "🔄 Trade Plaza", "rbxassetid://10723407389", false)
-local miscTab = Hub.createTabButton("Misc", "🔮 Misc", "rbxassetid://10723407389", false)
+local tradeTab = Hub.createTabButton("Trade", "🔄 Trade Plaza", "rbxassetid://81017486282262", false)
+local miscTab = Hub.createTabButton("Misc", "🔮 Misc", "rbxassetid://126537660819583", false)
 local settingsTab = Hub.createTabButton("Settings", "⚙️ Settings", "rbxassetid://10723407392", false)
 
 -- ==========================================

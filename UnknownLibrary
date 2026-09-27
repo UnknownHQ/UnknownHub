@@ -4681,28 +4681,7 @@ return function(opts)
             end
         end
 
-        page.SetIcon = function(selfOrIcon, maybeIcon, maybeSize, maybeColor, maybeActive)
-            local iconVal = (selfOrIcon == page) and maybeIcon or selfOrIcon
-            local sizeVal = (selfOrIcon == page) and maybeSize or maybeIcon
-            local colorVal = (selfOrIcon == page) and maybeColor or maybeSize
-            local activeVal = (selfOrIcon == page) and maybeActive or maybeColor
-            applyIconToTab(name, iconVal, sizeVal, colorVal, activeVal)
-        end
-        page.SetIconSize = function(selfOrSize, maybeSize)
-            local sizeVal = (selfOrSize == page) and maybeSize or selfOrSize
-            applyIconToTab(name, nil, sizeVal, nil, nil)
-        end
-        page.SetIconColor = function(selfOrColor, maybeColor, maybeActive)
-            local colorVal = (selfOrColor == page) and maybeColor or selfOrColor
-            local activeVal = (selfOrColor == page) and maybeActive or maybeColor
-            applyIconToTab(name, nil, nil, colorVal, activeVal)
-        end
-        page.GetTabButton = function()
-            for _, b in ipairs(hubState.tabButtons or {}) do
-                if b.Name == name then return b end
-            end
-            return nil
-        end
+        hubState.applyTabIcon = applyIconToTab
 
         local isFirst = defaultVisible
         if isFirst == nil then
@@ -8175,37 +8154,28 @@ return function(opts)
         CreateTab = hubState.createPage,
         createPage = hubState.createPage,
         CreatePage = hubState.createPage,
-        SetTabIcon = function(tabName, icon, size, color, activeColor)
-            local targetPage = nil
-            for _, p in ipairs(hubState.tabPages or {}) do
-                if p.Name == tabName then targetPage = p; break end
-            end
-            if targetPage and targetPage.SetIcon then
-                targetPage.SetIcon(icon, size, color, activeColor)
-            end
+        SetTabIcon = function(tabNameOrInstance, icon, size, color, activeColor)
+            local name = (typeof(tabNameOrInstance) == "Instance" and tabNameOrInstance.Name) or tostring(tabNameOrInstance or "")
+            if hubState.applyTabIcon then hubState.applyTabIcon(name, icon, size, color, activeColor) end
         end,
-        setTabIcon = function(tabName, icon, size, color, activeColor)
-            local targetPage = nil
-            for _, p in ipairs(hubState.tabPages or {}) do
-                if p.Name == tabName then targetPage = p; break end
-            end
-            if targetPage and targetPage.SetIcon then
-                targetPage.SetIcon(icon, size, color, activeColor)
-            end
+        setTabIcon = function(tabNameOrInstance, icon, size, color, activeColor)
+            local name = (typeof(tabNameOrInstance) == "Instance" and tabNameOrInstance.Name) or tostring(tabNameOrInstance or "")
+            if hubState.applyTabIcon then hubState.applyTabIcon(name, icon, size, color, activeColor) end
         end,
-        SetTabIconSize = function(tabName, size)
-            local targetPage = nil
-            for _, p in ipairs(hubState.tabPages or {}) do
-                if p.Name == tabName then targetPage = p; break end
-            end
-            if targetPage and targetPage.SetIconSize then targetPage.SetIconSize(size) end
+        SetTabIconSize = function(tabNameOrInstance, size)
+            local name = (typeof(tabNameOrInstance) == "Instance" and tabNameOrInstance.Name) or tostring(tabNameOrInstance or "")
+            if hubState.applyTabIcon then hubState.applyTabIcon(name, nil, size, nil, nil) end
         end,
-        SetTabIconColor = function(tabName, color, activeColor)
-            local targetPage = nil
-            for _, p in ipairs(hubState.tabPages or {}) do
-                if p.Name == tabName then targetPage = p; break end
+        SetTabIconColor = function(tabNameOrInstance, color, activeColor)
+            local name = (typeof(tabNameOrInstance) == "Instance" and tabNameOrInstance.Name) or tostring(tabNameOrInstance or "")
+            if hubState.applyTabIcon then hubState.applyTabIcon(name, nil, nil, color, activeColor) end
+        end,
+        GetTabButton = function(tabNameOrInstance)
+            local name = (typeof(tabNameOrInstance) == "Instance" and tabNameOrInstance.Name) or tostring(tabNameOrInstance or "")
+            for _, b in ipairs(hubState.tabButtons or {}) do
+                if b.Name == name then return b end
             end
-            if targetPage and targetPage.SetIconColor then targetPage.SetIconColor(color, activeColor) end
+            return nil
         end,
         SetHudScale = hubState.setHudScale,
         setHudScale = hubState.setHudScale,
