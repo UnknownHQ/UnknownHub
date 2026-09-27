@@ -2920,15 +2920,30 @@ local function findEggToolInBackpack(selectedEggName)
     return nil
 end
 
+local function getMaxEggCapacity()
+    local maxCap = 3
+    pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        local ds = dsMod and require(dsMod)
+        local data = ds and ds:GetData()
+        if data then
+            local pEggSlots = tonumber(data.PurchasedEggSlots) or 0
+            local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
+            local coinEggSlots = pLife and tonumber(pLife["Egg Capacity"]) or 0
+            maxCap = 3 + pEggSlots + coinEggSlots
+        end
+    end)
+    return maxCap
+end
+
 local function placeEggAt(targetPos, eggTool)
     if not eggTool or not targetPos then return end
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
 
-    -- Equip tool
+    -- Equip tool instantly
     if hum and eggTool.Parent ~= char then
         hum:EquipTool(eggTool)
-        task.wait(0.04)
     end
     if eggTool.Parent ~= char then
         eggTool.Parent = char
@@ -3188,7 +3203,7 @@ local function equipPetSlot(slotVal, waitForLoad)
             end
             task.wait(0.2)
         end
-        local targetCooldown = tonumber(State.Hatch_SlotCooldown) or 7.0
+        local targetCooldown = math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
         local elapsed = tick() - lastSlotEquipTick
         if elapsed < targetCooldown then
             task.wait(targetCooldown - elapsed)
@@ -3211,20 +3226,20 @@ task.spawn(function()
                 local currentPlacedCount = #placedEggs
 
                 if onlyNoEgg and currentPlacedCount > 0 then
-                    task.wait(0.25)
+                    task.wait(0.2)
                     return
                 end
 
-                local maxGarden = tonumber(State.PlaceEgg_MaxGarden) or 15
-                if currentPlacedCount >= maxGarden then
-                    task.wait(0.3)
+                local maxCapacity = getMaxEggCapacity()
+                if currentPlacedCount >= maxCapacity then
+                    task.wait(0.25)
                     return
                 end
 
                 local selectedEgg = getUIListVal(placeEggListObj, State.PlaceEgg_Selected or "All Eggs")
                 local eggTool = findEggToolInBackpack(selectedEgg)
                 if not eggTool then
-                    task.wait(0.4)
+                    task.wait(0.3)
                     return
                 end
 
@@ -3232,7 +3247,6 @@ task.spawn(function()
                 local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
                 if placeSlot ~= "None" then
                     equipPetSlot(placeSlot)
-                    task.wait(0.08)
                 end
 
                 local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
@@ -3250,16 +3264,14 @@ task.spawn(function()
                 end
 
                 placeEggAt(targetPos, eggTool)
-
-                local delay = math.clamp(tonumber(State.PlaceEgg_Delay) or 0.1, 0.02, 2.0)
-                task.wait(delay)
+                task.wait(0.01)
             end)
 
             if not ok and err then
-                task.wait(0.3)
+                task.wait(0.15)
             end
         else
-            task.wait(0.5)
+            task.wait(0.4)
         end
     end
 end)
@@ -3314,7 +3326,7 @@ task.spawn(function()
                                     return
                                 end
                             end
-                            local targetCooldown = tonumber(State.Hatch_SlotCooldown) or 7.0
+                            local targetCooldown = math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
                             if (tick() - lastSlotEquipTick) < targetCooldown then
                                 task.wait(0.25)
                                 return
@@ -5220,16 +5232,6 @@ placeEggPositionModeListObj = Hub.CreateList(petTab, "Place Position Mode", {
     {Name = "Player Position"}
 }, 150, false)
 
-Hub.CreateTextBox(petTab, "Place Delay (0.02 - 2.0s)", "Enter placement delay (default: 0.1)", function(text)
-    local num = tonumber(text)
-    if num then State.PlaceEgg_Delay = math.clamp(num, 0.02, 2.0) end
-end)
-
-Hub.CreateTextBox(petTab, "Max Garden Eggs (1 - 50)", "Enter max garden eggs (default: 15)", function(text)
-    local num = tonumber(text)
-    if num then State.PlaceEgg_MaxGarden = math.clamp(math.floor(num), 1, 50) end
-end)
-
 -- 2. 🐣 Auto Hatch Eggs
 Hub.CreateSection(petTab, "🐣 Auto Hatch Eggs")
 
@@ -5243,9 +5245,13 @@ end)
 
 hatchEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Hatching Boost)", slotListItems, 160, false)
 
-Hub.CreateTextBox(petTab, "Hatch Slot Cooldown (s)", "Cooldown after equipping slot (default: 7.0)", function(text)
+Hub.CreateTextBox(petTab, "Hatch Slot Cooldown (s, min: 5)", "Cooldown after equipping slot (min: 5, default: 7.0)", function(text)
     local num = tonumber(text)
-    if num then State.Hatch_SlotCooldown = math.clamp(num, 0, 30) end
+    if num then
+        State.Hatch_SlotCooldown = math.clamp(math.max(5.0, num), 5.0, 60.0)
+    else
+        State.Hatch_SlotCooldown = 5.0
+    end
 end)
 
 hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false)
