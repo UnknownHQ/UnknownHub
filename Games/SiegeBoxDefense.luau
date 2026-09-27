@@ -85,14 +85,26 @@ local State = {
     AutoEquipPunch = true,
 
     AutoAbility = false,
+    DamageMultiplier = 1,
+
+    -- Defense & Allies
+    AutoSummon = false,
+    SelectedAlly = "Telescope",
+    AutoSummonRate = 2.0,
+
+    -- Sandbox & Godmode
+    GodMode = false,
+    CustomHealth = 1000,
+    CustomResistance = 0,
+    CustomSize = 1,
+    AutoRegenPad = false,
 
     -- Auto Collect & Misc
     AutoCollectAirdrops = false,
-    AutoCollectDistance = 5000,
 
     -- Visuals & ESP
     EnemyESP = false,
-    BoxESP = false,
+    AllyESP = false,
     AirdropESP = false,
 
     -- Player Movement
@@ -173,6 +185,52 @@ local function findPunchRemote()
     return nil
 end
 
+local function getSandboxRemote(prefix)
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local sandboxUI = playerGui and playerGui:FindFirstChild("SandboxUI")
+    if sandboxUI then
+        local targetName = prefix .. tostring(LocalPlayer.UserId)
+        local remote = sandboxUI:FindFirstChild(targetName)
+        if remote then return remote end
+    end
+    return nil
+end
+
+local function getSandboxButton(btnName)
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local sandboxUI = playerGui and playerGui:FindFirstChild("SandboxUI")
+    if sandboxUI and sandboxUI:FindFirstChild("Frame") then
+        return sandboxUI.Frame:FindFirstChild(btnName, true)
+    end
+    return nil
+end
+
+local function triggerButton(btn)
+    if not btn then return false end
+    pcall(function()
+        if firesignal then
+            if btn:IsA("GuiButton") and btn.Activated then
+                firesignal(btn.Activated)
+            end
+            if btn:IsA("GuiButton") and btn.MouseButton1Click then
+                firesignal(btn.MouseButton1Click)
+            end
+        end
+    end)
+    return true
+end
+
+local function summonAlly(allyName)
+    local summonRemote = ReplicatedStorage:FindFirstChild("HEUGHSUMMONS")
+    if summonRemote and summonRemote:IsA("RemoteEvent") then
+        pcall(function()
+            summonRemote:FireServer(tostring(allyName))
+        end)
+        return true
+    end
+    return false
+end
+
 local function getAllAliveEnemies()
     local enemies = {}
     local myRoot = getRootPart()
@@ -211,6 +269,44 @@ local function getAllAliveEnemies()
     end
 
     return enemies
+end
+
+local function getAllAllies()
+    local allies = {}
+    local myRoot = getRootPart()
+    local myPos = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
+
+    local folders = {
+        Workspace:FindFirstChild("Allies"),
+        Workspace:FindFirstChild("Summons"),
+        Workspace:FindFirstChild("Friendly")
+    }
+
+    for _, folder in ipairs(folders) do
+        if folder then
+            for _, model in ipairs(folder:GetChildren()) do
+                if model:IsA("Model") then
+                    local hum = model:FindFirstChildOfClass("Humanoid")
+                    local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head") or model.PrimaryPart
+                    if root then
+                        local dist = (root.Position - myPos).Magnitude
+                        table.insert(allies, {
+                            Model = model,
+                            Humanoid = hum,
+                            Root = root,
+                            Position = root.Position,
+                            Distance = dist,
+                            Health = hum and hum.Health or 100,
+                            MaxHealth = hum and hum.MaxHealth or 100,
+                            Name = model.Name
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    return allies
 end
 
 -- =========================================================================
@@ -308,7 +404,7 @@ local function clearESP()
 end
 
 local function updateESP()
-    if not State.EnemyESP and not State.AirdropESP then
+    if not State.EnemyESP and not State.AllyESP and not State.AirdropESP then
         clearESP()
         return
     end
@@ -364,6 +460,36 @@ local function updateESP()
         end
     end
 
+    if State.AllyESP then
+        local allies = getAllAllies()
+        for _, ally in ipairs(allies) do
+            local root = ally.Root
+            if root and not root:FindFirstChild("Unknown_AllyESP") then
+                pcall(function()
+                    local bb = Instance.new("BillboardGui")
+                    bb.Name = "Unknown_AllyESP"
+                    bb.Adornee = root
+                    bb.Size = UDim2.new(0, 140, 0, 30)
+                    bb.StudsOffset = Vector3.new(0, 3, 0)
+                    bb.AlwaysOnTop = true
+
+                    local lbl = Instance.new("TextLabel")
+                    lbl.Size = UDim2.new(1, 0, 1, 0)
+                    lbl.BackgroundTransparency = 1
+                    lbl.Text = string.format("[ALLY] %s", ally.Name)
+                    lbl.TextColor3 = Color3.fromRGB(52, 152, 219)
+                    lbl.TextStrokeTransparency = 0
+                    lbl.TextSize = 13
+                    lbl.Font = Enum.Font.GothamBold
+                    lbl.Parent = bb
+
+                    bb.Parent = root
+                    espContainers[root] = bb
+                end)
+            end
+        end
+    end
+
     if State.AirdropESP then
         local adFolder = Workspace:FindFirstChild("Airdrops")
         if adFolder then
@@ -381,7 +507,7 @@ local function updateESP()
                         local lbl = Instance.new("TextLabel")
                         lbl.Size = UDim2.new(1, 0, 1, 0)
                         lbl.BackgroundTransparency = 1
-                        lbl.Text = "🎁 AIRDROP"
+                        lbl.Text = "AIRDROP"
                         lbl.TextColor3 = Color3.fromRGB(241, 196, 15)
                         lbl.TextStrokeTransparency = 0
                         lbl.TextSize = 14
@@ -400,15 +526,17 @@ end
 -- =========================================================================
 -- UI Pages & Controls
 -- =========================================================================
-local combatTab = Hub.createTabButton("Combat", "⚔️ Combat", "rbxassetid://10723407389", true)
-local visualTab = Hub.createTabButton("Visuals", "👁️ Visuals", "rbxassetid://10723407389", false)
-local playerTab = Hub.createTabButton("Player", "🏃 Player", "rbxassetid://10723407389", false)
-local miscTab = Hub.createTabButton("Misc", "🔮 Misc", "rbxassetid://10723407389", false)
+local combatTab = Hub.createTabButton("Combat", "Combat", "rbxassetid://10723407389", true)
+local defenseTab = Hub.createTabButton("Defense", "Defense", "rbxassetid://10723407389", false)
+local sandboxTab = Hub.createTabButton("Sandbox", "Sandbox", "rbxassetid://10723407389", false)
+local visualTab = Hub.createTabButton("Visuals", "Visuals", "rbxassetid://10723407389", false)
+local playerTab = Hub.createTabButton("Player", "Player", "rbxassetid://10723407389", false)
+local miscTab = Hub.createTabButton("Misc", "Misc", "rbxassetid://10723407389", false)
 
 -- -------------------------------------------------------------------------
 -- Combat Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(combatTab, "🔫 Gun Aura (Remote Gunner)")
+Hub.CreateSection(combatTab, "Gun Aura (Remote Gunner)")
 
 Hub.CreateToggle(combatTab, "Enable Gun Aura", false, function(v)
     State.GunAura = (type(v) == "boolean") and v or not State.GunAura
@@ -438,7 +566,7 @@ Hub.CreateTextBox(combatTab, "Gun Fire Rate (0.01 - 1.0s)", "Enter interval (def
     if num then State.GunAura_Rate = math.clamp(num, 0.01, 2.0) end
 end)
 
-Hub.CreateSection(combatTab, "🥊 Kill Aura (Melee Punch)")
+Hub.CreateSection(combatTab, "Kill Aura (Melee Punch)")
 
 Hub.CreateToggle(combatTab, "Enable Kill Aura (Punch)", false, function(v)
     State.KillAura = (type(v) == "boolean") and v or not State.KillAura
@@ -453,20 +581,155 @@ Hub.CreateTextBox(combatTab, "Punch Max Range (Studs)", "Enter max range (defaul
     if num then State.KillAura_MaxDistance = math.clamp(num, 5, 200) end
 end)
 
-Hub.CreateSection(combatTab, "⚡ Weapon Abilities")
+Hub.CreateSection(combatTab, "Damage & Weapon Abilities")
 
 Hub.CreateToggle(combatTab, "Auto Fire Gun Ability (V)", false, function(v)
     State.AutoAbility = (type(v) == "boolean") and v or not State.AutoAbility
 end)
 
+Hub.CreateSlider(combatTab, "Attack Damage Multiplier", 1, 100, 1, "x", function(val)
+    State.DamageMultiplier = val
+    local damnRemote = getSandboxRemote("damn")
+    if damnRemote then
+        pcall(function()
+            damnRemote:FireServer(val)
+        end)
+    end
+end)
+
+Hub.CreateButton(combatTab, "Clear All Enemies (Sandbox)", function()
+    local clearBtn = getSandboxButton("clear")
+    if clearBtn then
+        triggerButton(clearBtn)
+        Hub.Notify({Title = "Combat", Content = "Enemies cleared!", Duration = 3})
+    else
+        Hub.Notify({Title = "Combat", Content = "Sandbox clear button not found.", Duration = 3})
+    end
+end)
+
+-- -------------------------------------------------------------------------
+-- Defense Tab (Allies & Summons)
+-- -------------------------------------------------------------------------
+Hub.CreateSection(defenseTab, "Ally Defense Units")
+
+Hub.CreateList(defenseTab, "Select Ally to Summon", {
+    {Name = "Telescope"},
+    {Name = "LargeTelescope"},
+    {Name = "Boombox"},
+    {Name = "LargeBoombox"},
+    {Name = "Teslaman"},
+    {Name = "Plane"},
+    {Name = "Heli"},
+    {Name = "ASUNIT"},
+    {Name = "ETB"}
+}, 180, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.SelectedAlly = name
+end)
+
+Hub.CreateButton(defenseTab, "Summon Selected Ally Now", function()
+    local success = summonAlly(State.SelectedAlly)
+    if success then
+        Hub.Notify({Title = "Summon", Content = "Summoned " .. State.SelectedAlly, Duration = 2})
+    end
+end)
+
+Hub.CreateToggle(defenseTab, "Auto Summon Loop", false, function(v)
+    State.AutoSummon = (type(v) == "boolean") and v or not State.AutoSummon
+end)
+
+Hub.CreateSlider(defenseTab, "Auto Summon Interval", 1, 10, 2, "s", function(val)
+    State.AutoSummonRate = val
+end)
+
+Hub.CreateButton(defenseTab, "Clear All Summons", function()
+    local clear2Btn = getSandboxButton("clear2")
+    if clear2Btn then
+        triggerButton(clear2Btn)
+        Hub.Notify({Title = "Defense", Content = "Summons cleared!", Duration = 3})
+    end
+end)
+
+-- -------------------------------------------------------------------------
+-- Sandbox Tab (God Mode & Utilities)
+-- -------------------------------------------------------------------------
+Hub.CreateSection(sandboxTab, "God Mode & Player Stats")
+
+Hub.CreateToggle(sandboxTab, "God Mode (Max Health & Resistance)", false, function(v)
+    State.GodMode = (type(v) == "boolean") and v or not State.GodMode
+    local hiRemote = getSandboxRemote("hi")
+    local iriRemote = getSandboxRemote("iri")
+    if State.GodMode then
+        if hiRemote then pcall(function() hiRemote:FireServer(9999999) end) end
+        if iriRemote then pcall(function() iriRemote:FireServer(999999) end) end
+        local godBtn = getSandboxButton("god")
+        if godBtn then triggerButton(godBtn) end
+        Hub.Notify({Title = "God Mode", Content = "God Mode Enabled!", Duration = 3})
+    else
+        if hiRemote then pcall(function() hiRemote:FireServer(450) end) end
+        if iriRemote then pcall(function() iriRemote:FireServer(0) end) end
+    end
+end)
+
+Hub.CreateSlider(sandboxTab, "Custom Health", 100, 10000, 1000, " HP", function(val)
+    State.CustomHealth = val
+    local hiRemote = getSandboxRemote("hi")
+    if hiRemote then
+        pcall(function() hiRemote:FireServer(val) end)
+    end
+end)
+
+Hub.CreateSlider(sandboxTab, "Damage Resistance", 0, 100, 0, "%", function(val)
+    State.CustomResistance = val
+    local iriRemote = getSandboxRemote("iri")
+    if iriRemote then
+        pcall(function() iriRemote:FireServer(val) end)
+    end
+end)
+
+Hub.CreateSlider(sandboxTab, "Player Character Scale", 1, 10, 1, "x", function(val)
+    State.CustomSize = val
+    local hiriRemote = getSandboxRemote("hiri")
+    if hiriRemote then
+        pcall(function() hiriRemote:FireServer(val) end)
+    end
+end)
+
+Hub.CreateSection(sandboxTab, "Sandbox Actions")
+
+Hub.CreateButton(sandboxTab, "Give Sandbox Cash", function()
+    local cashBtn = getSandboxButton("cash")
+    if cashBtn then
+        triggerButton(cashBtn)
+        Hub.Notify({Title = "Sandbox", Content = "Cash trigger fired!", Duration = 3})
+    end
+end)
+
+Hub.CreateButton(sandboxTab, "Get Toolgun", function()
+    local toolgunBtn = getSandboxButton("toolgun")
+    if toolgunBtn then
+        triggerButton(toolgunBtn)
+        Hub.Notify({Title = "Sandbox", Content = "Toolgun trigger fired!", Duration = 3})
+    end
+end)
+
+Hub.CreateToggle(sandboxTab, "Auto Regeneration Pad Prompt", false, function(v)
+    State.AutoRegenPad = (type(v) == "boolean") and v or not State.AutoRegenPad
+end)
+
 -- -------------------------------------------------------------------------
 -- Visuals Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(visualTab, "👁️ ESP Overlays")
+Hub.CreateSection(visualTab, "ESP Overlays")
 
 Hub.CreateToggle(visualTab, "Enemy ESP (Name, HP, Distance)", false, function(v)
     State.EnemyESP = (type(v) == "boolean") and v or not State.EnemyESP
     if not State.EnemyESP then clearESP() end
+end)
+
+Hub.CreateToggle(visualTab, "Ally ESP", false, function(v)
+    State.AllyESP = (type(v) == "boolean") and v or not State.AllyESP
+    if not State.AllyESP then clearESP() end
 end)
 
 Hub.CreateToggle(visualTab, "Airdrop ESP", false, function(v)
@@ -477,7 +740,7 @@ end)
 -- -------------------------------------------------------------------------
 -- Player Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(playerTab, "🏃 Local Player Modifiers")
+Hub.CreateSection(playerTab, "Local Player Modifiers")
 
 Hub.CreateSlider(playerTab, "WalkSpeed", 16, 200, 16, " studs/s", function(val)
     State.WalkSpeed = val
@@ -524,7 +787,7 @@ end)
 -- -------------------------------------------------------------------------
 -- Misc Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(miscTab, "🔮 Game Teleports & Info")
+Hub.CreateSection(miscTab, "Game Teleports & Info")
 
 Hub.CreateButton(miscTab, "Teleport to Spawn Area", function()
     local root = getRootPart()
@@ -534,11 +797,23 @@ Hub.CreateButton(miscTab, "Teleport to Spawn Area", function()
     end
 end)
 
+Hub.CreateButton(miscTab, "Teleport to Regeneration Pad", function()
+    local root = getRootPart()
+    local regen = Workspace:FindFirstChild("Upgrades") and Workspace.Upgrades:FindFirstChild("Regeneration")
+    if root and regen then
+        root.CFrame = regen.CFrame + Vector3.new(0, 4, 0)
+    end
+end)
+
 Hub.CreateButton(miscTab, "Teleport to Safe Sky (AFK)", function()
     local root = getRootPart()
     if root then
         root.CFrame = root.CFrame + Vector3.new(0, 150, 0)
     end
+end)
+
+Hub.CreateToggle(miscTab, "Auto Collect Airdrops (TP)", false, function(v)
+    State.AutoCollectAirdrops = (type(v) == "boolean") and v or not State.AutoCollectAirdrops
 end)
 
 -- =========================================================================
@@ -586,11 +861,78 @@ task.spawn(function()
     end
 end)
 
--- 4. ESP Loop
+-- 4. Auto Summon Loop
 task.spawn(function()
     while true do
         if _G.SBD_SESSION ~= currentSession then break end
-        if State.EnemyESP or State.AirdropESP then
+        if State.AutoSummon then
+            summonAlly(State.SelectedAlly)
+            local rate = math.clamp(tonumber(State.AutoSummonRate) or 2.0, 0.5, 30.0)
+            task.wait(rate)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- 5. Auto Regen Pad Loop
+task.spawn(function()
+    while true do
+        if _G.SBD_SESSION ~= currentSession then break end
+        if State.AutoRegenPad then
+            local hum = getHumanoid()
+            if hum and hum.Health < hum.MaxHealth then
+                local regen = Workspace:FindFirstChild("Upgrades") and Workspace.Upgrades:FindFirstChild("Regeneration")
+                local prompt = regen and regen:FindFirstChildOfClass("ProximityPrompt")
+                if prompt and fireproximityprompt then
+                    pcall(function()
+                        fireproximityprompt(prompt)
+                    end)
+                end
+            end
+            task.wait(1.0)
+        else
+            task.wait(1.0)
+        end
+    end
+end)
+
+-- 6. Auto Collect Airdrops Loop
+task.spawn(function()
+    while true do
+        if _G.SBD_SESSION ~= currentSession then break end
+        if State.AutoCollectAirdrops then
+            local adFolder = Workspace:FindFirstChild("Airdrops")
+            local root = getRootPart()
+            if adFolder and root then
+                for _, ad in ipairs(adFolder:GetChildren()) do
+                    local adPart = ad:IsA("Model") and (ad.PrimaryPart or ad:FindFirstChildWhichIsA("BasePart")) or ad
+                    if adPart and adPart:IsA("BasePart") then
+                        local oldCf = root.CFrame
+                        root.CFrame = adPart.CFrame + Vector3.new(0, 2, 0)
+                        task.wait(0.2)
+                        for _, p in ipairs(ad:GetDescendants()) do
+                            if p:IsA("ProximityPrompt") and fireproximityprompt then
+                                pcall(function() fireproximityprompt(p) end)
+                            end
+                        end
+                        task.wait(0.3)
+                        root.CFrame = oldCf
+                    end
+                end
+            end
+            task.wait(2.0)
+        else
+            task.wait(1.0)
+        end
+    end
+end)
+
+-- 7. ESP Loop
+task.spawn(function()
+    while true do
+        if _G.SBD_SESSION ~= currentSession then break end
+        if State.EnemyESP or State.AllyESP or State.AirdropESP then
             updateESP()
             task.wait(0.5)
         else
@@ -599,7 +941,7 @@ task.spawn(function()
     end
 end)
 
--- 5. Humanoid Persistence Loop
+-- 8. Humanoid & Godmode Persistence Loop
 task.spawn(function()
     while true do
         if _G.SBD_SESSION ~= currentSession then break end
@@ -611,14 +953,20 @@ task.spawn(function()
             if State.JumpPower ~= 50 and hum.JumpPower ~= State.JumpPower then
                 hum.JumpPower = State.JumpPower
             end
+            if State.GodMode then
+                local hiRemote = getSandboxRemote("hi")
+                if hiRemote and hum.Health < 100000 then
+                    pcall(function() hiRemote:FireServer(9999999) end)
+                end
+            end
         end
         task.wait(0.5)
     end
 end)
 
-print("[Unknown Hub] Siege Box Defense Loaded Successfully!")
+print("[Unknown Hub] Siege Box Defense Expanded Script Loaded Successfully!")
 Hub.Notify({
     Title = "Siege Box Defense",
-    Content = "Unknown Hub loaded! Kill Aura & Gun Aura ready.",
+    Content = "Unknown Hub loaded! Combat, Defense & Sandbox ready.",
     Duration = 4
 })
