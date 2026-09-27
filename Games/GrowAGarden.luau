@@ -3056,45 +3056,89 @@ local function getNextEggRowPosition()
     return canPlantParts[1].Position + Vector3.new(0, 0.25, 0)
 end
 
-local function findEggToolInBackpack(selectedEggName)
+local function findEggToolInBackpack(selectedEggNames)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local char = LocalPlayer.Character
-    if not bp and not char then return nil end
+    if not bp and not char then return nil, nil end
 
-    local cleanTarget = tostring(selectedEggName or "All Eggs"):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
-    local isAll = (cleanTarget == "alleggs" or cleanTarget == "all" or cleanTarget == "" or cleanTarget == "none")
+    local eggList = {}
+    if type(selectedEggNames) == "table" then
+        for _, e in ipairs(selectedEggNames) do
+            local eStr = type(e) == "table" and (e.Name or e[1]) or tostring(e or "")
+            if eStr ~= "" then table.insert(eggList, eStr) end
+        end
+    elseif type(selectedEggNames) == "string" and selectedEggNames ~= "" then
+        table.insert(eggList, selectedEggNames)
+    end
 
-    -- 1. Check Character first
-    if char then
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") then
-                local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
-                local cName = tostring(eggAttr):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
-                if isAll and (tool.Name:lower():find("egg") or tool:GetAttribute("h") or tool:GetAttribute("B")) then
-                    return tool
-                elseif not isAll and (cName:find(cleanTarget, 1, true) or cleanTarget:find(cName, 1, true)) then
-                    return tool
+    local isAll = false
+    if #eggList == 0 then
+        isAll = true
+    else
+        for _, eggName in ipairs(eggList) do
+            local clean = tostring(eggName):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
+            if clean == "alleggs" or clean == "all" or clean == "" or clean == "none" then
+                isAll = true
+                break
+            end
+        end
+    end
+
+    if isAll then
+        if char then
+            for _, tool in ipairs(char:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
+                    if tostring(eggAttr):lower():find("egg") or tool.Name:lower():find("egg") or tool:GetAttribute("h") or tool:GetAttribute("B") then
+                        return tool, tostring(eggAttr or tool.Name)
+                    end
+                end
+            end
+        end
+        if bp then
+            for _, tool in ipairs(bp:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
+                    if tostring(eggAttr):lower():find("egg") or tool.Name:lower():find("egg") or tool:GetAttribute("h") or tool:GetAttribute("B") then
+                        return tool, tostring(eggAttr or tool.Name)
+                    end
+                end
+            end
+        end
+        return nil, nil
+    end
+
+    -- Sequential Priority Check:
+    -- Check each selected egg in order. The first egg in the list that exists in inventory is chosen.
+    for _, targetEgg in ipairs(eggList) do
+        local cleanTarget = tostring(targetEgg):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
+        if cleanTarget ~= "" and cleanTarget ~= "none" then
+            if char then
+                for _, tool in ipairs(char:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
+                        local cName = tostring(eggAttr):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
+                        if cName:find(cleanTarget, 1, true) or cleanTarget:find(cName, 1, true) then
+                            return tool, targetEgg
+                        end
+                    end
+                end
+            end
+            if bp then
+                for _, tool in ipairs(bp:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
+                        local cName = tostring(eggAttr):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
+                        if cName:find(cleanTarget, 1, true) or cleanTarget:find(cName, 1, true) then
+                            return tool, targetEgg
+                        end
+                    end
                 end
             end
         end
     end
 
-    -- 2. Check Backpack
-    if bp then
-        for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") then
-                local eggAttr = tool:GetAttribute("h") or tool:GetAttribute("B") or tool:GetAttribute("EggName") or tool.Name
-                local cName = tostring(eggAttr):lower():gsub("%s*x%d+", ""):gsub("[%s%p]", "")
-                if isAll and (tool.Name:lower():find("egg") or tool:GetAttribute("h") or tool:GetAttribute("B")) then
-                    return tool
-                elseif not isAll and (cName:find(cleanTarget, 1, true) or cleanTarget:find(cName, 1, true)) then
-                    return tool
-                end
-            end
-        end
-    end
-
-    return nil
+    return nil, nil
 end
 
 local function getMaxEggCapacity()
@@ -3407,8 +3451,8 @@ task.spawn(function()
                     return
                 end
 
-                local selectedEgg = getUIListVal(placeEggListObj, State.PlaceEgg_Selected or "All Eggs")
-                local eggTool = findEggToolInBackpack(selectedEgg)
+                local selectedEggs = getUIListMultipleVals(placeEggListObj, nil)
+                local eggTool = findEggToolInBackpack(selectedEggs)
                 if not eggTool then
                     task.wait(0.3)
                     return
@@ -3510,9 +3554,17 @@ task.spawn(function()
                     end
                 end
 
-                local selectedHatchEgg = getUIListVal(hatchEggListObj, State.HatchEgg_Selected or "All Eggs")
-                local cleanTargetEgg = tostring(selectedHatchEgg):lower():gsub("[%s%p]", "")
-                local isAllEggs = (cleanTargetEgg == "alleggs" or cleanTargetEgg == "all" or cleanTargetEgg == "" or cleanTargetEgg == "none")
+                local selectedHatchEggs = getUIListMultipleVals(hatchEggListObj, nil)
+                local isAllEggs = (#selectedHatchEggs == 0)
+                if not isAllEggs then
+                    for _, sEgg in ipairs(selectedHatchEggs) do
+                        local clean = tostring(sEgg):lower():gsub("[%s%p]", "")
+                        if clean == "alleggs" or clean == "all" or clean == "" or clean == "none" then
+                            isAllEggs = true
+                            break
+                        end
+                    end
+                end
 
                 local excludedPetsList = getUIListMultipleVals(hatchExcludePetListObj, nil)
                 local excludedPetsMap = {}
@@ -3523,14 +3575,26 @@ task.spawn(function()
                     end
                 end
 
-                for _, egg in ipairs(placedEggs) do
-                    if isEggReadyToHatch(egg) then
-                        local eggName = egg:GetAttribute("EggName") or egg.Name
-                        local cleanEggName = tostring(eggName):lower():gsub("[%s%p]", "")
-                        local matchesEgg = isAllEggs or cleanEggName:find(cleanTargetEgg, 1, true) or cleanTargetEgg:find(cleanEggName, 1, true)
-
-                        if matchesEgg then
+                if isAllEggs then
+                    for _, egg in ipairs(placedEggs) do
+                        if isEggReadyToHatch(egg) then
                             hatchSingleEgg(egg)
+                        end
+                    end
+                else
+                    -- Hatch in priority sequence of selected eggs:
+                    for _, targetEggName in ipairs(selectedHatchEggs) do
+                        local cleanTarget = tostring(targetEggName):lower():gsub("[%s%p]", "")
+                        if cleanTarget ~= "" and cleanTarget ~= "none" then
+                            for _, egg in ipairs(placedEggs) do
+                                if isEggReadyToHatch(egg) then
+                                    local eggName = egg:GetAttribute("EggName") or egg.Name
+                                    local cleanEggName = tostring(eggName):lower():gsub("[%s%p]", "")
+                                    if cleanEggName:find(cleanTarget, 1, true) or cleanTarget:find(cleanEggName, 1, true) then
+                                        hatchSingleEgg(egg)
+                                    end
+                                end
+                            end
                         end
                     end
                 end
@@ -5399,10 +5463,7 @@ placeEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Place / Reduce Ti
     State.PlaceEgg_EquipSlot = name
 end)
 
-placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.PlaceEgg_Selected = name
-end)
+placeEggListObj = Hub.CreateList(petTab, "Select Egg to Place", eggListItems, 220, false, { MultiSelect = true })
 
 placeEggPositionModeListObj = Hub.CreateList(petTab, "Place Position Mode", {
     {Name = "Row Position"},
@@ -5437,10 +5498,7 @@ Hub.CreateTextBox(petTab, "Hatch Slot Cooldown (s, min: 5)", "Cooldown after equ
     end
 end)
 
-hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.HatchEgg_Selected = name
-end)
+hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false, { MultiSelect = true })
 
 hatchExcludePetListObj = Hub.CreateList(petTab, "Exclude Pet if in Egg", petListItems, 220, false, true)
 
