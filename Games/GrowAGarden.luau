@@ -3034,19 +3034,21 @@ local function equipPetSlot(slotVal)
 
     pcall(function()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local teamService = ge and (ge:FindFirstChild("PetTeamService") or ge:FindFirstChild("PetServices") or ge:FindFirstChild("PetEquipService") or ge:FindFirstChild("PetEggService"))
+        local teamService = ge and (ge:FindFirstChild("PetTeamService") or ge:FindFirstChild("PetServices") or ge:FindFirstChild("PetEquipService") or ge:FindFirstChild("PetEggService") or ge:FindFirstChild("ActivePetService"))
         if teamService then
             teamService:FireServer("EquipTeam", slotNum)
             teamService:FireServer("LoadTeam", slotNum)
             teamService:FireServer("EquipSlot", slotNum)
             teamService:FireServer("SelectTeam", slotNum)
+            teamService:FireServer("EquipLoadout", slotNum)
+            teamService:FireServer("LoadLoadout", slotNum)
             teamService:FireServer("Equip", slotNum)
             teamService:FireServer(slotNum)
         end
 
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
         if remotes then
-            local equipRem = remotes:FindFirstChild("EquipTeam") or remotes:FindFirstChild("LoadTeam") or remotes:FindFirstChild("EquipPetSlot")
+            local equipRem = remotes:FindFirstChild("EquipTeam") or remotes:FindFirstChild("LoadTeam") or remotes:FindFirstChild("EquipPetSlot") or remotes:FindFirstChild("EquipLoadout")
             if equipRem then
                 equipRem:FireServer(slotNum)
             end
@@ -3054,12 +3056,39 @@ local function equipPetSlot(slotVal)
 
         local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
         if pGui then
+            -- 1. ActivePetUI Loadout Buttons (e.g. PET_LOADOUT_1, PET_LOADOUT_2, ...)
+            local activePetUI = pGui:FindFirstChild("ActivePetUI")
+            if activePetUI then
+                for _, desc in ipairs(activePetUI:GetDescendants()) do
+                    if desc.Name == "PET_LOADOUT_" .. tostring(slotNum) or desc.Name:find("LOADOUT_" .. tostring(slotNum)) then
+                        local sensor = desc:FindFirstChild("SENSOR") or desc:FindFirstChildWhichIsA("GuiButton", true)
+                        if sensor then
+                            if firesignal then
+                                firesignal(sensor.MouseButton1Click)
+                                firesignal(sensor.Activated)
+                            end
+                            if getconnections then
+                                for _, conn in ipairs(getconnections(sensor.MouseButton1Click)) do
+                                    if conn.Fire then conn:Fire() end
+                                end
+                                for _, conn in ipairs(getconnections(sensor.Activated)) do
+                                    if conn.Fire then conn:Fire() end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- 2. General Pet UI Fallback
             local petGui = pGui:FindFirstChild("Pet_UI") or pGui:FindFirstChild("Pets_UI") or pGui:FindFirstChild("PetTeam_UI")
             if petGui then
                 for _, desc in ipairs(petGui:GetDescendants()) do
                     if (desc:IsA("TextButton") or desc:IsA("ImageButton")) and desc.Name:find(tostring(slotNum)) then
                         if firesignal then firesignal(desc.MouseButton1Click) firesignal(desc.Activated) end
-                        for _, conn in ipairs(getconnections(desc.MouseButton1Click)) do if conn.Fire then conn:Fire() end end
+                        if getconnections then
+                            for _, conn in ipairs(getconnections(desc.MouseButton1Click)) do if conn.Fire then conn:Fire() end end
+                        end
                     end
                 end
             end
@@ -3097,13 +3126,11 @@ task.spawn(function()
                     return
                 end
 
-                -- If there are 0 eggs or starting placement, equip Place Egg Slot to reduce time
-                if currentPlacedCount == 0 then
-                    local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
-                    if placeSlot ~= "None" then
-                        equipPetSlot(placeSlot)
-                        task.wait(0.08)
-                    end
+                -- Always equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
+                local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
+                if placeSlot ~= "None" then
+                    equipPetSlot(placeSlot)
+                    task.wait(0.08)
                 end
 
                 local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
