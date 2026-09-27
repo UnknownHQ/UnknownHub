@@ -3053,29 +3053,41 @@ end
 local function isPetSlotLoaded(slotNum)
     local ok, res = pcall(function()
         local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
-        if not dsMod then return true end
-        local ds = require(dsMod)
+        local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
         local petsData = data and data.PetsData
-        if not petsData then return true end
 
-        local currentSlot = tonumber(petsData.SelectedPetLoadout)
-        if currentSlot ~= tonumber(slotNum) then
+        local currentSlot = petsData and tonumber(petsData.SelectedPetLoadout)
+        if currentSlot and currentSlot ~= tonumber(slotNum) then
             return false
         end
 
-        local targetLoadout = petsData.PetLoadouts and petsData.PetLoadouts[slotNum]
+        local targetLoadout = petsData and petsData.PetLoadouts and (petsData.PetLoadouts[slotNum] or petsData.PetLoadouts[tostring(slotNum)] or petsData.PetLoadouts[tonumber(slotNum)])
         local expectedCount = 0
         if typeof(targetLoadout) == "table" then
             for _ in pairs(targetLoadout) do expectedCount = expectedCount + 1 end
         end
 
-        if expectedCount > 0 then
-            local equippedCount = 0
-            if typeof(petsData.EquippedPets) == "table" then
-                for _ in pairs(petsData.EquippedPets) do equippedCount = equippedCount + 1 end
+        -- 1. Check DataService EquippedPets
+        if expectedCount > 0 and petsData and typeof(petsData.EquippedPets) == "table" then
+            local eqCount = 0
+            for _ in pairs(petsData.EquippedPets) do eqCount = eqCount + 1 end
+            if eqCount < expectedCount then
+                return false
             end
-            if equippedCount == 0 then
+        end
+
+        -- 2. Check ActivePetUI rendered pet cards (game loads them sequentially)
+        local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        local activePetUI = pGui and pGui:FindFirstChild("ActivePetUI")
+        if activePetUI and expectedCount > 0 then
+            local cardCount = 0
+            for _, desc in ipairs(activePetUI:GetDescendants()) do
+                if desc:IsA("Frame") and (desc.Name:match("^%b{}") or desc.Name:match("%x%x%x%x%x%x%x%x%-%x%x%x%x")) then
+                    cardCount = cardCount + 1
+                end
+            end
+            if cardCount < expectedCount then
                 return false
             end
         end
@@ -3086,9 +3098,14 @@ local function isPetSlotLoaded(slotNum)
 end
 
 local function equipPetSlot(slotVal, waitForLoad)
-    if not slotVal or slotVal == "None" or slotVal == "" then return end
+    if not slotVal or slotVal == "None" or slotVal == "" then return true end
     local slotNum = tonumber(tostring(slotVal):match("%d+"))
-    if not slotNum then return end
+    if not slotNum then return true end
+
+    -- Check if already fully loaded
+    if isPetSlotLoaded(slotNum) then
+        return true
+    end
 
     pcall(function()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
@@ -3155,14 +3172,17 @@ local function equipPetSlot(slotVal, waitForLoad)
 
     if waitForLoad then
         local startTick = tick()
-        while (tick() - startTick < 2.0) do
+        local maxWait = 6.0 -- Allow ample time for all pets to load sequentially
+        while (tick() - startTick < maxWait) do
             if isPetSlotLoaded(slotNum) then
-                break
+                task.wait(0.35) -- Additional settling buffer to ensure passive calculations are active
+                return true
             end
-            task.wait(0.08)
+            task.wait(0.1)
         end
-        task.wait(0.25)
+        return isPetSlotLoaded(slotNum)
     end
+    return true
 end
 
 -- 1. Auto Place Eggs Loop (Cycle Step 1: Equip Slot, Place Eggs, Wait For Hatch)
@@ -3272,7 +3292,11 @@ task.spawn(function()
                 if hasReadyEggs then
                     local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
                     if hatchSlot ~= "None" then
-                        equipPetSlot(hatchSlot, true)
+                        local loaded = equipPetSlot(hatchSlot, true)
+                        if not loaded then
+                            task.wait(0.2)
+                            return
+                        end
                     end
                 end
 
