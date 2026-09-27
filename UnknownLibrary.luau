@@ -6383,7 +6383,7 @@ return function(opts)
         c2Btn.Parent = tabSwitchContainer
         applyCorner(c2Btn, 3)
         local picker = Instance.new("TextButton")
-        picker.Size = UDim2.new(0, 175, 0, 135)
+        picker.Size = UDim2.new(0, 175, 0, 126)
         picker.Position = UDim2.new(0, 10, 0, 56)
         picker.BackgroundColor3 = hubState.currentThemeColor
         picker.BorderSizePixel = 0
@@ -6426,17 +6426,17 @@ return function(opts)
         blackGradient.Rotation = 90
         blackGradient.Parent = blackOverlay
         local valueKnob = Instance.new("Frame")
-        valueKnob.Size = UDim2.new(0, 12, 0, 12)
+        valueKnob.Size = UDim2.new(0, 10, 0, 10)
         valueKnob.AnchorPoint = Vector2.new(0.5, 0.5)
         valueKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         valueKnob.BorderSizePixel = 0
         valueKnob.ZIndex = 4
         valueKnob.Parent = picker
-        applyCorner(valueKnob, 6)
+        applyCorner(valueKnob, 5)
         applyStroke(valueKnob, Color3.fromRGB(20, 24, 32), 2, 0)
         local hueTrack = Instance.new("TextButton")
         hueTrack.Size = UDim2.new(0, 175, 0, 12)
-        hueTrack.Position = UDim2.new(0, 10, 0, 196)
+        hueTrack.Position = UDim2.new(0, 10, 0, 194)
         hueTrack.Text = ""
         hueTrack.AutoButtonColor = false
         hueTrack.BorderSizePixel = 0
@@ -6510,13 +6510,21 @@ return function(opts)
             { "Cosmic Nebula",   Color3.fromRGB(255, 71, 126),  Color3.fromRGB(114, 9, 183) },
             { "Acid Lime",       Color3.fromRGB(112, 224, 0),   Color3.fromRGB(0, 229, 255) },
         }
-        local hue, saturation, brightness = Color3.toHSV(hubState.currentThemeColor)
-        local function refreshUI()
+        local currentH, currentS, currentV = 0, 1, 1
+        local function initColorState()
             local activeCol = (colorTarget == 1) and hubState.currentThemeColor or hubState.secondaryThemeColor
-            hue, saturation, brightness = Color3.toHSV(activeCol)
-            picker.BackgroundColor3 = Color3.fromHSV(hue, 1, 1)
-            valueKnob.Position = UDim2.new(saturation, 0, 1 - brightness, 0)
-            hueKnob.Position = UDim2.new(hue, 0, 0.5, 0)
+            local h, s, v = Color3.toHSV(activeCol)
+            if v > 0.01 or s > 0.01 then
+                currentH = h
+                currentS = s
+            end
+            currentV = v
+        end
+        initColorState()
+        local function refreshUI()
+            picker.BackgroundColor3 = Color3.fromHSV(currentH, 1, 1)
+            valueKnob.Position = UDim2.new(math.clamp(currentS, 0, 1), 0, math.clamp(1 - currentV, 0, 1), 0)
+            hueKnob.Position = UDim2.new(math.clamp(currentH, 0, 1), 0, 0.5, 0)
             c1Btn.BackgroundColor3 = (colorTarget == 1) and hubState.currentThemeColor or Color3.fromRGB(20, 25, 36)
             c1Btn.TextColor3 = (colorTarget == 1) and Color3.fromRGB(10, 15, 24) or Color3.fromRGB(180, 195, 220)
             c2Btn.BackgroundColor3 = (colorTarget == 2) and hubState.secondaryThemeColor or Color3.fromRGB(20, 25, 36)
@@ -6529,7 +6537,7 @@ return function(opts)
             previewGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         end
         local function updatePicker()
-            local color = Color3.fromHSV(hue, saturation, brightness)
+            local color = Color3.fromHSV(currentH, currentS, currentV)
             if colorTarget == 1 then
                 hubState.currentThemeColor = color
             else
@@ -6544,10 +6552,12 @@ return function(opts)
         end
         c1Btn.MouseButton1Click:Connect(function()
             colorTarget = 1
+            initColorState()
             refreshUI()
         end)
         c2Btn.MouseButton1Click:Connect(function()
             colorTarget = 2
+            initColorState()
             refreshUI()
         end)
         local presetContainer = Instance.new("ScrollingFrame")
@@ -6594,6 +6604,7 @@ return function(opts)
                     hubState.currentThemeColor.R, hubState.currentThemeColor.G, hubState.currentThemeColor.B,
                     hubState.secondaryThemeColor.R, hubState.secondaryThemeColor.G, hubState.secondaryThemeColor.B
                 )
+                initColorState()
                 refreshUI()
             end)
         end
@@ -6617,18 +6628,19 @@ return function(opts)
                 end
             end
             hubState.applyTheme(hubState.currentThemeColor, hubState.secondaryThemeColor)
+            initColorState()
             refreshUI()
         end
         local function handleSatVal(input)
             local rX = math.clamp((input.Position.X - picker.AbsolutePosition.X) / picker.AbsoluteSize.X, 0, 1)
             local rY = math.clamp((input.Position.Y - picker.AbsolutePosition.Y) / picker.AbsoluteSize.Y, 0, 1)
-            saturation = rX
-            brightness = 1 - rY
+            currentS = rX
+            currentV = 1 - rY
             updatePicker()
         end
         local function handleHue(input)
             local rX = math.clamp((input.Position.X - hueTrack.AbsolutePosition.X) / hueTrack.AbsoluteSize.X, 0, 1)
-            hue = rX
+            currentH = rX
             updatePicker()
         end
         local draggingSV, draggingHue = false, false
@@ -7586,40 +7598,6 @@ return function(opts)
                 Duration = 3,
                 Color = hubState.currentThemeColor
             })
-        end)
-        hubState.createButton(hubState.configTabPage, "📋 Paste & Apply Directly from Clipboard", function()
-            local rawText = ""
-            if getclipboard then
-                local ok, clip = pcall(getclipboard)
-                if ok and type(clip) == "string" then rawText = clip end
-            elseif fromclipboard then
-                local ok, clip = pcall(fromclipboard)
-                if ok and type(clip) == "string" then rawText = clip end
-            end
-            if rawText == "" then
-                setStatus("No config string detected on clipboard", true)
-                hubState.notify({
-                    Title = "Clipboard Empty",
-                    Content = "Copy a config string to clipboard first, then click Paste & Apply.",
-                    Color = Color3.fromRGB(255, 120, 120)
-                })
-                return
-            end
-            if importTextInput and importTextInput.Set then
-                importTextInput:Set(rawText:sub(1, 80) .. (#rawText > 80 and "..." or ""))
-            end
-            local ok = pcall(function() hubState.applyConfig(rawText) end)
-            if ok then
-                setStatus("Config string imported & applied from clipboard!", false)
-                hubState.notify({
-                    Title = "Config Imported",
-                    Content = "Imported configuration applied successfully.",
-                    Duration = 3,
-                    Color = Color3.fromRGB(50, 230, 140)
-                })
-            else
-                setStatus("Failed to parse config string", true)
-            end
         end)
         hubState.createSection(hubState.configTabPage, "Keybinds & Controls")
         hubState.configValues.toggleKey = hubState.toggleKeyCode.Name
