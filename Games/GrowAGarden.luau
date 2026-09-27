@@ -1922,6 +1922,28 @@ local function getPetBackpackStatus()
     local curCount = 0
     local maxCap = 0
     pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        local ds = dsMod and require(dsMod)
+        local data = ds and ds:GetData()
+        if data and data.PetsData then
+            local pets = data.PetsData
+            if pets.MutableStats and pets.MutableStats.MaxPetsInInventory then
+                maxCap = tonumber(pets.MutableStats.MaxPetsInInventory) or 0
+            end
+            if pets.PetInventory and pets.PetInventory.Data and type(pets.PetInventory.Data) == "table" then
+                local count = 0
+                for _, _ in pairs(pets.PetInventory.Data) do
+                    count = count + 1
+                end
+                curCount = count
+            end
+        end
+    end)
+    if maxCap > 0 then
+        return curCount, maxCap
+    end
+
+    pcall(function()
         local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:FindFirstChild("PlayerGui")
         if pGui then
             local bpGui = pGui:FindFirstChild("BackpackGui")
@@ -2858,14 +2880,84 @@ task.spawn(function()
                 local hasSlotSelected = (sellSlot ~= "None" and sellSlot ~= "")
 
                 local petUUIDBatch = {}
+                local petToolBatch = {}
+
                 for _, tool in ipairs(allTools) do
                     if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age")) then
                         local petInfo = getPetToolInfo(tool)
                         if petInfo and shouldSellPetTool(petInfo) then
                             table.insert(petUUIDBatch, petInfo.UUID)
+                            table.insert(petToolBatch, tool)
                         end
                     end
                 end
+
+                pcall(function()
+                    local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+                    local ds = dsMod and require(dsMod)
+                    local data = ds and ds:GetData()
+                    local petDataMap = data and data.PetsData and data.PetsData.PetInventory and data.PetsData.PetInventory.Data
+                    if petDataMap then
+                        local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
+                        local excludedMap = {}
+                        for _, exPet in ipairs(excludedPets) do
+                            local exLower = tostring(exPet):lower():gsub("[%s%p]", "")
+                            if exLower ~= "none" and exLower ~= "" then
+                                excludedMap[exLower] = true
+                            end
+                        end
+
+                        local targetPets = getUIListMultipleVals(sellTargetPetListObj, {State.Sell_TargetPet or "All Pets"})
+                        local isAllPets = false
+                        if #targetPets == 0 then
+                            isAllPets = true
+                        else
+                            for _, tp in ipairs(targetPets) do
+                                local clean = tostring(tp):lower():gsub("[%s%p]", "")
+                                if clean == "allpets" or clean == "all" or clean == "" then
+                                    isAllPets = true
+                                    break
+                                end
+                            end
+                        end
+
+                        local knownUUIDs = {}
+                        for _, u in ipairs(petUUIDBatch) do knownUUIDs[u] = true end
+
+                        for uuid, item in pairs(petDataMap) do
+                            if not knownUUIDs[uuid] then
+                                local species = item.PetType or (item.PetData and item.PetData.Name) or "Unknown"
+                                local cleanSpecies = tostring(species):lower():gsub("[%s%p]", "")
+                                local isExcluded = false
+                                for exLower, _ in pairs(excludedMap) do
+                                    if cleanSpecies == exLower or cleanSpecies:find(exLower, 1, true) or exLower:find(cleanSpecies, 1, true) then
+                                        isExcluded = true
+                                        break
+                                    end
+                                end
+
+                                if not isExcluded then
+                                    local matchedTarget = isAllPets
+                                    if not matchedTarget then
+                                        for _, tp in ipairs(targetPets) do
+                                            local targetLower = tostring(tp):lower():gsub("[%s%p]", "")
+                                            if targetLower ~= "none" and targetLower ~= "" then
+                                                if cleanSpecies == targetLower or cleanSpecies:find(targetLower, 1, true) or targetLower:find(cleanSpecies, 1, true) then
+                                                    matchedTarget = true
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+
+                                    if matchedTarget then
+                                        table.insert(petUUIDBatch, uuid)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end)
 
                 if #petUUIDBatch > 0 then
                     local petBackpackFull = isPetBackpackFull()
@@ -2876,7 +2968,7 @@ task.spawn(function()
                             local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
                             if sellSlotNum then
                                 local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
-                                if lastEquippedSlotNumber ~= sellSlotNum or (tick() - lastSlotEquipTick) > 15 then
+                                if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) or (tick() - lastSlotEquipTick) > 12 then
                                     equipPetSlot(sellSlot, true, sellCooldown)
                                 else
                                     local elapsed = tick() - lastSlotEquipTick
@@ -2890,12 +2982,17 @@ task.spawn(function()
                         local petRemote = getSellAllPetsRemote()
                         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
 
-                        -- Super Fast Multi-Batch Remote Selling (chunks of 50 pets)
+                        -- Fast Multi-Batch Remote Selling (chunks of 50 pets)
                         for i = 1, #petUUIDBatch, 50 do
                             local chunk = {}
+                            local toolChunk = {}
                             for j = i, math.min(i + 49, #petUUIDBatch) do
                                 table.insert(chunk, petUUIDBatch[j])
+                                if petToolBatch[j] then
+                                    table.insert(toolChunk, petToolBatch[j])
+                                end
                             end
+
                             if petRemote then
                                 pcall(function()
                                     petRemote:FireServer(chunk)
@@ -2904,14 +3001,22 @@ task.spawn(function()
                             pcall(function()
                                 local sellShop = ge and ge:FindFirstChild("SellPetShopSelected")
                                 if sellShop then
+                                    if #toolChunk > 0 then
+                                        for _, t in ipairs(toolChunk) do
+                                            sellShop:FireServer(t)
+                                        end
+                                    end
                                     sellShop:FireServer(chunk)
                                 end
                             end)
                             pcall(function()
                                 local sellOne = ge and ge:FindFirstChild("SellPet_RE")
-                                if sellOne and not petRemote then
+                                if sellOne then
                                     for _, uuid in ipairs(chunk) do
                                         sellOne:FireServer(uuid)
+                                    end
+                                    for _, t in ipairs(toolChunk) do
+                                        sellOne:FireServer(t)
                                     end
                                 end
                             end)
@@ -3498,6 +3603,11 @@ task.spawn(function()
         local autoHatch = isToggleActive(autoHatchEggsToggle, State.AutoHatchEggs, "🐣 Auto Hatch Eggs")
         if autoHatch then
             local ok, err = pcall(function()
+                if isPetBackpackFull() then
+                    task.wait(0.35)
+                    return
+                end
+
                 local placedEggs = getPlacedEggsInGarden()
                 if #placedEggs == 0 then
                     task.wait(0.25)
