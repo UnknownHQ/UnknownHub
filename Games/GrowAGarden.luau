@@ -2025,11 +2025,11 @@ end
 local function isPetBackpackFull()
     local cur, cap = getPetBackpackStatus()
     if cur and cap and cap > 0 then
-        return cur >= cap or (cur >= (cap - 4))
+        return cur >= cap
     end
     local c = getPetBackpackCount()
     local m = getPetBackpackCapacity()
-    return c >= m or (m > 5 and c >= (m - 4))
+    return c >= m
 end
 
 local function isBackpackFull()
@@ -2854,28 +2854,20 @@ pcall(function()
 end)
 
 -- =========================================================================
--- Smart Auto-Sell Engine (Fast Crops & Pets) - Resilient & Self-Healing
+-- Smart Auto-Sell Engine (Fast Crops & Pets) - Dedicated Independent Loops
 -- =========================================================================
+
+-- 1. Dedicated Auto Sell Pets Loop
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
 
-        local autoSellCrops = isToggleActive(autoSellCropsToggle, State.AutoSellCrops, "💰 Auto Sell (Crops)")
         local autoSellPets = isToggleActive(autoSellPetsToggle, State.AutoSellPets, "🐾 Auto Sell Pets")
-
-        if autoSellCrops or autoSellPets then
-            task.wait(State.SellCheckDelay or 0.25)
+        if autoSellPets then
+            task.wait(0.2)
 
             local ok, err = pcall(function()
-            local waitMax = isToggleActive(sellWaitMaxToggle, State.Sell_WaitMaxBackpack)
-
-            local allTools = getAllPlayerTools()
-            if #allTools == 0 then
-                return
-            end
-
-            -- 1. Auto Sell Pets (Strict Whitelist + Direct Fast Batch Remote with Auto-Equip Slot)
-            if autoSellPets then
+                local allTools = getAllPlayerTools()
                 local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
                 local hasSlotSelected = (sellSlot ~= "None" and sellSlot ~= "")
 
@@ -2959,119 +2951,134 @@ task.spawn(function()
                     end
                 end)
 
-                if #petUUIDBatch > 0 or #petToolBatch > 0 then
-                    local petBackpackFull = isPetBackpackFull()
-                    local canSellPets = (not hasSlotSelected) or petBackpackFull or (#petToolBatch >= 1) or (#petUUIDBatch >= 1)
-
-                    if canSellPets then
-                        if hasSlotSelected then
-                            local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
-                            if sellSlotNum then
-                                local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
-                                if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) or (tick() - lastSlotEquipTick) > 12 then
-                                    equipPetSlot(sellSlot, true, sellCooldown)
-                                else
-                                    local elapsed = tick() - lastSlotEquipTick
-                                    if elapsed < sellCooldown then
-                                        task.wait(sellCooldown - elapsed)
-                                    end
+                if #petToolBatch > 0 or #petUUIDBatch > 0 then
+                    if hasSlotSelected then
+                        local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
+                        if sellSlotNum then
+                            local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
+                            if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) or (tick() - lastSlotEquipTick) > 10 then
+                                equipPetSlot(sellSlot, true, sellCooldown)
+                            else
+                                local elapsed = tick() - lastSlotEquipTick
+                                if elapsed < sellCooldown then
+                                    task.wait(sellCooldown - elapsed)
                                 end
                             end
                         end
+                    end
 
-                        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-                        local sellShop = ge and ge:FindFirstChild("SellPetShopSelected")
-                        local sellAllRemote = ge and ge:FindFirstChild("SellAllPets_RE")
-                        local sellOne = ge and ge:FindFirstChild("SellPet_RE")
+                    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+                    local sellShop = ge and ge:FindFirstChild("SellPetShopSelected")
+                    local sellAllRemote = ge and ge:FindFirstChild("SellAllPets_RE")
+                    local sellOne = ge and ge:FindFirstChild("SellPet_RE")
 
-                        -- 1. If user hasn't excluded any specific pets, sell all via SellAllPets_RE
-                        local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
-                        local hasPetExclusions = false
-                        for _, ex in ipairs(excludedPets) do
-                            local exL = tostring(ex):lower():gsub("[%s%p]", "")
-                            if exL ~= "none" and exL ~= "" then
-                                hasPetExclusions = true
-                                break
+                    local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
+                    local hasPetExclusions = false
+                    for _, ex in ipairs(excludedPets) do
+                        local exL = tostring(ex):lower():gsub("[%s%p]", "")
+                        if exL ~= "none" and exL ~= "" then
+                            hasPetExclusions = true
+                            break
+                        end
+                    end
+
+                    -- Direct individual selling via SellPetShopSelected
+                    if #petToolBatch > 0 and sellShop then
+                        for _, toolItem in ipairs(petToolBatch) do
+                            if toolItem and toolItem.Parent then
+                                pcall(function()
+                                    sellShop:FireServer(toolItem)
+                                end)
+                                if sellOne then
+                                    pcall(function()
+                                        sellOne:FireServer(toolItem)
+                                    end)
+                                end
+                                task.wait(0.02)
                             end
                         end
+                    end
 
-                        -- 2. Direct individual selling via SellPetShopSelected (the official game remote)
-                        if #petToolBatch > 0 and sellShop then
-                            for _, toolItem in ipairs(petToolBatch) do
-                                if toolItem and toolItem.Parent then
-                                    pcall(function()
-                                        sellShop:FireServer(toolItem)
-                                    end)
-                                    if sellOne then
+                    -- If no specific exclusions, fire SellAllPets_RE as bulk fallback
+                    if not hasPetExclusions and sellAllRemote then
+                        pcall(function()
+                            sellAllRemote:FireServer()
+                        end)
+                    end
+                end
+            end)
+
+            if not ok and err then
+                task.wait(0.2)
+            end
+        else
+            task.wait(0.4)
+        end
+    end
+end)
+
+-- 2. Dedicated Auto Sell Crops Loop
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+
+        local autoSellCrops = isToggleActive(autoSellCropsToggle, State.AutoSellCrops, "💰 Auto Sell (Crops)")
+        if autoSellCrops then
+            task.wait(State.SellCheckDelay or 0.25)
+
+            local ok, err = pcall(function()
+                local waitMax = isToggleActive(sellWaitMaxToggle, State.Sell_WaitMaxBackpack)
+                local shouldRunCropSell = not waitMax or isBackpackFull()
+
+                if shouldRunCropSell then
+                    local allTools = getAllPlayerTools()
+                    if #allTools == 0 then return end
+
+                    local sellInv = getSellInvRemote()
+                    local sellItem = getSellItemRemote()
+
+                    local hasExclusions = (getUIListVal(sellExcludeFruitListObj, "None") ~= "None")
+                        or (getUIListVal(sellExcludeCategoryListObj, "None") ~= "None")
+                        or (getUIListVal(sellExcludeVariantListObj, "None") ~= "None")
+                        or (getUIListVal(sellExcludeMutationListObj, "None") ~= "None")
+                        or ((State.Sell_Weight or 0) > 0)
+
+                    if not hasExclusions then
+                        if sellInv then
+                            pcall(function()
+                                sellInv:FireServer()
+                            end)
+                        end
+                    else
+                        local foundSellable = false
+                        for _, tool in ipairs(allTools) do
+                            if tool.Parent and tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
+                                local info = getCropToolInfo(tool)
+                                if shouldSellCropTool(info) then
+                                    foundSellable = true
+                                    if sellItem then
                                         pcall(function()
-                                            sellOne:FireServer(toolItem)
+                                            sellItem:FireServer(tool)
                                         end)
                                     end
-                                    task.wait(0.02)
                                 end
                             end
                         end
-
-                        -- 3. If no exclusions and inventory still full, fire SellAllPets_RE as bulk fallback
-                        if not hasPetExclusions and sellAllRemote then
+                        if foundSellable and sellInv then
                             pcall(function()
-                                sellAllRemote:FireServer()
+                                sellInv:FireServer()
                             end)
                         end
                     end
                 end
+            end)
+
+            if not ok and err then
+                task.wait(0.2)
             end
-
-            -- 2. Auto Sell Crops
-            if autoSellCrops then
-                local shouldRunCropSell = not waitMax or isBackpackFull()
-                if shouldRunCropSell then
-                    local sellInv = getSellInvRemote()
-                    local sellItem = getSellItemRemote()
-
-                local hasExclusions = (getUIListVal(sellExcludeFruitListObj, "None") ~= "None")
-                    or (getUIListVal(sellExcludeCategoryListObj, "None") ~= "None")
-                    or (getUIListVal(sellExcludeVariantListObj, "None") ~= "None")
-                    or (getUIListVal(sellExcludeMutationListObj, "None") ~= "None")
-                    or ((State.Sell_Weight or 0) > 0)
-
-                if not hasExclusions then
-                    if sellInv then
-                        pcall(function()
-                            sellInv:FireServer()
-                        end)
-                    end
-                else
-                    local foundSellable = false
-                    for _, tool in ipairs(allTools) do
-                        if tool.Parent and tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
-                            local info = getCropToolInfo(tool)
-                            if shouldSellCropTool(info) then
-                                foundSellable = true
-                                if sellItem then
-                                    pcall(function()
-                                        sellItem:FireServer(tool)
-                                    end)
-                                end
-                            end
-                        end
-                    end
-                    if foundSellable and sellInv then
-                        pcall(function()
-                            sellInv:FireServer()
-                        end)
-                    end
-                end
-                end
-            end
-        end)
-
-        if not ok and err then
-            task.wait(0.2)
+        else
+            task.wait(0.5)
         end
-    else
-        task.wait(0.5)
-    end
     end
 end)
 
