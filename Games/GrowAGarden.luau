@@ -285,6 +285,29 @@ local function buildGrowingPlantsInGardenCatalog()
     return sortedList
 end
 
+-- Dynamic list of fruits/plants in garden with "None" as first option for specific fruit filter
+local function buildGardenFruitCatalog()
+    local plantSet = {}
+    pcall(function()
+        local plants = getMyGardenPlants()
+        for _, plant in ipairs(plants) do
+            if plant and plant.Name and plant.Name ~= "" then
+                plantSet[plant.Name] = true
+            end
+        end
+    end)
+    local sortedList = {"None"}
+    local temp = {}
+    for pName, _ in pairs(plantSet) do
+        table.insert(temp, pName)
+    end
+    table.sort(temp)
+    for _, name in ipairs(temp) do
+        table.insert(sortedList, name)
+    end
+    return sortedList
+end
+
 -- Helper to safely add an item to a Hub List without creating duplicates
 local function safeAddToList(listObj, newItem)
     if not listObj or not newItem or newItem == "" then return end
@@ -1068,7 +1091,7 @@ local function buildDynamicEggCatalog()
                     if not seen[name] then
                         seen[name] = true
                         table.insert(eggs, {
-                            Name = name .. (price > 0 and (" (" .. formatCurrency(price) .. "¢)") or ""),
+                            Name = name,
                             ItemName = name,
                             Price = price,
                             Type = "Egg"
@@ -3027,7 +3050,42 @@ end
 -- Pet Egg Placement & Hatching Background Loops
 -- =========================================================================
 
-local function equipPetSlot(slotVal)
+local function isPetSlotLoaded(slotNum)
+    local ok, res = pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        if not dsMod then return true end
+        local ds = require(dsMod)
+        local data = ds and ds:GetData()
+        local petsData = data and data.PetsData
+        if not petsData then return true end
+
+        local currentSlot = tonumber(petsData.SelectedPetLoadout)
+        if currentSlot ~= tonumber(slotNum) then
+            return false
+        end
+
+        local targetLoadout = petsData.PetLoadouts and petsData.PetLoadouts[slotNum]
+        local expectedCount = 0
+        if typeof(targetLoadout) == "table" then
+            for _ in pairs(targetLoadout) do expectedCount = expectedCount + 1 end
+        end
+
+        if expectedCount > 0 then
+            local equippedCount = 0
+            if typeof(petsData.EquippedPets) == "table" then
+                for _ in pairs(petsData.EquippedPets) do equippedCount = equippedCount + 1 end
+            end
+            if equippedCount == 0 then
+                return false
+            end
+        end
+
+        return true
+    end)
+    return ok and res
+end
+
+local function equipPetSlot(slotVal, waitForLoad)
     if not slotVal or slotVal == "None" or slotVal == "" then return end
     local slotNum = tonumber(tostring(slotVal):match("%d+"))
     if not slotNum then return end
@@ -3094,6 +3152,17 @@ local function equipPetSlot(slotVal)
             end
         end
     end)
+
+    if waitForLoad then
+        local startTick = tick()
+        while (tick() - startTick < 2.0) do
+            if isPetSlotLoaded(slotNum) then
+                break
+            end
+            task.wait(0.08)
+        end
+        task.wait(0.25)
+    end
 end
 
 -- 1. Auto Place Eggs Loop (Cycle Step 1: Equip Slot, Place Eggs, Wait For Hatch)
@@ -3203,8 +3272,7 @@ task.spawn(function()
                 if hasReadyEggs then
                     local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
                     if hatchSlot ~= "None" then
-                        equipPetSlot(hatchSlot)
-                        task.wait(0.08)
+                        equipPetSlot(hatchSlot, true)
                     end
                 end
 
@@ -4852,7 +4920,7 @@ end)
 
 collectVariantListObj = Hub.CreateList(farmTab, "Collect: Target Variant", variantItems, 160, false)
 collectMutationListObj = Hub.CreateList(farmTab, "Collect: Target Mutation", mutationItems, 220, false)
-collectFruitListObj = Hub.CreateList(farmTab, "Collect: Specific Fruit", specificFruitItems, 220, false)
+collectFruitListObj = Hub.CreateList(farmTab, "Collect: Specific Fruit", buildGardenFruitCatalog(), 220, false)
 collectCategoryListObj = Hub.CreateList(farmTab, "Collect: Fruit Category", categoryItems, 180, false)
 
 collectWeightModeListObj = Hub.CreateList(farmTab, "Collect: Weight Mode", {
@@ -6190,7 +6258,7 @@ task.spawn(function()
 
     local function syncGardenPlantLists()
         if isSyncing then return end
-        if not (reclaimerPlantListObj or shovelPlantListObj or wateringPlantListObj) then return end
+        if not (reclaimerPlantListObj or shovelPlantListObj or wateringPlantListObj or collectFruitListObj) then return end
         isSyncing = true
 
         pcall(function()
@@ -6203,6 +6271,13 @@ task.spawn(function()
             if shovelPlantListObj then
                 for _, entry in ipairs(allPlants) do
                     safeAddToList(shovelPlantListObj, entry)
+                end
+            end
+            if collectFruitListObj then
+                for _, entry in ipairs(allPlants) do
+                    if entry ~= "All Garden Plants" then
+                        safeAddToList(collectFruitListObj, entry)
+                    end
                 end
             end
             if wateringPlantListObj then
