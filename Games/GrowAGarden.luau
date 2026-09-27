@@ -2959,9 +2959,9 @@ task.spawn(function()
                     end
                 end)
 
-                if #petUUIDBatch > 0 then
+                if #petUUIDBatch > 0 or #petToolBatch > 0 then
                     local petBackpackFull = isPetBackpackFull()
-                    local canSellPets = (not hasSlotSelected) or petBackpackFull or (#petUUIDBatch >= 5)
+                    local canSellPets = (not hasSlotSelected) or petBackpackFull or (#petToolBatch >= 1) or (#petUUIDBatch >= 1)
 
                     if canSellPets then
                         if hasSlotSelected then
@@ -2979,46 +2979,43 @@ task.spawn(function()
                             end
                         end
 
-                        local petRemote = getSellAllPetsRemote()
                         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+                        local sellShop = ge and ge:FindFirstChild("SellPetShopSelected")
+                        local sellAllRemote = ge and ge:FindFirstChild("SellAllPets_RE")
+                        local sellOne = ge and ge:FindFirstChild("SellPet_RE")
 
-                        -- Fast Multi-Batch Remote Selling (chunks of 50 pets)
-                        for i = 1, #petUUIDBatch, 50 do
-                            local chunk = {}
-                            local toolChunk = {}
-                            for j = i, math.min(i + 49, #petUUIDBatch) do
-                                table.insert(chunk, petUUIDBatch[j])
-                                if petToolBatch[j] then
-                                    table.insert(toolChunk, petToolBatch[j])
+                        -- 1. If user hasn't excluded any specific pets, sell all via SellAllPets_RE
+                        local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
+                        local hasPetExclusions = false
+                        for _, ex in ipairs(excludedPets) do
+                            local exL = tostring(ex):lower():gsub("[%s%p]", "")
+                            if exL ~= "none" and exL ~= "" then
+                                hasPetExclusions = true
+                                break
+                            end
+                        end
+
+                        -- 2. Direct individual selling via SellPetShopSelected (the official game remote)
+                        if #petToolBatch > 0 and sellShop then
+                            for _, toolItem in ipairs(petToolBatch) do
+                                if toolItem and toolItem.Parent then
+                                    pcall(function()
+                                        sellShop:FireServer(toolItem)
+                                    end)
+                                    if sellOne then
+                                        pcall(function()
+                                            sellOne:FireServer(toolItem)
+                                        end)
+                                    end
+                                    task.wait(0.02)
                                 end
                             end
+                        end
 
-                            if petRemote then
-                                pcall(function()
-                                    petRemote:FireServer(chunk)
-                                end)
-                            end
+                        -- 3. If no exclusions and inventory still full, fire SellAllPets_RE as bulk fallback
+                        if not hasPetExclusions and sellAllRemote then
                             pcall(function()
-                                local sellShop = ge and ge:FindFirstChild("SellPetShopSelected")
-                                if sellShop then
-                                    if #toolChunk > 0 then
-                                        for _, t in ipairs(toolChunk) do
-                                            sellShop:FireServer(t)
-                                        end
-                                    end
-                                    sellShop:FireServer(chunk)
-                                end
-                            end)
-                            pcall(function()
-                                local sellOne = ge and ge:FindFirstChild("SellPet_RE")
-                                if sellOne then
-                                    for _, uuid in ipairs(chunk) do
-                                        sellOne:FireServer(uuid)
-                                    end
-                                    for _, t in ipairs(toolChunk) do
-                                        sellOne:FireServer(t)
-                                    end
-                                end
+                                sellAllRemote:FireServer()
                             end)
                         end
                     end
