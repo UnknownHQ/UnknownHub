@@ -1599,6 +1599,7 @@ local State = {
     Hatch_ExcludeWeightMode = "None",
     Hatch_CheckDelay = 0.1,
     HatchEgg_EquipSlot = "None",
+    Hatch_SlotCooldown = 7.0,
 
     -- Shop Tab
     AutoBuy_SelectedEgg = false,
@@ -3037,7 +3038,14 @@ local function hatchSingleEgg(eggObj)
     end)
 end
 
+local lastEquippedSlotNumber = nil
+local lastSlotEquipTick = 0
+
 local function hatchAllReadyEggsNow()
+    local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
+    if hatchSlot ~= "None" then
+        equipPetSlot(hatchSlot, true)
+    end
     local placed = getPlacedEggsInGarden()
     for _, egg in ipairs(placed) do
         if isEggReadyToHatch(egg) then
@@ -3102,83 +3110,88 @@ local function equipPetSlot(slotVal, waitForLoad)
     local slotNum = tonumber(tostring(slotVal):match("%d+"))
     if not slotNum then return true end
 
-    -- Check if already fully loaded
-    if isPetSlotLoaded(slotNum) then
-        return true
-    end
+    local isNewSlot = (lastEquippedSlotNumber ~= slotNum)
+    if isNewSlot or not isPetSlotLoaded(slotNum) then
+        lastEquippedSlotNumber = slotNum
+        lastSlotEquipTick = tick()
 
-    pcall(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local teamService = ge and (ge:FindFirstChild("PetTeamService") or ge:FindFirstChild("PetServices") or ge:FindFirstChild("PetEquipService") or ge:FindFirstChild("PetEggService") or ge:FindFirstChild("ActivePetService"))
-        if teamService then
-            teamService:FireServer("EquipTeam", slotNum)
-            teamService:FireServer("LoadTeam", slotNum)
-            teamService:FireServer("EquipSlot", slotNum)
-            teamService:FireServer("SelectTeam", slotNum)
-            teamService:FireServer("EquipLoadout", slotNum)
-            teamService:FireServer("LoadLoadout", slotNum)
-            teamService:FireServer("Equip", slotNum)
-            teamService:FireServer(slotNum)
-        end
-
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        if remotes then
-            local equipRem = remotes:FindFirstChild("EquipTeam") or remotes:FindFirstChild("LoadTeam") or remotes:FindFirstChild("EquipPetSlot") or remotes:FindFirstChild("EquipLoadout")
-            if equipRem then
-                equipRem:FireServer(slotNum)
+        pcall(function()
+            local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+            local teamService = ge and (ge:FindFirstChild("PetTeamService") or ge:FindFirstChild("PetServices") or ge:FindFirstChild("PetEquipService") or ge:FindFirstChild("PetEggService") or ge:FindFirstChild("ActivePetService"))
+            if teamService then
+                teamService:FireServer("EquipTeam", slotNum)
+                teamService:FireServer("LoadTeam", slotNum)
+                teamService:FireServer("EquipSlot", slotNum)
+                teamService:FireServer("SelectTeam", slotNum)
+                teamService:FireServer("EquipLoadout", slotNum)
+                teamService:FireServer("LoadLoadout", slotNum)
+                teamService:FireServer("Equip", slotNum)
+                teamService:FireServer(slotNum)
             end
-        end
 
-        local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        if pGui then
-            -- 1. ActivePetUI Loadout Buttons (e.g. PET_LOADOUT_1, PET_LOADOUT_2, ...)
-            local activePetUI = pGui:FindFirstChild("ActivePetUI")
-            if activePetUI then
-                for _, desc in ipairs(activePetUI:GetDescendants()) do
-                    if desc.Name == "PET_LOADOUT_" .. tostring(slotNum) or desc.Name:find("LOADOUT_" .. tostring(slotNum)) then
-                        local sensor = desc:FindFirstChild("SENSOR") or desc:FindFirstChildWhichIsA("GuiButton", true)
-                        if sensor then
-                            if firesignal then
-                                firesignal(sensor.MouseButton1Click)
-                                firesignal(sensor.Activated)
+            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+            if remotes then
+                local equipRem = remotes:FindFirstChild("EquipTeam") or remotes:FindFirstChild("LoadTeam") or remotes:FindFirstChild("EquipPetSlot") or remotes:FindFirstChild("EquipLoadout")
+                if equipRem then
+                    equipRem:FireServer(slotNum)
+                end
+            end
+
+            local pGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pGui then
+                -- 1. ActivePetUI Loadout Buttons (e.g. PET_LOADOUT_1, PET_LOADOUT_2, ...)
+                local activePetUI = pGui:FindFirstChild("ActivePetUI")
+                if activePetUI then
+                    for _, desc in ipairs(activePetUI:GetDescendants()) do
+                        if desc.Name == "PET_LOADOUT_" .. tostring(slotNum) or desc.Name:find("LOADOUT_" .. tostring(slotNum)) then
+                            local sensor = desc:FindFirstChild("SENSOR") or desc:FindFirstChildWhichIsA("GuiButton", true)
+                            if sensor then
+                                if firesignal then
+                                    firesignal(sensor.MouseButton1Click)
+                                    firesignal(sensor.Activated)
+                                end
+                                if getconnections then
+                                    for _, conn in ipairs(getconnections(sensor.MouseButton1Click)) do
+                                        if conn.Fire then conn:Fire() end
+                                    end
+                                    for _, conn in ipairs(getconnections(sensor.Activated)) do
+                                        if conn.Fire then conn:Fire() end
+                                    end
+                                end
                             end
+                        end
+                    end
+                end
+
+                -- 2. General Pet UI Fallback
+                local petGui = pGui:FindFirstChild("Pet_UI") or pGui:FindFirstChild("Pets_UI") or pGui:FindFirstChild("PetTeam_UI")
+                if petGui then
+                    for _, desc in ipairs(petGui:GetDescendants()) do
+                        if (desc:IsA("TextButton") or desc:IsA("ImageButton")) and desc.Name:find(tostring(slotNum)) then
+                            if firesignal then firesignal(desc.MouseButton1Click) firesignal(desc.Activated) end
                             if getconnections then
-                                for _, conn in ipairs(getconnections(sensor.MouseButton1Click)) do
-                                    if conn.Fire then conn:Fire() end
-                                end
-                                for _, conn in ipairs(getconnections(sensor.Activated)) do
-                                    if conn.Fire then conn:Fire() end
-                                end
+                                for _, conn in ipairs(getconnections(desc.MouseButton1Click)) do if conn.Fire then conn:Fire() end end
                             end
                         end
                     end
                 end
             end
-
-            -- 2. General Pet UI Fallback
-            local petGui = pGui:FindFirstChild("Pet_UI") or pGui:FindFirstChild("Pets_UI") or pGui:FindFirstChild("PetTeam_UI")
-            if petGui then
-                for _, desc in ipairs(petGui:GetDescendants()) do
-                    if (desc:IsA("TextButton") or desc:IsA("ImageButton")) and desc.Name:find(tostring(slotNum)) then
-                        if firesignal then firesignal(desc.MouseButton1Click) firesignal(desc.Activated) end
-                        if getconnections then
-                            for _, conn in ipairs(getconnections(desc.MouseButton1Click)) do if conn.Fire then conn:Fire() end end
-                        end
-                    end
-                end
-            end
-        end
-    end)
+        end)
+    end
 
     if waitForLoad then
         local startTick = tick()
-        local maxWait = 6.0 -- Allow ample time for all pets to load sequentially
+        local maxWait = 10.0 -- Allow ample time for all pets to load sequentially
         while (tick() - startTick < maxWait) do
             if isPetSlotLoaded(slotNum) then
-                task.wait(0.35) -- Additional settling buffer to ensure passive calculations are active
-                return true
+                break
             end
-            task.wait(0.1)
+            task.wait(0.2)
+        end
+        local targetCooldown = tonumber(State.Hatch_SlotCooldown) or 7.0
+        local elapsed = tick() - lastSlotEquipTick
+        if elapsed < targetCooldown then
+            task.wait(targetCooldown - elapsed)
         end
         return isPetSlotLoaded(slotNum)
     end
@@ -3292,10 +3305,24 @@ task.spawn(function()
                 if hasReadyEggs then
                     local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
                     if hatchSlot ~= "None" then
-                        local loaded = equipPetSlot(hatchSlot, true)
-                        if not loaded then
-                            task.wait(0.2)
-                            return
+                        local hatchSlotNum = tonumber(tostring(hatchSlot):match("%d+"))
+                        if hatchSlotNum then
+                            if lastEquippedSlotNumber ~= hatchSlotNum or not isPetSlotLoaded(hatchSlotNum) then
+                                local loaded = equipPetSlot(hatchSlot, true)
+                                if not loaded then
+                                    task.wait(0.25)
+                                    return
+                                end
+                            end
+                            local targetCooldown = tonumber(State.Hatch_SlotCooldown) or 7.0
+                            if (tick() - lastSlotEquipTick) < targetCooldown then
+                                task.wait(0.25)
+                                return
+                            end
+                            if not isPetSlotLoaded(hatchSlotNum) then
+                                task.wait(0.25)
+                                return
+                            end
                         end
                     end
                 end
@@ -5215,6 +5242,11 @@ waitAllEggsReadyToggle = Hub.CreateToggle(petTab, "Wait Until All Eggs Ready", f
 end)
 
 hatchEggSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Hatching Boost)", slotListItems, 160, false)
+
+Hub.CreateTextBox(petTab, "Hatch Slot Cooldown (s)", "Cooldown after equipping slot (default: 7.0)", function(text)
+    local num = tonumber(text)
+    if num then State.Hatch_SlotCooldown = math.clamp(num, 0, 30) end
+end)
 
 hatchEggListObj = Hub.CreateList(petTab, "Select Egg to Hatch", eggListItems, 220, false)
 
