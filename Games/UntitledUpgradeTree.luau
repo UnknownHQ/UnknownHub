@@ -460,9 +460,7 @@ local Hub = factory({
 })
 
 -- =========================================================================
--- Main Tab: Automation
--- =========================================================================
-local mainTab = Hub.createPage("🏠 Main")
+local mainTab = Hub.CreateTab("Main", { Icon = "🏠", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
 
 Hub.CreateSection(mainTab, "UPGRADE AUTOMATION")
 
@@ -663,9 +661,7 @@ Hub.CreateToggle(mainTab, "Auto Battle Attack", false, function(enabled)
 end)
 
 -- =========================================================================
--- Resets Tab: Multi-World Reset Suite
--- =========================================================================
-local resetTab = Hub.createPage("🌀 Resets")
+local resetTab = Hub.CreateTab("Resets", { Icon = "🌀", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(175, 105, 255) })
 
 Hub.CreateSection(resetTab, "SPAWN & DARK REALM RESETS")
 

@@ -4679,13 +4679,13 @@ local slotListItems = {
     {Name = "Slot 6"}
 }
 
-local farmTab = Hub.createTabButton("Farm", "🌱 Auto Farm", "rbxassetid://111808451137805", true)
-local petTab = Hub.createTabButton("Pets", "🐾 Pets", "rbxassetid://88557327752325", false)
-local shopTab = Hub.createTabButton("Shop", "🛍️ Shop", "rbxassetid://126537660819583", false)
-local eventTab = Hub.createTabButton("Events", "🎪 Events", "rbxassetid://96398631300809", false)
-local tradeTab = Hub.createTabButton("Trade", "🔄 Trade Plaza", "rbxassetid://81017486282262", false)
-local miscTab = Hub.createTabButton("Misc", "🔮 Misc", "rbxassetid://126537660819583", false)
-local settingsTab = Hub.createTabButton("Settings", "⚙️ Settings", "rbxassetid://10723407392", false)
+local farmTab = Hub.CreateTab("Farm", { Icon = "🌱", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 220, 120) })
+local petTab = Hub.CreateTab("Pets", { Icon = "🐾", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 180, 50) })
+local shopTab = Hub.CreateTab("Shop", { Icon = "🛒", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
+local eventTab = Hub.CreateTab("Events", { Icon = "🎪", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(240, 100, 200) })
+local tradeTab = Hub.CreateTab("Trade", { Icon = "🔄", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 200, 255) })
+local miscTab = Hub.CreateTab("Misc", { Icon = "🔮", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(180, 140, 255) })
+local settingsTab = Hub.CreateTab("Settings", { Icon = "⚙️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(220, 230, 250) })
 
 -- ==========================================
 -- Section: Trade Plaza Sniper

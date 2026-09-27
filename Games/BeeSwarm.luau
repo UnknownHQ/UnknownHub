@@ -43,8 +43,8 @@ assert(type(Hub.CreateToggle) == "function", "UnknownLibrary is missing CreateTo
 assert(type(Hub.CreateList) == "function", "UnknownLibrary is missing CreateList")
 assert(type(Hub.createTabButton) == "function", "UnknownLibrary is missing createTabButton")
 
-local mainPage = Hub.createTabButton("Main", "Main", "rbxassetid://10723407389", true)
-local combatPage = Hub.createTabButton("Combat", "Combat", "rbxassetid://10723407390", false)
+local mainPage = Hub.CreateTab("Main", { Icon = "🐝", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
+local combatPage = Hub.CreateTab("Combat", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 80, 80) })
 local AutoFarmState = false
 local AutoDigState = false
 local AutoSprinklersState = false

@@ -316,24 +316,29 @@ end
 
 local Pages = {}
 local tabData = {
-    {name = "🌐 Main & Movement", icon = "rbxassetid://10709790298"},
-    {name = "👁️ ESP & Visuals", icon = "rbxassetid://10709790298"},
-    {name = "🎯 Melee & Guns", icon = "rbxassetid://10709790097"},
-    {name = "🔺 Red Light Green Light", icon = "rbxassetid://10723415903"},
-    {name = "🍪 Dalgona Cookie", icon = "rbxassetid://10734898355"},
-    {name = "🪢 Tug Of War", icon = "rbxassetid://10709789311"},
-    {name = "🪨 Marbles & QTE", icon = "rbxassetid://10709772288"},
-    {name = "🧱 Glass Bridge", icon = "rbxassetid://10709770535"},
-    {name = "🙈 Hide & Seek", icon = "rbxassetid://10734896798"},
-    {name = "🎽 Pentathlon", icon = "rbxassetid://10709773208"},
-    {name = "☁️ SkySquid & VIP", icon = "rbxassetid://10709770178"},
-    {name = "👮 Guard & Surgery", icon = "rbxassetid://10709773646"},
-    {name = "🛡️ Protections", icon = "rbxassetid://10709773994"},
-    {name = "⚡ Secret Exploits & Remotes", icon = "rbxassetid://10709790097"}
+    {name = "🌐 Main & Movement", icon = "🌐", color = Color3.fromRGB(0, 215, 255)},
+    {name = "👁️ ESP & Visuals", icon = "👁️", color = Color3.fromRGB(160, 95, 255)},
+    {name = "🎯 Melee & Guns", icon = "🎯", color = Color3.fromRGB(255, 80, 80)},
+    {name = "🔺 Red Light Green Light", icon = "🔺", color = Color3.fromRGB(255, 60, 60)},
+    {name = "🍪 Dalgona Cookie", icon = "🍪", color = Color3.fromRGB(255, 180, 60)},
+    {name = "🪢 Tug Of War", icon = "🪢", color = Color3.fromRGB(255, 200, 50)},
+    {name = "🪨 Marbles & QTE", icon = "🪨", color = Color3.fromRGB(180, 190, 200)},
+    {name = "🧱 Glass Bridge", icon = "🧱", color = Color3.fromRGB(100, 200, 255)},
+    {name = "🙈 Hide & Seek", icon = "🙈", color = Color3.fromRGB(255, 150, 180)},
+    {name = "🎽 Pentathlon", icon = "🎽", color = Color3.fromRGB(50, 220, 120)},
+    {name = "☁️ SkySquid & VIP", icon = "☁️", color = Color3.fromRGB(120, 180, 255)},
+    {name = "👮 Guard & Surgery", icon = "👮", color = Color3.fromRGB(80, 120, 255)},
+    {name = "🛡️ Protections", icon = "🛡️", color = Color3.fromRGB(50, 200, 140)},
+    {name = "⚡ Secret Exploits & Remotes", icon = "⚡", color = Color3.fromRGB(255, 225, 50)}
 }
 
 for idx, t in ipairs(tabData) do
-    Pages[t.name] = Hub.createTabButton(t.name, t.name, t.icon, idx == 1)
+    Pages[t.name] = Hub.CreateTab(t.name, {
+        Icon = t.icon,
+        Size = 18,
+        Color = Color3.fromRGB(170, 185, 210),
+        ActiveColor = t.color
+    })
 end
 
 CreateButton(Pages["🌐 Main & Movement"], "🔍 Run Live Self-Diagnostic Health Check", 1, function()

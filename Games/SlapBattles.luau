@@ -778,12 +778,12 @@ assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
 -- =========================================================================
 -- Hub Tabs
 -- =========================================================================
-local combatTab = Hub.createTabButton("Combat", "🥊 Combat", "rbxassetid://10723407390", true)
-local badgeTab  = Hub.createTabButton("Badges", "🏆 Badges", "rbxassetid://10723407389", false)
-local farmTab   = Hub.createTabButton("Farm", "⭐ Farm", "rbxassetid://10723407389", false)
-local altTab    = Hub.createTabButton("AltControl", "👥 Alt Control", "rbxassetid://10723407389", false)
-local defenseTab = Hub.createTabButton("Defense", "🛡️ Defense", "rbxassetid://10723407392", false)
-local visualTab = Hub.createTabButton("Visuals", "👁️ Visuals", "rbxassetid://10723407395", false)
+local combatTab  = Hub.CreateTab("Combat", { Icon = "🥊", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 75, 75) })
+local badgeTab   = Hub.CreateTab("Badges", { Icon = "🏆", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 215, 0) })
+local farmTab    = Hub.CreateTab("Farm", { Icon = "⭐", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 180, 50) })
+local altTab     = Hub.CreateTab("AltControl", { Icon = "👥", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
+local defenseTab = Hub.CreateTab("Defense", { Icon = "🛡️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 220, 120) })
+local visualTab  = Hub.CreateTab("Visuals", { Icon = "👁️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(160, 95, 255) })
 
 -- =========================================================================
 -- State Variables

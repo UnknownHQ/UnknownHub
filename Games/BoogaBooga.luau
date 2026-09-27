@@ -525,13 +525,13 @@ end
 -- =========================================================================
 -- Tabs Setup
 -- =========================================================================
-local combatTab   = Hub.createTabButton("Combat", "🥊 Combat & Hit", "rbxassetid://10723407390", true)
-local lootTab     = Hub.createTabButton("Loot", "🧲 Auto Pickup & Loot", "rbxassetid://10723407389", false)
-local farmTab     = Hub.createTabButton("Farm", "🌱 Auto Farm & Crops", "rbxassetid://10723407392", false)
-local playerTab   = Hub.createTabButton("Player", "⚡ Movement", "rbxassetid://10723407392", false)
-local visualsTab  = Hub.createTabButton("Visuals", "👁️ ESP & Visuals", "rbxassetid://10723407395", false)
-local teleportTab = Hub.createTabButton("Teleports", "🌐 Teleports", "rbxassetid://10723407389", false)
-local miscTab     = Hub.createTabButton("Misc", "🛠️ Utility & Server", "rbxassetid://10723407392", false)
+local combatTab   = Hub.CreateTab("Combat", { Icon = "🥊", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 75, 75) })
+local lootTab     = Hub.CreateTab("Loot", { Icon = "🧲", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
+local farmTab     = Hub.CreateTab("Farm", { Icon = "🌱", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 220, 120) })
+local playerTab   = Hub.CreateTab("Player", { Icon = "⚡", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
+local visualsTab  = Hub.CreateTab("Visuals", { Icon = "👁️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(160, 95, 255) })
+local teleportTab = Hub.CreateTab("Teleports", { Icon = "🌐", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 200, 255) })
+local miscTab     = Hub.CreateTab("Misc", { Icon = "🛠️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(200, 150, 255) })
 
 -- Native Hitbox Sync Engine (Allows melee hits to register on server at maximum reliable reach in all 360 degrees)
 local function syncHitboxReach(overrideRange)

@@ -320,17 +320,17 @@ local startChestFarm = nil
 local stopChestFarm = nil
 
 -- Create Hub Tabs
-local farmPage = Hub.createTabButton("Auto Farm", "Auto Farm", "rbxassetid://10709782497", true)
-local questPage = Hub.createTabButton("Quests", "Quests", "rbxassetid://10709798226", false)
-local playerPage = Hub.createTabButton("Player", "Player", "rbxassetid://10709818834", false)
-local statsPage = Hub.createTabButton("Auto Stats", "Auto Stats", "rbxassetid://10709761596", false)
-local bossPage = Hub.createTabButton("Auto Boss", "Auto Boss", "rbxassetid://10709810814", false)
-local fruitPage = Hub.createTabButton("Fruit", "Fruit", "rbxassetid://10709781448", false)
-local espPage = Hub.createTabButton("ESP", "ESP", "rbxassetid://10709775400", false)
-local miscPage = Hub.createTabButton("Misc", "Misc", "rbxassetid://10709810488", false)
-local serverPage = Hub.createTabButton("Server", "Server", "rbxassetid://10709809930", false)
-local travelPage = Hub.createTabButton("Travel", "Travel", "rbxassetid://10709798485", false)
-local shopPage = Hub.createTabButton("Shop", "Shop", "rbxassetid://10709810237", false)
+local farmPage = Hub.CreateTab("Auto Farm", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
+local questPage = Hub.CreateTab("Quests", { Icon = "📜", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
+local playerPage = Hub.CreateTab("Player", { Icon = "👤", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(80, 220, 140) })
+local statsPage = Hub.CreateTab("Auto Stats", { Icon = "📊", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 140, 50) })
+local bossPage = Hub.CreateTab("Auto Boss", { Icon = "👹", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 60, 60) })
+local fruitPage = Hub.CreateTab("Fruit", { Icon = "🍎", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 100, 120) })
+local espPage = Hub.CreateTab("ESP", { Icon = "👁️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(160, 95, 255) })
+local miscPage = Hub.CreateTab("Misc", { Icon = "🔮", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(200, 140, 255) })
+local serverPage = Hub.CreateTab("Server", { Icon = "🌐", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 180, 255) })
+local travelPage = Hub.CreateTab("Travel", { Icon = "📍", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 200, 180) })
+local shopPage = Hub.CreateTab("Shop", { Icon = "🛒", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 215, 0) })
 
 do
     Hub.CreateSection(serverPage, "🌐 Smart Server Hopper & Management")

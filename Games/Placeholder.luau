@@ -188,9 +188,9 @@ local Hub = factory({
 })
 
 -- =========================================================================
--- TAB 1: 🏠 MAIN (Essential Toggles, Loops, Sliders, Buttons)
+-- TAB 1: MAIN (Essential Toggles, Loops, Sliders, Buttons)
 -- =========================================================================
-local mainTab = Hub.createPage("🏠 Main")
+local mainTab = Hub.CreateTab("Main", { Icon = "🏠", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
 
 Hub.CreateSection(mainTab, "CORE AUTOMATION")
 
@@ -264,9 +264,9 @@ Hub.CreateSlider(mainTab, "JumpPower Modifier", 50, 400, 50, " pwr", function(va
 end)
 
 -- =========================================================================
--- TAB 2: 🌾 FARMING & LISTS (Inputs, Single-Select, Multi-Select, Sub-Lists)
+-- TAB 2: FARMING & LISTS (Inputs, Single-Select, Multi-Select, Sub-Lists)
 -- =========================================================================
-local farmTab = Hub.createPage("🌾 Farming")
+local farmTab = Hub.CreateTab("Farming", { Icon = "🌾", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 220, 120) })
 
 Hub.CreateSection(farmTab, "INPUT & FILTERS")
 
@@ -322,9 +322,9 @@ oreFilterList.OnMultiSelect = function(selectedMap)
 end
 
 -- =========================================================================
--- TAB 3: 🌐 UNIVERSAL & UTILITIES (Noclip, ESP, Server Hop, Rejoin)
+-- TAB 3: UNIVERSAL & UTILITIES (Noclip, ESP, Server Hop, Rejoin)
 -- =========================================================================
-local utilTab = Hub.createPage("🌐 Universal")
+local utilTab = Hub.CreateTab("Universal", { Icon = "🌐", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 200, 255) })
 
 Hub.CreateSection(utilTab, "MOVEMENT EXPLOITS")
 
@@ -387,9 +387,9 @@ Hub.CreateButton(utilTab, "Server Hop (Different Server)", function()
 end)
 
 -- =========================================================================
--- TAB 4: 🛠️ DIAGNOSTICS & REVERSE ENGINEERING TOOLS
+-- TAB 4: DIAGNOSTICS & REVERSE ENGINEERING TOOLS
 -- =========================================================================
-local diagTab = Hub.createPage("🛠️ Diagnostics")
+local diagTab = Hub.CreateTab("Diagnostics", { Icon = "🛠️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 180, 50) })
 
 Hub.CreateSection(diagTab, "GAME INSPECTION")
 
