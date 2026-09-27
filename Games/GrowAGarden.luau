@@ -2952,6 +2952,7 @@ task.spawn(function()
                 end)
 
                 if #petToolBatch > 0 or #petUUIDBatch > 0 then
+                    _G._gag_selling_pets = true
                     if hasSlotSelected then
                         local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
                         if sellSlotNum then
@@ -3005,6 +3006,9 @@ task.spawn(function()
                             sellAllRemote:FireServer()
                         end)
                     end
+                    _G._gag_selling_pets = false
+                else
+                    _G._gag_selling_pets = false
                 end
             end)
 
@@ -3544,6 +3548,11 @@ task.spawn(function()
         local autoPlace = isToggleActive(autoPlaceEggsToggle, State.AutoPlaceEggs, "🥚 Auto Place Eggs")
         if autoPlace then
             local ok, err = pcall(function()
+                if _G._gag_selling_pets or isPetBackpackFull() then
+                    task.wait(0.35)
+                    return
+                end
+
                 local onlyNoEgg = isToggleActive(placeOnlyWhenNoEggToggle, State.PlaceOnlyWhenNoEgg)
                 local placedEggs = getPlacedEggsInGarden()
                 local currentPlacedCount = #placedEggs
@@ -3568,7 +3577,7 @@ task.spawn(function()
 
                 -- Always equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
                 local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
-                if placeSlot ~= "None" then
+                if placeSlot ~= "None" and not _G._gag_selling_pets then
                     equipPetSlot(placeSlot)
                 end
 
@@ -3607,7 +3616,7 @@ task.spawn(function()
         local autoHatch = isToggleActive(autoHatchEggsToggle, State.AutoHatchEggs, "🐣 Auto Hatch Eggs")
         if autoHatch then
             local ok, err = pcall(function()
-                if isPetBackpackFull() then
+                if _G._gag_selling_pets or isPetBackpackFull() then
                     task.wait(0.35)
                     return
                 end
