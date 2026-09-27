@@ -1307,55 +1307,76 @@ local function buildDynamicCraftCatalogs()
         local craftingData = require(dataMod)
         local recipes = (craftingData.CraftingRecipeRegistry and craftingData.CraftingRecipeRegistry.ItemRecipes) or craftingData.ItemRecipes or craftingData
 
+        -- Collect all valid/active machine types present on the map or standard workbenches
+        local validMachineTypes = {
+            ["SeedEventWorkbench"] = true,
+            ["GearEventWorkbench"] = true,
+            ["Workbench"] = true,
+            ["CraftingTable"] = true,
+            ["CraftingBench"] = true,
+            ["SeedWorkbench"] = true,
+            ["GearWorkbench"] = true
+        }
+
+        pcall(function()
+            for _, b in ipairs(CollectionService:GetTagged("CraftingObject")) do
+                if b:IsDescendantOf(Workspace) then
+                    local mType = b:GetAttribute("CraftingObjectType")
+                    if mType and type(mType) == "string" and mType ~= "" then
+                        validMachineTypes[mType] = true
+                    end
+                end
+            end
+        end)
+
         for recipeId, recipe in pairs(recipes) do
-            local out = recipe.Outputs and recipe.Outputs[1]
-            local outType = out and out.ItemType or ""
-            local outName = (out and out.ItemData and out.ItemData.ItemName) or tostring(recipeId)
-            local displayName = outName
-            if string.find(tostring(recipeId), "@") then
-                displayName = string.split(tostring(recipeId), "@")[1]
-            end
-
             local mTypes = recipe.MachineTypes or {}
-            local primaryMachine = mTypes[1] or "GearEventWorkbench"
-            local isLegacyEvent = not (primaryMachine == "SeedEventWorkbench" or primaryMachine == "GearEventWorkbench")
-
-            local isPlant = (outType == "Seed" or outType == "Seed Pack" or outType == "Crop" or outType == "Plant")
-            local recLow = tostring(recipeId):lower()
-            if not isPlant then
-                if recLow:find("seed") or recLow:find("pack") or recLow:find("sprout") or recLow:find("flower") or recLow:find("bamboo") 
-                    or recLow:find("aloe") or recLow:find("dandelion") or recLow:find("lumira") or recLow:find("yarrow") 
-                    or recLow:find("veinpetal") or recLow:find("mandrake") or recLow:find("honeysuckle") or recLow:find("nectar") 
-                    or recLow:find("apple") or recLow:find("bean") or recLow:find("lingonberry") or recLow:find("guanabana") 
-                    or recLow:find("olive") or recLow:find("suncoil") or recLow:find("manuka") or recLow:find("horsetail")
-                    or recLow:find("peace lily") or recLow:find("egg melon") or recLow:find("spray") then
-                    isPlant = true
+            local canCraftAtBench = false
+            for _, mType in ipairs(mTypes) do
+                if validMachineTypes[mType] then
+                    canCraftAtBench = true
+                    break
                 end
             end
-            if recLow:find("sprinkler") or recLow:find("crate") or recLow:find("egg") or recLow:find("toy") or recLow:find("treat") or recLow:find("statue") or recLow:find("ingot") or recLow:find("box") or recLow:find("pouch") or recLow:find("forger") or recLow:find("reclaimer") or recLow:find("anvil") or recLow:find("grinder") or recLow:find("wand") or recLow:find("radar") or recLow:find("lantern") or recLow:find("magnet") or recLow:find("rod") or recLow:find("hammer") or recLow:find("thundelbringer") or recLow:find("dog") or recLow:find("cat") or recLow:find("cheetah") or recLow:find("stone") or recLow:find("mirror") or recLow:find("table") or recLow:find("light") or recLow:find("mushroom") or recLow:find("memories") or recLow:find("rack") then
-                isPlant = false
-            end
 
-            local tag = ""
-            if isLegacyEvent then
-                if primaryMachine:find("Dino") then tag = " [Dino Event]"
-                elseif primaryMachine:find("Fairy") then tag = " [Fairy Event]"
-                elseif primaryMachine:find("Smith") then tag = " [Smithing]"
-                elseif primaryMachine:find("Bean") then tag = " [Giant Beanstalk]"
-                else tag = " [" .. primaryMachine .. "]"
+            -- Only include recipes that can actually be crafted at current craft tables / workbenches
+            if canCraftAtBench then
+                local out = recipe.Outputs and recipe.Outputs[1]
+                local outType = out and out.ItemType or ""
+                local outName = (out and out.ItemData and out.ItemData.ItemName) or tostring(recipeId)
+                local displayName = outName
+                if string.find(tostring(recipeId), "@") then
+                    displayName = string.split(tostring(recipeId), "@")[1]
                 end
-            end
-            local fullLabel = displayName .. tag
 
-            if isPlant then
-                if not plantSeen[fullLabel] then
-                    plantSeen[fullLabel] = true
-                    table.insert(craftPlants, {Name = fullLabel, BaseName = displayName, RecipeId = tostring(recipeId), MachineTypes = mTypes})
+                local isPlant = (outType == "Seed" or outType == "Seed Pack" or outType == "Crop" or outType == "Plant")
+                local recLow = tostring(recipeId):lower()
+                if not isPlant then
+                    if recLow:find("seed") or recLow:find("pack") or recLow:find("sprout") or recLow:find("flower") or recLow:find("bamboo") 
+                        or recLow:find("aloe") or recLow:find("dandelion") or recLow:find("lumira") or recLow:find("yarrow") 
+                        or recLow:find("veinpetal") or recLow:find("mandrake") or recLow:find("honeysuckle") or recLow:find("nectar") 
+                        or recLow:find("apple") or recLow:find("bean") or recLow:find("lingonberry") or recLow:find("guanabana") 
+                        or recLow:find("olive") or recLow:find("suncoil") or recLow:find("manuka") or recLow:find("horsetail")
+                        or recLow:find("peace lily") or recLow:find("egg melon") or recLow:find("spray") then
+                        isPlant = true
+                    end
                 end
-            else
-                if not gearSeen[fullLabel] then
-                    gearSeen[fullLabel] = true
-                    table.insert(craftGears, {Name = fullLabel, BaseName = displayName, RecipeId = tostring(recipeId), MachineTypes = mTypes})
+                if recLow:find("sprinkler") or recLow:find("crate") or recLow:find("egg") or recLow:find("toy") or recLow:find("treat") or recLow:find("statue") or recLow:find("ingot") or recLow:find("box") or recLow:find("pouch") or recLow:find("forger") or recLow:find("reclaimer") or recLow:find("anvil") or recLow:find("grinder") or recLow:find("wand") or recLow:find("radar") or recLow:find("lantern") or recLow:find("magnet") or recLow:find("rod") or recLow:find("hammer") or recLow:find("thundelbringer") or recLow:find("dog") or recLow:find("cat") or recLow:find("cheetah") or recLow:find("stone") or recLow:find("mirror") or recLow:find("table") or recLow:find("light") or recLow:find("mushroom") or recLow:find("memories") or recLow:find("rack") then
+                    isPlant = false
+                end
+
+                local fullLabel = displayName
+
+                if isPlant then
+                    if not plantSeen[fullLabel] then
+                        plantSeen[fullLabel] = true
+                        table.insert(craftPlants, {Name = fullLabel, BaseName = displayName, RecipeId = tostring(recipeId), MachineTypes = mTypes})
+                    end
+                else
+                    if not gearSeen[fullLabel] then
+                        gearSeen[fullLabel] = true
+                        table.insert(craftGears, {Name = fullLabel, BaseName = displayName, RecipeId = tostring(recipeId), MachineTypes = mTypes})
+                    end
                 end
             end
         end
