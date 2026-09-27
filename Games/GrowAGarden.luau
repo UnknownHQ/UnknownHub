@@ -1180,7 +1180,9 @@ local function buildDynamicGearCatalog()
 end
 
 local function buildDynamicSeedShopCatalog()
-    local seeds = {}
+    local standardSeeds = {}
+    local exclusiveSeeds = {}
+
     pcall(function()
         local rep = game:GetService("ReplicatedStorage")
         local data = rep:FindFirstChild("Data")
@@ -1188,23 +1190,66 @@ local function buildDynamicSeedShopCatalog()
         if seedData then
             local res = require(seedData)
             for k, v in pairs(res) do
-                if type(v) == "table" then
-                    local rawName = (type(v.Seed) == "table" and (v.Seed.SeedName or v.Seed.Name)) or (type(v.Seed) == "string" and v.Seed) or v.Name or tostring(k)
-                    local cleanName = tostring(rawName):gsub("%s*[sS]eed%s*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                    if cleanName == "" then cleanName = tostring(k) end
-                    local price = tonumber(v.Price) or 0
-                    table.insert(seeds, {
-                        Name = cleanName .. " (" .. formatCurrency(price) .. "¢)",
-                        ItemName = cleanName,
-                        RawKey = tostring(k),
-                        Price = price,
-                        Type = "Seed"
-                    })
+                if type(v) == "table" and k ~= "RefreshTime" then
+                    -- Filter out special currency seeds (e.g. GardenCoins like Potato, Broccoli, Brussels Sprout, Cocomango)
+                    -- and seeds with DisplayInShop == false
+                    local isSpecialCurrency = (v.SpecialCurrencyType ~= nil and v.SpecialCurrencyType ~= "Sheckles")
+                        or (v.CurrencyType ~= nil and v.CurrencyType ~= "Sheckles")
+                    local isHidden = (v.DisplayInShop == false) or (v.HideInShop == true)
+
+                    if not isSpecialCurrency and not isHidden then
+                        local rawName = (type(v.Seed) == "table" and (v.Seed.SeedName or v.Seed.Name)) or (type(v.Seed) == "string" and v.Seed) or v.Name or tostring(k)
+                        local cleanName = tostring(rawName):gsub("%s*[sS]eed%s*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                        if cleanName == "" then cleanName = tostring(k) end
+                        local price = tonumber(v.Price) or 0
+                        local isExclusive = (v.Exclusive == true) or (v.LayoutOrder and v.LayoutOrder >= 400)
+
+                        local entry = {
+                            Name = cleanName .. " (" .. formatCurrency(price) .. "¢)",
+                            ItemName = cleanName,
+                            RawKey = tostring(k),
+                            Price = price,
+                            LayoutOrder = tonumber(v.LayoutOrder) or 0,
+                            IsExclusive = isExclusive,
+                            Type = "Seed"
+                        }
+
+                        if isExclusive then
+                            table.insert(exclusiveSeeds, entry)
+                        else
+                            table.insert(standardSeeds, entry)
+                        end
+                    end
                 end
             end
         end
     end)
-    table.sort(seeds, function(a, b) return a.Price < b.Price end)
+
+    -- Sort standard seeds by Price ascending (value)
+    table.sort(standardSeeds, function(a, b)
+        if a.Price ~= b.Price then
+            return a.Price < b.Price
+        end
+        return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
+    end)
+
+    -- Sort exclusive seeds by Price / LayoutOrder ascending
+    table.sort(exclusiveSeeds, function(a, b)
+        if a.Price ~= b.Price then
+            return a.Price < b.Price
+        end
+        return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
+    end)
+
+    -- Combine: Standard seeds first, Exclusive seeds at the end
+    local seeds = {}
+    for _, item in ipairs(standardSeeds) do
+        table.insert(seeds, item)
+    end
+    for _, item in ipairs(exclusiveSeeds) do
+        table.insert(seeds, item)
+    end
+
     return seeds
 end
 
@@ -1580,6 +1625,7 @@ local State = {
     Sell_ExcludePetWeight = 0,
     Sell_ExcludePetWeightMode = "Above",
     Sell_EquipSlot = "None",
+    Sell_SlotCooldown = 5.0,
 
     -- Pet Tab: Egg Hatching & Egg Placement
     Egg_ESP = false,
@@ -2691,8 +2737,25 @@ task.spawn(function()
                     if #petUUIDBatch > 0 then
                         local sellSlot = getUIListVal(sellPetSlotListObj, State.Sell_EquipSlot or "None")
                         if sellSlot ~= "None" then
-                            equipPetSlot(sellSlot)
-                            task.wait(0.08)
+                            local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
+                            if sellSlotNum then
+                                local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
+                                if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) then
+                                    local loaded = equipPetSlot(sellSlot, true, sellCooldown)
+                                    if not loaded then
+                                        task.wait(0.25)
+                                        return
+                                    end
+                                end
+                                if (tick() - lastSlotEquipTick) < sellCooldown then
+                                    task.wait(0.25)
+                                    return
+                                end
+                                if not isPetSlotLoaded(sellSlotNum) then
+                                    task.wait(0.25)
+                                    return
+                                end
+                            end
                         end
 
                         for i = 1, #petUUIDBatch, 30 do
@@ -3120,7 +3183,7 @@ local function isPetSlotLoaded(slotNum)
     return ok and res
 end
 
-local function equipPetSlot(slotVal, waitForLoad)
+local function equipPetSlot(slotVal, waitForLoad, minCooldown)
     if not slotVal or slotVal == "None" or slotVal == "" then return true end
     local slotNum = tonumber(tostring(slotVal):match("%d+"))
     if not slotNum then return true end
@@ -3203,7 +3266,7 @@ local function equipPetSlot(slotVal, waitForLoad)
             end
             task.wait(0.2)
         end
-        local targetCooldown = math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
+        local targetCooldown = minCooldown or math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
         local elapsed = tick() - lastSlotEquipTick
         if elapsed < targetCooldown then
             task.wait(targetCooldown - elapsed)
@@ -5281,6 +5344,15 @@ autoSellPetsToggle = Hub.CreateToggle(petTab, "🐾 Auto Sell Pets", false, func
 end)
 
 sellPetSlotListObj = Hub.CreateList(petTab, "Auto Equip Slot (Selling Boost)", slotListItems, 160, false)
+
+Hub.CreateTextBox(petTab, "Sell Slot Cooldown (s, min: 3)", "Cooldown after equipping slot (min: 3, default: 5.0)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.Sell_SlotCooldown = math.clamp(math.max(3.0, num), 3.0, 60.0)
+    else
+        State.Sell_SlotCooldown = 5.0
+    end
+end)
 
 sellTargetPetListObj = Hub.CreateList(petTab, "Pet: Select Pet to Sell", petListItems, 220, false)
 sellExcludePetVariantListObj = Hub.CreateList(petTab, "Pet: Exclude Variant", variantItems, 160, false)
