@@ -2309,32 +2309,31 @@ local function shouldSellCropTool(info)
 end
 
 -- Evaluator for Auto Selling Pets (Strict Whitelist + Exclusions)
-local function shouldSellPetTool(info)
-    if not info or not info.Tool or not info.UUID then return false end
+local function shouldSellPetTool(tool)
+    if not tool or not tool.Parent or not tool:IsA("Tool") then return false end
+    local isPet = tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age") or tool:GetAttribute("f")
+    if not isPet then return false end
+
+    local petSpecies = tool:GetAttribute("f") or tool.Name
+    local toolName = tool.Name
+    local cleanSpecies = tostring(petSpecies):lower():gsub("[%s%p]", "")
+    local cleanName = tostring(toolName):lower():gsub("[%s%p]", "")
 
     -- Exclusion 0: Specific Pet Exclusions (Multi-Select)
     local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
-    if #excludedPets > 0 then
-        local nameLower = info.ToolName:lower()
-        local speciesLower = info.PetSpecies:lower()
-        local cleanSpecies = speciesLower:gsub("[%s%p]", "")
-        local cleanName = nameLower:gsub("[%s%p]", "")
-        for _, exPet in ipairs(excludedPets) do
-            local exLower = tostring(exPet):lower():gsub("[%s%p]", "")
-            if exLower ~= "none" and exLower ~= "" then
-                if cleanSpecies == exLower or cleanSpecies:find(exLower, 1, true) or exLower:find(cleanSpecies, 1, true) or cleanName:find(exLower, 1, true) then
-                    return false -- Excluded from selling!
-                end
+    for _, exPet in ipairs(excludedPets) do
+        local exLower = tostring(exPet):lower():gsub("[%s%p]", "")
+        if exLower ~= "none" and exLower ~= "" then
+            if cleanSpecies:find(exLower, 1, true) or exLower:find(cleanSpecies, 1, true) or cleanName:find(exLower, 1, true) then
+                return false -- Excluded from selling!
             end
         end
     end
 
     -- Target Pet Whitelist Check (Multi-Select or Single-Select)
     local targetPets = getUIListMultipleVals(sellTargetPetListObj, {State.Sell_TargetPet or "All Pets"})
-    local isAllPets = false
-    if #targetPets == 0 then
-        isAllPets = true
-    else
+    local isAllPets = (#targetPets == 0)
+    if not isAllPets then
         for _, tp in ipairs(targetPets) do
             local clean = tostring(tp):lower():gsub("[%s%p]", "")
             if clean == "allpets" or clean == "all" or clean == "" then
@@ -2346,14 +2345,10 @@ local function shouldSellPetTool(info)
 
     if not isAllPets then
         local matchedTarget = false
-        local nameLower = info.ToolName:lower()
-        local speciesLower = info.PetSpecies:lower()
-        local cleanSpecies = speciesLower:gsub("[%s%p]", "")
-        local cleanName = nameLower:gsub("[%s%p]", "")
         for _, tp in ipairs(targetPets) do
             local targetLower = tostring(tp):lower():gsub("[%s%p]", "")
             if targetLower ~= "none" and targetLower ~= "" then
-                if cleanSpecies == targetLower or cleanSpecies:find(targetLower, 1, true) or targetLower:find(cleanSpecies, 1, true) or cleanName:find(targetLower, 1, true) then
+                if cleanSpecies:find(targetLower, 1, true) or targetLower:find(cleanSpecies, 1, true) or cleanName:find(targetLower, 1, true) then
                     matchedTarget = true
                     break
                 end
@@ -2362,29 +2357,6 @@ local function shouldSellPetTool(info)
         if not matchedTarget then
             return false
         end
-    end
-
-    -- Exclusion 1: Pet Variant Exclusion
-    local exVar = tostring(getUIListVal(sellExcludePetVariantListObj, State.Sell_ExcludePetVariant or "None"))
-    if exVar ~= "None" and info.Variant:lower() == exVar:lower() then
-        return false
-    end
-
-    -- Exclusion 2: Pet Mutation Exclusion
-    local exMut = tostring(getUIListVal(sellExcludePetMutationListObj, State.Sell_ExcludePetMutation or "None"))
-    if exMut ~= "None" then
-        local mutKey = exMut:lower()
-        if info.Mutations[mutKey] or info.Tool:GetAttribute(exMut) == true or info.ToolName:lower():find(mutKey, 1, true) then
-            return false
-        end
-    end
-
-    -- Exclusion 3: Pet Weight Exclusion (Above / Lower)
-    local weightThreshold = tonumber(State.Sell_ExcludePetWeight) or 0
-    local weightMode = tostring(getUIListVal(sellExcludePetWeightModeListObj, State.Sell_ExcludePetWeightMode or "Above"))
-    if weightThreshold > 0 then
-        if weightMode == "Above" and info.Weight >= weightThreshold then return false end
-        if weightMode == "Lower" and info.Weight <= weightThreshold then return false end
     end
 
     return true -- Eligible to sell!
