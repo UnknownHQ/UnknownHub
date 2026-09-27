@@ -3200,7 +3200,7 @@ local function placeEggAt(targetPos, eggTool)
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
 
-    -- Equip tool instantly
+    -- Equip egg tool to character
     if hum and eggTool.Parent ~= char then
         hum:EquipTool(eggTool)
     end
@@ -3211,20 +3211,11 @@ local function placeEggAt(targetPos, eggTool)
     local ge = ReplicatedStorage:FindFirstChild("GameEvents")
     local petEggService = ge and ge:FindFirstChild("PetEggService")
 
-    pcall(function()
-        if petEggService then
+    if petEggService then
+        pcall(function()
             petEggService:FireServer("CreateEgg", targetPos)
-            petEggService:FireServer("CreateEgg", targetPos, eggTool)
-            petEggService:FireServer("CreateEgg", eggTool, targetPos)
-        end
-    end)
-
-    pcall(function()
-        if firesignal then firesignal(eggTool.Activated) end
-        for _, conn in ipairs(getconnections(eggTool.Activated)) do
-            if conn.Fire then conn:Fire() elseif conn.Function then conn.Function() end
-        end
-    end)
+        end)
+    end
 end
 
 local function isEggReadyToHatch(eggObj)
