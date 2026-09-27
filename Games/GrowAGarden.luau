@@ -3173,8 +3173,12 @@ local function resolveEggInfo(eggObj)
                 petName = desc.Value
                 break
             elseif desc:IsA("TextLabel") and desc.Text ~= "" and not desc.Text:lower():find("egg") and not desc.Text:lower():find("hatch") and not desc.Text:lower():find("hold") and not desc.Text:lower():find("press") then
-                petName = desc.Text:gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                break
+                -- Strip any existing ESP prefixes like 'Pet:', '🐾', '🐾 Pet:', etc. to prevent self-referencing feedback loops
+                local cleanText = desc.Text:gsub("🐾", ""):gsub("[Pp]et%s*:%s*", ""):gsub("%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if cleanText ~= "" and not cleanText:lower():find("unknownhub") then
+                    petName = cleanText
+                    break
+                end
             elseif desc:IsA("Model") and desc.Name ~= "Model" and not desc.Name:lower():find("egg") and not desc.Name:lower():find("hitbox") and not desc.Name:lower():find("petegg") then
                 petName = desc.Name
                 break
@@ -3248,7 +3252,12 @@ local function resolveEggInfo(eggObj)
         end)
     end
 
-    -- 5. Check pet weight in name or attributes if present
+    -- 5. Clean petName from any leading/trailing 'Pet:' or emoji artifacts
+    if petName then
+        petName = tostring(petName):gsub("🐾", ""):gsub("^[Pp]et%s*:%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    -- 6. Check pet weight in name or attributes if present
     if not petWeight and petName then
         local matchKg = petName:match("%[([%d%.]+)%s*[kK][gG]%]")
         if matchKg then
@@ -3256,7 +3265,7 @@ local function resolveEggInfo(eggObj)
         end
     end
 
-    -- 6. Calculate cooldown
+    -- 7. Calculate cooldown
     local isReady = eggObj:GetAttribute("READY") == true
     local timeToHatch = tonumber(eggObj:GetAttribute("TimeToHatch"))
     local remaining = 0
@@ -3274,9 +3283,13 @@ local function resolveEggInfo(eggObj)
         end
     end
 
+    local finalPetDisplay = (petName and petName ~= "") and tostring(petName) or "Mystery Pet"
+    -- Ensure final display doesn't have duplicate 'Pet:'
+    finalPetDisplay = finalPetDisplay:gsub("^[Pp]et%s*:%s*", "")
+
     return {
         eggName = tostring(eggName),
-        petName = (petName and petName ~= "") and tostring(petName) or tostring(eggName) .. " Pet",
+        petName = finalPetDisplay,
         petWeight = petWeight,
         isReady = isReady,
         remaining = remaining
@@ -3294,6 +3307,7 @@ local function updateSingleEggEsp(eggObj)
 
     local info = resolveEggInfo(eggObj)
     local bb = activeEggEspBillboards[eggObj]
+    local formattedPetText = (info.petName or "Mystery Pet") .. (info.petWeight and string.format(" [%.2f KG]", info.petWeight) or "")
     
     if not bb or not bb.Parent or bb.Adornee ~= primaryPart then
         if bb then pcall(function() bb:Destroy() end) end
@@ -3347,7 +3361,7 @@ local function updateSingleEggEsp(eggObj)
         petLabel.TextSize = 11
         petLabel.TextColor3 = Color3.fromRGB(56, 189, 248)
         petLabel.TextStrokeTransparency = 0.5
-        petLabel.Text = "🐾 Pet: " .. (info.petName or "Mystery Pet") .. (info.petWeight and string.format(" [%.2f KG]", info.petWeight) or "")
+        petLabel.Text = formattedPetText
         petLabel.Parent = container
 
         local cdLabel = Instance.new("TextLabel")
@@ -3380,7 +3394,7 @@ local function updateSingleEggEsp(eggObj)
 
             local petLabel = container:FindFirstChild("PetInfo")
             if petLabel then
-                petLabel.Text = "🐾 Pet: " .. (info.petName or "Mystery Pet") .. (info.petWeight and string.format(" [%.2f KG]", info.petWeight) or "")
+                petLabel.Text = formattedPetText
             end
 
             local cdLabel = container:FindFirstChild("Cooldown")
