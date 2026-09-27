@@ -1391,6 +1391,64 @@ local function buildDynamicCraftCatalogs()
     return craftPlants, craftGears
 end
 
+local function buildDynamicEventShopCatalogs()
+    local eSeeds, eGears, ePets, eCosmetics = {}, {}, {}, {}
+
+    pcall(function()
+        local rep = game:GetService("ReplicatedStorage")
+        local data = rep:FindFirstChild("Data")
+        local eventsData = data and data:FindFirstChild("Events")
+        local fallData = eventsData and eventsData:FindFirstChild("FallMarketEvent")
+        local shopMod = fallData and fallData:FindFirstChild("FallMarketEventShopData")
+
+        if shopMod then
+            local shopTables = require(shopMod)
+            if shopTables and type(shopTables) == "table" then
+                if shopTables.SeedShop then
+                    for name, info in pairs(shopTables.SeedShop) do
+                        local price = info.Price or 0
+                        local formatted = string.format("%s (%s¢)", name, tostring(price))
+                        table.insert(eSeeds, {Name = formatted, ItemName = name, Price = price, ShopType = "SeedShop"})
+                    end
+                end
+                if shopTables.GearShop then
+                    for name, info in pairs(shopTables.GearShop) do
+                        local price = info.Price or 0
+                        local formatted = string.format("%s (%s¢)", name, tostring(price))
+                        table.insert(eGears, {Name = formatted, ItemName = name, Price = price, ShopType = "GearShop"})
+                    end
+                end
+                if shopTables.PetShop then
+                    for name, info in pairs(shopTables.PetShop) do
+                        local price = info.Price or 0
+                        local formatted = string.format("%s (%s¢)", name, tostring(price))
+                        table.insert(ePets, {Name = formatted, ItemName = name, Price = price, ShopType = "PetShop"})
+                    end
+                end
+                if shopTables.CosmeticShop then
+                    for name, info in pairs(shopTables.CosmeticShop) do
+                        local price = info.Price or 0
+                        local formatted = string.format("%s (%s¢)", name, tostring(price))
+                        table.insert(eCosmetics, {Name = formatted, ItemName = name, Price = price, ShopType = "CosmeticShop"})
+                    end
+                end
+            end
+        end
+    end)
+
+    table.sort(eSeeds, function(a, b) return a.Price < b.Price end)
+    table.sort(eGears, function(a, b) return a.Price < b.Price end)
+    table.sort(ePets, function(a, b) return a.Price < b.Price end)
+    table.sort(eCosmetics, function(a, b) return a.Price < b.Price end)
+
+    table.insert(eSeeds, 1, {Name = "All Event Seeds", ItemName = "All Event Seeds"})
+    table.insert(eGears, 1, {Name = "All Event Gears", ItemName = "All Event Gears"})
+    table.insert(ePets, 1, {Name = "All Event Pets", ItemName = "All Event Pets"})
+    table.insert(eCosmetics, 1, {Name = "All Event Cosmetics", ItemName = "All Event Cosmetics"})
+
+    return eSeeds, eGears, ePets, eCosmetics
+end
+
 local allAvailablePlants = buildDynamicPlantCatalog()
 local allAvailableSeeds = buildDynamicSeedCatalog()
 local allAvailableMutations = buildDynamicMutationCatalog()
@@ -1403,6 +1461,7 @@ local allAvailableSeedShop = buildDynamicSeedShopCatalog()
 local allAvailableCosmetics = buildDynamicCosmeticCatalog()
 local allAvailableSprinklers = buildDynamicSprinklerCatalog()
 local allAvailableCraftPlants, allAvailableCraftGears = buildDynamicCraftCatalogs()
+local allAvailableEventSeeds, allAvailableEventGears, allAvailableEventPets, allAvailableEventCosmetics = buildDynamicEventShopCatalogs()
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -1542,7 +1601,19 @@ local State = {
     InfiniteSprinkler = false,
     InfiniteSprinkler_Target = "All Sprinklers",
 
-    -- Events Tab: Acorn Chaos & Weekly Events
+    -- Events Tab: Fall Bloom, Event Shops, Acorn Chaos & Weekly Events
+    AutoSubmitFallBloom = false,
+    AutoSubmitFallBloom_Delay = 1.0,
+
+    AutoBuy_EventSeeds = false,
+    AutoBuy_SelectedEventSeed = "All Event Seeds",
+    AutoBuy_EventGears = false,
+    AutoBuy_SelectedEventGear = "All Event Gears",
+    AutoBuy_EventPets = false,
+    AutoBuy_SelectedEventPet = "All Event Pets",
+    AutoBuy_EventCosmetics = false,
+    AutoBuy_SelectedEventCosmetic = "All Event Cosmetics",
+
     AutoAttackAcorns = false,
     AcornAttackMode = "Instant (All Acorns)",
     AcornAttackDelay = 0.05,
@@ -1608,6 +1679,16 @@ local hidePlantsToggle
 local hideFruitsToggle
 local infiniteSprinklerToggle
 local selectSprinklerListObj
+
+local autoSubmitFallBloomToggle
+local autoBuyEventSeedsToggle
+local selectEventSeedListObj
+local autoBuyEventGearsToggle
+local selectEventGearListObj
+local autoBuyEventPetsToggle
+local selectEventPetListObj
+local autoBuyEventCosmeticsToggle
+local selectEventCosmeticListObj
 
 local autoAttackAcornsToggle
 local autoEquipShovelToggle
@@ -3841,8 +3922,328 @@ task.spawn(function()
 end)
 
 -- =========================================================================
+-- Fall Bloom Automator & Craving Engine (Anti-Spam & Auto-Submit)
+-- =========================================================================
+local function getCurrentFallCravingInfo()
+    local currentTrait = "None"
+    local slot = 0
+    local elapsedInSlot = 0
+    local isBloomActive = false
+    local bloomDuration = 300
+    local refreshInterval = 1800
+
+    pcall(function()
+        local dataMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
+        if dataMod then
+            local config = require(dataMod)
+            local traits = config.Traits or {"Berry", "Fruit", "Flower", "Vegetable", "Tropical", "Prickly", "Woody"}
+            refreshInterval = config.CravingRefresh or 1800
+            local seedVal = config.RANDOM_SEED_VALUE or 8113
+            bloomDuration = config.FallBloomDuration or 300
+
+            local now = workspace:GetServerTimeNow()
+            slot = math.floor(now / refreshInterval)
+            elapsedInSlot = now % refreshInterval
+            isBloomActive = (elapsedInSlot < bloomDuration)
+
+            local rng = Random.new(slot + seedVal)
+            local traitIdx = rng:NextInteger(1, #traits)
+            currentTrait = traits[traitIdx]
+        end
+    end)
+
+    pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        if dsMod then
+            local ds = require(dsMod)
+            local pData = ds:GetData()
+            if pData and pData.FallMarket and pData.FallMarket.FallEnergyRewardClaimable then
+                isBloomActive = true
+            end
+        end
+    end)
+
+    return {
+        Trait = currentTrait,
+        Slot = slot,
+        ElapsedInSlot = elapsedInSlot,
+        IsBloomActive = isBloomActive,
+        BloomDuration = bloomDuration,
+        RefreshInterval = refreshInterval
+    }
+end
+
+local function getMatchingCravingFruits(targetTrait)
+    local matching = {}
+    if not targetTrait or targetTrait == "None" then return matching end
+
+    local function isMatchingPlant(plantName)
+        if not plantName or plantName == "" then return false end
+        if PlantTraitsData then
+            local ok, res = pcall(function()
+                if PlantTraitsData.HasTrait and PlantTraitsData.HasTrait(plantName, targetTrait) then
+                    return true
+                end
+                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][plantName] then
+                    return true
+                end
+                return false
+            end)
+            if ok and res then return true end
+        end
+        if plantName:lower():find(targetTrait:lower(), 1, true) then
+            return true
+        end
+        return false
+    end
+
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
+                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool.Name
+                pName = tostring(pName):gsub("%s*%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if isMatchingPlant(pName) then
+                    table.insert(matching, {Tool = tool, Name = pName})
+                end
+            end
+        end
+    end
+
+    local char = LocalPlayer.Character
+    if char then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
+                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool.Name
+                pName = tostring(pName):gsub("%s*%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if isMatchingPlant(pName) then
+                    table.insert(matching, {Tool = tool, Name = pName})
+                end
+            end
+        end
+    end
+
+    return matching
+end
+
+local function executeFallBloomSubmissionCycle()
+    local cravingInfo = getCurrentFallCravingInfo()
+    if not cravingInfo or cravingInfo.Trait == "None" then return end
+
+    -- Anti-Spam Check: Do not spam remote when Fall Bloom is currently activated / blooming
+    if cravingInfo.IsBloomActive then
+        return
+    end
+
+    local matching = getMatchingCravingFruits(cravingInfo.Trait)
+    if #matching == 0 then
+        return
+    end
+
+    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+    local ev = ge and ge:FindFirstChild("Events")
+    local fm = ev and ev:FindFirstChild("FallMarketEvent")
+    local submitAllRem = fm and fm:FindFirstChild("SubmitAllPlants")
+    local submitHeldRem = fm and fm:FindFirstChild("SubmitHeldPlant")
+    local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
+
+    if submitAllRem then
+        submitAllRem:FireServer()
+    end
+
+    if submitHeldRem and matching[1] and matching[1].Tool then
+        local tool = matching[1].Tool
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum and tool.Parent ~= char then
+            pcall(function() hum:EquipTool(tool) end)
+            task.wait(0.04)
+        end
+        if tool.Parent == char then
+            submitHeldRem:FireServer()
+        end
+    end
+
+    if claimEnergyRem then
+        claimEnergyRem:FireServer()
+    end
+end
+
+-- Fall Bloom Auto-Submit Background Worker
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        if State.AutoSubmitFallBloom then
+            local delayVal = math.clamp(tonumber(State.AutoSubmitFallBloom_Delay) or 1.0, 0.25, 10.0)
+            executeFallBloomSubmissionCycle()
+            task.wait(delayVal)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- =========================================================================
+-- Fall Event Shops Auto-Buy Engine
+-- =========================================================================
+local function executeEventShopPurchases()
+    pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        local ds = dsMod and require(dsMod)
+        local data = ds and ds:GetData()
+        local eventShopStock = data and data.EventShopStock or {}
+
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local buyEventRem = ge and ge:FindFirstChild("BuyEventShopStock")
+        local buyGardenCoinRem = ge and ge:FindFirstChild("BuyGardenCoinShopStock")
+
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local eventShopGui = pGui and (pGui:FindFirstChild("EventShop_UI") or pGui:FindFirstChild("FallMarketEventShop_UI"))
+
+        local function triggerShopBuy(itemName, shopKey)
+            if not itemName or itemName == "" then return end
+            if buyEventRem then
+                buyEventRem:FireServer(tostring(itemName), tostring(shopKey))
+            end
+            if buyGardenCoinRem then
+                buyGardenCoinRem:FireServer(tostring(itemName))
+            end
+            pcall(function()
+                if eventShopGui and eventShopGui.Enabled then
+                    for _, desc in ipairs(eventShopGui:GetDescendants()) do
+                        if desc:IsA("GuiObject") and desc.Name == tostring(itemName) then
+                            local btn = desc:FindFirstChild("Sheckles_Buy", true) or desc:FindFirstChild("CashBuy", true)
+                            if btn and getconnections then
+                                for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                            end
+                            if btn and firesignal then firesignal(btn.Activated) end
+                        end
+                    end
+                end
+            end)
+        end
+
+        -- 1. Event Seeds
+        if State.AutoBuy_EventSeeds then
+            local seedShopStock = eventShopStock["Fall Market Seed Shop"] and eventShopStock["Fall Market Seed Shop"].Stocks or {}
+            local selectedSeed = tostring(getUIListVal(selectEventSeedListObj, State.AutoBuy_SelectedEventSeed or "All Event Seeds"))
+            local cleanTarget = selectedSeed:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+            if cleanTarget == "All Event Seeds" or cleanTarget == "None" or cleanTarget == "" then
+                for itemName, info in pairs(seedShopStock) do
+                    local stock = tonumber(info.Stock) or 0
+                    if stock > 0 then
+                        triggerShopBuy(itemName, "Fall Market Seed Shop")
+                    end
+                end
+            else
+                for itemName, info in pairs(seedShopStock) do
+                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
+                        local stock = tonumber(info.Stock) or 0
+                        if stock > 0 then
+                            triggerShopBuy(itemName, "Fall Market Seed Shop")
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 2. Event Gears
+        if State.AutoBuy_EventGears then
+            local gearShopStock = eventShopStock["Fall Market Gear Shop"] and eventShopStock["Fall Market Gear Shop"].Stocks or {}
+            local selectedGear = tostring(getUIListVal(selectEventGearListObj, State.AutoBuy_SelectedEventGear or "All Event Gears"))
+            local cleanTarget = selectedGear:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+            if cleanTarget == "All Event Gears" or cleanTarget == "None" or cleanTarget == "" then
+                for itemName, info in pairs(gearShopStock) do
+                    local stock = tonumber(info.Stock) or 0
+                    if stock > 0 then
+                        triggerShopBuy(itemName, "Fall Market Gear Shop")
+                    end
+                end
+            else
+                for itemName, info in pairs(gearShopStock) do
+                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
+                        local stock = tonumber(info.Stock) or 0
+                        if stock > 0 then
+                            triggerShopBuy(itemName, "Fall Market Gear Shop")
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 3. Event Pets
+        if State.AutoBuy_EventPets then
+            local petShopStock = eventShopStock["Fall Market Pet Shop"] and eventShopStock["Fall Market Pet Shop"].Stocks or {}
+            local selectedPet = tostring(getUIListVal(selectEventPetListObj, State.AutoBuy_SelectedEventPet or "All Event Pets"))
+            local cleanTarget = selectedPet:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+            if cleanTarget == "All Event Pets" or cleanTarget == "None" or cleanTarget == "" then
+                for itemName, info in pairs(petShopStock) do
+                    local stock = tonumber(info.Stock) or 0
+                    if stock > 0 then
+                        triggerShopBuy(itemName, "Fall Market Pet Shop")
+                    end
+                end
+            else
+                for itemName, info in pairs(petShopStock) do
+                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
+                        local stock = tonumber(info.Stock) or 0
+                        if stock > 0 then
+                            triggerShopBuy(itemName, "Fall Market Pet Shop")
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 4. Event Cosmetics
+        if State.AutoBuy_EventCosmetics then
+            local cosmeticShopStock = eventShopStock["Fall Market Cosmetic Shop"] and eventShopStock["Fall Market Cosmetic Shop"].Stocks or {}
+            local selectedCosmetic = tostring(getUIListVal(selectEventCosmeticListObj, State.AutoBuy_SelectedEventCosmetic or "All Event Cosmetics"))
+            local cleanTarget = selectedCosmetic:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+            if cleanTarget == "All Event Cosmetics" or cleanTarget == "None" or cleanTarget == "" then
+                for itemName, info in pairs(cosmeticShopStock) do
+                    local stock = tonumber(info.Stock) or 0
+                    if stock > 0 then
+                        triggerShopBuy(itemName, "Fall Market Cosmetic Shop")
+                    end
+                end
+            else
+                for itemName, info in pairs(cosmeticShopStock) do
+                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
+                        local stock = tonumber(info.Stock) or 0
+                        if stock > 0 then
+                            triggerShopBuy(itemName, "Fall Market Cosmetic Shop")
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Fall Event Shops Auto-Buy Background Worker
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        local isAnyEventBuyActive = State.AutoBuy_EventSeeds or State.AutoBuy_EventGears or State.AutoBuy_EventPets or State.AutoBuy_EventCosmetics
+        if isAnyEventBuyActive then
+            local delayVal = math.clamp(tonumber(State.EventShop_BuyDelay) or 0.25, 0.05, 5.0)
+            executeEventShopPurchases()
+            task.wait(delayVal)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- =========================================================================
 -- UI Tabs & Control Layout
 -- =========================================================================
+local function buildAllUI()
 local variantNames = {"None", "Silver", "Gold", "Diamond", "Rainbow", "Basic"}
 local variantItems = {}
 for _, name in ipairs(variantNames) do table.insert(variantItems, {Name = name}) end
@@ -3885,6 +4286,18 @@ for _, item in ipairs(allAvailableCraftPlants) do table.insert(craftablePlantsLi
 
 local craftableGearsListItems = {}
 for _, item in ipairs(allAvailableCraftGears) do table.insert(craftableGearsListItems, {Name = item.Name}) end
+
+local eventSeedListItems = {}
+for _, item in ipairs(allAvailableEventSeeds) do table.insert(eventSeedListItems, {Name = item.Name}) end
+
+local eventGearListItems = {}
+for _, item in ipairs(allAvailableEventGears) do table.insert(eventGearListItems, {Name = item.Name}) end
+
+local eventPetListItems = {}
+for _, item in ipairs(allAvailableEventPets) do table.insert(eventPetListItems, {Name = item.Name}) end
+
+local eventCosmeticListItems = {}
+for _, item in ipairs(allAvailableEventCosmetics) do table.insert(eventCosmeticListItems, {Name = item.Name}) end
 
 local slotListItems = {
     {Name = "None"},
@@ -4916,9 +5329,110 @@ Hub.CreateButton(shopTab, "🛠️ Spawn Event Crafting Tables (Dino, Fairy, Smi
 end)
 
 -- ==========================================
--- Section: Events Tab (Acorn Chaos & Weekly Events)
+-- Section: Events Tab (Fall Bloom, Event Shops, Acorn Chaos & Weekly Events)
 -- ==========================================
-Hub.CreateSection(eventTab, "Acorn Chaos (Weekly Event)")
+
+-- 1. 🌸 Fall Bloom Automator
+Hub.CreateSection(eventTab, "🌸 Fall Bloom Automator")
+
+autoSubmitFallBloomToggle = Hub.CreateToggle(eventTab, "Auto Submit Fruit to Fall Bloom", false, function(v)
+    if type(v) == "boolean" then State.AutoSubmitFallBloom = v else State.AutoSubmitFallBloom = not State.AutoSubmitFallBloom end
+    if State.AutoSubmitFallBloom then
+        task.spawn(executeFallBloomSubmissionCycle)
+    end
+end)
+
+Hub.CreateTextBox(eventTab, "Check Delay (0.25 - 10.0s)", "Enter check delay (default: 1.0)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.AutoSubmitFallBloom_Delay = math.clamp(num, 0.25, 10.0)
+    end
+end)
+
+Hub.CreateButton(eventTab, "⚡ Submit Matching Fruits Now", function()
+    pcall(function()
+        executeFallBloomSubmissionCycle()
+        local info = getCurrentFallCravingInfo()
+        Hub.Notify({
+            Title = "Fall Bloom",
+            Content = string.format("Submitted matching %s fruits to Fall Bloom!", info and info.Trait or "craving"),
+            Duration = 3
+        })
+    end)
+end)
+
+Hub.CreateButton(eventTab, "🎁 Claim Fall Energy Rewards", function()
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local fm = ev and ev:FindFirstChild("FallMarketEvent")
+        local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
+        if claimEnergyRem then
+            claimEnergyRem:FireServer()
+            Hub.Notify({ Title = "Fall Energy", Content = "Fired ClaimFallEnergyRewards remote!", Duration = 2 })
+        end
+    end)
+end)
+
+-- 2. 🍂 Fall Event Shops Auto-Buy
+Hub.CreateSection(eventTab, "🍂 Fall Event Shops Auto-Buy")
+
+autoBuyEventSeedsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Seeds", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_EventSeeds = v else State.AutoBuy_EventSeeds = not State.AutoBuy_EventSeeds end
+    if State.AutoBuy_EventSeeds then task.spawn(executeEventShopPurchases) end
+end)
+
+selectEventSeedListObj = Hub.CreateList(eventTab, "Select Event Seed", eventSeedListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.AutoBuy_SelectedEventSeed = name
+end)
+
+autoBuyEventGearsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Gears", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_EventGears = v else State.AutoBuy_EventGears = not State.AutoBuy_EventGears end
+    if State.AutoBuy_EventGears then task.spawn(executeEventShopPurchases) end
+end)
+
+selectEventGearListObj = Hub.CreateList(eventTab, "Select Event Gear", eventGearListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.AutoBuy_SelectedEventGear = name
+end)
+
+autoBuyEventPetsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Pets", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_EventPets = v else State.AutoBuy_EventPets = not State.AutoBuy_EventPets end
+    if State.AutoBuy_EventPets then task.spawn(executeEventShopPurchases) end
+end)
+
+selectEventPetListObj = Hub.CreateList(eventTab, "Select Event Pet", eventPetListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.AutoBuy_SelectedEventPet = name
+end)
+
+autoBuyEventCosmeticsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Cosmetics", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_EventCosmetics = v else State.AutoBuy_EventCosmetics = not State.AutoBuy_EventCosmetics end
+    if State.AutoBuy_EventCosmetics then task.spawn(executeEventShopPurchases) end
+end)
+
+selectEventCosmeticListObj = Hub.CreateList(eventTab, "Select Event Cosmetic", eventCosmeticListItems, 220, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.AutoBuy_SelectedEventCosmetic = name
+end)
+
+Hub.CreateTextBox(eventTab, "Event Shop Buy Delay (0.05 - 5.0s)", "Enter delay (default: 0.25)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.EventShop_BuyDelay = math.clamp(num, 0.05, 5.0)
+    end
+end)
+
+Hub.CreateButton(eventTab, "🛒 Buy All In-Stock Event Items Now", function()
+    pcall(function()
+        executeEventShopPurchases()
+        Hub.Notify({ Title = "Event Shops", Content = "Fired purchases for in-stock event items!", Duration = 3 })
+    end)
+end)
+
+-- 3. 🌰 Acorn Chaos (Weekly Event)
+Hub.CreateSection(eventTab, "🌰 Acorn Chaos (Weekly Event)")
 
 autoAttackAcornsToggle = Hub.CreateToggle(eventTab, "Auto Attack Acorns (Instant Crack)", false, function(v)
     if type(v) == "boolean" then State.AutoAttackAcorns = v else State.AutoAttackAcorns = not State.AutoAttackAcorns end
@@ -5484,6 +5998,8 @@ Hub.CreateList(settingsTab, "Max Backpack Threshold", {
     {Name = "2000 Tools"},
     {Name = "5000 Tools"}
 }, 140, false)
+end
+buildAllUI()
 
 print("[Unknown Hub] Grow a Garden (Auto Sell Pets & Complete Module) Loaded Successfully!")
 
