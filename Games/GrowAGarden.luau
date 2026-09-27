@@ -3034,19 +3034,45 @@ local function getNextEggRowPosition()
 
     table.sort(canPlantParts, function(a, b) return a.Position.X < b.Position.X end)
 
-    local placedEggs = getPlacedEggsInGarden()
     local occupiedPositions = {}
+
+    -- 1. Placed eggs
+    local placedEggs = getPlacedEggsInGarden()
     for _, eggObj in ipairs(placedEggs) do
-        local pPart = eggObj:FindFirstChildWhichIsA("BasePart", true)
-        if pPart then
-            table.insert(occupiedPositions, pPart.Position)
+        local pos = (eggObj:IsA("Model") and eggObj:GetPivot().Position) or (eggObj:FindFirstChildWhichIsA("BasePart", true) and eggObj:FindFirstChildWhichIsA("BasePart", true).Position)
+        if pos then
+            table.insert(occupiedPositions, pos)
         end
     end
 
-    local spacingX = 2.4
-    local spacingZ = 2.4
-    local marginX = 1.0
-    local marginZ = 1.0
+    -- 2. Physical plants & physical objects in farm
+    if farm and farm:FindFirstChild("Important") then
+        local plantsFolder = farm.Important:FindFirstChild("Plants_Physical")
+        if plantsFolder then
+            for _, plant in ipairs(plantsFolder:GetChildren()) do
+                local pos = (plant:IsA("Model") and plant:GetPivot().Position) or (plant:FindFirstChildWhichIsA("BasePart", true) and plant:FindFirstChildWhichIsA("BasePart", true).Position)
+                if pos then
+                    table.insert(occupiedPositions, pos)
+                end
+            end
+        end
+        local objFolder = farm.Important:FindFirstChild("Objects_Physical")
+        if objFolder then
+            for _, obj in ipairs(objFolder:GetChildren()) do
+                local pos = (obj:IsA("Model") and obj:GetPivot().Position) or (obj:FindFirstChildWhichIsA("BasePart", true) and obj:FindFirstChildWhichIsA("BasePart", true).Position)
+                if pos then
+                    table.insert(occupiedPositions, pos)
+                end
+            end
+        end
+    end
+
+    -- Robust spacing & clearance to prevent "Too close to another object"
+    local spacingX = 3.8
+    local spacingZ = 3.8
+    local marginX = 1.8
+    local marginZ = 1.8
+    local minClearance = 3.4
 
     local slots = {}
 
@@ -3074,9 +3100,9 @@ local function getNextEggRowPosition()
 
     for _, slotPos in ipairs(slots) do
         local isOccupied = false
-        for _, eggPos in ipairs(occupiedPositions) do
-            local dist2D = (Vector3.new(slotPos.X, 0, slotPos.Z) - Vector3.new(eggPos.X, 0, eggPos.Z)).Magnitude
-            if dist2D < 1.8 then
+        for _, occPos in ipairs(occupiedPositions) do
+            local dist2D = (Vector3.new(slotPos.X, 0, slotPos.Z) - Vector3.new(occPos.X, 0, occPos.Z)).Magnitude
+            if dist2D < minClearance then
                 isOccupied = true
                 break
             end
@@ -3198,16 +3224,31 @@ end
 local function placeEggAt(targetPos, eggTool)
     if not eggTool or not targetPos then return end
     local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
 
-    -- Equip egg tool to character
-    if hum and eggTool.Parent ~= char then
-        hum:EquipTool(eggTool)
+    -- 1. Unequip any non-egg tools (especially newly hatched pets that auto-equipped into character)
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and item ~= eggTool then
+            if backpack then
+                item.Parent = backpack
+            end
+        end
+    end
+
+    -- 2. Equip egg tool cleanly
+    if hum then
+        if eggTool.Parent ~= char then
+            hum:UnequipTools()
+            hum:EquipTool(eggTool)
+        end
     end
     if eggTool.Parent ~= char then
         eggTool.Parent = char
     end
 
+    -- 3. Fire server remote to place egg at exact coordinates
     local ge = ReplicatedStorage:FindFirstChild("GameEvents")
     local petEggService = ge and ge:FindFirstChild("PetEggService")
 
@@ -3507,7 +3548,7 @@ task.spawn(function()
                 end
 
                 placeEggAt(targetPos, eggTool)
-                task.wait(0.01)
+                task.wait(0.12)
             end)
 
             if not ok and err then
