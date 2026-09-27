@@ -2920,30 +2920,48 @@ end
 
 local function isEggReadyToHatch(eggObj)
     if not eggObj or not eggObj.Parent then return false end
-    if eggObj:GetAttribute("READY") == true then return true end
+    
+    -- 1. Check direct TimeToHatch attribute (0 or negative means timer finished)
     local timeToHatch = tonumber(eggObj:GetAttribute("TimeToHatch"))
-    if timeToHatch and timeToHatch <= Workspace:GetServerTimeNow() then
+    if timeToHatch and timeToHatch <= 0 then
         return true
     end
-    local prompt = eggObj:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt and prompt.Enabled then return true end
+
+    -- 2. Check if explicit Hatch! ProximityPrompt exists and is enabled
+    local petEgg = eggObj:FindFirstChild("PetEgg") or eggObj
+    local promptAtt = petEgg:FindFirstChild("ProximityPromptAtt") or eggObj:FindFirstChild("ProximityPromptAtt")
+    local hatchPrompt = promptAtt and promptAtt:FindFirstChild("ProximityPrompt")
+    if hatchPrompt and hatchPrompt.Enabled and hatchPrompt.ActionText:lower():find("hatch") then
+        return true
+    end
+
+    local directPrompt = eggObj:FindFirstChild("ProximityPrompt")
+    if directPrompt and directPrompt.Enabled and directPrompt.ActionText:lower():find("hatch") then
+        return true
+    end
+
+    -- 3. If READY is true but TimeToHatch is absent, consider ready
+    if eggObj:GetAttribute("READY") == true and timeToHatch == nil then
+        return true
+    end
+
     return false
 end
 
 local function hatchSingleEgg(eggObj)
     if not eggObj or not eggObj.Parent then return end
+    if not isEggReadyToHatch(eggObj) then return end
+
     local ge = ReplicatedStorage:FindFirstChild("GameEvents")
     local petEggService = ge and ge:FindFirstChild("PetEggService")
     local eggReadyRE = ge and ge:FindFirstChild("EggReadyToHatch_RE")
     local uuid = eggObj:GetAttribute("OBJECT_UUID") or eggObj:GetAttribute("UUID")
 
-    -- 1. Fire Remote Events
+    -- 1. Fire Remote Events for hatching
     pcall(function()
         if petEggService then
             petEggService:FireServer("HatchPet", eggObj)
             if uuid then petEggService:FireServer("HatchPet", uuid) end
-            petEggService:FireServer("Hatch", eggObj)
-            petEggService:FireServer(eggObj)
         end
     end)
 
@@ -2954,21 +2972,24 @@ local function hatchSingleEgg(eggObj)
         end
     end)
 
-    -- 2. Trigger ProximityPrompt if present
+    -- 2. ONLY Trigger the Hatch ProximityPrompt (NEVER trigger SkipPrompt / SkipAllPrompt)
     pcall(function()
-        local prompt = eggObj:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt then
+        local petEgg = eggObj:FindFirstChild("PetEgg") or eggObj
+        local promptAtt = petEgg:FindFirstChild("ProximityPromptAtt") or eggObj:FindFirstChild("ProximityPromptAtt")
+        local hatchPrompt = (promptAtt and promptAtt:FindFirstChild("ProximityPrompt")) or eggObj:FindFirstChild("ProximityPrompt")
+        
+        if hatchPrompt and hatchPrompt.Enabled and hatchPrompt.ActionText:lower():find("hatch") then
             if fireproximityprompt then
-                fireproximityprompt(prompt)
+                fireproximityprompt(hatchPrompt)
             elseif getconnections then
-                for _, conn in ipairs(getconnections(prompt.Triggered)) do
+                for _, conn in ipairs(getconnections(hatchPrompt.Triggered)) do
                     if conn.Fire then conn:Fire(LocalPlayer) end
                 end
             end
         end
     end)
 
-    -- 3. Trigger PetEggRenderer
+    -- 3. Trigger PetEggRenderer hatch animation if available
     pcall(function()
         local rep = ReplicatedStorage:FindFirstChild("Modules")
         local ps = rep and rep:FindFirstChild("PetServices")
