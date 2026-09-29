@@ -1676,6 +1676,7 @@ local State = {
     InfiniteSprinkler_Target = "All Sprinklers",
 
     -- Events Tab: Fall Bloom, Event Shops, Acorn Chaos & Weekly Events
+    AutoCollect_FallBloomFruit = false,
     AutoSubmitFallBloom = false,
     AutoSubmitFallBloom_Delay = 1.0,
 
@@ -1689,8 +1690,6 @@ local State = {
     AutoBuy_SelectedEventCosmetic = "All Event Cosmetics",
 
     AutoAttackAcorns = false,
-    AcornAttackMode = "Instant (All Acorns)",
-    AcornAttackDelay = 0.05,
     AutoEquipShovel = true,
 
     -- General
@@ -1755,6 +1754,7 @@ local hideFruitsToggle
 local infiniteSprinklerToggle
 local selectSprinklerListObj
 
+local autoCollectFallBloomToggle
 local autoSubmitFallBloomToggle
 local autoBuyEventSeedsToggle
 local selectEventSeedListObj
@@ -1767,8 +1767,6 @@ local selectEventCosmeticListObj
 
 local autoAttackAcornsToggle
 local autoEquipShovelToggle
-local acornAttackModeListObj
-local acornAttackDelayListObj
 
 -- Acorn Chaos Tracking & Execution Engine
 local activeAcornIds = {}
@@ -1805,12 +1803,39 @@ local function equipShovelTool()
     return shovel
 end
 
+local function unequipShovelTool()
+    local shovel = getShovelTool()
+    local character = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if shovel and character and shovel.Parent == character then
+        pcall(function()
+            if backpack then
+                shovel.Parent = backpack
+            else
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid:UnequipTools()
+                end
+            end
+        end)
+    end
+end
+
+local function hasActiveAcorns()
+    if next(activeAcornIds) ~= nil then
+        return true
+    end
+    local acl = Workspace:FindFirstChild("AcornChaosLocal")
+    if acl and #acl:GetChildren() > 0 then
+        return true
+    end
+    return false
+end
+
 local function crackAcornById(acornId)
     if not acornId then return end
     activeAcornIds[acornId] = nil
-    if State.AutoEquipShovel then
-        equipShovelTool()
-    end
+    equipShovelTool()
     local crackRemote = AcornCrackRemote or (ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("AcornChaos") and ReplicatedStorage.GameEvents.AcornChaos:FindFirstChild("Crack"))
     if crackRemote then
         crackRemote:FireServer(acornId)
@@ -1825,9 +1850,7 @@ end
 
 local function crackAllActiveAcorns()
     local count = 0
-    if State.AutoEquipShovel then
-        equipShovelTool()
-    end
+    equipShovelTool()
     for id, _ in pairs(activeAcornIds) do
         crackAcornById(id)
         count = count + 1
@@ -4610,6 +4633,83 @@ local function executeFallBloomSubmissionCycle()
     end
 end
 
+local function executeFallBloomCollectCycle()
+    local cravingInfo = getCurrentFallCravingInfo()
+    if not cravingInfo or cravingInfo.Trait == "None" then return end
+    local targetTrait = cravingInfo.Trait
+
+    local colRemote = getCollectRemote()
+    if not colRemote then return end
+
+    local function isPlantMatchingTrait(plantName)
+        if not plantName or plantName == "" then return false end
+        if PlantTraitsData then
+            local ok, res = pcall(function()
+                if PlantTraitsData.HasTrait and PlantTraitsData.HasTrait(plantName, targetTrait) then
+                    return true
+                end
+                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][plantName] then
+                    return true
+                end
+                return false
+            end)
+            if ok and res then return true end
+        end
+        if plantName:lower():find(targetTrait:lower(), 1, true) then
+            return true
+        end
+        return false
+    end
+
+    local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
+    local myFarm = getPlayerFarm()
+    local farmList = myFarm and {myFarm} or farmFolder:GetChildren()
+
+    local matchingFruitGroups = {}
+    for _, farm in ipairs(farmList) do
+        local important = farm:FindFirstChild("Important")
+        local plantsFolder = important and important:FindFirstChild("Plants_Physical")
+        if plantsFolder then
+            for _, plant in ipairs(plantsFolder:GetChildren()) do
+                if isPlantMatchingTrait(plant.Name) then
+                    local fruitsFolder = plant:FindFirstChild("Fruits")
+                    if fruitsFolder then
+                        for _, fruitGroup in ipairs(fruitsFolder:GetChildren()) do
+                            table.insert(matchingFruitGroups, fruitGroup)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if #matchingFruitGroups > 0 then
+        for _, fg in ipairs(matchingFruitGroups) do
+            if not isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit) then break end
+            pcall(function()
+                colRemote:FireServer(fg)
+            end)
+        end
+    end
+end
+
+-- Fall Bloom Auto-Collect Background Worker
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        if isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then
+            pcall(function()
+                if not isBackpackFull() then
+                    executeFallBloomCollectCycle()
+                end
+            end)
+            task.wait(State.HarvestDelay or 0.1)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
 -- Fall Bloom Auto-Submit Background Worker
 task.spawn(function()
     while true do
@@ -4856,7 +4956,6 @@ local shopTab = Hub.CreateTab("Shop", { Icon = "🛒", Size = 18, Color = Color3
 local eventTab = Hub.CreateTab("Events", { Icon = "🎪", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(240, 100, 200) })
 local tradeTab = Hub.CreateTab("Trade", { Icon = "🔄", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 200, 255) })
 local miscTab = Hub.CreateTab("Misc", { Icon = "🔮", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(180, 140, 255) })
-local settingsTab = Hub.CreateTab("Settings", { Icon = "⚙️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(220, 230, 250) })
 
 -- ==========================================
 -- Section: Trade Plaza Sniper
@@ -5912,6 +6011,13 @@ end)
 -- 1. 🌸 Fall Bloom Automator
 Hub.CreateSection(eventTab, "🌸 Fall Bloom Automator")
 
+autoCollectFallBloomToggle = Hub.CreateToggle(eventTab, "Auto Collect Needed Fruit (Fall Bloom)", false, function(v)
+    if type(v) == "boolean" then State.AutoCollect_FallBloomFruit = v else State.AutoCollect_FallBloomFruit = not State.AutoCollect_FallBloomFruit end
+    if State.AutoCollect_FallBloomFruit then
+        task.spawn(executeFallBloomCollectCycle)
+    end
+end)
+
 autoSubmitFallBloomToggle = Hub.CreateToggle(eventTab, "Auto Submit Fruit to Fall Bloom", false, function(v)
     if type(v) == "boolean" then State.AutoSubmitFallBloom = v else State.AutoSubmitFallBloom = not State.AutoSubmitFallBloom end
     if State.AutoSubmitFallBloom then
@@ -6014,40 +6120,12 @@ Hub.CreateSection(eventTab, "🌰 Acorn Chaos (Weekly Event)")
 autoAttackAcornsToggle = Hub.CreateToggle(eventTab, "Auto Attack Acorns (Instant Crack)", false, function(v)
     if type(v) == "boolean" then State.AutoAttackAcorns = v else State.AutoAttackAcorns = not State.AutoAttackAcorns end
     if State.AutoAttackAcorns then
-        if State.AutoEquipShovel then
+        if hasActiveAcorns() then
             equipShovelTool()
+            task.spawn(crackAllActiveAcorns)
         end
-        task.spawn(crackAllActiveAcorns)
-    end
-end)
-
-autoEquipShovelToggle = Hub.CreateToggle(eventTab, "Auto Equip Shovel", true, function(v)
-    if type(v) == "boolean" then State.AutoEquipShovel = v else State.AutoEquipShovel = not State.AutoEquipShovel end
-end)
-
-acornAttackModeListObj = Hub.CreateList(eventTab, "Attack Mode", {
-    {Name = "Instant (All Acorns)"},
-    {Name = "Nearest Acorn Only"}
-}, 120, false)
-
-acornAttackDelayListObj = Hub.CreateList(eventTab, "Attack Interval", {
-    {Name = "Ultra Fast (0.05s)"},
-    {Name = "Fast (0.1s)"},
-    {Name = "Normal (0.25s)"},
-    {Name = "Safe (0.5s)"}
-}, 120, false)
-
-Hub.CreateButton(eventTab, "Instant Crack All Acorns Now", function()
-    local cracked = crackAllActiveAcorns()
-    print(string.format("[Unknown Hub] Cracked %d active acorns!", cracked))
-end)
-
-Hub.CreateButton(eventTab, "Ring Acorn Bell", function()
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local remote = (ge and ge:FindFirstChild("TryAcornBell")) or TryAcornBellRemote
-    if remote then
-        remote:FireServer()
-        print("[Unknown Hub] Fired TryAcornBell remote!")
+    else
+        unequipShovelTool()
     end
 end)
 
@@ -6551,30 +6629,6 @@ Hub.CreateButton(miscTab, "🛒 Fire Purchase", function()
     end
 end)
 
--- ==========================================
--- Settings Tab
--- ==========================================
-Hub.CreateList(settingsTab, "Batch Collection Size", {
-    {Name = "15 per batch"},
-    {Name = "25 per batch"},
-    {Name = "50 per batch"},
-    {Name = "100 per batch"}
-}, 140, false)
-
-Hub.CreateList(settingsTab, "Harvest Speed / Delay", {
-    {Name = "Ultra Fast (0.05s)"},
-    {Name = "Fast (0.1s)"},
-    {Name = "Normal (0.15s)"},
-    {Name = "Safe (0.3s)"}
-}, 140, false)
-
-Hub.CreateList(settingsTab, "Max Backpack Threshold", {
-    {Name = "250 Tools"},
-    {Name = "500 Tools"},
-    {Name = "1000 Tools"},
-    {Name = "2000 Tools"},
-    {Name = "5000 Tools"}
-}, 140, false)
 end
 buildAllUI()
 
@@ -6785,6 +6839,7 @@ task.spawn(function()
                             activeAcornIds[entry.Id] = entry
                             if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
                                 task.spawn(function()
+                                    equipShovelTool()
                                     crackAcornById(entry.Id)
                                 end)
                             end
@@ -6799,6 +6854,9 @@ task.spawn(function()
                 if typeof(data) == "table" and data.Id then
                     activeAcornIds[data.Id] = nil
                 end
+                if not hasActiveAcorns() then
+                    unequipShovelTool()
+                end
             end)
         end
     end
@@ -6807,40 +6865,30 @@ task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
         if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
-            local delaySetting = tostring(getUIListVal(acornAttackDelayListObj, "Ultra Fast (0.05s)"))
-            local delayTime = 0.05
-            if delaySetting:find("0.1") then
-                delayTime = 0.1
-            elseif delaySetting:find("0.25") then
-                delayTime = 0.25
-            elseif delaySetting:find("0.5") then
-                delayTime = 0.5
-            end
-
             pcall(function()
-                if State.AutoEquipShovel then
+                if hasActiveAcorns() then
                     equipShovelTool()
-                end
 
-                for id, _ in pairs(activeAcornIds) do
-                    if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
-                    crackAcornById(id)
-                    task.wait(delayTime)
-                end
-
-                local acl = Workspace:FindFirstChild("AcornChaosLocal")
-                if acl then
-                    for _, child in ipairs(acl:GetChildren()) do
+                    for id, _ in pairs(activeAcornIds) do
                         if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
-                        local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
-                        if id then
-                            crackAcornById(id)
-                            task.wait(delayTime)
+                        crackAcornById(id)
+                    end
+
+                    local acl = Workspace:FindFirstChild("AcornChaosLocal")
+                    if acl then
+                        for _, child in ipairs(acl:GetChildren()) do
+                            if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
+                            local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
+                            if id then
+                                crackAcornById(id)
+                            end
                         end
                     end
+                else
+                    unequipShovelTool()
                 end
             end)
-            task.wait(delayTime)
+            task.wait(0.05)
         else
             task.wait(0.5)
         end
