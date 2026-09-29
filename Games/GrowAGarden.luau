@@ -4973,87 +4973,38 @@ Hub.CreateSection(tradeTab, "🚀 Auto Search Pet (Standalone Script)")
 
 Hub.CreateButton(tradeTab, "📋 Copy Auto Search Pet Script", function()
     local scriptSource = [=[
--- =========================================================================
--- Grow a Garden - Multi-Pet Sniper & Ultra-Fast Server Hopper
--- Place into your executor's Auto-Execute folder or execute directly.
--- =========================================================================
-
 local Config = {
-    -- =====================================================================
-    -- UNIVERSAL & AFK SETTINGS
-    -- =====================================================================
-    KeepHoppingAfterBuy = true,     -- true = Continuous AFK Hopper (never stops hopping, keeps buying & hopping)
-                                    -- false = Stop and stay in server after buying target pet
-    BuyAllMatchesOnServer = true,   -- true = Buys all matching pets available on current server before hopping
-    HopDelayAfterBuy = 1.5,         -- Delay in seconds before hopping to next server after buying (allows inventory sync)
+    KeepHoppingAfterBuy = true,
+    BuyAllMatchesOnServer = true,
+    HopDelayAfterBuy = 1.5,
 
-    -- =====================================================================
-    -- TARGET PETS LIST
-    -- Add as many pets as you want below! Just rename or add entries.
-    -- Set Pet = "All Pets" or "Any" if you want to buy ANY pet under MaxPrice!
-    -- =====================================================================
     Targets = {
-        -- [Example 1] Any pet under 15 tokens (great for event egg farming & reselling)
         {
-            Pet = "All Pets",       -- "All Pets" / "Any" buys ANY pet under MaxPrice
-            MaxPrice = 15,          -- Max price in Trade Tokens
-            Mutations = "None",     -- "None" for any mutation, or e.g. "Rainbow", "Gold", "EV", "Ascended"
-            MaxWeight = 0,          -- 0 = no weight limit, or enter max weight (e.g. 50)
-            MaxAge = 0              -- 0 = no age/level limit, or enter max age (e.g. 100)
-        },
-
-        -- [Example 2] Specific pet: Bald Eagle under 50 tokens
-        {
-            Pet = "Bald Eagle",     -- Name of the target pet
-            MaxPrice = 50,          -- Max price in Trade Tokens
-            Mutations = "None",     -- "None" for any mutation
-            MaxWeight = 0,          -- 0 = no weight limit
-            MaxAge = 0              -- 0 = no age/level limit
-        },
-
-        -- [Example 3] Specific pet: Koi under 31 tokens
-        {
-            Pet = "Koi",
-            MaxPrice = 31,
+            Pet = "Bagel Bunny",
+            MaxPrice = 10,
             Mutations = "None",
             MaxWeight = 0,
             MaxAge = 0
         },
-
-        -- [Example 4] Specific pet: Corrupted Kitsune (Rainbow mutation only)
         {
-            Pet = "Corrupted Kitsune",
-            MaxPrice = 150,
-            Mutations = "Rainbow",
-            MaxWeight = 0,
-            MaxAge = 0
-        },
-
-        -- [Example 5] Specific pet: Empress Bee with max level/age cutoff
-        {
-            Pet = "Empress Bee",
-            MaxPrice = 75,
+            Pet = "Pancake Mole",
+            MaxPrice = 10,
             Mutations = "None",
             MaxWeight = 0,
-            MaxAge = 100
-        },
+            MaxAge = 0
+        }
     },
 
-    -- =====================================================================
-    -- SCANNING SPEED & STABILITY SETTINGS
-    -- =====================================================================
-    MaxScanPasses = 6,              -- Number of replication passes per server before hopping
-    PassDelay = 0.25                -- Delay between replication passes in seconds
+    MaxScanPasses = 6,
+    PassDelay = 0.25
 }
 
--- =========================================================================
--- Execution Engine (Multi-Pet Detection, Sniping & Server Hop)
--- =========================================================================
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
+
 local LocalPlayer = Players.LocalPlayer
 while not LocalPlayer do
     LocalPlayer = Players.LocalPlayer
@@ -5063,7 +5014,6 @@ end
 local TRADING_PLAZA_PLACE_ID = 129954712878723
 local httpRequest = request or http_request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request) or (krnl and krnl.request)
 
--- Auto-dismiss Error 773 / Teleport Failed dialogs and auto-recover
 pcall(function()
     TeleportService.TeleportInitFailed:Connect(function(plr, result, msg)
         print(string.format("[Sniper] Teleport failed (%s: %s). Auto-dismissing error dialog and retrying...", tostring(result), tostring(msg)))
@@ -5079,14 +5029,12 @@ pcall(function()
     end)
 end)
 
--- Ensure we are in Trading Plaza
 if game.PlaceId ~= TRADING_PLAZA_PLACE_ID then
     print("[Sniper] Not in Trading Plaza. Teleporting to Trading Plaza...")
     TeleportService:Teleport(TRADING_PLAZA_PLACE_ID, LocalPlayer)
     return
 end
 
--- Persistent visited servers memory across hops
 local visitedServers = {}
 pcall(function()
     if readfile and isfile and isfile("gag_visited_servers.json") then
@@ -5095,9 +5043,8 @@ pcall(function()
     end
 end)
 if type(visitedServers) ~= "table" then visitedServers = {} end
-visitedServers[game.JobId] = tick()
+visitedServers[tostring(game.JobId)] = tick()
 
--- Server Hop Implementation
 local function serverHop()
     print("[Sniper] Hopping to a new server...")
     
@@ -5107,7 +5054,7 @@ local function serverHop()
             visitedServers[jId] = nil
         end
     end
-    visitedServers[game.JobId] = now
+    visitedServers[tostring(game.JobId)] = now
     pcall(function()
         if writefile then
             writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
@@ -5136,7 +5083,7 @@ local function serverHop()
                         local maxPlrs = tonumber(s.maxPlayers) or 20
                         local playing = tonumber(s.playing) or 0
                         local id = s.id
-                        if id and id ~= game.JobId and not visitedServers[id] and playing > 0 and playing <= (maxPlrs - 1) then
+                        if id and tostring(id) ~= tostring(game.JobId) and not visitedServers[tostring(id)] and playing > 0 and playing <= (maxPlrs - 1) then
                             table.insert(validServers, id)
                         end
                     end
@@ -5157,7 +5104,7 @@ local function serverHop()
             local targetServer = validServers[math.random(1, #validServers)]
             print(string.format("[Sniper] Teleporting to new server %s (from %d candidates)...", tostring(targetServer), #validServers))
             
-            visitedServers[targetServer] = now
+            visitedServers[tostring(targetServer)] = now
             pcall(function()
                 if writefile then
                     writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
@@ -5171,14 +5118,12 @@ local function serverHop()
         end
     end
 
-    -- Fallback: standard matchmaking teleport
     print("[Sniper] Using standard matchmaking teleport...")
     pcall(function()
         TeleportService:Teleport(TRADING_PLAZA_PLACE_ID, LocalPlayer)
     end)
 end
 
--- Normalize configuration into structured targets
 local function normalizeTargets(cfg)
     local targets = {}
 
@@ -5255,7 +5200,6 @@ local function normalizeTargets(cfg)
     return targets
 end
 
--- Snapshot all pre-existing inventory pet UUIDs on script boot so we NEVER confuse already-owned pets!
 local baselineInventoryUUIDs = {}
 local function snapshotExistingPets()
     pcall(function()
@@ -5290,7 +5234,6 @@ local function snapshotExistingPets()
 end
 snapshotExistingPets()
 
--- Helper to verify if a brand new target pet actually arrived in inventory
 local function hasAcquiredNewTargetPet(targetCleanName)
     local acquired = false
     pcall(function()
@@ -5306,7 +5249,7 @@ local function hasAcquiredNewTargetPet(targetCleanName)
                 if tool:IsA("Tool") then
                     local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
                     if uuid and not baselineInventoryUUIDs[tostring(uuid)] then
-                        local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
+                        local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool:GetAttribute("Species") or tool:GetAttribute("Name") or tool.Name
                         if pSpecies and type(pSpecies) == "string" then
                             local clean = pSpecies:gsub("[%s%p]", ""):lower()
                             if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
@@ -5325,7 +5268,7 @@ local function hasAcquiredNewTargetPet(targetCleanName)
                 if tool:IsA("Tool") then
                     local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
                     if uuid and not baselineInventoryUUIDs[tostring(uuid)] then
-                        local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
+                        local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool:GetAttribute("Species") or tool:GetAttribute("Name") or tool.Name
                         if pSpecies and type(pSpecies) == "string" then
                             local clean = pSpecies:gsub("[%s%p]", ""):lower()
                             if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
@@ -5342,7 +5285,6 @@ local function hasAcquiredNewTargetPet(targetCleanName)
     return acquired
 end
 
--- Teleport local player character directly in front of the target physical booth
 local function interactWithBooth(boothUUID)
     pcall(function()
         if not LocalPlayer then
@@ -5353,8 +5295,8 @@ local function interactWithBooth(boothUUID)
         local boothModel = booths and booths:FindFirstChild(boothUUID)
         if boothModel then
             local pivot = boothModel:GetPivot()
-            local char = LocalPlayer and (LocalPlayer.Character or (LocalPlayer.CharacterAdded and LocalPlayer.CharacterAdded:Wait()))
-            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local char = LocalPlayer and (LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart", 2))
             if root then
                 root.CFrame = pivot * CFrame.new(0, 0, 4)
             end
@@ -5384,14 +5326,13 @@ local function interactWithBooth(boothUUID)
     end)
 end
 
--- Extract structured pet metadata from booth item data & listing info
 local function extractPetInfo(itemData, listInfo)
     local pd = (type(itemData) == "table" and (itemData.PetData or itemData)) or {}
     local li = (type(listInfo) == "table" and listInfo) or {}
 
-    local rawSpecies = pd.PetType or pd.Species or pd.Name or pd.f 
-        or (type(itemData) == "table" and (itemData.PetType or itemData.ItemName or itemData.Name)) 
-        or li.PetType or li.ItemName or li.Name
+    local rawSpecies = pd.PetType or pd.Species or pd.Name or pd.f or pd.ItemName
+        or (type(itemData) == "table" and (itemData.PetType or itemData.ItemName or itemData.Species or itemData.Name)) 
+        or li.PetType or li.ItemName or li.Species or li.Name
 
     if not rawSpecies or type(rawSpecies) ~= "string" or rawSpecies == "" then
         return nil
@@ -5417,7 +5358,6 @@ local function extractPetInfo(itemData, listInfo)
     }
 end
 
--- Purchase Routine
 local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData, boothUUID, targetCleanName)
     local petInfo = extractPetInfo(itemData, listInfo)
     local price = petInfo and petInfo.Price or ((type(listInfo) == "table" and listInfo.Price) or tonumber(tostring(listInfo)) or 0)
@@ -5435,7 +5375,6 @@ local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData,
             :WaitForChild("BuyListing", 3)
     end)
 
-    -- Method 1: Official UI Prompt + Yes button activation
     pcall(function()
         local modules = ReplicatedStorage:FindFirstChild("Modules")
         local tbc = modules and modules:FindFirstChild("TradeBoothControllers")
@@ -5473,21 +5412,18 @@ local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData,
         end
     end)
 
-    -- Method 2: Direct Remote invocation with string plrKey
     if buyRemote and not hasAcquiredNewTargetPet(targetCleanName) then
         pcall(function()
             buyRemote:InvokeServer(tostring(plrKey), tostring(listingUUID))
         end)
     end
 
-    -- Method 3: Direct Remote invocation with numeric ownerId
     if buyRemote and not hasAcquiredNewTargetPet(targetCleanName) and ownerId then
         pcall(function()
             buyRemote:InvokeServer(tonumber(ownerId), tostring(listingUUID))
         end)
     end
 
-    -- Method 4: Direct Remote invocation with boothUUID
     if buyRemote and not hasAcquiredNewTargetPet(targetCleanName) and boothUUID then
         pcall(function()
             buyRemote:InvokeServer(tostring(boothUUID), tostring(listingUUID))
@@ -5495,7 +5431,6 @@ local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData,
     end
 end
 
--- Helper to safely acquire full Booths Data from DataService / Controller
 local function getBoothsData()
     local boothsData = nil
 
@@ -5539,7 +5474,6 @@ local function checkAndSnipe(activeTargets)
         return false, 0
     end
 
-    -- Build map of active claimed physical booths: playerKey -> boothUUID
     local playerToBoothUUID = {}
     if boothsData.Booths then
         for bUUID, bInfo in pairs(boothsData.Booths) do
@@ -5551,7 +5485,6 @@ local function checkAndSnipe(activeTargets)
 
     local boughtInThisPass = 0
 
-    -- Scan through all listings
     for plrKey, plrData in pairs(boothsData.Players) do
         local ownerId = tonumber((tostring(plrKey):gsub("Player_", ""):gsub("player_", "")))
         local items = plrData.Items or {}
@@ -5562,7 +5495,6 @@ local function checkAndSnipe(activeTargets)
             if not purchasedListings[strListingUUID] then
                 local itemId = (type(listInfo) == "table" and listInfo.ItemId) or listingUUID
 
-                -- Robust fuzzy item data lookup
                 local itemData = items[itemId] or items[listingUUID]
                 if not itemData then
                     local cleanItemId = tostring(itemId):gsub("[{}]", ""):lower()
@@ -5646,7 +5578,6 @@ local function checkAndSnipe(activeTargets)
     return (boughtInThisPass > 0), boughtInThisPass
 end
 
--- Run continuous multi-pass detection on load to guarantee 100% data replication
 task.spawn(function()
     local targets = normalizeTargets(Config)
     if #targets == 0 then
