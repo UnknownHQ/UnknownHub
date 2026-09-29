@@ -4727,6 +4727,28 @@ local function getMatchingCravingFruits(targetTrait)
     return matching
 end
 
+local function sellStaleFallFruits(targetTrait)
+    if not targetTrait or targetTrait == "None" then return end
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local sellItemRem = (ge and ge:FindFirstChild("Sell_Item")) or getSellItemRemote()
+
+        local allTools = getAllPlayerTools()
+        for _, tool in ipairs(allTools) do
+            if tool and tool.Parent and isFruitTool(tool) then
+                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
+                if not checkPlantMatchesTrait(pName, targetTrait) then
+                    if sellItemRem then
+                        pcall(function()
+                            sellItemRem:FireServer(tool)
+                        end)
+                    end
+                end
+            end
+        end
+    end)
+end
+
 local function executeFallBloomSubmissionCycle()
     pcall(function()
         local cravingInfo = getCurrentFallCravingInfo()
@@ -4758,6 +4780,13 @@ local function executeFallBloomCollectCycle()
     local cravingInfo = getCurrentFallCravingInfo()
     if not cravingInfo or cravingInfo.Trait == "None" then return end
     local targetTrait = cravingInfo.Trait
+
+    -- If backpack is full, auto-sell stale non-matching fruits to make room for new category
+    if isBackpackFull() then
+        sellStaleFallFruits(targetTrait)
+        task.wait(0.15)
+        if isBackpackFull() then return end
+    end
 
     local colRemote = getCollectRemote()
     if not colRemote then return end
@@ -4820,12 +4849,23 @@ local function executeFallBloomCollectCycle()
 end
 
 -- Fall Bloom Auto-Collect Background Worker
+local lastCravingTrait = nil
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then
+        if isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") 
+           or State.AutoSubmitFallBloom then
             pcall(function()
-                if not isBackpackFull() then
+                local cInfo = getCurrentFallCravingInfo()
+                if cInfo and cInfo.Trait ~= "None" then
+                    -- When the craving rotates to a new category, immediately sell old stale fruits from the previous category
+                    if lastCravingTrait and lastCravingTrait ~= cInfo.Trait then
+                        sellStaleFallFruits(cInfo.Trait)
+                    end
+                    lastCravingTrait = cInfo.Trait
+                end
+
+                if isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then
                     executeFallBloomCollectCycle()
                 end
             end)
@@ -4850,7 +4890,6 @@ task.spawn(function()
     end
 end)
 
--- =========================================================================
 -- Fall Event Shops Auto-Buy Engine
 -- =========================================================================
 local function executeEventShopPurchases()
@@ -6532,77 +6571,11 @@ Hub.CreateTextBox(eventTab, "Check Delay (0.25 - 10.0s)", "Enter check delay (de
     end
 end)
 
-Hub.CreateButton(eventTab, "🍂 Submit All Fruits (Dev Button)", function()
-    pcall(function()
-        local cravingInfo = getCurrentFallCravingInfo()
-        local trait = cravingInfo and cravingInfo.Trait or "craving"
-        local matching = cravingInfo and getMatchingCravingFruits(cravingInfo.Trait) or {}
-        if #matching == 0 then
-            Hub.Notify({
-                Title = "Fall Bloom",
-                Content = string.format("No %s plants found in inventory to submit!", trait),
-                Duration = 3
-            })
-            return
-        end
 
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local ev = ge and ge:FindFirstChild("Events")
-        local fm = ev and ev:FindFirstChild("FallMarketEvent")
-        local submitAllRem = fm and fm:FindFirstChild("SubmitAllPlants")
-        if submitAllRem then
-            submitAllRem:FireServer()
-            Hub.Notify({
-                Title = "Fall Bloom",
-                Content = string.format("Submitted %d matching %s plants using official button!", #matching, trait),
-                Duration = 3
-            })
-        else
-            executeFallBloomSubmissionCycle()
-            Hub.Notify({
-                Title = "Fall Bloom",
-                Content = string.format("Submitted %d matching %s fruits!", #matching, trait),
-                Duration = 3
-            })
-        end
-    end)
-end)
 
-Hub.CreateButton(eventTab, "⚡ Submit Matching Fruits Now", function()
-    pcall(function()
-        local cravingInfo = getCurrentFallCravingInfo()
-        local trait = cravingInfo and cravingInfo.Trait or "craving"
-        local matching = cravingInfo and getMatchingCravingFruits(cravingInfo.Trait) or {}
-        if #matching == 0 then
-            Hub.Notify({
-                Title = "Fall Bloom",
-                Content = string.format("No %s plants found in inventory to submit!", trait),
-                Duration = 3
-            })
-            return
-        end
 
-        executeFallBloomSubmissionCycle()
-        Hub.Notify({
-            Title = "Fall Bloom",
-            Content = string.format("Submitted %d matching %s fruits to Fall Bloom!", #matching, trait),
-            Duration = 3
-        })
-    end)
-end)
 
-Hub.CreateButton(eventTab, "🎁 Claim Fall Energy Rewards", function()
-    pcall(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local ev = ge and ge:FindFirstChild("Events")
-        local fm = ev and ev:FindFirstChild("FallMarketEvent")
-        local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
-        if claimEnergyRem then
-            claimEnergyRem:FireServer()
-            Hub.Notify({ Title = "Fall Energy", Content = "Fired ClaimFallEnergyRewards remote!", Duration = 2 })
-        end
-    end)
-end)
+
 
 -- 2. 🍂 Fall Event Shops Auto-Buy
 Hub.CreateSection(eventTab, "🍂 Fall Event Shops Auto-Buy")
@@ -6654,12 +6627,7 @@ Hub.CreateTextBox(eventTab, "Event Shop Buy Delay (0.05 - 5.0s)", "Enter delay (
     end
 end)
 
-Hub.CreateButton(eventTab, "🛒 Buy All In-Stock Event Items Now", function()
-    pcall(function()
-        executeEventShopPurchases()
-        Hub.Notify({ Title = "Event Shops", Content = "Fired purchases for in-stock event items!", Duration = 3 })
-    end)
-end)
+
 
 -- 3. 🌰 Acorn Chaos (Weekly Event)
 Hub.CreateSection(eventTab, "🌰 Acorn Chaos (Weekly Event)")
@@ -6676,14 +6644,7 @@ autoAttackAcornsToggle = Hub.CreateToggle(eventTab, "Auto Attack Acorns (Instant
     end
 end)
 
-Hub.CreateButton(eventTab, "Use Golden Acorn", function()
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local remote = (ge and ge:FindFirstChild("TryGoldenAcorn")) or TryGoldenAcornRemote
-    if remote then
-        remote:FireServer()
-        print("[Unknown Hub] Fired TryGoldenAcorn remote!")
-    end
-end)
+
 
 
 
