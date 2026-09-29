@@ -4613,46 +4613,40 @@ local function getMatchingCravingFruits(targetTrait)
 end
 
 local function executeFallBloomSubmissionCycle()
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local ev = ge and ge:FindFirstChild("Events")
-    local fm = ev and ev:FindFirstChild("FallMarketEvent")
-    local submitAllRem = fm and fm:FindFirstChild("SubmitAllPlants")
-    local submitHeldRem = fm and fm:FindFirstChild("SubmitHeldPlant")
-    local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local fm = ev and ev:FindFirstChild("FallMarketEvent")
+        local submitAllRem = fm and fm:FindFirstChild("SubmitAllPlants")
+        local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
 
-    -- 1. Official Developer Submit All Plants Remote (instant batch submit, no equipping needed)
-    if submitAllRem then
-        pcall(function()
+        -- 1. Official Developer "Feed all my plants to the Harvest Spirit" (Batch Submit, 0 tool equipping!)
+        if submitAllRem then
             submitAllRem:FireServer()
-        end)
-    end
+        end
 
-    local cravingInfo = getCurrentFallCravingInfo()
-    if cravingInfo and cravingInfo.Trait ~= "None" and not cravingInfo.IsBloomActive then
-        local matching = getMatchingCravingFruits(cravingInfo.Trait)
-        if #matching > 0 and submitHeldRem and matching[1] and matching[1].Tool then
-            local tool = matching[1].Tool
-            if isFruitTool(tool) then
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum and tool.Parent ~= char then
-                    pcall(function() hum:EquipTool(tool) end)
-                    task.wait(0.04)
-                end
-                if tool.Parent == char then
-                    pcall(function()
-                        submitHeldRem:FireServer()
-                    end)
+        -- 2. ProximityPrompt for Harvest Spirit (MrOakaly) fallback trigger
+        local interaction = workspace:FindFirstChild("Interaction")
+        local fmm = interaction and interaction:FindFirstChild("FallMarketModel")
+        local mrOakaly = fmm and fmm:FindFirstChild("MrOakaly")
+        if mrOakaly then
+            local prompt = mrOakaly:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                elseif getconnections and LocalPlayer then
+                    for _, conn in ipairs(getconnections(prompt.Triggered)) do
+                        conn:Fire(LocalPlayer)
+                    end
                 end
             end
         end
-    end
 
-    if claimEnergyRem then
-        pcall(function()
+        -- 3. Auto-claim fall energy rewards
+        if claimEnergyRem then
             claimEnergyRem:FireServer()
-        end)
-    end
+        end
+    end)
 end
 
 local function executeFallBloomCollectCycle()
