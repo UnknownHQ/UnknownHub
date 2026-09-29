@@ -4505,23 +4505,71 @@ local function getCurrentFallCravingInfo()
     local bloomDuration = 300
     local refreshInterval = 1800
 
+    -- Layer 1: HarvestSpiritBillboard Tagged BillboardGui (100% ground-truth live in-game text)
     pcall(function()
-        local dataMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
-        if dataMod then
-            local config = require(dataMod)
-            local traits = config.Traits or {"Berry", "Fruit", "Flower", "Vegetable", "Tropical", "Prickly", "Woody"}
-            refreshInterval = config.CravingRefresh or 1800
-            local seedVal = config.RANDOM_SEED_VALUE or 8113
-            bloomDuration = config.FallBloomDuration or 300
+        local bbs = CollectionService:GetTagged("HarvestSpiritBillboard")
+        for _, bb in ipairs(bbs) do
+            local bg = bb:FindFirstChild("BG")
+            local tl = bg and bg:FindFirstChild("TextLabel")
+            if tl and tl.Text and #tl.Text > 0 then
+                local matched = tl.Text:match("<font.-%>(.-)</font>") or tl.Text:match("needs%s+<b>%s*(.-)%s*</b>")
+                if matched and #matched > 0 then
+                    local clean = matched:gsub("<.->", ""):gsub("%s+", "")
+                    if clean and clean ~= "" and clean ~= "None" then
+                        currentTrait = clean
+                        return
+                    end
+                end
+            end
+        end
+    end)
 
+    -- Layer 2: Official CravingDisplayController
+    if currentTrait == "None" then
+        pcall(function()
+            local cdcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("CravingControllers") and ReplicatedStorage.Modules.CravingControllers:FindFirstChild("CravingDisplayController")
+            local configMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
+            if cdcMod and configMod then
+                local cdc = require(cdcMod)
+                local config = require(configMod)
+                local trait = cdc:GetTrait(config)
+                if trait and trait ~= "" and trait ~= "None" then
+                    currentTrait = trait
+                end
+            end
+        end)
+    end
+
+    -- Layer 3: Official CravingUtils
+    if currentTrait == "None" then
+        pcall(function()
+            local cuMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("CravingUtils")
+            local configMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
+            if cuMod and configMod then
+                local cu = require(cuMod)
+                local config = require(configMod)
+                local trait = cu:GetCurrentCraving({
+                    Options = config.Traits or {"Berry", "Fruit", "Flower", "Vegetable", "Tropical", "Prickly", "Woody"},
+                    Interval = config.CravingRefresh or 1800,
+                    HashNum = config.RANDOM_SEED_VALUE or 8143
+                })
+                if trait and trait ~= "" and trait ~= "None" then
+                    currentTrait = trait
+                end
+            end
+        end)
+    end
+
+    pcall(function()
+        local configMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
+        if configMod then
+            local config = require(configMod)
+            refreshInterval = config.CravingRefresh or 1800
+            bloomDuration = config.FallBloomDuration or 300
             local now = workspace:GetServerTimeNow()
             slot = math.floor(now / refreshInterval)
             elapsedInSlot = now % refreshInterval
             isBloomActive = (elapsedInSlot < bloomDuration)
-
-            local rng = Random.new(slot + seedVal)
-            local traitIdx = rng:NextInteger(1, #traits)
-            currentTrait = traits[traitIdx]
         end
     end)
 
@@ -4558,101 +4606,91 @@ local function isFruitTool(tool)
     return true
 end
 
-local function checkPlantMatchesTrait(plantName, targetTrait)
-    if not plantName or plantName == "" or not targetTrait or targetTrait == "" or targetTrait == "None" then
+local function cleanPlantName(name)
+    local s = tostring(name or "")
+    s = s:gsub("^%s*%[.-%]%s*", "")
+    s = s:gsub("%s*%[.-%]%s*$", "")
+    s = s:gsub("_%w%w%w%w+$", "")
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    return s
+end
+
+local function checkPlantMatchesTrait(rawName, targetTrait)
+    if not rawName or rawName == "" or not targetTrait or targetTrait == "" or targetTrait == "None" then
         return false
     end
 
-    local rawName = tostring(plantName)
-    local cleanName = rawName:gsub("%s*%[.*%]", ""):gsub("_%w%w%w%w+$", ""):gsub("^%s+", ""):gsub("%s+$", "")
-    local cleanNameLower = cleanName:lower()
-    local targetTraitLower = tostring(targetTrait):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    local base = cleanPlantName(rawName)
+    if base == "" then return false end
 
-    if cleanNameLower:find("seed") or cleanNameLower:find("pack") or cleanNameLower:find("shovel") or cleanNameLower:find("sprinkler") or cleanNameLower:find("fertilizer") then
+    local baseLower = base:lower()
+    if baseLower:find("seed") or baseLower:find("pack") or baseLower:find("shovel") or baseLower:find("sprinkler") or baseLower:find("fertilizer") or baseLower:find("potion") then
         return false
     end
 
     if PlantTraitsData and type(PlantTraitsData) == "table" then
         local matched = false
         pcall(function()
-            -- 1. HasTrait function check
+            -- 1. Direct HasTrait
             if type(PlantTraitsData.HasTrait) == "function" then
-                if PlantTraitsData.HasTrait(cleanName, targetTrait) or PlantTraitsData.HasTrait(cleanNameLower, targetTraitLower) or PlantTraitsData.HasTrait(rawName, targetTrait) then
+                if PlantTraitsData.HasTrait(base, targetTrait) then
                     matched = true
                     return
                 end
             end
 
-            -- 2. GetTraits function check
-            if type(PlantTraitsData.GetTraits) == "function" then
-                local traits = PlantTraitsData.GetTraits(cleanName) or PlantTraitsData.GetTraits(cleanNameLower) or PlantTraitsData.GetTraits(rawName)
-                if type(traits) == "table" then
-                    for k, v in pairs(traits) do
-                        if tostring(k):lower() == targetTraitLower or tostring(v):lower() == targetTraitLower then
-                            matched = true
-                            return
-                        end
-                    end
+            -- 2. Direct dictionary lookup
+            if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][base] then
+                matched = true
+                return
+            end
+
+            -- 3. Strip suffixes (" Tree", " Bush", " Plant", " Crop", " Vine")
+            local strippedSuffix = base:gsub("%s+[Tt]ree$", ""):gsub("%s+[Bb]ush$", ""):gsub("%s+[Pp]lant$", ""):gsub("%s+[Cc]rop$", ""):gsub("%s+[Vv]ine$", ""):gsub("%s+[Ss]eed$", "")
+            if strippedSuffix ~= base then
+                if type(PlantTraitsData.HasTrait) == "function" and PlantTraitsData.HasTrait(strippedSuffix, targetTrait) then
+                    matched = true
+                    return
+                end
+                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][strippedSuffix] then
+                    matched = true
+                    return
                 end
             end
 
-            -- 3. GetPlantsWithTrait function check
-            if type(PlantTraitsData.GetPlantsWithTrait) == "function" then
-                local list = PlantTraitsData.GetPlantsWithTrait(targetTrait) or PlantTraitsData.GetPlantsWithTrait(targetTraitLower)
-                if type(list) == "table" then
-                    for k, v in pairs(list) do
-                        local item = tostring(v or k):lower()
-                        if item == cleanNameLower or cleanNameLower:find(item, 1, true) or item:find(cleanNameLower, 1, true) then
-                            matched = true
-                            return
-                        end
-                    end
+            -- 4. Strip variant prefixes ("Golden ", "Diamond ", "Rainbow ", etc.)
+            local variants = {"Golden ", "Gold ", "Diamond ", "Rainbow ", "Silver ", "Shocked ", "Frozen ", "Chilled ", "Radioactive ", "Bloom ", "Mutated ", "Giant ", "Jumbo ", "Tiny "}
+            local strippedPrefix = strippedSuffix
+            for _, v in ipairs(variants) do
+                if strippedPrefix:sub(1, #v):lower() == v:lower() then
+                    strippedPrefix = strippedPrefix:sub(#v + 1):gsub("^%s+", "")
+                end
+            end
+            if strippedPrefix ~= strippedSuffix then
+                if type(PlantTraitsData.HasTrait) == "function" and PlantTraitsData.HasTrait(strippedPrefix, targetTrait) then
+                    matched = true
+                    return
+                end
+                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][strippedPrefix] then
+                    matched = true
+                    return
                 end
             end
 
-            -- 4. Trait Category Table lookup (e.g. PlantTraitsData["Woody"] or PlantTraitsData["Berry"])
-            for tKey, plantMap in pairs(PlantTraitsData) do
-                if tostring(tKey):lower() == targetTraitLower and type(plantMap) == "table" then
-                    if plantMap[cleanName] or plantMap[rawName] or plantMap[cleanNameLower] then
+            -- 5. Exact match against plants in PlantTraitsData[targetTrait]
+            if PlantTraitsData[targetTrait] and type(PlantTraitsData[targetTrait]) == "table" then
+                local lowBase = base:lower()
+                local lowStrip = strippedPrefix:lower()
+                for pName, _ in pairs(PlantTraitsData[targetTrait]) do
+                    local pLow = tostring(pName):lower()
+                    if pLow == lowBase or pLow == lowStrip or lowBase:find(pLow, 1, true) or lowStrip:find(pLow, 1, true) then
                         matched = true
                         return
-                    end
-                    for pK, pV in pairs(plantMap) do
-                        local nameA = tostring(pK):lower()
-                        local nameB = tostring(pV):lower()
-                        if nameA == cleanNameLower or nameB == cleanNameLower or cleanNameLower:find(nameA, 1, true) or cleanNameLower:find(nameB, 1, true) then
-                            matched = true
-                            return
-                        end
-                    end
-                end
-            end
-
-            -- 5. Plant Name Table lookup (e.g. PlantTraitsData["Oak Tree"] = { "Woody" })
-            for pKey, traitList in pairs(PlantTraitsData) do
-                local pKeyLower = tostring(pKey):lower()
-                if (pKeyLower == cleanNameLower or cleanNameLower:find(pKeyLower, 1, true) or pKeyLower:find(cleanNameLower, 1, true)) and type(traitList) == "table" then
-                    if traitList[targetTrait] or traitList[targetTraitLower] then
-                        matched = true
-                        return
-                    end
-                    for tK, tV in pairs(traitList) do
-                        local tA = tostring(tK):lower()
-                        local tB = tostring(tV):lower()
-                        if tA == targetTraitLower or tB == targetTraitLower then
-                            matched = true
-                            return
-                        end
                     end
                 end
             end
         end)
         if matched then return true end
-    end
-
-    -- Direct substring matching fallback
-    if cleanNameLower:find(targetTraitLower, 1, true) then
-        return true
     end
 
     return false
@@ -4704,29 +4742,12 @@ local function executeFallBloomSubmissionCycle()
         local submitAllRem = fm and fm:FindFirstChild("SubmitAllPlants")
         local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
 
-        -- 1. Official Developer "Feed all my plants to the Harvest Spirit" (Batch Submit, 0 tool equipping!)
+        -- Official Developer remote batch submit (Direct remote call, 0 NPC dialogue popups)
         if submitAllRem then
             submitAllRem:FireServer()
         end
 
-        -- 2. ProximityPrompt for Harvest Spirit (MrOakaly) fallback trigger
-        local interaction = workspace:FindFirstChild("Interaction")
-        local fmm = interaction and interaction:FindFirstChild("FallMarketModel")
-        local mrOakaly = fmm and fmm:FindFirstChild("MrOakaly")
-        if mrOakaly then
-            local prompt = mrOakaly:FindFirstChildWhichIsA("ProximityPrompt", true)
-            if prompt then
-                if fireproximityprompt then
-                    fireproximityprompt(prompt)
-                elseif getconnections and LocalPlayer then
-                    for _, conn in ipairs(getconnections(prompt.Triggered)) do
-                        conn:Fire(LocalPlayer)
-                    end
-                end
-            end
-        end
-
-        -- 3. Auto-claim fall energy rewards
+        -- Auto-claim fall energy rewards
         if claimEnergyRem then
             claimEnergyRem:FireServer()
         end
