@@ -2,6 +2,7 @@ local Config = {
     KeepHoppingAfterBuy = true,
     BuyAllMatchesOnServer = true,
     HopDelayAfterBuy = 1.5,
+    UseFindSellers = true,
 
     Targets = {
         {
@@ -20,8 +21,8 @@ local Config = {
         }
     },
 
-    MaxScanPasses = 6,
-    PassDelay = 0.25
+    MaxScanPasses = 5,
+    PassDelay = 0.15
 }
 
 local Players = game:GetService("Players")
@@ -70,9 +71,140 @@ end)
 if type(visitedServers) ~= "table" then visitedServers = {} end
 visitedServers[tostring(game.JobId)] = tick()
 
-local function serverHop()
-    print("[Sniper] Hopping to a new server...")
+local cachedServers = {}
+local serverInfoMap = {}
+local isFetchingServers = false
+
+local function refreshServerListAsync()
+    if isFetchingServers or not httpRequest then return end
+    isFetchingServers = true
+    task.spawn(function()
+        pcall(function()
+            local cursor = ""
+            local newServers = {}
+            local newMap = {}
+            
+            for page = 1, 3 do
+                local url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100%s", 
+                    tostring(TRADING_PLAZA_PLACE_ID),
+                    (cursor ~= "" and ("&cursor=" .. cursor) or "")
+                )
+                local res = httpRequest({Url = url, Method = "GET"})
+                if res and res.Body then
+                    local body = HttpService:JSONDecode(res.Body)
+                    if body and body.data then
+                        for _, s in ipairs(body.data) do
+                            local id = tostring(s.id)
+                            local maxPlrs = tonumber(s.maxPlayers) or 20
+                            local playing = tonumber(s.playing) or 0
+                            newMap[id] = { playing = playing, maxPlayers = maxPlrs }
+                            if id ~= tostring(game.JobId) and not visitedServers[id] and playing > 0 and playing <= (maxPlrs - 2) then
+                                table.insert(newServers, id)
+                            end
+                        end
+                        if body.nextPageCursor and body.nextPageCursor ~= "" then
+                            cursor = body.nextPageCursor
+                        else
+                            break
+                        end
+                    else
+                        break
+                    end
+                else
+                    break
+                end
+            end
+            if #newServers > 0 then
+                cachedServers = newServers
+            end
+            for k, v in pairs(newMap) do
+                serverInfoMap[k] = v
+            end
+        end)
+        isFetchingServers = false
+    end)
+end
+
+refreshServerListAsync()
+
+local function tryFindSellersDirectHop(targets)
+    if not Config.UseFindSellers then return false end
+
+    local TokenRAPUtil = nil
+    pcall(function()
+        local mod = ReplicatedStorage:FindFirstChild("Modules")
+        local tt = mod and mod:FindFirstChild("TradeTokens")
+        if tt and tt:FindFirstChild("TokenRAPUtil") then
+            TokenRAPUtil = require(tt.TokenRAPUtil)
+        end
+    end)
+
+    local findSellersRemote = nil
+    pcall(function()
+        findSellersRemote = ReplicatedStorage:FindFirstChild("GameEvents")
+            and ReplicatedStorage.GameEvents:FindFirstChild("TradeEvents")
+            and ReplicatedStorage.GameEvents.TradeEvents:FindFirstChild("TokenRAPs")
+            and ReplicatedStorage.GameEvents.TradeEvents.TokenRAPs:FindFirstChild("FindSellers")
+    end)
+
+    if not findSellersRemote or not TokenRAPUtil then return false end
+
+    for _, target in ipairs(targets) do
+        local cleanTarget = target.CleanName
+        if cleanTarget ~= "all" and cleanTarget ~= "allpets" and cleanTarget ~= "any" and cleanTarget ~= "*" then
+            local petName = target.Name
+            local itemData = TokenRAPUtil.GetDefaultItemData("Pet", petName)
+            if itemData then
+                local success, hasSeller, listingJobId = pcall(function()
+                    return findSellersRemote:InvokeServer("Pet", itemData)
+                end)
+
+                if success and hasSeller and listingJobId and type(listingJobId) == "string" and listingJobId ~= "" then
+                    local strJobId = tostring(listingJobId)
+                    if strJobId ~= tostring(game.JobId) and not visitedServers[strJobId] then
+                        local sInfo = serverInfoMap[strJobId]
+                        if sInfo and sInfo.playing and sInfo.maxPlayers and sInfo.playing >= sInfo.maxPlayers then
+                            print(string.format("[Sniper] ⚠️ FindSellers found seller for %s, but target server is full (%d/%d). Skipping to prevent full-server error.", petName, sInfo.playing, sInfo.maxPlayers))
+                        else
+                            print(string.format("[Sniper] 🎯 FindSellers found seller for %s on server %s! Teleporting directly...", petName, strJobId))
+                            visitedServers[strJobId] = tick()
+                            pcall(function()
+                                if writefile then
+                                    writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
+                                end
+                            end)
+
+                            local teleported = false
+                            pcall(function()
+                                local tListing = ReplicatedStorage.GameEvents.TradeEvents.TokenRAPs:FindFirstChild("TeleportToListing")
+                                if tListing then
+                                    teleported = tListing:InvokeServer(listingJobId, true)
+                                end
+                            end)
+
+                            if not teleported then
+                                pcall(function()
+                                    TeleportService:TeleportToPlaceInstance(TRADING_PLAZA_PLACE_ID, listingJobId, LocalPlayer)
+                                end)
+                            end
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function serverHop(targets)
+    print("[Sniper] Initiating hop...")
     
+    if targets and #targets > 0 then
+        local jumped = tryFindSellersDirectHop(targets)
+        if jumped then return end
+    end
+
     local now = tick()
     for jId, timestamp in pairs(visitedServers) do
         if type(timestamp) == "number" and (now - timestamp > 900) then
@@ -86,48 +218,48 @@ local function serverHop()
         end
     end)
 
+    if #cachedServers > 0 then
+        local targetServer = cachedServers[math.random(1, #cachedServers)]
+        print(string.format("[Sniper] Teleporting to pre-fetched server %s (from %d non-full candidates)...", tostring(targetServer), #cachedServers))
+        
+        visitedServers[tostring(targetServer)] = now
+        pcall(function()
+            if writefile then
+                writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
+            end
+        end)
+
+        local s, e = pcall(function()
+            TeleportService:TeleportToPlaceInstance(TRADING_PLAZA_PLACE_ID, targetServer, LocalPlayer)
+        end)
+        if s then return end
+    end
+
     if httpRequest then
-        local cursor = ""
         local validServers = {}
+        local url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100", tostring(TRADING_PLAZA_PLACE_ID))
+        local res = nil
+        pcall(function()
+            res = httpRequest({Url = url, Method = "GET"})
+        end)
 
-        for page = 1, 3 do
-            local url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100%s", 
-                tostring(TRADING_PLAZA_PLACE_ID),
-                (cursor ~= "" and ("&cursor=" .. cursor) or "")
-            )
-
-            local res = nil
-            pcall(function()
-                res = httpRequest({Url = url, Method = "GET"})
-            end)
-
-            if res and res.Body then
-                local ok, body = pcall(function() return HttpService:JSONDecode(res.Body) end)
-                if ok and body and body.data then
-                    for _, s in ipairs(body.data) do
-                        local maxPlrs = tonumber(s.maxPlayers) or 20
-                        local playing = tonumber(s.playing) or 0
-                        local id = s.id
-                        if id and tostring(id) ~= tostring(game.JobId) and not visitedServers[tostring(id)] and playing > 0 and playing <= (maxPlrs - 1) then
-                            table.insert(validServers, id)
-                        end
+        if res and res.Body then
+            local ok, body = pcall(function() return HttpService:JSONDecode(res.Body) end)
+            if ok and body and body.data then
+                for _, s in ipairs(body.data) do
+                    local maxPlrs = tonumber(s.maxPlayers) or 20
+                    local playing = tonumber(s.playing) or 0
+                    local id = tostring(s.id)
+                    if id ~= tostring(game.JobId) and not visitedServers[id] and playing > 0 and playing <= (maxPlrs - 2) then
+                        table.insert(validServers, id)
                     end
-                    if body.nextPageCursor and body.nextPageCursor ~= "" then
-                        cursor = body.nextPageCursor
-                    else
-                        break
-                    end
-                else
-                    break
                 end
-            else
-                break
             end
         end
 
         if #validServers > 0 then
             local targetServer = validServers[math.random(1, #validServers)]
-            print(string.format("[Sniper] Teleporting to new server %s (from %d candidates)...", tostring(targetServer), #validServers))
+            print(string.format("[Sniper] Teleporting to server %s (from %d candidates)...", tostring(targetServer), #validServers))
             
             visitedServers[tostring(targetServer)] = now
             pcall(function()
@@ -616,8 +748,8 @@ task.spawn(function()
     end
     print(string.format("[Sniper] 🚀 Connected to server. Scanning for [%d] target(s): %s", #targets, table.concat(targetSummary, " | ")))
 
-    local maxPasses = tonumber(Config.MaxScanPasses) or 6
-    local passDelay = tonumber(Config.PassDelay) or 0.25
+    local maxPasses = tonumber(Config.MaxScanPasses) or 5
+    local passDelay = tonumber(Config.PassDelay) or 0.15
     local totalBought = 0
 
     for scanAttempt = 1, maxPasses do
@@ -636,14 +768,14 @@ task.spawn(function()
     if totalBought > 0 then
         if keepHopping then
             local hopDelay = tonumber(Config.HopDelayAfterBuy) or 1.5
-            print(string.format("[Sniper] ✅ Successfully secured %d target pet(s)! Continuous AFK enabled: Hopping to next server in %.1fs...", totalBought, hopDelay))
+            print(string.format("[Sniper] ✅ Successfully secured %d target pet(s)! Continuous AFK enabled: Hopping in %.1fs...", totalBought, hopDelay))
             task.wait(hopDelay)
-            serverHop()
+            serverHop(targets)
         else
             print(string.format("[Sniper] 🎉 Successfully secured %d target pet(s)! Staying in server (Continuous AFK disabled).", totalBought))
         end
     else
-        print("[Sniper] No matching target pet found on this server. Hopping to next server...")
-        serverHop()
+        print("[Sniper] No matching target pet on current server. Finding next server...")
+        serverHop(targets)
     end
 end)
