@@ -5124,6 +5124,8 @@ local function tryFindSellersDirectHop(targets)
 
     if not findSellersRemote or not TokenRAPUtil then return false end
 
+    local sellerCandidates = {}
+
     for _, target in ipairs(targets) do
         local cleanTarget = target.CleanName
         if cleanTarget ~= "all" and cleanTarget ~= "allpets" and cleanTarget ~= "any" and cleanTarget ~= "*" then
@@ -5138,37 +5140,54 @@ local function tryFindSellersDirectHop(targets)
                     local strJobId = tostring(listingJobId)
                     if strJobId ~= tostring(game.JobId) and not visitedServers[strJobId] then
                         local sInfo = serverInfoMap[strJobId]
-                        if sInfo and sInfo.playing and sInfo.maxPlayers and sInfo.playing >= sInfo.maxPlayers then
-                            print(string.format("[Sniper] ⚠️ FindSellers found seller for %s, but target server is full (%d/%d). Skipping to prevent full-server error.", petName, sInfo.playing, sInfo.maxPlayers))
+                        local isFull = sInfo and sInfo.playing and sInfo.maxPlayers and (sInfo.playing >= sInfo.maxPlayers)
+                        if not isFull then
+                            table.insert(sellerCandidates, {
+                                Pet = petName,
+                                JobId = strJobId,
+                                Playing = sInfo and sInfo.playing or 10,
+                                MaxPlayers = sInfo and sInfo.maxPlayers or 20
+                            })
                         else
-                            print(string.format("[Sniper] 🎯 FindSellers found seller for %s on server %s! Teleporting directly...", petName, strJobId))
-                            visitedServers[strJobId] = tick()
-                            pcall(function()
-                                if writefile then
-                                    writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
-                                end
-                            end)
-
-                            local teleported = false
-                            pcall(function()
-                                local tListing = ReplicatedStorage.GameEvents.TradeEvents.TokenRAPs:FindFirstChild("TeleportToListing")
-                                if tListing then
-                                    teleported = tListing:InvokeServer(listingJobId, true)
-                                end
-                            end)
-
-                            if not teleported then
-                                pcall(function()
-                                    TeleportService:TeleportToPlaceInstance(TRADING_PLAZA_PLACE_ID, listingJobId, LocalPlayer)
-                                end)
-                            end
-                            return true
+                            print(string.format("[Sniper] ⚠️ FindSellers found seller for '%s', but server %s is full (%d/%d). Skipping.", petName, strJobId, sInfo.playing, sInfo.maxPlayers))
                         end
                     end
                 end
             end
         end
     end
+
+    if #sellerCandidates > 0 then
+        table.sort(sellerCandidates, function(a, b)
+            return a.Playing < b.Playing
+        end)
+
+        local chosen = sellerCandidates[1]
+        print(string.format("[Sniper] 🎯 FindSellers matched [%d] seller candidate(s)! Teleporting for '%s' to server %s (%d/%d players)...", #sellerCandidates, chosen.Pet, chosen.JobId, chosen.Playing, chosen.MaxPlayers))
+
+        visitedServers[chosen.JobId] = tick()
+        pcall(function()
+            if writefile then
+                writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
+            end
+        end)
+
+        local teleported = false
+        pcall(function()
+            local tListing = ReplicatedStorage.GameEvents.TradeEvents.TokenRAPs:FindFirstChild("TeleportToListing")
+            if tListing then
+                teleported = tListing:InvokeServer(chosen.JobId, true)
+            end
+        end)
+
+        if not teleported then
+            pcall(function()
+                TeleportService:TeleportToPlaceInstance(TRADING_PLAZA_PLACE_ID, chosen.JobId, LocalPlayer)
+            end)
+        end
+        return true
+    end
+
     return false
 end
 
