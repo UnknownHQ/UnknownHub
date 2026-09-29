@@ -5055,6 +5055,10 @@ local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do
+    LocalPlayer = Players.LocalPlayer
+    task.wait(0.05)
+end
 
 local TRADING_PLAZA_PLACE_ID = 129954712878723
 local httpRequest = request or http_request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request) or (krnl and krnl.request)
@@ -5254,83 +5258,103 @@ end
 -- Snapshot all pre-existing inventory pet UUIDs on script boot so we NEVER confuse already-owned pets!
 local baselineInventoryUUIDs = {}
 local function snapshotExistingPets()
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
-                if uuid then
-                    baselineInventoryUUIDs[tostring(uuid)] = true
+    pcall(function()
+        if not LocalPlayer then
+            LocalPlayer = Players.LocalPlayer
+        end
+        if not LocalPlayer then return end
+
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        if backpack then
+            for _, tool in ipairs(backpack:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
+                    if uuid then
+                        baselineInventoryUUIDs[tostring(uuid)] = true
+                    end
                 end
             end
         end
-    end
-    local char = LocalPlayer.Character
-    if char then
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") then
-                local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
-                if uuid then
-                    baselineInventoryUUIDs[tostring(uuid)] = true
+        local char = LocalPlayer.Character
+        if char then
+            for _, tool in ipairs(char:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
+                    if uuid then
+                        baselineInventoryUUIDs[tostring(uuid)] = true
+                    end
                 end
             end
         end
-    end
+    end)
 end
 snapshotExistingPets()
 
 -- Helper to verify if a brand new target pet actually arrived in inventory
 local function hasAcquiredNewTargetPet(targetCleanName)
-    local isWildcard = (not targetCleanName or targetCleanName == "all" or targetCleanName == "allpets" or targetCleanName == "any" or targetCleanName == "*")
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
-                if uuid and not baselineInventoryUUIDs[tostring(uuid)] then
-                    local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
-                    if pSpecies and type(pSpecies) == "string" then
-                        local clean = pSpecies:gsub("[%s%p]", ""):lower()
-                        if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
-                            baselineInventoryUUIDs[tostring(uuid)] = true
-                            return true
+    local acquired = false
+    pcall(function()
+        if not LocalPlayer then
+            LocalPlayer = Players.LocalPlayer
+        end
+        if not LocalPlayer then return end
+
+        local isWildcard = (not targetCleanName or targetCleanName == "all" or targetCleanName == "allpets" or targetCleanName == "any" or targetCleanName == "*")
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        if backpack then
+            for _, tool in ipairs(backpack:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
+                    if uuid and not baselineInventoryUUIDs[tostring(uuid)] then
+                        local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
+                        if pSpecies and type(pSpecies) == "string" then
+                            local clean = pSpecies:gsub("[%s%p]", ""):lower()
+                            if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
+                                baselineInventoryUUIDs[tostring(uuid)] = true
+                                acquired = true
+                                return
+                            end
                         end
                     end
                 end
             end
         end
-    end
-    local char = LocalPlayer.Character
-    if char then
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") then
-                local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
-                if uuid and not baselineInventoryUUIDs[tostring(uuid)] then
-                    local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
-                    if pSpecies and type(pSpecies) == "string" then
-                        local clean = pSpecies:gsub("[%s%p]", ""):lower()
-                        if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
-                            baselineInventoryUUIDs[tostring(uuid)] = true
-                            return true
+        local char = LocalPlayer.Character
+        if char then
+            for _, tool in ipairs(char:GetChildren()) do
+                if tool:IsA("Tool") then
+                    local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("PetUUID")
+                    if uuid and not baselineInventoryUUIDs[tostring(uuid)] then
+                        local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
+                        if pSpecies and type(pSpecies) == "string" then
+                            local clean = pSpecies:gsub("[%s%p]", ""):lower()
+                            if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
+                                baselineInventoryUUIDs[tostring(uuid)] = true
+                                acquired = true
+                                return
+                            end
                         end
                     end
                 end
             end
         end
-    end
-    return false
+    end)
+    return acquired
 end
 
 -- Teleport local player character directly in front of the target physical booth
 local function interactWithBooth(boothUUID)
     pcall(function()
+        if not LocalPlayer then
+            LocalPlayer = Players.LocalPlayer
+        end
         local tw = workspace:FindFirstChild("TradeWorld")
         local booths = tw and tw:FindFirstChild("Booths")
         local boothModel = booths and booths:FindFirstChild(boothUUID)
         if boothModel then
             local pivot = boothModel:GetPivot()
-            local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-            local root = char:FindFirstChild("HumanoidRootPart")
+            local char = LocalPlayer and (LocalPlayer.Character or (LocalPlayer.CharacterAdded and LocalPlayer.CharacterAdded:Wait()))
+            local root = char and char:FindFirstChild("HumanoidRootPart")
             if root then
                 root.CFrame = pivot * CFrame.new(0, 0, 4)
             end
@@ -5339,7 +5363,7 @@ local function interactWithBooth(boothUUID)
             if prompt then
                 if fireproximityprompt then
                     fireproximityprompt(prompt)
-                elseif getconnections then
+                elseif getconnections and LocalPlayer then
                     for _, conn in ipairs(getconnections(prompt.Triggered)) do
                         conn:Fire(LocalPlayer)
                     end
@@ -5433,7 +5457,8 @@ local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData,
             buyCtrl.PromptBuyListing(cardData, petData)
             task.wait(0.05)
 
-            local buyGui = LocalPlayer.PlayerGui:FindFirstChild("TradeBoothBuyItem")
+            local playerGui = LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 2))
+            local buyGui = playerGui and playerGui:FindFirstChild("TradeBoothBuyItem")
             local yesBtn = buyGui and (buyGui:FindFirstChild("Yes", true) or buyGui:FindFirstChild("Confirm", true) or buyGui:FindFirstChild("Buy", true))
             if yesBtn then
                 if firesignal then
