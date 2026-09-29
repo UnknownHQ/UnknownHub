@@ -4558,38 +4558,116 @@ local function isFruitTool(tool)
     return true
 end
 
+local function checkPlantMatchesTrait(plantName, targetTrait)
+    if not plantName or plantName == "" or not targetTrait or targetTrait == "" or targetTrait == "None" then
+        return false
+    end
+
+    local rawName = tostring(plantName)
+    local cleanName = rawName:gsub("%s*%[.*%]", ""):gsub("_%w%w%w%w+$", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local cleanNameLower = cleanName:lower()
+    local targetTraitLower = tostring(targetTrait):lower():gsub("^%s+", ""):gsub("%s+$", "")
+
+    if cleanNameLower:find("seed") or cleanNameLower:find("pack") or cleanNameLower:find("shovel") or cleanNameLower:find("sprinkler") or cleanNameLower:find("fertilizer") then
+        return false
+    end
+
+    if PlantTraitsData and type(PlantTraitsData) == "table" then
+        local matched = false
+        pcall(function()
+            -- 1. HasTrait function check
+            if type(PlantTraitsData.HasTrait) == "function" then
+                if PlantTraitsData.HasTrait(cleanName, targetTrait) or PlantTraitsData.HasTrait(cleanNameLower, targetTraitLower) or PlantTraitsData.HasTrait(rawName, targetTrait) then
+                    matched = true
+                    return
+                end
+            end
+
+            -- 2. GetTraits function check
+            if type(PlantTraitsData.GetTraits) == "function" then
+                local traits = PlantTraitsData.GetTraits(cleanName) or PlantTraitsData.GetTraits(cleanNameLower) or PlantTraitsData.GetTraits(rawName)
+                if type(traits) == "table" then
+                    for k, v in pairs(traits) do
+                        if tostring(k):lower() == targetTraitLower or tostring(v):lower() == targetTraitLower then
+                            matched = true
+                            return
+                        end
+                    end
+                end
+            end
+
+            -- 3. GetPlantsWithTrait function check
+            if type(PlantTraitsData.GetPlantsWithTrait) == "function" then
+                local list = PlantTraitsData.GetPlantsWithTrait(targetTrait) or PlantTraitsData.GetPlantsWithTrait(targetTraitLower)
+                if type(list) == "table" then
+                    for k, v in pairs(list) do
+                        local item = tostring(v or k):lower()
+                        if item == cleanNameLower or cleanNameLower:find(item, 1, true) or item:find(cleanNameLower, 1, true) then
+                            matched = true
+                            return
+                        end
+                    end
+                end
+            end
+
+            -- 4. Trait Category Table lookup (e.g. PlantTraitsData["Woody"] or PlantTraitsData["Berry"])
+            for tKey, plantMap in pairs(PlantTraitsData) do
+                if tostring(tKey):lower() == targetTraitLower and type(plantMap) == "table" then
+                    if plantMap[cleanName] or plantMap[rawName] or plantMap[cleanNameLower] then
+                        matched = true
+                        return
+                    end
+                    for pK, pV in pairs(plantMap) do
+                        local nameA = tostring(pK):lower()
+                        local nameB = tostring(pV):lower()
+                        if nameA == cleanNameLower or nameB == cleanNameLower or cleanNameLower:find(nameA, 1, true) or cleanNameLower:find(nameB, 1, true) then
+                            matched = true
+                            return
+                        end
+                    end
+                end
+            end
+
+            -- 5. Plant Name Table lookup (e.g. PlantTraitsData["Oak Tree"] = { "Woody" })
+            for pKey, traitList in pairs(PlantTraitsData) do
+                local pKeyLower = tostring(pKey):lower()
+                if (pKeyLower == cleanNameLower or cleanNameLower:find(pKeyLower, 1, true) or pKeyLower:find(cleanNameLower, 1, true)) and type(traitList) == "table" then
+                    if traitList[targetTrait] or traitList[targetTraitLower] then
+                        matched = true
+                        return
+                    end
+                    for tK, tV in pairs(traitList) do
+                        local tA = tostring(tK):lower()
+                        local tB = tostring(tV):lower()
+                        if tA == targetTraitLower or tB == targetTraitLower then
+                            matched = true
+                            return
+                        end
+                    end
+                end
+            end
+        end)
+        if matched then return true end
+    end
+
+    -- Direct substring matching fallback
+    if cleanNameLower:find(targetTraitLower, 1, true) then
+        return true
+    end
+
+    return false
+end
+
 local function getMatchingCravingFruits(targetTrait)
     local matching = {}
     if not targetTrait or targetTrait == "None" then return matching end
-
-    local function isMatchingPlant(plantName)
-        if not plantName or plantName == "" then return false end
-        if plantName:lower():find("seed") or plantName:lower():find("pack") then return false end
-        if PlantTraitsData then
-            local ok, res = pcall(function()
-                if PlantTraitsData.HasTrait and PlantTraitsData.HasTrait(plantName, targetTrait) then
-                    return true
-                end
-                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][plantName] then
-                    return true
-                end
-                return false
-            end)
-            if ok and res then return true end
-        end
-        if plantName:lower():find(targetTrait:lower(), 1, true) then
-            return true
-        end
-        return false
-    end
 
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
         for _, tool in ipairs(backpack:GetChildren()) do
             if isFruitTool(tool) then
                 local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
-                pName = tostring(pName):gsub("%s*%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                if isMatchingPlant(pName) then
+                if checkPlantMatchesTrait(pName, targetTrait) then
                     table.insert(matching, {Tool = tool, Name = pName})
                 end
             end
@@ -4601,8 +4679,7 @@ local function getMatchingCravingFruits(targetTrait)
         for _, tool in ipairs(char:GetChildren()) do
             if isFruitTool(tool) then
                 local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
-                pName = tostring(pName):gsub("%s*%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                if isMatchingPlant(pName) then
+                if checkPlantMatchesTrait(pName, targetTrait) then
                     table.insert(matching, {Tool = tool, Name = pName})
                 end
             end
@@ -4614,6 +4691,13 @@ end
 
 local function executeFallBloomSubmissionCycle()
     pcall(function()
+        local cravingInfo = getCurrentFallCravingInfo()
+        if not cravingInfo or cravingInfo.Trait == "None" then return end
+
+        -- Only submit if the player actually has matching plants in inventory
+        local matching = getMatchingCravingFruits(cravingInfo.Trait)
+        if #matching == 0 then return end
+
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
         local ev = ge and ge:FindFirstChild("Events")
         local fm = ev and ev:FindFirstChild("FallMarketEvent")
@@ -4657,41 +4741,29 @@ local function executeFallBloomCollectCycle()
     local colRemote = getCollectRemote()
     if not colRemote then return end
 
-    local function isPlantMatchingTrait(plantName)
-        if not plantName or plantName == "" then return false end
-        if PlantTraitsData then
-            local ok, res = pcall(function()
-                if PlantTraitsData.HasTrait and PlantTraitsData.HasTrait(plantName, targetTrait) then
-                    return true
-                end
-                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][plantName] then
-                    return true
-                end
-                return false
-            end)
-            if ok and res then return true end
-        end
-        if plantName:lower():find(targetTrait:lower(), 1, true) then
-            return true
-        end
-        return false
-    end
-
     local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
     local myFarm = getPlayerFarm()
-    local farmList = myFarm and {myFarm} or farmFolder:GetChildren()
+    local farmList = (myFarm and {myFarm}) or farmFolder:GetChildren()
 
     local matchingFruitGroups = {}
-    for _, farm in ipairs(farmList) do
-        local important = farm:FindFirstChild("Important")
-        local plantsFolder = important and important:FindFirstChild("Plants_Physical")
-        if plantsFolder then
-            for _, plant in ipairs(plantsFolder:GetChildren()) do
-                if isPlantMatchingTrait(plant.Name) then
-                    local fruitsFolder = plant:FindFirstChild("Fruits")
-                    if fruitsFolder then
-                        for _, fruitGroup in ipairs(fruitsFolder:GetChildren()) do
-                            table.insert(matchingFruitGroups, fruitGroup)
+    local function scanFarms(list)
+        for _, farm in ipairs(list) do
+            local important = farm:FindFirstChild("Important")
+            local plantsFolder = important and important:FindFirstChild("Plants_Physical")
+            if plantsFolder then
+                for _, plant in ipairs(plantsFolder:GetChildren()) do
+                    if checkPlantMatchesTrait(plant.Name, targetTrait) then
+                        local fruitsFolder = plant:FindFirstChild("Fruits")
+                        if fruitsFolder then
+                            for _, fruitGroup in ipairs(fruitsFolder:GetChildren()) do
+                                table.insert(matchingFruitGroups, fruitGroup)
+                            end
+                        else
+                            for _, child in ipairs(plant:GetChildren()) do
+                                if child.Name:lower():find("fruit") or child:FindFirstChildWhichIsA("ProximityPrompt", true) then
+                                    table.insert(matchingFruitGroups, child)
+                                end
+                            end
                         end
                     end
                 end
@@ -4699,11 +4771,28 @@ local function executeFallBloomCollectCycle()
         end
     end
 
+    scanFarms(farmList)
+    if #matchingFruitGroups == 0 and myFarm and farmFolder ~= Workspace then
+        scanFarms(farmFolder:GetChildren())
+    end
+
     if #matchingFruitGroups > 0 then
+        local batch = {}
+        local maxBatch = State.BatchSize or 35
         for _, fg in ipairs(matchingFruitGroups) do
-            if not isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit) then break end
+            if not isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then break end
+            table.insert(batch, fg)
+            if #batch >= maxBatch then
+                pcall(function()
+                    colRemote:FireServer(batch)
+                end)
+                batch = {}
+                task.wait(0.04)
+            end
+        end
+        if #batch > 0 and isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then
             pcall(function()
-                colRemote:FireServer(fg)
+                colRemote:FireServer(batch)
             end)
         end
     end
@@ -6424,6 +6513,18 @@ end)
 
 Hub.CreateButton(eventTab, "🍂 Submit All Fruits (Dev Button)", function()
     pcall(function()
+        local cravingInfo = getCurrentFallCravingInfo()
+        local trait = cravingInfo and cravingInfo.Trait or "craving"
+        local matching = cravingInfo and getMatchingCravingFruits(cravingInfo.Trait) or {}
+        if #matching == 0 then
+            Hub.Notify({
+                Title = "Fall Bloom",
+                Content = string.format("No %s plants found in inventory to submit!", trait),
+                Duration = 3
+            })
+            return
+        end
+
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
         local ev = ge and ge:FindFirstChild("Events")
         local fm = ev and ev:FindFirstChild("FallMarketEvent")
@@ -6432,14 +6533,14 @@ Hub.CreateButton(eventTab, "🍂 Submit All Fruits (Dev Button)", function()
             submitAllRem:FireServer()
             Hub.Notify({
                 Title = "Fall Bloom",
-                Content = "Submitted all matching fruits using the official game button!",
+                Content = string.format("Submitted %d matching %s plants using official button!", #matching, trait),
                 Duration = 3
             })
         else
             executeFallBloomSubmissionCycle()
             Hub.Notify({
                 Title = "Fall Bloom",
-                Content = "Submitted matching fruits!",
+                Content = string.format("Submitted %d matching %s fruits!", #matching, trait),
                 Duration = 3
             })
         end
@@ -6448,11 +6549,22 @@ end)
 
 Hub.CreateButton(eventTab, "⚡ Submit Matching Fruits Now", function()
     pcall(function()
+        local cravingInfo = getCurrentFallCravingInfo()
+        local trait = cravingInfo and cravingInfo.Trait or "craving"
+        local matching = cravingInfo and getMatchingCravingFruits(cravingInfo.Trait) or {}
+        if #matching == 0 then
+            Hub.Notify({
+                Title = "Fall Bloom",
+                Content = string.format("No %s plants found in inventory to submit!", trait),
+                Duration = 3
+            })
+            return
+        end
+
         executeFallBloomSubmissionCycle()
-        local info = getCurrentFallCravingInfo()
         Hub.Notify({
             Title = "Fall Bloom",
-            Content = string.format("Submitted matching %s fruits to Fall Bloom!", info and info.Trait or "craving"),
+            Content = string.format("Submitted %d matching %s fruits to Fall Bloom!", #matching, trait),
             Duration = 3
         })
     end)
@@ -6552,46 +6664,7 @@ Hub.CreateButton(eventTab, "Use Golden Acorn", function()
     end
 end)
 
--- ==========================================
--- Section: Weekly & Seasonal Event Utilities
--- ==========================================
-Hub.CreateSection(eventTab, "Weekly Event Utilities")
 
-Hub.CreateButton(eventTab, "Use Maple Syrup", function()
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local remote = (ge and ge:FindFirstChild("TryMapleSyrup")) or TryMapleSyrupRemote
-    if remote then
-        remote:FireServer()
-        print("[Unknown Hub] Fired TryMapleSyrup remote!")
-    end
-end)
-
-Hub.CreateButton(eventTab, "Collect Harvest Basket", function()
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local remote = (ge and ge:FindFirstChild("TryHarvestBasket")) or TryHarvestBasketRemote
-    if remote then
-        remote:FireServer()
-        print("[Unknown Hub] Fired TryHarvestBasket remote!")
-    end
-end)
-
-Hub.CreateButton(eventTab, "Claim Chipmunk Rewards", function()
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local remote = (ge and ge:FindFirstChild("ClaimChipmunkRewards")) or ClaimChipmunkRewardsRemote
-    if remote then
-        remote:FireServer()
-        print("[Unknown Hub] Fired ClaimChipmunkRewards remote!")
-    end
-end)
-
-Hub.CreateButton(eventTab, "Submit Chipmunk Fruit", function()
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local remote = (ge and ge:FindFirstChild("SubmitChipmunkFruit")) or SubmitChipmunkFruitRemote
-    if remote then
-        remote:FireServer()
-        print("[Unknown Hub] Fired SubmitChipmunkFruit remote!")
-    end
-end)
 
 -- ==========================================
 -- Section: Misc Tab
