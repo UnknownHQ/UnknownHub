@@ -4546,12 +4546,25 @@ local function getCurrentFallCravingInfo()
     }
 end
 
+local function isFruitTool(tool)
+    if not tool or not tool:IsA("Tool") then return false end
+    if tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool:GetAttribute("ItemType") == "Pet" then return false end
+    if tool:GetAttribute("Seed") or tool:GetAttribute("ItemType") == "Seed" or tool:GetAttribute("ItemType") == "Packaged Seed" then return false end
+    if tool:GetAttribute("Gear") or tool:GetAttribute("ItemType") == "Gear" then return false end
+    local name = tool.Name:lower()
+    if name:find("seed") or name:find("pack") or name:find("shovel") or name:find("can") or name:find("potion") or name:find("fertilizer") or name:find("sprinkler") then
+        return false
+    end
+    return true
+end
+
 local function getMatchingCravingFruits(targetTrait)
     local matching = {}
     if not targetTrait or targetTrait == "None" then return matching end
 
     local function isMatchingPlant(plantName)
         if not plantName or plantName == "" then return false end
+        if plantName:lower():find("seed") or plantName:lower():find("pack") then return false end
         if PlantTraitsData then
             local ok, res = pcall(function()
                 if PlantTraitsData.HasTrait and PlantTraitsData.HasTrait(plantName, targetTrait) then
@@ -4573,8 +4586,8 @@ local function getMatchingCravingFruits(targetTrait)
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
         for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
-                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool.Name
+            if isFruitTool(tool) then
+                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
                 pName = tostring(pName):gsub("%s*%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
                 if isMatchingPlant(pName) then
                     table.insert(matching, {Tool = tool, Name = pName})
@@ -4586,8 +4599,8 @@ local function getMatchingCravingFruits(targetTrait)
     local char = LocalPlayer.Character
     if char then
         for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") and not tool:GetAttribute("PET_UUID") then
-                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool.Name
+            if isFruitTool(tool) then
+                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
                 pName = tostring(pName):gsub("%s*%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
                 if isMatchingPlant(pName) then
                     table.insert(matching, {Tool = tool, Name = pName})
@@ -4600,19 +4613,6 @@ local function getMatchingCravingFruits(targetTrait)
 end
 
 local function executeFallBloomSubmissionCycle()
-    local cravingInfo = getCurrentFallCravingInfo()
-    if not cravingInfo or cravingInfo.Trait == "None" then return end
-
-    -- Anti-Spam Check: Do not spam remote when Fall Bloom is currently activated / blooming
-    if cravingInfo.IsBloomActive then
-        return
-    end
-
-    local matching = getMatchingCravingFruits(cravingInfo.Trait)
-    if #matching == 0 then
-        return
-    end
-
     local ge = ReplicatedStorage:FindFirstChild("GameEvents")
     local ev = ge and ge:FindFirstChild("Events")
     local fm = ev and ev:FindFirstChild("FallMarketEvent")
@@ -4620,25 +4620,38 @@ local function executeFallBloomSubmissionCycle()
     local submitHeldRem = fm and fm:FindFirstChild("SubmitHeldPlant")
     local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
 
+    -- 1. Official Developer Submit All Plants Remote (instant batch submit, no equipping needed)
     if submitAllRem then
-        submitAllRem:FireServer()
+        pcall(function()
+            submitAllRem:FireServer()
+        end)
     end
 
-    if submitHeldRem and matching[1] and matching[1].Tool then
-        local tool = matching[1].Tool
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum and tool.Parent ~= char then
-            pcall(function() hum:EquipTool(tool) end)
-            task.wait(0.04)
-        end
-        if tool.Parent == char then
-            submitHeldRem:FireServer()
+    local cravingInfo = getCurrentFallCravingInfo()
+    if cravingInfo and cravingInfo.Trait ~= "None" and not cravingInfo.IsBloomActive then
+        local matching = getMatchingCravingFruits(cravingInfo.Trait)
+        if #matching > 0 and submitHeldRem and matching[1] and matching[1].Tool then
+            local tool = matching[1].Tool
+            if isFruitTool(tool) then
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and tool.Parent ~= char then
+                    pcall(function() hum:EquipTool(tool) end)
+                    task.wait(0.04)
+                end
+                if tool.Parent == char then
+                    pcall(function()
+                        submitHeldRem:FireServer()
+                    end)
+                end
+            end
         end
     end
 
     if claimEnergyRem then
-        claimEnergyRem:FireServer()
+        pcall(function()
+            claimEnergyRem:FireServer()
+        end)
     end
 end
 
@@ -6413,6 +6426,30 @@ Hub.CreateTextBox(eventTab, "Check Delay (0.25 - 10.0s)", "Enter check delay (de
     if num then
         State.AutoSubmitFallBloom_Delay = math.clamp(num, 0.25, 10.0)
     end
+end)
+
+Hub.CreateButton(eventTab, "🍂 Submit All Fruits (Dev Button)", function()
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local fm = ev and ev:FindFirstChild("FallMarketEvent")
+        local submitAllRem = fm and fm:FindFirstChild("SubmitAllPlants")
+        if submitAllRem then
+            submitAllRem:FireServer()
+            Hub.Notify({
+                Title = "Fall Bloom",
+                Content = "Submitted all matching fruits using the official game button!",
+                Duration = 3
+            })
+        else
+            executeFallBloomSubmissionCycle()
+            Hub.Notify({
+                Title = "Fall Bloom",
+                Content = "Submitted matching fruits!",
+                Duration = 3
+            })
+        end
+    end)
 end)
 
 Hub.CreateButton(eventTab, "⚡ Submit Matching Fruits Now", function()
