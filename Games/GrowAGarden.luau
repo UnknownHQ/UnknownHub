@@ -2308,18 +2308,99 @@ local function shouldSellCropTool(info)
     return true
 end
 
--- Evaluator for Auto Selling Pets (Strict Whitelist + Exclusions)
-local function shouldSellPetTool(tool)
-    if not tool or not tool.Parent or not tool:IsA("Tool") then return false end
-    local isPet = tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age") or tool:GetAttribute("f")
-    if not isPet then return false end
+-- Comprehensive & Impenetrable Pet Protection Function (Favorite, Locked, Loadouts 1-6)
+local function isPetProtected(tool, petInfo)
+    if not tool then return true end
 
-    local petSpecies = tool:GetAttribute("f") or tool.Name
-    local toolName = tool.Name
+    -- 1. Direct Tool Attribute Checks (Favorite / Locked / Equipped)
+    if tool:GetAttribute("d") == true then return true end
+    if tool:GetAttribute("Favorite") == true or tool:GetAttribute("IsFavorite") == true or tool:GetAttribute("Favorited") == true then return true end
+    if tool:GetAttribute("Locked") == true or tool:GetAttribute("Lock") == true or tool:GetAttribute("IsLocked") == true then return true end
+    if tool:GetAttribute("Equipped") == true or tool:GetAttribute("IsEquipped") == true then return true end
+
+    local uuid = (petInfo and petInfo.UUID) or tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("Id") or tool.Name:match("%b{}")
+    local cleanUuid = nil
+    if uuid and type(uuid) == "string" then
+        cleanUuid = uuid:gsub("[{}]", "")
+    end
+
+    -- 2. DataService Deep Verification (Inventory Flags & All Loadout Slots 1-6)
+    pcall(function()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        local ds = dsMod and require(dsMod)
+        local data = ds and ds:GetData()
+        if data and data.PetsData then
+            local pets = data.PetsData
+
+            -- Check all Loadout Slots (1 to 6) - ANY pet in ANY team is 100% protected
+            local loadouts = pets.PetLoadouts or pets.Loadouts or pets.Teams
+            if loadouts and type(loadouts) == "table" and cleanUuid then
+                for _, loadout in pairs(loadouts) do
+                    if type(loadout) == "table" then
+                        for _, petId in pairs(loadout) do
+                            local strId = tostring(petId):gsub("[{}]", "")
+                            if strId == cleanUuid then
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Check EquippedPets
+            if pets.EquippedPets and type(pets.EquippedPets) == "table" and cleanUuid then
+                for _, petId in pairs(pets.EquippedPets) do
+                    local strId = tostring(petId):gsub("[{}]", "")
+                    if strId == cleanUuid then
+                        return true
+                    end
+                end
+            end
+
+            -- Check PetInventory Data for Favorite / Locked flags
+            if pets.PetInventory and pets.PetInventory.Data and cleanUuid then
+                local petEntry = pets.PetInventory.Data[cleanUuid] or pets.PetInventory.Data["{" .. cleanUuid .. "}"] or pets.PetInventory.Data[uuid]
+                if petEntry and petEntry.PetData then
+                    local pd = petEntry.PetData
+                    if pd.IsFavorite == true or pd.Favorite == true or pd.d == true or pd.Locked == true or pd.Lock == true then
+                        return true
+                    end
+                end
+            end
+        end
+    end)
+
+    return false
+end
+
+-- Evaluator for Auto Selling Pets (Strict Whitelist + Exclusions + Impenetrable Protection)
+local function shouldSellPetTool(toolOrInfo)
+    local tool = nil
+    local petInfo = nil
+
+    if typeof(toolOrInfo) == "Instance" and toolOrInfo:IsA("Tool") then
+        tool = toolOrInfo
+        petInfo = getPetToolInfo(tool)
+    elseif type(toolOrInfo) == "table" and toolOrInfo.Tool and typeof(toolOrInfo.Tool) == "Instance" and toolOrInfo.Tool:IsA("Tool") then
+        tool = toolOrInfo.Tool
+        petInfo = toolOrInfo
+    else
+        return false
+    end
+
+    if not tool or not tool.Parent then return false end
+
+    -- 1. ABSOLUTE BULLETPROOF SAFETY: Check if pet is Favorited, Locked, or in ANY Loadout (1-6)
+    if isPetProtected(tool, petInfo) then
+        return false -- NEVER SELL PROTECTED PETS!
+    end
+
+    local petSpecies = (petInfo and petInfo.PetSpecies) or tool:GetAttribute("f") or tool.Name
+    local toolName = (petInfo and petInfo.ToolName) or tool.Name
     local cleanSpecies = tostring(petSpecies):lower():gsub("[%s%p]", "")
     local cleanName = tostring(toolName):lower():gsub("[%s%p]", "")
 
-    -- Exclusion 0: Specific Pet Exclusions (Multi-Select)
+    -- 2. Exclusion: Specific Pet Exclusions (Multi-Select)
     local excludedPets = getUIListMultipleVals(sellExcludePetListObj, State.Sell_ExcludePets or {})
     for _, exPet in ipairs(excludedPets) do
         local exLower = tostring(exPet):lower():gsub("[%s%p]", "")
@@ -2330,7 +2411,38 @@ local function shouldSellPetTool(tool)
         end
     end
 
-    -- Target Pet Whitelist Check (Multi-Select or Single-Select)
+    -- 3. Exclusion: Variant Exclusions
+    local exVariant = tostring(getUIListVal(sellExcludePetVariantListObj, State.Sell_ExcludePetVariant or "None"))
+    if exVariant ~= "None" and exVariant ~= "" and petInfo and petInfo.Variant then
+        if petInfo.Variant:lower() == exVariant:lower() then
+            return false
+        end
+    end
+
+    -- 4. Exclusion: Mutation Exclusions
+    local exMutation = tostring(getUIListVal(sellExcludePetMutationListObj, State.Sell_ExcludePetMutation or "None"))
+    if exMutation ~= "None" and exMutation ~= "" then
+        local mutKey = exMutation:lower()
+        if petInfo and petInfo.Mutations and petInfo.Mutations[mutKey] then
+            return false
+        end
+        if tool:GetAttribute(exMutation) == true or cleanName:find(mutKey, 1, true) then
+            return false
+        end
+    end
+
+    -- 5. Exclusion: Weight Filter
+    local exWeightMode = tostring(getUIListVal(sellExcludePetWeightModeListObj, State.Sell_ExcludePetWeightMode or "None"))
+    local exWeightThreshold = tonumber(State.Sell_ExcludePetWeight) or 0
+    if exWeightThreshold > 0 and petInfo and petInfo.Weight then
+        if exWeightMode == "Above" and petInfo.Weight >= exWeightThreshold then
+            return false
+        elseif exWeightMode == "Lower" and petInfo.Weight <= exWeightThreshold then
+            return false
+        end
+    end
+
+    -- 6. Target Pet Whitelist Check (Multi-Select or Single-Select)
     local targetPets = getUIListMultipleVals(sellTargetPetListObj, {State.Sell_TargetPet or "All Pets"})
     local isAllPets = (#targetPets == 0)
     if not isAllPets then
@@ -2843,9 +2955,8 @@ task.spawn(function()
 
                 local petToolBatch = {}
                 for _, tool in ipairs(allTools) do
-                    if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age")) then
-                        local petInfo = getPetToolInfo(tool)
-                        if petInfo and shouldSellPetTool(petInfo) then
+                    if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age") or tool:GetAttribute("f")) then
+                        if shouldSellPetTool(tool) then
                             table.insert(petToolBatch, tool)
                         end
                     end
@@ -2869,7 +2980,7 @@ task.spawn(function()
 
                     if sellShop then
                         for _, toolItem in ipairs(petToolBatch) do
-                            if toolItem and toolItem.Parent then
+                            if toolItem and toolItem.Parent and shouldSellPetTool(toolItem) then
                                 pcall(function()
                                     sellShop:FireServer(toolItem)
                                 end)
