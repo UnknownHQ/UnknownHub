@@ -2968,9 +2968,7 @@ task.spawn(function()
                         local sellSlotNum = tonumber(tostring(sellSlot):match("%d+"))
                         if sellSlotNum then
                             local sellCooldown = math.max(3.0, tonumber(State.Sell_SlotCooldown) or 5.0)
-                            if lastEquippedSlotNumber ~= sellSlotNum or not isPetSlotLoaded(sellSlotNum) then
-                                equipPetSlot(sellSlot, true, sellCooldown)
-                            end
+                            equipPetSlot(sellSlot, true, sellCooldown)
                         end
                     end
 
