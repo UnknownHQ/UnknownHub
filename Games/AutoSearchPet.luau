@@ -5,20 +5,38 @@
 
 local Config = {
     -- =====================================================================
-    -- TARGET PETS LIST (Option 1)
-    -- Add as many pets as you want below! Just rename the values.
+    -- UNIVERSAL & AFK SETTINGS
+    -- =====================================================================
+    KeepHoppingAfterBuy = true,     -- true = Continuous AFK Hopper (never stops hopping, keeps buying & hopping)
+                                    -- false = Stop and stay in server after buying target pet
+    BuyAllMatchesOnServer = true,   -- true = Buys all matching pets available on current server before hopping
+    HopDelayAfterBuy = 1.5,         -- Delay in seconds before hopping to next server after buying (allows inventory sync)
+
+    -- =====================================================================
+    -- TARGET PETS LIST
+    -- Add as many pets as you want below! Just rename or add entries.
+    -- Set Pet = "All Pets" or "Any" if you want to buy ANY pet under MaxPrice!
     -- =====================================================================
     Targets = {
-        -- [Example 1] Any Bald Eagle under 50 tokens
+        -- [Example 1] Any pet under 15 tokens (great for event egg farming & reselling)
         {
-            Pet = "Bald Eagle",     -- Name of the target pet
-            MaxPrice = 50,          -- Max price in Trade Tokens
+            Pet = "All Pets",       -- "All Pets" / "Any" buys ANY pet under MaxPrice
+            MaxPrice = 15,          -- Max price in Trade Tokens
             Mutations = "None",     -- "None" for any mutation, or e.g. "Rainbow", "Gold", "EV", "Ascended"
             MaxWeight = 0,          -- 0 = no weight limit, or enter max weight (e.g. 50)
             MaxAge = 0              -- 0 = no age/level limit, or enter max age (e.g. 100)
         },
 
-        -- [Example 2] Any Koi under 31 tokens
+        -- [Example 2] Specific pet: Bald Eagle under 50 tokens
+        {
+            Pet = "Bald Eagle",     -- Name of the target pet
+            MaxPrice = 50,          -- Max price in Trade Tokens
+            Mutations = "None",     -- "None" for any mutation
+            MaxWeight = 0,          -- 0 = no weight limit
+            MaxAge = 0              -- 0 = no age/level limit
+        },
+
+        -- [Example 3] Specific pet: Koi under 31 tokens
         {
             Pet = "Koi",
             MaxPrice = 31,
@@ -27,7 +45,7 @@ local Config = {
             MaxAge = 0
         },
 
-        -- [Example 3] Corrupted Kitsune (Rainbow mutation only)
+        -- [Example 4] Specific pet: Corrupted Kitsune (Rainbow mutation only)
         {
             Pet = "Corrupted Kitsune",
             MaxPrice = 150,
@@ -36,7 +54,7 @@ local Config = {
             MaxAge = 0
         },
 
-        -- [Example 4] Empress Bee with max level/age cutoff
+        -- [Example 5] Specific pet: Empress Bee with max level/age cutoff
         {
             Pet = "Empress Bee",
             MaxPrice = 75,
@@ -44,15 +62,6 @@ local Config = {
             MaxWeight = 0,
             MaxAge = 100
         },
-
-        -- [Example 5] Template to copy-paste for more pets:
-        -- {
-        --     Pet = "Pet Name Here",
-        --     MaxPrice = 50,
-        --     Mutations = "None",
-        --     MaxWeight = 0,
-        --     MaxAge = 0
-        -- },
     },
 
     -- =====================================================================
@@ -297,6 +306,7 @@ snapshotExistingPets()
 
 -- Helper to verify if a brand new target pet actually arrived in inventory
 local function hasAcquiredNewTargetPet(targetCleanName)
+    local isWildcard = (not targetCleanName or targetCleanName == "all" or targetCleanName == "allpets" or targetCleanName == "any" or targetCleanName == "*")
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if backpack then
         for _, tool in ipairs(backpack:GetChildren()) do
@@ -306,7 +316,8 @@ local function hasAcquiredNewTargetPet(targetCleanName)
                     local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
                     if pSpecies and type(pSpecies) == "string" then
                         local clean = pSpecies:gsub("[%s%p]", ""):lower()
-                        if not targetCleanName or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
+                        if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
+                            baselineInventoryUUIDs[tostring(uuid)] = true
                             return true
                         end
                     end
@@ -323,7 +334,8 @@ local function hasAcquiredNewTargetPet(targetCleanName)
                     local pSpecies = tool:GetAttribute("f") or tool:GetAttribute("PetType") or tool.Name
                     if pSpecies and type(pSpecies) == "string" then
                         local clean = pSpecies:gsub("[%s%p]", ""):lower()
-                        if not targetCleanName or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
+                        if isWildcard or clean == targetCleanName or clean:find(targetCleanName, 1, true) then
+                            baselineInventoryUUIDs[tostring(uuid)] = true
                             return true
                         end
                     end
@@ -519,10 +531,12 @@ local function getBoothsData()
     return boothsData
 end
 
+local purchasedListings = {}
+
 local function checkAndSnipe(activeTargets)
     local boothsData = getBoothsData()
     if not boothsData or not boothsData.Players then
-        return false
+        return false, 0
     end
 
     -- Build map of active claimed physical booths: playerKey -> boothUUID
@@ -535,6 +549,8 @@ local function checkAndSnipe(activeTargets)
         end
     end
 
+    local boughtInThisPass = 0
+
     -- Scan through all listings
     for plrKey, plrData in pairs(boothsData.Players) do
         local ownerId = tonumber((tostring(plrKey):gsub("Player_", ""):gsub("player_", "")))
@@ -542,70 +558,84 @@ local function checkAndSnipe(activeTargets)
         local listings = plrData.Listings or {}
 
         for listingUUID, listInfo in pairs(listings) do
-            local itemId = (type(listInfo) == "table" and listInfo.ItemId) or listingUUID
+            local strListingUUID = tostring(listingUUID)
+            if not purchasedListings[strListingUUID] then
+                local itemId = (type(listInfo) == "table" and listInfo.ItemId) or listingUUID
 
-            -- Robust fuzzy item data lookup
-            local itemData = items[itemId] or items[listingUUID]
-            if not itemData then
-                local cleanItemId = tostring(itemId):gsub("[{}]", ""):lower()
-                for k, v in pairs(items) do
-                    if tostring(k):gsub("[{}]", ""):lower() == cleanItemId then
-                        itemData = v
-                        break
+                -- Robust fuzzy item data lookup
+                local itemData = items[itemId] or items[listingUUID]
+                if not itemData then
+                    local cleanItemId = tostring(itemId):gsub("[{}]", ""):lower()
+                    for k, v in pairs(items) do
+                        if tostring(k):gsub("[{}]", ""):lower() == cleanItemId then
+                            itemData = v
+                            break
+                        end
                     end
                 end
-            end
 
-            local petInfo = extractPetInfo(itemData, listInfo)
-            if petInfo and petInfo.Price > 0 then
-                for _, target in ipairs(activeTargets) do
-                    local cleanTarget = target.CleanName
-                    local isWildcard = (cleanTarget == "all" or cleanTarget == "allpets" or cleanTarget == "any" or cleanTarget == "*")
-                    local isMatchingSpecies = isWildcard or (petInfo.CleanSpecies == cleanTarget) or (petInfo.CleanSpecies:find(cleanTarget, 1, true) ~= nil) or (cleanTarget:find(petInfo.CleanSpecies, 1, true) ~= nil)
+                local petInfo = extractPetInfo(itemData, listInfo)
+                if petInfo and petInfo.Price > 0 then
+                    for _, target in ipairs(activeTargets) do
+                        local cleanTarget = target.CleanName
+                        local isWildcard = (cleanTarget == "all" or cleanTarget == "allpets" or cleanTarget == "any" or cleanTarget == "*")
+                        local isMatchingSpecies = isWildcard or (petInfo.CleanSpecies == cleanTarget) or (petInfo.CleanSpecies:find(cleanTarget, 1, true) ~= nil) or (cleanTarget:find(petInfo.CleanSpecies, 1, true) ~= nil)
 
-                    if isMatchingSpecies and petInfo.Price <= target.MaxPrice then
-                        local passesMutation = true
-                        if target.Mutations and target.Mutations ~= "None" and target.Mutations ~= "" then
-                            local cleanMutTarget = target.Mutations:gsub("[%s%p]", ""):lower()
-                            if petInfo.CleanMutation == "" or (petInfo.CleanMutation ~= cleanMutTarget and not petInfo.CleanMutation:find(cleanMutTarget, 1, true)) then
-                                passesMutation = false
-                            end
-                        end
-
-                        local passesWeight = true
-                        if target.MaxWeight and target.MaxWeight > 0 then
-                            if petInfo.Weight > target.MaxWeight then
-                                passesWeight = false
-                            end
-                        end
-
-                        local passesAge = true
-                        if target.MaxAge and target.MaxAge > 0 then
-                            if petInfo.Age > target.MaxAge then
-                                passesAge = false
-                            end
-                        end
-
-                        if passesMutation and passesWeight and passesAge then
-                            print(string.format("[Sniper] 🎯 FOUND TARGET PET: %s for %d Tokens (MaxAllowed: %d)! Teleporting to booth and buying...", petInfo.Species, petInfo.Price, target.MaxPrice))
-
-                            local boothUUID = playerToBoothUUID[tostring(plrKey)]
-                            if boothUUID then
-                                interactWithBooth(boothUUID)
-                                task.wait(0.12)
-                            end
-
-                            executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData or petInfo.PetData, boothUUID, target.CleanName)
-
-                            for _ = 1, 6 do
-                                task.wait(0.20)
-                                if hasAcquiredNewTargetPet(target.CleanName) then
-                                    print(string.format("[Sniper] ✅ Purchase Confirmed! Received new %s into inventory.", petInfo.Species))
-                                    return true
+                        if isMatchingSpecies and petInfo.Price <= target.MaxPrice then
+                            local passesMutation = true
+                            if target.Mutations and target.Mutations ~= "None" and target.Mutations ~= "" then
+                                local cleanMutTarget = target.Mutations:gsub("[%s%p]", ""):lower()
+                                if petInfo.CleanMutation == "" or (petInfo.CleanMutation ~= cleanMutTarget and not petInfo.CleanMutation:find(cleanMutTarget, 1, true)) then
+                                    passesMutation = false
                                 end
                             end
 
-                            print("[Sniper] ⚠️ Purchase could not be verified on this listing. Continuing search...")
+                            local passesWeight = true
+                            if target.MaxWeight and target.MaxWeight > 0 then
+                                if petInfo.Weight > target.MaxWeight then
+                                    passesWeight = false
+                                end
+                            end
+
+                            local passesAge = true
+                            if target.MaxAge and target.MaxAge > 0 then
+                                if petInfo.Age > target.MaxAge then
+                                    passesAge = false
+                                end
+                            end
+
+                            if passesMutation and passesWeight and passesAge then
+                                print(string.format("[Sniper] 🎯 FOUND TARGET PET: %s for %d Tokens (MaxAllowed: %d)! Teleporting to booth and buying...", petInfo.Species, petInfo.Price, target.MaxPrice))
+
+                                local boothUUID = playerToBoothUUID[tostring(plrKey)]
+                                if boothUUID then
+                                    interactWithBooth(boothUUID)
+                                    task.wait(0.12)
+                                end
+
+                                executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData or petInfo.PetData, boothUUID, target.CleanName)
+
+                                local verified = false
+                                for _ = 1, 6 do
+                                    task.wait(0.20)
+                                    if hasAcquiredNewTargetPet(target.CleanName) then
+                                        print(string.format("[Sniper] ✅ Purchase Confirmed! Received new %s into inventory.", petInfo.Species))
+                                        purchasedListings[strListingUUID] = true
+                                        boughtInThisPass = boughtInThisPass + 1
+                                        verified = true
+                                        break
+                                    end
+                                end
+
+                                if not verified then
+                                    print("[Sniper] ⚠️ Purchase could not be verified on this listing. Continuing search...")
+                                    purchasedListings[strListingUUID] = true
+                                end
+
+                                if not Config.BuyAllMatchesOnServer and verified then
+                                    return true, boughtInThisPass
+                                end
+                            end
                         end
                     end
                 end
@@ -613,7 +643,7 @@ local function checkAndSnipe(activeTargets)
         end
     end
 
-    return false
+    return (boughtInThisPass > 0), boughtInThisPass
 end
 
 -- Run continuous multi-pass detection on load to guarantee 100% data replication
@@ -632,20 +662,32 @@ task.spawn(function()
 
     local maxPasses = tonumber(Config.MaxScanPasses) or 6
     local passDelay = tonumber(Config.PassDelay) or 0.25
-    local targetSecured = false
+    local totalBought = 0
 
     for scanAttempt = 1, maxPasses do
-        targetSecured = checkAndSnipe(targets)
-        if targetSecured then
-            break
+        local ok, count = checkAndSnipe(targets)
+        if count and count > 0 then
+            totalBought = totalBought + count
+            if not Config.BuyAllMatchesOnServer then
+                break
+            end
         end
         task.wait(passDelay)
     end
 
-    if not targetSecured then
+    local keepHopping = (Config.KeepHoppingAfterBuy == true) or (Config.ContinuousAFK == true) or (Config.InfiniteHop == true)
+
+    if totalBought > 0 then
+        if keepHopping then
+            local hopDelay = tonumber(Config.HopDelayAfterBuy) or 1.5
+            print(string.format("[Sniper] ✅ Successfully secured %d target pet(s)! Continuous AFK enabled: Hopping to next server in %.1fs...", totalBought, hopDelay))
+            task.wait(hopDelay)
+            serverHop()
+        else
+            print(string.format("[Sniper] 🎉 Successfully secured %d target pet(s)! Staying in server (Continuous AFK disabled).", totalBought))
+        end
+    else
         print("[Sniper] No matching target pet found on this server. Hopping to next server...")
         serverHop()
-    else
-        print("[Sniper] 🎉 Target pet secured! Staying in server.")
     end
 end)
