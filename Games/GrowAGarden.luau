@@ -1832,18 +1832,25 @@ local function hasActiveAcorns()
     return false
 end
 
-local function crackAcornById(acornId)
-    if not acornId then return end
-    activeAcornIds[acornId] = nil
+local function crackAcornById(acornId, modelInstance)
+    if not acornId and not modelInstance then return end
+    if acornId then
+        activeAcornIds[acornId] = nil
+    end
     equipShovelTool()
     local crackRemote = AcornCrackRemote or (ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("AcornChaos") and ReplicatedStorage.GameEvents.AcornChaos:FindFirstChild("Crack"))
-    if crackRemote then
+    if crackRemote and acornId then
         crackRemote:FireServer(acornId)
     end
     local shovel = getShovelTool()
     if shovel and shovel.Parent == LocalPlayer.Character then
         pcall(function()
             shovel:Activate()
+        end)
+    end
+    if modelInstance and modelInstance.Parent then
+        pcall(function()
+            modelInstance:Destroy()
         end)
     end
 end
@@ -1859,11 +1866,13 @@ local function crackAllActiveAcorns()
     if acl then
         for _, child in ipairs(acl:GetChildren()) do
             local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
-            if id then
-                crackAcornById(id)
-                count = count + 1
-            end
+            crackAcornById(id, child)
+            count = count + 1
         end
+    end
+    task.wait(0.1)
+    if not hasActiveAcorns() then
+        unequipShovelTool()
     end
     return count
 end
@@ -6827,6 +6836,22 @@ end)
 -- Acorn Chaos Event Listener & Background Auto Attack Engine
 -- =========================================================================
 task.spawn(function()
+    local function hookAcornFolder(folder)
+        if not folder then return end
+        folder.ChildAdded:Connect(function(child)
+            if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
+                task.spawn(function()
+                    local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
+                    crackAcornById(id, child)
+                    task.wait(0.05)
+                    if not hasActiveAcorns() then
+                        unequipShovelTool()
+                    end
+                end)
+            end
+        end)
+    end
+
     local function bindAcornRemotes()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
         local ac = ge and ge:FindFirstChild("AcornChaos")
@@ -6839,7 +6864,6 @@ task.spawn(function()
                             activeAcornIds[entry.Id] = entry
                             if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
                                 task.spawn(function()
-                                    equipShovelTool()
                                     crackAcornById(entry.Id)
                                 end)
                             end
@@ -6859,6 +6883,16 @@ task.spawn(function()
                 end
             end)
         end
+
+        local acl = Workspace:FindFirstChild("AcornChaosLocal")
+        if acl then
+            hookAcornFolder(acl)
+        end
+        Workspace.ChildAdded:Connect(function(child)
+            if child.Name == "AcornChaosLocal" then
+                hookAcornFolder(child)
+            end
+        end)
     end
     pcall(bindAcornRemotes)
 
@@ -6879,9 +6913,7 @@ task.spawn(function()
                         for _, child in ipairs(acl:GetChildren()) do
                             if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
                             local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
-                            if id then
-                                crackAcornById(id)
-                            end
+                            crackAcornById(id, child)
                         end
                     end
                 else
