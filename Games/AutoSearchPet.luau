@@ -58,8 +58,8 @@ local Config = {
     -- =====================================================================
     -- SCANNING SPEED & STABILITY SETTINGS
     -- =====================================================================
-    MaxScanPasses = 5,              -- Number of replication passes per server before hopping (5 passes = ~1s)
-    PassDelay = 0.20                -- Delay between replication passes in seconds (0.20s = blazing fast & stable)
+    MaxScanPasses = 6,              -- Number of replication passes per server before hopping
+    PassDelay = 0.25                -- Delay between replication passes in seconds
 }
 
 -- =========================================================================
@@ -73,6 +73,7 @@ local GuiService = game:GetService("GuiService")
 local LocalPlayer = Players.LocalPlayer
 
 local TRADING_PLAZA_PLACE_ID = 129954712878723
+local httpRequest = request or http_request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request) or (krnl and krnl.request)
 
 -- Auto-dismiss Error 773 / Teleport Failed dialogs and auto-recover
 pcall(function()
@@ -95,6 +96,98 @@ if game.PlaceId ~= TRADING_PLAZA_PLACE_ID then
     print("[Sniper] Not in Trading Plaza. Teleporting to Trading Plaza...")
     TeleportService:Teleport(TRADING_PLAZA_PLACE_ID, LocalPlayer)
     return
+end
+
+-- Persistent visited servers memory across hops
+local visitedServers = {}
+pcall(function()
+    if readfile and isfile and isfile("gag_visited_servers.json") then
+        local content = readfile("gag_visited_servers.json")
+        visitedServers = HttpService:JSONDecode(content) or {}
+    end
+end)
+if type(visitedServers) ~= "table" then visitedServers = {} end
+visitedServers[game.JobId] = tick()
+
+-- Server Hop Implementation
+local function serverHop()
+    print("[Sniper] Hopping to a new server...")
+    
+    local now = tick()
+    for jId, timestamp in pairs(visitedServers) do
+        if type(timestamp) == "number" and (now - timestamp > 900) then
+            visitedServers[jId] = nil
+        end
+    end
+    visitedServers[game.JobId] = now
+    pcall(function()
+        if writefile then
+            writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
+        end
+    end)
+
+    if httpRequest then
+        local cursor = ""
+        local validServers = {}
+
+        for page = 1, 3 do
+            local url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100%s", 
+                tostring(TRADING_PLAZA_PLACE_ID),
+                (cursor ~= "" and ("&cursor=" .. cursor) or "")
+            )
+
+            local res = nil
+            pcall(function()
+                res = httpRequest({Url = url, Method = "GET"})
+            end)
+
+            if res and res.Body then
+                local ok, body = pcall(function() return HttpService:JSONDecode(res.Body) end)
+                if ok and body and body.data then
+                    for _, s in ipairs(body.data) do
+                        local maxPlrs = tonumber(s.maxPlayers) or 20
+                        local playing = tonumber(s.playing) or 0
+                        local id = s.id
+                        if id and id ~= game.JobId and not visitedServers[id] and playing > 0 and playing <= (maxPlrs - 1) then
+                            table.insert(validServers, id)
+                        end
+                    end
+                    if body.nextPageCursor and body.nextPageCursor ~= "" then
+                        cursor = body.nextPageCursor
+                    else
+                        break
+                    end
+                else
+                    break
+                end
+            else
+                break
+            end
+        end
+
+        if #validServers > 0 then
+            local targetServer = validServers[math.random(1, #validServers)]
+            print(string.format("[Sniper] Teleporting to new server %s (from %d candidates)...", tostring(targetServer), #validServers))
+            
+            visitedServers[targetServer] = now
+            pcall(function()
+                if writefile then
+                    writefile("gag_visited_servers.json", HttpService:JSONEncode(visitedServers))
+                end
+            end)
+
+            local s, e = pcall(function()
+                TeleportService:TeleportToPlaceInstance(TRADING_PLAZA_PLACE_ID, targetServer, LocalPlayer)
+            end)
+            if s then return end
+        end
+    end
+
+    -- Fallback: standard matchmaking teleport
+    print("[Sniper] Using standard matchmaking teleport...")
+    pcall(function()
+        TeleportService:Teleport(TRADING_PLAZA_PLACE_ID, LocalPlayer)
+    end)
 end
 
 -- Normalize configuration into structured targets
@@ -280,13 +373,48 @@ local function interactWithBooth(boothUUID)
     end)
 end
 
-local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData, boothUUID, targetCleanName)
-    local price = (type(listInfo) == "table" and listInfo.Price) or tonumber(tostring(listInfo)) or 0
-    local petSpecies = itemData.PetType or (itemData.PetData and itemData.PetData.Name) or itemData.Name or "Pet"
-    local itemId = (type(listInfo) == "table" and listInfo.ItemId) or listingUUID
-    local petData = itemData.PetData or itemData
+-- Extract structured pet metadata from booth item data & listing info
+local function extractPetInfo(itemData, listInfo)
+    local pd = (type(itemData) == "table" and (itemData.PetData or itemData)) or {}
+    local li = (type(listInfo) == "table" and listInfo) or {}
 
-    print(string.format("[Sniper Debug] Executing purchase sequence for %s | SellerKey: %s | ListingUUID: %s | Price: %d", tostring(petSpecies), tostring(plrKey), tostring(listingUUID), price))
+    local rawSpecies = pd.PetType or pd.Species or pd.Name or pd.f 
+        or (type(itemData) == "table" and (itemData.PetType or itemData.ItemName or itemData.Name)) 
+        or li.PetType or li.ItemName or li.Name
+
+    if not rawSpecies or type(rawSpecies) ~= "string" or rawSpecies == "" then
+        return nil
+    end
+
+    local speciesName = tostring(rawSpecies):gsub("%s*%[.*%]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local cleanSpecies = speciesName:gsub("[%s%p]", ""):lower()
+    local mut = pd.MutationType or pd.Mutation or pd.Mutations or (type(itemData) == "table" and (itemData.Mutation or itemData.MutationString)) or ""
+    local cleanMut = tostring(mut):gsub("[%s%p]", ""):lower()
+    local weight = tonumber(pd.BaseWeight or pd.Weight or (type(itemData) == "table" and itemData.Weight)) or 0
+    local age = tonumber(pd.Level or pd.Age or (type(itemData) == "table" and itemData.Age)) or 0
+    local price = tonumber(li.Price) or tonumber(li.price) or tonumber(li.listingPrice) or tonumber(tostring(listInfo)) or 0
+
+    return {
+        Species = speciesName,
+        CleanSpecies = cleanSpecies,
+        Mutation = tostring(mut),
+        CleanMutation = cleanMut,
+        Weight = weight,
+        Age = age,
+        Price = price,
+        PetData = pd
+    }
+end
+
+-- Purchase Routine
+local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData, boothUUID, targetCleanName)
+    local petInfo = extractPetInfo(itemData, listInfo)
+    local price = petInfo and petInfo.Price or ((type(listInfo) == "table" and listInfo.Price) or tonumber(tostring(listInfo)) or 0)
+    local petSpecies = petInfo and petInfo.Species or (itemData.PetType or (itemData.PetData and itemData.PetData.Name) or itemData.Name or "Pet")
+    local itemId = (type(listInfo) == "table" and listInfo.ItemId) or listingUUID
+    local petData = (petInfo and petInfo.PetData) or itemData.PetData or itemData
+
+    print(string.format("[Sniper] 🛒 BUYING: %s | Price: %d Tokens | Seller: %s | Listing: %s", tostring(petSpecies), price, tostring(plrKey), tostring(listingUUID)))
 
     local buyRemote = nil
     pcall(function()
@@ -316,63 +444,83 @@ local function executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData,
                 data = petData
             }
             buyCtrl.PromptBuyListing(cardData, petData)
-            task.wait(0.04)
+            task.wait(0.05)
 
             local buyGui = LocalPlayer.PlayerGui:FindFirstChild("TradeBoothBuyItem")
-            local yesBtn = buyGui and buyGui:FindFirstChild("Yes", true)
-            if yesBtn and getconnections then
-                for _, conn in ipairs(getconnections(yesBtn.Activated)) do
-                    conn:Fire()
+            local yesBtn = buyGui and (buyGui:FindFirstChild("Yes", true) or buyGui:FindFirstChild("Confirm", true) or buyGui:FindFirstChild("Buy", true))
+            if yesBtn then
+                if firesignal then
+                    firesignal(yesBtn.MouseButton1Click)
+                    firesignal(yesBtn.Activated)
+                end
+                if getconnections then
+                    for _, conn in ipairs(getconnections(yesBtn.MouseButton1Click)) do if conn.Fire then conn:Fire() end end
+                    for _, conn in ipairs(getconnections(yesBtn.Activated)) do if conn.Fire then conn:Fire() end end
                 end
             end
         end
     end)
 
-    -- Method 2: Direct Remote invocation with string key Player_<Id>
+    -- Method 2: Direct Remote invocation with string plrKey
     if buyRemote and not hasAcquiredNewTargetPet(targetCleanName) then
-        local s, res = pcall(function()
-            return buyRemote:InvokeServer(tostring(plrKey), tostring(listingUUID))
+        pcall(function()
+            buyRemote:InvokeServer(tostring(plrKey), tostring(listingUUID))
         end)
-        print(string.format("[Sniper Debug] Direct BuyListing(string) result: success=%s, res=%s", tostring(s), tostring(res)))
     end
 
-    -- Method 3: Direct Remote invocation with numeric UserId
+    -- Method 3: Direct Remote invocation with numeric ownerId
     if buyRemote and not hasAcquiredNewTargetPet(targetCleanName) and ownerId then
-        local s, res = pcall(function()
-            return buyRemote:InvokeServer(tonumber(ownerId), tostring(listingUUID))
+        pcall(function()
+            buyRemote:InvokeServer(tonumber(ownerId), tostring(listingUUID))
         end)
-        print(string.format("[Sniper Debug] Direct BuyListing(number) result: success=%s, res=%s", tostring(s), tostring(res)))
+    end
+
+    -- Method 4: Direct Remote invocation with boothUUID
+    if buyRemote and not hasAcquiredNewTargetPet(targetCleanName) and boothUUID then
+        pcall(function()
+            buyRemote:InvokeServer(tostring(boothUUID), tostring(listingUUID))
+        end)
     end
 end
 
-local function checkAndSnipe(activeTargets)
-    local TradeBoothListingController = nil
+-- Helper to safely acquire full Booths Data from DataService / Controller
+local function getBoothsData()
+    local boothsData = nil
+
     pcall(function()
-        local mod = ReplicatedStorage:WaitForChild("Modules", 3)
-        local tbc = mod and mod:WaitForChild("TradeBoothControllers", 3)
+        local mod = ReplicatedStorage:FindFirstChild("Modules")
+        local tbc = mod and mod:FindFirstChild("TradeBoothControllers")
         if tbc and tbc:FindFirstChild("TradeBoothListingController") then
-            TradeBoothListingController = require(tbc.TradeBoothListingController)
+            local listingCtrl = require(tbc.TradeBoothListingController)
+            local dataService = debug.getupvalues(listingCtrl.GetInventory)[1]
+            if dataService then
+                boothsData = (dataService.GetDataAsync and dataService:GetDataAsync("Booths")) 
+                          or (dataService.GetData and dataService:GetData("Booths")) 
+                          or (dataService.GetData and dataService:GetData() and dataService:GetData().Booths)
+            end
         end
     end)
 
-    if not TradeBoothListingController then
-        return false
+    if not boothsData or not boothsData.Players then
+        pcall(function()
+            local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+            if dsMod then
+                local ds = require(dsMod)
+                local fullData = ds and ds:GetData()
+                if fullData and fullData.Booths then
+                    boothsData = fullData.Booths
+                elseif fullData and fullData.Players then
+                    boothsData = fullData
+                end
+            end
+        end)
     end
 
-    local dataService = nil
-    pcall(function()
-        dataService = debug.getupvalues(TradeBoothListingController.GetInventory)[1]
-    end)
+    return boothsData
+end
 
-    if not dataService then
-        return false
-    end
-
-    local boothsData = nil
-    pcall(function()
-        boothsData = dataService:GetDataAsync("Booths")
-    end)
-
+local function checkAndSnipe(activeTargets)
+    local boothsData = getBoothsData()
     if not boothsData or not boothsData.Players then
         return false
     end
@@ -387,112 +535,77 @@ local function checkAndSnipe(activeTargets)
         end
     end
 
-    local totalListingsScanned = 0
-
     -- Scan through all listings
     for plrKey, plrData in pairs(boothsData.Players) do
-        local ownerId = tonumber((tostring(plrKey):gsub("Player_", "")))
-        local sellerPlr = (ownerId and Players:GetPlayerByUserId(ownerId)) or (ownerId and (function()
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p.UserId == ownerId then return p end
-            end
-            return nil
-        end)())
+        local ownerId = tonumber((tostring(plrKey):gsub("Player_", ""):gsub("player_", "")))
+        local items = plrData.Items or {}
+        local listings = plrData.Listings or {}
 
-        -- Ensure seller is online in the server
-        if sellerPlr then
-            local items = plrData.Items or {}
-            local listings = plrData.Listings or {}
+        for listingUUID, listInfo in pairs(listings) do
+            local itemId = (type(listInfo) == "table" and listInfo.ItemId) or listingUUID
 
-            for listingUUID, listInfo in pairs(listings) do
-                totalListingsScanned = totalListingsScanned + 1
-                local price = (type(listInfo) == "table" and listInfo.Price) or tonumber(tostring(listInfo)) or 0
-                local itemId = (type(listInfo) == "table" and listInfo.ItemId) or listingUUID
-
-                -- Robust fuzzy item data lookup (handles formatted and unformatted UUIDs)
-                local itemData = items[itemId] or items[listingUUID]
-                if not itemData then
-                    local cleanItemId = tostring(itemId):gsub("[{}]", "")
-                    for k, v in pairs(items) do
-                        if tostring(k):gsub("[{}]", "") == cleanItemId then
-                            itemData = v
-                            break
-                        end
+            -- Robust fuzzy item data lookup
+            local itemData = items[itemId] or items[listingUUID]
+            if not itemData then
+                local cleanItemId = tostring(itemId):gsub("[{}]", ""):lower()
+                for k, v in pairs(items) do
+                    if tostring(k):gsub("[{}]", ""):lower() == cleanItemId then
+                        itemData = v
+                        break
                     end
                 end
+            end
 
-                if itemData and price > 0 then
-                    local isPetItem = itemData.PetType or itemData.PetData or (type(listInfo) == "table" and listInfo.ItemType == "Pet")
-                    local petSpecies = itemData.PetType or (itemData.PetData and itemData.PetData.Name) or (itemData.ItemType == "Pet" and itemData.Name)
+            local petInfo = extractPetInfo(itemData, listInfo)
+            if petInfo and petInfo.Price > 0 then
+                for _, target in ipairs(activeTargets) do
+                    local cleanTarget = target.CleanName
+                    local isWildcard = (cleanTarget == "all" or cleanTarget == "allpets" or cleanTarget == "any" or cleanTarget == "*")
+                    local isMatchingSpecies = isWildcard or (petInfo.CleanSpecies == cleanTarget) or (petInfo.CleanSpecies:find(cleanTarget, 1, true) ~= nil) or (cleanTarget:find(petInfo.CleanSpecies, 1, true) ~= nil)
 
-                    if isPetItem and petSpecies and type(petSpecies) == "string" and petSpecies ~= "" then
-                        local cleanSpecies = petSpecies:gsub("[%s%p]", ""):lower()
+                    if isMatchingSpecies and petInfo.Price <= target.MaxPrice then
+                        local passesMutation = true
+                        if target.Mutations and target.Mutations ~= "None" and target.Mutations ~= "" then
+                            local cleanMutTarget = target.Mutations:gsub("[%s%p]", ""):lower()
+                            if petInfo.CleanMutation == "" or (petInfo.CleanMutation ~= cleanMutTarget and not petInfo.CleanMutation:find(cleanMutTarget, 1, true)) then
+                                passesMutation = false
+                            end
+                        end
 
-                        -- Check against all configured target pet rules
-                        for _, target in ipairs(activeTargets) do
-                            if cleanSpecies ~= "" and (cleanSpecies == target.CleanName or cleanSpecies:find(target.CleanName, 1, true)) then
-                                if price <= target.MaxPrice then
-                                    local petData = itemData.PetData or itemData
+                        local passesWeight = true
+                        if target.MaxWeight and target.MaxWeight > 0 then
+                            if petInfo.Weight > target.MaxWeight then
+                                passesWeight = false
+                            end
+                        end
 
-                                    -- Mutation filter
-                                    local passesMutation = true
-                                    if target.Mutations and target.Mutations ~= "None" and target.Mutations ~= "" then
-                                        local cleanMutTarget = target.Mutations:gsub("[%s%p]", ""):lower()
-                                        local mut = petData.MutationType or petData.Mutation or petData.Mutations or itemData.Mutation or itemData.MutationString or ""
-                                        local cleanMut = tostring(mut):gsub("[%s%p]", ""):lower()
-                                        if cleanMut == "" or (cleanMut ~= cleanMutTarget and not cleanMut:find(cleanMutTarget, 1, true)) then
-                                            passesMutation = false
-                                        end
-                                    end
+                        local passesAge = true
+                        if target.MaxAge and target.MaxAge > 0 then
+                            if petInfo.Age > target.MaxAge then
+                                passesAge = false
+                            end
+                        end
 
-                                    -- Weight filter
-                                    local passesWeight = true
-                                    if target.MaxWeight and target.MaxWeight > 0 then
-                                        local w = tonumber(petData.BaseWeight or petData.Weight or itemData.Weight) or 0
-                                        if w > target.MaxWeight then
-                                            passesWeight = false
-                                        end
-                                    end
+                        if passesMutation and passesWeight and passesAge then
+                            print(string.format("[Sniper] 🎯 FOUND TARGET PET: %s for %d Tokens (MaxAllowed: %d)! Teleporting to booth and buying...", petInfo.Species, petInfo.Price, target.MaxPrice))
 
-                                    -- Age / Level filter
-                                    local passesAge = true
-                                    if target.MaxAge and target.MaxAge > 0 then
-                                        local age = tonumber(petData.Level or petData.Age or itemData.Age) or 0
-                                        if age > target.MaxAge then
-                                            passesAge = false
-                                        end
-                                    end
+                            local boothUUID = playerToBoothUUID[tostring(plrKey)]
+                            if boothUUID then
+                                interactWithBooth(boothUUID)
+                                task.wait(0.12)
+                            end
 
-                                    if passesMutation and passesWeight and passesAge then
-                                        if not Players:GetPlayerByUserId(ownerId) then
-                                            print("[Sniper] Seller left before purchase. Skipping...")
-                                        else
-                                            print(string.format("[Sniper] 🎯 FOUND TARGET PET: %s for %d Tokens (Seller: %s, MaxAllowed: %d)! Teleporting to booth and buying...", tostring(petSpecies), price, sellerPlr.Name, target.MaxPrice))
+                            executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData or petInfo.PetData, boothUUID, target.CleanName)
 
-                                            -- 1. Teleport and interact with the seller's physical booth
-                                            local boothUUID = playerToBoothUUID[tostring(plrKey)]
-                                            if boothUUID then
-                                                interactWithBooth(boothUUID)
-                                                task.wait(0.12)
-                                            end
-
-                                            -- 2. Fire comprehensive purchase routines
-                                            executePurchase(ownerId, plrKey, listingUUID, listInfo, itemData, boothUUID, target.CleanName)
-
-                                            -- 3. Verify arrival of the new pet
-                                            for _ = 1, 6 do
-                                                task.wait(0.20)
-                                                if hasAcquiredNewTargetPet(target.CleanName) then
-                                                    print(string.format("[Sniper] ✅ Purchase Confirmed! Received new %s into inventory.", tostring(petSpecies)))
-                                                    return true
-                                                end
-                                            end
-
-                                            print("[Sniper] ⚠️ Purchase could not be completed on this listing. Continuing search...")
-                                        end
-                                    end
+                            for _ = 1, 6 do
+                                task.wait(0.20)
+                                if hasAcquiredNewTargetPet(target.CleanName) then
+                                    print(string.format("[Sniper] ✅ Purchase Confirmed! Received new %s into inventory.", petInfo.Species))
+                                    return true
                                 end
                             end
+
+                            print("[Sniper] ⚠️ Purchase could not be verified on this listing. Continuing search...")
                         end
                     end
                 end
@@ -517,8 +630,8 @@ task.spawn(function()
     end
     print(string.format("[Sniper] 🚀 Connected to server. Scanning for [%d] target(s): %s", #targets, table.concat(targetSummary, " | ")))
 
-    local maxPasses = tonumber(Config.MaxScanPasses) or 5
-    local passDelay = tonumber(Config.PassDelay) or 0.20
+    local maxPasses = tonumber(Config.MaxScanPasses) or 6
+    local passDelay = tonumber(Config.PassDelay) or 0.25
     local targetSecured = false
 
     for scanAttempt = 1, maxPasses do
