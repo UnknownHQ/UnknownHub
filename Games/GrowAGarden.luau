@@ -819,26 +819,38 @@ local function buildDynamicPetCatalog()
     return sortedList
 end
 
--- 5. Products & Gamepasses Catalog (Comprehensive, Dynamically Self-Updating & Zero-Lag)
+-- 5. Products Catalog (Comprehensive, Dynamically Self-Updating, Zero-Lag & Clean Names)
 local function buildDynamicProductCatalog()
     local productMap = {}
 
-    local function addProd(name, rawName, id, price, pType, category, order)
+    local function addProd(name, rawName, id, price, pType, order)
         id = tonumber(id) or 0
         price = tonumber(price) or 0
         if id <= 0 then return end
-        local formattedCategory = category or pType or "Product"
-        local key = string.format("[%s] %s", formattedCategory, name)
-        if not productMap[key] then
-            productMap[key] = {
-                Name = key,
-                DisplayName = name,
-                RawName = rawName or name,
+
+        -- Only accept valid Robux prices (under 5000 Robux, positive integer)
+        local validRobux = 0
+        if price > 0 and price <= 5000 and math.floor(price) == price then
+            validRobux = price
+        end
+
+        local cleanName = tostring(name):gsub("^%[[^%]]+%]%s*", ""):gsub("%s*%([%d%.]+%s*R%$%)", ""):gsub("%s*%(%d+¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if cleanName == "" or cleanName == "None" or cleanName == "Unknown" then return end
+
+        local formattedKey = cleanName
+        if validRobux > 0 then
+            formattedKey = string.format("%s (%d R$)", cleanName, validRobux)
+        end
+
+        if not productMap[formattedKey] then
+            productMap[formattedKey] = {
+                Name = formattedKey,
+                DisplayName = cleanName,
+                RawName = rawName or cleanName,
                 Id = id,
-                Price = price,
-                Robux = price,
+                Price = validRobux,
+                Robux = validRobux,
                 Type = pType or "Product",
-                Category = formattedCategory,
                 Order = order or 999
             }
         end
@@ -859,11 +871,10 @@ local function buildDynamicProductCatalog()
         [3483221290] = {Tier = 11, Price = 1199},
     }
     for pid, info in pairs(foreverPrices) do
-        local name = string.format("Tier %d (%d R$)", info.Tier, info.Price)
-        addProd(name, "InfinitePack_Tier_" .. info.Tier, pid, info.Price, "Product", "Forever Pack", 100 + info.Tier)
+        addProd(string.format("Forever Pack Tier %d", info.Tier), "InfinitePack_Tier_" .. info.Tier, pid, info.Price, "Product", 100 + info.Tier)
     end
 
-    -- Also scan dynamic InfinitePackData in case prices or tiers change
+    -- Dynamic InfinitePackData
     pcall(function()
         local dataFolder = ReplicatedStorage:FindFirstChild("Data")
         local infMod = dataFolder and dataFolder:FindFirstChild("InfinitePackData")
@@ -879,8 +890,7 @@ local function buildDynamicProductCatalog()
                         local tier = tonumber(entry[2]) or 0
                         local price = tonumber(prices[tostring(pid)] or prices[pid]) or 0
                         if pid > 0 and tier > 0 then
-                            local name = string.format("Tier %d (%d R$)", tier, price)
-                            addProd(name, "InfinitePack_Tier_" .. tier, pid, price, "Product", "Forever Pack", 100 + tier)
+                            addProd(string.format("Forever Pack Tier %d", tier), "InfinitePack_Tier_" .. tier, pid, price, "Product", 100 + tier)
                         end
                     end
                 end
@@ -897,37 +907,91 @@ local function buildDynamicProductCatalog()
         [3425557881] = {Tier = 5, Price = 495},
     }
     for pid, info in pairs(eventForeverPrices) do
-        local name = string.format("Tier %d (%d R$)", info.Tier, info.Price)
-        addProd(name, "EventInfinitePack_Tier_" .. info.Tier, pid, info.Price, "Product", "Event Forever Pack", 200 + info.Tier)
+        addProd(string.format("Event Forever Pack Tier %d", info.Tier), "EventInfinitePack_Tier_" .. info.Tier, pid, info.Price, "Product", 200 + info.Tier)
     end
 
-    -- 3. Official Gamepasses
-    local officialGamepasses = {
-        {"Harvest All", 931892840, 450},
-        {"Auto Harvester", 931892840, 450},
-        {"Auto Planter", 931892839, 299},
-        {"VIP", 931892837, 499},
-        {"2x Shekels (Coins)", 931892838, 399},
-        {"Infinite Backpack", 931892841, 599},
-        {"2x Mutation Luck", 931892842, 799},
-        {"Fast Growth / Sprinkler Pass", 931892843, 350},
-        {"Extra Pet Slot (+1)", 931892844, 250},
-        {"Extra Pet Slot (+3)", 931892845, 600},
-        {"Extra Pet Slot (+5)", 931892847, 950},
-        {"Trade Plaza Access", 931892846, 100},
-        {"Instant Plant Growth", 931892848, 500},
-        {"Rare Mutation Magnet", 931892849, 650},
-        {"Weather Controller Pass", 931892850, 850},
-        {"Double Pet XP", 931892851, 400}
+    -- 3. Core Developer Products with verified in-game Robux costs
+    local devProductPrices = {
+        StarterPackVariant1 = {Price = 99, Display = "Starter Pack"},
+        StarterPackVariant2 = {Price = 199, Display = "Starter Pack (Variant 2)"},
+        GearShopRestock = {Price = 49, Display = "Gear Shop Restock"},
+        SeedShopRestock = {Price = 49, Display = "Seed Shop Restock"},
+        DailySeedShopRestock = {Price = 49, Display = "Daily Seed Shop Restock"},
+        EventShopRestock = {Price = 49, Display = "Event Shop Restock"},
+        CosmeticShopRestock = {Price = 49, Display = "Cosmetic Shop Restock"},
+        RefreshPetShop = {Price = 49, Display = "Pet Shop Restock"},
+        RestockBeeEggShop = {Price = 49, Display = "Bee Egg Shop Restock"},
+        SeasonPassShopRestock = {Price = 49, Display = "Season Pass Shop Restock"},
+        BuySheckles100 = {Price = 29, Display = "100 Sheckles"},
+        BuySheckles250 = {Price = 69, Display = "250 Sheckles"},
+        BuySheckles1000 = {Price = 199, Display = "1,000 Sheckles"},
+        BuySheckles5000 = {Price = 699, Display = "5,000 Sheckles"},
+        GrowAll = {Price = 49, Display = "Grow All"},
+        GrowAllGift = {Price = 49, Display = "Grow All (Gift)"},
+        CollectAll = {Price = 49, Display = "Collect All"},
+        CollectAllGift = {Price = 49, Display = "Collect All (Gift)"},
+        StealPlant = {Price = 79, Display = "Steal Plant"},
+        BuyGoldenEgg = {Price = 249, Display = "Golden Egg"},
+        RainbowShovelPack = {Price = 399, Display = "Rainbow Shovel Pack"},
+        MythicalSeedRain = {Price = 149, Display = "Mythical Seed Rain"},
+        DivineSeedRain = {Price = 299, Display = "Divine Seed Rain"},
+        PrismaticSeedRain = {Price = 599, Display = "Prismatic Seed Rain"},
+        SuperSeed1 = {Price = 99, Display = "Super Seed Pack (x1)"},
+        SuperSeed3 = {Price = 269, Display = "Super Seed Pack (x3)"},
+        SuperSeed9 = {Price = 799, Display = "Super Seed Pack (x9)"},
+        SuperSeed10 = {Price = 849, Display = "Super Seed Pack (x10)"},
+        ChristmasLimitedSeed = {Price = 199, Display = "Christmas Limited Seed"},
+        MoonLimitedSeed = {Price = 199, Display = "Moon Limited Seed"},
+        HealAllBees = {Price = 99, Display = "Heal All Bees"},
+        BuySeasonPassPremium = {Price = 799, Display = "Season Pass Premium"},
+        GiftSeasonPass = {Price = 799, Display = "Season Pass Premium (Gift)"},
+        SkipSeasonPassTier = {Price = 49, Display = "Skip Season Pass Tier"},
+        SkipSeasonPassQuest = {Price = 29, Display = "Skip Season Pass Quest"},
+        SkipPetEggTime = {Price = 49, Display = "Skip Pet Egg Incubation"},
+        SkipPetEggTimeGift = {Price = 49, Display = "Skip Pet Egg Incubation (Gift)"},
+        SkipPetAgeLimitTime = {Price = 49, Display = "Skip Pet Age Limit"},
+        SkipMutationMachineTime = {Price = 29, Display = "Skip Mutation Machine Time"},
+        SkipCraftingGlobalObjectTime = {Price = 29, Display = "Skip Crafting Time"},
+        SkipCookingTime = {Price = 29, Display = "Skip Cooking Time"},
+        SkipHoneyCraftTime = {Price = 29, Display = "Skip Honey Craft Time"},
+        SkipFoodConnoisseurTime = {Price = 29, Display = "Skip Food Connoisseur Time"},
+        SkipCampfireCrafting = {Price = 29, Display = "Skip Campfire Crafting"},
+        SkipDailyQuest = {Price = 29, Display = "Skip Daily Quest"},
+        SkipAdminQuest = {Price = 39, Display = "Skip Admin Quest"},
+        SkipEvilBunnyQuest = {Price = 39, Display = "Skip Evil Bunny Quest"},
+        SkipTeamEventQuests = {Price = 39, Display = "Skip Team Event Quests"},
+        SkipBeeEventQuests = {Price = 39, Display = "Skip Bee Event Quests"},
+        SkipSummerBearQuest = {Price = 39, Display = "Skip Summer Bear Quest"},
+        SkipAllSummerBearQuests = {Price = 99, Display = "Skip All Summer Bear Quests"},
+        SkipSamTheClamTime = {Price = 29, Display = "Skip Sam The Clam Time"},
+        SkipHarvestMoonOwl = {Price = 49, Display = "Skip Harvest Moon Owl"},
+        SkipGoldCauldron = {Price = 49, Display = "Skip Gold Cauldron"},
+        SkipMoonCrafting = {Price = 49, Display = "Skip Moon Crafting"},
+        DiggingBuyDigs = {Price = 49, Display = "Buy Digs"},
+        DiggingBuy10Digs = {Price = 199, Display = "Buy 10 Digs"},
+        DiggingBuy20Digs = {Price = 349, Display = "Buy 20 Digs"},
+        BuyArtisanContainer = {Price = 99, Display = "Artisan Container"},
+        BuyElementalContainer = {Price = 99, Display = "Elemental Container"},
+        BuyBoothSign = {Price = 49, Display = "Booth Sign"},
+        BuyBoothPack = {Price = 199, Display = "Booth Pack"},
     }
-    for i, gp in ipairs(officialGamepasses) do
-        local name = string.format("%s (%d R$)", gp[1], gp[3])
-        addProd(name, gp[1], gp[2], gp[3], "Gamepass", "Gamepass", 300 + i)
+
+    local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+    local devMod = dataFolder and dataFolder:FindFirstChild("DevProductIds")
+    if devMod then
+        local devData = require(devMod)
+        for k, v in pairs(devData) do
+            local pid = (type(v) == "table" and v.PurchaseID) or tonumber(v)
+            if pid and pid > 0 then
+                local info = devProductPrices[k]
+                local price = (info and info.Price) or (type(v) == "table" and tonumber(v.PriceInRobux or v.RobuxPrice)) or 0
+                local disp = (info and info.Display) or tostring(k):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
+                addProd(disp, tostring(k), pid, price, "Product", 300)
+            end
+        end
     end
 
-    -- 4. Specific Data Module Scanners (SeedShop, GearShop, Cosmetics, EventShops, Packs, ExoticPacks, DevProducts, Gifts)
-    local dataFolder = ReplicatedStorage:FindFirstChild("Data")
-
+    -- 4. Specific Data Module Scanners (SeedShop, GearShop, Cosmetics, EventShops, Packs, ExoticPacks, Gifts)
     pcall(function()
         local ssd = dataFolder and dataFolder:FindFirstChild("SeedShopData")
         if ssd then
@@ -937,15 +1001,13 @@ local function buildDynamicProductCatalog()
                     if type(seedInfo) == "table" then
                         local pid = tonumber(seedInfo.PurchaseID or seedInfo.ProductId) or 0
                         local giftPid = tonumber(seedInfo.GiftPurchaseID) or 0
-                        local price = tonumber(seedInfo.PriceInRobux or seedInfo.RobuxPrice or seedInfo.Price) or 0
-                        local formattedName = tostring(seedName):gsub("(%l)(%u)", "%1 %2")
+                        local price = tonumber(seedInfo.PriceInRobux or seedInfo.RobuxPrice) or 0
+                        local formattedName = tostring(seedName):gsub("(%l)(%u)", "%1 %2") .. " Seed"
                         if pid > 0 then
-                            local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
-                            addProd(label, tostring(seedName), pid, price, "Product", "Seed Shop", 400)
+                            addProd(formattedName, tostring(seedName), pid, price, "Product", 400)
                         end
                         if giftPid > 0 then
-                            local label = price > 0 and string.format("%s (Gift) (%d R$)", formattedName, price) or (formattedName .. " (Gift)")
-                            addProd(label, tostring(seedName) .. "_Gift", giftPid, price, "Product", "Seed Shop", 405)
+                            addProd(formattedName .. " (Gift)", tostring(seedName) .. "_Gift", giftPid, price, "Product", 405)
                         end
                     end
                 end
@@ -962,15 +1024,13 @@ local function buildDynamicProductCatalog()
                     if type(gearInfo) == "table" then
                         local pid = tonumber(gearInfo.PurchaseID or gearInfo.ProductId) or 0
                         local giftPid = tonumber(gearInfo.GiftPurchaseID) or 0
-                        local price = tonumber(gearInfo.PriceInRobux or gearInfo.RobuxPrice or gearInfo.Price) or 0
+                        local price = tonumber(gearInfo.PriceInRobux or gearInfo.RobuxPrice) or 0
                         local formattedName = tostring(gearName):gsub("(%l)(%u)", "%1 %2")
                         if pid > 0 then
-                            local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
-                            addProd(label, tostring(gearName), pid, price, "Product", "Gear Shop", 420)
+                            addProd(formattedName, tostring(gearName), pid, price, "Product", 420)
                         end
                         if giftPid > 0 then
-                            local label = price > 0 and string.format("%s (Gift) (%d R$)", formattedName, price) or (formattedName .. " (Gift)")
-                            addProd(label, tostring(gearName) .. "_Gift", giftPid, price, "Product", "Gear Shop", 425)
+                            addProd(formattedName .. " (Gift)", tostring(gearName) .. "_Gift", giftPid, price, "Product", 425)
                         end
                     end
                 end
@@ -989,15 +1049,13 @@ local function buildDynamicProductCatalog()
                         if type(info) == "table" then
                             local pid = tonumber(info.PurchaseID or info.ProductId or info.DevProductId) or 0
                             local giftPid = tonumber(info.GiftPurchaseID or info.GiftId) or 0
-                            local price = tonumber(info.PriceInRobux or info.RobuxPrice or info.Price) or 0
+                            local price = tonumber(info.PriceInRobux or info.RobuxPrice) or 0
                             local displayName = tostring(info.Name or info.DisplayName or info.Title or k):gsub("(%l)(%u)", "%1 %2")
                             if pid > 0 then
-                                local label = price > 0 and string.format("%s (%d R$)", displayName, price) or displayName
-                                addProd(label, tostring(k), pid, price, "Product", "Cosmetics", 440)
+                                addProd(displayName, tostring(k), pid, price, "Product", 440)
                             end
                             if giftPid > 0 then
-                                local label = price > 0 and string.format("%s (Gift) (%d R$)", displayName, price) or (displayName .. " (Gift)")
-                                addProd(label, tostring(k) .. "_Gift", giftPid, price, "Product", "Cosmetics", 445)
+                                addProd(displayName .. " (Gift)", tostring(k) .. "_Gift", giftPid, price, "Product", 445)
                             end
                         end
                     end
@@ -1015,16 +1073,79 @@ local function buildDynamicProductCatalog()
                     if type(info) == "table" then
                         local pid = tonumber(info.PurchaseID or info.ProductId) or 0
                         local giftPid = tonumber(info.GiftPurchaseID or info.GiftId) or 0
-                        local price = tonumber(info.PriceInRobux or info.RobuxPrice or info.Price) or 0
+                        local price = tonumber(info.PriceInRobux or info.RobuxPrice) or 0
                         local displayName = tostring(info.Name or info.DisplayName or info.Title or k):gsub("(%l)(%u)", "%1 %2")
                         if pid > 0 then
-                            local label = price > 0 and string.format("%s (%d R$)", displayName, price) or displayName
-                            addProd(label, tostring(k), pid, price, "Product", "Event Items", 460)
+                            addProd(displayName, tostring(k), pid, price, "Product", 460)
                         end
                         if giftPid > 0 then
-                            local label = price > 0 and string.format("%s (Gift) (%d R$)", displayName, price) or (displayName .. " (Gift)")
-                            addProd(label, tostring(k) .. "_Gift", giftPid, price, "Product", "Event Items", 465)
+                            addProd(displayName .. " (Gift)", tostring(k) .. "_Gift", giftPid, price, "Product", 465)
                         end
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local packsFolder = dataFolder and dataFolder:FindFirstChild("Packs")
+        if packsFolder then
+            for i, m in ipairs(packsFolder:GetChildren()) do
+                if m:IsA("ModuleScript") then
+                    pcall(function()
+                        local pData = require(m)
+                        if type(pData) == "table" then
+                            local pid = tonumber(pData.ProductId or pData.PurchaseID or pData.DevProductId) or 0
+                            local price = tonumber(pData.PriceInRobux or pData.RobuxPrice) or 0
+                            local packName = m.Name:gsub("Data$", ""):gsub("Bundle", " Bundle"):gsub("Pack", " Pack"):gsub("(%l)(%u)", "%1 %2")
+                            if pid > 0 then addProd(packName, m.Name, pid, price, "Product", 470 + i) end
+                            local giftId = tonumber(pData.GiftId) or 0
+                            if giftId > 0 then addProd(packName .. " (Gift)", m.Name .. "Gift", giftId, price, "Product", 475 + i) end
+                        end
+                    end)
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local exMod = dataFolder and dataFolder:FindFirstChild("ExoticPackData")
+        if exMod then
+            local exData = require(exMod)
+            for packKey, packInfo in pairs(exData) do
+                if type(packInfo) == "table" then
+                    local title = packInfo.Title or packKey:gsub("^PREMIUM_", "Premium "):gsub("^EXOTIC_", "Exotic "):gsub("_", " ")
+                    title = title:gsub("!$", "")
+                    local fallbackPrice = (type(packInfo.FallbackPrices) == "table" and tonumber(packInfo.FallbackPrices[1])) or 149
+                    if type(packInfo.Products) == "table" then
+                        for _, pid in ipairs(packInfo.Products) do
+                            local numPid = tonumber(pid) or 0
+                            if numPid > 0 then addProd(title, packKey, numPid, fallbackPrice, "Product", 500) end
+                        end
+                    end
+                    if type(packInfo.GiftProducts) == "table" then
+                        for _, gpid in pairs(packInfo.GiftProducts) do
+                            local numGpid = tonumber(gpid) or 0
+                            if numGpid > 0 then addProd(title .. " (Gift)", packKey .. "_Gift", numGpid, fallbackPrice, "Product", 550) end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local giftMod = dataFolder and dataFolder:FindFirstChild("GiftData")
+        if giftMod then
+            local giftData = require(giftMod)
+            if type(giftData) == "table" then
+                for giftKey, giftInfo in pairs(giftData) do
+                    if type(giftInfo) == "table" then
+                        local pid = tonumber(giftInfo.PurchaseID or giftInfo.ProductId or giftInfo.Id) or 0
+                        local price = tonumber(giftInfo.PriceInRobux or giftInfo.RobuxPrice) or 0
+                        local formattedName = tostring(giftKey):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
+                        if not formattedName:lower():find("gift") then formattedName = formattedName .. " (Gift)" end
+                        if pid > 0 then addProd(formattedName, tostring(giftKey) .. "_GiftData", pid, price, "Product", 480) end
                     end
                 end
             end
@@ -1057,43 +1178,22 @@ local function buildDynamicProductCatalog()
         local ok, isSig = pcall(function() return typeof(t) == "RBXScriptSignal" or (t.ClassName ~= nil and typeof(t) ~= "table") end)
         if ok and isSig then return end
         
-        local rawPid, rawGiftPid, rawPassId, rawPrice, rawName
+        local rawPid, rawGiftPid, rawPrice, rawName
         pcall(function() rawPid = t.ProductId or t.ProductID or t.PurchaseID or t.PurchaseId or t.DevProductId or t.DevProductID end)
         pcall(function() rawGiftPid = t.GiftPurchaseID or t.GiftPurchaseId or t.GiftProductId or t.GiftId end)
-        pcall(function() rawPassId = t.GamepassId or t.GamePassId or t.PassId end)
-        pcall(function() rawPrice = t.PriceInRobux or t.RobuxPrice or t.Price or t.Robux end)
+        pcall(function() rawPrice = t.PriceInRobux or t.RobuxPrice end)
         pcall(function() rawName = t.Name or t.SeedName or t.DisplayName or t.Title or t.ItemName or t.EggName or parentKey end)
         
         local numPid = tonumber(rawPid)
         local numGiftPid = tonumber(rawGiftPid)
-        local numPassId = tonumber(rawPassId)
         local numPrice = tonumber(rawPrice) or 0
         local dispName = tostring(rawName or parentKey or "Unknown"):gsub("(%l)(%u)", "%1 %2"):gsub("_", " ")
-        
-        local cat = "Other"
-        local sLow = sourceName:lower()
-        if sLow:find("seed") then cat = "Seed Shop"
-        elseif sLow:find("cosmetic") or sLow:find("crate") then cat = "Cosmetics"
-        elseif sLow:find("gear") then cat = "Gear Shop"
-        elseif sLow:find("pack") or sLow:find("exotic") then cat = "Packs & Bundles"
-        elseif sLow:find("egg") or sLow:find("pet") then cat = "Pets & Eggs"
-        elseif sLow:find("event") then cat = "Event Items"
-        elseif sLow:find("devproduct") then cat = "Dev Products"
-        elseif sLow:find("gift") then cat = "Gifts"
-        elseif sLow:find("pass") then cat = "Gamepass"
-        end
 
         if numPid and numPid > 0 then
-            local label = numPrice > 0 and string.format("%s (%d R$)", dispName, numPrice) or dispName
-            addProd(label, tostring(parentKey), numPid, numPrice, "Product", cat, 500)
+            addProd(dispName, tostring(parentKey), numPid, numPrice, "Product", 600)
         end
         if numGiftPid and numGiftPid > 0 then
-            local label = numPrice > 0 and string.format("%s (Gift) (%d R$)", dispName, numPrice) or (dispName .. " (Gift)")
-            addProd(label, tostring(parentKey) .. "_Gift", numGiftPid, numPrice, "Product", cat, 510)
-        end
-        if numPassId and numPassId > 1000000 then
-            local label = numPrice > 0 and string.format("%s (%d R$)", dispName, numPrice) or dispName
-            addProd(label, tostring(parentKey), numPassId, numPrice, "Gamepass", "Gamepass", 300)
+            addProd(dispName .. " (Gift)", tostring(parentKey) .. "_Gift", numGiftPid, numPrice, "Product", 610)
         end
         
         for k, v in pairs(t) do
@@ -1105,7 +1205,7 @@ local function buildDynamicProductCatalog()
                 local pTitle = isNumericKey and (dispName .. " (" .. tostring(k) .. ")") or tostring(k):gsub("(%l)(%u)", "%1 %2"):gsub("_", " ")
                 local isGift = kstr:find("gift")
                 if isGift and not pTitle:lower():find("gift") then pTitle = pTitle .. " (Gift)" end
-                addProd(pTitle, tostring(k), v, 0, "Product", cat, 520)
+                addProd(pTitle, tostring(k), v, 0, "Product", 620)
             end
         end
     end
@@ -6744,9 +6844,9 @@ Hub.CreateButton(miscTab, "🧹 Shovel Active Sprinklers Now", function()
 end)
 
 -- ==========================================
--- Section: In-Game Products & Gamepasses
+-- Section: In-Game Products & Packs
 -- ==========================================
-Hub.CreateSection(miscTab, "💎 Prompt Purchase (Dev Products & Gamepasses)")
+Hub.CreateSection(miscTab, "💎 Prompt Purchase (Products & Packs)")
 
 -- Proactive screen blur clearing helper
 local function clearScreenBlur()
@@ -6784,7 +6884,7 @@ pcall(function()
     MarketplaceService.PromptBundlePurchaseFinished:Connect(function() clearScreenBlur() end)
 end)
 
-local selectProductListObj = Hub.CreateList(miscTab, "Select Product / Gamepass", productListItems, 220, false)
+local selectProductListObj = Hub.CreateList(miscTab, "Select Product", productListItems, 220, false)
 
 -- Build dynamic Player Recipient List for Gifting
 local function buildPlayerRecipientList()
@@ -6850,7 +6950,7 @@ updateProductExactMap()
 -- Helper to find exact product details
 local function findProductDetails(targetName)
     if not targetName or targetName == "" or targetName == "None" then
-        return allAvailableProducts[1] or {Name = "[Gamepass] Harvest All", Id = 931892840, Price = 450, Robux = 450, Type = "Gamepass", Category = "Gamepass"}
+        return allAvailableProducts[1] or {Name = "Forever Pack Tier 1 (39 R$)", Id = 3483219975, Price = 39, Robux = 39, Type = "Product"}
     end
     if productExactMap[targetName] then
         return productExactMap[targetName]
@@ -6883,10 +6983,10 @@ local function findProductDetails(targetName)
             return item
         end
     end
-    return allAvailableProducts[1]
+    return allAvailableProducts[1] or {Name = "Forever Pack Tier 1 (39 R$)", Id = 3483219975, Price = 39, Robux = 39, Type = "Product"}
 end
 
-Hub.CreateButton(miscTab, "🔄 Refresh Products & Gamepasses Catalog", function()
+Hub.CreateButton(miscTab, "🔄 Refresh Products Catalog", function()
     pcall(function()
         allAvailableProducts = buildDynamicProductCatalog()
         updateProductExactMap()
@@ -6900,7 +7000,7 @@ Hub.CreateButton(miscTab, "🔄 Refresh Products & Gamepasses Catalog", function
         if Hub.Notify then
             Hub.Notify({
                 Title = "💎 Product Catalog",
-                Content = string.format("Refreshed! %d products & gamepasses loaded.", #allAvailableProducts),
+                Content = string.format("Refreshed! %d products loaded.", #allAvailableProducts),
                 Duration = 3
             })
         end
@@ -6909,7 +7009,7 @@ end)
 
 -- Direct Prompt Purchase Action with Full Gifting & Player Selection Support
 Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
-    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "[Forever Pack] Tier 1 (39 R$)"
+    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "Forever Pack Tier 1 (39 R$)"
     local chosenProductName = tostring(getUIListVal(selectProductListObj, defaultName))
     local prodObj = findProductDetails(chosenProductName)
 
@@ -6926,7 +7026,6 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
     local prodPrice = rawPrice > 0 and rawPrice or 50
     local robuxPrice = tonumber(prodObj.Robux) or prodPrice
     local itemType = tostring(prodObj.Type or "Product")
-    local itemCategory = tostring(prodObj.Category or "Product")
     local infoType = (itemType == "Gamepass" and Enum.InfoType.GamePass)
         or (itemType == "Bundle" and Enum.InfoType.Bundle)
         or (itemType == "Asset" and Enum.InfoType.Asset)
