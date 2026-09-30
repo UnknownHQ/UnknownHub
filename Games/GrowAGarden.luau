@@ -823,258 +823,115 @@ end
 local function buildDynamicProductCatalog()
     local productMap = {}
 
-    local function isValidItemName(name)
-        if type(name) ~= "string" or name == "" then return false end
-        local lower = name:lower():gsub("^%s+", ""):gsub("%s+$", "")
-        if lower == "" or #lower < 2 then return false end
-        
-        -- Strict rejection of structural UI containers and non-item shop headers
-        local bannedWords = {
-            "shop", "market", "frame", "ui", "layout", "container", "template", "scrollbar",
-            "background", "holder", "padding", "section", "config", "settings",
-            "options", "close", "button", "header", "title", "inventory", "mainmenu", "root",
-            "tab", "page", "dialog", "prompt", "window", "panel", "view", "label"
-        }
-        for _, term in ipairs(bannedWords) do
-            if lower == term then
-                return false
-            end
-        end
-
-        if lower:find("gear shop") or lower:find("market gear") or lower:find("seed shop") or lower:find("egg shop") or lower:find("event shop") or lower:find("pet shop") or lower:find("fall market") then
-            return false
-        end
-
-        return true
-    end
-
-    local function sanitizePrice(val, defaultPrice)
-        local num = tonumber(val)
-        if num and num > 0 then
-            return num
-        end
-        return defaultPrice or 50
-    end
-
-    -- Pre-populate official Grow a Garden Gamepasses and Developer Products
-    local defaultProducts = {
-        -- Official Gamepasses
-        {Name = "Harvest All", Id = 931892840, Type = "Gamepass", Price = 450, Robux = 450},
-        {Name = "Auto Harvester", Id = 931892840, Type = "Gamepass", Price = 450, Robux = 450},
-        {Name = "Auto Planter", Id = 931892839, Type = "Gamepass", Price = 299, Robux = 299},
-        {Name = "VIP Gamepass", Id = 931892837, Type = "Gamepass", Price = 499, Robux = 499},
-        {Name = "2x Shekels (Coins)", Id = 931892838, Type = "Gamepass", Price = 399, Robux = 399},
-        {Name = "Infinite Backpack", Id = 931892841, Type = "Gamepass", Price = 599, Robux = 599},
-        {Name = "2x Mutation Luck", Id = 931892842, Type = "Gamepass", Price = 799, Robux = 799},
-        {Name = "Fast Growth / Sprinkler Pass", Id = 931892843, Type = "Gamepass", Price = 350, Robux = 350},
-        {Name = "Extra Pet Slot (+1)", Id = 931892844, Type = "Gamepass", Price = 250, Robux = 250},
-        {Name = "Extra Pet Slot (+3)", Id = 931892845, Type = "Gamepass", Price = 600, Robux = 600},
-        {Name = "Extra Pet Slot (+5)", Id = 931892847, Type = "Gamepass", Price = 950, Robux = 950},
-        {Name = "Trade Plaza Access", Id = 931892846, Type = "Gamepass", Price = 100, Robux = 100},
-        {Name = "Instant Plant Growth", Id = 931892848, Type = "Gamepass", Price = 500, Robux = 500},
-        {Name = "Rare Mutation Magnet Pass", Id = 931892849, Type = "Gamepass", Price = 650, Robux = 650},
-        {Name = "Weather Controller Pass", Id = 931892850, Type = "Gamepass", Price = 850, Robux = 850},
-        {Name = "Double Pet XP Pass", Id = 931892851, Type = "Gamepass", Price = 400, Robux = 400},
-
-        -- Official Developer Products & Gear (Purchasable with Tokens or Robux)
-        {Name = "Horseshoe Magnet", Id = 189201945, Type = "Product", Price = 75, Robux = 75},
-        {Name = "Golden Horseshoe Magnet", Id = 189201946, Type = "Product", Price = 150, Robux = 150},
-        {Name = "Golden Shovel", Id = 189201947, Type = "Product", Price = 50, Robux = 50},
-        {Name = "Master Watering Can", Id = 189201948, Type = "Product", Price = 60, Robux = 60},
-        {Name = "100 Trade Tokens", Id = 189201928, Type = "Product", Price = 99, Robux = 99},
-        {Name = "500 Trade Tokens", Id = 189201929, Type = "Product", Price = 399, Robux = 399},
-        {Name = "1,500 Trade Tokens", Id = 189201930, Type = "Product", Price = 999, Robux = 999},
-        {Name = "5,000 Trade Tokens", Id = 189201931, Type = "Product", Price = 2499, Robux = 2499},
-        {Name = "10,000 Trade Tokens", Id = 189201932, Type = "Product", Price = 4499, Robux = 4499},
-        {Name = "25,000 Trade Tokens", Id = 189201937, Type = "Product", Price = 8999, Robux = 8999},
-        {Name = "10,000 Shekels", Id = 189201938, Type = "Product", Price = 50, Robux = 50},
-        {Name = "50,000 Shekels", Id = 189201939, Type = "Product", Price = 150, Robux = 150},
-        {Name = "250,000 Shekels", Id = 189201940, Type = "Product", Price = 450, Robux = 450},
-        {Name = "1,000,000 Shekels", Id = 189201941, Type = "Product", Price = 1200, Robux = 1200},
-        {Name = "Grand Seed Pack", Id = 189201935, Type = "Product", Price = 99, Robux = 99},
-        {Name = "Mega Growth Potion", Id = 189201936, Type = "Product", Price = 50, Robux = 50},
-        {Name = "Mythical Pet Egg", Id = 189201933, Type = "Product", Price = 149, Robux = 149},
-        {Name = "Prismatic Pet Egg", Id = 189201934, Type = "Product", Price = 299, Robux = 299}
+    -- 1. Official Gamepasses
+    local officialGamepasses = {
+        {Name = "[Gamepass] Harvest All", Id = 931892840, Type = "Gamepass", Price = 450, Robux = 450},
+        {Name = "[Gamepass] Auto Harvester", Id = 931892840, Type = "Gamepass", Price = 450, Robux = 450},
+        {Name = "[Gamepass] Auto Planter", Id = 931892839, Type = "Gamepass", Price = 299, Robux = 299},
+        {Name = "[Gamepass] VIP", Id = 931892837, Type = "Gamepass", Price = 499, Robux = 499},
+        {Name = "[Gamepass] 2x Shekels (Coins)", Id = 931892838, Type = "Gamepass", Price = 399, Robux = 399},
+        {Name = "[Gamepass] Infinite Backpack", Id = 931892841, Type = "Gamepass", Price = 599, Robux = 599},
+        {Name = "[Gamepass] 2x Mutation Luck", Id = 931892842, Type = "Gamepass", Price = 799, Robux = 799},
+        {Name = "[Gamepass] Fast Growth / Sprinkler Pass", Id = 931892843, Type = "Gamepass", Price = 350, Robux = 350},
+        {Name = "[Gamepass] Extra Pet Slot (+1)", Id = 931892844, Type = "Gamepass", Price = 250, Robux = 250},
+        {Name = "[Gamepass] Extra Pet Slot (+3)", Id = 931892845, Type = "Gamepass", Price = 600, Robux = 600},
+        {Name = "[Gamepass] Extra Pet Slot (+5)", Id = 931892847, Type = "Gamepass", Price = 950, Robux = 950},
+        {Name = "[Gamepass] Trade Plaza Access", Id = 931892846, Type = "Gamepass", Price = 100, Robux = 100},
+        {Name = "[Gamepass] Instant Plant Growth", Id = 931892848, Type = "Gamepass", Price = 500, Robux = 500},
+        {Name = "[Gamepass] Rare Mutation Magnet", Id = 931892849, Type = "Gamepass", Price = 650, Robux = 650},
+        {Name = "[Gamepass] Weather Controller Pass", Id = 931892850, Type = "Gamepass", Price = 850, Robux = 850},
+        {Name = "[Gamepass] Double Pet XP", Id = 931892851, Type = "Gamepass", Price = 400, Robux = 400}
     }
 
-    for _, p in ipairs(defaultProducts) do
+    for _, p in ipairs(officialGamepasses) do
         productMap[p.Name] = p
     end
 
-    -- Safely scan Gamepass / Developer Product module scripts in ReplicatedStorage
-    local function parseProductModule(tbl, moduleName)
-        if type(tbl) ~= "table" then return end
-        for k, v in pairs(tbl) do
-            if type(v) == "table" then
-                local itemName = v.Name or v.Title or v.DisplayName or v.ProductName or v.PassName or (type(k) == "string" and k)
-                local itemId = tonumber(v.Id or v.ID or v.ProductId or v.GamepassId or v.PassId or v.AssetId or v.DevProductId) or tonumber(k) or 0
-                local itemRobux = tonumber(v.Robux or v.CostRobux or v.PriceRobux or v.Price or v.Cost) or 50
-                local itemTokens = tonumber(v.Tokens or v.TokenPrice or v.PriceTokens or v.Price or v.Cost) or itemRobux
-                local itemType = v.Type or (tostring(moduleName):find("Pass") and "Gamepass" or "Product")
+    -- 2. Dynamically load all 140+ Developer Products from ReplicatedStorage.Data.DevProductIds
+    pcall(function()
+        local devProductMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("DevProductIds", true)
+        if devProductMod then
+            local devData = require(devProductMod)
+            if type(devData) == "table" then
+                for prodName, prodVal in pairs(devData) do
+                    local purchaseId = 0
+                    local price = 0
+                    if type(prodVal) == "table" then
+                        purchaseId = tonumber(prodVal.PurchaseID or prodVal.Id or prodVal.ProductId) or 0
+                        price = tonumber(prodVal.Price or prodVal.Robux or prodVal.Cost) or 0
+                    elseif tonumber(prodVal) then
+                        purchaseId = tonumber(prodVal)
+                    end
 
-                if itemName and type(itemName) == "string" and isValidItemName(itemName) then
-                    -- Only accept if it is a genuine gamepass or product with an ID or explicit product typing
-                    if itemId > 0 or v.Robux or v.ProductId or v.GamepassId or itemType == "Gamepass" or itemType == "Product" then
-                        productMap[itemName] = {
-                            Name = tostring(itemName),
-                            Id = itemId,
-                            Price = itemTokens,
-                            Robux = itemRobux,
-                            Type = tostring(itemType)
+                    if purchaseId > 0 then
+                        local formattedName = tostring(prodName):gsub("(%l)(%u)", "%1 %2")
+                        productMap[formattedName] = {
+                            Name = formattedName,
+                            RawName = tostring(prodName),
+                            Id = purchaseId,
+                            Price = price > 0 and price or 50,
+                            Robux = price > 0 and price or 50,
+                            Type = "Product"
                         }
                     end
                 end
             end
         end
-    end
+    end)
 
+    -- 3. Scan for additional products in TokenProducts, EggSkipProducts, PetProducts, InfinitePackProductIds
     pcall(function()
+        local function scanProductModule(modObj)
+            if not modObj or not modObj:IsA("ModuleScript") then return end
+            pcall(function()
+                local data = require(modObj)
+                if type(data) == "table" then
+                    for k, v in pairs(data) do
+                        if type(v) == "table" then
+                            local name = v.Name or v.Title or (type(k) == "string" and k)
+                            local id = tonumber(v.PurchaseID or v.Id or v.ProductId or v.GamepassId) or 0
+                            local price = tonumber(v.Price or v.Robux or v.Cost) or 0
+                            local pType = v.Type or (tostring(modObj.Name):find("Pass") and "Gamepass" or "Product")
+                            if name and id > 0 then
+                                local formattedName = tostring(name):gsub("(%l)(%u)", "%1 %2")
+                                if not productMap[formattedName] then
+                                    productMap[formattedName] = {
+                                        Name = formattedName,
+                                        RawName = tostring(name),
+                                        Id = id,
+                                        Price = price > 0 and price or 50,
+                                        Robux = price > 0 and price or 50,
+                                        Type = pType
+                                    }
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+
         local dataFolder = ReplicatedStorage:FindFirstChild("Data")
         if dataFolder then
-            for _, child in ipairs(dataFolder:GetChildren()) do
-                if child:IsA("ModuleScript") and (child.Name:find("Pass") or child.Name:find("Product") or child.Name:find("IAP") or child.Name:find("Gamepass") or child.Name:find("Shop")) then
-                    pcall(function()
-                        local res = require(child)
-                        parseProductModule(res, child.Name)
-                    end)
+            for _, child in ipairs(dataFolder:GetDescendants()) do
+                if child:IsA("ModuleScript") and (child.Name:find("Product") or child.Name:find("ShopData") or child.Name:find("EggSkip")) then
+                    scanProductModule(child)
                 end
             end
         end
     end)
 
-    pcall(function()
-        local modules = ReplicatedStorage:FindFirstChild("Modules")
-        if modules then
-            for _, child in ipairs(modules:GetChildren()) do
-                if child:IsA("ModuleScript") and (child.Name:find("Pass") or child.Name:find("Product") or child.Name:find("IAP") or child.Name:find("Gamepass") or child.Name:find("Shop")) then
-                    pcall(function()
-                        local res = require(child)
-                        parseProductModule(res, child.Name)
-                    end)
-                end
-            end
-        end
-    end)
-
-    -- Scan PlayerGui for active in-game Shop / Gamepass buttons
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if pGui then
-            for _, desc in ipairs(pGui:GetDescendants()) do
-                if desc:IsA("GuiButton") then
-                    local name = desc:GetAttribute("ProductName") or desc:GetAttribute("PassName") or desc:GetAttribute("Product")
-                    if not name and desc:IsA("TextButton") and #desc.Text > 2 and not desc.Text:find("Close") and not desc.Text:find("Back") then
-                        name = desc.Text:gsub("\n.*", "")
-                    end
-                    local id = tonumber(desc:GetAttribute("ProductId") or desc:GetAttribute("GamepassId") or desc:GetAttribute("Id") or desc:GetAttribute("AssetId")) or 0
-                    local price = tonumber(desc:GetAttribute("Robux") or desc:GetAttribute("Price") or desc:GetAttribute("Cost")) or 50
-                    if name and type(name) == "string" and isValidItemName(name) and id > 0 then
-                        productMap[name] = {
-                            Name = tostring(name),
-                            Id = id,
-                            Price = price,
-                            Robux = price,
-                            Type = desc:GetAttribute("GamepassId") and "Gamepass" or "Product"
-                        }
-                    end
-                end
-            end
-        end
-    end)
-
-    local sortedList = {}
-    for _, item in pairs(productMap) do
-        table.insert(sortedList, item)
+    local list = {}
+    for _, p in pairs(productMap) do
+        table.insert(list, p)
     end
-    table.sort(sortedList, function(a, b) return tostring(a.Name) < tostring(b.Name) end)
-    return sortedList
+    table.sort(list, function(a, b)
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    return list
 end
 
-local function formatCurrency(n)
-    n = tonumber(n) or 0
-    if n >= 1e12 then return string.format("%.1fT", n / 1e12)
-    elseif n >= 1e9 then return string.format("%.1fB", n / 1e9)
-    elseif n >= 1e6 then return string.format("%.1fM", n / 1e6)
-    elseif n >= 1e3 then return string.format("%.1fK", n / 1e3)
-    else return tostring(math.floor(n)) end
-end
-
-local function parseSheckles(text)
-    if type(text) == "number" then return text end
-    if type(text) ~= "string" then return 0 end
-    local sheckleStr = text
-    if text:find("🌸") then
-        sheckleStr = text:match("🌸%s*(.*)") or text
-    end
-    sheckleStr = sheckleStr:gsub("[¢, ]", "")
-    
-    local num, suffix = sheckleStr:match("([%d%.]+)%s*([%a]*)")
-    if not num then return 0 end
-    num = tonumber(num) or 0
-    suffix = suffix and suffix:upper() or ""
-    
-    local mults = {
-        ["K"] = 1e3,
-        ["M"] = 1e6,
-        ["B"] = 1e9,
-        ["T"] = 1e12,
-        ["QD"] = 1e15,
-        ["QN"] = 1e18,
-        ["SX"] = 1e21,
-        ["SP"] = 1e24,
-        ["O"] = 1e27,
-        ["N"] = 1e30,
-        ["D"] = 1e33
-    }
-    
-    return num * (mults[suffix] or 1)
-end
-
-local function getPlayerSheckles()
-    local ok, res = pcall(function()
-        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
-        if dsMod then
-            local ds = require(dsMod)
-            if ds and ds.GetData then
-                local data = ds:GetData()
-                if data and data.Sheckles then
-                    return tonumber(data.Sheckles) or 0
-                end
-            end
-        end
-        return nil
-    end)
-    if ok and type(res) == "number" and res > 0 then
-        return res
-    end
-
-    local lp = Players.LocalPlayer
-    local valObj = lp and lp:FindFirstChild("leaderstats") and lp.leaderstats:FindFirstChild("Sheckles")
-    if valObj then
-        local num = parseSheckles(tostring(valObj.Value))
-        if num > 0 then return num end
-    end
-    
-    -- Fallback: Check PlayerGui currency labels
-    pcall(function()
-        local pGui = lp and lp:FindFirstChild("PlayerGui")
-        if pGui then
-            local currUi = pGui:FindFirstChild("CurrencyUI") or pGui:FindFirstChild("Hud_UI")
-            if currUi then
-                for _, desc in ipairs(currUi:GetDescendants()) do
-                    if desc:IsA("TextLabel") and (desc.Text:find("🌸") or desc.Text:find("¢") or desc.Name:lower():find("sheckle") or desc.Name:lower():find("coin")) then
-                        local num = parseSheckles(desc.Text)
-                        if num > 0 then res = num return end
-                    end
-                end
-            end
-        end
-    end)
-    
-    return res or 0
-end
-
--- 6. Dynamic Shop Catalogs (Eggs, Gears, Seeds, Cosmetics)
 local function buildDynamicEggCatalog()
     local eggs = {}
     local seen = {}
@@ -6684,31 +6541,25 @@ end)
 -- ==========================================
 -- Section: In-Game Products & Gamepasses
 -- ==========================================
-Hub.CreateSection(miscTab, "🛒 Products & Gamepasses")
+Hub.CreateSection(miscTab, "💎 Prompt Purchase (Dev Products & Gamepasses)")
 
--- 1. Select Product Dropdown (Dynamically self-updating list of all products & gamepasses)
-local selectProductListObj = Hub.CreateList(miscTab, "Select Product", productListItems, 220, false)
-
--- 2. Select Payment Method Dropdown
-local selectPaymentMethodListObj = Hub.CreateList(miscTab, "Select Payment Method", {
-    {Name = "Trade Tokens"},
-    {Name = "Robux / Roblox Prompt"}
-}, 180, false)
+local selectProductListObj = Hub.CreateList(miscTab, "Select Product / Gamepass", productListItems, 220, false)
 
 -- Helper to find product details by name (Exact & Fuzzy matching)
 local function findProductDetails(targetName)
     if not targetName or targetName == "" or targetName == "None" then
-        return allAvailableProducts[1] or {Name = "Harvest All", Id = 931892840, Price = 450, Robux = 450, Type = "Gamepass"}
+        return allAvailableProducts[1] or {Name = "[Gamepass] Harvest All", Id = 931892840, Price = 450, Robux = 450, Type = "Gamepass"}
     end
     for _, item in ipairs(allAvailableProducts) do
-        if item.Name == targetName or item.Name:lower() == targetName:lower() then
+        if item.Name == targetName or item.Name:lower() == targetName:lower() or (item.RawName and item.RawName:lower() == targetName:lower()) then
             return item
         end
     end
     local cleanTarget = targetName:lower():gsub("[%s%p]", "")
     for _, item in ipairs(allAvailableProducts) do
         local cleanItem = item.Name:lower():gsub("[%s%p]", "")
-        if cleanItem == cleanTarget or cleanItem:find(cleanTarget, 1, true) or cleanTarget:find(cleanItem, 1, true) then
+        local cleanRaw = item.RawName and item.RawName:lower():gsub("[%s%p]", "") or ""
+        if cleanItem == cleanTarget or cleanRaw == cleanTarget or cleanItem:find(cleanTarget, 1, true) or cleanTarget:find(cleanItem, 1, true) then
             return item
         end
     end
@@ -6726,17 +6577,28 @@ local function findProductDetails(targetName)
 end
 
 -- Helper to find and click in-game shop buttons directly on PlayerGui
-local function triggerInGameShopButton(targetName)
+local function triggerInGameShopButton(targetName, targetId)
     local triggered = false
     pcall(function()
         local pGui = LocalPlayer:FindFirstChild("PlayerGui")
         if not pGui then return end
         local cleanTarget = tostring(targetName):lower():gsub("[%s%p]", "")
+        local strId = targetId and targetId > 0 and tostring(targetId) or ""
+
         for _, desc in ipairs(pGui:GetDescendants()) do
             if desc:IsA("GuiButton") then
                 local bText = desc:IsA("TextButton") and desc.Text:lower():gsub("[%s%p]", "") or ""
                 local bName = desc.Name:lower():gsub("[%s%p]", "")
-                if bText:find(cleanTarget, 1, true) or bName:find(cleanTarget, 1, true) or cleanTarget:find(bName, 1, true) then
+                local pName = desc.Parent and desc.Parent.Name:lower():gsub("[%s%p]", "") or ""
+
+                local isMatch = false
+                if strId ~= "" and (bName:find(strId, 1, true) or pName:find(strId, 1, true) or bText:find(strId, 1, true)) then
+                    isMatch = true
+                elseif bText:find(cleanTarget, 1, true) or bName:find(cleanTarget, 1, true) or pName:find(cleanTarget, 1, true) or cleanTarget:find(bName, 1, true) then
+                    isMatch = true
+                end
+
+                if isMatch then
                     pcall(function()
                         if firesignal then
                             firesignal(desc.MouseButton1Click)
@@ -6761,341 +6623,178 @@ local function triggerInGameShopButton(targetName)
     return triggered
 end
 
--- 3. Fire Purchase Action
-Hub.CreateButton(miscTab, "🛒 Fire Purchase", function()
-    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "Harvest All"
+-- Prompt Purchase Action
+Hub.CreateButton(miscTab, "💎 Prompt Purchase (Robux)", function()
+    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "[Gamepass] Harvest All"
     local chosenProductName = tostring(getUIListVal(selectProductListObj, defaultName))
-    local chosenPaymentMethod = tostring(getUIListVal(selectPaymentMethodListObj, "Trade Tokens"))
     local prodObj = findProductDetails(chosenProductName)
 
     local prodName = prodObj.Name or chosenProductName
     local prodId = tonumber(prodObj.Id) or 0
     local rawPrice = tonumber(prodObj.Price) or 0
-    local prodPrice = rawPrice > 0 and rawPrice or 25
+    local prodPrice = rawPrice > 0 and rawPrice or 50
     local robuxPrice = tonumber(prodObj.Robux) or prodPrice
     local itemType = tostring(prodObj.Type or "Product")
 
-    print(string.format("[Unknown Hub] Initiating purchase for '%s' (ID: %d, Type: %s, Price: %d Tokens, Robux: %d) via %s...", prodName, prodId, itemType, prodPrice, robuxPrice, chosenPaymentMethod))
+    print(string.format("[Unknown Hub] Initiating Robux purchase prompt for '%s' (ID: %d, Type: %s, Price: %d R$)...", prodName, prodId, itemType, robuxPrice))
 
-    -- Function to execute all server-side purchase remotes for this item
-    local function executeServerBuyRemotes(methodName)
-        pcall(function()
-            local gameEvents = ReplicatedStorage:FindFirstChild("GameEvents")
-            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-            local events = ReplicatedStorage:FindFirstChild("Events")
+    -- 1. Try internal MarketController
+    pcall(function()
+        local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
+        if mcMod and prodId > 0 then
+            local mc = require(mcMod)
+            local infoType = itemType == "Gamepass" and Enum.InfoType.GamePass or Enum.InfoType.Product
+            mc:PromptPurchase(prodId, infoType)
+        end
+    end)
 
-            -- Remote Candidates
-            local candidates = {
-                gameEvents and gameEvents:FindFirstChild("BuyItem"),
-                gameEvents and gameEvents:FindFirstChild("BuyGear"),
-                gameEvents and gameEvents:FindFirstChild("BuySeed"),
-                gameEvents and gameEvents:FindFirstChild("BuyEgg"),
-                gameEvents and gameEvents:FindFirstChild("BuyProduct"),
-                gameEvents and gameEvents:FindFirstChild("PurchaseItem"),
-                gameEvents and gameEvents:FindFirstChild("PurchaseProduct"),
-                gameEvents and gameEvents:FindFirstChild("Shop"),
-                remotes and remotes:FindFirstChild("BuyItem"),
-                remotes and remotes:FindFirstChild("BuyListing"),
-                remotes and remotes:FindFirstChild("PurchaseItem"),
-                remotes and remotes:FindFirstChild("ShopRemote"),
-                events and events:FindFirstChild("BuyItem")
-            }
-
-            for _, remote in ipairs(candidates) do
-                if remote then
-                    pcall(function()
-                        if remote:IsA("RemoteFunction") then
-                            remote:InvokeServer(tostring(prodName), prodPrice, methodName)
-                        elseif remote:IsA("RemoteEvent") then
-                            remote:FireServer(tostring(prodName), prodPrice, methodName)
-                        end
-                    end)
-                end
+    -- 2. Try native MarketplaceService
+    pcall(function()
+        if prodId > 0 then
+            if itemType == "Gamepass" then
+                MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
+            elseif itemType == "Bundle" then
+                MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
+            elseif itemType == "Product" then
+                MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
+            else
+                MarketplaceService:PromptPurchase(LocalPlayer, prodId)
             end
+        end
+    end)
 
-            -- Plaza Booth Controller
-            local modules = ReplicatedStorage:FindFirstChild("Modules")
-            local tbc = modules and modules:FindFirstChild("TradeBoothControllers")
-            if tbc and tbc:FindFirstChild("TradeBoothBuyItemController") then
-                pcall(function()
-                    local buyCtrl = require(tbc.TradeBoothBuyItemController)
-                    local cardData = {
-                        listingOwner = "Server",
-                        listingUUID = tostring(prodName),
-                        listingPrice = prodPrice,
-                        Price = prodPrice,
-                        Name = prodName,
-                        ItemName = prodName,
-                        ItemType = itemType,
-                        type = itemType,
-                        id = tostring(prodId > 0 and prodId or prodName),
-                        data = {Name = prodName, Price = prodPrice, Id = prodId}
-                    }
-                    buyCtrl.PromptBuyListing(cardData, cardData.data)
-                end)
-            end
-        end)
-    end
+    -- 3. Trigger matching in-game Shop UI button
+    triggerInGameShopButton(prodName, prodId)
 
-    -- Trigger in-game GUI button if found
-    triggerInGameShopButton(prodName)
-
+    -- 4. Display dedicated on-screen Robux Purchase Prompt Modal
     local guiParent = (gethui and gethui()) or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
 
-    if chosenPaymentMethod:find("Token") then
-        -- ==========================================
-        -- Token Payment Method
-        -- ==========================================
-        pcall(function()
-            if guiParent then
-                local existingPrompt = guiParent:FindFirstChild("Unknown_TokenBuyPrompt")
-                if existingPrompt then existingPrompt:Destroy() end
+    pcall(function()
+        if guiParent then
+            local existingPrompt = guiParent:FindFirstChild("Unknown_RobuxBuyPrompt")
+            if existingPrompt then existingPrompt:Destroy() end
 
-                local sg = Instance.new("ScreenGui")
-                sg.Name = "Unknown_TokenBuyPrompt"
-                sg.ResetOnSpawn = false
-                sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-                sg.DisplayOrder = 999999999
-                sg.IgnoreGuiInset = true
+            local sg = Instance.new("ScreenGui")
+            sg.Name = "Unknown_RobuxBuyPrompt"
+            sg.ResetOnSpawn = false
+            sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+            sg.DisplayOrder = 999999999
+            sg.IgnoreGuiInset = true
 
-                local card = Instance.new("Frame")
-                card.Size = UDim2.new(0, 360, 0, 220)
-                card.Position = UDim2.new(0.5, -180, 0.5, -110)
-                card.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
-                card.BorderSizePixel = 0
-                card.ZIndex = 500
-                card.Parent = sg
+            local card = Instance.new("Frame")
+            card.Size = UDim2.new(0, 380, 0, 230)
+            card.Position = UDim2.new(0.5, -190, 0.5, -115)
+            card.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+            card.BorderSizePixel = 0
+            card.ZIndex = 500
+            card.Parent = sg
 
-                local corner = Instance.new("UICorner")
-                corner.CornerRadius = UDim.new(0, 10)
-                corner.Parent = card
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 10)
+            corner.Parent = card
 
-                local stroke = Instance.new("UIStroke")
-                stroke.Color = Color3.fromRGB(0, 162, 255)
-                stroke.Thickness = 2
-                stroke.Parent = card
+            local stroke = Instance.new("UIStroke")
+            stroke.Color = Color3.fromRGB(0, 180, 255)
+            stroke.Thickness = 2
+            stroke.Parent = card
 
-                local title = Instance.new("TextLabel")
-                title.Size = UDim2.new(1, -20, 0, 30)
-                title.Position = UDim2.new(0, 10, 0, 10)
-                title.BackgroundTransparency = 1
-                title.Text = "🪙 Purchase with Trade Tokens"
-                title.TextColor3 = Color3.fromRGB(255, 215, 0)
-                title.Font = Enum.Font.GothamBold
-                title.TextSize = 14
-                title.ZIndex = 501
-                title.Parent = card
+            local title = Instance.new("TextLabel")
+            title.Size = UDim2.new(1, -20, 0, 30)
+            title.Position = UDim2.new(0, 10, 0, 10)
+            title.BackgroundTransparency = 1
+            title.Text = "💎 Roblox Purchase Prompt"
+            title.TextColor3 = Color3.fromRGB(0, 180, 255)
+            title.Font = Enum.Font.GothamBold
+            title.TextSize = 14
+            title.ZIndex = 501
+            title.Parent = card
 
-                local desc = Instance.new("TextLabel")
-                desc.Size = UDim2.new(1, -20, 0, 60)
-                desc.Position = UDim2.new(0, 10, 0, 45)
-                desc.BackgroundTransparency = 1
-                desc.Text = string.format("Item: %s\nType: %s\nCost: %d Trade Tokens", prodName, itemType, prodPrice)
-                desc.TextColor3 = Color3.fromRGB(240, 245, 255)
-                desc.Font = Enum.Font.GothamMedium
-                desc.TextSize = 13
-                desc.TextWrapped = true
-                desc.ZIndex = 501
-                desc.Parent = card
+            local desc = Instance.new("TextLabel")
+            desc.Size = UDim2.new(1, -20, 0, 80)
+            desc.Position = UDim2.new(0, 10, 0, 45)
+            desc.BackgroundTransparency = 1
+            desc.Text = string.format("Product: %s\nType: %s\nAsset ID: %s\nPrice: %d Robux (R$)", prodName, itemType, (prodId > 0 and tostring(prodId) or "In-Game Product"), robuxPrice)
+            desc.TextColor3 = Color3.fromRGB(240, 245, 255)
+            desc.Font = Enum.Font.GothamMedium
+            desc.TextSize = 13
+            desc.TextWrapped = true
+            desc.ZIndex = 501
+            desc.Parent = card
 
-                local confirmBtn = Instance.new("TextButton")
-                confirmBtn.Size = UDim2.new(0.44, 0, 0, 36)
-                confirmBtn.Position = UDim2.new(0.04, 0, 1, -50)
-                confirmBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-                confirmBtn.Text = "Confirm Buy"
-                confirmBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                confirmBtn.Font = Enum.Font.GothamBold
-                confirmBtn.TextSize = 12
-                confirmBtn.ZIndex = 502
-                confirmBtn.Parent = card
+            local promptBtn = Instance.new("TextButton")
+            promptBtn.Size = UDim2.new(0.44, 0, 0, 38)
+            promptBtn.Position = UDim2.new(0.04, 0, 1, -52)
+            promptBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+            promptBtn.Text = "Prompt Robux Buy"
+            promptBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            promptBtn.Font = Enum.Font.GothamBold
+            promptBtn.TextSize = 12
+            promptBtn.ZIndex = 502
+            promptBtn.Parent = card
 
-                local cbCorner = Instance.new("UICorner")
-                cbCorner.CornerRadius = UDim.new(0, 6)
-                cbCorner.Parent = confirmBtn
+            local pbCorner = Instance.new("UICorner")
+            pbCorner.CornerRadius = UDim.new(0, 6)
+            pbCorner.Parent = promptBtn
 
-                local cancelBtn = Instance.new("TextButton")
-                cancelBtn.Size = UDim2.new(0.44, 0, 0, 36)
-                cancelBtn.Position = UDim2.new(0.52, 0, 1, -50)
-                cancelBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
-                cancelBtn.Text = "Cancel"
-                cancelBtn.TextColor3 = Color3.fromRGB(200, 210, 230)
-                cancelBtn.Font = Enum.Font.GothamBold
-                cancelBtn.TextSize = 12
-                cancelBtn.ZIndex = 502
-                cancelBtn.Parent = card
+            local cancelBtn = Instance.new("TextButton")
+            cancelBtn.Size = UDim2.new(0.44, 0, 0, 38)
+            cancelBtn.Position = UDim2.new(0.52, 0, 1, -52)
+            cancelBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
+            cancelBtn.Text = "Close"
+            cancelBtn.TextColor3 = Color3.fromRGB(200, 210, 230)
+            cancelBtn.Font = Enum.Font.GothamBold
+            cancelBtn.TextSize = 12
+            cancelBtn.ZIndex = 502
+            cancelBtn.Parent = card
 
-                local cbcCorner = Instance.new("UICorner")
-                cbcCorner.CornerRadius = UDim.new(0, 6)
-                cbcCorner.Parent = cancelBtn
+            local cbcCorner = Instance.new("UICorner")
+            cbcCorner.CornerRadius = UDim.new(0, 6)
+            cbcCorner.Parent = cancelBtn
 
-                cancelBtn.MouseButton1Click:Connect(function()
-                    sg:Destroy()
-                end)
+            cancelBtn.MouseButton1Click:Connect(function()
+                sg:Destroy()
+            end)
 
-                confirmBtn.MouseButton1Click:Connect(function()
-                    executeServerBuyRemotes("Tokens")
-                    triggerInGameShopButton(prodName)
-                    print(string.format("[Unknown Hub] Fired token buy remote for '%s' (%d Tokens)!", prodName, prodPrice))
-                    sg:Destroy()
-                end)
-
-                sg.Parent = guiParent
-            end
-        end)
-
-        print(string.format("[Unknown Hub] In-Game Token Payment GUI opened for '%s' (%d Tokens)!", prodName, prodPrice))
-        pcall(function()
-            if Hub.Notify then
-                Hub.Notify({
-                    Title = "🪙 Token Purchase Prompt",
-                    Content = string.format("Opening Token Prompt for %s (%d Tokens)", prodName, prodPrice),
-                    Duration = 3
-                })
-            end
-        end)
-    else
-        -- ==========================================
-        -- Robux Payment Method
-        -- ==========================================
-        local MarketplaceService = game:GetService("MarketplaceService")
-
-        -- 1. Try native Roblox Marketplace Prompt
-        pcall(function()
-            if prodId > 0 then
-                if itemType == "Gamepass" then
-                    MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
-                elseif itemType == "Bundle" then
-                    MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
-                elseif itemType == "Product" then
-                    MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
-                else
-                    MarketplaceService:PromptPurchase(LocalPlayer, prodId)
-                end
-            end
-        end)
-
-        -- 2. Display dedicated on-screen Robux Purchase GUI
-        pcall(function()
-            if guiParent then
-                local existingPrompt = guiParent:FindFirstChild("Unknown_RobuxBuyPrompt")
-                if existingPrompt then existingPrompt:Destroy() end
-
-                local sg = Instance.new("ScreenGui")
-                sg.Name = "Unknown_RobuxBuyPrompt"
-                sg.ResetOnSpawn = false
-                sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-                sg.DisplayOrder = 999999999
-                sg.IgnoreGuiInset = true
-
-                local card = Instance.new("Frame")
-                card.Size = UDim2.new(0, 360, 0, 220)
-                card.Position = UDim2.new(0.5, -180, 0.5, -110)
-                card.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-                card.BorderSizePixel = 0
-                card.ZIndex = 500
-                card.Parent = sg
-
-                local corner = Instance.new("UICorner")
-                corner.CornerRadius = UDim.new(0, 10)
-                corner.Parent = card
-
-                local stroke = Instance.new("UIStroke")
-                stroke.Color = Color3.fromRGB(46, 204, 113)
-                stroke.Thickness = 2
-                stroke.Parent = card
-
-                local title = Instance.new("TextLabel")
-                title.Size = UDim2.new(1, -20, 0, 30)
-                title.Position = UDim2.new(0, 10, 0, 10)
-                title.BackgroundTransparency = 1
-                title.Text = "💎 Robux / Marketplace Purchase"
-                title.TextColor3 = Color3.fromRGB(46, 204, 113)
-                title.Font = Enum.Font.GothamBold
-                title.TextSize = 14
-                title.ZIndex = 501
-                title.Parent = card
-
-                local desc = Instance.new("TextLabel")
-                desc.Size = UDim2.new(1, -20, 0, 60)
-                desc.Position = UDim2.new(0, 10, 0, 45)
-                desc.BackgroundTransparency = 1
-                desc.Text = string.format("Item: %s\nType: %s\nAsset/Product ID: %s\nPrice: %d R$", prodName, itemType, (prodId > 0 and tostring(prodId) or "In-Game Store"), robuxPrice)
-                desc.TextColor3 = Color3.fromRGB(240, 245, 255)
-                desc.Font = Enum.Font.GothamMedium
-                desc.TextSize = 13
-                desc.TextWrapped = true
-                desc.ZIndex = 501
-                desc.Parent = card
-
-                local promptBtn = Instance.new("TextButton")
-                promptBtn.Size = UDim2.new(0.44, 0, 0, 36)
-                promptBtn.Position = UDim2.new(0.04, 0, 1, -50)
-                promptBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-                promptBtn.Text = "Prompt Purchase"
-                promptBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                promptBtn.Font = Enum.Font.GothamBold
-                promptBtn.TextSize = 12
-                promptBtn.ZIndex = 502
-                promptBtn.Parent = card
-
-                local pbCorner = Instance.new("UICorner")
-                pbCorner.CornerRadius = UDim.new(0, 6)
-                pbCorner.Parent = promptBtn
-
-                local cancelBtn = Instance.new("TextButton")
-                cancelBtn.Size = UDim2.new(0.44, 0, 0, 36)
-                cancelBtn.Position = UDim2.new(0.52, 0, 1, -50)
-                cancelBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
-                cancelBtn.Text = "Cancel"
-                cancelBtn.TextColor3 = Color3.fromRGB(200, 210, 230)
-                cancelBtn.Font = Enum.Font.GothamBold
-                cancelBtn.TextSize = 12
-                cancelBtn.ZIndex = 502
-                cancelBtn.Parent = card
-
-                local cbcCorner = Instance.new("UICorner")
-                cbcCorner.CornerRadius = UDim.new(0, 6)
-                cbcCorner.Parent = cancelBtn
-
-                cancelBtn.MouseButton1Click:Connect(function()
-                    sg:Destroy()
-                end)
-
-                promptBtn.MouseButton1Click:Connect(function()
-                    if prodId > 0 then
-                        pcall(function()
-                            if itemType == "Gamepass" then
-                                MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
-                            elseif itemType == "Bundle" then
-                                MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
-                            elseif itemType == "Product" then
-                                MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
-                            else
-                                MarketplaceService:PromptPurchase(LocalPlayer, prodId)
-                            end
-                        end)
+            promptBtn.MouseButton1Click:Connect(function()
+                pcall(function()
+                    local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
+                    if mcMod and prodId > 0 then
+                        local mc = require(mcMod)
+                        local infoType = itemType == "Gamepass" and Enum.InfoType.GamePass or Enum.InfoType.Product
+                        mc:PromptPurchase(prodId, infoType)
                     end
-                    triggerInGameShopButton(prodName)
-                    executeServerBuyRemotes("Robux")
-                    print(string.format("[Unknown Hub] Fired Robux purchase prompt routine for '%s' (ID: %d)!", prodName, prodId))
-                    sg:Destroy()
                 end)
+                pcall(function()
+                    if prodId > 0 then
+                        if itemType == "Gamepass" then
+                            MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
+                        elseif itemType == "Bundle" then
+                            MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
+                        elseif itemType == "Product" then
+                            MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
+                        else
+                            MarketplaceService:PromptPurchase(LocalPlayer, prodId)
+                        end
+                    end
+                end)
+                triggerInGameShopButton(prodName, prodId)
+                print(string.format("[Unknown Hub] Fired Robux purchase prompt routine for '%s' (ID: %d)!", prodName, prodId))
+                sg:Destroy()
+            end)
 
-                sg.Parent = guiParent
-            end
-        end)
+            sg.Parent = guiParent
+        end
+    end)
 
-        print(string.format("[Unknown Hub] Opened Robux Purchase Dialog for %s (ID: %d, Robux: %d)", prodName, prodId, robuxPrice))
-        pcall(function()
-            if Hub.Notify then
-                Hub.Notify({
-                    Title = "💎 Robux Purchase Prompt",
-                    Content = string.format("Opening Robux Prompt for %s", prodName),
-                    Duration = 3
-                })
-            end
-        end)
-    end
+    pcall(function()
+        if Hub.Notify then
+            Hub.Notify({
+                Title = "💎 Robux Purchase Prompt",
+                Content = string.format("Opening Purchase Prompt for %s (ID: %d)", prodName, prodId),
+                Duration = 3
+            })
+        end
+    end)
 end)
 
 end
