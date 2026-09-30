@@ -823,7 +823,7 @@ end
 local function buildDynamicProductCatalog()
     local productMap = {}
 
-    local function addProd(name, rawName, id, price, pType, category)
+    local function addProd(name, rawName, id, price, pType, category, order)
         id = tonumber(id) or 0
         price = tonumber(price) or 0
         if id <= 0 then return end
@@ -838,12 +838,69 @@ local function buildDynamicProductCatalog()
                 Price = price,
                 Robux = price,
                 Type = pType or "Product",
-                Category = formattedCategory
+                Category = formattedCategory,
+                Order = order or 999
             }
         end
     end
 
-    -- 1. Official Gamepasses
+    -- 1. Forever Pack (All 11 Tiers in natural order)
+    local foreverPrices = {
+        [3483219975] = {Tier = 1, Price = 39},
+        [3483220099] = {Tier = 2, Price = 79},
+        [3483220200] = {Tier = 3, Price = 119},
+        [3483220270] = {Tier = 4, Price = 159},
+        [3483220356] = {Tier = 5, Price = 199},
+        [3483220437] = {Tier = 6, Price = 279},
+        [3483221023] = {Tier = 7, Price = 399},
+        [3483221092] = {Tier = 8, Price = 639},
+        [3483221165] = {Tier = 9, Price = 759},
+        [3483221217] = {Tier = 10, Price = 959},
+        [3483221290] = {Tier = 11, Price = 1199},
+    }
+    for pid, info in pairs(foreverPrices) do
+        local name = string.format("Tier %d (%d R$)", info.Tier, info.Price)
+        addProd(name, "InfinitePack_Tier_" .. info.Tier, pid, info.Price, "Product", "Forever Pack", 100 + info.Tier)
+    end
+
+    -- Also scan dynamic InfinitePackData in case prices or tiers change
+    pcall(function()
+        local infMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("InfinitePackData", true)
+        if infMod then
+            local infData = require(infMod)
+            local prices = infData.FallbackPrices or {}
+            local pidsMod = infMod:FindFirstChild("InfinitePackProductIds")
+            if pidsMod then
+                local pids = require(pidsMod)
+                for _, entry in pairs(pids) do
+                    if type(entry) == "table" then
+                        local pid = tonumber(entry[1]) or 0
+                        local tier = tonumber(entry[2]) or 0
+                        local price = tonumber(prices[tostring(pid)] or prices[pid]) or 0
+                        if pid > 0 and tier > 0 then
+                            local name = string.format("Tier %d (%d R$)", tier, price)
+                            addProd(name, "InfinitePack_Tier_" .. tier, pid, price, "Product", "Forever Pack", 100 + tier)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- 2. Event Forever Pack (All 5 Tiers in natural order)
+    local eventForeverPrices = {
+        [3425555547] = {Tier = 1, Price = 37},
+        [3425556327] = {Tier = 2, Price = 99},
+        [3425557211] = {Tier = 3, Price = 175},
+        [3425557487] = {Tier = 4, Price = 375},
+        [3425557881] = {Tier = 5, Price = 495},
+    }
+    for pid, info in pairs(eventForeverPrices) do
+        local name = string.format("Tier %d (%d R$)", info.Tier, info.Price)
+        addProd(name, "EventInfinitePack_Tier_" .. info.Tier, pid, info.Price, "Product", "Event Forever Pack", 200 + info.Tier)
+    end
+
+    -- 3. Official Gamepasses
     local officialGamepasses = {
         {"Harvest All", 931892840, 450},
         {"Auto Harvester", 931892840, 450},
@@ -862,53 +919,15 @@ local function buildDynamicProductCatalog()
         {"Weather Controller Pass", 931892850, 850},
         {"Double Pet XP", 931892851, 400}
     }
-    for _, gp in ipairs(officialGamepasses) do
-        addProd(gp[1], gp[1], gp[2], gp[3], "Gamepass", "Gamepass")
+    for i, gp in ipairs(officialGamepasses) do
+        addProd(gp[1], gp[1], gp[2], gp[3], "Gamepass", "Gamepass", 300 + i)
     end
-
-    -- 2. Forever Pack (InfinitePackData)
-    pcall(function()
-        local infMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("InfinitePackData", true)
-        if infMod then
-            local infData = require(infMod)
-            if type(infData) == "table" and type(infData.FallbackPrices) == "table" then
-                local tierList = {}
-                for idStr, price in pairs(infData.FallbackPrices) do
-                    table.insert(tierList, {Id = tonumber(idStr), Price = tonumber(price) or 0})
-                end
-                table.sort(tierList, function(a, b) return a.Price < b.Price end)
-                for tier, item in ipairs(tierList) do
-                    local name = string.format("Tier %d (%d R$)", tier, item.Price)
-                    addProd(name, "InfinitePack_Tier_" .. tier, item.Id, item.Price, "Product", "Forever Pack")
-                end
-            end
-        end
-    end)
-
-    -- 3. Event Forever Pack (EventInfinitePackData)
-    pcall(function()
-        local evInfMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("EventInfinitePackData", true)
-        if evInfMod then
-            local evInfData = require(evInfMod)
-            if type(evInfData) == "table" and type(evInfData.FallbackPrices) == "table" then
-                local tierList = {}
-                for idStr, price in pairs(evInfData.FallbackPrices) do
-                    table.insert(tierList, {Id = tonumber(idStr), Price = tonumber(price) or 0})
-                end
-                table.sort(tierList, function(a, b) return a.Price < b.Price end)
-                for tier, item in ipairs(tierList) do
-                    local name = string.format("Tier %d (%d R$)", tier, item.Price)
-                    addProd(name, "EventInfinitePack_Tier_" .. tier, item.Id, item.Price, "Product", "Event Forever Pack")
-                end
-            end
-        end
-    end)
 
     -- 4. Packs & Bundles Folder
     pcall(function()
         local packsFolder = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Packs", true)
         if packsFolder then
-            for _, m in ipairs(packsFolder:GetChildren()) do
+            for i, m in ipairs(packsFolder:GetChildren()) do
                 if m:IsA("ModuleScript") then
                     pcall(function()
                         local pData = require(m)
@@ -917,7 +936,7 @@ local function buildDynamicProductCatalog()
                             local price = tonumber(pData.Price or pData.Robux or pData.Cost) or 0
                             local packName = m.Name:gsub("Data$", ""):gsub("Bundle", " Bundle"):gsub("Pack", " Pack"):gsub("(%l)(%u)", "%1 %2")
                             if pid > 0 then
-                                addProd(packName, m.Name, pid, price, "Product", "Bundle / Pack")
+                                addProd(packName, m.Name, pid, price, "Product", "Bundle / Pack", 400 + i)
                             end
                         end
                     end)
@@ -932,7 +951,9 @@ local function buildDynamicProductCatalog()
         if devProductMod then
             local devData = require(devProductMod)
             if type(devData) == "table" then
+                local i = 0
                 for prodName, prodVal in pairs(devData) do
+                    i = i + 1
                     local purchaseId = 0
                     local price = 0
                     if type(prodVal) == "table" then
@@ -944,7 +965,7 @@ local function buildDynamicProductCatalog()
 
                     if purchaseId > 0 then
                         local formattedName = tostring(prodName):gsub("(%l)(%u)", "%1 %2")
-                        addProd(formattedName, tostring(prodName), purchaseId, price, "Product", "Dev Product")
+                        addProd(formattedName, tostring(prodName), purchaseId, price, "Product", "Dev Product", 500 + i)
                     end
                 end
             end
@@ -967,7 +988,7 @@ local function buildDynamicProductCatalog()
                                     local price = tonumber(v.Price or v.Robux or v.Cost or v.PriceInRobux) or 0
                                     local cat = desc.Name:gsub("Data$", ""):gsub("Shop", " Shop"):gsub("(%l)(%u)", "%1 %2")
                                     local itemName = type(k) == "string" and k or (v.Name or tostring(k))
-                                    addProd(itemName, itemName, pid, price, "Product", cat)
+                                    addProd(itemName, itemName, pid, price, "Product", cat, 700)
                                 end
                             end
                         end
@@ -982,6 +1003,9 @@ local function buildDynamicProductCatalog()
         table.insert(list, p)
     end
     table.sort(list, function(a, b)
+        if a.Order ~= b.Order then
+            return a.Order < b.Order
+        end
         return a.Name:lower() < b.Name:lower()
     end)
 
