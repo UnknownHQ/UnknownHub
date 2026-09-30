@@ -3329,7 +3329,7 @@ local function getNextEggRowPosition()
 
     local occupiedPositions = {}
 
-    -- 1. Placed eggs
+    -- 1. Placed eggs (main clearance collision check)
     local placedEggs = getPlacedEggsInGarden()
     for _, eggObj in ipairs(placedEggs) do
         local pos = (eggObj:IsA("Model") and eggObj:GetPivot().Position) or (eggObj:FindFirstChildWhichIsA("BasePart", true) and eggObj:FindFirstChildWhichIsA("BasePart", true).Position)
@@ -3338,17 +3338,8 @@ local function getNextEggRowPosition()
         end
     end
 
-    -- 2. Physical plants & physical objects in farm
+    -- 2. Physical objects in farm (clearance collision check)
     if farm and farm:FindFirstChild("Important") then
-        local plantsFolder = farm.Important:FindFirstChild("Plants_Physical")
-        if plantsFolder then
-            for _, plant in ipairs(plantsFolder:GetChildren()) do
-                local pos = (plant:IsA("Model") and plant:GetPivot().Position) or (plant:FindFirstChildWhichIsA("BasePart", true) and plant:FindFirstChildWhichIsA("BasePart", true).Position)
-                if pos then
-                    table.insert(occupiedPositions, pos)
-                end
-            end
-        end
         local objFolder = farm.Important:FindFirstChild("Objects_Physical")
         if objFolder then
             for _, obj in ipairs(objFolder:GetChildren()) do
@@ -3360,12 +3351,16 @@ local function getNextEggRowPosition()
         end
     end
 
-    -- Robust spacing & clearance to prevent "Too close to another object"
-    local spacingX = 3.8
-    local spacingZ = 3.8
-    local marginX = 1.8
-    local marginZ = 1.8
-    local minClearance = 3.4
+    -- Robust spacing & clearance along plant bed furrows
+    local spacingX = 3.0
+    local spacingZ = 3.0
+    local marginX = 1.5
+    local marginZ = 1.5
+    local minClearance = 2.4
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = canPlantParts
+    rayParams.FilterType = Enum.RaycastFilterType.Include
 
     local slots = {}
 
@@ -3385,7 +3380,12 @@ local function getNextEggRowPosition()
             local lx = minX + (c * spacingX)
             for r = 0, rows - 1 do
                 local lz = minZ + (r * spacingZ)
-                local worldPos = cf:PointToWorldSpace(Vector3.new(lx, 0.25, lz))
+                local topLocalY = (sz.Y / 2) + 0.025
+                local worldPos = cf:PointToWorldSpace(Vector3.new(lx, topLocalY, lz))
+                local rayHit = workspace:Raycast(worldPos + Vector3.new(0, 3, 0), Vector3.new(0, -6, 0), rayParams)
+                if rayHit then
+                    worldPos = rayHit.Position
+                end
                 table.insert(slots, worldPos)
             end
         end
@@ -3409,7 +3409,8 @@ local function getNextEggRowPosition()
         return slots[1] + Vector3.new((math.random() - 0.5) * 0.5, 0, (math.random() - 0.5) * 0.5)
     end
 
-    return canPlantParts[1].Position + Vector3.new(0, 0.25, 0)
+    local firstPart = canPlantParts[1]
+    return firstPart.Position + Vector3.new(0, (firstPart.Size.Y / 2) + 0.025, 0)
 end
 
 local function findEggToolInBackpack(selectedEggNames)
@@ -3531,14 +3532,16 @@ local function placeEggAt(targetPos, eggTool)
     end
 
     -- 2. Equip egg tool cleanly
-    if hum then
-        if eggTool.Parent ~= char then
-            hum:UnequipTools()
-            hum:EquipTool(eggTool)
-        end
+    local wasEquipped = (eggTool.Parent == char)
+    if hum and not wasEquipped then
+        hum:UnequipTools()
+        hum:EquipTool(eggTool)
     end
     if eggTool.Parent ~= char then
         eggTool.Parent = char
+    end
+    if not wasEquipped then
+        task.wait(0.04)
     end
 
     -- 3. Fire server remote to place egg at exact coordinates
@@ -3550,6 +3553,13 @@ local function placeEggAt(targetPos, eggTool)
             petEggService:FireServer("CreateEgg", targetPos)
         end)
     end
+
+    -- 4. Activate tool if equipped
+    pcall(function()
+        if eggTool and eggTool.Parent == char then
+            eggTool:Activate()
+        end
+    end)
 end
 
 local function isEggReadyToHatch(eggObj)
@@ -3738,7 +3748,7 @@ task.spawn(function()
                 local currentPlacedCount = #placedEggs
 
                 if onlyNoEgg and currentPlacedCount > 0 then
-                    task.wait(0.2)
+                    task.wait(0.25)
                     return
                 end
 
@@ -3754,9 +3764,6 @@ task.spawn(function()
                     task.wait(0.3)
                     return
                 end
-
-                -- Unequip any pet currently held in hand before placing
-                unequipHatchedPetTool()
 
                 -- Always equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
                 local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
@@ -3778,12 +3785,14 @@ task.spawn(function()
                     targetPos = getNextEggRowPosition()
                 end
 
-                placeEggAt(targetPos, eggTool)
-                task.wait(0.18)
+                if targetPos then
+                    placeEggAt(targetPos, eggTool)
+                end
+                task.wait(0.22)
             end)
 
             if not ok and err then
-                task.wait(0.2)
+                task.wait(0.25)
             end
         else
             task.wait(0.4)
