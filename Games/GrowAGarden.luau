@@ -1591,8 +1591,7 @@ local State = {
     Sell_EquipSlot = "None",
     Sell_SlotCooldown = 5.0,
 
-    -- Pet Tab: Egg Hatching & Egg Placement & Pet Management
-    AutoMiddlePets = false,
+    -- Pet Tab: Egg Hatching & Egg Placement
     Egg_ESP = false,
     AutoPlaceEggs = false,
     PlaceOnlyWhenNoEgg = false,
@@ -1704,7 +1703,6 @@ local hatchEggListObj
 local hatchExcludePetListObj
 local hatchExcludeWeightModeListObj
 local hatchEggSlotListObj
-local autoMiddlePetsToggle
 
 local autoCraftPlantsToggle
 local selectCraftPlantListObj
@@ -3707,169 +3705,6 @@ task.spawn(function()
             if not ok and err then
                 task.wait(0.25)
             end
-        else
-            task.wait(0.5)
-        end
-    end
-end)
-
--- =========================================================================
--- Auto Middle Pet Helper & Background Loop
--- =========================================================================
-
-local function getMyActivePetUUIDs()
-    local uuids = {}
-    local myName = LocalPlayer.Name
-    local myUserId = tostring(LocalPlayer.UserId)
-    
-    -- 1. Check workspace.PetsPhysical
-    local petsPhysical = Workspace:FindFirstChild("PetsPhysical")
-    if petsPhysical then
-        for _, pet in ipairs(petsPhysical:GetChildren()) do
-            local mover = pet:FindFirstChild("PetMover")
-            local owner = pet:GetAttribute("OWNER") or (mover and mover:GetAttribute("OWNER")) or pet:GetAttribute("Owner") or (mover and mover:GetAttribute("Owner"))
-            local strOwner = tostring(owner)
-            if strOwner == myName or strOwner == myUserId then
-                local uuid = pet:GetAttribute("UUID") or (mover and mover:GetAttribute("UUID")) or pet.Name
-                if uuid and uuid ~= "" and not table.find(uuids, uuid) then
-                    table.insert(uuids, uuid)
-                end
-            end
-        end
-    end
-    
-    -- 2. Check ActivePetsService ClientPetState
-    pcall(function()
-        local mod = ReplicatedStorage:FindFirstChild("Modules")
-        local ps = mod and mod:FindFirstChild("PetServices")
-        local aps = ps and ps:FindFirstChild("ActivePetsService")
-        if aps then
-            local ActivePetsService = require(aps)
-            if ActivePetsService and ActivePetsService.ClientPetState then
-                local myPets = ActivePetsService.ClientPetState[myName] or ActivePetsService.ClientPetState[LocalPlayer]
-                if myPets and type(myPets) == "table" then
-                    for uuid, _ in pairs(myPets) do
-                        if uuid and not table.find(uuids, uuid) then
-                            table.insert(uuids, uuid)
-                        end
-                    end
-                end
-            end
-        end
-    end)
-    
-    -- 3. Check DataService EquippedPets
-    pcall(function()
-        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
-        local ds = dsMod and require(dsMod)
-        local data = ds and ds:GetData()
-        if data and data.PetsData and data.PetsData.EquippedPets and type(data.PetsData.EquippedPets) == "table" then
-            for _, petId in pairs(data.PetsData.EquippedPets) do
-                local cleanUuid = tostring(petId)
-                if cleanUuid and cleanUuid ~= "" and not table.find(uuids, cleanUuid) then
-                    table.insert(uuids, cleanUuid)
-                end
-            end
-        end
-    end)
-    
-    return uuids
-end
-
-local function getGardenCenterPlant()
-    local farm = getPlayerFarm()
-    if not farm then return nil end
-    
-    local centerPos = nil
-    local centerPart = farm:FindFirstChild("Center") or farm:FindFirstChild("FarmCenter") or (farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Center"))
-    if centerPart and centerPart:IsA("BasePart") then
-        centerPos = centerPart.Position
-    else
-        local locs = farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Plant_Locations")
-        if locs and #locs:GetChildren() > 0 then
-            local sum = Vector3.new(0, 0, 0)
-            local count = 0
-            for _, spot in ipairs(locs:GetChildren()) do
-                if spot:IsA("BasePart") then
-                    sum = sum + spot.Position
-                    count = count + 1
-                end
-            end
-            if count > 0 then
-                centerPos = sum / count
-            end
-        end
-    end
-    
-    if not centerPos then
-        local cf, _ = farm:GetBoundingBox()
-        centerPos = cf.Position
-    end
-    
-    local pPhys = farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Plants_Physical")
-    local closestPlant = nil
-    local minD = 999999
-    if pPhys then
-        for _, plant in ipairs(pPhys:GetChildren()) do
-            local pPart = plant:IsA("BasePart") and plant or plant:FindFirstChildWhichIsA("BasePart", true)
-            if pPart then
-                local d = (pPart.Position - centerPos).Magnitude
-                if d < minD then
-                    minD = d
-                    closestPlant = plant
-                end
-            end
-        end
-    end
-    
-    if not closestPlant and pPhys and #pPhys:GetChildren() > 0 then
-        closestPlant = pPhys:GetChildren()[1]
-    end
-    
-    return closestPlant, centerPos
-end
-
-local function commandPetToTarget(uuid, targetPlant)
-    if not uuid or not targetPlant then return end
-    
-    pcall(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local remote = ge and ge:FindFirstChild("ActivePetService")
-        if remote then
-            remote:FireServer("SetPetState", uuid, "TargetPlant", { TargetedPlant = targetPlant })
-        end
-    end)
-    
-    pcall(function()
-        local mod = ReplicatedStorage:FindFirstChild("Modules")
-        local ps = mod and mod:FindFirstChild("PetServices")
-        local aps = ps and ps:FindFirstChild("ActivePetsService")
-        if aps then
-            local ActivePetsService = require(aps)
-            if ActivePetsService and ActivePetsService.SetPetState then
-                ActivePetsService:SetPetState(uuid, "TargetPlant", { TargetedPlant = targetPlant })
-            end
-        end
-    end)
-end
-
--- 3. Auto Middle Pet Loop
-task.spawn(function()
-    while true do
-        if _G.GAG_SESSION ~= currentSession then break end
-        
-        local autoMiddle = isToggleActive(autoMiddlePetsToggle, State.AutoMiddlePets, "📍 Auto Middle Pet")
-        if autoMiddle then
-            local ok, err = pcall(function()
-                local targetPlant = getGardenCenterPlant()
-                if targetPlant then
-                    local petUUIDs = getMyActivePetUUIDs()
-                    for _, uuid in ipairs(petUUIDs) do
-                        commandPetToTarget(uuid, targetPlant)
-                    end
-                end
-            end)
-            task.wait(5.0)
         else
             task.wait(0.5)
         end
@@ -6436,13 +6271,6 @@ end)
 Hub.CreateTextBox(petTab, "Pet: Exclude Weight (KG)", "Enter KG cutoff (0 = none)", function(text)
     local num = tonumber(text)
     State.Sell_ExcludePetWeight = num or 0
-end)
-
--- 4. 📍 Auto Middle Pet
-Hub.CreateSection(petTab, "📍 Auto Middle Pet")
-
-autoMiddlePetsToggle = Hub.CreateToggle(petTab, "📍 Auto Middle Pet", false, function(v)
-    if type(v) == "boolean" then State.AutoMiddlePets = v else State.AutoMiddlePets = not State.AutoMiddlePets end
 end)
 
 -- ==========================================
