@@ -2506,63 +2506,87 @@ end
 local function isPetProtected(tool, petInfo)
     if not tool then return true end
 
-    -- 1. Direct Tool Attribute Checks (Favorite / Locked / Equipped)
+    -- Layer 1: Direct Tool Attribute Checks (Favorite / Locked / Equipped)
     if tool:GetAttribute("d") == true then return true end
     if tool:GetAttribute("Favorite") == true or tool:GetAttribute("IsFavorite") == true or tool:GetAttribute("Favorited") == true then return true end
     if tool:GetAttribute("Locked") == true or tool:GetAttribute("Lock") == true or tool:GetAttribute("IsLocked") == true then return true end
     if tool:GetAttribute("Equipped") == true or tool:GetAttribute("IsEquipped") == true then return true end
 
-    local uuid = (petInfo and petInfo.UUID) or tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("Id") or tool.Name:match("%b{}")
+    -- Extract clean UUID from all possible sources
+    local rawUuid = (petInfo and petInfo.UUID) or tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("c") or tool.Name:match("%b{}")
     local cleanUuid = nil
-    if uuid and type(uuid) == "string" then
-        cleanUuid = uuid:gsub("[{}]", "")
+    if rawUuid and type(rawUuid) == "string" then
+        cleanUuid = rawUuid:gsub("[{}]", "")
     end
 
-    -- 2. DataService Deep Verification (Inventory Flags & All Loadout Slots 1-6)
+    if not cleanUuid then
+        return false
+    end
+
+    -- Layer 2: DataService Deep Verification (All Loadout Slots 1-6, Equipped Pets, and Inventory Flags)
+    local isProtectedFromData = false
     pcall(function()
         local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
         local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
         if data and data.PetsData then
-            local pets = data.PetsData
+            local petsData = data.PetsData
 
-            -- Check all Loadout Slots (1 to 6) - ANY pet in ANY team is 100% protected
-            local loadouts = pets.PetLoadouts or pets.Loadouts or pets.Teams
-            if loadouts and type(loadouts) == "table" and cleanUuid then
+            -- 1. Check all Loadout Slots (1 to 6) - ANY pet in ANY team is 100% protected
+            local loadouts = petsData.PetLoadouts or petsData.Loadouts or petsData.Teams
+            if loadouts and type(loadouts) == "table" then
                 for _, loadout in pairs(loadouts) do
                     if type(loadout) == "table" then
                         for _, petId in pairs(loadout) do
-                            local strId = tostring(petId):gsub("[{}]", "")
-                            if strId == cleanUuid then
-                                return true
+                            if tostring(petId):gsub("[{}]", "") == cleanUuid then
+                                isProtectedFromData = true
+                                return
                             end
                         end
                     end
                 end
             end
 
-            -- Check EquippedPets
-            if pets.EquippedPets and type(pets.EquippedPets) == "table" and cleanUuid then
-                for _, petId in pairs(pets.EquippedPets) do
-                    local strId = tostring(petId):gsub("[{}]", "")
-                    if strId == cleanUuid then
-                        return true
+            -- 2. Check EquippedPets list
+            if petsData.EquippedPets and type(petsData.EquippedPets) == "table" then
+                for _, petId in pairs(petsData.EquippedPets) do
+                    if tostring(petId):gsub("[{}]", "") == cleanUuid then
+                        isProtectedFromData = true
+                        return
                     end
                 end
             end
 
-            -- Check PetInventory Data for Favorite / Locked flags
-            if pets.PetInventory and pets.PetInventory.Data and cleanUuid then
-                local petEntry = pets.PetInventory.Data[cleanUuid] or pets.PetInventory.Data["{" .. cleanUuid .. "}"] or pets.PetInventory.Data[uuid]
-                if petEntry and petEntry.PetData then
-                    local pd = petEntry.PetData
-                    if pd.IsFavorite == true or pd.Favorite == true or pd.d == true or pd.Locked == true or pd.Lock == true then
-                        return true
+            -- 3. Check LastLoadedPetLoadout list
+            if petsData.LastLoadedPetLoadout and type(petsData.LastLoadedPetLoadout) == "table" then
+                for _, petId in pairs(petsData.LastLoadedPetLoadout) do
+                    if tostring(petId):gsub("[{}]", "") == cleanUuid then
+                        isProtectedFromData = true
+                        return
+                    end
+                end
+            end
+
+            -- 4. Check PetInventory Data for Favorite / Locked flags
+            if petsData.PetInventory and petsData.PetInventory.Data then
+                for pUuid, petEntry in pairs(petsData.PetInventory.Data) do
+                    if tostring(pUuid):gsub("[{}]", "") == cleanUuid then
+                        local pd = petEntry.PetData
+                        if pd then
+                            if pd.IsFavorite == true or pd.Favorite == true or pd.d == true or pd.Locked == true or pd.Lock == true then
+                                isProtectedFromData = true
+                                return
+                            end
+                        end
                     end
                 end
             end
         end
     end)
+
+    if isProtectedFromData then
+        return true
+    end
 
     return false
 end
@@ -3172,7 +3196,7 @@ task.spawn(function()
 
                     if sellShop then
                         for _, toolItem in ipairs(petToolBatch) do
-                            if toolItem and toolItem.Parent and shouldSellPetTool(toolItem) then
+                            if toolItem and toolItem.Parent and shouldSellPetTool(toolItem) and not isPetProtected(toolItem) then
                                 pcall(function()
                                     sellShop:FireServer(toolItem)
                                 end)
