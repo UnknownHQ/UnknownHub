@@ -6623,60 +6623,6 @@ local function clearScreenBlur()
     end)
 end
 
--- Open In-Game Shop and scroll directly to the matching product section
-local function openInGameShopForProduct(prodObj)
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if not pGui then return end
-        local shopGui = pGui:FindFirstChild("Shop_UI")
-        if shopGui then
-            shopGui.Enabled = true
-            if shopGui:FindFirstChild("Frame") then
-                shopGui.Frame.Visible = true
-            end
-            local scroll = shopGui:FindFirstChild("ScrollingFrame", true)
-            if scroll and prodObj then
-                local cat = prodObj.Category or ""
-                local name = (prodObj.Name or ""):lower()
-                local raw = (prodObj.RawName or ""):lower()
-
-                local targetFrame = nil
-                if cat == "Forever Pack" or name:find("forever") or raw:find("infinite") then
-                    targetFrame = scroll:FindFirstChild("Infinite")
-                elseif cat == "Event Forever Pack" or name:find("event forever") or raw:find("eventinfinite") then
-                    targetFrame = scroll:FindFirstChild("Infinite_Halloween") or scroll:FindFirstChild("Infinite_EventTemplate")
-                elseif raw:find("sheckle") or name:find("sheckle") then
-                    targetFrame = scroll:FindFirstChild("Sheckles")
-                elseif raw:find("superseed") or name:find("super seed") then
-                    targetFrame = scroll:FindFirstChild("SuperSeedPackV1") or scroll:FindFirstChild("SuperSeedPackV2")
-                elseif raw:find("exotic") or name:find("exotic") then
-                    targetFrame = scroll:FindFirstChild("ExoticPack") or scroll:FindFirstChild("ExoticPack1") or scroll:FindFirstChild("ExoticPack2")
-                elseif raw:find("twilight") or name:find("twilight") then
-                    targetFrame = scroll:FindFirstChild("TwilightPack")
-                elseif raw:find("gravedigger") or name:find("grave digger") then
-                    targetFrame = scroll:FindFirstChild("GraveDiggerPack")
-                elseif raw:find("goldenshovel") or name:find("gold shovel") then
-                    targetFrame = scroll:FindFirstChild("GoldShovel")
-                elseif raw:find("rainbowshovel") or name:find("rainbow shovel") then
-                    targetFrame = scroll:FindFirstChild("RainbowShovel")
-                elseif raw:find("summer") or name:find("summer") then
-                    targetFrame = scroll:FindFirstChild("Summer2026Pack")
-                elseif raw:find("seedrain") or name:find("seed rain") then
-                    targetFrame = scroll:FindFirstChild("SeedRain")
-                elseif cat == "Pet Egg" or raw:find("egg") or raw:find("pet") then
-                    targetFrame = scroll:FindFirstChild("PetProducts")
-                end
-
-                if targetFrame and targetFrame:IsA("GuiObject") then
-                    pcall(function()
-                        scroll.CanvasPosition = Vector2.new(0, math.max(0, targetFrame.Position.Y.Offset or targetFrame.AbsolutePosition.Y - scroll.AbsolutePosition.Y))
-                    end)
-                end
-            end
-        end
-    end)
-end
-
 local selectProductListObj = Hub.CreateList(miscTab, "Select Product / Gamepass", productListItems, 220, false)
 
 -- Helper to find product details by name (Exact & Fuzzy matching)
@@ -6757,8 +6703,8 @@ local function triggerInGameShopButton(targetName, targetId)
     return triggered
 end
 
--- Prompt Purchase Action
-Hub.CreateButton(miscTab, "💎 Prompt Purchase (Robux)", function()
+-- Direct Prompt Purchase Action
+Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
     local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "[Gamepass] Harvest All"
     local chosenProductName = tostring(getUIListVal(selectProductListObj, defaultName))
     local prodObj = findProductDetails(chosenProductName)
@@ -6770,157 +6716,73 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase (Robux)", function()
     local robuxPrice = tonumber(prodObj.Robux) or prodPrice
     local itemType = tostring(prodObj.Type or "Product")
     local itemCategory = tostring(prodObj.Category or "Product")
+    local infoType = (itemType == "Gamepass" and Enum.InfoType.GamePass)
+        or (itemType == "Bundle" and Enum.InfoType.Bundle)
+        or (itemType == "Asset" and Enum.InfoType.Asset)
+        or Enum.InfoType.Product
 
-    print(string.format("[Unknown Hub] Robux purchase prompt selected for '%s' (ID: %d, Category: %s, Price: %d R$)...", prodName, prodId, itemCategory, robuxPrice))
+    if prodId <= 0 then
+        if Hub.Notify then
+            Hub.Notify({
+                Title = "💎 Prompt Purchase",
+                Content = string.format("Invalid Product ID for '%s'", prodName),
+                Duration = 3
+            })
+        end
+        return
+    end
 
-    -- Always clear screen blur immediately to keep screen bright and visible
+    print(string.format("[Unknown Hub] Prompting purchase for '%s' (ID: %d, Category: %s, Price: %d R$)...", prodName, prodId, itemCategory, robuxPrice))
+
+    -- 1. Clear any stuck screen blur first
     clearScreenBlur()
 
-    -- Display dedicated on-screen Robux Purchase Prompt Modal
-    local guiParent = (gethui and gethui()) or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui"))
-
+    -- 2. Trigger GAG's native MarketController:PromptPurchase (opens the game's payment selector if player has Trade Tokens, or initiates purchase)
     pcall(function()
-        if guiParent then
-            local existingPrompt = guiParent:FindFirstChild("Unknown_RobuxBuyPrompt")
-            if existingPrompt then existingPrompt:Destroy() end
-
-            local sg = Instance.new("ScreenGui")
-            sg.Name = "Unknown_RobuxBuyPrompt"
-            sg.ResetOnSpawn = false
-            sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-            sg.DisplayOrder = 999999999
-            sg.IgnoreGuiInset = true
-
-            local card = Instance.new("Frame")
-            card.Size = UDim2.new(0, 420, 0, 240)
-            card.Position = UDim2.new(0.5, -210, 0.5, -120)
-            card.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
-            card.BorderSizePixel = 0
-            card.ZIndex = 500
-            card.Parent = sg
-
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 12)
-            corner.Parent = card
-
-            local stroke = Instance.new("UIStroke")
-            stroke.Color = Color3.fromRGB(0, 180, 255)
-            stroke.Thickness = 2
-            stroke.Parent = card
-
-            local title = Instance.new("TextLabel")
-            title.Size = UDim2.new(1, -20, 0, 30)
-            title.Position = UDim2.new(0, 10, 0, 10)
-            title.BackgroundTransparency = 1
-            title.Text = "💎 Roblox Purchase Prompt"
-            title.TextColor3 = Color3.fromRGB(0, 180, 255)
-            title.Font = Enum.Font.GothamBold
-            title.TextSize = 15
-            title.ZIndex = 501
-            title.Parent = card
-
-            local desc = Instance.new("TextLabel")
-            desc.Size = UDim2.new(1, -30, 0, 110)
-            desc.Position = UDim2.new(0, 15, 0, 45)
-            desc.BackgroundTransparency = 1
-            desc.Text = string.format("Product: %s\nCategory: %s\nAsset / Product ID: %s\nPrice: %s\n\nTip: Click 'In-Game Shop' to view and buy directly in official shop!", prodName, itemCategory, (prodId > 0 and tostring(prodId) or "In-Game Product"), (robuxPrice > 0 and (tostring(robuxPrice) .. " Robux (R$)") or "Free / In-Game"))
-            desc.TextColor3 = Color3.fromRGB(240, 245, 255)
-            desc.Font = Enum.Font.GothamMedium
-            desc.TextSize = 12
-            desc.TextWrapped = true
-            desc.TextXAlignment = Enum.TextXAlignment.Left
-            desc.TextYAlignment = Enum.TextYAlignment.Top
-            desc.ZIndex = 501
-            desc.Parent = card
-
-            local shopBtn = Instance.new("TextButton")
-            shopBtn.Size = UDim2.new(0.38, 0, 0, 36)
-            shopBtn.Position = UDim2.new(0.04, 0, 1, -48)
-            shopBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-            shopBtn.Text = "🛒 In-Game Shop"
-            shopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            shopBtn.Font = Enum.Font.GothamBold
-            shopBtn.TextSize = 12
-            shopBtn.ZIndex = 502
-            shopBtn.Parent = card
-            local sCorner = Instance.new("UICorner", shopBtn)
-            sCorner.CornerRadius = UDim.new(0, 6)
-
-            local promptBtn = Instance.new("TextButton")
-            promptBtn.Size = UDim2.new(0.38, 0, 0, 36)
-            promptBtn.Position = UDim2.new(0.44, 0, 1, -48)
-            promptBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 120)
-            promptBtn.Text = "💎 Prompt Buy"
-            promptBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            promptBtn.Font = Enum.Font.GothamBold
-            promptBtn.TextSize = 12
-            promptBtn.ZIndex = 502
-            promptBtn.Parent = card
-            local pCorner = Instance.new("UICorner", promptBtn)
-            pCorner.CornerRadius = UDim.new(0, 6)
-
-            local cancelBtn = Instance.new("TextButton")
-            cancelBtn.Size = UDim2.new(0.14, 0, 0, 36)
-            cancelBtn.Position = UDim2.new(0.84, 0, 1, -48)
-            cancelBtn.BackgroundColor3 = Color3.fromRGB(45, 50, 65)
-            cancelBtn.Text = "✕"
-            cancelBtn.TextColor3 = Color3.fromRGB(220, 225, 240)
-            cancelBtn.Font = Enum.Font.GothamBold
-            cancelBtn.TextSize = 14
-            cancelBtn.ZIndex = 502
-            cancelBtn.Parent = card
-            local cCorner = Instance.new("UICorner", cancelBtn)
-            cCorner.CornerRadius = UDim.new(0, 6)
-
-            shopBtn.MouseButton1Click:Connect(function()
-                openInGameShopForProduct(prodObj)
-                clearScreenBlur()
-                sg:Destroy()
-            end)
-
-            cancelBtn.MouseButton1Click:Connect(function()
-                clearScreenBlur()
-                sg:Destroy()
-            end)
-
-            promptBtn.MouseButton1Click:Connect(function()
-                pcall(function()
-                    local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
-                    if mcMod and prodId > 0 then
-                        local mc = require(mcMod)
-                        local infoType = itemType == "Gamepass" and Enum.InfoType.GamePass or Enum.InfoType.Product
-                        mc:PromptPurchase(prodId, infoType)
-                    end
-                end)
-                pcall(function()
-                    if prodId > 0 then
-                        if itemType == "Gamepass" then
-                            MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
-                        elseif itemType == "Bundle" then
-                            MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
-                        elseif itemType == "Product" then
-                            MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
-                        else
-                            MarketplaceService:PromptPurchase(LocalPlayer, prodId)
-                        end
-                    end
-                end)
-                triggerInGameShopButton(prodName, prodId)
-                openInGameShopForProduct(prodObj)
-                task.delay(0.1, clearScreenBlur)
-                print(string.format("[Unknown Hub] Purchase prompt fired for '%s' (ID: %d)!", prodName, prodId))
-                sg:Destroy()
-            end)
-
-            sg.Parent = guiParent
+        local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
+        if mcMod then
+            local mc = require(mcMod)
+            if mc.PromptPurchase then
+                mc:PromptPurchase(prodId, infoType)
+            elseif mc.PromptPurchaseRobux then
+                mc:PromptPurchaseRobux(prodId, infoType)
+            end
         end
+    end)
+
+    -- 3. Trigger native MarketplaceService prompt
+    pcall(function()
+        if itemType == "Gamepass" then
+            MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
+        elseif itemType == "Bundle" then
+            MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
+        elseif itemType == "Product" then
+            MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
+        else
+            MarketplaceService:PromptPurchase(LocalPlayer, prodId)
+        end
+    end)
+
+    -- 4. Trigger in-game shop button connections if present
+    triggerInGameShopButton(prodName, prodId)
+
+    -- 5. Safety check: If GAG's confirmation prompt isn't open and blur got stuck, clear it so screen stays bright
+    task.delay(0.4, function()
+        pcall(function()
+            local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+            local confirmPrompt = pGui and pGui:FindFirstChild("GenericConfirmationPrompt")
+            local isOpen = confirmPrompt and confirmPrompt:IsA("ScreenGui") and confirmPrompt.Enabled
+            if not isOpen then
+                clearScreenBlur()
+            end
+        end)
     end)
 
     pcall(function()
         if Hub.Notify then
             Hub.Notify({
-                Title = "💎 Robux Purchase Prompt",
-                Content = string.format("Selected: %s (ID: %d)", prodName, prodId),
+                Title = "💎 Prompt Purchase",
+                Content = string.format("Prompting purchase for %s (ID: %d)", prodName, prodId),
                 Duration = 3
             })
         end
