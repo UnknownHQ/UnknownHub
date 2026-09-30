@@ -3343,9 +3343,12 @@ local function getNextEggRowPosition()
         local objFolder = farm.Important:FindFirstChild("Objects_Physical")
         if objFolder then
             for _, obj in ipairs(objFolder:GetChildren()) do
-                local pos = (obj:IsA("Model") and obj:GetPivot().Position) or (obj:FindFirstChildWhichIsA("BasePart", true) and obj:FindFirstChildWhichIsA("BasePart", true).Position)
-                if pos then
-                    table.insert(occupiedPositions, pos)
+                local isEgg = obj.Name:lower():find("egg") or obj:GetAttribute("EggName") or obj:GetAttribute("TimeToHatch")
+                if not isEgg then
+                    local pos = (obj:IsA("Model") and obj:GetPivot().Position) or (obj:FindFirstChildWhichIsA("BasePart", true) and obj:FindFirstChildWhichIsA("BasePart", true).Position)
+                    if pos then
+                        table.insert(occupiedPositions, pos)
+                    end
                 end
             end
         end
@@ -3357,12 +3360,6 @@ local function getNextEggRowPosition()
     local marginX = 1.5
     local marginZ = 1.5
     local minClearance = 2.4
-
-    local rayParams = RaycastParams.new()
-    rayParams.FilterDescendantsInstances = canPlantParts
-    rayParams.FilterType = Enum.RaycastFilterType.Include
-
-    local slots = {}
 
     for _, cp in ipairs(canPlantParts) do
         local cf = cp.CFrame
@@ -3382,31 +3379,25 @@ local function getNextEggRowPosition()
                 local lz = minZ + (r * spacingZ)
                 local topLocalY = (sz.Y / 2) + 0.025
                 local worldPos = cf:PointToWorldSpace(Vector3.new(lx, topLocalY, lz))
-                local rayHit = workspace:Raycast(worldPos + Vector3.new(0, 3, 0), Vector3.new(0, -6, 0), rayParams)
-                if rayHit then
-                    worldPos = rayHit.Position
+
+                local isOccupied = false
+                for _, occPos in ipairs(occupiedPositions) do
+                    local dist2D = (Vector3.new(worldPos.X, 0, worldPos.Z) - Vector3.new(occPos.X, 0, occPos.Z)).Magnitude
+                    if dist2D < minClearance then
+                        isOccupied = true
+                        break
+                    end
                 end
-                table.insert(slots, worldPos)
+
+                if not isOccupied then
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = canPlantParts
+                    rayParams.FilterType = Enum.RaycastFilterType.Include
+                    local rayHit = workspace:Raycast(worldPos + Vector3.new(0, 3, 0), Vector3.new(0, -6, 0), rayParams)
+                    return rayHit and rayHit.Position or worldPos
+                end
             end
         end
-    end
-
-    for _, slotPos in ipairs(slots) do
-        local isOccupied = false
-        for _, occPos in ipairs(occupiedPositions) do
-            local dist2D = (Vector3.new(slotPos.X, 0, slotPos.Z) - Vector3.new(occPos.X, 0, occPos.Z)).Magnitude
-            if dist2D < minClearance then
-                isOccupied = true
-                break
-            end
-        end
-        if not isOccupied then
-            return slotPos
-        end
-    end
-
-    if #slots > 0 then
-        return slots[1] + Vector3.new((math.random() - 0.5) * 0.5, 0, (math.random() - 0.5) * 0.5)
     end
 
     local firstPart = canPlantParts[1]
@@ -3499,17 +3490,21 @@ local function findEggToolInBackpack(selectedEggNames)
 end
 
 local function getMaxEggCapacity()
-    local maxCap = 3
+    local maxCap = 13
     pcall(function()
         local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
         local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
         if data then
             local pets = data.PetsData
-            local pEggSlots = (pets and tonumber(pets.PurchasedEggSlots)) or tonumber(data.PurchasedEggSlots) or 0
-            local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
-            local coinEggSlots = pLife and tonumber(pLife["Egg Capacity"]) or 0
-            maxCap = 3 + pEggSlots + coinEggSlots
+            if pets and pets.MutableStats and tonumber(pets.MutableStats.MaxEggsInFarm) then
+                maxCap = tonumber(pets.MutableStats.MaxEggsInFarm)
+            else
+                local pEggSlots = (pets and tonumber(pets.PurchasedEggSlots)) or tonumber(data.PurchasedEggSlots) or 0
+                local pLife = data.GardenCoinShopStats and data.GardenCoinShopStats.LifetimePurchases
+                local coinEggSlots = pLife and tonumber(pLife["Egg Capacity"]) or 0
+                maxCap = 3 + pEggSlots + coinEggSlots
+            end
         end
     end)
     return maxCap
@@ -3541,10 +3536,12 @@ local function placeEggAt(targetPos, eggTool)
         eggTool.Parent = char
     end
     if not wasEquipped then
-        task.wait(0.04)
+        task.wait(0.02)
     end
 
     -- 3. Fire server remote to place egg at exact coordinates
+    -- NOTE: DO NOT call eggTool:Activate() here because PetEggToolLocal's Activated event
+    -- calls GetMouseToWorld() and fires CreateEgg with the mouse cursor position!
     local ge = ReplicatedStorage:FindFirstChild("GameEvents")
     local petEggService = ge and ge:FindFirstChild("PetEggService")
 
@@ -3553,13 +3550,6 @@ local function placeEggAt(targetPos, eggTool)
             petEggService:FireServer("CreateEgg", targetPos)
         end)
     end
-
-    -- 4. Activate tool if equipped
-    pcall(function()
-        if eggTool and eggTool.Parent == char then
-            eggTool:Activate()
-        end
-    end)
 end
 
 local function isEggReadyToHatch(eggObj)
@@ -3719,7 +3709,7 @@ local function equipPetSlot(slotVal, waitForLoad, minCooldown)
         end)
     end
 
-    if waitForLoad then
+    if waitForLoad and isNewSlot then
         local targetCooldown = minCooldown or math.max(3.0, tonumber(State.Hatch_SlotCooldown) or 5.0)
         local startWait = tick()
         while (not isPetSlotLoaded(slotNum) or (tick() - lastSlotEquipTick < targetCooldown)) and (tick() - startWait < targetCooldown + 1.5) do
@@ -3739,7 +3729,7 @@ task.spawn(function()
         if autoPlace then
             local ok, err = pcall(function()
                 if _G._gag_selling_pets or isPetBackpackFull() then
-                    task.wait(0.35)
+                    task.wait(0.25)
                     return
                 end
 
@@ -3748,27 +3738,27 @@ task.spawn(function()
                 local currentPlacedCount = #placedEggs
 
                 if onlyNoEgg and currentPlacedCount > 0 then
-                    task.wait(0.25)
+                    task.wait(0.2)
                     return
                 end
 
                 local maxCapacity = getMaxEggCapacity()
                 if currentPlacedCount >= maxCapacity then
-                    task.wait(0.25)
+                    task.wait(0.2)
                     return
                 end
 
                 local selectedEggs = getUIListMultipleVals(placeEggListObj, nil)
                 local eggTool = findEggToolInBackpack(selectedEggs)
                 if not eggTool then
-                    task.wait(0.3)
+                    task.wait(0.25)
                     return
                 end
 
-                -- Always equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
+                -- Equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
                 local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
                 if placeSlot ~= "None" and not _G._gag_selling_pets then
-                    equipPetSlot(placeSlot, true, 2.0)
+                    equipPetSlot(placeSlot, true, 1.5)
                 end
 
                 local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
@@ -3788,14 +3778,14 @@ task.spawn(function()
                 if targetPos then
                     placeEggAt(targetPos, eggTool)
                 end
-                task.wait(0.22)
+                task.wait(0.1)
             end)
 
             if not ok and err then
-                task.wait(0.25)
+                task.wait(0.2)
             end
         else
-            task.wait(0.4)
+            task.wait(0.3)
         end
     end
 end)
