@@ -819,7 +819,7 @@ local function buildDynamicPetCatalog()
     return sortedList
 end
 
--- 5. Products & Gamepasses Catalog (Comprehensive & Dynamically Self-Updating, Robux Only)
+-- 5. Products & Gamepasses Catalog (Comprehensive, Dynamically Self-Updating & Zero-Lag)
 local function buildDynamicProductCatalog()
     local productMap = {}
 
@@ -925,135 +925,203 @@ local function buildDynamicProductCatalog()
         addProd(name, gp[1], gp[2], gp[3], "Gamepass", "Gamepass", 300 + i)
     end
 
-    -- 4. Packs & Bundles (Data.Packs)
-    pcall(function()
-        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
-        local packsFolder = dataFolder and dataFolder:FindFirstChild("Packs")
-        if packsFolder then
-            for i, m in ipairs(packsFolder:GetChildren()) do
-                if m:IsA("ModuleScript") then
-                    pcall(function()
-                        local pData = require(m)
-                        if type(pData) == "table" then
-                            local pid = tonumber(pData.ProductId or pData.PurchaseID or pData.DevProductId) or 0
-                            local price = tonumber(pData.Price or pData.Robux or pData.Cost) or 0
-                            local packName = m.Name:gsub("Data$", ""):gsub("Bundle", " Bundle"):gsub("Pack", " Pack"):gsub("(%l)(%u)", "%1 %2")
-                            if pid > 0 then
-                                local label = price > 0 and string.format("%s (%d R$)", packName, price) or packName
-                                addProd(label, m.Name, pid, price, "Product", "Packs & Bundles", 400 + i)
-                            end
-                            local giftId = tonumber(pData.GiftId) or 0
-                            if giftId > 0 then
-                                local giftLabel = price > 0 and string.format("%s (Gift) (%d R$)", packName, price) or (packName .. " (Gift)")
-                                addProd(giftLabel, m.Name .. "Gift", giftId, price, "Product", "Packs & Bundles", 450 + i)
-                            end
-                        end
-                    end)
-                end
-            end
-        end
-    end)
+    -- 4. Specific Data Module Scanners (SeedShop, GearShop, Cosmetics, EventShops, Packs, ExoticPacks, DevProducts, Gifts)
+    local dataFolder = ReplicatedStorage:FindFirstChild("Data")
 
-    -- 5. Exotic Packs, Chests & Premium Eggs (Data.ExoticPackData)
     pcall(function()
-        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
-        local exMod = dataFolder and dataFolder:FindFirstChild("ExoticPackData")
-        if exMod then
-            local exData = require(exMod)
-            if type(exData) == "table" then
-                local i = 0
-                for packKey, packInfo in pairs(exData) do
-                    i = i + 1
-                    if type(packInfo) == "table" then
-                        local title = packInfo.Title or packKey:gsub("^PREMIUM_", "Premium "):gsub("^EXOTIC_", "Exotic "):gsub("_", " ")
-                        title = title:gsub("!$", "")
-                        local fallbackPrice = (type(packInfo.FallbackPrices) == "table" and tonumber(packInfo.FallbackPrices[1])) or 149
-                        if type(packInfo.Products) == "table" then
-                            for _, pid in ipairs(packInfo.Products) do
-                                local numPid = tonumber(pid) or 0
-                                if numPid > 0 then
-                                    local label = string.format("%s (%d R$)", title, fallbackPrice)
-                                    addProd(label, packKey, numPid, fallbackPrice, "Product", "Exotic Packs & Chests", 500 + i)
-                                end
-                            end
-                        end
-                        if type(packInfo.GiftProducts) == "table" then
-                            for _, gpid in pairs(packInfo.GiftProducts) do
-                                local numGpid = tonumber(gpid) or 0
-                                if numGpid > 0 then
-                                    local label = string.format("%s (Gift) (%d R$)", title, fallbackPrice)
-                                    addProd(label, packKey .. "_Gift", numGpid, fallbackPrice, "Product", "Exotic Packs & Chests", 550 + i)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-
-    -- 6. Dev Products (Data.DevProductIds)
-    pcall(function()
-        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
-        local devProductMod = dataFolder and dataFolder:FindFirstChild("DevProductIds")
-        if devProductMod then
-            local devData = require(devProductMod)
-            if type(devData) == "table" then
-                local i = 0
-                for prodName, prodVal in pairs(devData) do
-                    i = i + 1
-                    if type(prodVal) == "table" then
-                        for subKey, val in pairs(prodVal) do
-                            local numId = tonumber(val)
-                            if numId and numId > 1000000000 then
-                                local sKey = tostring(subKey)
-                                local title = tostring(prodName)
-                                if sKey:lower():find("gift") and not title:lower():find("gift") then
-                                    title = title .. " (Gift)"
-                                elseif sKey:lower():find("all") and not title:lower():find("all") then
-                                    title = title .. " (All)"
-                                end
-                                local formattedName = title:gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
-                                local price = tonumber(prodVal.Price or prodVal.Robux or prodVal.Cost) or 0
-                                local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
-                                addProd(label, tostring(prodName) .. "_" .. sKey, numId, price, "Product", "Dev Products", 600 + i)
-                            end
-                        end
-                    elseif tonumber(prodVal) then
-                        local purchaseId = tonumber(prodVal)
-                        if purchaseId > 0 then
-                            local formattedName = tostring(prodName):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
-                            addProd(formattedName, tostring(prodName), purchaseId, 0, "Product", "Dev Products", 600 + i)
-                        end
-                    end
-                end
-            end
-        end
-    end)
-
-    -- 7. Gift Catalog (Data.GiftData)
-    pcall(function()
-        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
-        local giftMod = dataFolder and dataFolder:FindFirstChild("GiftData")
-        if giftMod then
-            local giftData = require(giftMod)
-            if type(giftData) == "table" then
-                local i = 0
-                for giftKey, giftInfo in pairs(giftData) do
-                    i = i + 1
-                    if type(giftInfo) == "table" then
-                        local pid = tonumber(giftInfo.PurchaseID or giftInfo.ProductId or giftInfo.Id) or 0
-                        local price = tonumber(giftInfo.Price or giftInfo.Robux or giftInfo.Cost) or 0
-                        local formattedName = tostring(giftKey):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ") .. " (Gift)"
+        local ssd = dataFolder and dataFolder:FindFirstChild("SeedShopData")
+        if ssd then
+            local data = require(ssd)
+            if type(data) == "table" then
+                for seedName, seedInfo in pairs(data) do
+                    if type(seedInfo) == "table" then
+                        local pid = tonumber(seedInfo.PurchaseID or seedInfo.ProductId) or 0
+                        local giftPid = tonumber(seedInfo.GiftPurchaseID) or 0
+                        local price = tonumber(seedInfo.PriceInRobux or seedInfo.RobuxPrice or seedInfo.Price) or 0
+                        local formattedName = tostring(seedName):gsub("(%l)(%u)", "%1 %2")
                         if pid > 0 then
                             local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
-                            addProd(label, tostring(giftKey) .. "_GiftData", pid, price, "Product", "Packs & Bundles", 480 + i)
+                            addProd(label, tostring(seedName), pid, price, "Product", "Seed Shop", 400)
+                        end
+                        if giftPid > 0 then
+                            local label = price > 0 and string.format("%s (Gift) (%d R$)", formattedName, price) or (formattedName .. " (Gift)")
+                            addProd(label, tostring(seedName) .. "_Gift", giftPid, price, "Product", "Seed Shop", 405)
                         end
                     end
                 end
             end
         end
     end)
+
+    pcall(function()
+        local gsd = dataFolder and dataFolder:FindFirstChild("GearShopData")
+        if gsd then
+            local data = require(gsd)
+            if type(data) == "table" then
+                for gearName, gearInfo in pairs(data) do
+                    if type(gearInfo) == "table" then
+                        local pid = tonumber(gearInfo.PurchaseID or gearInfo.ProductId) or 0
+                        local giftPid = tonumber(gearInfo.GiftPurchaseID) or 0
+                        local price = tonumber(gearInfo.PriceInRobux or gearInfo.RobuxPrice or gearInfo.Price) or 0
+                        local formattedName = tostring(gearName):gsub("(%l)(%u)", "%1 %2")
+                        if pid > 0 then
+                            local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
+                            addProd(label, tostring(gearName), pid, price, "Product", "Gear Shop", 420)
+                        end
+                        if giftPid > 0 then
+                            local label = price > 0 and string.format("%s (Gift) (%d R$)", formattedName, price) or (formattedName .. " (Gift)")
+                            addProd(label, tostring(gearName) .. "_Gift", giftPid, price, "Product", "Gear Shop", 425)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local cosModules = {"CosmeticShopConfigData", "CosmeticItemShopData", "CosmeticCrateShopData"}
+        for _, modName in ipairs(cosModules) do
+            local mod = dataFolder and dataFolder:FindFirstChild(modName)
+            if mod then
+                local data = require(mod)
+                if type(data) == "table" then
+                    for k, info in pairs(data) do
+                        if type(info) == "table" then
+                            local pid = tonumber(info.PurchaseID or info.ProductId or info.DevProductId) or 0
+                            local giftPid = tonumber(info.GiftPurchaseID or info.GiftId) or 0
+                            local price = tonumber(info.PriceInRobux or info.RobuxPrice or info.Price) or 0
+                            local displayName = tostring(info.Name or info.DisplayName or info.Title or k):gsub("(%l)(%u)", "%1 %2")
+                            if pid > 0 then
+                                local label = price > 0 and string.format("%s (%d R$)", displayName, price) or displayName
+                                addProd(label, tostring(k), pid, price, "Product", "Cosmetics", 440)
+                            end
+                            if giftPid > 0 then
+                                local label = price > 0 and string.format("%s (Gift) (%d R$)", displayName, price) or (displayName .. " (Gift)")
+                                addProd(label, tostring(k) .. "_Gift", giftPid, price, "Product", "Cosmetics", 445)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        local esd = dataFolder and dataFolder:FindFirstChild("EventShopConfigData")
+        if esd then
+            local data = require(esd)
+            if type(data) == "table" then
+                for k, info in pairs(data) do
+                    if type(info) == "table" then
+                        local pid = tonumber(info.PurchaseID or info.ProductId) or 0
+                        local giftPid = tonumber(info.GiftPurchaseID or info.GiftId) or 0
+                        local price = tonumber(info.PriceInRobux or info.RobuxPrice or info.Price) or 0
+                        local displayName = tostring(info.Name or info.DisplayName or info.Title or k):gsub("(%l)(%u)", "%1 %2")
+                        if pid > 0 then
+                            local label = price > 0 and string.format("%s (%d R$)", displayName, price) or displayName
+                            addProd(label, tostring(k), pid, price, "Product", "Event Items", 460)
+                        end
+                        if giftPid > 0 then
+                            local label = price > 0 and string.format("%s (Gift) (%d R$)", displayName, price) or (displayName .. " (Gift)")
+                            addProd(label, tostring(k) .. "_Gift", giftPid, price, "Product", "Event Items", 465)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- 5. Universal Recursive Scanner across all Data modules
+    local function isValidRobuxId(id)
+        local n = tonumber(id)
+        if not n then return false end
+        if n >= 1000000000 and n <= 5000000000 then
+            if n >= 1700000000 and n <= 1900000000 then return false end
+            return true
+        end
+        return false
+    end
+
+    local nonProductKeys = {
+        ["timestamp"] = true, ["time"] = true, ["created"] = true, ["updated"] = true,
+        ["seed"] = true, ["price"] = true, ["cost"] = true, ["weight"] = true, ["value"] = true,
+        ["fruitvalue"] = true, ["basetype"] = true, ["rarity"] = true, ["chance"] = true,
+        ["fruitcost"] = true, ["baseprice"] = true, ["sheckles"] = true
+    }
+
+    local visited = {}
+    local function deepScan(t, sourceName, parentKey, depth)
+        if depth > 5 or type(t) ~= "table" or visited[t] then return end
+        visited[t] = true
+        
+        local ok, isSig = pcall(function() return typeof(t) == "RBXScriptSignal" or (t.ClassName ~= nil and typeof(t) ~= "table") end)
+        if ok and isSig then return end
+        
+        local rawPid, rawGiftPid, rawPassId, rawPrice, rawName
+        pcall(function() rawPid = t.ProductId or t.ProductID or t.PurchaseID or t.PurchaseId or t.DevProductId or t.DevProductID end)
+        pcall(function() rawGiftPid = t.GiftPurchaseID or t.GiftPurchaseId or t.GiftProductId or t.GiftId end)
+        pcall(function() rawPassId = t.GamepassId or t.GamePassId or t.PassId end)
+        pcall(function() rawPrice = t.PriceInRobux or t.RobuxPrice or t.Price or t.Robux end)
+        pcall(function() rawName = t.Name or t.SeedName or t.DisplayName or t.Title or t.ItemName or t.EggName or parentKey end)
+        
+        local numPid = tonumber(rawPid)
+        local numGiftPid = tonumber(rawGiftPid)
+        local numPassId = tonumber(rawPassId)
+        local numPrice = tonumber(rawPrice) or 0
+        local dispName = tostring(rawName or parentKey or "Unknown"):gsub("(%l)(%u)", "%1 %2"):gsub("_", " ")
+        
+        local cat = "Other"
+        local sLow = sourceName:lower()
+        if sLow:find("seed") then cat = "Seed Shop"
+        elseif sLow:find("cosmetic") or sLow:find("crate") then cat = "Cosmetics"
+        elseif sLow:find("gear") then cat = "Gear Shop"
+        elseif sLow:find("pack") or sLow:find("exotic") then cat = "Packs & Bundles"
+        elseif sLow:find("egg") or sLow:find("pet") then cat = "Pets & Eggs"
+        elseif sLow:find("event") then cat = "Event Items"
+        elseif sLow:find("devproduct") then cat = "Dev Products"
+        elseif sLow:find("gift") then cat = "Gifts"
+        elseif sLow:find("pass") then cat = "Gamepass"
+        end
+
+        if numPid and numPid > 0 then
+            local label = numPrice > 0 and string.format("%s (%d R$)", dispName, numPrice) or dispName
+            addProd(label, tostring(parentKey), numPid, numPrice, "Product", cat, 500)
+        end
+        if numGiftPid and numGiftPid > 0 then
+            local label = numPrice > 0 and string.format("%s (Gift) (%d R$)", dispName, numPrice) or (dispName .. " (Gift)")
+            addProd(label, tostring(parentKey) .. "_Gift", numGiftPid, numPrice, "Product", cat, 510)
+        end
+        if numPassId and numPassId > 1000000 then
+            local label = numPrice > 0 and string.format("%s (%d R$)", dispName, numPrice) or dispName
+            addProd(label, tostring(parentKey), numPassId, numPrice, "Gamepass", "Gamepass", 300)
+        end
+        
+        for k, v in pairs(t) do
+            local kstr = tostring(k):lower()
+            if type(v) == "table" and k ~= "_G" and k ~= "shared" then
+                deepScan(v, sourceName, tostring(k), depth + 1)
+            elseif type(v) == "number" and isValidRobuxId(v) and not nonProductKeys[kstr] then
+                local isNumericKey = tonumber(tostring(k)) ~= nil
+                local pTitle = isNumericKey and (dispName .. " (" .. tostring(k) .. ")") or tostring(k):gsub("(%l)(%u)", "%1 %2"):gsub("_", " ")
+                local isGift = kstr:find("gift")
+                if isGift and not pTitle:lower():find("gift") then pTitle = pTitle .. " (Gift)" end
+                addProd(pTitle, tostring(k), v, 0, "Product", cat, 520)
+            end
+        end
+    end
+
+    if dataFolder then
+        for _, mod in ipairs(dataFolder:GetDescendants()) do
+            if mod:IsA("ModuleScript") then
+                pcall(function()
+                    local data = require(mod)
+                    if type(data) == "table" then
+                        deepScan(data, mod.Name, mod.Name, 1)
+                    end
+                end)
+            end
+        end
+    end
 
     local list = {}
     for _, p in pairs(productMap) do
@@ -6755,20 +6823,29 @@ end)
 
 -- Exact 1:1 product lookup table to prevent any product mismatch
 local productExactMap = {}
-for _, item in ipairs(allAvailableProducts) do
-    if item.Name then
-        productExactMap[item.Name] = item
-        productExactMap[item.Name:lower()] = item
-    end
-    if item.RawName then
-        productExactMap[item.RawName] = item
-        productExactMap[item.RawName:lower()] = item
-    end
-    if item.DisplayName then
-        productExactMap[item.DisplayName] = item
-        productExactMap[item.DisplayName:lower()] = item
+local function updateProductExactMap()
+    table.clear(productExactMap)
+    for _, item in ipairs(allAvailableProducts) do
+        if item.Name then
+            productExactMap[item.Name] = item
+            productExactMap[item.Name:lower()] = item
+            local clean = item.Name:gsub("^%[[^%]]+%]%s*", "")
+            if clean ~= "" then
+                productExactMap[clean] = item
+                productExactMap[clean:lower()] = item
+            end
+        end
+        if item.RawName then
+            productExactMap[item.RawName] = item
+            productExactMap[item.RawName:lower()] = item
+        end
+        if item.DisplayName then
+            productExactMap[item.DisplayName] = item
+            productExactMap[item.DisplayName:lower()] = item
+        end
     end
 end
+updateProductExactMap()
 
 -- Helper to find exact product details
 local function findProductDetails(targetName)
@@ -6781,13 +6858,54 @@ local function findProductDetails(targetName)
     if productExactMap[targetName:lower()] then
         return productExactMap[targetName:lower()]
     end
+    local cleanTarget = targetName:gsub("^%[[^%]]+%]%s*", "")
+    if productExactMap[cleanTarget] then
+        return productExactMap[cleanTarget]
+    end
+    if productExactMap[cleanTarget:lower()] then
+        return productExactMap[cleanTarget:lower()]
+    end
     for _, item in ipairs(allAvailableProducts) do
         if item.Name == targetName or item.Name:lower() == targetName:lower() then
+            return item
+        end
+        if item.DisplayName and (item.DisplayName == targetName or item.DisplayName:lower() == targetName:lower()) then
+            return item
+        end
+        if item.RawName and (item.RawName == targetName or item.RawName:lower() == targetName:lower()) then
+            return item
+        end
+    end
+    -- Substring search fallback
+    local lowTarget = targetName:lower()
+    for _, item in ipairs(allAvailableProducts) do
+        if item.Name:lower():find(lowTarget, 1, true) or (item.DisplayName and item.DisplayName:lower():find(lowTarget, 1, true)) then
             return item
         end
     end
     return allAvailableProducts[1]
 end
+
+Hub.CreateButton(miscTab, "🔄 Refresh Products & Gamepasses Catalog", function()
+    pcall(function()
+        allAvailableProducts = buildDynamicProductCatalog()
+        updateProductExactMap()
+        local newItems = {}
+        for _, item in ipairs(allAvailableProducts) do
+            table.insert(newItems, {Name = item.Name})
+        end
+        if selectProductListObj and type(selectProductListObj.Update) == "function" then
+            selectProductListObj:Update(newItems)
+        end
+        if Hub.Notify then
+            Hub.Notify({
+                Title = "💎 Product Catalog",
+                Content = string.format("Refreshed! %d products & gamepasses loaded.", #allAvailableProducts),
+                Duration = 3
+            })
+        end
+    end)
+end)
 
 -- Direct Prompt Purchase Action with Full Gifting & Player Selection Support
 Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
