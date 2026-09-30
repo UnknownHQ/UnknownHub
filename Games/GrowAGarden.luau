@@ -6710,7 +6710,7 @@ end
 
 -- Direct Prompt Purchase Action
 Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
-    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "[Gamepass] Harvest All"
+    local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "[Forever Pack] Tier 1 (39 R$)"
     local chosenProductName = tostring(getUIListVal(selectProductListObj, defaultName))
     local prodObj = findProductDetails(chosenProductName)
 
@@ -6739,54 +6739,55 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
 
     print(string.format("[Unknown Hub] Prompting purchase for '%s' (ID: %d, Category: %s, Price: %d R$)...", prodName, prodId, itemCategory, robuxPrice))
 
-    -- 1. Clear any stuck screen blur first
-    clearScreenBlur()
-
-    -- 2. Trigger GAG's native MarketController:PromptPurchase
-    -- If the player has Trade Tokens, GAG's native dialog pops up and asks the player to choose their payment method.
-    pcall(function()
-        local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
-        if mcMod then
-            local mc = require(mcMod)
-            if mc.PromptPurchase then
-                mc:PromptPurchase(prodId, infoType)
-            elseif mc.PromptPurchaseRobux then
-                mc:PromptPurchaseRobux(prodId, infoType)
-            end
-        end
-    end)
-
-    -- 3. Trigger MarketplaceService prompt as fallback
-    pcall(function()
-        if itemType == "Gamepass" then
-            MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
-        elseif itemType == "Bundle" then
-            MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
-        elseif itemType == "Product" then
-            MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
-        else
-            MarketplaceService:PromptPurchase(LocalPlayer, prodId)
-        end
-    end)
-
-    -- 4. Safety check: Clear screen blur if no confirmation prompt or core prompt remained open
-    task.delay(0.5, function()
+    -- Trigger purchase prompt
+    task.spawn(function()
+        local success = false
         pcall(function()
-            local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-            local confirmPrompt = pGui and pGui:FindFirstChild("GenericConfirmationPrompt")
-            local isOpen = confirmPrompt and confirmPrompt:IsA("ScreenGui") and confirmPrompt.Enabled
-            if not isOpen then
-                clearScreenBlur()
+            local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
+            if mcMod then
+                local mc = require(mcMod)
+                local hasTokens = false
+                pcall(function()
+                    if mc.CanPurchaseWithTokens then
+                        local canBuy, _ = mc:CanPurchaseWithTokens(prodId, infoType)
+                        hasTokens = (canBuy == true)
+                    end
+                end)
+
+                if hasTokens and mc.PromptPurchase then
+                    -- Player has enough Trade Tokens: show in-game payment method choice
+                    mc:PromptPurchase(prodId, infoType)
+                    success = true
+                elseif mc.PromptPurchaseRobux then
+                    -- Not enough Trade Tokens: directly show Roblox purchase GUI
+                    mc:PromptPurchaseRobux(prodId, infoType)
+                    success = true
+                end
             end
         end)
+
+        -- Direct MarketplaceService fallback if MarketController did not execute
+        if not success then
+            pcall(function()
+                if itemType == "Gamepass" then
+                    MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
+                elseif itemType == "Bundle" then
+                    MarketplaceService:PromptBundlePurchase(LocalPlayer, prodId)
+                elseif itemType == "Product" then
+                    MarketplaceService:PromptProductPurchase(LocalPlayer, prodId)
+                else
+                    MarketplaceService:PromptPurchase(LocalPlayer, prodId)
+                end
+            end)
+        end
     end)
 
     pcall(function()
         if Hub.Notify then
             Hub.Notify({
                 Title = "💎 Prompt Purchase",
-                Content = string.format("Prompting purchase for %s (ID: %d)", prodName, prodId),
-                Duration = 3
+                Content = string.format("Prompting purchase for %s", prodName),
+                Duration = 2.5
             })
         end
     end)
