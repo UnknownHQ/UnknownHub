@@ -3744,6 +3744,10 @@ local function equipPetSlot(slotVal, waitForLoad, minCooldown)
     return isPetSlotLoaded(slotNum)
 end
 
+local _gag_egg_placing = false
+local _gag_egg_hatching = false
+local lastEggHatchTime = 0
+
 -- 1. Auto Place Eggs Loop (Cycle Step 1: Equip Slot, Place Eggs, Wait For Hatch)
 task.spawn(function()
     while true do
@@ -3752,8 +3756,8 @@ task.spawn(function()
         local autoPlace = isToggleActive(autoPlaceEggsToggle, State.AutoPlaceEggs, "🥚 Auto Place Eggs")
         if autoPlace then
             local ok, err = pcall(function()
-                if _G._gag_selling_pets or isPetBackpackFull() then
-                    task.wait(0.25)
+                if _G._gag_selling_pets or _gag_egg_hatching or isPetBackpackFull() then
+                    task.wait(0.2)
                     return
                 end
 
@@ -3762,54 +3766,70 @@ task.spawn(function()
                 local currentPlacedCount = #placedEggs
 
                 if onlyNoEgg and currentPlacedCount > 0 then
-                    task.wait(0.2)
+                    task.wait(0.25)
                     return
                 end
 
                 local maxCapacity = getMaxEggCapacity()
                 if currentPlacedCount >= maxCapacity then
-                    task.wait(0.2)
+                    task.wait(0.25)
                     return
                 end
 
                 local selectedEggs = getUIListMultipleVals(placeEggListObj, nil)
                 local eggTool = findEggToolInBackpack(selectedEggs)
                 if not eggTool then
-                    task.wait(0.25)
+                    task.wait(0.3)
                     return
                 end
 
-                -- Equip Place Egg Slot before placing eggs to maximize hatch speed / reduce egg growth time
+                _gag_egg_placing = true
+
+                -- Equip Place Egg Slot ONCE before batch placing to maximize hatch speed / reduce egg growth time
                 local placeSlot = getUIListVal(placeEggSlotListObj, State.PlaceEgg_EquipSlot or "None")
                 if placeSlot ~= "None" and not _G._gag_selling_pets then
                     equipPetSlot(placeSlot, true, 1.5)
                 end
 
-                local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
-                local targetPos
-                if posMode == "Player Position" then
-                    local char = LocalPlayer.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    if root then
-                        targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                -- Batch place all needed eggs in one continuous smooth sweep
+                while autoPlace and not _G._gag_selling_pets and not isPetBackpackFull() do
+                    placedEggs = getPlacedEggsInGarden()
+                    currentPlacedCount = #placedEggs
+                    if currentPlacedCount >= maxCapacity then break end
+
+                    eggTool = findEggToolInBackpack(selectedEggs)
+                    if not eggTool then break end
+
+                    local posMode = getUIListVal(placeEggPositionModeListObj, State.PlaceEgg_PositionMode or "Row Position")
+                    local targetPos
+                    if posMode == "Player Position" then
+                        local char = LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            targetPos = root.Position - Vector3.new(0, 2.5, 0)
+                        else
+                            targetPos = getNextEggRowPosition()
+                        end
                     else
                         targetPos = getNextEggRowPosition()
                     end
-                else
-                    targetPos = getNextEggRowPosition()
+
+                    if targetPos then
+                        placeEggAt(targetPos, eggTool)
+                    end
+                    task.wait(0.12)
                 end
 
-                if targetPos then
-                    placeEggAt(targetPos, eggTool)
-                end
-                task.wait(0.1)
+                _gag_egg_placing = false
             end)
 
-            if not ok and err then
-                task.wait(0.2)
+            if not ok then
+                _gag_egg_placing = false
+                task.wait(0.25)
             end
         else
-            task.wait(0.3)
+            _gag_egg_placing = false
+            task.wait(0.4)
         end
     end
 end)
@@ -3822,14 +3842,14 @@ task.spawn(function()
         local autoHatch = isToggleActive(autoHatchEggsToggle, State.AutoHatchEggs, "🐣 Auto Hatch Eggs")
         if autoHatch then
             local ok, err = pcall(function()
-                if _G._gag_selling_pets or isPetBackpackFull() then
-                    task.wait(0.35)
+                if _G._gag_selling_pets or _gag_egg_placing or isPetBackpackFull() then
+                    task.wait(0.25)
                     return
                 end
 
                 local placedEggs = getPlacedEggsInGarden()
                 if #placedEggs == 0 then
-                    task.wait(0.25)
+                    task.wait(0.3)
                     return
                 end
 
@@ -3843,12 +3863,12 @@ task.spawn(function()
                         end
                     end
                     if not allReady then
-                        task.wait(0.2)
+                        task.wait(0.25)
                         return
                     end
                 end
 
-                -- Equip Hatch Slot when eggs are ready to hatch
+                -- Check if any eggs are ready
                 local hasReadyEggs = false
                 for _, egg in ipairs(placedEggs) do
                     if isEggReadyToHatch(egg) then
@@ -3857,25 +3877,17 @@ task.spawn(function()
                     end
                 end
 
-                if hasReadyEggs and not _G._gag_selling_pets then
-                    local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
-                    if hatchSlot ~= "None" then
-                        local hatchSlotNum = tonumber(tostring(hatchSlot):match("%d+"))
-                        if hatchSlotNum then
-                            if lastEquippedSlotNumber ~= hatchSlotNum or not isPetSlotLoaded(hatchSlotNum) then
-                                local loaded = equipPetSlot(hatchSlot, true)
-                                if not loaded then
-                                    task.wait(0.25)
-                                    return
-                                end
-                            end
-                            local targetCooldown = math.max(5.0, tonumber(State.Hatch_SlotCooldown) or 7.0)
-                            if (tick() - lastSlotEquipTick) < targetCooldown then
-                                task.wait(0.25)
-                                return
-                            end
-                        end
-                    end
+                if not hasReadyEggs then
+                    task.wait(0.2)
+                    return
+                end
+
+                _gag_egg_hatching = true
+
+                -- Equip Hatch Slot when eggs are ready to hatch
+                local hatchSlot = getUIListVal(hatchEggSlotListObj, State.HatchEgg_EquipSlot or "None")
+                if hatchSlot ~= "None" and not _G._gag_selling_pets then
+                    equipPetSlot(hatchSlot, true, 2.0)
                 end
 
                 local selectedHatchEggs = getUIListMultipleVals(hatchEggListObj, nil)
@@ -3890,48 +3902,54 @@ task.spawn(function()
                     end
                 end
 
-                local excludedPetsList = getUIListMultipleVals(hatchExcludePetListObj, nil)
-                local excludedPetsMap = {}
-                for _, petName in ipairs(excludedPetsList) do
-                    local cName = tostring(petName):lower():gsub("[%s%p]", "")
-                    if cName ~= "" and cName ~= "none" then
-                        excludedPetsMap[cName] = true
-                    end
-                end
-
-                if isAllEggs then
-                    for _, egg in ipairs(placedEggs) do
-                        if isEggReadyToHatch(egg) then
-                            hatchSingleEgg(egg)
+                -- Hatch all currently ready eggs in one clean batch sweep
+                local function doHatchSweep()
+                    placedEggs = getPlacedEggsInGarden()
+                    local hatchedCount = 0
+                    if isAllEggs then
+                        for _, egg in ipairs(placedEggs) do
+                            if isEggReadyToHatch(egg) then
+                                hatchSingleEgg(egg)
+                                hatchedCount = hatchedCount + 1
+                            end
                         end
-                    end
-                else
-                    -- Hatch in priority sequence of selected eggs:
-                    for _, targetEggName in ipairs(selectedHatchEggs) do
-                        local cleanTarget = tostring(targetEggName):lower():gsub("[%s%p]", "")
-                        if cleanTarget ~= "" and cleanTarget ~= "none" then
-                            for _, egg in ipairs(placedEggs) do
-                                if isEggReadyToHatch(egg) then
-                                    local eggName = egg:GetAttribute("EggName") or egg.Name
-                                    local cleanEggName = tostring(eggName):lower():gsub("[%s%p]", "")
-                                    if cleanEggName:find(cleanTarget, 1, true) or cleanTarget:find(cleanEggName, 1, true) then
-                                        hatchSingleEgg(egg)
+                    else
+                        for _, targetEggName in ipairs(selectedHatchEggs) do
+                            local cleanTarget = tostring(targetEggName):lower():gsub("[%s%p]", "")
+                            if cleanTarget ~= "" and cleanTarget ~= "none" then
+                                for _, egg in ipairs(placedEggs) do
+                                    if isEggReadyToHatch(egg) then
+                                        local eggName = egg:GetAttribute("EggName") or egg.Name
+                                        local cleanEggName = tostring(eggName):lower():gsub("[%s%p]", "")
+                                        if cleanEggName:find(cleanTarget, 1, true) or cleanTarget:find(cleanEggName, 1, true) then
+                                            hatchSingleEgg(egg)
+                                            hatchedCount = hatchedCount + 1
+                                        end
                                     end
                                 end
                             end
                         end
                     end
+                    return hatchedCount
                 end
 
-                local checkDelay = math.clamp(tonumber(State.Hatch_CheckDelay) or 0.1, 0.05, 1.0)
-                task.wait(checkDelay)
+                -- Perform hatch sweep
+                doHatchSweep()
+                lastEggHatchTime = tick()
+                task.wait(0.15)
+                doHatchSweep()
+
+                _gag_egg_hatching = false
+                task.wait(0.2)
             end)
 
-            if not ok and err then
+            if not ok then
+                _gag_egg_hatching = false
                 task.wait(0.25)
             end
         else
-            task.wait(0.5)
+            _gag_egg_hatching = false
+            task.wait(0.4)
         end
     end
 end)
