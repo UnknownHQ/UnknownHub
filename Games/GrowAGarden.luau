@@ -2346,8 +2346,9 @@ end
 -- 3. Extract info from Pet Tool in Backpack (for Pet Selling)
 local function getPetToolInfo(tool)
     if not tool or not tool:IsA("Tool") then return nil end
-    local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("Id") or tool.Name:match("%b{}")
-    if not uuid and not tool:GetAttribute("PetType") and not tool.Name:find("Age") then
+    local uuid = tool:GetAttribute("PET_UUID") or tool:GetAttribute("UUID") or tool:GetAttribute("c") or tool:GetAttribute("Id") or tool.Name:match("%b{}")
+    local isPetItem = (uuid ~= nil) or (tool:GetAttribute("b") == "l") or (tool:GetAttribute("ItemType") == "Pet") or (tool:GetAttribute("PetType") ~= nil) or tool.Name:find("Age")
+    if not isPetItem then
         return nil
     end
 
@@ -3173,7 +3174,7 @@ task.spawn(function()
 
                 local petToolBatch = {}
                 for _, tool in ipairs(allTools) do
-                    if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool.Name:find("Age") or tool:GetAttribute("f")) then
+                    if tool.Parent and tool:IsA("Tool") and (tool:GetAttribute("PET_UUID") or tool:GetAttribute("c") or tool:GetAttribute("PetType") or (tool:GetAttribute("b") == "l") or tool:GetAttribute("ItemType") == "Pet" or tool.Name:find("Age") or tool:GetAttribute("f")) then
                         if shouldSellPetTool(tool) then
                             table.insert(petToolBatch, tool)
                         end
