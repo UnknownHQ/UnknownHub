@@ -819,7 +819,7 @@ local function buildDynamicPetCatalog()
     return sortedList
 end
 
--- 5. Products & Gamepasses Catalog (Comprehensive & Dynamically Self-Updating)
+-- 5. Products & Gamepasses Catalog (Comprehensive & Dynamically Self-Updating, Robux Only)
 local function buildDynamicProductCatalog()
     local productMap = {}
 
@@ -865,7 +865,8 @@ local function buildDynamicProductCatalog()
 
     -- Also scan dynamic InfinitePackData in case prices or tiers change
     pcall(function()
-        local infMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("InfinitePackData", true)
+        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+        local infMod = dataFolder and dataFolder:FindFirstChild("InfinitePackData")
         if infMod then
             local infData = require(infMod)
             local prices = infData.FallbackPrices or {}
@@ -920,12 +921,14 @@ local function buildDynamicProductCatalog()
         {"Double Pet XP", 931892851, 400}
     }
     for i, gp in ipairs(officialGamepasses) do
-        addProd(gp[1], gp[1], gp[2], gp[3], "Gamepass", "Gamepass", 300 + i)
+        local name = string.format("%s (%d R$)", gp[1], gp[3])
+        addProd(name, gp[1], gp[2], gp[3], "Gamepass", "Gamepass", 300 + i)
     end
 
-    -- 4. Packs & Bundles Folder
+    -- 4. Packs & Bundles (Data.Packs)
     pcall(function()
-        local packsFolder = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Packs", true)
+        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+        local packsFolder = dataFolder and dataFolder:FindFirstChild("Packs")
         if packsFolder then
             for i, m in ipairs(packsFolder:GetChildren()) do
                 if m:IsA("ModuleScript") then
@@ -936,7 +939,13 @@ local function buildDynamicProductCatalog()
                             local price = tonumber(pData.Price or pData.Robux or pData.Cost) or 0
                             local packName = m.Name:gsub("Data$", ""):gsub("Bundle", " Bundle"):gsub("Pack", " Pack"):gsub("(%l)(%u)", "%1 %2")
                             if pid > 0 then
-                                addProd(packName, m.Name, pid, price, "Product", "Bundle / Pack", 400 + i)
+                                local label = price > 0 and string.format("%s (%d R$)", packName, price) or packName
+                                addProd(label, m.Name, pid, price, "Product", "Packs & Bundles", 400 + i)
+                            end
+                            local giftId = tonumber(pData.GiftId) or 0
+                            if giftId > 0 then
+                                local giftLabel = price > 0 and string.format("%s (Gift) (%d R$)", packName, price) or (packName .. " (Gift)")
+                                addProd(giftLabel, m.Name .. "Gift", giftId, price, "Product", "Packs & Bundles", 450 + i)
                             end
                         end
                     end)
@@ -945,9 +954,48 @@ local function buildDynamicProductCatalog()
         end
     end)
 
-    -- 5. DevProductIds
+    -- 5. Exotic Packs, Chests & Premium Eggs (Data.ExoticPackData)
     pcall(function()
-        local devProductMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("DevProductIds", true)
+        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+        local exMod = dataFolder and dataFolder:FindFirstChild("ExoticPackData")
+        if exMod then
+            local exData = require(exMod)
+            if type(exData) == "table" then
+                local i = 0
+                for packKey, packInfo in pairs(exData) do
+                    i = i + 1
+                    if type(packInfo) == "table" then
+                        local title = packInfo.Title or packKey:gsub("^PREMIUM_", "Premium "):gsub("^EXOTIC_", "Exotic "):gsub("_", " ")
+                        title = title:gsub("!$", "")
+                        local fallbackPrice = (type(packInfo.FallbackPrices) == "table" and tonumber(packInfo.FallbackPrices[1])) or 149
+                        if type(packInfo.Products) == "table" then
+                            for _, pid in ipairs(packInfo.Products) do
+                                local numPid = tonumber(pid) or 0
+                                if numPid > 0 then
+                                    local label = string.format("%s (%d R$)", title, fallbackPrice)
+                                    addProd(label, packKey, numPid, fallbackPrice, "Product", "Exotic Packs & Chests", 500 + i)
+                                end
+                            end
+                        end
+                        if type(packInfo.GiftProducts) == "table" then
+                            for _, gpid in pairs(packInfo.GiftProducts) do
+                                local numGpid = tonumber(gpid) or 0
+                                if numGpid > 0 then
+                                    local label = string.format("%s (Gift) (%d R$)", title, fallbackPrice)
+                                    addProd(label, packKey .. "_Gift", numGpid, fallbackPrice, "Product", "Exotic Packs & Chests", 550 + i)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- 6. Dev Products (Data.DevProductIds)
+    pcall(function()
+        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+        local devProductMod = dataFolder and dataFolder:FindFirstChild("DevProductIds")
         if devProductMod then
             local devData = require(devProductMod)
             if type(devData) == "table" then
@@ -964,36 +1012,11 @@ local function buildDynamicProductCatalog()
                     end
 
                     if purchaseId > 0 then
-                        local formattedName = tostring(prodName):gsub("(%l)(%u)", "%1 %2")
-                        addProd(formattedName, tostring(prodName), purchaseId, price, "Product", "Dev Product", 500 + i)
+                        local formattedName = tostring(prodName):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
+                        local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
+                        addProd(label, tostring(prodName), purchaseId, price, "Product", "Dev Products", 600 + i)
                     end
                 end
-            end
-        end
-    end)
-
-    -- 6. Dynamic Scan of all Data modules (Seeds, Eggs, Crates, Cosmetics, Merchants, Crafting)
-    pcall(function()
-        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
-        if not dataFolder then return end
-        for _, desc in ipairs(dataFolder:GetDescendants()) do
-            if desc:IsA("ModuleScript") and desc.Name ~= "DevProductIds" and desc.Name ~= "InfinitePackData" and desc.Name ~= "EventInfinitePackData" then
-                pcall(function()
-                    local d = require(desc)
-                    if type(d) == "table" then
-                        for k, v in pairs(d) do
-                            if type(v) == "table" and (v.ProductId or v.PurchaseID or v.DevProductId) then
-                                local pid = tonumber(v.ProductId or v.PurchaseID or v.DevProductId) or 0
-                                if pid > 0 then
-                                    local price = tonumber(v.Price or v.Robux or v.Cost or v.PriceInRobux) or 0
-                                    local cat = desc.Name:gsub("Data$", ""):gsub("Shop", " Shop"):gsub("(%l)(%u)", "%1 %2")
-                                    local itemName = type(k) == "string" and k or (v.Name or tostring(k))
-                                    addProd(itemName, itemName, pid, price, "Product", cat, 700)
-                                end
-                            end
-                        end
-                    end
-                end)
             end
         end
     end)
