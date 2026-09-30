@@ -1002,19 +1002,53 @@ local function buildDynamicProductCatalog()
                 local i = 0
                 for prodName, prodVal in pairs(devData) do
                     i = i + 1
-                    local purchaseId = 0
-                    local price = 0
                     if type(prodVal) == "table" then
-                        purchaseId = tonumber(prodVal.PurchaseID or prodVal.Id or prodVal.ProductId) or 0
-                        price = tonumber(prodVal.Price or prodVal.Robux or prodVal.Cost) or 0
+                        for subKey, val in pairs(prodVal) do
+                            local numId = tonumber(val)
+                            if numId and numId > 1000000000 then
+                                local sKey = tostring(subKey)
+                                local title = tostring(prodName)
+                                if sKey:lower():find("gift") and not title:lower():find("gift") then
+                                    title = title .. " (Gift)"
+                                elseif sKey:lower():find("all") and not title:lower():find("all") then
+                                    title = title .. " (All)"
+                                end
+                                local formattedName = title:gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
+                                local price = tonumber(prodVal.Price or prodVal.Robux or prodVal.Cost) or 0
+                                local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
+                                addProd(label, tostring(prodName) .. "_" .. sKey, numId, price, "Product", "Dev Products", 600 + i)
+                            end
+                        end
                     elseif tonumber(prodVal) then
-                        purchaseId = tonumber(prodVal)
+                        local purchaseId = tonumber(prodVal)
+                        if purchaseId > 0 then
+                            local formattedName = tostring(prodName):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
+                            addProd(formattedName, tostring(prodName), purchaseId, 0, "Product", "Dev Products", 600 + i)
+                        end
                     end
+                end
+            end
+        end
+    end)
 
-                    if purchaseId > 0 then
-                        local formattedName = tostring(prodName):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ")
-                        local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
-                        addProd(label, tostring(prodName), purchaseId, price, "Product", "Dev Products", 600 + i)
+    -- 7. Gift Catalog (Data.GiftData)
+    pcall(function()
+        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+        local giftMod = dataFolder and dataFolder:FindFirstChild("GiftData")
+        if giftMod then
+            local giftData = require(giftMod)
+            if type(giftData) == "table" then
+                local i = 0
+                for giftKey, giftInfo in pairs(giftData) do
+                    i = i + 1
+                    if type(giftInfo) == "table" then
+                        local pid = tonumber(giftInfo.PurchaseID or giftInfo.ProductId or giftInfo.Id) or 0
+                        local price = tonumber(giftInfo.Price or giftInfo.Robux or giftInfo.Cost) or 0
+                        local formattedName = tostring(giftKey):gsub("(%l)(%u)", "%1 %2"):gsub("(%a)(%d)", "%1 %2"):gsub("_", " ") .. " (Gift)"
+                        if pid > 0 then
+                            local label = price > 0 and string.format("%s (%d R$)", formattedName, price) or formattedName
+                            addProd(label, tostring(giftKey) .. "_GiftData", pid, price, "Product", "Packs & Bundles", 480 + i)
+                        end
                     end
                 end
             end
