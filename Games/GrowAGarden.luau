@@ -6625,82 +6625,40 @@ end
 
 local selectProductListObj = Hub.CreateList(miscTab, "Select Product / Gamepass", productListItems, 220, false)
 
--- Helper to find product details by name (Exact & Fuzzy matching)
+-- Exact 1:1 product lookup table to prevent any product mismatch
+local productExactMap = {}
+for _, item in ipairs(allAvailableProducts) do
+    if item.Name then
+        productExactMap[item.Name] = item
+        productExactMap[item.Name:lower()] = item
+    end
+    if item.RawName then
+        productExactMap[item.RawName] = item
+        productExactMap[item.RawName:lower()] = item
+    end
+    if item.DisplayName then
+        productExactMap[item.DisplayName] = item
+        productExactMap[item.DisplayName:lower()] = item
+    end
+end
+
+-- Helper to find exact product details
 local function findProductDetails(targetName)
     if not targetName or targetName == "" or targetName == "None" then
         return allAvailableProducts[1] or {Name = "[Gamepass] Harvest All", Id = 931892840, Price = 450, Robux = 450, Type = "Gamepass", Category = "Gamepass"}
     end
+    if productExactMap[targetName] then
+        return productExactMap[targetName]
+    end
+    if productExactMap[targetName:lower()] then
+        return productExactMap[targetName:lower()]
+    end
     for _, item in ipairs(allAvailableProducts) do
-        if item.Name == targetName or item.Name:lower() == targetName:lower() or (item.RawName and item.RawName:lower() == targetName:lower()) then
+        if item.Name == targetName or item.Name:lower() == targetName:lower() then
             return item
         end
     end
-    local cleanTarget = targetName:lower():gsub("[%s%p]", "")
-    for _, item in ipairs(allAvailableProducts) do
-        local cleanItem = item.Name:lower():gsub("[%s%p]", "")
-        local cleanRaw = item.RawName and item.RawName:lower():gsub("[%s%p]", "") or ""
-        if cleanItem == cleanTarget or cleanRaw == cleanTarget or cleanItem:find(cleanTarget, 1, true) or cleanTarget:find(cleanItem, 1, true) then
-            return item
-        end
-    end
-    for _, p in ipairs(allAvailablePets) do
-        if p == targetName or p:lower() == targetName:lower() then
-            return {Name = p, Id = 0, Price = 10, Robux = 10, Type = "Pet", Category = "Pet"}
-        end
-    end
-    for _, p in ipairs(allAvailablePlants) do
-        if p == targetName or p:lower() == targetName:lower() then
-            return {Name = p, Id = 0, Price = 10, Robux = 10, Type = "Seed", Category = "Seed"}
-        end
-    end
-    return {Name = targetName, Id = 0, Price = 50, Robux = 50, Type = "Product", Category = "Product"}
-end
-
--- Helper to find and click in-game shop buttons directly on PlayerGui
-local function triggerInGameShopButton(targetName, targetId)
-    local triggered = false
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if not pGui then return end
-        local cleanTarget = tostring(targetName):lower():gsub("[%s%p]", "")
-        local strId = targetId and targetId > 0 and tostring(targetId) or ""
-
-        for _, desc in ipairs(pGui:GetDescendants()) do
-            if desc:IsA("GuiButton") then
-                local bText = desc:IsA("TextButton") and desc.Text:lower():gsub("[%s%p]", "") or ""
-                local bName = desc.Name:lower():gsub("[%s%p]", "")
-                local pName = desc.Parent and desc.Parent.Name:lower():gsub("[%s%p]", "") or ""
-
-                local isMatch = false
-                if strId ~= "" and (bName:find(strId, 1, true) or pName:find(strId, 1, true) or bText:find(strId, 1, true)) then
-                    isMatch = true
-                elseif bText:find(cleanTarget, 1, true) or bName:find(cleanTarget, 1, true) or pName:find(cleanTarget, 1, true) or cleanTarget:find(bName, 1, true) then
-                    isMatch = true
-                end
-
-                if isMatch then
-                    pcall(function()
-                        if firesignal then
-                            firesignal(desc.MouseButton1Click)
-                            firesignal(desc.Activated)
-                        end
-                    end)
-                    pcall(function()
-                        if getconnections then
-                            for _, conn in ipairs(getconnections(desc.MouseButton1Click)) do
-                                if conn.Fire then conn:Fire() end
-                            end
-                            for _, conn in ipairs(getconnections(desc.Activated)) do
-                                if conn.Fire then conn:Fire() end
-                            end
-                        end
-                    end)
-                    triggered = true
-                end
-            end
-        end
-    end)
-    return triggered
+    return allAvailableProducts[1]
 end
 
 -- Direct Prompt Purchase Action
@@ -6737,7 +6695,8 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
     -- 1. Clear any stuck screen blur first
     clearScreenBlur()
 
-    -- 2. Trigger GAG's native MarketController:PromptPurchase (opens the game's payment selector if player has Trade Tokens, or initiates purchase)
+    -- 2. Trigger GAG's native MarketController:PromptPurchase
+    -- If the player has Trade Tokens, GAG's native dialog pops up and asks the player to choose their payment method.
     pcall(function()
         local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
         if mcMod then
@@ -6750,7 +6709,7 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
         end
     end)
 
-    -- 3. Trigger native MarketplaceService prompt
+    -- 3. Trigger MarketplaceService prompt as fallback
     pcall(function()
         if itemType == "Gamepass" then
             MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
@@ -6763,11 +6722,8 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
         end
     end)
 
-    -- 4. Trigger in-game shop button connections if present
-    triggerInGameShopButton(prodName, prodId)
-
-    -- 5. Safety check: If GAG's confirmation prompt isn't open and blur got stuck, clear it so screen stays bright
-    task.delay(0.4, function()
+    -- 4. Safety check: Clear screen blur if no confirmation prompt or core prompt remained open
+    task.delay(0.5, function()
         pcall(function()
             local pGui = LocalPlayer:FindFirstChild("PlayerGui")
             local confirmPrompt = pGui and pGui:FindFirstChild("GenericConfirmationPrompt")
