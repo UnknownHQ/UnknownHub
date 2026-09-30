@@ -6653,22 +6653,34 @@ local function clearScreenBlur()
         if mcMod then
             local mc = require(mcMod)
             if mc.ToggleScreenBlur then mc:ToggleScreenBlur(false) end
-            if mc.ScreenBlur then mc.ScreenBlur.Enabled = false end
+            if mc.ScreenBlur then
+                mc.ScreenBlur.Enabled = false
+                mc.ScreenBlur.Size = 0
+            end
             if mc.CoverFrame then
                 mc.CoverFrame.Visible = false
-                if mc.CoverFrame.Parent and mc.CoverFrame.Parent:IsA("ScreenGui") then
-                    mc.CoverFrame.Parent.Enabled = false
-                end
+                mc.CoverFrame.BackgroundTransparency = 1
+            end
+            if mc.ScreenCover then
+                mc.ScreenCover.Enabled = false
             end
         end
         local lighting = game:GetService("Lighting")
         for _, c in ipairs(lighting:GetChildren()) do
-            if c:IsA("BlurEffect") and (c.Name == "Blur" or c.Size > 0) then
+            if c:IsA("BlurEffect") then
                 c.Enabled = false
+                c.Size = 0
             end
         end
     end)
 end
+
+pcall(function()
+    MarketplaceService.PromptProductPurchaseFinished:Connect(function() clearScreenBlur() end)
+    MarketplaceService.PromptGamePassPurchaseFinished:Connect(function() clearScreenBlur() end)
+    MarketplaceService.PromptPurchaseFinished:Connect(function() clearScreenBlur() end)
+    MarketplaceService.PromptBundlePurchaseFinished:Connect(function() clearScreenBlur() end)
+end)
 
 local selectProductListObj = Hub.CreateList(miscTab, "Select Product / Gamepass", productListItems, 220, false)
 
@@ -6739,35 +6751,34 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
 
     print(string.format("[Unknown Hub] Prompting purchase for '%s' (ID: %d, Category: %s, Price: %d R$)...", prodName, prodId, itemCategory, robuxPrice))
 
+    -- Always clear any stuck blur first
+    clearScreenBlur()
+
     -- Trigger purchase prompt
     task.spawn(function()
-        local success = false
-        pcall(function()
-            local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
-            if mcMod then
+        local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
+        local hasTokens = false
+        if mcMod then
+            pcall(function()
                 local mc = require(mcMod)
-                local hasTokens = false
-                pcall(function()
-                    if mc.CanPurchaseWithTokens then
-                        local canBuy, _ = mc:CanPurchaseWithTokens(prodId, infoType)
-                        hasTokens = (canBuy == true)
-                    end
-                end)
-
-                if hasTokens and mc.PromptPurchase then
-                    -- Player has enough Trade Tokens: show in-game payment method choice
-                    mc:PromptPurchase(prodId, infoType)
-                    success = true
-                elseif mc.PromptPurchaseRobux then
-                    -- Not enough Trade Tokens: directly show Roblox purchase GUI
-                    mc:PromptPurchaseRobux(prodId, infoType)
-                    success = true
+                if mc.CanPurchaseWithTokens then
+                    local canBuy, _ = mc:CanPurchaseWithTokens(prodId, infoType)
+                    hasTokens = (canBuy == true)
                 end
-            end
-        end)
+            end)
+        end
 
-        -- Direct MarketplaceService fallback if MarketController did not execute
-        if not success then
+        if hasTokens and mcMod then
+            -- Player has enough Trade Tokens: show in-game payment method choice
+            pcall(function()
+                local mc = require(mcMod)
+                if mc.PromptPurchase then
+                    mc:PromptPurchase(prodId, infoType)
+                end
+            end)
+        else
+            -- Not enough Trade Tokens (or direct Robux purchase):
+            -- Trigger Roblox purchase prompt directly without stuck blur
             pcall(function()
                 if itemType == "Gamepass" then
                     MarketplaceService:PromptGamePassPurchase(LocalPlayer, prodId)
@@ -6779,6 +6790,10 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
                     MarketplaceService:PromptPurchase(LocalPlayer, prodId)
                 end
             end)
+
+            -- Keep blur cleared
+            task.defer(clearScreenBlur)
+            task.delay(0.1, clearScreenBlur)
         end
     end)
 
