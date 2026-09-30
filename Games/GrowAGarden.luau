@@ -6783,6 +6783,19 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
                 end
             end)
         end
+
+        -- Check if an in-game confirmation dialog opened (GenericConfirmationPrompt)
+        -- If no token dialog is active, clear any stuck screen blur after a brief delay
+        task.delay(0.6, function()
+            pcall(function()
+                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+                local confirmPrompt = pGui and pGui:FindFirstChild("GenericConfirmationPrompt")
+                local isConfirmOpen = confirmPrompt and confirmPrompt:IsA("ScreenGui") and confirmPrompt.Enabled
+                if not isConfirmOpen then
+                    clearScreenBlur()
+                end
+            end)
+        end)
     end)
 
     pcall(function()
