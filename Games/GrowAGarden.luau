@@ -1821,44 +1821,27 @@ local function unequipShovelTool()
     end
 end
 
-local crackedAcornIds = {}
-local acornModels = {}
-
 local function hasActiveAcorns()
-    for id, _ in pairs(activeAcornIds) do
-        if not crackedAcornIds[id] then
-            return true
-        end
+    if next(activeAcornIds) ~= nil then
+        return true
+    end
+    local acl = Workspace:FindFirstChild("AcornChaosLocal")
+    if acl and #acl:GetChildren() > 0 then
+        return true
     end
     return false
 end
 
-local function cleanAcornVisual(acornId, modelInstance)
-    pcall(function()
-        if modelInstance and modelInstance.Parent then
-            modelInstance:Destroy()
-        end
-        if acornId then
-            local mod = acornModels[acornId]
-            if mod and mod.Parent then
-                mod:Destroy()
-                acornModels[acornId] = nil
-            end
-        end
-    end)
-end
-
 local function crackAcornById(acornId, modelInstance)
-    if not acornId or crackedAcornIds[acornId] then return end
-    crackedAcornIds[acornId] = true
-
+    if not acornId and not modelInstance then return end
+    
     equipShovelTool()
 
     local ge = ReplicatedStorage:FindFirstChild("GameEvents")
     local ac = ge and ge:FindFirstChild("AcornChaos")
     local crackRemote = (ac and ac:FindFirstChild("Crack")) or AcornCrackRemote
     
-    if crackRemote then
+    if crackRemote and acornId then
         pcall(function()
             crackRemote:FireServer(tostring(acornId))
         end)
@@ -1874,17 +1857,22 @@ end
 
 local function crackAllActiveAcorns()
     local count = 0
-    if not hasActiveAcorns() then
-        unequipShovelTool()
-        return 0
-    end
-
     equipShovelTool()
     for id, _ in pairs(activeAcornIds) do
-        if not crackedAcornIds[id] then
-            crackAcornById(id)
+        crackAcornById(id)
+        count = count + 1
+    end
+    local acl = Workspace:FindFirstChild("AcornChaosLocal")
+    if acl then
+        for _, child in ipairs(acl:GetChildren()) do
+            local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
+            crackAcornById(id, child)
             count = count + 1
         end
+    end
+    task.wait(0.1)
+    if not hasActiveAcorns() then
+        unequipShovelTool()
     end
     return count
 end
@@ -7308,6 +7296,22 @@ end)
 -- Acorn Chaos Event Listener & Background Auto Attack Engine
 -- =========================================================================
 task.spawn(function()
+    local function hookAcornFolder(folder)
+        if not folder then return end
+        folder.ChildAdded:Connect(function(child)
+            if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
+                task.spawn(function()
+                    local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
+                    crackAcornById(id, child)
+                    task.wait(0.05)
+                    if not hasActiveAcorns() then
+                        unequipShovelTool()
+                    end
+                end)
+            end
+        end)
+    end
+
     local function bindAcornRemotes()
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
         local ac = ge and ge:FindFirstChild("AcornChaos")
@@ -7315,48 +7319,26 @@ task.spawn(function()
         if startRem then
             startRem.OnClientEvent:Connect(function(data)
                 if typeof(data) == "table" then
-                    table.clear(crackedAcornIds)
-                    table.clear(activeAcornIds)
-                    table.clear(acornModels)
-
                     for _, entry in ipairs(data) do
                         if entry and entry.Id then
                             activeAcornIds[entry.Id] = entry
-                        end
-                    end
-
-                    if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) and hasActiveAcorns() then
-                        equipShovelTool()
-                        task.spawn(function()
-                            for id, entry in pairs(activeAcornIds) do
-                                if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
-                                crackAcornById(id)
-                                task.wait(0.04)
+                            if isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then
+                                task.spawn(function()
+                                    crackAcornById(entry.Id)
+                                end)
                             end
-                        end)
+                        end
                     end
                 end
             end)
         end
-
         local rewardRem = ac and ac:FindFirstChild("Reward")
         if rewardRem then
             rewardRem.OnClientEvent:Connect(function(data)
                 if typeof(data) == "table" and data.Id then
                     activeAcornIds[data.Id] = nil
-                    crackedAcornIds[data.Id] = true
-                    cleanAcornVisual(data.Id)
                 end
-
                 if not hasActiveAcorns() then
-                    table.clear(activeAcornIds)
-                    table.clear(crackedAcornIds)
-                    pcall(function()
-                        local acl = Workspace:FindFirstChild("AcornChaosLocal")
-                        if acl then
-                            acl:ClearAllChildren()
-                        end
-                    end)
                     unequipShovelTool()
                 end
             end)
@@ -7364,29 +7346,11 @@ task.spawn(function()
 
         local acl = Workspace:FindFirstChild("AcornChaosLocal")
         if acl then
-            acl.ChildAdded:Connect(function(child)
-                if child:FindFirstChild("HitBox") or child.Name:find("Acorn") then
-                    for id, _ in pairs(activeAcornIds) do
-                        if not acornModels[id] then
-                            acornModels[id] = child
-                            break
-                        end
-                    end
-                end
-            end)
+            hookAcornFolder(acl)
         end
         Workspace.ChildAdded:Connect(function(child)
             if child.Name == "AcornChaosLocal" then
-                child.ChildAdded:Connect(function(grandChild)
-                    if grandChild:FindFirstChild("HitBox") or grandChild.Name:find("Acorn") then
-                        for id, _ in pairs(activeAcornIds) do
-                            if not acornModels[id] then
-                                acornModels[id] = grandChild
-                                break
-                            end
-                        end
-                    end
-                end)
+                hookAcornFolder(child)
             end
         end)
     end
@@ -7398,17 +7362,25 @@ task.spawn(function()
             pcall(function()
                 if hasActiveAcorns() then
                     equipShovelTool()
+
                     for id, _ in pairs(activeAcornIds) do
                         if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
-                        if not crackedAcornIds[id] then
-                            crackAcornById(id)
+                        crackAcornById(id)
+                    end
+
+                    local acl = Workspace:FindFirstChild("AcornChaosLocal")
+                    if acl then
+                        for _, child in ipairs(acl:GetChildren()) do
+                            if not isToggleActive(autoAttackAcornsToggle, State.AutoAttackAcorns) then break end
+                            local id = child:GetAttribute("Id") or child:GetAttribute("AcornId") or child.Name
+                            crackAcornById(id, child)
                         end
                     end
                 else
                     unequipShovelTool()
                 end
             end)
-            task.wait(0.2)
+            task.wait(0.05)
         else
             task.wait(0.5)
         end
