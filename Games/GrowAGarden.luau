@@ -6718,6 +6718,41 @@ end)
 
 local selectProductListObj = Hub.CreateList(miscTab, "Select Product / Gamepass", productListItems, 220, false)
 
+-- Build dynamic Player Recipient List for Gifting
+local function buildPlayerRecipientList()
+    local list = {
+        {Name = "Self (Standard Purchase)"},
+        {Name = "Automatic (Open In-Game Gift Menu)"}
+    }
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local displayName = p.DisplayName or p.Name
+            table.insert(list, {
+                Name = displayName .. " (@" .. p.Name .. ")",
+                Username = p.Name,
+                DisplayName = displayName,
+                UserId = p.UserId,
+                Player = p
+            })
+        end
+    end
+    return list
+end
+
+local playerRecipientItems = buildPlayerRecipientList()
+local selectGiftRecipientListObj = Hub.CreateList(miscTab, "Select Gift Recipient (Player)", playerRecipientItems, 160, false)
+
+-- Auto-refresh gift recipient list when players join or leave
+pcall(function()
+    local function refreshGiftRecipients()
+        if selectGiftRecipientListObj and type(selectGiftRecipientListObj.Update) == "function" then
+            selectGiftRecipientListObj:Update(buildPlayerRecipientList())
+        end
+    end
+    Players.PlayerAdded:Connect(refreshGiftRecipients)
+    Players.PlayerRemoving:Connect(refreshGiftRecipients)
+end)
+
 -- Exact 1:1 product lookup table to prevent any product mismatch
 local productExactMap = {}
 for _, item in ipairs(allAvailableProducts) do
@@ -6754,11 +6789,18 @@ local function findProductDetails(targetName)
     return allAvailableProducts[1]
 end
 
--- Direct Prompt Purchase Action
+-- Direct Prompt Purchase Action with Full Gifting & Player Selection Support
 Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
     local defaultName = (allAvailableProducts[1] and allAvailableProducts[1].Name) or "[Forever Pack] Tier 1 (39 R$)"
     local chosenProductName = tostring(getUIListVal(selectProductListObj, defaultName))
     local prodObj = findProductDetails(chosenProductName)
+
+    local chosenRecipient = tostring(getUIListVal(selectGiftRecipientListObj, "Self (Standard Purchase)"))
+    local isGiftIntent = (chosenRecipient ~= "Self (Standard Purchase)") or prodObj.Name:lower():find("gift") or (prodObj.RawName and prodObj.RawName:lower():find("gift"))
+    local targetUsername = nil
+    if chosenRecipient:find("@") then
+        targetUsername = chosenRecipient:match("@([%w_]+)")
+    end
 
     local prodName = prodObj.Name or chosenProductName
     local prodId = tonumber(prodObj.Id) or 0
@@ -6783,27 +6825,76 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
         return
     end
 
-    print(string.format("[Unknown Hub] Prompting purchase for '%s' (ID: %d, Category: %s, Price: %d R$)...", prodName, prodId, itemCategory, robuxPrice))
+    print(string.format("[Unknown Hub] Prompting purchase for '%s' (ID: %d, Category: %s, Price: %d R$, Recipient: %s)...", prodName, prodId, itemCategory, robuxPrice, chosenRecipient))
 
-    -- Trigger GAG's native MarketController:PromptPurchase
-    -- 1. If tokens >= cost, GAG natively opens the payment selection dialog (Tokens vs Robux).
-    -- 2. If tokens < cost, GAG natively opens the official Roblox purchase prompt.
     task.spawn(function()
         local executed = false
-        pcall(function()
-            local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
-            if mcMod then
-                local mc = require(mcMod)
-                if mc.PromptPurchase then
-                    mc:PromptPurchase(prodId, infoType)
-                    executed = true
-                elseif mc.PromptPurchaseRobux then
-                    mc:PromptPurchaseRobux(prodId, infoType)
-                    executed = true
-                end
-            end
-        end)
 
+        if isGiftIntent then
+            -- 1. Try GiftController native flow
+            pcall(function()
+                local gcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("GiftController")
+                if gcMod then
+                    local gc = require(gcMod)
+                    local raw = prodObj.RawName or prodName
+                    local cleanGiftName = raw:gsub("_GiftData$", ""):gsub("_Gift$", ""):gsub("Gift$", "")
+                    
+                    if gc.PromptGift then
+                        gc:PromptGift(cleanGiftName)
+                        executed = true
+                    elseif gc.PromptGiftFromGiftId and prodId > 0 then
+                        gc:PromptGiftFromGiftId(prodId)
+                        executed = true
+                    end
+                end
+            end)
+
+            -- If a specific target player was chosen, automatically select them in the in-game gift popup
+            if targetUsername then
+                task.spawn(function()
+                    task.wait(0.3)
+                    pcall(function()
+                        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+                        if pGui then
+                            for _, gui in ipairs(pGui:GetChildren()) do
+                                if gui:IsA("ScreenGui") and gui.Enabled then
+                                    for _, btn in ipairs(gui:GetDescendants()) do
+                                        if btn:IsA("GuiButton") or btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                                            local textContent = tostring(btn.Name .. " " .. (btn:IsA("TextButton") and btn.Text or ""))
+                                            if textContent:lower():find(targetUsername:lower(), 1, true) then
+                                                if firesignal then
+                                                    firesignal(btn.MouseButton1Click)
+                                                    firesignal(btn.Activated)
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end)
+            end
+        end
+
+        -- 2. Standard MarketController Flow (for Self or Fallback)
+        if not executed then
+            pcall(function()
+                local mcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MarketController")
+                if mcMod then
+                    local mc = require(mcMod)
+                    if mc.PromptPurchase then
+                        mc:PromptPurchase(prodId, infoType)
+                        executed = true
+                    elseif mc.PromptPurchaseRobux then
+                        mc:PromptPurchaseRobux(prodId, infoType)
+                        executed = true
+                    end
+                end
+            end)
+        end
+
+        -- 3. Direct MarketplaceService Fallback
         if not executed then
             pcall(function()
                 if itemType == "Gamepass" then
@@ -6818,8 +6909,7 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
             end)
         end
 
-        -- Check if an in-game confirmation dialog opened (GenericConfirmationPrompt)
-        -- If no token dialog is active, clear any stuck screen blur after a brief delay
+        -- Clear any stuck screen blur after prompt initialization
         task.delay(0.6, function()
             pcall(function()
                 local pGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -6836,7 +6926,7 @@ Hub.CreateButton(miscTab, "💎 Prompt Purchase", function()
         if Hub.Notify then
             Hub.Notify({
                 Title = "💎 Prompt Purchase",
-                Content = string.format("Prompting purchase for %s", prodName),
+                Content = string.format("Prompting purchase for %s (%s)", prodName, chosenRecipient),
                 Duration = 2.5
             })
         end
