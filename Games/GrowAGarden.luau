@@ -1834,23 +1834,23 @@ end
 
 local function crackAcornById(acornId, modelInstance)
     if not acornId and not modelInstance then return end
-    
-    equipShovelTool()
-
-    local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-    local ac = ge and ge:FindFirstChild("AcornChaos")
-    local crackRemote = (ac and ac:FindFirstChild("Crack")) or AcornCrackRemote
-    
-    if crackRemote and acornId then
-        pcall(function()
-            crackRemote:FireServer(tostring(acornId))
-        end)
+    if acornId then
+        activeAcornIds[acornId] = nil
     end
-
+    equipShovelTool()
+    local crackRemote = AcornCrackRemote or (ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("AcornChaos") and ReplicatedStorage.GameEvents.AcornChaos:FindFirstChild("Crack"))
+    if crackRemote and acornId then
+        crackRemote:FireServer(acornId)
+    end
     local shovel = getShovelTool()
     if shovel and shovel.Parent == LocalPlayer.Character then
         pcall(function()
             shovel:Activate()
+        end)
+    end
+    if modelInstance and modelInstance.Parent then
+        pcall(function()
+            modelInstance:Destroy()
         end)
     end
 end
