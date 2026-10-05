@@ -1813,6 +1813,13 @@ local State = {
     HatchEgg_EquipSlot = "None",
     Hatch_SlotCooldown = 7.0,
 
+    -- Pet Tab: Pick & Place (Ability Reset / Cycler)
+    AutoPickAndPlacePets = false,
+    PickAndPlace_Mode = "Equipped Pets (Ability Skip)",
+    PickAndPlace_SelectedPets = {},
+    PickAndPlace_Delay = 0.25,
+    PickAndPlace_HoldTime = 0.5,
+
     -- Shop Tab
     AutoBuy_SelectedEgg = false,
     AutoBuy_AllEggs = false,
@@ -3962,7 +3969,123 @@ task.spawn(function()
     end
 end)
 
+-- =========================================================================
+-- Pet Pick & Place Engine (Ability Skipper & Inventory Cycler)
+-- =========================================================================
+do
+    State.UI_PetPickAndPlace = State.UI_PetPickAndPlace or {}
 
+    local function getPetsServiceRemote()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        return ge and (ge:FindFirstChild("PetsService") or ge:FindFirstChild("PetServices"))
+    end
+
+    local function getPetData()
+        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+        if not dsMod then return nil end
+        local ds = require(dsMod)
+        local data = ds and ds:GetData()
+        return data and data.PetsData
+    end
+
+    local isPickAndPlaceActive = false
+
+    local function executePickAndPlaceCycle()
+        if isPickAndPlaceActive then return end
+        local petsRem = getPetsServiceRemote()
+        if not petsRem then return end
+
+        local petsData = getPetData()
+        if not petsData then return end
+
+        isPickAndPlaceActive = true
+        local mode = tostring(getUIListVal(State.UI_PetPickAndPlace.modeList, State.PickAndPlace_Mode or "Equipped Pets (Ability Skip)"))
+        local stepDelay = math.clamp(tonumber(State.PickAndPlace_Delay) or 0.25, 0.05, 5.0)
+
+        if mode == "Equipped Pets (Ability Skip)" then
+            -- Loop through currently equipped pets, unequip and re-equip to skip ability cooldown
+            local equippedList = petsData.EquippedPets or {}
+            for _, uuid in ipairs(equippedList) do
+                if not State.AutoPickAndPlacePets and not _G._gag_manual_pick_place then break end
+                pcall(function()
+                    petsRem:FireServer("UnequipPet", uuid)
+                end)
+                task.wait(stepDelay)
+                pcall(function()
+                    petsRem:FireServer("EquipPet", uuid)
+                end)
+                task.wait(stepDelay)
+            end
+        elseif mode == "Inventory Cycling (Rotate Pets)" then
+            -- Cycle through inventory pets into equipped slots
+            local inventory = (petsData.PetInventory and petsData.PetInventory.Data) or {}
+            local selectedPetNames = getUIListMultipleVals(State.UI_PetPickAndPlace.petList, nil)
+            local isAllPets = (#selectedPetNames == 0)
+            for _, s in ipairs(selectedPetNames) do
+                if s == "All Pets" or s == "All" or s == "None" then
+                    isAllPets = true
+                    break
+                end
+            end
+
+            local candidates = {}
+            for uuid, pet in pairs(inventory) do
+                local pType = pet.PetType or (pet.PetData and pet.PetData.PetType) or pet.Name or "Unknown"
+                local cleanType = tostring(pType):gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                
+                local isMatch = isAllPets
+                if not isMatch then
+                    for _, sel in ipairs(selectedPetNames) do
+                        local selClean = sel:gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+                        if cleanType:lower() == selClean or tostring(pType):lower():find(selClean, 1, true) then
+                            isMatch = true
+                            break
+                        end
+                    end
+                end
+
+                if isMatch then
+                    table.insert(candidates, {
+                        uuid = uuid,
+                        name = cleanType,
+                        equipped = pet.Equipped or false
+                    })
+                end
+            end
+
+            local holdTime = math.clamp(tonumber(State.PickAndPlace_HoldTime) or 0.5, 0.1, 5.0)
+            for _, c in ipairs(candidates) do
+                if not State.AutoPickAndPlacePets and not _G._gag_manual_pick_place then break end
+                pcall(function()
+                    petsRem:FireServer("EquipPet", c.uuid)
+                end)
+                task.wait(holdTime)
+                pcall(function()
+                    petsRem:FireServer("UnequipPet", c.uuid)
+                end)
+                task.wait(stepDelay)
+            end
+        end
+
+        isPickAndPlaceActive = false
+    end
+
+    State.ExecutePickAndPlaceCycle = executePickAndPlaceCycle
+
+    -- Pick & Place Background Worker
+    task.spawn(function()
+        while true do
+            if _G.GAG_SESSION ~= currentSession then break end
+            if State.AutoPickAndPlacePets then
+                pcall(executePickAndPlaceCycle)
+                local pauseDelay = math.clamp(tonumber(State.PickAndPlace_Delay) or 0.25, 0.05, 5.0)
+                task.wait(pauseDelay)
+            else
+                task.wait(0.5)
+            end
+        end
+    end)
+end
 
 -- =========================================================================
 -- Visual Optimization Engine (Hide Plants & Hide Fruits)
@@ -6761,6 +6884,56 @@ end)
 Hub.CreateTextBox(petTab, "Pet: Exclude Weight (KG)", "Enter KG cutoff (0 = none)", function(text)
     local num = tonumber(text)
     State.Sell_ExcludePetWeight = num or 0
+end)
+
+-- 4. 🐾 Pet Pick & Place (Ability Skipper / Cycler)
+Hub.CreateSection(petTab, "🐾 Pet Pick & Place (Ability Skipper)")
+
+State.UI_PetPickAndPlace = State.UI_PetPickAndPlace or {}
+
+State.UI_PetPickAndPlace.autoToggle = Hub.CreateToggle(petTab, "Auto Pick & Place Pets", false, function(v)
+    if type(v) == "boolean" then State.AutoPickAndPlacePets = v else State.AutoPickAndPlacePets = not State.AutoPickAndPlacePets end
+end)
+
+State.UI_PetPickAndPlace.modeList = Hub.CreateList(petTab, "Pick & Place Mode", {
+    {Name = "Equipped Pets (Ability Skip)"},
+    {Name = "Inventory Cycling (Rotate Pets)"}
+}, 200, false, function(selected)
+    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
+    State.PickAndPlace_Mode = name
+end)
+
+State.UI_PetPickAndPlace.petList = Hub.CreateList(petTab, "Select Pets to Cycle", petListItems, 220, false, { MultiSelect = true })
+
+Hub.CreateTextBox(petTab, "Step Delay (0.05s - 5.0s)", "Enter unequip/equip delay (default: 0.25)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.PickAndPlace_Delay = math.clamp(num, 0.05, 5.0)
+    end
+end)
+
+Hub.CreateTextBox(petTab, "Ability Hold Time (0.1s - 5.0s)", "Enter time before unequip in cycle (default: 0.5)", function(text)
+    local num = tonumber(text)
+    if num then
+        State.PickAndPlace_HoldTime = math.clamp(num, 0.1, 5.0)
+    end
+end)
+
+Hub.CreateButton(petTab, "🐾 Pick & Place Now (Single Cycle)", function()
+    if State.ExecutePickAndPlaceCycle then
+        task.spawn(function()
+            _G._gag_manual_pick_place = true
+            State.ExecutePickAndPlaceCycle()
+            _G._gag_manual_pick_place = false
+            if Hub.Notify then
+                Hub.Notify({
+                    Title = "🐾 Pet Pick & Place",
+                    Content = "Completed single pick & place cycle!",
+                    Duration = 3
+                })
+            end
+        end)
+    end
 end)
 
 -- ==========================================
