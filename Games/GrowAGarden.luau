@@ -1937,11 +1937,6 @@ local selectEventCosmeticListObj
 local autoAttackAcornsToggle
 local autoEquipShovelToggle
 
-local autoGiveScarecrowSeedsToggle
-local scarecrowAutoTeleportToggle
-local scarecrowSeedListObj
-local scarecrowPriorityListObj
-
 -- Acorn Chaos Tracking & Execution Engine
 local activeAcornIds = {}
 
@@ -5265,235 +5260,241 @@ end)
 -- =========================================================================
 -- Shady Scarecrow Automator Engine (Fall Market Event)
 -- =========================================================================
-local SHADY_SCARECROW_RARITY_SCORES = {
-    Transcendent = 8,
-    Prismatic = 7,
-    Divine = 6,
-    Mythical = 5,
-    Legendary = 4,
-    Rare = 3,
-    Uncommon = 2,
-    Common = 1
-}
+do
+    State.UI_Scarecrow = State.UI_Scarecrow or {}
 
-local SHADY_SCARECROW_VARIANT_BONUS = {
-    Diamond = 2,
-    Ember = 2,
-    Rainbow = 2,
-    Gold = 1,
-    Jelly = 1,
-    Silver = 0.5,
-    Normal = 0
-}
+    local SHADY_SCARECROW_RARITY_SCORES = {
+        Transcendent = 8,
+        Prismatic = 7,
+        Divine = 6,
+        Mythical = 5,
+        Legendary = 4,
+        Rare = 3,
+        Uncommon = 2,
+        Common = 1
+    }
 
-local function getShadyScarecrowNpcPart()
-    local scarecrowModel = Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("ShadyScarecrow")
-    if not scarecrowModel then
-        pcall(function()
-            local tagged = CollectionService:GetTagged("ShadyScarecrowModel")
-            if tagged and #tagged > 0 then
-                scarecrowModel = tagged[1]
-            end
-        end)
+    local SHADY_SCARECROW_VARIANT_BONUS = {
+        Diamond = 2,
+        Ember = 2,
+        Rainbow = 2,
+        Gold = 1,
+        Jelly = 1,
+        Silver = 0.5,
+        Normal = 0
+    }
+
+    local function getShadyScarecrowNpcPart()
+        local scarecrowModel = Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("ShadyScarecrow")
+        if not scarecrowModel then
+            pcall(function()
+                local tagged = CollectionService:GetTagged("ShadyScarecrowModel")
+                if tagged and #tagged > 0 then
+                    scarecrowModel = tagged[1]
+                end
+            end)
+        end
+        if not scarecrowModel then return nil end
+
+        local npc = scarecrowModel:FindFirstChild("NPC")
+        if npc and npc:IsA("Model") then
+            local root = npc:FindFirstChild("RootPart") or npc:FindFirstChild("Head") or npc.PrimaryPart
+            if root and root:IsA("BasePart") then return root end
+        end
+        if npc and npc:IsA("BasePart") then return npc end
+
+        local imp = scarecrowModel:FindFirstChild("Important")
+        if imp then
+            local impNpc = imp:FindFirstChild("NPC")
+            if impNpc and impNpc:IsA("BasePart") then return impNpc end
+        end
+        return scarecrowModel:FindFirstChildWhichIsA("BasePart", true)
     end
-    if not scarecrowModel then return nil end
 
-    local npc = scarecrowModel:FindFirstChild("NPC")
-    if npc and npc:IsA("Model") then
-        local root = npc:FindFirstChild("RootPart") or npc:FindFirstChild("Head") or npc.PrimaryPart
-        if root and root:IsA("BasePart") then return root end
-    end
-    if npc and npc:IsA("BasePart") then return npc end
+    local function getShadyScarecrowEligibleSeeds()
+        local eligible = {}
+        local allTools = getAllPlayerTools()
+        for _, tool in ipairs(allTools) do
+            if tool:IsA("Tool") then
+                -- Favorite Protection: NEVER touch favorited seeds!
+                local isFav = (tool:GetAttribute("d") == true) or (tool:GetAttribute("Favorite") == true) or (tool:GetAttribute("IsFavorite") == true) or (tool:GetAttribute("Favorited") == true)
+                if not isFav then
+                    local isSeed = tool:GetAttribute("Seed") ~= nil or (tool.Name:lower():find("seed") and not tool.Name:lower():find("pack"))
+                    local sName = tool:GetAttribute("Seed") or tool:GetAttribute("f") or tool.Name
+                    local sNameClean = tostring(sName):gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("%s*[sS]eed%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    if isSeed and not sNameClean:lower():find("super") then
+                        local uuid = tool:GetAttribute("c") or tool:GetAttribute("ITEM_UUID") or tool:GetAttribute("UUID")
+                        if uuid then
+                            local rarity = "Common"
+                            pcall(function()
+                                local sData = SeedData and (SeedData[sNameClean] or SeedData[sName] or SeedData[sNameClean .. " Seed"])
+                                if sData and sData.SeedRarity then
+                                    rarity = sData.SeedRarity
+                                end
+                            end)
+                            local variant = tool:GetAttribute("Variant") or "Normal"
+                            local baseScore = SHADY_SCARECROW_RARITY_SCORES[rarity] or 1
+                            local varBonus = SHADY_SCARECROW_VARIANT_BONUS[variant] or 0
+                            local totalScore = baseScore + varBonus
 
-    local imp = scarecrowModel:FindFirstChild("Important")
-    if imp then
-        local impNpc = imp:FindFirstChild("NPC")
-        if impNpc and impNpc:IsA("BasePart") then return impNpc end
-    end
-    return scarecrowModel:FindFirstChildWhichIsA("BasePart", true)
-end
-
-local function getShadyScarecrowEligibleSeeds()
-    local eligible = {}
-    local allTools = getAllPlayerTools()
-    for _, tool in ipairs(allTools) do
-        if tool:IsA("Tool") then
-            -- Favorite Protection: NEVER touch favorited seeds!
-            local isFav = (tool:GetAttribute("d") == true) or (tool:GetAttribute("Favorite") == true) or (tool:GetAttribute("IsFavorite") == true) or (tool:GetAttribute("Favorited") == true)
-            if not isFav then
-                local isSeed = tool:GetAttribute("Seed") ~= nil or (tool.Name:lower():find("seed") and not tool.Name:lower():find("pack"))
-                local sName = tool:GetAttribute("Seed") or tool:GetAttribute("f") or tool.Name
-                local sNameClean = tostring(sName):gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("%s*[sS]eed%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                if isSeed and not sNameClean:lower():find("super") then
-                    local uuid = tool:GetAttribute("c") or tool:GetAttribute("ITEM_UUID") or tool:GetAttribute("UUID")
-                    if uuid then
-                        local rarity = "Common"
-                        pcall(function()
-                            local sData = SeedData and (SeedData[sNameClean] or SeedData[sName] or SeedData[sNameClean .. " Seed"])
-                            if sData and sData.SeedRarity then
-                                rarity = sData.SeedRarity
-                            end
-                        end)
-                        local variant = tool:GetAttribute("Variant") or "Normal"
-                        local baseScore = SHADY_SCARECROW_RARITY_SCORES[rarity] or 1
-                        local varBonus = SHADY_SCARECROW_VARIANT_BONUS[variant] or 0
-                        local totalScore = baseScore + varBonus
-
-                        table.insert(eligible, {
-                            tool = tool,
-                            uuid = tostring(uuid),
-                            name = tool.Name,
-                            rawName = tostring(sName),
-                            cleanName = sNameClean,
-                            rarity = rarity,
-                            variant = variant,
-                            score = totalScore
-                        })
+                            table.insert(eligible, {
+                                tool = tool,
+                                uuid = tostring(uuid),
+                                name = tool.Name,
+                                rawName = tostring(sName),
+                                cleanName = sNameClean,
+                                rarity = rarity,
+                                variant = variant,
+                                score = totalScore
+                            })
+                        end
                     end
                 end
             end
         end
-    end
-    return eligible
-end
-
-local isShadyScarecrowSubmitting = false
-
-local function executeShadyScarecrowSubmission(isManual)
-    if isShadyScarecrowSubmitting then return false, "Already submitting" end
-    local submitRemote = ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("ShadyScarecrow") and ReplicatedStorage.GameEvents.ShadyScarecrow:FindFirstChild("Submit")
-    if not submitRemote then return false, "Submit RemoteFunction not found" end
-
-    -- Cooldown check
-    local readyAt = tonumber(LocalPlayer:GetAttribute("ShadyScarecrowReadyAt")) or 0
-    local now = workspace:GetServerTimeNow()
-    if not isManual and readyAt > now then
-        return false, string.format("On cooldown (%.1fs remaining)", readyAt - now)
+        return eligible
     end
 
-    local npcPart = getShadyScarecrowNpcPart()
-    if not npcPart then return false, "Shady Scarecrow NPC not found in workspace" end
+    local isShadyScarecrowSubmitting = false
 
-    local candidates = getShadyScarecrowEligibleSeeds()
-    if #candidates == 0 then return false, "No eligible non-favorited seeds found in backpack" end
+    local function executeShadyScarecrowSubmission(isManual)
+        if isShadyScarecrowSubmitting then return false, "Already submitting" end
+        local submitRemote = ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("ShadyScarecrow") and ReplicatedStorage.GameEvents.ShadyScarecrow:FindFirstChild("Submit")
+        if not submitRemote then return false, "Submit RemoteFunction not found" end
 
-    -- Filter by UI selection if any selected
-    local selectedList = getUIListMultipleVals(scarecrowSeedListObj, nil)
-    if #selectedList == 0 and State.ShadyScarecrow_SelectedSeeds and #State.ShadyScarecrow_SelectedSeeds > 0 then
-        selectedList = State.ShadyScarecrow_SelectedSeeds
-    end
-
-    local isAllSelected = #selectedList == 0
-    for _, s in ipairs(selectedList) do
-        if s == "All Seeds" or s == "All" or s == "None" then
-            isAllSelected = true
-            break
+        -- Cooldown check
+        local readyAt = tonumber(LocalPlayer:GetAttribute("ShadyScarecrowReadyAt")) or 0
+        local now = workspace:GetServerTimeNow()
+        if not isManual and readyAt > now then
+            return false, string.format("On cooldown (%.1fs remaining)", readyAt - now)
         end
-    end
 
-    local filtered = {}
-    if isAllSelected then
-        filtered = candidates
-    else
-        for _, seedInfo in ipairs(candidates) do
-            for _, sel in ipairs(selectedList) do
-                local selClean = sel:gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("%s*[sS]eed%s*", ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
-                if seedInfo.cleanName:lower() == selClean or seedInfo.name:lower():find(selClean, 1, true) or seedInfo.rawName:lower() == selClean then
-                    table.insert(filtered, seedInfo)
-                    break
+        local npcPart = getShadyScarecrowNpcPart()
+        if not npcPart then return false, "Shady Scarecrow NPC not found in workspace" end
+
+        local candidates = getShadyScarecrowEligibleSeeds()
+        if #candidates == 0 then return false, "No eligible non-favorited seeds found in backpack" end
+
+        -- Filter by UI selection if any selected
+        local selectedList = getUIListMultipleVals(State.UI_Scarecrow and State.UI_Scarecrow.seedList, nil)
+        if #selectedList == 0 and State.ShadyScarecrow_SelectedSeeds and #State.ShadyScarecrow_SelectedSeeds > 0 then
+            selectedList = State.ShadyScarecrow_SelectedSeeds
+        end
+
+        local isAllSelected = #selectedList == 0
+        for _, s in ipairs(selectedList) do
+            if s == "All Seeds" or s == "All" or s == "None" then
+                isAllSelected = true
+                break
+            end
+        end
+
+        local filtered = {}
+        if isAllSelected then
+            filtered = candidates
+        else
+            for _, seedInfo in ipairs(candidates) do
+                for _, sel in ipairs(selectedList) do
+                    local selClean = sel:gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("%s*[sS]eed%s*", ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+                    if seedInfo.cleanName:lower() == selClean or seedInfo.name:lower():find(selClean, 1, true) or seedInfo.rawName:lower() == selClean then
+                        table.insert(filtered, seedInfo)
+                        break
+                    end
                 end
             end
         end
-    end
 
-    if #filtered == 0 then return false, "No matching seeds found for current filter selection" end
+        if #filtered == 0 then return false, "No matching seeds found for current filter selection" end
 
-    -- Sort candidates by priority
-    local priority = tostring(getUIListVal(scarecrowPriorityListObj, State.ShadyScarecrow_Priority or "Highest Rarity First"))
-    if priority == "Highest Rarity First" then
-        table.sort(filtered, function(a, b) return a.score > b.score end)
-    elseif priority == "Lowest Rarity First" then
-        table.sort(filtered, function(a, b) return a.score < b.score end)
-    end
-
-    local targetSeed = filtered[1]
-    if not targetSeed or not targetSeed.tool or not targetSeed.tool.Parent then
-        return false, "Selected seed tool is no longer valid"
-    end
-
-    local char = LocalPlayer.Character
-    local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
-    if not hrp then return false, "Character RootPart not found" end
-
-    isShadyScarecrowSubmitting = true
-    local prevCF = hrp.CFrame
-    local npcPos = npcPart.Position
-    local dist = (hrp.Position - npcPos).Magnitude
-    local didTeleport = false
-
-    if dist > 25 then
-        if State.ShadyScarecrow_AutoTeleport then
-            hrp.CFrame = CFrame.new(npcPos + Vector3.new(0, 0, 4), npcPos)
-            didTeleport = true
-            task.wait(0.15)
-        else
-            isShadyScarecrowSubmitting = false
-            return false, "Too far from Shady Scarecrow (Enable Auto-Teleport or walk closer)"
+        -- Sort candidates by priority
+        local priority = tostring(getUIListVal(State.UI_Scarecrow and State.UI_Scarecrow.priorityList, State.ShadyScarecrow_Priority or "Highest Rarity First"))
+        if priority == "Highest Rarity First" then
+            table.sort(filtered, function(a, b) return a.score > b.score end)
+        elseif priority == "Lowest Rarity First" then
+            table.sort(filtered, function(a, b) return a.score < b.score end)
         end
-    end
 
-    -- Equip the target seed
-    equipTool(targetSeed.tool)
-    task.wait(0.1)
+        local targetSeed = filtered[1]
+        if not targetSeed or not targetSeed.tool or not targetSeed.tool.Parent then
+            return false, "Selected seed tool is no longer valid"
+        end
 
-    local success, res = pcall(function()
-        return submitRemote:InvokeServer(targetSeed.uuid)
-    end)
+        local char = LocalPlayer.Character
+        local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+        if not hrp then return false, "Character RootPart not found" end
 
-    if didTeleport and prevCF then
-        task.wait(0.2)
-        pcall(function()
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                LocalPlayer.Character.HumanoidRootPart.CFrame = prevCF
+        isShadyScarecrowSubmitting = true
+        local prevCF = hrp.CFrame
+        local npcPos = npcPart.Position
+        local dist = (hrp.Position - npcPos).Magnitude
+        local didTeleport = false
+
+        if dist > 25 then
+            if State.ShadyScarecrow_AutoTeleport then
+                hrp.CFrame = CFrame.new(npcPos + Vector3.new(0, 0, 4), npcPos)
+                didTeleport = true
+                task.wait(0.15)
+            else
+                isShadyScarecrowSubmitting = false
+                return false, "Too far from Shady Scarecrow (Enable Auto-Teleport or walk closer)"
             end
+        end
+
+        -- Equip the target seed
+        equipTool(targetSeed.tool)
+        task.wait(0.1)
+
+        local success, res = pcall(function()
+            return submitRemote:InvokeServer(targetSeed.uuid)
         end)
-    end
 
-    isShadyScarecrowSubmitting = false
-
-    if success and type(res) == "table" and res.Ok then
-        local rewardName = (res.Reward and res.Reward.Display) or "Reward"
-        local rewardQty = (res.Reward and res.Reward.Quantity) or 1
-        Hub.Notify("🎃 Shady Scarecrow", string.format("Gave %s! Reward: %s x%d", targetSeed.cleanName, rewardName, rewardQty), 4)
-        return true, res
-    else
-        local errMsg = (type(res) == "table" and res.Message) or tostring(res)
-        if isManual then
-            Hub.Notify("🎃 Shady Scarecrow", "Failed: " .. tostring(errMsg), 3)
+        if didTeleport and prevCF then
+            task.wait(0.2)
+            pcall(function()
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = prevCF
+                end
+            end)
         end
-        return false, errMsg
-    end
-end
 
--- Shady Scarecrow Auto-Give Background Worker
-task.spawn(function()
-    while true do
-        if _G.GAG_SESSION ~= currentSession then break end
-        if State.AutoGive_ShadyScarecrow then
-            local readyAt = tonumber(LocalPlayer:GetAttribute("ShadyScarecrowReadyAt")) or 0
-            local now = workspace:GetServerTimeNow()
-            if now >= readyAt then
-                pcall(function()
-                    executeShadyScarecrowSubmission(false)
-                end)
-            end
-            local checkDelay = math.clamp(tonumber(State.ShadyScarecrow_Delay) or 1.0, 0.5, 10.0)
-            task.wait(checkDelay)
+        isShadyScarecrowSubmitting = false
+
+        if success and type(res) == "table" and res.Ok then
+            local rewardName = (res.Reward and res.Reward.Display) or "Reward"
+            local rewardQty = (res.Reward and res.Reward.Quantity) or 1
+            Hub.Notify("🎃 Shady Scarecrow", string.format("Gave %s! Reward: %s x%d", targetSeed.cleanName, rewardName, rewardQty), 4)
+            return true, res
         else
-            task.wait(0.5)
+            local errMsg = (type(res) == "table" and res.Message) or tostring(res)
+            if isManual then
+                Hub.Notify("🎃 Shady Scarecrow", "Failed: " .. tostring(errMsg), 3)
+            end
+            return false, errMsg
         end
     end
-end)
+
+    State.ExecuteShadyScarecrowSubmission = executeShadyScarecrowSubmission
+
+    -- Shady Scarecrow Auto-Give Background Worker
+    task.spawn(function()
+        while true do
+            if _G.GAG_SESSION ~= currentSession then break end
+            if State.AutoGive_ShadyScarecrow then
+                local readyAt = tonumber(LocalPlayer:GetAttribute("ShadyScarecrowReadyAt")) or 0
+                local now = workspace:GetServerTimeNow()
+                if now >= readyAt then
+                    pcall(function()
+                        executeShadyScarecrowSubmission(false)
+                    end)
+                end
+                local checkDelay = math.clamp(tonumber(State.ShadyScarecrow_Delay) or 1.0, 0.5, 10.0)
+                task.wait(checkDelay)
+            else
+                task.wait(0.5)
+            end
+        end
+    end)
+end
 
 -- =========================================================================
 -- UI Tabs & Control Layout
@@ -7096,22 +7097,24 @@ end)
 -- 4. 🎃 Shady Scarecrow Automator
 Hub.CreateSection(eventTab, "🎃 Shady Scarecrow Automator")
 
-autoGiveScarecrowSeedsToggle = Hub.CreateToggle(eventTab, "Auto Give Seeds to Shady Scarecrow", false, function(v)
+State.UI_Scarecrow = State.UI_Scarecrow or {}
+
+State.UI_Scarecrow.autoGiveToggle = Hub.CreateToggle(eventTab, "Auto Give Seeds to Shady Scarecrow", false, function(v)
     if type(v) == "boolean" then State.AutoGive_ShadyScarecrow = v else State.AutoGive_ShadyScarecrow = not State.AutoGive_ShadyScarecrow end
-    if State.AutoGive_ShadyScarecrow then
+    if State.AutoGive_ShadyScarecrow and State.ExecuteShadyScarecrowSubmission then
         task.spawn(function()
-            executeShadyScarecrowSubmission(false)
+            State.ExecuteShadyScarecrowSubmission(false)
         end)
     end
 end)
 
-scarecrowAutoTeleportToggle = Hub.CreateToggle(eventTab, "Auto Teleport to Scarecrow", true, function(v)
+State.UI_Scarecrow.autoTeleportToggle = Hub.CreateToggle(eventTab, "Auto Teleport to Scarecrow", true, function(v)
     if type(v) == "boolean" then State.ShadyScarecrow_AutoTeleport = v else State.ShadyScarecrow_AutoTeleport = not State.ShadyScarecrow_AutoTeleport end
 end)
 
-scarecrowSeedListObj = Hub.CreateList(eventTab, "Select Seeds to Give", seedListItems, 220, false, { MultiSelect = true })
+State.UI_Scarecrow.seedList = Hub.CreateList(eventTab, "Select Seeds to Give", seedListItems, 220, false, { MultiSelect = true })
 
-scarecrowPriorityListObj = Hub.CreateList(eventTab, "Seed Selection Priority", {
+State.UI_Scarecrow.priorityList = Hub.CreateList(eventTab, "Seed Selection Priority", {
     {Name = "Highest Rarity First"},
     {Name = "Lowest Rarity First"},
     {Name = "Inventory Order"}
@@ -7121,9 +7124,11 @@ scarecrowPriorityListObj = Hub.CreateList(eventTab, "Seed Selection Priority", {
 end)
 
 Hub.CreateButton(eventTab, "🎃 Give Seed Now (Manual)", function()
-    task.spawn(function()
-        executeShadyScarecrowSubmission(true)
-    end)
+    if State.ExecuteShadyScarecrowSubmission then
+        task.spawn(function()
+            State.ExecuteShadyScarecrowSubmission(true)
+        end)
+    end
 end)
 
 Hub.CreateTextBox(eventTab, "Check Cooldown Delay (0.5 - 10.0s)", "Enter delay (default: 1.0)", function(text)
