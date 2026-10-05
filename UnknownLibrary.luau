@@ -3474,6 +3474,112 @@ return function(opts)
     mainBgGradient.Parent = hubState.mainFrame
     local mainStroke = applyStroke(hubState.mainFrame, hubState.currentThemeColor, 1.5, 0.2)
     hubState.registerThemeStroke(mainStroke)
+
+    -- TOP & BOTTOM NEON LIGHT EFFECTS & GLOWING BEAM LINES
+    local topNeonGlow = Instance.new("Frame")
+    topNeonGlow.Name = "TopNeonGlow"
+    topNeonGlow.Size = UDim2.new(1, 0, 0, 22)
+    topNeonGlow.Position = UDim2.new(0, 0, 0, 0)
+    topNeonGlow.BackgroundColor3 = hubState.currentThemeColor
+    topNeonGlow.BorderSizePixel = 0
+    topNeonGlow.ZIndex = 42
+    topNeonGlow.Parent = hubState.mainFrame
+    local topGlowGradient = Instance.new("UIGradient")
+    topGlowGradient.Rotation = 90
+    topGlowGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.40),
+        NumberSequenceKeypoint.new(0.35, 0.78),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    topGlowGradient.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+    topGlowGradient.Parent = topNeonGlow
+    hubState.registerThemeGradient(topGlowGradient)
+    hubState.registerThemeFrame(topNeonGlow)
+
+    local topNeonBeam = Instance.new("Frame")
+    topNeonBeam.Name = "TopNeonBeam"
+    topNeonBeam.Size = UDim2.new(1, 0, 0, 2)
+    topNeonBeam.Position = UDim2.new(0, 0, 0, 0)
+    topNeonBeam.BackgroundColor3 = hubState.currentThemeColor
+    topNeonBeam.BorderSizePixel = 0
+    topNeonBeam.ZIndex = 43
+    topNeonBeam.Parent = hubState.mainFrame
+    local topBeamGradient = Instance.new("UIGradient")
+    topBeamGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0.5, hubState.currentThemeColor),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+    })
+    topBeamGradient.Parent = topNeonBeam
+    hubState.registerThemeFrame(topNeonBeam)
+
+    local bottomNeonGlow = Instance.new("Frame")
+    bottomNeonGlow.Name = "BottomNeonGlow"
+    bottomNeonGlow.Size = UDim2.new(1, 0, 0, 22)
+    bottomNeonGlow.Position = UDim2.new(0, 0, 1, -22)
+    bottomNeonGlow.BackgroundColor3 = hubState.currentThemeColor
+    bottomNeonGlow.BorderSizePixel = 0
+    bottomNeonGlow.ZIndex = 42
+    bottomNeonGlow.Parent = hubState.mainFrame
+    local bottomGlowGradient = Instance.new("UIGradient")
+    bottomGlowGradient.Rotation = 270
+    bottomGlowGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.40),
+        NumberSequenceKeypoint.new(0.35, 0.78),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    bottomGlowGradient.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+    bottomGlowGradient.Parent = bottomNeonGlow
+    hubState.registerThemeGradient(bottomGlowGradient)
+    hubState.registerThemeFrame(bottomNeonGlow)
+
+    local bottomNeonBeam = Instance.new("Frame")
+    bottomNeonBeam.Name = "BottomNeonBeam"
+    bottomNeonBeam.Size = UDim2.new(1, 0, 0, 2)
+    bottomNeonBeam.Position = UDim2.new(0, 0, 1, -2)
+    bottomNeonBeam.BackgroundColor3 = hubState.currentThemeColor
+    bottomNeonBeam.BorderSizePixel = 0
+    bottomNeonBeam.ZIndex = 43
+    bottomNeonBeam.Parent = hubState.mainFrame
+    local bottomBeamGradient = Instance.new("UIGradient")
+    bottomBeamGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0.5, hubState.currentThemeColor),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+    })
+    bottomBeamGradient.Parent = bottomNeonBeam
+    hubState.registerThemeFrame(bottomNeonBeam)
+
+    hubState.registerThemeUpdater(function(c1, c2)
+        if topBeamGradient and topBeamGradient.Parent then
+            topBeamGradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(240, 250, 255)),
+                ColorSequenceKeypoint.new(0.5, c1),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(240, 250, 255))
+            })
+        end
+        if bottomBeamGradient and bottomBeamGradient.Parent then
+            bottomBeamGradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(240, 250, 255)),
+                ColorSequenceKeypoint.new(0.5, c1),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(240, 250, 255))
+            })
+        end
+    end)
+
+    task.spawn(function()
+        while hubState.screenGui and hubState.screenGui.Parent and topNeonBeam and topNeonBeam.Parent do
+            topBeamGradient.Offset = Vector2.new(-1, 0)
+            bottomBeamGradient.Offset = Vector2.new(1, 0)
+            local twTop = TweenService:Create(topBeamGradient, TweenInfo.new(3.2, Enum.EasingStyle.Linear), { Offset = Vector2.new(1, 0) })
+            local twBot = TweenService:Create(bottomBeamGradient, TweenInfo.new(3.2, Enum.EasingStyle.Linear), { Offset = Vector2.new(-1, 0) })
+            twTop:Play()
+            twBot:Play()
+            twTop.Completed:Wait()
+            task.wait(0.4)
+        end
+    end)
+
     local resizerGrip = hubState.makeResizable(hubState.mainFrame, 460, 300, 1200, 900)
     local header = Instance.new("Frame")
     header.Name = "Header"
@@ -4941,23 +5047,47 @@ return function(opts)
         secFrame.Size = UDim2.new(1, -4, 0, 26)
         secFrame.BackgroundTransparency = 1
         pcall(function() secFrame.Parent = parent end)
+
+        local tagAccent = Instance.new("Frame")
+        tagAccent.Name = "TagAccent"
+        tagAccent.Size = UDim2.new(0, 3, 0, 12)
+        tagAccent.Position = UDim2.new(0, 2, 0.5, -6)
+        tagAccent.BackgroundColor3 = hubState.currentThemeColor
+        tagAccent.BorderSizePixel = 0
+        tagAccent.Parent = secFrame
+        applyCorner(tagAccent, 2)
+        hubState.registerThemeFrame(tagAccent)
+
         local secLabel = Instance.new("TextLabel")
-        secLabel.Size = UDim2.new(1, -8, 1, 0)
-        secLabel.Position = UDim2.new(0, 4, 0, 0)
+        secLabel.Size = UDim2.new(0, 0, 1, 0)
+        secLabel.Position = UDim2.new(0, 10, 0, 0)
+        secLabel.AutomaticSize = Enum.AutomaticSize.X
         secLabel.BackgroundTransparency = 1
         secLabel.Text = string.upper(tostring(sectionText or "SECTION"))
         secLabel.TextColor3 = hubState.currentThemeColor
-        secLabel.Font = Enum.Font.GothamBlack
+        secLabel.Font = Enum.Font.GothamBold
         secLabel.TextSize = 10
         secLabel.TextXAlignment = Enum.TextXAlignment.Left
         secLabel.Parent = secFrame
         hubState.registerThemeText(secLabel)
+
         local divider = Instance.new("Frame")
-        divider.Size = UDim2.new(1, 0, 0, 1)
-        divider.Position = UDim2.new(0, 0, 1, -1)
-        divider.BackgroundColor3 = Color3.fromRGB(32, 40, 56)
+        divider.Size = UDim2.new(1, -12, 0, 1)
+        divider.Position = UDim2.new(0, 6, 1, -1)
+        divider.BackgroundColor3 = Color3.fromRGB(36, 44, 62)
         divider.BorderSizePixel = 0
         divider.Parent = secFrame
+
+        local divGrad = Instance.new("UIGradient")
+        divGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, Color3.fromRGB(36, 44, 62))
+        divGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(0.5, 0.6),
+            NumberSequenceKeypoint.new(1, 0.95)
+        })
+        divGrad.Parent = divider
+        hubState.registerThemeGradient(divGrad)
+
         return secFrame
     end
     hubState.customConfigs = {}
@@ -5069,19 +5199,19 @@ return function(opts)
             parent = contentArea
         end
         local item = Instance.new("TextButton")
-        item.Size = UDim2.new(1, -6, 0, 36)
-        item.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
+        item.Size = UDim2.new(1, -6, 0, 38)
+        item.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
         item.AutoButtonColor = false
         item.Text = "  " .. tostring(text or "Button")
-        item.TextColor3 = Color3.fromRGB(235, 240, 252)
+        item.TextColor3 = Color3.fromRGB(235, 242, 255)
         item.Font = Enum.Font.GothamBold
         item.TextSize = 12
         item.TextTruncate = Enum.TextTruncate.AtEnd
         item.TextXAlignment = Enum.TextXAlignment.Left
         item.ClipsDescendants = true
         pcall(function() item.Parent = parent end)
-        applyCorner(item, 7)
-        local btnStroke = applyStroke(item, Color3.fromRGB(36, 46, 66), 1, 0)
+        applyCorner(item, 8)
+        local btnStroke = applyStroke(item, Color3.fromRGB(28, 36, 52), 1, 0)
         local chevron = Instance.new("TextLabel")
         chevron.Name = "Chevron"
         chevron.Size = UDim2.new(0, 20, 1, 0)
@@ -5102,7 +5232,7 @@ return function(opts)
         sheen.BorderSizePixel = 0
         sheen.ZIndex = 2
         sheen.Parent = item
-        applyCorner(sheen, 7)
+        applyCorner(sheen, 8)
         local sheenGrad = Instance.new("UIGradient")
         sheenGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
         sheenGrad.Transparency = NumberSequence.new({
@@ -5112,16 +5242,18 @@ return function(opts)
         })
         sheenGrad.Parent = sheen
         hubState.registerThemeGradient(sheenGrad, 0)
-        local normalColor = Color3.fromRGB(20, 25, 36)
-        local hoverColor = Color3.fromRGB(28, 36, 52)
-        local clickColor = Color3.fromRGB(38, 48, 70)
+        local normalColor = Color3.fromRGB(16, 20, 30)
+        local hoverColor = Color3.fromRGB(22, 28, 42)
+        local clickColor = Color3.fromRGB(30, 38, 56)
         item.MouseEnter:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = hoverColor}):Play()
             TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = hubState.currentThemeColor}):Play()
+            TweenService:Create(chevron, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextColor3 = hubState.currentThemeColor}):Play()
         end)
         item.MouseLeave:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = normalColor}):Play()
-            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = Color3.fromRGB(36, 46, 66)}):Play()
+            TweenService:Create(btnStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = Color3.fromRGB(28, 36, 52)}):Play()
+            TweenService:Create(chevron, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextColor3 = Color3.fromRGB(120, 135, 165)}):Play()
         end)
         item.MouseButton1Down:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = clickColor}):Play()
@@ -5193,17 +5325,17 @@ return function(opts)
         end
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
-        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        frame.BackgroundColor3 = Color3.fromRGB(15, 19, 28)
         frame.BorderSizePixel = 0
         pcall(function() frame.Parent = targetParent end)
-        applyCorner(frame, 7)
-        local itemStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        applyCorner(frame, 8)
+        local itemStroke = applyStroke(frame, Color3.fromRGB(28, 36, 52), 1, 0)
         local nameLabel = Instance.new("TextLabel")
         nameLabel.Size = UDim2.new(0.48, -14, 1, 0)
         nameLabel.Position = UDim2.new(0, 14, 0, 0)
         nameLabel.BackgroundTransparency = 1
         nameLabel.Text = titleName
-        nameLabel.TextColor3 = Color3.fromRGB(230, 235, 245)
+        nameLabel.TextColor3 = Color3.fromRGB(235, 240, 250)
         nameLabel.Font = Enum.Font.GothamBold
         nameLabel.TextSize = 12
         nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5213,11 +5345,11 @@ return function(opts)
         boxContainer.Size = UDim2.new(0.50, 0, 0, 28)
         boxContainer.AnchorPoint = Vector2.new(1, 0.5)
         boxContainer.Position = UDim2.new(1, -10, 0.5, 0)
-        boxContainer.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        boxContainer.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
         boxContainer.BorderSizePixel = 0
         boxContainer.Parent = frame
         applyCorner(boxContainer, 6)
-        local boxStroke = applyStroke(boxContainer, Color3.fromRGB(42, 52, 74), 1, 0)
+        local boxStroke = applyStroke(boxContainer, Color3.fromRGB(36, 46, 68), 1, 0)
         local box = Instance.new("TextBox")
         box.Size = UDim2.new(1, -12, 1, 0)
         box.Position = UDim2.new(0, 6, 0, 0)
@@ -5295,36 +5427,37 @@ return function(opts)
         end
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
-        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        frame.BackgroundColor3 = Color3.fromRGB(15, 19, 28)
         frame.BorderSizePixel = 0
         pcall(function() frame.Parent = parent end)
-        applyCorner(frame, 7)
-        local toggleStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        applyCorner(frame, 8)
+        local toggleStroke = applyStroke(frame, Color3.fromRGB(28, 36, 52), 1, 0)
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(1, -70, 1, 0)
         label.Position = UDim2.new(0, 14, 0, 0)
         label.BackgroundTransparency = 1
         label.Text = text or "Toggle"
-        label.TextColor3 = Color3.fromRGB(230, 235, 245)
+        label.TextColor3 = Color3.fromRGB(235, 240, 250)
         label.Font = Enum.Font.GothamBold
         label.TextSize = 12
         label.TextTruncate = Enum.TextTruncate.AtEnd
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.Parent = frame
         local switchTrack = Instance.new("Frame")
-        switchTrack.Size = UDim2.new(0, 48, 0, 24)
-        switchTrack.Position = UDim2.new(1, -58, 0.5, -12)
-        switchTrack.BackgroundColor3 = (defaultState == true) and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
+        switchTrack.Size = UDim2.new(0, 44, 0, 22)
+        switchTrack.Position = UDim2.new(1, -56, 0.5, -11)
+        switchTrack.BackgroundColor3 = (defaultState == true) and hubState.currentThemeColor or Color3.fromRGB(24, 30, 44)
         switchTrack.BorderSizePixel = 0
         switchTrack.Parent = frame
-        applyCorner(switchTrack, 12)
+        applyCorner(switchTrack, 11)
+        local trackStroke = applyStroke(switchTrack, (defaultState == true) and hubState.currentThemeColor or Color3.fromRGB(38, 48, 68), 1, 0.2)
         local knob = Instance.new("Frame")
-        knob.Size = UDim2.new(0, 18, 0, 18)
-        knob.Position = (defaultState == true) and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+        knob.Size = UDim2.new(0, 16, 0, 16)
+        knob.Position = (defaultState == true) and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
         knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         knob.BorderSizePixel = 0
         knob.Parent = switchTrack
-        applyCorner(knob, 9)
+        applyCorner(knob, 8)
         local isToggled = defaultState or false
         hubState.toggleStates[text] = isToggled
         if configTable then
@@ -5352,11 +5485,13 @@ return function(opts)
             isToggled = (v == true)
             hubState.toggleStates[text] = isToggled
             hubState.configValues["toggle:" .. tostring(text)] = isToggled
-            local targetPos = isToggled and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-            local targetColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(42, 48, 64)
-            local targetStrokeColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(34, 42, 58)
-            TweenService:Create(knob, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
+            local targetPos = isToggled and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+            local targetColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(24, 30, 44)
+            local targetStrokeColor = isToggled and hubState.currentThemeColor or Color3.fromRGB(28, 36, 52)
+            local targetTrackStroke = isToggled and hubState.currentThemeColor or Color3.fromRGB(38, 48, 68)
+            TweenService:Create(knob, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             TweenService:Create(switchTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetColor}):Play()
+            TweenService:Create(trackStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetTrackStroke}):Play()
             TweenService:Create(toggleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStrokeColor}):Play()
             if typeof(loopDelay) == "number" then
                 if isToggled then
@@ -5378,6 +5513,16 @@ return function(opts)
         click.BackgroundTransparency = 1
         click.Text = ""
         click.Parent = frame
+        click.MouseEnter:Connect(function()
+            if not isToggled then
+                TweenService:Create(toggleStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(42, 54, 78) }):Play()
+            end
+        end)
+        click.MouseLeave:Connect(function()
+            if not isToggled then
+                TweenService:Create(toggleStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(28, 36, 52) }):Play()
+            end
+        end)
         click.MouseButton1Click:Connect(function()
             if hubState.isModalActive then return end
             setState(not isToggled)
@@ -5385,7 +5530,11 @@ return function(opts)
         table.insert(hubState.allToggleSetters, setState)
         hubState.configSetters["toggle:" .. tostring(text)] = setState
         hubState.registerThemeUpdater(function(themeColor)
-            if isToggled and switchTrack.Parent then switchTrack.BackgroundColor3 = themeColor end
+            if isToggled and switchTrack.Parent then
+                switchTrack.BackgroundColor3 = themeColor
+                trackStroke.Color = themeColor
+                toggleStroke.Color = themeColor
+            end
         end)
         local itemData = {
             id = "toggle_" .. tostring(text or "Toggle"),
@@ -5442,17 +5591,17 @@ return function(opts)
         local range = math.max(0.0001, maxValue - minValue)
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 52)
-        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        frame.BackgroundColor3 = Color3.fromRGB(15, 19, 28)
         frame.BorderSizePixel = 0
         pcall(function() frame.Parent = parent end)
-        applyCorner(frame, 7)
-        applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        applyCorner(frame, 8)
+        local sliderStroke = applyStroke(frame, Color3.fromRGB(28, 36, 52), 1, 0)
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(0.65, 0, 0, 20)
         label.Position = UDim2.new(0, 14, 0, 6)
         label.BackgroundTransparency = 1
         label.Text = titleText or "Slider"
-        label.TextColor3 = Color3.fromRGB(230, 235, 245)
+        label.TextColor3 = Color3.fromRGB(235, 240, 250)
         label.Font = Enum.Font.GothamBold
         label.TextSize = 12
         label.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5460,14 +5609,14 @@ return function(opts)
         label.Parent = frame
         local badge = Instance.new("Frame")
         badge.Name = "ValueBadge"
-        badge.Size = UDim2.new(0, 46, 0, 18)
+        badge.Size = UDim2.new(0, 48, 0, 20)
         badge.AnchorPoint = Vector2.new(1, 0)
-        badge.Position = UDim2.new(1, -14, 0, 7)
-        badge.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        badge.Position = UDim2.new(1, -14, 0, 6)
+        badge.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
         badge.BorderSizePixel = 0
         badge.Parent = frame
-        applyCorner(badge, 4)
-        applyStroke(badge, Color3.fromRGB(38, 48, 70), 1, 0)
+        applyCorner(badge, 5)
+        local badgeStroke = applyStroke(badge, Color3.fromRGB(36, 46, 68), 1, 0)
         local valueLabel = Instance.new("TextLabel")
         valueLabel.Size = UDim2.new(1, 0, 1, 0)
         valueLabel.BackgroundTransparency = 1
@@ -5480,7 +5629,7 @@ return function(opts)
         local track = Instance.new("TextButton")
         track.Size = UDim2.new(1, -28, 0, 8)
         track.Position = UDim2.new(0, 14, 0, 34)
-        track.BackgroundColor3 = Color3.fromRGB(42, 48, 64)
+        track.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
         track.Text = ""
         track.AutoButtonColor = false
         track.Active = true
@@ -5493,6 +5642,10 @@ return function(opts)
         fill.Active = false
         fill.Parent = track
         applyCorner(fill, 4)
+        local fillGrad = Instance.new("UIGradient")
+        fillGrad.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
+        fillGrad.Parent = fill
+        hubState.registerThemeGradient(fillGrad)
         hubState.registerThemeFrame(fill)
         local knob = Instance.new("Frame")
         knob.Size = UDim2.new(0, 14, 0, 14)
@@ -5503,6 +5656,8 @@ return function(opts)
         knob.BorderSizePixel = 0
         knob.Parent = track
         applyCorner(knob, 7)
+        local knobStroke = applyStroke(knob, hubState.currentThemeColor, 1.5, 0)
+        hubState.registerThemeStroke(knobStroke)
         local function formatValue(val)
             if val % 1 == 0 then
                 return tostring(math.floor(val)) .. (suffix or "")
@@ -5526,21 +5681,32 @@ return function(opts)
             local percent = (input.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X)
             setValue(minValue + math.clamp(percent, 0, 1) * range, true)
         end
+        track.MouseEnter:Connect(function()
+            TweenService:Create(sliderStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(42, 54, 78) }):Play()
+        end)
+        track.MouseLeave:Connect(function()
+            if not dragging then
+                TweenService:Create(sliderStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(28, 36, 52) }):Play()
+            end
+        end)
         track.InputBegan:Connect(function(input)
             if hubState.isModalActive then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
+                TweenService:Create(sliderStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = hubState.currentThemeColor }):Play()
                 updateFromInput(input)
             end
         end)
         track.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
+                TweenService:Create(sliderStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(28, 36, 52) }):Play()
             end
         end)
         hubState.trackConnection(UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
+                TweenService:Create(sliderStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Color = Color3.fromRGB(28, 36, 52) }):Play()
             end
         end))
         hubState.trackConnection(UserInputService.InputChanged:Connect(function(input)
@@ -5586,17 +5752,17 @@ return function(opts)
         end
         local item = Instance.new("TextButton")
         item.Size = UDim2.new(1, -2, 0, 42)
-        item.BackgroundColor3 = Color3.fromRGB(13, 17, 27)
+        item.BackgroundColor3 = Color3.fromRGB(15, 19, 28)
         item.AutoButtonColor = false
         item.Text = ""
         pcall(function() item.Parent = parent end)
-        applyCorner(item, 7)
-        local itemStroke = applyStroke(item, Color3.fromRGB(28, 38, 56), 1, 0)
+        applyCorner(item, 8)
+        local itemStroke = applyStroke(item, Color3.fromRGB(28, 36, 52), 1, 0)
         local selected = false
-        local normalColor = Color3.fromRGB(13, 17, 27)
-        local hoverColor = Color3.fromRGB(18, 25, 38)
-        local selectedColor = Color3.fromRGB(20, 30, 48)
-        local selectedHoverColor = Color3.fromRGB(26, 40, 64)
+        local normalColor = Color3.fromRGB(15, 19, 28)
+        local hoverColor = Color3.fromRGB(20, 26, 38)
+        local selectedColor = Color3.fromRGB(22, 30, 46)
+        local selectedHoverColor = Color3.fromRGB(28, 38, 58)
         local hasSubtitle = subtitleText and subtitleText ~= "" and tostring(subtitleText):lower() ~= "nope"
         local accent = Instance.new("Frame")
         accent.Name = "LeftAccent"
@@ -5617,7 +5783,7 @@ return function(opts)
         checkbox.BorderSizePixel = 0
         checkbox.Parent = item
         applyCorner(checkbox, 6)
-        local cbStroke = applyStroke(checkbox, Color3.fromRGB(42, 54, 78), 1.5, 0)
+        local cbStroke = applyStroke(checkbox, Color3.fromRGB(38, 48, 70), 1.5, 0)
         local checkImage = Instance.new("TextLabel")
         checkImage.Name = "CheckImage"
         checkImage.Size = UDim2.new(1, 0, 1, 0)
@@ -5686,12 +5852,12 @@ return function(opts)
         end
         local function paint(isHovered)
             local targetBg = selected and (isHovered and selectedHoverColor or selectedColor) or (isHovered and hoverColor or normalColor)
-            local targetStroke = selected and hubState.currentThemeColor or (isHovered and Color3.fromRGB(48, 62, 90) or Color3.fromRGB(28, 38, 56))
+            local targetStroke = selected and hubState.currentThemeColor or (isHovered and Color3.fromRGB(42, 54, 78) or Color3.fromRGB(28, 36, 52))
             TweenService:Create(item, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
             TweenService:Create(itemStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Color = targetStroke}):Play()
             checkImage.Visible = selected
             checkbox.BackgroundColor3 = selected and hubState.currentThemeColor or Color3.fromRGB(11, 15, 24)
-            cbStroke.Color = selected and hubState.currentThemeColor or Color3.fromRGB(42, 54, 78)
+            cbStroke.Color = selected and hubState.currentThemeColor or Color3.fromRGB(38, 48, 70)
             local targetAccentSize = selected and UDim2.new(0, 4, 1, -8) or (isHovered and UDim2.new(0, 3, 0, 24) or UDim2.new(0, 3, 0, 18))
             local targetAccentPos = selected and UDim2.new(0, 0, 0, 4) or (isHovered and UDim2.new(0, 0, 0.5, -12) or UDim2.new(0, 0, 0.5, -9))
             local targetAccentTrans = selected and 0 or (isHovered and 0 or 0.1)
@@ -6278,17 +6444,17 @@ return function(opts)
         local selected = defaultOption or options[1] or "Select Option"
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(1, -6, 0, 42)
-        frame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+        frame.BackgroundColor3 = Color3.fromRGB(15, 19, 28)
         frame.BorderSizePixel = 0
         pcall(function() frame.Parent = parent end)
-        applyCorner(frame, 7)
-        local dropStroke = applyStroke(frame, Color3.fromRGB(34, 42, 58), 1, 0)
+        applyCorner(frame, 8)
+        local dropStroke = applyStroke(frame, Color3.fromRGB(28, 36, 52), 1, 0)
         local title = Instance.new("TextLabel")
         title.Size = UDim2.new(0.5, 0, 1, 0)
         title.Position = UDim2.new(0, 14, 0, 0)
         title.BackgroundTransparency = 1
         title.Text = titleText or "Dropdown"
-        title.TextColor3 = Color3.fromRGB(230, 235, 245)
+        title.TextColor3 = Color3.fromRGB(235, 240, 250)
         title.Font = Enum.Font.GothamBold
         title.TextSize = 12
         title.TextTruncate = Enum.TextTruncate.AtEnd
@@ -6297,7 +6463,7 @@ return function(opts)
         local selectedBtn = Instance.new("TextButton")
         selectedBtn.Size = UDim2.new(0.46, 0, 0, 28)
         selectedBtn.Position = UDim2.new(0.51, 0, 0.5, -14)
-        selectedBtn.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+        selectedBtn.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
         selectedBtn.Text = tostring(selected) .. "  ▼"
         selectedBtn.TextColor3 = hubState.currentThemeColor
         selectedBtn.Font = Enum.Font.GothamBold
@@ -6306,7 +6472,7 @@ return function(opts)
         selectedBtn.AutoButtonColor = false
         selectedBtn.Parent = frame
         applyCorner(selectedBtn, 6)
-        local btnStroke = applyStroke(selectedBtn, Color3.fromRGB(38, 48, 68), 1, 0)
+        local btnStroke = applyStroke(selectedBtn, Color3.fromRGB(36, 46, 68), 1, 0)
         hubState.registerThemeText(selectedBtn)
         local currentPopupOverlay = nil
         local function closePopup()
