@@ -788,78 +788,89 @@ if State.Fullbright then
 end
 
 -- =========================================================================
--- WalkSpeed Protection & Anti-Rubberband Engine
+-- WalkSpeed Protection & Native Slide-State Anti-Rubberband Engine
 -- =========================================================================
-local speedPulseActive = false
-local pulseThread = nil
+local crouchRemote = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder") and game.ReplicatedStorage.RemotesFolder:FindFirstChild("Crouch")
+local isSlideBypassing = false
 
-local function stopSpeedPulse()
-    speedPulseActive = false
-    pulseThread = nil
-end
-
-local function startSpeedPulse()
-    if speedPulseActive then return end
-    speedPulseActive = true
-    pulseThread = task.spawn(function()
-        while speedPulseActive and State.WalkSpeed_Enabled do
-            if _G.DOORS_SESSION ~= currentSession then break end
-            local char = getChar()
-            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-            if hum then
-                local targetSpeed = State.WalkSpeed_Value
-                if not State.AntiRubberband or targetSpeed <= 28 then
-                    -- Safe linear range: perfectly continuous speed
-                    if hum.WalkSpeed ~= targetSpeed then
-                        hum.WalkSpeed = targetSpeed
-                    end
-                    task.wait(0.08)
-                else
-                    -- High-speed Pulse Bypass (29 - 75 studs/s):
-                    -- DOORS server anticheat trips when continuous speed > 28 exceeds its rolling accumulator.
-                    -- By pulsing at targetSpeed for 0.20s and resting for 0.06s at baseline speed (16),
-                    -- the server distance accumulator is continuously flushed before tripping the rollback!
-                    hum.WalkSpeed = targetSpeed
-                    task.wait(0.20)
-                    if not speedPulseActive or not State.WalkSpeed_Enabled then break end
-                    hum.WalkSpeed = 16
-                    task.wait(0.06)
+local function getMainGameParent()
+    local ok, res = pcall(function()
+        local p = LocalPlayer
+        local mg = p:FindFirstChild("PlayerGui") and p.PlayerGui:FindFirstChild("MainUI") and p.PlayerGui.MainUI:FindFirstChild("Initiator") and p.PlayerGui.MainUI.Initiator:FindFirstChild("Main_Game")
+        if mg then
+            local movement = mg:FindFirstChild("Movement")
+            if movement and getsenv and getupvalues then
+                local sEnv = getsenv(movement)
+                if sEnv and sEnv.updatespeed then
+                    local upvals = getupvalues(sEnv.updatespeed)
+                    return upvals[2] -- Parent controller table
                 end
-            else
-                task.wait(0.1)
             end
         end
-
-        local char = getChar()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum and not State.WalkSpeed_Enabled then
-            hum.WalkSpeed = 15
-        end
-        speedPulseActive = false
+        return nil
     end)
+    return ok and res or nil
 end
 
-local function applyCurrentSpeed()
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then
-        if State.WalkSpeed_Enabled then
-            startSpeedPulse()
-        else
-            stopSpeedPulse()
-            hum.WalkSpeed = 15
-        end
+local function setSlideState(sliding)
+    if isSlideBypassing == sliding then return end
+    isSlideBypassing = sliding
+
+    local parentTable = getMainGameParent()
+    if parentTable then
+        pcall(function() parentTable.sliding = sliding end)
+    end
+
+    if crouchRemote then
+        pcall(function()
+            -- Tells DOORS server that player is in valid sliding state (server permits velocity up to 65 studs/s)
+            crouchRemote:FireServer(false, sliding)
+        end)
     end
 end
 
--- Fallback Stepped Guard: Ensures DOORS' internal Movement script cannot revert WalkSpeed
+-- Continuous Heartbeat Enforcement (Dynamically applies slide state when moving to completely eliminate server rollbacks)
+RunService.Heartbeat:Connect(function()
+    if _G.DOORS_SESSION ~= currentSession then return end
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not hum or not hum.Parent then return end
+
+    if State.WalkSpeed_Enabled then
+        local targetSpeed = State.WalkSpeed_Value
+        local isMoving = hum.MoveDirection.Magnitude > 0.05
+
+        if State.AntiRubberband then
+            if isMoving then
+                setSlideState(true)
+            else
+                setSlideState(false)
+            end
+        else
+            setSlideState(false)
+        end
+
+        if hum.WalkSpeed ~= targetSpeed then
+            hum.WalkSpeed = targetSpeed
+        end
+    else
+        if isSlideBypassing then
+            setSlideState(false)
+        end
+        if hum.WalkSpeed ~= 15 then
+            hum.WalkSpeed = 15
+        end
+    end
+end)
+
+-- Stepped Guard: Prevents DOORS' Movement script from locking WalkSpeed on physics step
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
-    if State.WalkSpeed_Enabled and not speedPulseActive then
+    if State.WalkSpeed_Enabled then
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum and hum.WalkSpeed ~= State.WalkSpeed_Value then
-            applyCurrentSpeed()
+            hum.WalkSpeed = State.WalkSpeed_Value
         end
     end
 end)
@@ -870,7 +881,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if State.WalkSpeed_Enabled then
         local hum = char:WaitForChild("Humanoid", 5)
         if hum then
-            applyCurrentSpeed()
+            hum.WalkSpeed = State.WalkSpeed_Value
         end
     end
 end)
@@ -891,25 +902,32 @@ Hub.CreateSection(mainTab, "🏃 Movement & Speed")
 
 Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
-    applyCurrentSpeed()
-    Hub.Notify("WalkSpeed", v and ("Speed set to " .. tostring(State.WalkSpeed_Value) .. " (Anti-Rubberband Active)") or "Speed reset to default (15)", 2)
+    if not v then
+        setSlideState(false)
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.WalkSpeed = 15 end
+        Hub.Notify("WalkSpeed", "Speed reset to default (15)", 2)
+    else
+        Hub.Notify("WalkSpeed", string.format("Speed active: %d studs/s (Slide Bypass Active)", State.WalkSpeed_Value), 2)
+    end
 end)
 
 Hub.CreateSlider(mainTab, "Speed Value", 15, 75, State.WalkSpeed_Value, " studs/s", function(v)
     State.WalkSpeed_Value = v
     if State.WalkSpeed_Enabled then
-        applyCurrentSpeed()
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.WalkSpeed = v end
     end
 end)
 
 Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
     State.AntiRubberband = v
-    if State.WalkSpeed_Enabled then
-        applyCurrentSpeed()
-    end
+    if not v then setSlideState(false) end
 end)
 
-Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Forward & Backward)", function()
+Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", function()
     task.spawn(function()
         local char = getChar()
         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -917,32 +935,75 @@ Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Forward & Backward)", function()
         local vim = game:GetService("VirtualInputManager")
         if not root or not hum or not vim then return end
 
+        -- 1. Scan for open clearance in 4 cardinal directions to guarantee we never test into a wall
+        local dirs = {
+            { key = Enum.KeyCode.W, name = "Forward", dir = root.CFrame.LookVector },
+            { key = Enum.KeyCode.S, name = "Backward", dir = -root.CFrame.LookVector },
+            { key = Enum.KeyCode.D, name = "Right", dir = root.CFrame.RightVector },
+            { key = Enum.KeyCode.A, name = "Left", dir = -root.CFrame.RightVector }
+        }
+
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = {char}
+        params.FilterType = Enum.RaycastFilterType.Exclude
+
+        local bestDir = nil
+        local maxDist = 0
+        for _, d in ipairs(dirs) do
+            local hit = workspace:Raycast(root.Position, d.dir * 45, params)
+            local dist = hit and hit.Distance or 45
+            if dist > maxDist then
+                maxDist = dist
+                bestDir = d
+            end
+        end
+
+        if maxDist < 6 then
+            Hub.Notify("Speed Test Warning", "⚠️ In a tight corner! Please step into a hallway before testing.", 3)
+            return
+        end
+
         local oldWS = hum.WalkSpeed
         local wasEnabled = State.WalkSpeed_Enabled
 
-        -- Activate Pulse Engine at 45 speed
-        State.WalkSpeed_Enabled = true
-        State.WalkSpeed_Value = 45
-        applyCurrentSpeed()
+        -- Enable slide bypass and speed 45
+        setSlideState(true)
+        hum.WalkSpeed = 45
 
-        Hub.Notify("Speed Test", "Moving forward at 45 speed (Pulse Bypass)...", 2)
-        vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-        task.wait(0.40)
-        vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+        local pStart = root.Position
+        Hub.Notify("Speed Test", string.format("Moving %s at 45 speed (Clearance: %.1fm)...", bestDir.name, maxDist), 2)
+        vim:SendKeyEvent(true, bestDir.key, false, game)
+        task.wait(0.50)
+        vim:SendKeyEvent(false, bestDir.key, false, game)
 
         task.wait(0.25)
+        local pMid = root.Position
+        local movedForward = (pMid - pStart).Magnitude
 
-        Hub.Notify("Speed Test", "Moving backward at 45 speed (Pulse Bypass)...", 2)
-        vim:SendKeyEvent(true, Enum.KeyCode.S, false, game)
-        task.wait(0.40)
-        vim:SendKeyEvent(false, Enum.KeyCode.S, false, game)
+        -- Opposite direction key
+        local oppKey = (bestDir.key == Enum.KeyCode.W and Enum.KeyCode.S) 
+            or (bestDir.key == Enum.KeyCode.S and Enum.KeyCode.W)
+            or (bestDir.key == Enum.KeyCode.D and Enum.KeyCode.A) 
+            or Enum.KeyCode.D
 
-        task.wait(0.2)
-        State.WalkSpeed_Enabled = wasEnabled
-        State.WalkSpeed_Value = wasEnabled and State.WalkSpeed_Value or 45
-        applyCurrentSpeed()
+        Hub.Notify("Speed Test", "Moving opposite direction at 45 speed...", 2)
+        vim:SendKeyEvent(true, oppKey, false, game)
+        task.wait(0.50)
+        vim:SendKeyEvent(false, oppKey, false, game)
 
-        Hub.Notify("Speed Test", "Test finished! 0% rubberbanding detected. ✅", 3)
+        task.wait(0.25)
+        local pFinal = root.Position
+        local movedBack = (pFinal - pMid).Magnitude
+
+        setSlideState(false)
+        hum.WalkSpeed = wasEnabled and State.WalkSpeed_Value or oldWS
+
+        local rubberbandDetected = (movedForward < 4) or (movedBack < 4)
+        if rubberbandDetected then
+            Hub.Notify("Speed Test Result", string.format("⚠️ Rollback or obstacle: Out: %.1fm | Back: %.1fm", movedForward, movedBack), 4)
+        else
+            Hub.Notify("Speed Test Result", string.format("✅ Success! Out: %.1fm | Back: %.1fm | Rollback: 0%%", movedForward, movedBack), 4)
+        end
     end)
 end)
 
