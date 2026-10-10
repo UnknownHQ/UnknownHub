@@ -790,26 +790,76 @@ end
 -- =========================================================================
 -- WalkSpeed Protection & Anti-Rubberband Engine
 -- =========================================================================
+local speedPulseActive = false
+local pulseThread = nil
+
+local function stopSpeedPulse()
+    speedPulseActive = false
+    pulseThread = nil
+end
+
+local function startSpeedPulse()
+    if speedPulseActive then return end
+    speedPulseActive = true
+    pulseThread = task.spawn(function()
+        while speedPulseActive and State.WalkSpeed_Enabled do
+            if _G.DOORS_SESSION ~= currentSession then break end
+            local char = getChar()
+            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hum then
+                local targetSpeed = State.WalkSpeed_Value
+                if not State.AntiRubberband or targetSpeed <= 28 then
+                    -- Safe linear range: perfectly continuous speed
+                    if hum.WalkSpeed ~= targetSpeed then
+                        hum.WalkSpeed = targetSpeed
+                    end
+                    task.wait(0.08)
+                else
+                    -- High-speed Pulse Bypass (29 - 75 studs/s):
+                    -- DOORS server anticheat trips when continuous speed > 28 exceeds its rolling accumulator.
+                    -- By pulsing at targetSpeed for 0.20s and resting for 0.06s at baseline speed (16),
+                    -- the server distance accumulator is continuously flushed before tripping the rollback!
+                    hum.WalkSpeed = targetSpeed
+                    task.wait(0.20)
+                    if not speedPulseActive or not State.WalkSpeed_Enabled then break end
+                    hum.WalkSpeed = 16
+                    task.wait(0.06)
+                end
+            else
+                task.wait(0.1)
+            end
+        end
+
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum and not State.WalkSpeed_Enabled then
+            hum.WalkSpeed = 15
+        end
+        speedPulseActive = false
+    end)
+end
+
 local function applyCurrentSpeed()
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if hum then
         if State.WalkSpeed_Enabled then
-            hum.WalkSpeed = State.WalkSpeed_Value
+            startSpeedPulse()
         else
+            stopSpeedPulse()
             hum.WalkSpeed = 15
         end
     end
 end
 
--- Continuous Stepped Enforcement (Prevents DOORS' Movement script from overriding speed)
+-- Fallback Stepped Guard: Ensures DOORS' internal Movement script cannot revert WalkSpeed
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
-    if State.WalkSpeed_Enabled then
+    if State.WalkSpeed_Enabled and not speedPulseActive then
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum and hum.WalkSpeed ~= State.WalkSpeed_Value then
-            hum.WalkSpeed = State.WalkSpeed_Value
+            applyCurrentSpeed()
         end
     end
 end)
@@ -820,7 +870,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if State.WalkSpeed_Enabled then
         local hum = char:WaitForChild("Humanoid", 5)
         if hum then
-            hum.WalkSpeed = State.WalkSpeed_Value
+            applyCurrentSpeed()
         end
     end
 end)
@@ -842,7 +892,7 @@ Hub.CreateSection(mainTab, "🏃 Movement & Speed")
 Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
     applyCurrentSpeed()
-    Hub.Notify("WalkSpeed", v and ("Speed set to " .. tostring(State.WalkSpeed_Value)) or "Speed reset to default (15)", 2)
+    Hub.Notify("WalkSpeed", v and ("Speed set to " .. tostring(State.WalkSpeed_Value) .. " (Anti-Rubberband Active)") or "Speed reset to default (15)", 2)
 end)
 
 Hub.CreateSlider(mainTab, "Speed Value", 15, 75, State.WalkSpeed_Value, " studs/s", function(v)
@@ -854,6 +904,9 @@ end)
 
 Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
     State.AntiRubberband = v
+    if State.WalkSpeed_Enabled then
+        applyCurrentSpeed()
+    end
 end)
 
 Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Forward & Backward)", function()
@@ -865,22 +918,30 @@ Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Forward & Backward)", function()
         if not root or not hum or not vim then return end
 
         local oldWS = hum.WalkSpeed
-        hum.WalkSpeed = 45
+        local wasEnabled = State.WalkSpeed_Enabled
 
-        Hub.Notify("Speed Test", "Moving forward at 45 speed...", 2)
+        -- Activate Pulse Engine at 45 speed
+        State.WalkSpeed_Enabled = true
+        State.WalkSpeed_Value = 45
+        applyCurrentSpeed()
+
+        Hub.Notify("Speed Test", "Moving forward at 45 speed (Pulse Bypass)...", 2)
         vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-        task.wait(0.35)
+        task.wait(0.40)
         vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 
-        task.wait(0.2)
+        task.wait(0.25)
 
-        Hub.Notify("Speed Test", "Moving backward at 45 speed...", 2)
+        Hub.Notify("Speed Test", "Moving backward at 45 speed (Pulse Bypass)...", 2)
         vim:SendKeyEvent(true, Enum.KeyCode.S, false, game)
-        task.wait(0.35)
+        task.wait(0.40)
         vim:SendKeyEvent(false, Enum.KeyCode.S, false, game)
 
-        task.wait(0.1)
-        hum.WalkSpeed = State.WalkSpeed_Enabled and State.WalkSpeed_Value or oldWS
+        task.wait(0.2)
+        State.WalkSpeed_Enabled = wasEnabled
+        State.WalkSpeed_Value = wasEnabled and State.WalkSpeed_Value or 45
+        applyCurrentSpeed()
+
         Hub.Notify("Speed Test", "Test finished! 0% rubberbanding detected. ✅", 3)
     end)
 end)
