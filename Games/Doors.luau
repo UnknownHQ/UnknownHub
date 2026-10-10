@@ -829,20 +829,53 @@ local function setSlideState(sliding)
     end
 end
 
--- Continuous Heartbeat Enforcement (Dynamically applies slide state when moving to completely eliminate server rollbacks)
+-- Continuous Heartbeat Enforcement with Smart Accumulator Rate-Limiter
+-- (Tracks real-time distance delta over a 0.75s rolling window to guarantee the server's 26-stud tripwire never overflows)
+local distanceWindow = {}
+local lastRecordedPos = nil
+local throttleUntil = 0
+
+local function getRollingDistance(now)
+    local sum = 0
+    for i = #distanceWindow, 1, -1 do
+        if now - distanceWindow[i].t > 0.70 then
+            table.remove(distanceWindow, i)
+        else
+            sum = sum + distanceWindow[i].d
+        end
+    end
+    return sum
+end
+
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
+    local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if not hum or not hum.Parent then return end
+    if not hum or not hum.Parent or not root then return end
+
+    local now = os.clock()
+    local curPos = root.Position
+    if lastRecordedPos then
+        local delta = (Vector3.new(curPos.X, 0, curPos.Z) - Vector3.new(lastRecordedPos.X, 0, lastRecordedPos.Z)).Magnitude
+        table.insert(distanceWindow, { t = now, d = delta })
+    end
+    lastRecordedPos = curPos
 
     if State.WalkSpeed_Enabled then
         local targetSpeed = State.WalkSpeed_Value
         local isMoving = hum.MoveDirection.Magnitude > 0.05
+        local rollingDist = getRollingDistance(now)
 
         if State.AntiRubberband then
             if isMoving then
                 setSlideState(true)
+
+                -- If 0.7s distance approaches server limit (21+ studs) and speed is high (> 26):
+                -- momentarily relieve speed for 0.07s to flush server's leaky bucket accumulator
+                if targetSpeed > 26 and rollingDist > 20 and now > throttleUntil then
+                    throttleUntil = now + 0.07
+                end
             else
                 setSlideState(false)
             end
@@ -850,8 +883,13 @@ RunService.Heartbeat:Connect(function()
             setSlideState(false)
         end
 
-        if hum.WalkSpeed ~= targetSpeed then
-            hum.WalkSpeed = targetSpeed
+        local effectiveSpeed = targetSpeed
+        if State.AntiRubberband and now < throttleUntil then
+            effectiveSpeed = 16 -- baseline flush
+        end
+
+        if hum.WalkSpeed ~= effectiveSpeed then
+            hum.WalkSpeed = effectiveSpeed
         end
     else
         if isSlideBypassing then
@@ -863,14 +901,16 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Stepped Guard: Prevents DOORS' Movement script from locking WalkSpeed on physics step
+-- Stepped Guard: Ensures WalkSpeed is maintained across physics recalculations
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     if State.WalkSpeed_Enabled then
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum and hum.WalkSpeed ~= State.WalkSpeed_Value then
-            hum.WalkSpeed = State.WalkSpeed_Value
+        local now = os.clock()
+        local desired = (State.AntiRubberband and now < throttleUntil) and 16 or State.WalkSpeed_Value
+        if hum and hum.WalkSpeed ~= desired then
+            hum.WalkSpeed = desired
         end
     end
 end)
