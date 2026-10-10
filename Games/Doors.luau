@@ -252,10 +252,11 @@ task.spawn(function()
 end)
 
 -- =========================================================================
+-- =========================================================================
 -- Precision Scanners (Doors, Keys, Items, Books, Breakers, Monsters)
 -- =========================================================================
 
--- 1. Precision Door Scanner
+-- 1. Precision Door Scanner (Highlights complete rectangular door & hardware)
 local function processDoor(room, doorModel)
     if not doorModel or not doorModel:IsA("Model") then return end
     if not State.Doors_ESP then
@@ -264,8 +265,8 @@ local function processDoor(room, doorModel)
     end
 
     -- In DOORS:
-    -- doorModel has invisible 'Collision' Part (5x8x1.25) that stretches wide and creates the giant box.
-    -- The visible door leaf is MeshPart 'Door'!
+    -- doorModel has invisible 'Collision' Part (5x8x1.25) and interior 'Hidden' Part (3x8x1.5).
+    -- The actual visible door leaf is MeshPart 'Door', and its visible children: 'CrossBoards', 'Sign', 'Knob', 'Plate'.
     local doorMesh = doorModel:FindFirstChild("Door")
     if not doorMesh or not doorMesh:IsA("BasePart") then
         doorMesh = doorModel:FindFirstChildWhichIsA("MeshPart") or doorModel:FindFirstChildWhichIsA("BasePart")
@@ -296,21 +297,35 @@ local function processDoor(room, doorModel)
     local color
     local highlightParts = {}
 
+    -- Collect all real visible parts of the door leaf (Door + CrossBoards + Knob + Plate)
+    table.insert(highlightParts, doorMesh)
+    for _, child in ipairs(doorMesh:GetChildren()) do
+        if child:IsA("BasePart") and child.Name ~= "Collision" and child.Name ~= "Hidden" and child.Transparency < 0.95 then
+            table.insert(highlightParts, child)
+        end
+    end
+
+    -- Include lock hardware if locked
+    if isLocked and lockMesh then
+        if lockMesh:IsA("BasePart") and lockMesh.Transparency < 0.95 then
+            table.insert(highlightParts, lockMesh)
+        end
+        for _, desc in ipairs(lockMesh:GetDescendants()) do
+            if desc:IsA("BasePart") and desc.Transparency < 0.95 then
+                table.insert(highlightParts, desc)
+            end
+        end
+    end
+
     if isDupe then
         baseText = "⚠️ FAKE DOOR"
         color = Color3.fromRGB(255, 30, 30)
-        table.insert(highlightParts, doorMesh)
     elseif isLocked then
         baseText = string.format("🚪 Door %s [LOCKED 🔒]", doorNumberStr)
         color = Color3.fromRGB(255, 175, 30)
-        table.insert(highlightParts, doorMesh)
-        if lockMesh and lockMesh:IsA("BasePart") then
-            table.insert(highlightParts, lockMesh)
-        end
     else
         baseText = string.format("🚪 Door %s", doorNumberStr)
         color = Color3.fromRGB(0, 215, 255)
-        table.insert(highlightParts, doorMesh)
     end
 
     registerEsp(doorModel, doorMesh, baseText, color, "Doors", highlightParts, Vector3.new(0, 1.5, 0))
@@ -325,7 +340,7 @@ local function processKey(keyObtain)
     end
 
     -- In DOORS:
-    -- KeyObtain has Hitbox (invisible 5.5x5.5x5.5 Part) and KeyHitbox (invisible 1.38x1.38x1.38 Part).
+    -- KeyObtain has Hitbox and KeyHitbox (invisible).
     -- The actual visible parts are MeshParts inside Hitbox: 'Key', 'Tag', and 'Ring'!
     local keyMesh = keyObtain:FindFirstChild("Key", true)
     if not keyMesh or not keyMesh:IsA("BasePart") then
@@ -356,22 +371,83 @@ local function processKey(keyObtain)
     registerEsp(keyObtain, keyMesh, baseText, color, "Keys", highlightParts, Vector3.new(0, 1.2, 0))
 end
 
--- 3. Precision Item Scanner (Crucifix, Flashlight, Vitamins, etc.)
+-- 3. Precision Item Scanner (Strict validation against furniture & decor)
 local KNOWN_ITEMS = {
-    ["crucifix"] = "Crucifix",
-    ["flashlight"] = "Flashlight",
-    ["lighter"] = "Lighter",
-    ["vitamins"] = "Vitamins",
-    ["lockpick"] = "Lockpick",
-    ["skeletonkey"] = "Skeleton Key",
-    ["battery"] = "Battery",
-    ["bandage"] = "Bandage",
-    ["shears"] = "Shears",
-    ["candle"] = "Candle",
-    ["straplight"] = "Straplight",
-    ["bulklight"] = "Bulklight",
-    ["laser"] = "Laser Pointer"
+    ["crucifix"]      = "Crucifix",
+    ["flashlight"]    = "Flashlight",
+    ["lighter"]       = "Lighter",
+    ["vitamins"]      = "Vitamins",
+    ["lockpick"]      = "Lockpick",
+    ["skeletonkey"]   = "Skeleton Key",
+    ["battery"]       = "Battery",
+    ["bandage"]       = "Bandage",
+    ["shears"]        = "Shears",
+    ["candle"]        = "Candle",
+    ["straplight"]    = "Straplight",
+    ["bulklight"]     = "Bulklight",
+    ["laserpointer"]  = "Laser Pointer",
+    ["laser"]         = "Laser Pointer",
+    ["shakelight"]    = "Shakelight",
+    ["compass"]       = "Compass",
+    ["glowstick"]     = "Glowstick",
+    ["crucifixwall"]  = "Crucifix"
 }
+
+-- Furniture and background decor blacklist to prevent false positives
+local DECOR_BLACKLIST = {
+    "bookshelf", "bookcase", "drawer", "desk", "table", "chair", "couch", "sofa",
+    "painting", "clock", "cart", "luggage", "fireplace", "chandelier", "lamp",
+    "plant", "pillar", "shelf", "carpet", "rug", "door", "window", "curtain",
+    "bell", "plate", "cup", "bottle", "bed"
+}
+
+local function isValidLootItem(model)
+    if not model or not model:IsA("Model") then return false, nil end
+    local lower = model.Name:lower()
+
+    -- Reject blacklist decor
+    for _, blocked in ipairs(DECOR_BLACKLIST) do
+        if lower:find(blocked) then
+            return false, nil
+        end
+    end
+
+    if lower:find("keyobtain") or lower:find("goldpile") then
+        return false, nil
+    end
+
+    -- Strict check: True pickup items in DOORS MUST have a ProximityPrompt
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local hasPickupPrompt = false
+    local promptObjectName = nil
+
+    if prompt then
+        local action = prompt.ActionText:lower()
+        if action == "take" or action == "obtain" or action == "steal" or action == "grab" or action == "pick up" or action:find("take") or action:find("obtain") then
+            hasPickupPrompt = true
+        end
+        if prompt.ObjectText and #prompt.ObjectText > 0 then
+            promptObjectName = prompt.ObjectText:lower()
+        end
+    end
+
+    -- Also check for tool attributes or ModulePrompt
+    local hasItemModule = model:FindFirstChild("ModulePrompt", true) ~= nil
+    local hasItemAttr = model:GetAttribute("ItemType") ~= nil or model:GetAttribute("IsItem") == true
+
+    if not (hasPickupPrompt or hasItemModule or hasItemAttr) then
+        return false, nil
+    end
+
+    -- Match known item names
+    for key, displayName in pairs(KNOWN_ITEMS) do
+        if lower == key or lower:find("^" .. key) or (promptObjectName and promptObjectName:find(key)) then
+            return true, displayName
+        end
+    end
+
+    return false, nil
+end
 
 local function processItem(itemModel)
     if not itemModel or not itemModel:IsA("Model") then return end
@@ -380,39 +456,32 @@ local function processItem(itemModel)
         return
     end
 
-    local iName = itemModel.Name:lower()
-    local matchedName = nil
-    for pattern, displayName in pairs(KNOWN_ITEMS) do
-        if iName:find(pattern) and not iName:find("keyobtain") then
-            matchedName = displayName
-            break
-        end
-    end
-
-    if matchedName then
-        local targetPart = itemModel:FindFirstChild("Handle") or itemModel:FindFirstChildWhichIsA("MeshPart", true) or itemModel:FindFirstChildWhichIsA("BasePart", true)
+    local isValid, displayName = isValidLootItem(itemModel)
+    if isValid and displayName then
+        local targetPart = itemModel:FindFirstChild("Handle") 
+            or itemModel:FindFirstChildWhichIsA("MeshPart", true) 
+            or itemModel:FindFirstChildWhichIsA("BasePart", true)
         if targetPart then
-            local baseText = "📦 " .. matchedName
+            local baseText = "📦 " .. displayName
             local color = Color3.fromRGB(185, 80, 255)
             registerEsp(itemModel, targetPart, baseText, color, "Items", targetPart, Vector3.new(0, 1.2, 0))
         end
     end
 end
 
--- 4. Precision Books Scanner (ONLY in Room 50!)
+-- 4. Precision Books Scanner (ONLY in Room 50 Library!)
 local function processBook(room, bookInstance)
     if not State.Books_ESP then
         removeEspFor(bookInstance)
         return
     end
 
-    -- Strict check: ONLY scan for hint books if we are in Room 50!
-    -- This completely avoids false positives on decorative bookshelves in normal rooms!
-    if room.Name ~= "50" and room:GetAttribute("RoomID") ~= 50 then
-        return
-    end
+    -- Strict check: ONLY scan for books if room is Room 50!
+    -- This 100% eliminates false positives on decorative bookshelves in all other rooms.
+    local isRoom50 = (room.Name == "50") or (room:GetAttribute("RoomID") == 50)
+    if not isRoom50 then return end
 
-    if bookInstance.Name == "LiveHintBook" or bookInstance.Name == "HintBook" or bookInstance:GetAttribute("IsHintBook") then
+    if bookInstance.Name == "LiveHintBook" or (bookInstance:IsA("Model") and bookInstance.Name:find("HintBook")) then
         local targetPart = bookInstance:IsA("BasePart") and bookInstance or bookInstance:FindFirstChildWhichIsA("BasePart", true)
         if targetPart then
             local baseText = "📖 Library Book"
@@ -422,16 +491,15 @@ local function processBook(room, bookInstance)
     end
 end
 
--- 5. Precision Breakers Scanner (ONLY in Room 100!)
+-- 5. Precision Breakers Scanner (ONLY in Room 100 Electrical Room!)
 local function processBreaker(room, breakerInstance)
     if not State.Breakers_ESP then
         removeEspFor(breakerInstance)
         return
     end
 
-    if room.Name ~= "100" and room:GetAttribute("RoomID") ~= 100 then
-        return
-    end
+    local isRoom100 = (room.Name == "100") or (room:GetAttribute("RoomID") == 100)
+    if not isRoom100 then return end
 
     if breakerInstance.Name == "BreakerSwitch" or breakerInstance.Name == "LiveBreakerSwitch" or breakerInstance:GetAttribute("IsBreaker") then
         local targetPart = breakerInstance:IsA("BasePart") and breakerInstance or breakerInstance:FindFirstChildWhichIsA("BasePart", true)
@@ -443,7 +511,7 @@ local function processBreaker(room, breakerInstance)
     end
 end
 
--- 6. Precision Hiding Spot Scanner (Wardrobes, Closets, Lockers, Beds)
+-- 6. Precision Hiding Spot Scanner (Wardrobes, Closets, Lockers, Beds with active Hide prompt)
 local function processHidingSpot(hidingModel)
     if not hidingModel or not hidingModel:IsA("Model") then return end
     if not State.HidingSpots_ESP then
@@ -453,16 +521,34 @@ local function processHidingSpot(hidingModel)
 
     local hName = hidingModel.Name
     if hName == "Wardrobe" or hName == "Closet" or hName == "Locker" or hName:find("Bed") then
-        local targetPart = hidingModel:FindFirstChild("Main") or hidingModel:FindFirstChildWhichIsA("MeshPart") or hidingModel.PrimaryPart or hidingModel:FindFirstChildWhichIsA("BasePart")
-        if targetPart then
-            local baseText = "🛡️ " .. hName
-            local color = Color3.fromRGB(110, 195, 255)
-            registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0))
+        -- Verify it is a REAL hiding spot (has a Hide prompt), not broken/boarded decor
+        local prompt = hidingModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+        local isRealHiding = false
+        if prompt then
+            local act = prompt.ActionText:lower()
+            if act == "hide" or prompt.Name:lower():find("hide") then
+                isRealHiding = true
+            end
+        else
+            -- Bed or standard closet without nested prompt yet
+            isRealHiding = true
+        end
+
+        if isRealHiding then
+            local targetPart = hidingModel:FindFirstChild("Main") 
+                or hidingModel:FindFirstChildWhichIsA("MeshPart") 
+                or hidingModel.PrimaryPart 
+                or hidingModel:FindFirstChildWhichIsA("BasePart")
+            if targetPart then
+                local baseText = "🛡️ " .. hName
+                local color = Color3.fromRGB(110, 195, 255)
+                registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0))
+            end
         end
     end
 end
 
--- 7. Precision Gold Scanner
+-- 7. Precision Gold Scanner (Strict GoldPile check)
 local function processGold(goldModel)
     if not goldModel then return end
     if not State.Gold_ESP then
@@ -470,7 +556,7 @@ local function processGold(goldModel)
         return
     end
 
-    if goldModel.Name == "GoldPile" or (goldModel:IsA("Model") and goldModel.Name:lower():find("gold")) then
+    if goldModel.Name == "GoldPile" then
         local targetPart = goldModel:FindFirstChildWhichIsA("MeshPart", true) or goldModel:FindFirstChildWhichIsA("BasePart", true)
         if targetPart then
             local baseText = "💰 Gold"
@@ -480,41 +566,63 @@ local function processGold(goldModel)
     end
 end
 
--- 8. Precision Entity Scanner (Rush, Ambush, Figure, Seek, Eyes, Halt, etc.)
-local ENTITY_NAMES = {
-    ["rushmoving"] = "Rush",
-    ["ambushmoving"] = "Ambush",
-    ["figurerig"] = "Figure",
-    ["seekmoving"] = "Seek",
-    ["eyes"] = "Eyes",
-    ["halt"] = "Halt",
-    ["screech"] = "Screech",
-    ["giggleceiling"] = "Giggle",
-    ["grumble"] = "Grumble"
+-- 8. Comprehensive Entity ESP (Every Monster in DOORS Hotel & The Mines)
+local ENTITY_REGISTRY = {
+    ["rushmoving"]     = { Name = "Rush",               Emoji = "💀", Color = Color3.fromRGB(255, 35, 35) },
+    ["ambushmoving"]   = { Name = "Ambush",             Emoji = "💀", Color = Color3.fromRGB(30, 255, 160) },
+    ["figurerig"]      = { Name = "Figure",             Emoji = "👹", Color = Color3.fromRGB(255, 50, 50) },
+    ["seekmoving"]     = { Name = "Seek",               Emoji = "👁️", Color = Color3.fromRGB(220, 20, 20) },
+    ["seekrig"]        = { Name = "Seek",               Emoji = "👁️", Color = Color3.fromRGB(220, 20, 20) },
+    ["eyes"]           = { Name = "Eyes (Don't Look!)", Emoji = "👁️", Color = Color3.fromRGB(190, 50, 255) },
+    ["halt"]           = { Name = "Halt",               Emoji = "🛑", Color = Color3.fromRGB(0, 220, 255) },
+    ["shade"]          = { Name = "Halt",               Emoji = "🛑", Color = Color3.fromRGB(0, 220, 255) },
+    ["screech"]        = { Name = "Screech",            Emoji = "🦷", Color = Color3.fromRGB(255, 215, 0) },
+    ["giggleceiling"]  = { Name = "Giggle",             Emoji = "😈", Color = Color3.fromRGB(255, 80, 180) },
+    ["giggle"]         = { Name = "Giggle",             Emoji = "😈", Color = Color3.fromRGB(255, 80, 180) },
+    ["grumble"]        = { Name = "Grumble",            Emoji = "👹", Color = Color3.fromRGB(255, 100, 0) },
+    ["grumblerig"]     = { Name = "Grumble",            Emoji = "👹", Color = Color3.fromRGB(255, 100, 0) },
+    ["snare"]          = { Name = "Snare Trap",         Emoji = "⚠️", Color = Color3.fromRGB(80, 255, 80) },
+    ["glitch"]         = { Name = "Glitch",             Emoji = "⚡", Color = Color3.fromRGB(50, 150, 255) },
+    ["void"]           = { Name = "Void",               Emoji = "🌌", Color = Color3.fromRGB(140, 0, 255) },
+    ["dread"]          = { Name = "Dread",              Emoji = "☠️", Color = Color3.fromRGB(160, 0, 0) },
+    ["timothy"]        = { Name = "Timothy",            Emoji = "🕷️", Color = Color3.fromRGB(180, 180, 180) },
+    ["spider"]         = { Name = "Timothy",            Emoji = "🕷️", Color = Color3.fromRGB(180, 180, 180) },
+    ["a60"]            = { Name = "A-60",               Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
+    ["a-60"]           = { Name = "A-60",               Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
+    ["a90"]            = { Name = "A-90",               Emoji = "🛑", Color = Color3.fromRGB(255, 30, 30) },
+    ["a-90"]           = { Name = "A-90",               Emoji = "🛑", Color = Color3.fromRGB(255, 30, 30) },
+    ["a120"]           = { Name = "A-120",              Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
+    ["a-120"]          = { Name = "A-120",              Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
 }
 
-local function processEntity(entityModel)
-    if not entityModel or not entityModel:IsA("Model") then return end
+local function processEntity(entity)
+    if not entity then return end
     if not State.Entities_ESP then
-        removeEspFor(entityModel)
+        removeEspFor(entity)
         return
     end
 
-    local eLower = entityModel.Name:lower()
-    local matchedEntity = nil
-    for key, name in pairs(ENTITY_NAMES) do
-        if eLower:find(key) then
-            matchedEntity = name
+    local eLower = entity.Name:lower()
+
+    -- Do not flag players or friendly shop NPCs
+    if entity:IsA("Model") and Players:GetPlayerFromCharacter(entity) then return end
+    if eLower:find("bob") or eLower:find("elgoblino") or eLower:find("jeff") and not eLower:find("killer") then return end
+
+    local cfg = nil
+    for key, info in pairs(ENTITY_REGISTRY) do
+        if eLower == key or eLower:find(key) then
+            cfg = info
             break
         end
     end
 
-    if matchedEntity then
-        local targetPart = entityModel.PrimaryPart or entityModel:FindFirstChild("Root") or entityModel:FindFirstChild("Core") or entityModel:FindFirstChildWhichIsA("BasePart", true)
+    if cfg then
+        local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChild("Root") or entity:FindFirstChild("Core") or entity:FindFirstChildWhichIsA("BasePart", true)))
+            or (entity:IsA("BasePart") and entity)
+
         if targetPart then
-            local baseText = "💀 " .. matchedEntity
-            local color = Color3.fromRGB(255, 30, 30)
-            registerEsp(entityModel, targetPart, baseText, color, "Entities", entityModel, Vector3.new(0, 3.0, 0))
+            local baseText = string.format("%s %s", cfg.Emoji, cfg.Name)
+            registerEsp(entity, targetPart, baseText, cfg.Color, "Entities", entity, Vector3.new(0, 3.0, 0))
         end
     end
 end
@@ -523,31 +631,36 @@ end
 local function scanSingleRoom(room)
     if not room or not room:IsA("Model") then return end
 
-    -- Door
+    -- 1. Scan Door
     local door = room:FindFirstChild("Door")
     if door then processDoor(room, door) end
 
-    -- Search room descendants
+    -- 2. Scan Room Descendants
     for _, desc in ipairs(room:GetDescendants()) do
         if desc:IsA("Model") then
-            if desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
+            local dName = desc.Name
+            if dName == "KeyObtain" or desc:GetAttribute("IsKey") then
                 processKey(desc)
-            elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
+            elseif dName == "Wardrobe" or dName == "Closet" or dName == "Locker" or dName:find("Bed") then
                 processHidingSpot(desc)
-            elseif desc.Name == "GoldPile" then
+            elseif dName == "GoldPile" then
                 processGold(desc)
             else
+                -- Check for items with strict filter
                 processItem(desc)
             end
+
+            -- Check if entity spawned inside room (e.g. Figure, Eyes, Snare)
+            processEntity(desc)
         end
 
-        -- Check Book (Only in Room 50)
-        if room.Name == "50" then
+        -- Check Book (Strictly Room 50 Library Only)
+        if room.Name == "50" or room:GetAttribute("RoomID") == 50 then
             processBook(room, desc)
         end
 
-        -- Check Breaker (Only in Room 100)
-        if room.Name == "100" then
+        -- Check Breaker (Strictly Room 100 Electrical Only)
+        if room.Name == "100" or room:GetAttribute("RoomID") == 100 then
             processBreaker(room, desc)
         end
     end
@@ -571,25 +684,69 @@ local function scanAllRooms()
         for _, child in ipairs(Workspace:GetChildren()) do
             processEntity(child)
         end
+        if Camera then
+            for _, child in ipairs(Camera:GetChildren()) do
+                processEntity(child)
+            end
+        end
     end
 end
 
--- Listen for new rooms being generated dynamically
+-- Dynamic Room Generation Listener
 pcall(function()
     local currentRooms = Workspace:FindFirstChild("CurrentRooms") or Workspace:WaitForChild("CurrentRooms", 5)
     if currentRooms then
         currentRooms.ChildAdded:Connect(function(newRoom)
             task.wait(0.2)
             scanSingleRoom(newRoom)
+
+            -- Room child added listener for live item/entity drops
+            newRoom.ChildAdded:Connect(function(child)
+                task.wait(0.1)
+                if child.Name == "Door" then
+                    processDoor(newRoom, child)
+                elseif child.Name == "KeyObtain" then
+                    processKey(child)
+                elseif State.Entities_ESP then
+                    processEntity(child)
+                end
+            end)
         end)
     end
 end)
 
--- Listen for entities entering Workspace
+-- Dynamic Entity Spawning Listeners (Workspace & Camera for Screech)
 Workspace.ChildAdded:Connect(function(child)
     task.wait(0.05)
     if State.Entities_ESP then
         processEntity(child)
+    end
+end)
+
+if Camera then
+    Camera.ChildAdded:Connect(function(child)
+        task.wait(0.05)
+        if State.Entities_ESP then
+            processEntity(child)
+        end
+    end)
+end
+
+-- Continuous Entity Guard Loop (Checks Workspace & Camera every 0.4s to guarantee 0% missed spawns)
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Master_ESP and State.Entities_ESP then
+            for _, child in ipairs(Workspace:GetChildren()) do
+                processEntity(child)
+            end
+            if Camera then
+                for _, child in ipairs(Camera:GetChildren()) do
+                    processEntity(child)
+                end
+            end
+        end
+        task.wait(0.4)
     end
 end)
 
