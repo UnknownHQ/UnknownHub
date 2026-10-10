@@ -1543,6 +1543,8 @@ local function buildDynamicCraftCatalogs()
         local validMachineTypes = {
             ["SeedEventWorkbench"] = true,
             ["GearEventWorkbench"] = true,
+            ["FairyGeniusEventWorkbench"] = true,
+            ["FairyWorldCraftingWorkBench"] = true,
             ["Workbench"] = true,
             ["CraftingTable"] = true,
             ["CraftingBench"] = true,
@@ -1623,62 +1625,15 @@ local function buildDynamicCraftCatalogs()
     return craftPlants, craftGears
 end
 
-local function buildDynamicEventShopCatalogs()
-    local eSeeds, eGears, ePets, eCosmetics = {}, {}, {}, {}
-
-    pcall(function()
-        local rep = game:GetService("ReplicatedStorage")
-        local data = rep:FindFirstChild("Data")
-        local eventsData = data and data:FindFirstChild("Events")
-        local fallData = eventsData and eventsData:FindFirstChild("FallMarketEvent")
-        local shopMod = fallData and fallData:FindFirstChild("FallMarketEventShopData")
-
-        if shopMod then
-            local shopTables = require(shopMod)
-            if shopTables and type(shopTables) == "table" then
-                if shopTables.SeedShop then
-                    for name, info in pairs(shopTables.SeedShop) do
-                        local price = info.Price or 0
-                        local formatted = string.format("%s (%s¢)", name, tostring(price))
-                        table.insert(eSeeds, {Name = formatted, ItemName = name, Price = price, ShopType = "SeedShop"})
-                    end
-                end
-                if shopTables.GearShop then
-                    for name, info in pairs(shopTables.GearShop) do
-                        local price = info.Price or 0
-                        local formatted = string.format("%s (%s¢)", name, tostring(price))
-                        table.insert(eGears, {Name = formatted, ItemName = name, Price = price, ShopType = "GearShop"})
-                    end
-                end
-                if shopTables.PetShop then
-                    for name, info in pairs(shopTables.PetShop) do
-                        local price = info.Price or 0
-                        local formatted = string.format("%s (%s¢)", name, tostring(price))
-                        table.insert(ePets, {Name = formatted, ItemName = name, Price = price, ShopType = "PetShop"})
-                    end
-                end
-                if shopTables.CosmeticShop then
-                    for name, info in pairs(shopTables.CosmeticShop) do
-                        local price = info.Price or 0
-                        local formatted = string.format("%s (%s¢)", name, tostring(price))
-                        table.insert(eCosmetics, {Name = formatted, ItemName = name, Price = price, ShopType = "CosmeticShop"})
-                    end
-                end
-            end
-        end
-    end)
-
-    table.sort(eSeeds, function(a, b) return a.Price < b.Price end)
-    table.sort(eGears, function(a, b) return a.Price < b.Price end)
-    table.sort(ePets, function(a, b) return a.Price < b.Price end)
-    table.sort(eCosmetics, function(a, b) return a.Price < b.Price end)
-
-    table.insert(eSeeds, 1, {Name = "All Event Seeds", ItemName = "All Event Seeds"})
-    table.insert(eGears, 1, {Name = "All Event Gears", ItemName = "All Event Gears"})
-    table.insert(ePets, 1, {Name = "All Event Pets", ItemName = "All Event Pets"})
-    table.insert(eCosmetics, 1, {Name = "All Event Cosmetics", ItemName = "All Event Cosmetics"})
-
-    return eSeeds, eGears, ePets, eCosmetics
+local function buildFairyUpgradesCatalog()
+    local list = {
+        {Name = "All Upgrades", Key = "All"},
+        {Name = "Glimmer Multiplier", Key = "Glimmer Multiplier"},
+        {Name = "Roaming Fairy Spawn Amount", Key = "Loose Fairy Spawn Amount"},
+        {Name = "Fairy Event Duration", Key = "Fairy Event Duration"},
+        {Name = "Fairy Spawn Amount", Key = "Fairy Spawn Amount"}
+    }
+    return list
 end
 
 local allAvailablePlants = buildDynamicPlantCatalog()
@@ -1693,7 +1648,7 @@ local allAvailableSeedShop = buildDynamicSeedShopCatalog()
 local allAvailableCosmetics = buildDynamicCosmeticCatalog()
 local allAvailableSprinklers = buildDynamicSprinklerCatalog()
 local allAvailableCraftPlants, allAvailableCraftGears = buildDynamicCraftCatalogs()
-local allAvailableEventSeeds, allAvailableEventGears, allAvailableEventPets, allAvailableEventCosmetics = buildDynamicEventShopCatalogs()
+local allAvailableFairyUpgrades = buildFairyUpgradesCatalog()
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -1844,29 +1799,18 @@ local State = {
     InfiniteSprinkler = false,
     InfiniteSprinkler_Target = "All Sprinklers",
 
-    -- Events Tab: Fall Bloom, Event Shops, Acorn Chaos & Weekly Events
-    AutoCollect_FallBloomFruit = false,
-    AutoSubmitFallBloom = false,
-    AutoSubmitFallBloom_Delay = 1.0,
+    -- Events Tab: Fairy Event (Fountain, Glimmering Fruits, Upgrades, Loose Fairies)
+    AutoCollect_GlimmeringFruit = false,
+    AutoSubmit_FairyFountain = false,
+    AutoMake_FairyWish = true,
+    FairyFountain_AutoTeleport = false,
+    FairyFountain_Delay = 0.5,
 
-    AutoBuy_EventSeeds = false,
-    AutoBuy_SelectedEventSeed = "All Event Seeds",
-    AutoBuy_EventGears = false,
-    AutoBuy_SelectedEventGear = "All Event Gears",
-    AutoBuy_EventPets = false,
-    AutoBuy_SelectedEventPet = "All Event Pets",
-    AutoBuy_EventCosmetics = false,
-    AutoBuy_SelectedEventCosmetic = "All Event Cosmetics",
+    AutoBuy_FairyUpgrades = false,
+    AutoBuy_SelectedFairyUpgrades = {"All Upgrades"},
+    FairyUpgrades_BuyDelay = 0.5,
 
-    AutoAttackAcorns = false,
-    AutoEquipShovel = true,
-
-    -- Events Tab: Shady Scarecrow
-    AutoGive_ShadyScarecrow = false,
-    ShadyScarecrow_SelectedSeeds = {},
-    ShadyScarecrow_Priority = "Highest Rarity First",
-    ShadyScarecrow_AutoTeleport = true,
-    ShadyScarecrow_Delay = 1.0,
+    AutoCollect_RoamingFairies = false,
 
     -- General
     MaxBackpackCapacity = 500,
@@ -1930,19 +1874,12 @@ local hideFruitsToggle
 local infiniteSprinklerToggle
 local selectSprinklerListObj
 
-local autoCollectFallBloomToggle
-local autoSubmitFallBloomToggle
-local autoBuyEventSeedsToggle
-local selectEventSeedListObj
-local autoBuyEventGearsToggle
-local selectEventGearListObj
-local autoBuyEventPetsToggle
-local selectEventPetListObj
-local autoBuyEventCosmeticsToggle
-local selectEventCosmeticListObj
-
-local autoAttackAcornsToggle
-local autoEquipShovelToggle
+local autoCollectGlimmeringFruitToggle
+local autoSubmitFairyFountainToggle
+local autoMakeFairyWishToggle
+local autoBuyFairyUpgradesToggle
+local selectFairyUpgradeListObj
+local autoCollectRoamingFairiesToggle
 
 -- Acorn Chaos Tracking & Execution Engine
 local activeAcornIds = {}
@@ -4829,105 +4766,8 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- Fall Bloom Automator & Craving Engine (Anti-Spam & Auto-Submit)
+-- Fairy Event Automator & Glimmering Fruit Engine
 -- =========================================================================
-local function getCurrentFallCravingInfo()
-    local currentTrait = "None"
-    local slot = 0
-    local elapsedInSlot = 0
-    local isBloomActive = false
-    local bloomDuration = 300
-    local refreshInterval = 1800
-
-    -- Layer 1: HarvestSpiritBillboard Tagged BillboardGui (100% ground-truth live in-game text)
-    pcall(function()
-        local bbs = CollectionService:GetTagged("HarvestSpiritBillboard")
-        for _, bb in ipairs(bbs) do
-            local bg = bb:FindFirstChild("BG")
-            local tl = bg and bg:FindFirstChild("TextLabel")
-            if tl and tl.Text and #tl.Text > 0 then
-                local matched = tl.Text:match("<font.-%>(.-)</font>") or tl.Text:match("needs%s+<b>%s*(.-)%s*</b>")
-                if matched and #matched > 0 then
-                    local clean = matched:gsub("<.->", ""):gsub("%s+", "")
-                    if clean and clean ~= "" and clean ~= "None" then
-                        currentTrait = clean
-                        return
-                    end
-                end
-            end
-        end
-    end)
-
-    -- Layer 2: Official CravingDisplayController
-    if currentTrait == "None" then
-        pcall(function()
-            local cdcMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("CravingControllers") and ReplicatedStorage.Modules.CravingControllers:FindFirstChild("CravingDisplayController")
-            local configMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
-            if cdcMod and configMod then
-                local cdc = require(cdcMod)
-                local config = require(configMod)
-                local trait = cdc:GetTrait(config)
-                if trait and trait ~= "" and trait ~= "None" then
-                    currentTrait = trait
-                end
-            end
-        end)
-    end
-
-    -- Layer 3: Official CravingUtils
-    if currentTrait == "None" then
-        pcall(function()
-            local cuMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("CravingUtils")
-            local configMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
-            if cuMod and configMod then
-                local cu = require(cuMod)
-                local config = require(configMod)
-                local trait = cu:GetCurrentCraving({
-                    Options = config.Traits or {"Berry", "Fruit", "Flower", "Vegetable", "Tropical", "Prickly", "Woody"},
-                    Interval = config.CravingRefresh or 1800,
-                    HashNum = config.RANDOM_SEED_VALUE or 8143
-                })
-                if trait and trait ~= "" and trait ~= "None" then
-                    currentTrait = trait
-                end
-            end
-        end)
-    end
-
-    pcall(function()
-        local configMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FallMarketEvent") and ReplicatedStorage.Data.Events.FallMarketEvent:FindFirstChild("FallMarketEventConfig")
-        if configMod then
-            local config = require(configMod)
-            refreshInterval = config.CravingRefresh or 1800
-            bloomDuration = config.FallBloomDuration or 300
-            local now = workspace:GetServerTimeNow()
-            slot = math.floor(now / refreshInterval)
-            elapsedInSlot = now % refreshInterval
-            isBloomActive = (elapsedInSlot < bloomDuration)
-        end
-    end)
-
-    pcall(function()
-        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
-        if dsMod then
-            local ds = require(dsMod)
-            local pData = ds:GetData()
-            if pData and pData.FallMarket and pData.FallMarket.FallEnergyRewardClaimable then
-                isBloomActive = true
-            end
-        end
-    end)
-
-    return {
-        Trait = currentTrait,
-        Slot = slot,
-        ElapsedInSlot = elapsedInSlot,
-        IsBloomActive = isBloomActive,
-        BloomDuration = bloomDuration,
-        RefreshInterval = refreshInterval
-    }
-end
-
 local function isFruitTool(tool)
     if not tool or not tool:IsA("Tool") then return false end
     if tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool:GetAttribute("ItemType") == "Pet" then return false end
@@ -4940,212 +4780,80 @@ local function isFruitTool(tool)
     return true
 end
 
-local function cleanPlantName(name)
-    local s = tostring(name or "")
-    s = s:gsub("^%s*%[.-%]%s*", "")
-    s = s:gsub("%s*%[.-%]%s*$", "")
-    s = s:gsub("_%w%w%w%w+$", "")
-    s = s:gsub("^%s+", ""):gsub("%s+$", "")
-    return s
-end
-
-local function checkPlantMatchesTrait(rawName, targetTrait)
-    if not rawName or rawName == "" or not targetTrait or targetTrait == "" or targetTrait == "None" then
-        return false
-    end
-
-    local base = cleanPlantName(rawName)
-    if base == "" then return false end
-
-    local baseLower = base:lower()
-    if baseLower:find("seed") or baseLower:find("pack") or baseLower:find("shovel") or baseLower:find("sprinkler") or baseLower:find("fertilizer") or baseLower:find("potion") then
-        return false
-    end
-
-    if PlantTraitsData and type(PlantTraitsData) == "table" then
-        local matched = false
-        pcall(function()
-            -- 1. Direct HasTrait
-            if type(PlantTraitsData.HasTrait) == "function" then
-                if PlantTraitsData.HasTrait(base, targetTrait) then
-                    matched = true
-                    return
-                end
-            end
-
-            -- 2. Direct dictionary lookup
-            if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][base] then
-                matched = true
-                return
-            end
-
-            -- 3. Strip suffixes (" Tree", " Bush", " Plant", " Crop", " Vine")
-            local strippedSuffix = base:gsub("%s+[Tt]ree$", ""):gsub("%s+[Bb]ush$", ""):gsub("%s+[Pp]lant$", ""):gsub("%s+[Cc]rop$", ""):gsub("%s+[Vv]ine$", ""):gsub("%s+[Ss]eed$", "")
-            if strippedSuffix ~= base then
-                if type(PlantTraitsData.HasTrait) == "function" and PlantTraitsData.HasTrait(strippedSuffix, targetTrait) then
-                    matched = true
-                    return
-                end
-                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][strippedSuffix] then
-                    matched = true
-                    return
-                end
-            end
-
-            -- 4. Strip variant prefixes ("Golden ", "Diamond ", "Rainbow ", etc.)
-            local variants = {"Golden ", "Gold ", "Diamond ", "Rainbow ", "Silver ", "Shocked ", "Frozen ", "Chilled ", "Radioactive ", "Bloom ", "Mutated ", "Giant ", "Jumbo ", "Tiny "}
-            local strippedPrefix = strippedSuffix
-            for _, v in ipairs(variants) do
-                if strippedPrefix:sub(1, #v):lower() == v:lower() then
-                    strippedPrefix = strippedPrefix:sub(#v + 1):gsub("^%s+", "")
-                end
-            end
-            if strippedPrefix ~= strippedSuffix then
-                if type(PlantTraitsData.HasTrait) == "function" and PlantTraitsData.HasTrait(strippedPrefix, targetTrait) then
-                    matched = true
-                    return
-                end
-                if PlantTraitsData[targetTrait] and PlantTraitsData[targetTrait][strippedPrefix] then
-                    matched = true
-                    return
-                end
-            end
-
-            -- 5. Exact match against plants in PlantTraitsData[targetTrait]
-            if PlantTraitsData[targetTrait] and type(PlantTraitsData[targetTrait]) == "table" then
-                local lowBase = base:lower()
-                local lowStrip = strippedPrefix:lower()
-                for pName, _ in pairs(PlantTraitsData[targetTrait]) do
-                    local pLow = tostring(pName):lower()
-                    if pLow == lowBase or pLow == lowStrip or lowBase:find(pLow, 1, true) or lowStrip:find(pLow, 1, true) then
-                        matched = true
-                        return
-                    end
-                end
-            end
-        end)
-        if matched then return true end
-    end
-
+local function isToolGlimmering(tool)
+    if not tool or not tool:IsA("Tool") then return false end
+    if not isFruitTool(tool) then return false end
+    if tool:GetAttribute("Glimmering") == true or tool:GetAttribute("glm") == true then return true end
+    local m = tool:GetAttribute("Mutation") or tool:GetAttribute("m")
+    if m == "Glimmering" or m == "glm" then return true end
+    if tool.Name:lower():find("glimmer") then return true end
     return false
 end
 
-local function getMatchingCravingFruits(targetTrait)
-    local matching = {}
-    if not targetTrait or targetTrait == "None" then return matching end
-
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if isFruitTool(tool) then
-                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
-                if checkPlantMatchesTrait(pName, targetTrait) then
-                    table.insert(matching, {Tool = tool, Name = pName})
+local function isPlantOrFruitGlimmering(instance)
+    if not instance then return false end
+    if instance:GetAttribute("Glimmering") == true or instance:GetAttribute("glm") == true then
+        return true
+    end
+    local m = instance:GetAttribute("Mutation") or instance:GetAttribute("m")
+    if m == "Glimmering" or m == "glm" then
+        return true
+    end
+    if instance.Name:lower():find("glimmer") then
+        return true
+    end
+    local mh = MutationHandler or (ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MutationHandler") and require(ReplicatedStorage.Modules.MutationHandler))
+    if mh and type(mh.GetPlantMutations) == "function" then
+        local success, muts = pcall(function() return mh:GetPlantMutations(instance) end)
+        if success and type(muts) == "table" then
+            for _, mutName in ipairs(muts) do
+                if tostring(mutName):lower():find("glimmer") or mutName == "glm" then
+                    return true
                 end
             end
         end
     end
-
-    local char = LocalPlayer.Character
-    if char then
-        for _, tool in ipairs(char:GetChildren()) do
-            if isFruitTool(tool) then
-                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
-                if checkPlantMatchesTrait(pName, targetTrait) then
-                    table.insert(matching, {Tool = tool, Name = pName})
-                end
-            end
-        end
-    end
-
-    return matching
+    return false
 end
 
-local function sellStaleFallFruits(targetTrait)
-    if not targetTrait or targetTrait == "None" then return end
-    pcall(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local sellItemRem = (ge and ge:FindFirstChild("Sell_Item")) or getSellItemRemote()
-
-        local allTools = getAllPlayerTools()
-        for _, tool in ipairs(allTools) do
-            if tool and tool.Parent and isFruitTool(tool) then
-                local pName = tool:GetAttribute("f") or tool:GetAttribute("Fruit") or tool:GetAttribute("Plant") or tool.Name
-                if not checkPlantMatchesTrait(pName, targetTrait) then
-                    if sellItemRem then
-                        pcall(function()
-                            sellItemRem:FireServer(tool)
-                        end)
-                    end
-                end
-            end
-        end
-    end)
-end
-
-local function executeFallBloomSubmissionCycle()
-    pcall(function()
-        local cravingInfo = getCurrentFallCravingInfo()
-        if not cravingInfo or cravingInfo.Trait == "None" then return end
-
-        -- Only submit if the player actually has matching plants in inventory
-        local matching = getMatchingCravingFruits(cravingInfo.Trait)
-        if #matching == 0 then return end
-
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local ev = ge and ge:FindFirstChild("Events")
-        local fm = ev and ev:FindFirstChild("FallMarketEvent")
-        local submitAllRem = fm and fm:FindFirstChild("SubmitAllPlants")
-        local claimEnergyRem = fm and fm:FindFirstChild("ClaimFallEnergyRewards")
-
-        -- Official Developer remote batch submit (Direct remote call, 0 NPC dialogue popups)
-        if submitAllRem then
-            submitAllRem:FireServer()
-        end
-
-        -- Auto-claim fall energy rewards
-        if claimEnergyRem then
-            claimEnergyRem:FireServer()
-        end
-    end)
-end
-
-local function executeFallBloomCollectCycle()
-    local cravingInfo = getCurrentFallCravingInfo()
-    if not cravingInfo or cravingInfo.Trait == "None" then return end
-    local targetTrait = cravingInfo.Trait
-
-    -- If backpack is full, auto-sell stale non-matching fruits to make room for new category
-    if isBackpackFull() then
-        sellStaleFallFruits(targetTrait)
-        task.wait(0.15)
-        if isBackpackFull() then return end
-    end
-
+-- 1. Auto Collect Glimmering Fruit
+local function executeGlimmeringCollectCycle()
     local colRemote = getCollectRemote()
     if not colRemote then return end
+    if isBackpackFull() then return end
 
     local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
     local myFarm = getPlayerFarm()
     local farmList = (myFarm and {myFarm}) or farmFolder:GetChildren()
 
-    local matchingFruitGroups = {}
+    local targetsToCollect = {}
     local function scanFarms(list)
         for _, farm in ipairs(list) do
             local important = farm:FindFirstChild("Important")
             local plantsFolder = important and important:FindFirstChild("Plants_Physical")
             if plantsFolder then
                 for _, plant in ipairs(plantsFolder:GetChildren()) do
-                    if checkPlantMatchesTrait(plant.Name, targetTrait) then
-                        local fruitsFolder = plant:FindFirstChild("Fruits")
-                        if fruitsFolder then
-                            for _, fruitGroup in ipairs(fruitsFolder:GetChildren()) do
-                                table.insert(matchingFruitGroups, fruitGroup)
+                    local plantIsGlimmer = isPlantOrFruitGlimmering(plant)
+                    local fruitsFolder = plant:FindFirstChild("Fruits")
+                    if fruitsFolder then
+                        for _, fruitGroup in ipairs(fruitsFolder:GetChildren()) do
+                            if plantIsGlimmer or isPlantOrFruitGlimmering(fruitGroup) then
+                                table.insert(targetsToCollect, fruitGroup)
+                            end
+                        end
+                    else
+                        -- Single-harvest crop or plant-level prompt
+                        if plantIsGlimmer then
+                            local prompt = plant:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            if prompt and prompt.Parent then
+                                table.insert(targetsToCollect, prompt.Parent)
+                            else
+                                table.insert(targetsToCollect, plant)
                             end
                         else
                             for _, child in ipairs(plant:GetChildren()) do
-                                if child.Name:lower():find("fruit") or child:FindFirstChildWhichIsA("ProximityPrompt", true) then
-                                    table.insert(matchingFruitGroups, child)
+                                if isPlantOrFruitGlimmering(child) then
+                                    table.insert(targetsToCollect, child)
                                 end
                             end
                         end
@@ -5156,53 +4864,150 @@ local function executeFallBloomCollectCycle()
     end
 
     scanFarms(farmList)
-    if #matchingFruitGroups == 0 and myFarm and farmFolder ~= Workspace then
+    if #targetsToCollect == 0 and myFarm and farmFolder ~= Workspace then
         scanFarms(farmFolder:GetChildren())
     end
 
-    if #matchingFruitGroups > 0 then
+    if #targetsToCollect > 0 then
         local batch = {}
         local maxBatch = State.BatchSize or 35
-        for _, fg in ipairs(matchingFruitGroups) do
-            if not isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then break end
-            table.insert(batch, fg)
+        for _, target in ipairs(targetsToCollect) do
+            if not isToggleActive(autoCollectGlimmeringFruitToggle, State.AutoCollect_GlimmeringFruit, "Auto Collect Glimmering Fruit") then break end
+            if isBackpackFull() then break end
+            table.insert(batch, target)
             if #batch >= maxBatch then
-                pcall(function()
-                    colRemote:FireServer(batch)
-                end)
+                pcall(function() colRemote:FireServer(batch) end)
                 batch = {}
                 task.wait(0.04)
             end
         end
-        if #batch > 0 and isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then
-            pcall(function()
-                colRemote:FireServer(batch)
-            end)
+        if #batch > 0 and isToggleActive(autoCollectGlimmeringFruitToggle, State.AutoCollect_GlimmeringFruit, "Auto Collect Glimmering Fruit") then
+            pcall(function() colRemote:FireServer(batch) end)
         end
     end
 end
 
--- Fall Bloom Auto-Collect Background Worker
-local lastCravingTrait = nil
+-- 2. Fairy Fountain Submissions & Wishes
+local function getWishFountainRoot()
+    local feModel = Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("FairyEventModel")
+    if feModel then
+        local wf = feModel:FindFirstChild("WishFountain")
+        if wf then
+            return wf:FindFirstChild("Root") or wf:FindFirstChild("Head") or wf.PrimaryPart or wf:FindFirstChildWhichIsA("BasePart", true)
+        end
+    end
+    return nil
+end
+
+local function executeFairyFountainSubmissionCycle(isManual)
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local fe = ev and ev:FindFirstChild("FairyEvent")
+        if not fe then return end
+
+        local submitAllRem = fe:FindFirstChild("SubmitFairyFountainAllPlants") or fe:FindFirstChild("SubmitAllPlants")
+        local submitHeldRem = fe:FindFirstChild("SubmitFairyFountainHeldPlant") or fe:FindFirstChild("SubmitHeldPlant")
+        local makeWishRem = fe:FindFirstChild("MakeFairyWish")
+        local claimRewardRem = fe:FindFirstChild("ClaimFairyReward")
+
+        local rootPart = getWishFountainRoot()
+        local didTeleport = false
+        local prevCF = nil
+
+        -- Proximity handling: Teleport closer to fountain if enabled and far away
+        if State.FairyFountain_AutoTeleport and rootPart and LocalPlayer.Character then
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local dist = (hrp.Position - rootPart.Position).Magnitude
+                if dist > 30 then
+                    prevCF = hrp.CFrame
+                    hrp.CFrame = CFrame.new(rootPart.Position + Vector3.new(0, 3, 5), rootPart.Position)
+                    didTeleport = true
+                    task.wait(0.15)
+                end
+            end
+        end
+
+        -- 1. Batch Submit all qualifying glimmering plants from backpack
+        if submitAllRem then
+            submitAllRem:FireServer()
+        end
+
+        -- 2. Fallback: Check if any glimmering fruit is held or remains in backpack
+        local allTools = getAllPlayerTools()
+        for _, tool in ipairs(allTools) do
+            if tool and tool.Parent and isToolGlimmering(tool) then
+                if submitHeldRem then
+                    equipTool(tool)
+                    task.wait(0.05)
+                    submitHeldRem:FireServer()
+                end
+            end
+        end
+
+        -- 3. Auto Make Wish when all 3 offerings are satisfied
+        if makeWishRem and (State.AutoMake_FairyWish or isManual) then
+            local shouldWish = false
+            local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
+            if dsMod then
+                local ds = require(dsMod)
+                local data = ds:GetData()
+                if data and data.FairyEvent and data.FairyEvent.FairyQuests then
+                    local fq = data.FairyEvent.FairyQuests
+                    if fq.CompletionSource ~= nil then
+                        shouldWish = true
+                    elseif fq.Containers and #fq.Containers > 0 then
+                        local allDone = true
+                        for _, cId in ipairs(fq.Containers) do
+                            local qc = data.QuestContainers and data.QuestContainers[cId]
+                            if qc and qc.Quests and qc.Quests[1] then
+                                if qc.Quests[1].Completed ~= true then
+                                    allDone = false
+                                    break
+                                end
+                            else
+                                allDone = false
+                                break
+                            end
+                        end
+                        if allDone then shouldWish = true end
+                    end
+                end
+            end
+
+            if shouldWish or isManual then
+                makeWishRem:FireServer()
+                if isManual then
+                    Hub.Notify("✨ Fairy Fountain", "Made a wish at the Wishing Fountain!", 3)
+                end
+            end
+        end
+
+        -- 4. Auto Claim Milestone / Tier Rewards
+        if claimRewardRem then
+            claimRewardRem:FireServer()
+        end
+
+        -- Return to previous location if teleported
+        if didTeleport and prevCF and LocalPlayer.Character then
+            task.wait(0.15)
+            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.CFrame = prevCF end
+        end
+
+        if isManual then
+            Hub.Notify("✨ Fairy Fountain", "Submitted Glimmering Fruits to Fountain!", 3)
+        end
+    end)
+end
+
+-- Background Worker: Auto Collect Glimmering Fruits
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") 
-           or State.AutoSubmitFallBloom then
-            pcall(function()
-                local cInfo = getCurrentFallCravingInfo()
-                if cInfo and cInfo.Trait ~= "None" then
-                    -- When the craving rotates to a new category, immediately sell old stale fruits from the previous category
-                    if lastCravingTrait and lastCravingTrait ~= cInfo.Trait then
-                        sellStaleFallFruits(cInfo.Trait)
-                    end
-                    lastCravingTrait = cInfo.Trait
-                end
-
-                if isToggleActive(autoCollectFallBloomToggle, State.AutoCollect_FallBloomFruit, "Auto Collect Needed Fruit (Fall Bloom)") then
-                    executeFallBloomCollectCycle()
-                end
-            end)
+        if isToggleActive(autoCollectGlimmeringFruitToggle, State.AutoCollect_GlimmeringFruit, "Auto Collect Glimmering Fruit") then
+            pcall(executeGlimmeringCollectCycle)
             task.wait(State.HarvestDelay or 0.1)
         else
             task.wait(0.5)
@@ -5210,13 +5015,13 @@ task.spawn(function()
     end
 end)
 
--- Fall Bloom Auto-Submit Background Worker
+-- Background Worker: Auto Submit Glimmering Fruits to Fairy Fountain
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if State.AutoSubmitFallBloom then
-            local delayVal = math.clamp(tonumber(State.AutoSubmitFallBloom_Delay) or 1.0, 0.25, 10.0)
-            executeFallBloomSubmissionCycle()
+        if State.AutoSubmit_FairyFountain then
+            local delayVal = math.clamp(tonumber(State.FairyFountain_Delay) or 0.5, 0.25, 10.0)
+            pcall(function() executeFairyFountainSubmissionCycle(false) end)
             task.wait(delayVal)
         else
             task.wait(0.5)
@@ -5224,400 +5029,157 @@ task.spawn(function()
     end
 end)
 
--- Fall Event Shops Auto-Buy Engine
 -- =========================================================================
-local function executeEventShopPurchases()
+-- Fairy Upgrades Auto-Buy Engine
+-- =========================================================================
+local function executeFairyUpgradesAutoBuy(isManual)
     pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local fe = ev and ev:FindFirstChild("FairyEvent")
+        local upgradeRem = fe and fe:FindFirstChild("Upgrade")
+        if not upgradeRem then return end
+
         local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
         local ds = dsMod and require(dsMod)
         local data = ds and ds:GetData()
-        local eventShopStock = data and data.EventShopStock or {}
+        if not data then return end
 
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local buyEventRem = ge and ge:FindFirstChild("BuyEventShopStock")
-        local buyGardenCoinRem = ge and ge:FindFirstChild("BuyGardenCoinShopStock")
+        local fairyPoints = (data.SpecialCurrency and data.SpecialCurrency.FairyPoints) or 0
+        local playerUpgrades = (data.FairyEvent and data.FairyEvent.Upgrades) or {}
 
-        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-        local eventShopGui = pGui and (pGui:FindFirstChild("EventShop_UI") or pGui:FindFirstChild("FallMarketEventShop_UI"))
+        local dataMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FairyEvent") and ReplicatedStorage.Data.Events.FairyEvent:FindFirstChild("FairyUpgradesData")
+        local upgradesConfig = dataMod and require(dataMod)
+        if not upgradesConfig then return end
 
-        local function triggerShopBuy(itemName, shopKey)
-            if not itemName or itemName == "" then return end
-            if buyEventRem then
-                buyEventRem:FireServer(tostring(itemName), tostring(shopKey))
-            end
-            if buyGardenCoinRem then
-                buyGardenCoinRem:FireServer(tostring(itemName))
-            end
-            pcall(function()
-                if eventShopGui and eventShopGui.Enabled then
-                    for _, desc in ipairs(eventShopGui:GetDescendants()) do
-                        if desc:IsA("GuiObject") and desc.Name == tostring(itemName) then
-                            local btn = desc:FindFirstChild("Sheckles_Buy", true) or desc:FindFirstChild("CashBuy", true)
-                            if btn and getconnections then
-                                for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
-                            end
-                            if btn and firesignal then firesignal(btn.Activated) end
-                        end
-                    end
-                end
-            end)
+        local selectedUpgrades = {}
+        if selectFairyUpgradeListObj then
+            selectedUpgrades = getUIListMultipleVals(selectFairyUpgradeListObj, "All Upgrades")
+        end
+        if #selectedUpgrades == 0 then
+            selectedUpgrades = State.AutoBuy_SelectedFairyUpgrades or {"All Upgrades"}
         end
 
-        -- 1. Event Seeds
-        if State.AutoBuy_EventSeeds then
-            local seedShopStock = eventShopStock["Fall Market Seed Shop"] and eventShopStock["Fall Market Seed Shop"].Stocks or {}
-            local selectedSeed = tostring(getUIListVal(selectEventSeedListObj, State.AutoBuy_SelectedEventSeed or "All Event Seeds"))
-            local cleanTarget = selectedSeed:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
-
-            if cleanTarget == "All Event Seeds" or cleanTarget == "None" or cleanTarget == "" then
-                for itemName, info in pairs(seedShopStock) do
-                    local stock = tonumber(info.Stock) or 0
-                    if stock > 0 then
-                        triggerShopBuy(itemName, "Fall Market Seed Shop")
-                    end
-                end
-            else
-                for itemName, info in pairs(seedShopStock) do
-                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
-                        local stock = tonumber(info.Stock) or 0
-                        if stock > 0 then
-                            triggerShopBuy(itemName, "Fall Market Seed Shop")
-                        end
-                    end
-                end
-            end
-        end
-
-        -- 2. Event Gears
-        if State.AutoBuy_EventGears then
-            local gearShopStock = eventShopStock["Fall Market Gear Shop"] and eventShopStock["Fall Market Gear Shop"].Stocks or {}
-            local selectedGear = tostring(getUIListVal(selectEventGearListObj, State.AutoBuy_SelectedEventGear or "All Event Gears"))
-            local cleanTarget = selectedGear:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
-
-            if cleanTarget == "All Event Gears" or cleanTarget == "None" or cleanTarget == "" then
-                for itemName, info in pairs(gearShopStock) do
-                    local stock = tonumber(info.Stock) or 0
-                    if stock > 0 then
-                        triggerShopBuy(itemName, "Fall Market Gear Shop")
-                    end
-                end
-            else
-                for itemName, info in pairs(gearShopStock) do
-                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
-                        local stock = tonumber(info.Stock) or 0
-                        if stock > 0 then
-                            triggerShopBuy(itemName, "Fall Market Gear Shop")
-                        end
-                    end
-                end
-            end
-        end
-
-        -- 3. Event Pets
-        if State.AutoBuy_EventPets then
-            local petShopStock = eventShopStock["Fall Market Pet Shop"] and eventShopStock["Fall Market Pet Shop"].Stocks or {}
-            local selectedPet = tostring(getUIListVal(selectEventPetListObj, State.AutoBuy_SelectedEventPet or "All Event Pets"))
-            local cleanTarget = selectedPet:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
-
-            if cleanTarget == "All Event Pets" or cleanTarget == "None" or cleanTarget == "" then
-                for itemName, info in pairs(petShopStock) do
-                    local stock = tonumber(info.Stock) or 0
-                    if stock > 0 then
-                        triggerShopBuy(itemName, "Fall Market Pet Shop")
-                    end
-                end
-            else
-                for itemName, info in pairs(petShopStock) do
-                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
-                        local stock = tonumber(info.Stock) or 0
-                        if stock > 0 then
-                            triggerShopBuy(itemName, "Fall Market Pet Shop")
-                        end
-                    end
-                end
-            end
-        end
-
-        -- 4. Event Cosmetics
-        if State.AutoBuy_EventCosmetics then
-            local cosmeticShopStock = eventShopStock["Fall Market Cosmetic Shop"] and eventShopStock["Fall Market Cosmetic Shop"].Stocks or {}
-            local selectedCosmetic = tostring(getUIListVal(selectEventCosmeticListObj, State.AutoBuy_SelectedEventCosmetic or "All Event Cosmetics"))
-            local cleanTarget = selectedCosmetic:gsub("%s*%([%d%.]+%a*¢%)", ""):gsub("^%s+", ""):gsub("%s+$", "")
-
-            if cleanTarget == "All Event Cosmetics" or cleanTarget == "None" or cleanTarget == "" then
-                for itemName, info in pairs(cosmeticShopStock) do
-                    local stock = tonumber(info.Stock) or 0
-                    if stock > 0 then
-                        triggerShopBuy(itemName, "Fall Market Cosmetic Shop")
-                    end
-                end
-            else
-                for itemName, info in pairs(cosmeticShopStock) do
-                    if itemName:lower() == cleanTarget:lower() or itemName:lower():find(cleanTarget:lower(), 1, true) or cleanTarget:lower():find(itemName:lower(), 1, true) then
-                        local stock = tonumber(info.Stock) or 0
-                        if stock > 0 then
-                            triggerShopBuy(itemName, "Fall Market Cosmetic Shop")
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
-
--- Fall Event Shops Auto-Buy Background Worker
-task.spawn(function()
-    while true do
-        if _G.GAG_SESSION ~= currentSession then break end
-        local isAnyEventBuyActive = State.AutoBuy_EventSeeds or State.AutoBuy_EventGears or State.AutoBuy_EventPets or State.AutoBuy_EventCosmetics
-        if isAnyEventBuyActive then
-            local delayVal = math.clamp(tonumber(State.EventShop_BuyDelay) or 0.25, 0.05, 5.0)
-            executeEventShopPurchases()
-            task.wait(delayVal)
-        else
-            task.wait(0.5)
-        end
-    end
-end)
-
--- =========================================================================
--- Shady Scarecrow Automator Engine (Fall Market Event)
--- =========================================================================
-do
-    State.UI_Scarecrow = State.UI_Scarecrow or {}
-
-    local SHADY_SCARECROW_RARITY_SCORES = {
-        Transcendent = 8,
-        Prismatic = 7,
-        Divine = 6,
-        Mythical = 5,
-        Legendary = 4,
-        Rare = 3,
-        Uncommon = 2,
-        Common = 1
-    }
-
-    local SHADY_SCARECROW_VARIANT_BONUS = {
-        Diamond = 2,
-        Ember = 2,
-        Rainbow = 2,
-        Gold = 1,
-        Jelly = 1,
-        Silver = 0.5,
-        Normal = 0
-    }
-
-    local function getShadyScarecrowNpcPart()
-        local scarecrowModel = Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("ShadyScarecrow")
-        if not scarecrowModel then
-            pcall(function()
-                local tagged = CollectionService:GetTagged("ShadyScarecrowModel")
-                if tagged and #tagged > 0 then
-                    scarecrowModel = tagged[1]
-                end
-            end)
-        end
-        if not scarecrowModel then return nil end
-
-        local npc = scarecrowModel:FindFirstChild("NPC")
-        if npc and npc:IsA("Model") then
-            local root = npc:FindFirstChild("RootPart") or npc:FindFirstChild("Head") or npc.PrimaryPart
-            if root and root:IsA("BasePart") then return root end
-        end
-        if npc and npc:IsA("BasePart") then return npc end
-
-        local imp = scarecrowModel:FindFirstChild("Important")
-        if imp then
-            local impNpc = imp:FindFirstChild("NPC")
-            if impNpc and impNpc:IsA("BasePart") then return impNpc end
-        end
-        return scarecrowModel:FindFirstChildWhichIsA("BasePart", true)
-    end
-
-    local function getShadyScarecrowEligibleSeeds()
-        local eligible = {}
-        local allTools = getAllPlayerTools()
-        for _, tool in ipairs(allTools) do
-            if tool:IsA("Tool") then
-                -- Favorite Protection: NEVER touch favorited seeds!
-                local isFav = (tool:GetAttribute("d") == true) or (tool:GetAttribute("Favorite") == true) or (tool:GetAttribute("IsFavorite") == true) or (tool:GetAttribute("Favorited") == true)
-                if not isFav then
-                    local isSeed = tool:GetAttribute("Seed") ~= nil or (tool.Name:lower():find("seed") and not tool.Name:lower():find("pack"))
-                    local sName = tool:GetAttribute("Seed") or tool:GetAttribute("f") or tool.Name
-                    local sNameClean = tostring(sName):gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("%s*[sS]eed%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                    if isSeed and not sNameClean:lower():find("super") then
-                        local uuid = tool:GetAttribute("c") or tool:GetAttribute("ITEM_UUID") or tool:GetAttribute("UUID")
-                        if uuid then
-                            local rarity = "Common"
-                            pcall(function()
-                                local sData = SeedData and (SeedData[sNameClean] or SeedData[sName] or SeedData[sNameClean .. " Seed"])
-                                if sData and sData.SeedRarity then
-                                    rarity = sData.SeedRarity
-                                end
-                            end)
-                            local variant = tool:GetAttribute("Variant") or "Normal"
-                            local baseScore = SHADY_SCARECROW_RARITY_SCORES[rarity] or 1
-                            local varBonus = SHADY_SCARECROW_VARIANT_BONUS[variant] or 0
-                            local totalScore = baseScore + varBonus
-
-                            table.insert(eligible, {
-                                tool = tool,
-                                uuid = tostring(uuid),
-                                name = tool.Name,
-                                rawName = tostring(sName),
-                                cleanName = sNameClean,
-                                rarity = rarity,
-                                variant = variant,
-                                score = totalScore
-                            })
-                        end
-                    end
-                end
-            end
-        end
-        return eligible
-    end
-
-    local isShadyScarecrowSubmitting = false
-
-    local function executeShadyScarecrowSubmission(isManual)
-        if isShadyScarecrowSubmitting then return false, "Already submitting" end
-        local submitRemote = ReplicatedStorage:FindFirstChild("GameEvents") and ReplicatedStorage.GameEvents:FindFirstChild("ShadyScarecrow") and ReplicatedStorage.GameEvents.ShadyScarecrow:FindFirstChild("Submit")
-        if not submitRemote then return false, "Submit RemoteFunction not found" end
-
-        -- Cooldown check
-        local readyAt = tonumber(LocalPlayer:GetAttribute("ShadyScarecrowReadyAt")) or 0
-        local now = workspace:GetServerTimeNow()
-        if not isManual and readyAt > now then
-            return false, string.format("On cooldown (%.1fs remaining)", readyAt - now)
-        end
-
-        local npcPart = getShadyScarecrowNpcPart()
-        if not npcPart then return false, "Shady Scarecrow NPC not found in workspace" end
-
-        local candidates = getShadyScarecrowEligibleSeeds()
-        if #candidates == 0 then return false, "No eligible non-favorited seeds found in backpack" end
-
-        -- Filter by UI selection if any selected
-        local selectedList = getUIListMultipleVals(State.UI_Scarecrow and State.UI_Scarecrow.seedList, nil)
-        if #selectedList == 0 and State.ShadyScarecrow_SelectedSeeds and #State.ShadyScarecrow_SelectedSeeds > 0 then
-            selectedList = State.ShadyScarecrow_SelectedSeeds
-        end
-
-        local isAllSelected = #selectedList == 0
-        for _, s in ipairs(selectedList) do
-            if s == "All Seeds" or s == "All" or s == "None" then
-                isAllSelected = true
+        local buyAll = false
+        for _, sel in ipairs(selectedUpgrades) do
+            if sel == "All Upgrades" or sel == "All" then
+                buyAll = true
                 break
             end
         end
 
-        local filtered = {}
-        if isAllSelected then
-            filtered = candidates
-        else
-            for _, seedInfo in ipairs(candidates) do
-                for _, sel in ipairs(selectedList) do
-                    local selClean = sel:gsub("%s*%[[Xx]%d+%]%s*", ""):gsub("%s*[sS]eed%s*", ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
-                    if seedInfo.cleanName:lower() == selClean or seedInfo.name:lower():find(selClean, 1, true) or seedInfo.rawName:lower() == selClean then
-                        table.insert(filtered, seedInfo)
+        local categoriesToProcess = {
+            "Glimmer Multiplier",
+            "Loose Fairy Spawn Amount",
+            "Fairy Event Duration",
+            "Fairy Spawn Amount"
+        }
+
+        local boughtCount = 0
+        for _, categoryKey in ipairs(categoriesToProcess) do
+            local cfg = upgradesConfig[categoryKey]
+            local uiTitle = (cfg and cfg.Title) or categoryKey
+
+            local isSelected = buyAll
+            if not isSelected then
+                for _, sel in ipairs(selectedUpgrades) do
+                    if sel == categoryKey or sel == uiTitle or sel:lower():find(categoryKey:lower(), 1, true) then
+                        isSelected = true
                         break
+                    end
+                end
+            end
+
+            if isSelected and cfg and cfg.Upgrades then
+                local currentTier = tonumber(playerUpgrades[categoryKey]) or 0
+                local nextTier = currentTier + 1
+                local tierData = cfg.Upgrades[nextTier]
+
+                if tierData and tierData.Price then
+                    if fairyPoints >= tierData.Price then
+                        upgradeRem:FireServer(categoryKey)
+                        fairyPoints = fairyPoints - tierData.Price
+                        boughtCount = boughtCount + 1
+                        Hub.Notify("🔮 Fairy Upgrades", string.format("Upgraded %s to Tier %d! (%d pts)", uiTitle, nextTier, tierData.Price), 3)
+                        task.wait(0.2)
                     end
                 end
             end
         end
 
-        if #filtered == 0 then return false, "No matching seeds found for current filter selection" end
-
-        -- Sort candidates by priority
-        local priority = tostring(getUIListVal(State.UI_Scarecrow and State.UI_Scarecrow.priorityList, State.ShadyScarecrow_Priority or "Highest Rarity First"))
-        if priority == "Highest Rarity First" then
-            table.sort(filtered, function(a, b) return a.score > b.score end)
-        elseif priority == "Lowest Rarity First" then
-            table.sort(filtered, function(a, b) return a.score < b.score end)
-        end
-
-        local targetSeed = filtered[1]
-        if not targetSeed or not targetSeed.tool or not targetSeed.tool.Parent then
-            return false, "Selected seed tool is no longer valid"
-        end
-
-        local char = LocalPlayer.Character
-        local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
-        if not hrp then return false, "Character RootPart not found" end
-
-        isShadyScarecrowSubmitting = true
-        local prevCF = hrp.CFrame
-        local npcPos = npcPart.Position
-        local dist = (hrp.Position - npcPos).Magnitude
-        local didTeleport = false
-
-        if dist > 25 then
-            if State.ShadyScarecrow_AutoTeleport then
-                hrp.CFrame = CFrame.new(npcPos + Vector3.new(0, 0, 4), npcPos)
-                didTeleport = true
-                task.wait(0.15)
-            else
-                isShadyScarecrowSubmitting = false
-                return false, "Too far from Shady Scarecrow (Enable Auto-Teleport or walk closer)"
-            end
-        end
-
-        -- Equip the target seed
-        equipTool(targetSeed.tool)
-        task.wait(0.1)
-
-        local success, res = pcall(function()
-            return submitRemote:InvokeServer(targetSeed.uuid)
-        end)
-
-        if didTeleport and prevCF then
-            task.wait(0.2)
-            pcall(function()
-                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                    LocalPlayer.Character.HumanoidRootPart.CFrame = prevCF
-                end
-            end)
-        end
-
-        isShadyScarecrowSubmitting = false
-
-        if success and type(res) == "table" and res.Ok then
-            local rewardName = (res.Reward and res.Reward.Display) or "Reward"
-            local rewardQty = (res.Reward and res.Reward.Quantity) or 1
-            Hub.Notify("🎃 Shady Scarecrow", string.format("Gave %s! Reward: %s x%d", targetSeed.cleanName, rewardName, rewardQty), 4)
-            return true, res
-        else
-            local errMsg = (type(res) == "table" and res.Message) or tostring(res)
-            if isManual then
-                Hub.Notify("🎃 Shady Scarecrow", "Failed: " .. tostring(errMsg), 3)
-            end
-            return false, errMsg
-        end
-    end
-
-    State.ExecuteShadyScarecrowSubmission = executeShadyScarecrowSubmission
-
-    -- Shady Scarecrow Auto-Give Background Worker
-    task.spawn(function()
-        while true do
-            if _G.GAG_SESSION ~= currentSession then break end
-            if State.AutoGive_ShadyScarecrow then
-                local readyAt = tonumber(LocalPlayer:GetAttribute("ShadyScarecrowReadyAt")) or 0
-                local now = workspace:GetServerTimeNow()
-                if now >= readyAt then
-                    pcall(function()
-                        executeShadyScarecrowSubmission(false)
-                    end)
-                end
-                local checkDelay = math.clamp(tonumber(State.ShadyScarecrow_Delay) or 1.0, 0.5, 10.0)
-                task.wait(checkDelay)
-            else
-                task.wait(0.5)
-            end
+        if isManual and boughtCount == 0 then
+            Hub.Notify("🔮 Fairy Upgrades", "No affordable upgrades for selected categories.", 3)
         end
     end)
 end
+
+-- Background Worker: Auto Buy Fairy Upgrades
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        if State.AutoBuy_FairyUpgrades then
+            local delayVal = math.clamp(tonumber(State.FairyUpgrades_BuyDelay) or 0.5, 0.2, 5.0)
+            pcall(function() executeFairyUpgradesAutoBuy(false) end)
+            task.wait(delayVal)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- =========================================================================
+-- Roaming Fairies Collect Engine
+-- =========================================================================
+local function executeRoamingFairiesCollectCycle(isManual)
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local fe = ev and ev:FindFirstChild("FairyEvent")
+        local collectLooseRem = fe and fe:FindFirstChild("CollectLooseFairy")
+
+        local count = 0
+        local looseFairies = CollectionService:GetTagged("LooseFairy")
+        for _, fairy in ipairs(looseFairies) do
+            if collectLooseRem then
+                collectLooseRem:FireServer(fairy)
+                count = count + 1
+            end
+            local prompt = fairy:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and fireproximityprompt then
+                pcall(function() fireproximityprompt(prompt) end)
+            end
+        end
+
+        pcall(function()
+            for _, obj in ipairs(Workspace:GetChildren()) do
+                if obj.Name:lower():find("fairy") and obj ~= Workspace:FindFirstChild("Farm") then
+                    local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt and fireproximityprompt then
+                        pcall(function() fireproximityprompt(prompt) end)
+                        count = count + 1
+                    end
+                end
+            end
+        end)
+
+        if isManual then
+            Hub.Notify("✨ Roaming Fairies", string.format("Collected %d roaming fairies!", count), 3)
+        end
+    end)
+end
+
+-- Background Worker: Auto Collect Roaming Fairies
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        if State.AutoCollect_RoamingFairies then
+            pcall(function() executeRoamingFairiesCollectCycle(false) end)
+            task.wait(1.0)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
 
 -- =========================================================================
 -- UI Tabs & Control Layout
@@ -5666,17 +5228,8 @@ for _, item in ipairs(allAvailableCraftPlants) do table.insert(craftablePlantsLi
 local craftableGearsListItems = {}
 for _, item in ipairs(allAvailableCraftGears) do table.insert(craftableGearsListItems, {Name = item.Name}) end
 
-local eventSeedListItems = {}
-for _, item in ipairs(allAvailableEventSeeds) do table.insert(eventSeedListItems, {Name = item.Name}) end
-
-local eventGearListItems = {}
-for _, item in ipairs(allAvailableEventGears) do table.insert(eventGearListItems, {Name = item.Name}) end
-
-local eventPetListItems = {}
-for _, item in ipairs(allAvailableEventPets) do table.insert(eventPetListItems, {Name = item.Name}) end
-
-local eventCosmeticListItems = {}
-for _, item in ipairs(allAvailableEventCosmetics) do table.insert(eventCosmeticListItems, {Name = item.Name}) end
+local fairyUpgradesListItems = {}
+for _, item in ipairs(allAvailableFairyUpgrades) do table.insert(fairyUpgradesListItems, {Name = item.Name}) end
 
 local slotListItems = {
     {Name = "None"},
@@ -7167,148 +6720,93 @@ Hub.CreateButton(shopTab, "🛠️ Spawn Event Crafting Tables (Dino, Fairy, Smi
 end)
 
 -- ==========================================
--- Section: Events Tab (Fall Bloom, Event Shops, Acorn Chaos & Weekly Events)
+-- Section: Events Tab (Fairy Event)
 -- ==========================================
 
--- 1. 🌸 Fall Bloom Automator
-Hub.CreateSection(eventTab, "🌸 Fall Bloom Automator")
+-- 1. 🧚 Fairy Fountain Automator
+Hub.CreateSection(eventTab, "🧚 Fairy Fountain Automator")
 
-autoCollectFallBloomToggle = Hub.CreateToggle(eventTab, "Auto Collect Needed Fruit (Fall Bloom)", false, function(v)
-    if type(v) == "boolean" then State.AutoCollect_FallBloomFruit = v else State.AutoCollect_FallBloomFruit = not State.AutoCollect_FallBloomFruit end
-    if State.AutoCollect_FallBloomFruit then
-        task.spawn(executeFallBloomCollectCycle)
+autoSubmitFairyFountainToggle = Hub.CreateToggle(eventTab, "Auto Submit Fruit to Fairy Fountain", false, function(v)
+    if type(v) == "boolean" then State.AutoSubmit_FairyFountain = v else State.AutoSubmit_FairyFountain = not State.AutoSubmit_FairyFountain end
+    if State.AutoSubmit_FairyFountain then
+        task.spawn(function() executeFairyFountainSubmissionCycle(false) end)
     end
 end)
 
-autoSubmitFallBloomToggle = Hub.CreateToggle(eventTab, "Auto Submit Fruit to Fall Bloom", false, function(v)
-    if type(v) == "boolean" then State.AutoSubmitFallBloom = v else State.AutoSubmitFallBloom = not State.AutoSubmitFallBloom end
-    if State.AutoSubmitFallBloom then
-        task.spawn(executeFallBloomSubmissionCycle)
+autoCollectGlimmeringFruitToggle = Hub.CreateToggle(eventTab, "Auto Collect Glimmering Fruit", false, function(v)
+    if type(v) == "boolean" then State.AutoCollect_GlimmeringFruit = v else State.AutoCollect_GlimmeringFruit = not State.AutoCollect_GlimmeringFruit end
+    if State.AutoCollect_GlimmeringFruit then
+        task.spawn(executeGlimmeringCollectCycle)
     end
 end)
 
-Hub.CreateTextBox(eventTab, "Check Delay (0.25 - 10.0s)", "Enter check delay (default: 1.0)", function(text)
+autoMakeFairyWishToggle = Hub.CreateToggle(eventTab, "Auto Make Wish (When Ready)", true, function(v)
+    if type(v) == "boolean" then State.AutoMake_FairyWish = v else State.AutoMake_FairyWish = not State.AutoMake_FairyWish end
+end)
+
+Hub.CreateToggle(eventTab, "Auto Teleport to Fountain (Submitting)", false, function(v)
+    if type(v) == "boolean" then State.FairyFountain_AutoTeleport = v else State.FairyFountain_AutoTeleport = not State.FairyFountain_AutoTeleport end
+end)
+
+Hub.CreateTextBox(eventTab, "Fountain Check Delay (0.25 - 10.0s)", "Enter check delay (default: 0.5)", function(text)
     local num = tonumber(text)
     if num then
-        State.AutoSubmitFallBloom_Delay = math.clamp(num, 0.25, 10.0)
+        State.FairyFountain_Delay = math.clamp(num, 0.25, 10.0)
     end
 end)
 
-
-
-
-
-
-
--- 2. 🍂 Fall Event Shops Auto-Buy
-Hub.CreateSection(eventTab, "🍂 Fall Event Shops Auto-Buy")
-
-autoBuyEventSeedsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Seeds", false, function(v)
-    if type(v) == "boolean" then State.AutoBuy_EventSeeds = v else State.AutoBuy_EventSeeds = not State.AutoBuy_EventSeeds end
-    if State.AutoBuy_EventSeeds then task.spawn(executeEventShopPurchases) end
+Hub.CreateButton(eventTab, "✨ Submit Fruit to Fountain Now (Manual)", function()
+    task.spawn(function() executeFairyFountainSubmissionCycle(true) end)
 end)
 
-selectEventSeedListObj = Hub.CreateList(eventTab, "Select Event Seed", eventSeedListItems, 220, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.AutoBuy_SelectedEventSeed = name
-end)
-
-autoBuyEventGearsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Gears", false, function(v)
-    if type(v) == "boolean" then State.AutoBuy_EventGears = v else State.AutoBuy_EventGears = not State.AutoBuy_EventGears end
-    if State.AutoBuy_EventGears then task.spawn(executeEventShopPurchases) end
-end)
-
-selectEventGearListObj = Hub.CreateList(eventTab, "Select Event Gear", eventGearListItems, 220, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.AutoBuy_SelectedEventGear = name
-end)
-
-autoBuyEventPetsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Pets", false, function(v)
-    if type(v) == "boolean" then State.AutoBuy_EventPets = v else State.AutoBuy_EventPets = not State.AutoBuy_EventPets end
-    if State.AutoBuy_EventPets then task.spawn(executeEventShopPurchases) end
-end)
-
-selectEventPetListObj = Hub.CreateList(eventTab, "Select Event Pet", eventPetListItems, 220, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.AutoBuy_SelectedEventPet = name
-end)
-
-autoBuyEventCosmeticsToggle = Hub.CreateToggle(eventTab, "Auto Buy Event Cosmetics", false, function(v)
-    if type(v) == "boolean" then State.AutoBuy_EventCosmetics = v else State.AutoBuy_EventCosmetics = not State.AutoBuy_EventCosmetics end
-    if State.AutoBuy_EventCosmetics then task.spawn(executeEventShopPurchases) end
-end)
-
-selectEventCosmeticListObj = Hub.CreateList(eventTab, "Select Event Cosmetic", eventCosmeticListItems, 220, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.AutoBuy_SelectedEventCosmetic = name
-end)
-
-Hub.CreateTextBox(eventTab, "Event Shop Buy Delay (0.05 - 5.0s)", "Enter delay (default: 0.25)", function(text)
-    local num = tonumber(text)
-    if num then
-        State.EventShop_BuyDelay = math.clamp(num, 0.05, 5.0)
-    end
-end)
-
-
-
--- 3. 🌰 Acorn Chaos (Weekly Event)
-Hub.CreateSection(eventTab, "🌰 Acorn Chaos (Weekly Event)")
-
-autoAttackAcornsToggle = Hub.CreateToggle(eventTab, "Auto Attack Acorns (Instant Crack)", false, function(v)
-    if type(v) == "boolean" then State.AutoAttackAcorns = v else State.AutoAttackAcorns = not State.AutoAttackAcorns end
-    if State.AutoAttackAcorns then
-        if hasActiveAcorns() then
-            equipShovelTool()
-            task.spawn(crackAllActiveAcorns)
+Hub.CreateButton(eventTab, "🌟 Make Wish Now (Manual)", function()
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local fe = ev and ev:FindFirstChild("FairyEvent")
+        local makeWishRem = fe and fe:FindFirstChild("MakeFairyWish")
+        if makeWishRem then
+            makeWishRem:FireServer()
+            Hub.Notify("✨ Fairy Fountain", "Made a wish at the Wishing Fountain!", 3)
         end
-    else
-        unequipShovelTool()
+    end)
+end)
+
+-- 2. 🔮 Fairy Upgrades Auto-Buy
+Hub.CreateSection(eventTab, "🔮 Fairy Upgrades Auto-Buy")
+
+autoBuyFairyUpgradesToggle = Hub.CreateToggle(eventTab, "Auto Buy Fairy Upgrades", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_FairyUpgrades = v else State.AutoBuy_FairyUpgrades = not State.AutoBuy_FairyUpgrades end
+    if State.AutoBuy_FairyUpgrades then
+        task.spawn(function() executeFairyUpgradesAutoBuy(false) end)
     end
 end)
 
--- 4. 🎃 Shady Scarecrow Automator
-Hub.CreateSection(eventTab, "🎃 Shady Scarecrow Automator")
+selectFairyUpgradeListObj = Hub.CreateList(eventTab, "Select Fairy Upgrades to Buy", fairyUpgradesListItems, 220, false, { MultiSelect = true })
 
-State.UI_Scarecrow = State.UI_Scarecrow or {}
-
-State.UI_Scarecrow.autoGiveToggle = Hub.CreateToggle(eventTab, "Auto Give Seeds to Shady Scarecrow", false, function(v)
-    if type(v) == "boolean" then State.AutoGive_ShadyScarecrow = v else State.AutoGive_ShadyScarecrow = not State.AutoGive_ShadyScarecrow end
-    if State.AutoGive_ShadyScarecrow and State.ExecuteShadyScarecrowSubmission then
-        task.spawn(function()
-            State.ExecuteShadyScarecrowSubmission(false)
-        end)
-    end
-end)
-
-State.UI_Scarecrow.autoTeleportToggle = Hub.CreateToggle(eventTab, "Auto Teleport to Scarecrow", true, function(v)
-    if type(v) == "boolean" then State.ShadyScarecrow_AutoTeleport = v else State.ShadyScarecrow_AutoTeleport = not State.ShadyScarecrow_AutoTeleport end
-end)
-
-State.UI_Scarecrow.seedList = Hub.CreateList(eventTab, "Select Seeds to Give", seedListItems, 220, false, { MultiSelect = true })
-
-State.UI_Scarecrow.priorityList = Hub.CreateList(eventTab, "Seed Selection Priority", {
-    {Name = "Highest Rarity First"},
-    {Name = "Lowest Rarity First"},
-    {Name = "Inventory Order"}
-}, 180, false, function(selected)
-    local name = type(selected) == "table" and (selected.Name or selected[1]) or tostring(selected)
-    State.ShadyScarecrow_Priority = name
-end)
-
-Hub.CreateButton(eventTab, "🎃 Give Seed Now (Manual)", function()
-    if State.ExecuteShadyScarecrowSubmission then
-        task.spawn(function()
-            State.ExecuteShadyScarecrowSubmission(true)
-        end)
-    end
-end)
-
-Hub.CreateTextBox(eventTab, "Check Cooldown Delay (0.5 - 10.0s)", "Enter delay (default: 1.0)", function(text)
+Hub.CreateTextBox(eventTab, "Upgrade Check Delay (0.2 - 5.0s)", "Enter check delay (default: 0.5)", function(text)
     local num = tonumber(text)
     if num then
-        State.ShadyScarecrow_Delay = math.clamp(num, 0.5, 10.0)
+        State.FairyUpgrades_BuyDelay = math.clamp(num, 0.2, 5.0)
     end
+end)
+
+Hub.CreateButton(eventTab, "💎 Buy Selected Upgrades Now (Manual)", function()
+    task.spawn(function() executeFairyUpgradesAutoBuy(true) end)
+end)
+
+-- 3. ✨ Roaming Fairies
+Hub.CreateSection(eventTab, "✨ Roaming Fairies")
+
+autoCollectRoamingFairiesToggle = Hub.CreateToggle(eventTab, "Auto Collect Roaming Fairies", false, function(v)
+    if type(v) == "boolean" then State.AutoCollect_RoamingFairies = v else State.AutoCollect_RoamingFairies = not State.AutoCollect_RoamingFairies end
+    if State.AutoCollect_RoamingFairies then
+        task.spawn(function() executeRoamingFairiesCollectCycle(false) end)
+    end
+end)
+
+Hub.CreateButton(eventTab, "🧚 Collect Roaming Fairies Now (Manual)", function()
+    task.spawn(function() executeRoamingFairiesCollectCycle(true) end)
 end)
 
 
