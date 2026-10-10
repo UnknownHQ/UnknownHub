@@ -40,7 +40,7 @@ local function destroyOldGui()
     for _, parent in ipairs(parents) do
         if parent then
             for _, child in ipairs(parent:GetChildren()) do
-                if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name:find("Unknown_ESP")) then
+                if child.Name == LIBRARY_NAME or child.Name:find("Unknown_ESP") then
                     pcall(function() child:Destroy() end)
                 end
             end
