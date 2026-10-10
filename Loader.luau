@@ -68,6 +68,22 @@ local SupportedGames = {
         gameIds = { 3448264866 },
         scriptUrl = BASE_URL .. "/Games/Ugc.luau",
         desc = "Item cost & recipe database, Research Station 2 RP calculator & factory automation"
+    },
+    {
+        name = "DOORS",
+        icon = "🚪",
+        placeIds = { 6516141723, 6839171747, 12555541629, 13511802958, 11935914798, 16033173781 },
+        gameIds = { 2440500124, 6839171747, 6516141723 },
+        scriptUrl = BASE_URL .. "/Games/Doors.luau",
+        desc = "Entity alert & auto-closet hide, ESP (doors, keys, items, monsters), instant interact, auto-solve"
+    },
+    {
+        name = "Grow a Garden",
+        icon = "🌱",
+        placeIds = { 126884695634066, 17403265397 },
+        gameIds = { 7436755782 },
+        scriptUrl = BASE_URL .. "/Games/GrowAGarden.luau",
+        desc = "Fairy event automator, auto harvest/plant, pet auto-sell/hatch, craft bot & infinite sprinkler"
     }
 }
 
