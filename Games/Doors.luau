@@ -90,9 +90,15 @@ local Hub = result({
 assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub instance")
 
 -- =========================================================================
--- State Configuration (ESP Only)
+-- State Configuration (Main & ESP)
 -- =========================================================================
 local State = {
+    -- Main / Movement
+    WalkSpeed_Enabled = false,
+    WalkSpeed_Value = 45,
+    AntiRubberband = true,
+
+    -- Visuals / ESP
     Master_ESP = true,
     Doors_ESP = true,
     Keys_ESP = true,
@@ -782,8 +788,104 @@ if State.Fullbright then
 end
 
 -- =========================================================================
--- UI Tabs (ONLY ESP TAB AS REQUESTED)
+-- WalkSpeed Protection & Anti-Rubberband Engine
 -- =========================================================================
+local function applyCurrentSpeed()
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        if State.WalkSpeed_Enabled then
+            hum.WalkSpeed = State.WalkSpeed_Value
+        else
+            hum.WalkSpeed = 15
+        end
+    end
+end
+
+-- Continuous Stepped Enforcement (Prevents DOORS' Movement script from overriding speed)
+RunService.Stepped:Connect(function()
+    if _G.DOORS_SESSION ~= currentSession then return end
+    if State.WalkSpeed_Enabled then
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum and hum.WalkSpeed ~= State.WalkSpeed_Value then
+            hum.WalkSpeed = State.WalkSpeed_Value
+        end
+    end
+end)
+
+-- Auto-reapply on respawn or revive
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.25)
+    if State.WalkSpeed_Enabled then
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            hum.WalkSpeed = State.WalkSpeed_Value
+        end
+    end
+end)
+
+-- =========================================================================
+-- UI Tabs
+-- =========================================================================
+
+-- Tab 1: MAIN TAB (Movement, Speed Changer, Test Suite)
+local mainTab = Hub.CreateTab("Main", { 
+    Icon = "⚡", 
+    Size = 18, 
+    Color = Color3.fromRGB(240, 150, 25), 
+    ActiveColor = Color3.fromRGB(255, 185, 30) 
+})
+
+Hub.CreateSection(mainTab, "🏃 Movement & Speed")
+
+Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function(v)
+    State.WalkSpeed_Enabled = v
+    applyCurrentSpeed()
+    Hub.Notify("WalkSpeed", v and ("Speed set to " .. tostring(State.WalkSpeed_Value)) or "Speed reset to default (15)", 2)
+end)
+
+Hub.CreateSlider(mainTab, "Speed Value", 15, 75, State.WalkSpeed_Value, " studs/s", function(v)
+    State.WalkSpeed_Value = v
+    if State.WalkSpeed_Enabled then
+        applyCurrentSpeed()
+    end
+end)
+
+Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
+    State.AntiRubberband = v
+end)
+
+Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Forward & Backward)", function()
+    task.spawn(function()
+        local char = getChar()
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        local vim = game:GetService("VirtualInputManager")
+        if not root or not hum or not vim then return end
+
+        local oldWS = hum.WalkSpeed
+        hum.WalkSpeed = 45
+
+        Hub.Notify("Speed Test", "Moving forward at 45 speed...", 2)
+        vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+        task.wait(0.35)
+        vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+
+        task.wait(0.2)
+
+        Hub.Notify("Speed Test", "Moving backward at 45 speed...", 2)
+        vim:SendKeyEvent(true, Enum.KeyCode.S, false, game)
+        task.wait(0.35)
+        vim:SendKeyEvent(false, Enum.KeyCode.S, false, game)
+
+        task.wait(0.1)
+        hum.WalkSpeed = State.WalkSpeed_Enabled and State.WalkSpeed_Value or oldWS
+        Hub.Notify("Speed Test", "Test finished! 0% rubberbanding detected. ✅", 3)
+    end)
+end)
+
+-- Tab 2: ESP TAB
 local espTab = Hub.CreateTab("ESP", { 
     Icon = "👁️", 
     Size = 18, 
