@@ -340,8 +340,8 @@ local function processDoor(room, doorModel)
         color = Color3.fromRGB(0, 215, 255)
     end
 
-    -- Highlight ONLY the door leaf mesh cleanly (No floating hitbox, no air artifacts)
-    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0))
+    -- Highlight unified door model cleanly (Full door leaf + padlock, no internal panel stencil gaps)
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorModel, Vector3.new(0, 1.2, 0))
 end
 
 -- 2. Precision Key Scanner
@@ -358,6 +358,7 @@ local function processKey(keyObtain)
     local keyMesh = keyObtain:FindFirstChild("Key", true)
     if not keyMesh or not keyMesh:IsA("BasePart") then
         keyMesh = keyObtain:FindFirstChildWhichIsA("MeshPart", true)
+            or keyObtain:FindFirstChildWhichIsA("BasePart", true)
     end
     if not keyMesh then return end
 
@@ -384,39 +385,66 @@ local function processKey(keyObtain)
     registerEsp(keyObtain, keyMesh, baseText, color, "Keys", highlightParts, Vector3.new(0, 1.2, 0))
 end
 
+-- 2b. Precision Lever Scanner (Highlights gate levers under Keys ESP)
+local function processLever(leverInstance)
+    if not leverInstance then return end
+    if not State.Keys_ESP then
+        removeEspFor(leverInstance)
+        return
+    end
+
+    local targetPart = (leverInstance:IsA("Model") and (leverInstance:FindFirstChild("Lever") or leverInstance:FindFirstChild("Handle") or leverInstance.PrimaryPart or leverInstance:FindFirstChildWhichIsA("BasePart", true)))
+        or (leverInstance:IsA("BasePart") and leverInstance)
+    if not targetPart then return end
+
+    local baseText = "🕹️ Lever"
+    local color = Color3.fromRGB(255, 215, 0)
+    registerEsp(leverInstance, targetPart, baseText, color, "Keys", leverInstance, Vector3.new(0, 1.4, 0))
+end
+
 -- 3. Precision Item Scanner (Strict validation against furniture & decor)
 local KNOWN_ITEMS = {
-    ["crucifix"]      = "Crucifix",
-    ["flashlight"]    = "Flashlight",
-    ["lighter"]       = "Lighter",
-    ["vitamins"]      = "Vitamins",
-    ["lockpick"]      = "Lockpick",
-    ["skeletonkey"]   = "Skeleton Key",
-    ["battery"]       = "Battery",
-    ["bandage"]       = "Bandage",
-    ["shears"]        = "Shears",
-    ["candle"]        = "Candle",
-    ["straplight"]    = "Straplight",
-    ["bulklight"]     = "Bulklight",
-    ["laserpointer"]  = "Laser Pointer",
-    ["laser"]         = "Laser Pointer",
-    ["shakelight"]    = "Shakelight",
-    ["compass"]       = "Compass",
-    ["glowstick"]     = "Glowstick",
-    ["crucifixwall"]  = "Crucifix"
+    ["crucifix"]        = "Crucifix",
+    ["flashlight"]      = "Flashlight",
+    ["lighter"]         = "Lighter",
+    ["smoothie"]        = "Smoothie",
+    ["shake"]           = "Smoothie",
+    ["starsmoothie"]    = "Star Smoothie",
+    ["herb"]            = "Herb",
+    ["starlight"]       = "Starlight",
+    ["starjug"]         = "Star Jug",
+    ["vitamins"]        = "Vitamins",
+    ["lockpick"]        = "Lockpick",
+    ["skeletonkey"]     = "Skeleton Key",
+    ["battery"]         = "Battery",
+    ["bandage"]         = "Bandage",
+    ["bandaid"]         = "Bandage",
+    ["bread"]           = "Bread",
+    ["gummy"]           = "Gummy",
+    ["candy"]           = "Candy",
+    ["shears"]          = "Shears",
+    ["candle"]          = "Candle",
+    ["straplight"]      = "Straplight",
+    ["bulklight"]       = "Bulklight",
+    ["laserpointer"]    = "Laser Pointer",
+    ["laser"]           = "Laser Pointer",
+    ["shakelight"]      = "Shakelight",
+    ["compass"]         = "Compass",
+    ["glowstick"]       = "Glowstick",
+    ["crucifixwall"]    = "Crucifix"
 }
 
--- Furniture and background decor blacklist to prevent false positives
+-- Furniture and background decor blacklist to prevent false positives (bottle removed to allow drinks)
 local DECOR_BLACKLIST = {
     "bookshelf", "bookcase", "drawer", "desk", "table", "chair", "couch", "sofa",
     "painting", "clock", "cart", "luggage", "fireplace", "chandelier", "lamp",
     "plant", "pillar", "shelf", "carpet", "rug", "door", "window", "curtain",
-    "bell", "plate", "cup", "bottle", "bed", "lightstand", "light_fixture",
+    "bell", "plate", "cup", "bed", "lightstand", "light_fixture",
     "lightfixture", "sconce", "hook", "fixture", "helpfullight", "wire", "pipe", "crate"
 }
 
 local function isValidLootItem(model)
-    if not model or not model:IsA("Model") then return false, nil end
+    if not model or not (model:IsA("Model") or model:IsA("Tool")) then return false, nil end
     local lower = model.Name:lower()
 
     -- Reject blacklist decor & furniture
@@ -426,43 +454,66 @@ local function isValidLootItem(model)
         end
     end
 
-    if lower:find("keyobtain") or lower:find("goldpile") or lower:find("door") then
+    if lower:find("keyobtain") or lower:find("goldpile") or lower:find("door") or lower:find("lever") then
         return false, nil
     end
 
-    -- Strict check 1: In DOORS, actual inventory loot items ALWAYS have a part named "Handle"
-    -- This 100% eliminates bookcases, wardrobes, drawers, sconces, chandeliers, and decor
-    local handle = model:FindFirstChild("Handle")
-    if not handle then
-        return false, nil
-    end
-
-    -- Strict check 2: Must have an enabled ProximityPrompt with a pickup action
+    -- Strict check: Must have an enabled ProximityPrompt with a pickup action, OR be a dropped Tool
     local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
     if not prompt or not prompt.Enabled then
+        if model:IsA("Tool") and model:FindFirstChild("Handle") then
+            local tName = model.Name
+            for key, displayName in pairs(KNOWN_ITEMS) do
+                if tName:lower():find(key) then return true, displayName end
+            end
+            return true, tName
+        end
         return false, nil
     end
 
-    local action = prompt.ActionText:lower()
-    local isPickup = action:find("take") or action:find("obtain") or action:find("steal") or action:find("grab") or action:find("pick")
+    local action = (prompt.ActionText or ""):lower()
+    local isPickup = action:find("take") or action:find("obtain") or action:find("steal") 
+        or action:find("grab") or action:find("pick") or action:find("equip") or action:find("collect") or action:find("get") or action:find("use")
     if not isPickup then
         return false, nil
     end
 
     local promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
 
-    -- Match known item names
+    -- Priority 1: Check if prompt explicitly indicates Smoothie or drink (Fixes Smoothie displaying as Vitamins)
+    if promptObjectName:find("smoothie") or lower:find("smoothie") or promptObjectName:find("shake") or lower:find("shake") then
+        return true, "Smoothie"
+    end
+    if promptObjectName:find("herb") or lower:find("herb") then
+        return true, "Herb"
+    end
+    if promptObjectName:find("starlight") or lower:find("starlight") or promptObjectName:find("starjug") or lower:find("starjug") then
+        return true, "Starlight"
+    end
+
+    -- Match known item names (prefer prompt object name first, then model name)
     for key, displayName in pairs(KNOWN_ITEMS) do
-        if lower == key or lower:find("^" .. key) or promptObjectName:find(key) then
+        if promptObjectName == key or promptObjectName:find(key) then
             return true, displayName
         end
+    end
+
+    for key, displayName in pairs(KNOWN_ITEMS) do
+        if lower == key or lower:find("^" .. key) or lower:find(key) then
+            return true, displayName
+        end
+    end
+
+    -- Fallback for custom or dropped items with clean prompt object name
+    if prompt.ObjectText and #prompt.ObjectText > 1 then
+        return true, prompt.ObjectText
     end
 
     return false, nil
 end
 
 local function processItem(itemModel)
-    if not itemModel or not itemModel:IsA("Model") then return end
+    if not itemModel or not (itemModel:IsA("Model") or itemModel:IsA("Tool")) then return end
     if not State.Items_ESP then
         removeEspFor(itemModel)
         return
@@ -473,10 +524,11 @@ local function processItem(itemModel)
         local targetPart = itemModel:FindFirstChild("Handle") 
             or itemModel:FindFirstChildWhichIsA("MeshPart", true) 
             or itemModel:FindFirstChildWhichIsA("BasePart", true)
+            or (itemModel:IsA("BasePart") and itemModel)
         if targetPart then
             local baseText = "📦 " .. displayName
             local color = Color3.fromRGB(185, 80, 255)
-            registerEsp(itemModel, targetPart, baseText, color, "Items", targetPart, Vector3.new(0, 1.2, 0))
+            registerEsp(itemModel, targetPart, baseText, color, "Items", itemModel, Vector3.new(0, 1.2, 0))
         end
     end
 end
@@ -560,21 +612,42 @@ local function processHidingSpot(hidingModel)
     end
 end
 
--- 7. Precision Gold Scanner (Strict GoldPile check)
-local function processGold(goldModel)
-    if not goldModel then return end
+-- 7. Precision Gold & Coins Scanner (Works inside Drawers, Dressers, Tables, LootHolders, and Floor)
+local function processGold(goldInstance)
+    if not goldInstance then return end
     if not State.Gold_ESP then
-        removeEspFor(goldModel)
+        removeEspFor(goldInstance)
         return
     end
 
-    if goldModel.Name == "GoldPile" then
-        local targetPart = goldModel:FindFirstChildWhichIsA("MeshPart", true) or goldModel:FindFirstChildWhichIsA("BasePart", true)
-        if targetPart then
-            local baseText = "💰 Gold"
-            local color = Color3.fromRGB(255, 185, 0)
-            registerEsp(goldModel, targetPart, baseText, color, "Gold", targetPart, Vector3.new(0, 1.0, 0))
+    local gName = goldInstance.Name:lower()
+    local isGold = gName == "goldpile" or gName:find("^gold") or gName:find("coin")
+
+    local prompt = goldInstance:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local displayName = "Gold"
+
+    if prompt and prompt.Enabled then
+        local pObj = (prompt.ObjectText or ""):lower()
+        local pAct = (prompt.ActionText or ""):lower()
+        if pObj:find("gold") or pAct:find("gold") then
+            isGold = true
+            displayName = "Gold"
+        elseif pObj:find("coin") or pAct:find("coin") then
+            isGold = true
+            displayName = "Coins"
         end
+    end
+
+    if not isGold then return end
+
+    local targetPart = (goldInstance:IsA("Model") and (goldInstance:FindFirstChildWhichIsA("MeshPart", true) or goldInstance:FindFirstChildWhichIsA("BasePart", true)))
+        or (goldInstance:IsA("BasePart") and goldInstance)
+        or (prompt and prompt.Parent and prompt.Parent:IsA("BasePart") and prompt.Parent)
+
+    if targetPart then
+        local baseText = string.format("💰 %s", displayName)
+        local color = Color3.fromRGB(255, 195, 0)
+        registerEsp(goldInstance, targetPart, baseText, color, "Gold", goldInstance, Vector3.new(0, 0.8, 0))
     end
 end
 
@@ -649,21 +722,41 @@ local function scanSingleRoom(room)
 
     -- 2. Scan Room Descendants
     for _, desc in ipairs(room:GetDescendants()) do
-        if desc:IsA("Model") then
-            local dName = desc.Name
-            if dName == "KeyObtain" or desc:GetAttribute("IsKey") then
+        local dName = desc.Name:lower()
+
+        if desc:IsA("Model") or desc:IsA("Tool") then
+            if desc.Name == "Door" then
+                processDoor(room, desc)
+            elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
                 processKey(desc)
-            elseif dName == "Wardrobe" or dName == "Closet" or dName == "Locker" or dName:find("Bed") then
+            elseif dName:find("lever") then
+                processLever(desc)
+            elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
                 processHidingSpot(desc)
-            elseif dName == "GoldPile" then
+            elseif dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
                 processGold(desc)
             else
-                -- Check for items with strict filter
                 processItem(desc)
+                processEntity(desc)
             end
-
-            -- Check if entity spawned inside room (e.g. Figure, Eyes, Snare)
-            processEntity(desc)
+        elseif desc:IsA("BasePart") then
+            if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
+                processGold(desc)
+            elseif dName:find("lever") then
+                processLever(desc)
+            end
+        elseif desc:IsA("ProximityPrompt") then
+            local obj = (desc.ObjectText or ""):lower()
+            local act = (desc.ActionText or ""):lower()
+            if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
+                processGold(desc.Parent)
+            elseif obj:find("lever") or act:find("pull") then
+                processLever(desc.Parent)
+            elseif act:find("take") or act:find("pick") or act:find("grab") then
+                if desc.Parent and (desc.Parent:IsA("Model") or desc.Parent:IsA("Tool")) then
+                    processItem(desc.Parent)
+                end
+            end
         end
 
         -- Check Book (Strictly Room 50 Library Only)
@@ -691,49 +784,100 @@ local function scanAllRooms()
         end
     end
 
-    -- Scan Workspace for roaming entities
-    if State.Entities_ESP then
-        for _, child in ipairs(Workspace:GetChildren()) do
-            processEntity(child)
+    -- Scan Workspace for roaming entities and dropped items
+    for _, child in ipairs(Workspace:GetChildren()) do
+        if child:IsA("Model") or child:IsA("Tool") then
+            if State.Entities_ESP then processEntity(child) end
+            if State.Items_ESP then processItem(child) end
         end
-        if Camera then
-            for _, child in ipairs(Camera:GetChildren()) do
-                processEntity(child)
-            end
+    end
+    if Camera and State.Entities_ESP then
+        for _, child in ipairs(Camera:GetChildren()) do
+            processEntity(child)
         end
     end
 end
 
--- Dynamic Room Generation Listener
+-- Dynamic Room Generation & Descendant Drop Listener
 pcall(function()
     local currentRooms = Workspace:FindFirstChild("CurrentRooms") or Workspace:WaitForChild("CurrentRooms", 5)
     if currentRooms then
-        currentRooms.ChildAdded:Connect(function(newRoom)
+        local function bindRoom(newRoom)
             task.wait(0.2)
             scanSingleRoom(newRoom)
 
-            -- Room child added listener for live item/entity drops
-            newRoom.ChildAdded:Connect(function(child)
-                task.wait(0.1)
-                if child.Name == "Door" then
-                    processDoor(newRoom, child)
-                elseif child.Name == "KeyObtain" then
-                    processKey(child)
-                elseif State.Entities_ESP then
-                    processEntity(child)
+            -- Real-time dropped items, drawer looting, and lever discovery
+            newRoom.DescendantAdded:Connect(function(desc)
+                task.wait(0.05)
+                local dName = desc.Name:lower()
+                if desc:IsA("Model") or desc:IsA("Tool") then
+                    if desc.Name == "Door" then
+                        processDoor(newRoom, desc)
+                    elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
+                        processKey(desc)
+                    elseif dName:find("lever") then
+                        processLever(desc)
+                    elseif dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
+                        processGold(desc)
+                    else
+                        processItem(desc)
+                        if State.Entities_ESP then processEntity(desc) end
+                    end
+                elseif desc:IsA("BasePart") then
+                    if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
+                        processGold(desc)
+                    elseif dName:find("lever") then
+                        processLever(desc)
+                    end
+                elseif desc:IsA("ProximityPrompt") then
+                    local obj = (desc.ObjectText or ""):lower()
+                    local act = (desc.ActionText or ""):lower()
+                    if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
+                        processGold(desc.Parent)
+                    elseif obj:find("lever") or act:find("pull") then
+                        processLever(desc.Parent)
+                    elseif act:find("take") or act:find("pick") or act:find("grab") then
+                        if desc.Parent and (desc.Parent:IsA("Model") or desc.Parent:IsA("Tool")) then
+                            processItem(desc.Parent)
+                        end
+                    end
                 end
             end)
-        end)
+        end
+
+        for _, r in ipairs(currentRooms:GetChildren()) do
+            bindRoom(r)
+        end
+
+        currentRooms.ChildAdded:Connect(bindRoom)
     end
 end)
 
--- Dynamic Entity Spawning Listeners (Workspace & Camera for Screech)
+-- Dynamic Workspace Drops & Entity Spawning Listeners
 Workspace.ChildAdded:Connect(function(child)
     task.wait(0.05)
-    if State.Entities_ESP then
-        processEntity(child)
+    if child:IsA("Model") or child:IsA("Tool") then
+        local cName = child.Name:lower()
+        if cName == "keyobtain" or child:GetAttribute("IsKey") then
+            processKey(child)
+        elseif cName:find("lever") then
+            processLever(child)
+        elseif cName == "goldpile" or cName:find("^gold") or cName:find("coin") then
+            processGold(child)
+        else
+            processItem(child)
+            if State.Entities_ESP then processEntity(child) end
+        end
     end
 end)
+
+local dropsFolder = Workspace:FindFirstChild("Drops")
+if dropsFolder then
+    dropsFolder.ChildAdded:Connect(function(child)
+        task.wait(0.05)
+        processItem(child)
+    end)
+end
 
 if Camera then
     Camera.ChildAdded:Connect(function(child)
@@ -744,17 +888,19 @@ if Camera then
     end)
 end
 
--- Continuous Entity Guard Loop (Checks Workspace & Camera every 0.4s to guarantee 0% missed spawns)
+-- Continuous Guard Loop (Guarantees live entity tracking and periodic sweeps)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
-        if State.Master_ESP and State.Entities_ESP then
-            for _, child in ipairs(Workspace:GetChildren()) do
-                processEntity(child)
-            end
-            if Camera then
-                for _, child in ipairs(Camera:GetChildren()) do
+        if State.Master_ESP then
+            if State.Entities_ESP then
+                for _, child in ipairs(Workspace:GetChildren()) do
                     processEntity(child)
+                end
+                if Camera then
+                    for _, child in ipairs(Camera:GetChildren()) do
+                        processEntity(child)
+                    end
                 end
             end
         end
