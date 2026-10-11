@@ -788,55 +788,19 @@ if State.Fullbright then
 end
 
 -- =========================================================================
--- WalkSpeed Protection & Native Slide-State Anti-Rubberband Engine
--- =========================================================================
-local crouchRemote = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder") and game.ReplicatedStorage.RemotesFolder:FindFirstChild("Crouch")
-local isSlideBypassing = false
-
-local function getMainGameParent()
-    local ok, res = pcall(function()
-        local p = LocalPlayer
-        local mg = p:FindFirstChild("PlayerGui") and p.PlayerGui:FindFirstChild("MainUI") and p.PlayerGui.MainUI:FindFirstChild("Initiator") and p.PlayerGui.MainUI.Initiator:FindFirstChild("Main_Game")
-        if mg then
-            local movement = mg:FindFirstChild("Movement")
-            if movement and getsenv and getupvalues then
-                local sEnv = getsenv(movement)
-                if sEnv and sEnv.updatespeed then
-                    local upvals = getupvalues(sEnv.updatespeed)
-                    return upvals[2] -- Parent controller table
-                end
-            end
-        end
-        return nil
-    end)
-    return ok and res or nil
-end
-
-local function setSlideState(sliding)
-    if isSlideBypassing == sliding then return end
-    isSlideBypassing = sliding
-
-    local parentTable = getMainGameParent()
-    if parentTable then
-        pcall(function() parentTable.sliding = sliding end)
-    end
-
-    if crouchRemote then
-        pcall(function()
-            -- Tells DOORS server that player is in valid sliding state (server permits velocity up to 65 studs/s)
-            crouchRemote:FireServer(false, sliding)
-        end)
-    end
-end
-
--- =========================================================================
--- Active Anti-Rollback & Position-Continuity Engine
--- Intercepts server teleport packets on RenderStepped before rendering and restores intended forward movement.
--- Features Post-Stop Anchor Guard to eliminate delayed server rollbacks when stopping abruptly.
+-- Active Anti-Rollback & Micro-Smooth Braking Engine
+-- 1. Full Native Crouch: No remote interference; crouch works flawlessly while running or standing.
+-- 2. Anti-Rollback Interception: Real-time RenderStepped vector progression check prevents rollbacks during sprints.
+-- 3. Micro-Smooth Braking: 150ms physics deceleration when releasing keys prevents server accumulator overflow and eliminates the 0.1s snap-back.
 -- =========================================================================
 local lastForwardCFrame = nil
 local lastForwardPos = nil
+local lastMoveVector = Vector3.new(0, 0, 0)
 local wasMoving = false
+local isBraking = false
+local brakeStartTime = 0
+local brakeDuration = 0.15
+local initialBrakeVel = Vector3.new(0, 0, 0)
 local stopGraceUntil = 0
 local settledCFrame = nil
 local settledPos = nil
@@ -849,6 +813,7 @@ RunService.RenderStepped:Connect(function()
         settledPos = nil
         settledCFrame = nil
         wasMoving = false
+        isBraking = false
         stopGraceUntil = 0
         return 
     end
@@ -863,21 +828,24 @@ RunService.RenderStepped:Connect(function()
     local isMoving = moveDir.Magnitude > 0.05
 
     if isMoving then
+        -- Active movement state
         wasMoving = true
+        isBraking = false
         stopGraceUntil = 0
         settledCFrame = root.CFrame
         settledPos = currentPos
+        lastMoveVector = moveDir
 
         if lastForwardPos then
             local frameDelta = currentPos - lastForwardPos
             local dist = frameDelta.Magnitude
 
             -- Dot product against intended movement direction:
-            -- If the server abruptly teleported the player backward (> 2.5 studs opposite to moveDir in a single frame):
+            -- If server abruptly snaps the player backward opposite to moveDir:
             local forwardProgression = frameDelta:Dot(moveDir)
 
-            if forwardProgression < -2.5 and dist > 2.5 then
-                -- Server rollback detected while moving! Instantly restore forward position
+            if forwardProgression < -2.2 and dist > 2.2 then
+                -- In-flight rollback neutralized! Instantly restore forward position
                 local restoredCF = lastForwardCFrame + (moveDir * (hum.WalkSpeed * 0.016))
                 root.CFrame = restoredCF
                 root.AssemblyLinearVelocity = moveDir * hum.WalkSpeed
@@ -892,21 +860,44 @@ RunService.RenderStepped:Connect(function()
         lastForwardPos = root.Position
         lastForwardCFrame = root.CFrame
     else
-        -- Player is stationary (let go of keys)
-        if wasMoving then
-            -- Transition from moving -> stopped: Start 1.5s Post-Stop Anchor Guard
+        -- Movement keys released: handle micro-smooth deceleration and resting anchor
+        local now = os.clock()
+
+        if wasMoving and not isBraking then
+            -- Transition from sprint -> stop: initiate 150ms smooth physics deceleration
             wasMoving = false
-            stopGraceUntil = os.clock() + 1.5
-            settledCFrame = root.CFrame
-            settledPos = currentPos
-            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            isBraking = true
+            brakeStartTime = now
+            local curSpeed = math.min(hum.WalkSpeed, 50)
+            initialBrakeVel = (lastMoveVector.Magnitude > 0 and lastMoveVector or root.CFrame.LookVector) * curSpeed
         end
 
-        if os.clock() < stopGraceUntil and settledPos and settledCFrame then
-            -- Inside post-stop grace window: check if delayed server packet tries to snap us back
+        if isBraking then
+            local elapsed = now - brakeStartTime
+            if elapsed < brakeDuration then
+                -- Cosinusoidal ease-out: bleeds momentum smoothly without abrupt packet collisions
+                local t = elapsed / brakeDuration
+                local easeOutFactor = 0.5 * (1 + math.cos(math.pi * t))
+                root.AssemblyLinearVelocity = initialBrakeVel * easeOutFactor
+                settledCFrame = root.CFrame
+                settledPos = root.Position
+                lastForwardPos = root.Position
+                lastForwardCFrame = root.CFrame
+                return
+            else
+                -- Braking finished: dead stop
+                isBraking = false
+                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                settledCFrame = root.CFrame
+                settledPos = root.Position
+                stopGraceUntil = now + 1.2
+            end
+        end
+
+        -- Post-stop settling anchor (1.2s window): absorbs any lingering delayed packets
+        if now < stopGraceUntil and settledPos and settledCFrame then
             local horizDelta = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(settledPos.X, 0, settledPos.Z)).Magnitude
-            if horizDelta > 2.0 then
-                -- Delayed server rollback detected! Anchor player to their intended stopping position
+            if horizDelta > 1.8 then
                 local anchorCF = CFrame.new(settledPos.X, root.CFrame.Y, settledPos.Z) * (settledCFrame - settledCFrame.Position)
                 root.CFrame = anchorCF
                 root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -922,7 +913,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Continuous Heartbeat Enforcement
+-- Continuous Heartbeat Enforcement (Ensures target speed without fighting crouch)
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -932,32 +923,17 @@ RunService.Heartbeat:Connect(function()
 
     if State.WalkSpeed_Enabled then
         local targetSpeed = State.WalkSpeed_Value
-        local isMoving = hum.MoveDirection.Magnitude > 0.05
-
-        if State.AntiRubberband then
-            if isMoving then
-                setSlideState(true)
-            else
-                setSlideState(false)
-            end
-        else
-            setSlideState(false)
-        end
-
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
     else
-        if isSlideBypassing then
-            setSlideState(false)
-        end
         if hum.WalkSpeed ~= 15 then
             hum.WalkSpeed = 15
         end
     end
 end)
 
--- Stepped Guard: Ensures WalkSpeed is maintained across physics recalculations
+-- Stepped Guard: Ensures WalkSpeed is maintained across DOORS physics steps
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     if State.WalkSpeed_Enabled then
@@ -997,7 +973,6 @@ Hub.CreateSection(mainTab, "🏃 Movement & Speed")
 Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
     if not v then
-        setSlideState(false)
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then hum.WalkSpeed = 15 end
@@ -1018,7 +993,6 @@ end)
 
 Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
     State.AntiRubberband = v
-    if not v then setSlideState(false) end
 end)
 
 Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", function()
@@ -1060,8 +1034,6 @@ Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", fu
         local oldWS = hum.WalkSpeed
         local wasEnabled = State.WalkSpeed_Enabled
 
-        -- Enable slide bypass and speed 45
-        setSlideState(true)
         hum.WalkSpeed = 45
 
         local pStart = root.Position
@@ -1089,7 +1061,6 @@ Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", fu
         local pFinal = root.Position
         local movedBack = (pFinal - pMid).Magnitude
 
-        setSlideState(false)
         hum.WalkSpeed = wasEnabled and State.WalkSpeed_Value or oldWS
 
         local rubberbandDetected = (movedForward < 4) or (movedBack < 4)
