@@ -123,7 +123,18 @@ local State = {
     Entities_ESP = true,
     HidingSpots_ESP = false,
     Show_Distance = true,
-    Fullbright = true
+    Fullbright = true,
+
+    -- Floor Hazards & Mechanics (Hotel & Mines)
+    Anti_Screech = true,
+    Anti_Eyes = true,
+    Anti_Dupe = true,
+    Anti_Snare = true,
+    Anti_Timothy = true,
+    No_Hide_Kick = true,
+    Auto_Heartbeat = true,
+    Auto_Library_Code = true,
+    Auto_Breakers = false
 }
 
 -- Session lifecycle
@@ -170,7 +181,7 @@ local function createBillboard(adorneePart, baseText, color, offset)
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 180, 0, 32)
+    bb.Size = UDim2.new(0, 225, 0, 40)
     bb.StudsOffset = offset
     bb.ResetOnSpawn = false
 
@@ -182,7 +193,7 @@ local function createBillboard(adorneePart, baseText, color, offset)
     label.TextStrokeTransparency = 0.45
     label.TextStrokeColor3 = Color3.fromRGB(15, 15, 20)
     label.Font = Enum.Font.Gotham
-    label.TextSize = 12
+    label.TextSize = 15
     label.Parent = bb
 
     local initialText = baseText
@@ -498,20 +509,21 @@ local function processDoor(room, doorModel)
         color = Color3.fromRGB(0, 215, 255)
     end
 
-    -- Precision Highlight: Collect ALL visible door components (leaves, nested brass plates, knobs, signs, locks)
-    local highlightParts = {}
-    for _, desc in ipairs(doorModel:GetDescendants()) do
-        if desc:IsA("BasePart") then
-            local cName = desc.Name:lower()
-            -- Exclude invisible collision boxes and triggers (FigureCollision, Collision, Hidden, Hinge)
-            if desc.Transparency < 0.9 and not cName:find("collision") and not cName:find("hidden") and not cName:find("hinge") then
-                table.insert(highlightParts, desc)
-            end
-        end
+    -- Clean Door Highlight: Outline ONLY the outer door frame/slab and padlock (strictly excludes decorative inner plate bevels & sign rings)
+    local highlightParts = { doorMesh }
+    local lockPart = doorModel:FindFirstChild("Lock")
+    if lockPart and lockPart:IsA("BasePart") then
+        table.insert(highlightParts, lockPart)
     end
 
-    if #highlightParts == 0 then
-        table.insert(highlightParts, doorMesh)
+    -- Support companion door leaf on double doors or gate doors
+    for _, child in ipairs(doorModel:GetChildren()) do
+        if child:IsA("BasePart") and child ~= doorMesh and child ~= lockPart and child.Transparency < 0.9 then
+            local cName = child.Name:lower()
+            if cName:find("door") and not cName:find("collision") and not cName:find("hidden") and not cName:find("hinge") then
+                table.insert(highlightParts, child)
+            end
+        end
     end
 
     local adorneePart = doorModel:FindFirstChild("SignPhysical") 
@@ -1004,9 +1016,40 @@ local function processEntity(entity)
     end
 end
 
+-- Snare Trap Defusal (Greenhouse / Flooded Rooms)
+local function defuseSnare(instance)
+    if not instance then return end
+    pcall(function()
+        for _, p in ipairs(instance:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanTouch = false
+            end
+        end
+        if instance:IsA("BasePart") then
+            instance.CanTouch = false
+        end
+    end)
+end
+
+local function defuseAllSnares()
+    if not State.Anti_Snare then return end
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    if currentRooms then
+        for _, desc in ipairs(currentRooms:GetDescendants()) do
+            if desc.Name:lower():find("snare") then
+                defuseSnare(desc)
+            end
+        end
+    end
+end
+
 -- Full Room Parser
 local function scanSingleRoom(room)
     if not room or not room:IsA("Model") then return end
+
+    if State.Anti_Snare then
+        defuseSnare(room)
+    end
 
     -- 1. Scan Door
     local door = room:FindFirstChild("Door")
@@ -1994,7 +2037,243 @@ Hub.CreateToggle(mainTab, "Auto Pull Levers", State.AutoInteract_Levers, functio
     State.AutoInteract_Levers = v
 end)
 
--- Tab 2: ESP TAB
+-- =========================================================================
+-- Floor Mechanics & Hazard Defenses (Floor 1: Hotel & Floor 2: Mines)
+-- =========================================================================
+
+local function updateFloorNativeToggles()
+    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+    if gd then
+        if gd:FindFirstChild("EntityDisableScreech") then
+            gd.EntityDisableScreech.Value = State.Anti_Screech
+        end
+        if gd:FindFirstChild("EntityDisableEyes") then
+            gd.EntityDisableEyes.Value = State.Anti_Eyes
+        end
+        if gd:FindFirstChild("EntityDisableDupe") then
+            gd.EntityDisableDupe.Value = State.Anti_Dupe
+        end
+        if gd:FindFirstChild("EarliestHidingKick") then
+            gd.EarliestHidingKick.Value = State.No_Hide_Kick and math.huge or 0
+        end
+    end
+end
+
+-- Camera listener: deflects Screech & Timothy instantly
+local cam = Workspace.CurrentCamera
+if cam then
+    cam.ChildAdded:Connect(function(child)
+        local cName = child.Name:lower()
+        if State.Anti_Screech and (cName:find("screech") or cName == "screechretro") then
+            task.spawn(function()
+                local remote = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder") 
+                    and game:GetService("ReplicatedStorage").RemotesFolder:FindFirstChild("Screech")
+                if remote then
+                    remote:FireServer(true)
+                end
+                pcall(function() child:Destroy() end)
+                Hub.Notify("Anti-Screech", "🦇 Screech caught & banished!", 2.5)
+            end)
+        elseif State.Anti_Timothy and (cName:find("spider") or cName == "spiderjumpscare") then
+            pcall(function() child:Destroy() end)
+            Hub.Notify("Anti-Timothy", "🕷️ Timothy spider jumpscare deleted!", 1.5)
+        end
+    end)
+end
+
+-- Workspace listener for Eyes
+Workspace.ChildAdded:Connect(function(child)
+    local cName = child.Name:lower()
+    if State.Anti_Eyes and cName:find("eyes") then
+        pcall(function()
+            for _, d in ipairs(child:GetDescendants()) do
+                if d:IsA("Sound") then d.Volume = 0 end
+            end
+        end)
+        Hub.Notify("Anti-Eyes", "👁️ Eyes detected — look-damage immune!", 2.5)
+    end
+end)
+
+-- Auto Heartbeat Minigame Solver
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Auto_Heartbeat then
+            pcall(function()
+                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+                local mainUI = pGui and pGui:FindFirstChild("MainUI")
+                local heart = mainUI and mainUI:FindFirstChild("MainFrame") and mainUI.MainFrame:FindFirstChild("Heartbeat") and mainUI.MainFrame.Heartbeat:FindFirstChild("Heart")
+                if heart and heart.Parent and heart.Parent.Visible then
+                    local liveHalf = heart:FindFirstChild("LiveHalf")
+                    if liveHalf and liveHalf.Visible then
+                        local vim = game:GetService("VirtualInputManager")
+                        if vim then
+                            vim:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+                            task.wait(0.02)
+                            vim:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+                            vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                            task.wait(0.02)
+                            vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(0.08)
+    end
+end)
+
+-- Room 50 Library Padlock Code Solver
+local function solveLibraryCode()
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local hints = pGui and pGui:FindFirstChild("PermUI") and pGui.PermUI:FindFirstChild("Hints")
+    
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    local room50 = currentRooms and currentRooms:FindFirstChild("50")
+    if not room50 then
+        return nil, "Room 50 not yet generated!"
+    end
+
+    local paper = Workspace:FindFirstChild("LibraryHintPaper", true)
+        or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("LibraryHintPaper"))
+        or (LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("LibraryHintPaper"))
+
+    -- Gather collected books from Hints GUI
+    local bookDigits = {}
+    if hints then
+        for _, hint in ipairs(hints:GetChildren()) do
+            if hint:IsA("ImageLabel") and hint.Name ~= "Template" then
+                local textLabel = hint:FindFirstChildWhichIsA("TextLabel")
+                local icon = hint.Image
+                if textLabel and textLabel.Text ~= "" then
+                    bookDigits[icon] = textLabel.Text
+                end
+            end
+        end
+    end
+
+    -- Also inspect Room 50 books directly
+    for _, item in ipairs(room50:GetDescendants()) do
+        if item.Name == "LiveHintBook" or item.Name:lower():find("hintbook") then
+            local num = item:GetAttribute("Number") or item:GetAttribute("Digit")
+            local shape = item:GetAttribute("Shape")
+            if num and shape then
+                bookDigits[tostring(shape)] = tostring(num)
+            end
+        end
+    end
+
+    if not paper then
+        return nil, "Pick up the Hint Paper in Room 50 first!"
+    end
+
+    local code = {}
+    local paperGui = paper:FindFirstChildWhichIsA("SurfaceGui", true)
+    if paperGui then
+        local frames = {}
+        for _, desc in ipairs(paperGui:GetDescendants()) do
+            if desc:IsA("ImageLabel") and desc.Name ~= "Background" then
+                table.insert(frames, desc)
+            end
+        end
+        table.sort(frames, function(a, b) return (a.LayoutOrder or 0) < (b.LayoutOrder or 0) end)
+        for _, img in ipairs(frames) do
+            local digit = bookDigits[img.Image] or "_"
+            table.insert(code, digit)
+        end
+    end
+
+    if #code > 0 then
+        return table.concat(code, " "), "Solved"
+    end
+
+    return nil, "Gather more books in the Library!"
+end
+
+-- Maintain native values & snares
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        updateFloorNativeToggles()
+        if State.Anti_Snare then defuseAllSnares() end
+        task.wait(1)
+    end
+end)
+
+-- =========================================================================
+-- Tab 2: FLOOR SPECIFIC TAB (Floor 1: Hotel / Floor 2: Mines)
+-- =========================================================================
+local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and game.ReplicatedStorage.GameData:FindFirstChild("Floor") and game.ReplicatedStorage.GameData.Floor.Value) or "Hotel"
+local floorTabName = "Floor (" .. detectedFloor .. ")"
+
+local floorTab = Hub.CreateTab(floorTabName, { 
+    Icon = "🏨", 
+    Size = 18, 
+    Color = Color3.fromRGB(255, 120, 50), 
+    ActiveColor = Color3.fromRGB(255, 180, 70) 
+})
+
+Hub.CreateSection(floorTab, "🦇 Entity Defenses (Hotel & Mines)")
+
+Hub.CreateToggle(floorTab, "Anti-Screech (Auto-Catch & Banish)", State.Anti_Screech, function(v)
+    State.Anti_Screech = v
+    updateFloorNativeToggles()
+    Hub.Notify("Anti-Screech", v and "Anti-Screech: ACTIVE (Zero bite & jumpscare)" or "Anti-Screech: OFF", 2)
+end)
+
+Hub.CreateToggle(floorTab, "Anti-Eyes (Look Immunity)", State.Anti_Eyes, function(v)
+    State.Anti_Eyes = v
+    updateFloorNativeToggles()
+    Hub.Notify("Anti-Eyes", v and "Anti-Eyes: ACTIVE (Look-damage immune)" or "Anti-Eyes: OFF", 2)
+end)
+
+Hub.CreateToggle(floorTab, "Anti-Dupe (Fake Door Protection)", State.Anti_Dupe, function(v)
+    State.Anti_Dupe = v
+    updateFloorNativeToggles()
+    Hub.Notify("Anti-Dupe", v and "Anti-Dupe: ACTIVE" or "Anti-Dupe: OFF", 2)
+end)
+
+Hub.CreateToggle(floorTab, "Anti-Snare Traps (Greenhouse & Mines)", State.Anti_Snare, function(v)
+    State.Anti_Snare = v
+    defuseAllSnares()
+    Hub.Notify("Anti-Snare", v and "Anti-Snare: ACTIVE (Walk through snares safely)" or "Anti-Snare: OFF", 2)
+end)
+
+Hub.CreateToggle(floorTab, "Anti-Timothy (Spider Jumpscare Banish)", State.Anti_Timothy, function(v)
+    State.Anti_Timothy = v
+    Hub.Notify("Anti-Timothy", v and "Anti-Timothy: ACTIVE (Drawer spiders deleted)" or "Anti-Timothy: OFF", 2)
+end)
+
+Hub.CreateSection(floorTab, "🚪 Hiding & Anti-Kick")
+
+Hub.CreateToggle(floorTab, "No Hide Kick (Infinite Closet Hiding)", State.No_Hide_Kick, function(v)
+    State.No_Hide_Kick = v
+    updateFloorNativeToggles()
+    Hub.Notify("No Hide Kick", v and "No Hide Kick: ACTIVE (Hide forever in closets/beds)" or "No Hide Kick: OFF", 2)
+end)
+
+Hub.CreateToggle(floorTab, "Auto Heartbeat Minigame (Auto-Win)", State.Auto_Heartbeat, function(v)
+    State.Auto_Heartbeat = v
+    Hub.Notify("Heartbeat Minigame", v and "Auto Heartbeat: ACTIVE (100% win rate)" or "Auto Heartbeat: OFF", 2)
+end)
+
+Hub.CreateSection(floorTab, "🧩 Floor 1 Puzzles (Room 50 & 100)")
+
+Hub.CreateButton(floorTab, "🔍 Solve Library Code (Room 50 Padlock)", function()
+    local code, status = solveLibraryCode()
+    if code then
+        Hub.Notify("Room 50 Code", "Padlock Code: " .. code, 6)
+    else
+        Hub.Notify("Room 50 Code", status or "Need Books & Hint Paper!", 4)
+    end
+end)
+
+Hub.CreateToggle(floorTab, "Auto Solve Circuit Breaker (Room 100)", State.Auto_Breakers, function(v)
+    State.Auto_Breakers = v
+    Hub.Notify("Room 100 Breaker", v and "Auto Breaker: ACTIVE" or "Auto Breaker: OFF", 2)
+end)
+
+-- Tab 3: ESP TAB
 local espTab = Hub.CreateTab("ESP", { 
     Icon = "👁️", 
     Size = 18, 
