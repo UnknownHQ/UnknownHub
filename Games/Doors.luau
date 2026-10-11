@@ -846,6 +846,8 @@ local wasMoving = false
 local crouchRemote = nil
 local isServerSlideActive = false
 local lastSentCrouchState = nil
+local unhideGraceUntil = 0
+local wasHidingState = false
 
 local function getMainGameTable()
     local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
@@ -858,6 +860,35 @@ local function getMainGameTable()
     end
     return nil
 end
+
+local function isPlayerHiding(char, mgTable)
+    if not char then return false end
+    if char:GetAttribute("Hiding") == true then return true end
+    if char:GetAttribute("AnimatingClient") == true then return true end
+    if char:GetAttribute("ForceOut") == true then return true end
+    if char:GetAttribute("SkipExit") == true then return true end
+    if mgTable and (mgTable.hiding == true or mgTable.animating == true) then return true end
+    return false
+end
+
+-- Pre-hook ProximityPrompts for hiding spots to instantly prime grace window
+pcall(function()
+    local pps = game:GetService("ProximityPromptService")
+    pps.PromptTriggered:Connect(function(prompt, playerWhoTriggered)
+        if playerWhoTriggered == LocalPlayer then
+            local action = (prompt.ActionText or ""):lower()
+            local name = (prompt.Name or ""):lower()
+            if action:find("hide") or name:find("hide") or action:find("closet") or action:find("wardrobe") then
+                unhideGraceUntil = os.clock() + 1.2
+                lastForwardPos = nil
+                lastForwardCFrame = nil
+                table.clear(trailHistory)
+                wasMoving = false
+                syncServerSlide(false)
+            end
+        end
+    end)
+end)
 
 local function syncServerSlide(shouldAuthorize)
     if not crouchRemote then
@@ -873,6 +904,17 @@ local function syncServerSlide(shouldAuthorize)
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
 
     if shouldAuthorize then
+        -- Never authorize slide while hidden or exiting closet
+        if isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil) then
+            if isServerSlideActive then
+                isServerSlideActive = false
+                pcall(function()
+                    crouchRemote:FireServer(false, false)
+                end)
+            end
+            return
+        end
+
         -- Keep slide authorized continuously on server while WalkSpeed is active
         -- Never revoke authorization on stop, preventing slide-end door snapbacks
         if not isServerSlideActive or isCrouching ~= lastSentCrouchState then
@@ -914,13 +956,41 @@ local function updateMotion(dt)
         return 
     end
 
-    -- Keep server high-speed authorization continuously active while WalkSpeed is enabled
-    syncServerSlide(true)
-
     local char = getChar()
     local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not root or not hum or not hum.Parent then return end
+
+    local mgTable = getMainGameTable()
+    local hidden = isPlayerHiding(char, mgTable)
+
+    -- Detect closet enter/exit state transitions
+    if hidden then
+        wasHidingState = true
+        unhideGraceUntil = os.clock() + 0.85
+        lastForwardPos = nil
+        lastForwardCFrame = nil
+        table.clear(trailHistory)
+        wasMoving = false
+        syncServerSlide(false)
+        return
+    elseif wasHidingState then
+        wasHidingState = false
+        unhideGraceUntil = os.clock() + 0.85
+    end
+
+    -- During closet unhide transition, permit natural teleport/cutscene out into the room
+    if os.clock() < unhideGraceUntil then
+        lastForwardPos = root.Position
+        lastForwardCFrame = root.CFrame
+        table.clear(trailHistory)
+        wasMoving = false
+        syncServerSlide(false)
+        return
+    end
+
+    -- Keep server high-speed authorization continuously active while WalkSpeed is enabled
+    syncServerSlide(true)
 
     -- Keep teflon glide active
     local coll = char:FindFirstChild("Collision")
@@ -958,7 +1028,7 @@ local function updateMotion(dt)
                         end
                     end
                 end
-                if not isRollback and (progression < -0.2 or dist > 2.0) then
+                if not isRollback and progression < -0.25 then
                     isRollback = true
                 end
             end
@@ -1018,7 +1088,7 @@ pcall(function()
     RunService:BindToRenderStep(BIND_NAME, Enum.RenderPriority.Camera.Value - 20, updateMotion)
 end)
 
--- Continuous Heartbeat Enforcement (Ensures target speed with smooth crouch support)
+-- Continuous Heartbeat Enforcement (Ensures target speed with smooth crouch support & hiding safety)
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -1026,15 +1096,17 @@ RunService.Heartbeat:Connect(function()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not hum or not hum.Parent or not root then return end
 
-    if State.WalkSpeed_Enabled then
-        local mgTable = getMainGameTable()
+    local mgTable = getMainGameTable()
+    local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+
+    if State.WalkSpeed_Enabled and not hiding then
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         local targetSpeed = isCrouching and math.max(math.floor(State.WalkSpeed_Value * 0.65), 18) or State.WalkSpeed_Value
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
     else
-        if hum.WalkSpeed ~= 15 then
+        if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled then
             hum.WalkSpeed = 15
         end
     end
@@ -1045,9 +1117,11 @@ RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     if State.WalkSpeed_Enabled then
         local char = getChar()
+        local mgTable = getMainGameTable()
+        if isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil) then return end
+
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then
-            local mgTable = getMainGameTable()
             local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
             local targetSpeed = isCrouching and math.max(math.floor(State.WalkSpeed_Value * 0.65), 18) or State.WalkSpeed_Value
             if hum.WalkSpeed ~= targetSpeed then
