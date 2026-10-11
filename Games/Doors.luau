@@ -198,7 +198,7 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     hl.OutlineColor = color
     hl.OutlineTransparency = outlineTrans
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = (gethui and gethui()) or CoreGui
+    hl.Parent = CoreGui
     return hl
 end
 
