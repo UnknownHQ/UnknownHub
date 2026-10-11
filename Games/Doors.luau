@@ -272,7 +272,12 @@ local function processDoor(room, doorModel)
 
     local dName = doorModel.Name:lower()
     -- Filter out decorative blocked doors with wooden planks across them
-    if dName:find("blocked") or doorModel:GetAttribute("Blocked") == true then
+    local isBlocked = dName:find("blocked") 
+        or doorModel:GetAttribute("Blocked") == true 
+        or doorModel:FindFirstChild("Plank", true) ~= nil 
+        or doorModel:FindFirstChild("Boards", true) ~= nil
+        or doorModel:FindFirstChild("Barricade", true) ~= nil
+    if isBlocked then
         removeEspFor(doorModel)
         return
     end
@@ -291,12 +296,12 @@ local function processDoor(room, doorModel)
     end
 
     -- Precision Lock Detection:
-    -- In DOORS, a door is ONLY locked if there is an actual padlock Model with an unlock prompt!
+    -- In DOORS, a door is locked IF AND ONLY IF there is an active padlock with an enabled prompt, or Locked attribute
     local isLocked = false
-    local lockModel = doorModel:FindFirstChild("Lock")
-    if lockModel and lockModel:IsA("Model") then
-        local prompt = lockModel:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt then
+    local lock = doorModel:FindFirstChild("Lock")
+    if lock then
+        local prompt = lock:FindFirstChildWhichIsA("ProximityPrompt", true) or (lock:IsA("ProximityPrompt") and lock)
+        if prompt and prompt.Enabled then
             isLocked = true
         end
     end
@@ -335,8 +340,8 @@ local function processDoor(room, doorModel)
         color = Color3.fromRGB(0, 215, 255)
     end
 
-    -- Highlight ONLY the door leaf mesh cleanly (No hitbox, no disjointed cutout seams)
-    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.5, 0))
+    -- Highlight ONLY the door leaf mesh cleanly (No floating hitbox, no air artifacts)
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0))
 end
 
 -- 2. Precision Key Scanner
@@ -414,43 +419,41 @@ local function isValidLootItem(model)
     if not model or not model:IsA("Model") then return false, nil end
     local lower = model.Name:lower()
 
-    -- Reject blacklist decor
+    -- Reject blacklist decor & furniture
     for _, blocked in ipairs(DECOR_BLACKLIST) do
         if lower:find(blocked) then
             return false, nil
         end
     end
 
-    if lower:find("keyobtain") or lower:find("goldpile") then
+    if lower:find("keyobtain") or lower:find("goldpile") or lower:find("door") then
         return false, nil
     end
 
-    -- Strict check: True pickup items in DOORS MUST have a ProximityPrompt
+    -- Strict check 1: In DOORS, actual inventory loot items ALWAYS have a part named "Handle"
+    -- This 100% eliminates bookcases, wardrobes, drawers, sconces, chandeliers, and decor
+    local handle = model:FindFirstChild("Handle")
+    if not handle then
+        return false, nil
+    end
+
+    -- Strict check 2: Must have an enabled ProximityPrompt with a pickup action
     local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-    local hasPickupPrompt = false
-    local promptObjectName = nil
-
-    if prompt then
-        local action = prompt.ActionText:lower()
-        if action == "take" or action == "obtain" or action == "steal" or action == "grab" or action == "pick up" or action:find("take") or action:find("obtain") then
-            hasPickupPrompt = true
-        end
-        if prompt.ObjectText and #prompt.ObjectText > 0 then
-            promptObjectName = prompt.ObjectText:lower()
-        end
-    end
-
-    -- Also check for tool attributes or ModulePrompt
-    local hasItemModule = model:FindFirstChild("ModulePrompt", true) ~= nil
-    local hasItemAttr = model:GetAttribute("ItemType") ~= nil or model:GetAttribute("IsItem") == true
-
-    if not (hasPickupPrompt or hasItemModule or hasItemAttr) then
+    if not prompt or not prompt.Enabled then
         return false, nil
     end
+
+    local action = prompt.ActionText:lower()
+    local isPickup = action:find("take") or action:find("obtain") or action:find("steal") or action:find("grab") or action:find("pick")
+    if not isPickup then
+        return false, nil
+    end
+
+    local promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
 
     -- Match known item names
     for key, displayName in pairs(KNOWN_ITEMS) do
-        if lower == key or lower:find("^" .. key) or (promptObjectName and promptObjectName:find(key)) then
+        if lower == key or lower:find("^" .. key) or promptObjectName:find(key) then
             return true, displayName
         end
     end
@@ -840,13 +843,6 @@ local lastForwardCFrame = nil
 local lastForwardPos = nil
 local lastMoveVector = Vector3.new(0, 0, 0)
 local wasMoving = false
-local isBraking = false
-local brakeStartTime = 0
-local brakeDuration = 0.15
-local initialBrakeVel = Vector3.new(0, 0, 0)
-local stopGraceUntil = 0
-local settledCFrame = nil
-local settledPos = nil
 
 -- DOORS Server Slide Authorization Engine
 -- Informs the server anti-cheat that high speed is legitimate without overriding client crouch input
@@ -913,11 +909,7 @@ local function updateMotion(dt)
     if not State.WalkSpeed_Enabled or not State.AntiRubberband then 
         lastForwardPos = nil
         lastForwardCFrame = nil
-        settledPos = nil
-        settledCFrame = nil
         wasMoving = false
-        isBraking = false
-        stopGraceUntil = 0
         table.clear(trailHistory)
         syncServerSlide(false)
         return 
@@ -943,10 +935,6 @@ local function updateMotion(dt)
         -- Active movement state: authorize high speed with server
         syncServerSlide(true)
         wasMoving = true
-        isBraking = false
-        stopGraceUntil = 0
-        settledCFrame = root.CFrame
-        settledPos = currentPos
         lastMoveVector = moveDir
 
         if lastForwardPos then
@@ -954,32 +942,32 @@ local function updateMotion(dt)
             local dist = frameDelta.Magnitude
             local progression = frameDelta:Dot(moveDir)
             local expectedStep = hum.WalkSpeed * dt
-            local maxNaturalStep = math.max(expectedStep * 1.5, 1.1)
+            local maxNaturalStep = math.max(expectedStep * 1.5, 1.4)
             local isRollback = false
 
-            -- 1. Precision Micro-Rollback Check (Neutralizes 1cm / 1-2 stud returns instantly)
-            if progression < -0.15 and dist > 0.35 then
-                isRollback = true
-            -- 2. Trail History Check (Neutralizes in-flight positional teleports)
-            elseif dist > maxNaturalStep then
-                for i = #trailHistory, 1, -1 do
-                    local entry = trailHistory[i]
-                    local age = now - entry.time
-                    if age > 0.02 and age < 0.45 then
-                        local distToHistory = (currentPos - entry.pos).Magnitude
-                        if distToHistory < 2.0 then
-                            isRollback = true
-                            break
+            -- Robust Rollback Detection:
+            -- Real server rollbacks snap the character backwards against moveDir or back to past positions (> 1.2 studs)
+            -- Normal turning and wall contact have dist < 1.0 studs and MUST NOT trigger!
+            if dist > 1.2 then
+                if progression < -0.3 then
+                    isRollback = true
+                elseif dist > maxNaturalStep then
+                    for i = #trailHistory, 1, -1 do
+                        local entry = trailHistory[i]
+                        local age = now - entry.time
+                        if age > 0.04 and age < 0.45 then
+                            local distToHistory = (currentPos - entry.pos).Magnitude
+                            if distToHistory < 1.8 then
+                                isRollback = true
+                                break
+                            end
                         end
                     end
-                end
-                if not isRollback and (progression < 0.1 or dist > 1.2) then
-                    isRollback = true
                 end
             end
 
             if isRollback then
-                -- Neutralize rollback BEFORE the camera script runs! Camera stays 100% steady!
+                -- Neutralize rollback cleanly before camera renders
                 wallRayParams.FilterDescendantsInstances = {char}
                 local safeDir = moveDir
                 
@@ -1004,8 +992,6 @@ local function updateMotion(dt)
 
                 lastForwardPos = restoredPos
                 lastForwardCFrame = restoredCF
-                settledPos = restoredPos
-                settledCFrame = restoredCF
 
                 table.insert(trailHistory, { pos = restoredPos, cf = restoredCF, time = now })
                 if #trailHistory > 35 then table.remove(trailHistory, 1) end
@@ -1022,54 +1008,11 @@ local function updateMotion(dt)
         lastForwardPos = currentPos
         lastForwardCFrame = root.CFrame
     else
-        -- Movement keys released: handle micro-smooth deceleration and resting anchor
+        -- Movement keys released: natural physics stop with zero rubberbanding or yanks
         table.clear(trailHistory)
-        local now = os.clock()
-
-        if wasMoving and not isBraking then
-            -- Transition from sprint -> stop: initiate 150ms smooth physics deceleration
+        if wasMoving then
             wasMoving = false
-            isBraking = true
-            brakeStartTime = now
-            local curSpeed = math.min(hum.WalkSpeed, 50)
-            initialBrakeVel = (lastMoveVector.Magnitude > 0 and lastMoveVector or root.CFrame.LookVector) * curSpeed
-        end
-
-        if isBraking then
-            local elapsed = now - brakeStartTime
-            if elapsed < brakeDuration then
-                -- Cosinusoidal ease-out: bleeds momentum smoothly without abrupt packet collisions
-                local t = elapsed / brakeDuration
-                local easeOutFactor = 0.5 * (1 + math.cos(math.pi * t))
-                root.AssemblyLinearVelocity = initialBrakeVel * easeOutFactor
-                settledCFrame = root.CFrame
-                settledPos = root.Position
-                lastForwardPos = root.Position
-                lastForwardCFrame = root.CFrame
-                return
-            else
-                -- Braking finished: dead stop
-                isBraking = false
-                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                settledCFrame = root.CFrame
-                settledPos = root.Position
-                stopGraceUntil = now + 1.2
-                syncServerSlide(false)
-            end
-        end
-
-        -- Post-stop settling anchor (1.2s window): absorbs any lingering delayed packets
-        if now < stopGraceUntil and settledPos and settledCFrame then
-            local horizDelta = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(settledPos.X, 0, settledPos.Z)).Magnitude
-            if horizDelta > 1.6 then
-                local anchorCF = CFrame.new(settledPos.X, root.CFrame.Y, settledPos.Z) * (settledCFrame - settledCFrame.Position)
-                root.CFrame = anchorCF
-                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                return
-            end
-        else
-            settledPos = root.Position
-            settledCFrame = root.CFrame
+            syncServerSlide(false)
         end
 
         lastForwardPos = root.Position
@@ -1082,7 +1025,7 @@ pcall(function()
     RunService:BindToRenderStep(BIND_NAME, Enum.RenderPriority.Camera.Value - 20, updateMotion)
 end)
 
--- Continuous Heartbeat Enforcement (Ensures target speed without fighting crouch)
+-- Continuous Heartbeat Enforcement (Ensures target speed with smooth crouch support)
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -1091,7 +1034,9 @@ RunService.Heartbeat:Connect(function()
     if not hum or not hum.Parent or not root then return end
 
     if State.WalkSpeed_Enabled then
-        local targetSpeed = State.WalkSpeed_Value
+        local mgTable = getMainGameTable()
+        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+        local targetSpeed = isCrouching and math.max(math.floor(State.WalkSpeed_Value * 0.65), 18) or State.WalkSpeed_Value
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
@@ -1108,8 +1053,13 @@ RunService.Stepped:Connect(function()
     if State.WalkSpeed_Enabled then
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum and hum.WalkSpeed ~= State.WalkSpeed_Value then
-            hum.WalkSpeed = State.WalkSpeed_Value
+        if hum then
+            local mgTable = getMainGameTable()
+            local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+            local targetSpeed = isCrouching and math.max(math.floor(State.WalkSpeed_Value * 0.65), 18) or State.WalkSpeed_Value
+            if hum.WalkSpeed ~= targetSpeed then
+                hum.WalkSpeed = targetSpeed
+            end
         end
     end
 end)
