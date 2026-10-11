@@ -240,41 +240,73 @@ local function getObjectRoom(instance)
         cur = cur.Parent
     end
 
+    -- 2. Fallback: Spatial 3D Bounding Box match against rooms
     local instPos = instance:IsA("BasePart") and instance.Position 
         or (instance:IsA("Model") and (instance.PrimaryPart and instance.PrimaryPart.Position or instance:GetPivot().Position))
     if instPos then
-        local closestRoom = nil
-        local closestNum = nil
-        local closestDist = math.huge
+        local bestRoom = nil
+        local bestNum = nil
+        local bestDist = math.huge
         for _, r in ipairs(currentRooms:GetChildren()) do
             local num = tonumber(r.Name)
-            if num then
-                local p = r:FindFirstChildWhichIsA("BasePart")
-                if p then
-                    local d = (p.Position - instPos).Magnitude
-                    if d < closestDist then
-                        closestDist = d
-                        closestRoom = r
-                        closestNum = num
-                    end
+            if num and r:IsA("Model") then
+                local cf, size = r:GetBoundingBox()
+                local rel = cf:PointToObjectSpace(instPos)
+                if math.abs(rel.X) <= (size.X / 2 + 3) and math.abs(rel.Z) <= (size.Z / 2 + 3) and math.abs(rel.Y) <= (size.Y / 2 + 8) then
+                    return r, num
+                end
+                local flatDist = (Vector2.new(cf.Position.X, cf.Position.Z) - Vector2.new(instPos.X, instPos.Z)).Magnitude
+                if flatDist < bestDist then
+                    bestDist = flatDist
+                    bestRoom = r
+                    bestNum = num
                 end
             end
         end
-        return closestRoom, closestNum
+        return bestRoom, bestNum
     end
 
     return nil, nil
 end
 
+local lastKnownPlayerRoom = nil
+
 local function getCurrentRoomNumber()
-    local cur = LocalPlayer:GetAttribute("CurrentRoom")
-    if cur ~= nil then return tonumber(cur) end
+    -- 1. Authoritative DOORS internal game state (100% stable, zero flicker)
+    local mgTable = getMainGameTable()
+    if mgTable and type(mgTable.currentrvm) == "number" then
+        lastKnownPlayerRoom = mgTable.currentrvm
+        return mgTable.currentrvm
+    end
+
+    -- 2. Character attribute
+    local char = getChar()
+    if char then
+        local cAttr = char:GetAttribute("CurrentRoom")
+        if cAttr ~= nil and tonumber(cAttr) then
+            lastKnownPlayerRoom = tonumber(cAttr)
+            return tonumber(cAttr)
+        end
+    end
+
+    -- 3. LocalPlayer attribute
+    local pAttr = LocalPlayer:GetAttribute("CurrentRoom")
+    if pAttr ~= nil and tonumber(pAttr) then
+        lastKnownPlayerRoom = tonumber(pAttr)
+        return tonumber(pAttr)
+    end
+
+    -- 4. Spatial RootPart check
     local root = getRoot()
     if root then
         local _, num = getObjectRoom(root)
-        if num then return num end
+        if num then
+            lastKnownPlayerRoom = num
+            return num
+        end
     end
-    return nil
+
+    return lastKnownPlayerRoom
 end
 
 local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber, extraVisuals)
@@ -298,7 +330,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
                     existing.Label.Text = baseText
                 end
             end
-            -- Synchronize Highlight & Adornment colors immediately (Fixes orange highlight with blue text)
+            -- Synchronize Highlight & Adornment colors immediately
             if existing.Visuals then
                 for _, vis in ipairs(existing.Visuals) do
                     if vis:IsA("Highlight") then
@@ -350,6 +382,24 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         end
     end
 
+    -- Immediate Room Visibility Initialization (Prevents 1-frame distant flash on room scan)
+    local isRoomRestricted = (category == "Doors" or category == "HidingSpots")
+    local curRoom = isRoomRestricted and getCurrentRoomNumber() or nil
+    local initiallyVisible = true
+    if isRoomRestricted then
+        initiallyVisible = (curRoom ~= nil and roomNumber ~= nil and roomNumber == curRoom)
+        for _, vis in ipairs(visuals) do
+            if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
+                vis.Enabled = initiallyVisible
+            elseif vis:IsA("Highlight") then
+                vis.Enabled = initiallyVisible
+                if not initiallyVisible then
+                    vis.Adornee = nil
+                end
+            end
+        end
+    end
+
     activeEspRecords[owner] = {
         Owner = owner,
         Adornee = adorneePart,
@@ -359,7 +409,9 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         Label = label,
         Visuals = visuals,
         HighlightMap = highlightMap,
-        RoomNumber = roomNumber
+        RoomNumber = roomNumber,
+        CurrentlyVisible = initiallyVisible,
+        LastDist = -1
     }
 
     -- Auto-cleanup on destroy
@@ -370,7 +422,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     end)
 end
 
--- Continuous Room & Distance Update Loop (0.15s)
+-- Continuous Room & Distance Update Loop (0.15s, Jitter-Free & Hardware-Slot Efficient)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -380,25 +432,26 @@ task.spawn(function()
             local curRoom = getCurrentRoomNumber()
 
             for _, record in pairs(activeEspRecords) do
-                -- 1. Room Visibility Filter (ONLY applies to Doors and Closets/Beds as requested!)
+                -- 1. Room Visibility Filter (Strictly applies ONLY to Doors and Closets/Beds as requested!)
                 if record.Category == "Doors" or record.Category == "HidingSpots" then
                     local shouldShow = false
-                    if curRoom and record.RoomNumber then
+                    if curRoom ~= nil and record.RoomNumber ~= nil then
                         shouldShow = (record.RoomNumber == curRoom)
-                    elseif not curRoom then
-                        shouldShow = true
                     end
 
-                    if record.Visuals then
-                        for _, vis in ipairs(record.Visuals) do
-                            if vis:IsA("BillboardGui") or vis:IsA("Highlight") or vis:IsA("SphereHandleAdornment") then
-                                vis.Enabled = shouldShow
-                                -- When hidden, un-adornee highlight so Roblox frees the 31 hardware highlight slots!
-                                if vis:IsA("Highlight") and record.HighlightMap then
+                    -- Only perform visual property & highlight adornee updates on actual state transitions (eliminates jitter and highlight slot churn!)
+                    if record.CurrentlyVisible ~= shouldShow then
+                        record.CurrentlyVisible = shouldShow
+                        if record.Visuals then
+                            for _, vis in ipairs(record.Visuals) do
+                                if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
+                                    vis.Enabled = shouldShow
+                                elseif vis:IsA("Highlight") then
+                                    vis.Enabled = shouldShow
                                     if not shouldShow then
                                         vis.Adornee = nil
                                     else
-                                        vis.Adornee = record.HighlightMap[vis] or record.Owner
+                                        vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
                                     end
                                 end
                             end
@@ -406,10 +459,14 @@ task.spawn(function()
                     end
                 end
 
-                -- 2. Distance Text Update
-                if State.Show_Distance and rootPos and record.Label and record.Adornee and record.Adornee.Parent then
+                -- 2. Distance Text Update (Only updates visible records when integer distance changes)
+                local isVisible = (record.Category ~= "Doors" and record.Category ~= "HidingSpots") or (record.CurrentlyVisible == true)
+                if isVisible and State.Show_Distance and rootPos and record.Label and record.Adornee and record.Adornee.Parent then
                     local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
-                    record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
+                    if dist ~= record.LastDist then
+                        record.LastDist = dist
+                        record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
+                    end
                 end
             end
         end
@@ -807,7 +864,7 @@ local function processBreaker(room, breakerInstance)
 end
 
 -- 6. Precision Hiding Spot Scanner (Wardrobes, Closets, Lockers, Beds with active Hide prompt - Room Restricted!)
-local function processHidingSpot(hidingModel)
+local function processHidingSpot(hidingModel, room)
     if not hidingModel or not hidingModel:IsA("Model") then return end
     if not State.HidingSpots_ESP then
         removeEspFor(hidingModel)
@@ -838,7 +895,7 @@ local function processHidingSpot(hidingModel)
                 local baseText = hName
                 local color = Color3.fromRGB(110, 195, 255)
 
-                local _, roomNumber = getObjectRoom(hidingModel)
+                local roomNumber = (room and tonumber(room.Name)) or select(2, getObjectRoom(hidingModel))
                 registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0), roomNumber)
             end
         end
@@ -1091,7 +1148,7 @@ local function scanSingleRoom(room)
             elseif dName:find("lever") then
                 processLever(desc)
             elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
-                processHidingSpot(desc)
+                processHidingSpot(desc, room)
             elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                 processGold(desc)
             elseif dName:find("snare") then
@@ -1201,7 +1258,7 @@ pcall(function()
                     elseif dName:find("lever") then
                         processLever(desc)
                     elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
-                        processHidingSpot(desc)
+                        processHidingSpot(desc, newRoom)
                     elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                         processGold(desc)
                     else
