@@ -846,7 +846,7 @@ local settledCFrame = nil
 local settledPos = nil
 
 local wallRayParams = RaycastParams.new()
-wallRayParams.FilterType = RaycastFilterType.Exclude
+wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
 wallRayParams.RespectCanCollide = true
 
 RunService.RenderStepped:Connect(function(dt)
