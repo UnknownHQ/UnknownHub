@@ -441,13 +441,36 @@ local function processDoor(room, doorModel)
         color = Color3.fromRGB(0, 215, 255)
     end
 
-    -- Precision Highlight: Highlight ONLY the actual door mesh (doorMesh), NEVER doorModel (which includes invisible Collision / Hidden hitboxes!)
-    local highlightParts = { doorMesh }
-    if isLocked and lock and lock:IsA("BasePart") then
-        table.insert(highlightParts, lock)
+    -- Precision Highlight: Collect ALL visible door leaves and lock parts (handles both single & double doors, excludes invisible hitboxes!)
+    local highlightParts = {}
+    for _, child in ipairs(doorModel:GetChildren()) do
+        if child:IsA("BasePart") then
+            local cName = child.Name:lower()
+            -- Exclude invisible collision boxes and triggers (FigureCollision, Collision, Hidden, Hinge)
+            if child.Transparency < 0.9 and not cName:find("collision") and not cName:find("hidden") and not cName:find("hinge") then
+                table.insert(highlightParts, child)
+            end
+        elseif child:IsA("Model") and (child.Name == "Lock" or child.Name == "Padlock") then
+            for _, sub in ipairs(child:GetChildren()) do
+                if sub:IsA("BasePart") and sub.Transparency < 0.9 then
+                    table.insert(highlightParts, sub)
+                end
+            end
+        end
     end
 
-    registerEsp(doorModel, doorMesh, baseText, color, "Doors", highlightParts, Vector3.new(0, 1.2, 0), roomNumber)
+    if #highlightParts == 0 then
+        table.insert(highlightParts, doorMesh)
+    end
+
+    local adorneePart = doorModel:FindFirstChild("SignPhysical") 
+        or doorModel:FindFirstChild("Sign") 
+        or doorMesh
+    if not (adorneePart and adorneePart:IsA("BasePart")) then
+        adorneePart = doorMesh
+    end
+
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", highlightParts, Vector3.new(0, 1.2, 0), roomNumber)
 
     -- Lifecycle listener: automatically update if lock is removed or room scripts finish loading
     if not doorModel:GetAttribute("ESP_Hooked") then
@@ -579,7 +602,8 @@ local function isValidLootItem(model)
         end
     end
 
-    if lower:find("keyobtain") or lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever") then
+    if lower:find("keyobtain") or lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever")
+        or lower:find("painting") or lower:find("picture") or lower:find("canvas") or lower:find("frame") or lower:find("portrait") or lower:find("photo") then
         return false, nil
     end
 
@@ -605,8 +629,9 @@ local function isValidLootItem(model)
 
     local promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
 
-    -- Guarantee Gold / Coins are strictly handled by processGold ONLY
-    if promptObjectName:find("gold") or promptObjectName:find("coin") or action:find("gold") or action:find("coin") then
+    -- Guarantee Gold / Coins / Paintings are strictly excluded from general item ESP
+    if promptObjectName:find("gold") or promptObjectName:find("coin") or action:find("gold") or action:find("coin")
+        or promptObjectName:find("painting") or promptObjectName:find("picture") or promptObjectName:find("canvas") or promptObjectName:find("frame") or promptObjectName:find("portrait") then
         return false, nil
     end
 
@@ -627,6 +652,11 @@ local function isValidLootItem(model)
     end
     if promptObjectName:find("starlight") or lower:find("starlight") or promptObjectName:find("starjug") or lower:find("starjug") then
         return true, "Starlight"
+    end
+
+    -- Priority 3: Check Paper (Clean simple name "Paper" instead of "An Inconspicious Piece Of Paper")
+    if promptObjectName:find("paper") or lower:find("paper") or lower:find("hintpaper") then
+        return true, "Paper"
     end
 
     -- Match known item names (prefer prompt object name first, then model name)
@@ -671,7 +701,7 @@ local function processItem(itemModel)
     end
 end
 
--- 4. Precision Books Scanner (ONLY in Room 50 Library!)
+-- 4. Precision Books Scanner (ONLY in Room 50 Library - Named cleanly as "Book")
 local function processBook(room, bookInstance)
     if not State.Books_ESP then
         removeEspFor(bookInstance)
@@ -686,7 +716,7 @@ local function processBook(room, bookInstance)
     if bookInstance.Name == "LiveHintBook" or (bookInstance:IsA("Model") and bookInstance.Name:find("HintBook")) then
         local targetPart = bookInstance:IsA("BasePart") and bookInstance or bookInstance:FindFirstChildWhichIsA("BasePart", true)
         if targetPart then
-            local baseText = "Library Book"
+            local baseText = "Book"
             local color = Color3.fromRGB(70, 255, 120)
             registerEsp(bookInstance, targetPart, baseText, color, "Books", targetPart, Vector3.new(0, 1.2, 0))
         end
