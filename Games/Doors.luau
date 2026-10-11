@@ -858,13 +858,16 @@ local function processGold(goldInstance)
     end
     if not goldInstance then return end
 
-    -- Normalize owner to avoid duplicate ESP on both Model and child BasePart
+    -- Normalize owner to top-level Gold model if nested inside one
     local owner = goldInstance
-    if owner:IsA("BasePart") and owner.Parent and (owner.Parent:IsA("Model") or owner.Parent:IsA("Folder")) then
-        local pName = owner.Parent.Name:lower()
-        if pName:find("gold") or pName:find("coin") then
-            owner = owner.Parent
+    local cur = goldInstance
+    while cur and cur.Parent and cur.Parent ~= Workspace and cur.Parent.Name ~= "CurrentRooms" and not cur.Parent.Name:find("Assets") do
+        local pName = cur.Parent.Name:lower()
+        if cur.Parent:IsA("Model") and (pName:find("gold") or pName:find("coin")) then
+            owner = cur.Parent
+            break
         end
+        cur = cur.Parent
     end
 
     local gName = owner.Name:lower()
@@ -892,6 +895,15 @@ local function processGold(goldInstance)
         or (prompt and prompt.Parent and prompt.Parent:IsA("BasePart") and prompt.Parent)
 
     if targetPart then
+        -- Strict Spatial Deduplication: Prevent any second "Gold" text within 2.5 studs!
+        for otherOwner, rec in pairs(activeEspRecords) do
+            if rec.Category == "Gold" and otherOwner ~= owner and rec.AdorneePart then
+                if (rec.AdorneePart.Position - targetPart.Position).Magnitude < 2.5 then
+                    return
+                end
+            end
+        end
+
         local baseText = displayName
         local color = Color3.fromRGB(255, 195, 0)
         registerEsp(owner, targetPart, baseText, color, "Gold", owner, Vector3.new(0, 0.8, 0))
@@ -1106,9 +1118,7 @@ local function scanSingleRoom(room)
         elseif desc:IsA("ProximityPrompt") then
             local obj = (desc.ObjectText or ""):lower()
             local act = (desc.ActionText or ""):lower()
-            if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
-                processGold(desc.Parent)
-            elseif obj:find("lever") or act:find("pull") then
+            if obj:find("lever") or act:find("pull") then
                 processLever(desc.Parent)
             elseif act:find("take") or act:find("pick") or act:find("grab") then
                 if desc.Parent and (desc.Parent:IsA("Model") or desc.Parent:IsA("Tool")) then
@@ -1161,17 +1171,13 @@ pcall(function()
     local currentRooms = Workspace:FindFirstChild("CurrentRooms") or Workspace:WaitForChild("CurrentRooms", 5)
     if currentRooms then
         local function bindRoom(newRoom)
-            task.wait(0.2)
+            -- Wait for DOORS room generation scripts to finish (DOORS removes placeholder levers & template padlocks at 0.5-0.9s)
+            task.wait(1.0)
+            if not newRoom.Parent then return end
             scanSingleRoom(newRoom)
 
-            -- Delayed door verification passes: DOORS room scripts remove default template padlocks 0.3-0.8s later
-            task.delay(0.6, function()
-                if newRoom.Parent then
-                    local door = newRoom:FindFirstChild("Door")
-                    if door then processDoor(newRoom, door) end
-                end
-            end)
-            task.delay(1.2, function()
+            -- Late verification pass to ensure 100% accuracy on doors and late-spawning assets
+            task.delay(0.8, function()
                 if newRoom.Parent then
                     local door = newRoom:FindFirstChild("Door")
                     if door then processDoor(newRoom, door) end
@@ -1702,8 +1708,11 @@ local function applyPromptModifications(prompt)
         prompt:SetAttribute("OrigMaxDist", prompt.MaxActivationDistance)
     end
 
+    local pObj = (prompt.ObjectText or ""):lower()
+    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
+
     if State.Instant_Interact then
-        prompt.HoldDuration = 0
+        prompt.HoldDuration = 0.01
     else
         local orig = prompt:GetAttribute("OrigHold")
         if orig ~= nil then prompt.HoldDuration = orig end
@@ -1717,7 +1726,11 @@ local function applyPromptModifications(prompt)
     end
 
     if State.Range_Interact then
-        prompt.MaxActivationDistance = math.clamp(State.Interact_MaxRange, 6, 14)
+        if isDrawerOrContainer then
+            prompt.MaxActivationDistance = math.clamp(prompt:GetAttribute("OrigMaxDist") or 6, 6, 7)
+        else
+            prompt.MaxActivationDistance = math.clamp(State.Interact_MaxRange, 6, 14)
+        end
     else
         local orig = prompt:GetAttribute("OrigMaxDist")
         if orig ~= nil then prompt.MaxActivationDistance = orig end
@@ -1866,7 +1879,10 @@ task.spawn(function()
                                 local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart")
                                 if pPart then
                                     local dist = (rootPos - pPart.Position).Magnitude
-                                    if dist <= maxDist then
+                                    local pObj = (prompt.ObjectText or ""):lower()
+                                    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
+                                    local promptReach = isDrawerOrContainer and 6.5 or maxDist
+                                    if dist <= promptReach then
                                         if isPromptSafeToAutoInteract(prompt) then
                                             promptDebounce[prompt] = now + 0.55
                                             task.spawn(function()
