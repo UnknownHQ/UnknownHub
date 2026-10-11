@@ -843,9 +843,9 @@ local lastForwardCFrame = nil
 local lastForwardPos = nil
 local lastMoveVector = Vector3.new(0, 0, 0)
 local wasMoving = false
-local stoppedPos = nil
-local stoppedCF = nil
-local stopHoldUntil = 0
+local crouchRemote = nil
+local isServerSlideActive = false
+local lastSentCrouchState = nil
 
 local function getMainGameTable()
     local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
@@ -857,6 +857,40 @@ local function getMainGameTable()
         end
     end
     return nil
+end
+
+local function syncServerSlide(shouldAuthorize)
+    if not crouchRemote then
+        pcall(function()
+            local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+            crouchRemote = rf and rf:FindFirstChild("Crouch")
+        end)
+    end
+    if not crouchRemote then return end
+
+    local char = getChar()
+    local mgTable = getMainGameTable()
+    local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+
+    if shouldAuthorize then
+        -- Keep slide authorized continuously on server while WalkSpeed is active
+        -- Never revoke authorization on stop, preventing slide-end door snapbacks
+        if not isServerSlideActive or isCrouching ~= lastSentCrouchState then
+            isServerSlideActive = true
+            lastSentCrouchState = isCrouching
+            pcall(function()
+                crouchRemote:FireServer(isCrouching, true)
+            end)
+        end
+    else
+        if isServerSlideActive then
+            isServerSlideActive = false
+            lastSentCrouchState = isCrouching
+            pcall(function()
+                crouchRemote:FireServer(isCrouching, false)
+            end)
+        end
+    end
 end
 
 local wallRayParams = RaycastParams.new()
@@ -875,12 +909,13 @@ local function updateMotion(dt)
         lastForwardPos = nil
         lastForwardCFrame = nil
         wasMoving = false
-        stoppedPos = nil
-        stoppedCF = nil
-        stopHoldUntil = 0
         table.clear(trailHistory)
+        syncServerSlide(false)
         return 
     end
+
+    -- Keep server high-speed authorization continuously active while WalkSpeed is enabled
+    syncServerSlide(true)
 
     local char = getChar()
     local root = getRoot()
@@ -899,11 +934,7 @@ local function updateMotion(dt)
     local now = os.clock()
 
     if isMoving then
-        -- Active movement state: clear stop hold immediately for zero-lag motion
         wasMoving = true
-        stoppedPos = nil
-        stoppedCF = nil
-        stopHoldUntil = 0
         lastMoveVector = moveDir
 
         if lastForwardPos then
@@ -914,29 +945,25 @@ local function updateMotion(dt)
             local maxNaturalStep = math.max(expectedStep * 1.5, 1.4)
             local isRollback = false
 
-            -- Robust Rollback Detection:
-            -- Real server rollbacks snap the character backwards against moveDir or back to past positions (> 1.2 studs)
-            -- Normal turning and wall contact have dist < 1.0 studs and MUST NOT trigger!
-            if dist > 1.2 then
-                if progression < -0.3 then
-                    isRollback = true
-                elseif dist > maxNaturalStep then
-                    for i = #trailHistory, 1, -1 do
-                        local entry = trailHistory[i]
-                        local age = now - entry.time
-                        if age > 0.04 and age < 0.45 then
-                            local distToHistory = (currentPos - entry.pos).Magnitude
-                            if distToHistory < 1.8 then
-                                isRollback = true
-                                break
-                            end
+            -- In-flight rollback check: only triggers if snapped backwards against moveDir or towards past history
+            if dist > maxNaturalStep then
+                for i = #trailHistory, 1, -1 do
+                    local entry = trailHistory[i]
+                    local age = now - entry.time
+                    if age > 0.03 and age < 0.45 then
+                        local distToHistory = (currentPos - entry.pos).Magnitude
+                        if distToHistory < 2.0 then
+                            isRollback = true
+                            break
                         end
                     end
+                end
+                if not isRollback and (progression < -0.2 or dist > 2.0) then
+                    isRollback = true
                 end
             end
 
             if isRollback then
-                -- Neutralize rollback cleanly before camera renders
                 wallRayParams.FilterDescendantsInstances = {char}
                 local safeDir = moveDir
                 
@@ -977,36 +1004,10 @@ local function updateMotion(dt)
         lastForwardPos = currentPos
         lastForwardCFrame = root.CFrame
     else
-        -- Movement keys released: natural physics stop with active stop-phase rollback shield
+        -- Movement keys released: natural physics stop
+        -- Slide authorization remains ACTIVE on server so no slide-end boundary check is ever fired
         table.clear(trailHistory)
-
-        if wasMoving then
-            wasMoving = false
-            stoppedPos = root.Position
-            stoppedCF = root.CFrame
-            stopHoldUntil = now + 1.2 -- Protect for 1.2s to absorb delayed doorway resets
-        end
-
-        -- Stop-Phase Rollback Shield:
-        -- If the server sends a delayed packet resetting the player back to the doorway/opened door (> 1.4 studs)
-        -- while keys are released, instantly hold and restore the player at their stopped position!
-        if now < stopHoldUntil and stoppedPos and stoppedCF then
-            local horizDelta = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(stoppedPos.X, 0, stoppedPos.Z)).Magnitude
-            if horizDelta > 1.4 then
-                local heldCF = CFrame.new(stoppedPos.X, root.CFrame.Y, stoppedPos.Z) * (stoppedCF - stoppedCF.Position)
-                root.CFrame = heldCF
-                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                return
-            else
-                -- Natural small physics settling (< 1.4 studs) is smoothly tracked
-                stoppedPos = root.Position
-                stoppedCF = root.CFrame
-            end
-        else
-            stoppedPos = root.Position
-            stoppedCF = root.CFrame
-        end
-
+        wasMoving = false
         lastForwardPos = root.Position
         lastForwardCFrame = root.CFrame
     end
@@ -1086,11 +1087,13 @@ Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function
     State.WalkSpeed_Enabled = v
     local char = getChar()
     if not v then
+        syncServerSlide(false)
         restoreDefaultFriction(char)
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then hum.WalkSpeed = 15 end
         Hub.Notify("WalkSpeed", "Speed reset to default (15)", 2)
     else
+        syncServerSlide(true)
         applyTeflonGlide(char)
         Hub.Notify("WalkSpeed", string.format("Speed active: %d studs/s (Teflon + Anti-Rollback Active)", State.WalkSpeed_Value), 2)
     end
