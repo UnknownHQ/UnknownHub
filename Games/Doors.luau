@@ -829,6 +829,58 @@ local function setSlideState(sliding)
     end
 end
 
+-- =========================================================================
+-- Active Anti-Rollback & Position-Continuity Engine
+-- Intercepts server teleport packets on RenderStepped before rendering and restores intended forward movement
+-- =========================================================================
+local lastForwardCFrame = nil
+local lastForwardPos = nil
+
+RunService.RenderStepped:Connect(function()
+    if _G.DOORS_SESSION ~= currentSession then return end
+    if not State.WalkSpeed_Enabled or not State.AntiRubberband then 
+        lastForwardPos = nil
+        lastForwardCFrame = nil
+        return 
+    end
+
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not root or not hum or not hum.Parent then return end
+
+    local currentPos = root.Position
+    local moveDir = hum.MoveDirection
+    local isMoving = moveDir.Magnitude > 0.05
+
+    if isMoving then
+        if lastForwardPos then
+            local frameDelta = currentPos - lastForwardPos
+            local dist = frameDelta.Magnitude
+
+            -- Dot product against intended movement direction:
+            -- If the server abruptly teleported the player backward (> 3 studs opposite to moveDir in a single frame):
+            local forwardProgression = frameDelta:Dot(moveDir)
+
+            if forwardProgression < -2.5 and dist > 2.5 then
+                -- Server rollback detected! Instantly restore the character's forward position
+                local restoredCF = lastForwardCFrame + (moveDir * (hum.WalkSpeed * 0.016))
+                root.CFrame = restoredCF
+                root.AssemblyLinearVelocity = moveDir * hum.WalkSpeed
+                lastForwardCFrame = restoredCF
+                lastForwardPos = restoredCF.Position
+                return
+            end
+        end
+
+        lastForwardPos = root.Position
+        lastForwardCFrame = root.CFrame
+    else
+        lastForwardPos = root.Position
+        lastForwardCFrame = root.CFrame
+    end
+end)
+
 -- Continuous Heartbeat Enforcement
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
@@ -910,7 +962,7 @@ Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function
         if hum then hum.WalkSpeed = 15 end
         Hub.Notify("WalkSpeed", "Speed reset to default (15)", 2)
     else
-        Hub.Notify("WalkSpeed", string.format("Speed active: %d studs/s (Slide Bypass Active)", State.WalkSpeed_Value), 2)
+        Hub.Notify("WalkSpeed", string.format("Speed active: %d studs/s (Anti-Rollback Active)", State.WalkSpeed_Value), 2)
     end
 end)
 
@@ -926,15 +978,6 @@ end)
 Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
     State.AntiRubberband = v
     if not v then setSlideState(false) end
-end)
-
-Hub.CreateButton(mainTab, "🛡️ Set Safe Speed (22 studs/s - 0% Rollback)", function()
-    State.WalkSpeed_Value = 22
-    State.WalkSpeed_Enabled = true
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then hum.WalkSpeed = 22 end
-    Hub.Notify("Safe Speed", "Speed set to 22 studs/s (Server-immune safe limit)", 3)
 end)
 
 Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", function()
