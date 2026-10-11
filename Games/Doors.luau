@@ -156,7 +156,7 @@ local function createBillboard(adorneePart, baseText, color, offset)
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 180, 0, 36)
+    bb.Size = UDim2.new(0, 180, 0, 32)
     bb.StudsOffset = offset
     bb.ResetOnSpawn = false
 
@@ -164,13 +164,22 @@ local function createBillboard(adorneePart, baseText, color, offset)
     label.Name = "ESPLabel"
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
-    label.Text = baseText
     label.TextColor3 = color
-    label.TextStrokeTransparency = 0.15
-    label.TextStrokeColor3 = Color3.fromRGB(12, 14, 18)
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 13
+    label.TextStrokeTransparency = 0.45
+    label.TextStrokeColor3 = Color3.fromRGB(15, 15, 20)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 12
     label.Parent = bb
+
+    local initialText = baseText
+    if State.Show_Distance then
+        local root = getRoot()
+        if root then
+            local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
+            initialText = string.format("%s [%dm]", baseText, dist)
+        end
+    end
+    label.Text = initialText
 
     bb.Parent = (gethui and gethui()) or CoreGui
     return bb, label
@@ -194,9 +203,30 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
 end
 
 local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset)
-    removeEspFor(owner)
     if not State.Master_ESP then return end
     if not adorneePart then return end
+
+    -- Anti-flicker guard: if already registered, do NOT destroy and recreate visuals
+    local existing = activeEspRecords[owner]
+    if existing and existing.Adornee == adorneePart and existing.Category == category then
+        if existing.BaseText ~= baseText or existing.Color ~= color then
+            existing.BaseText = baseText
+            existing.Color = color
+            if existing.Label then
+                existing.Label.TextColor3 = color
+                local root = getRoot()
+                if root and State.Show_Distance then
+                    local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
+                    existing.Label.Text = string.format("%s [%dm]", baseText, dist)
+                else
+                    existing.Label.Text = baseText
+                end
+            end
+        end
+        return
+    end
+
+    removeEspFor(owner)
 
     local visuals = {}
 
@@ -237,7 +267,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     end)
 end
 
--- Distance Update Loop (Runs every 0.15s)
+-- Distance Update Loop (Runs every 0.15s, smoothly updates label text without flickering)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -330,18 +360,37 @@ local function processDoor(room, doorModel)
     local color
 
     if isDupe then
-        baseText = "⚠️ FAKE DOOR"
-        color = Color3.fromRGB(255, 30, 30)
+        baseText = "Dupe Door"
+        color = Color3.fromRGB(255, 35, 35)
     elseif isLocked then
-        baseText = string.format("🚪 Door %s [LOCKED 🔒]", doorNumberStr)
+        baseText = string.format("Door %s [LOCKED]", doorNumberStr)
         color = Color3.fromRGB(255, 175, 30)
     else
-        baseText = string.format("🚪 Door %s", doorNumberStr)
+        baseText = string.format("Door %s", doorNumberStr)
         color = Color3.fromRGB(0, 215, 255)
     end
 
     -- Highlight unified door model cleanly (Full door leaf + padlock, no internal panel stencil gaps)
     registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorModel, Vector3.new(0, 1.2, 0))
+
+    -- Lifecycle listener: automatically update if lock is removed or room scripts finish loading
+    if not doorModel:GetAttribute("ESP_Hooked") then
+        doorModel:SetAttribute("ESP_Hooked", true)
+        pcall(function()
+            doorModel.ChildAdded:Connect(function()
+                task.wait(0.1)
+                if doorModel.Parent then processDoor(room, doorModel) end
+            end)
+            doorModel.ChildRemoved:Connect(function()
+                task.wait(0.1)
+                if doorModel.Parent then processDoor(room, doorModel) end
+            end)
+            doorModel.AttributeChanged:Connect(function()
+                task.wait(0.1)
+                if doorModel.Parent then processDoor(room, doorModel) end
+            end)
+        end)
+    end
 end
 
 -- 2. Precision Key Scanner
@@ -375,7 +424,7 @@ local function processKey(keyObtain)
         end
     end
 
-    local baseText = signText and string.format("🔑 Key [%s]", signText) or "🔑 Room Key"
+    local baseText = signText and string.format("Key [%s]", signText) or "Key"
     local color = Color3.fromRGB(255, 220, 35)
 
     local highlightParts = { keyMesh }
@@ -397,13 +446,14 @@ local function processLever(leverInstance)
         or (leverInstance:IsA("BasePart") and leverInstance)
     if not targetPart then return end
 
-    local baseText = "🕹️ Lever"
+    local baseText = "Lever"
     local color = Color3.fromRGB(255, 215, 0)
     registerEsp(leverInstance, targetPart, baseText, color, "Keys", leverInstance, Vector3.new(0, 1.4, 0))
 end
 
 -- 3. Precision Item Scanner (Strict validation against furniture & decor)
 local KNOWN_ITEMS = {
+    ["candle"]          = "Candle",
     ["crucifix"]        = "Crucifix",
     ["flashlight"]      = "Flashlight",
     ["lighter"]         = "Lighter",
@@ -423,7 +473,6 @@ local KNOWN_ITEMS = {
     ["gummy"]           = "Gummy",
     ["candy"]           = "Candy",
     ["shears"]          = "Shears",
-    ["candle"]          = "Candle",
     ["straplight"]      = "Straplight",
     ["bulklight"]       = "Bulklight",
     ["laserpointer"]    = "Laser Pointer",
@@ -480,7 +529,15 @@ local function isValidLootItem(model)
 
     local promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
 
-    -- Priority 1: Check if prompt explicitly indicates Smoothie or drink (Fixes Smoothie displaying as Vitamins)
+    -- Priority 1: Check if prompt explicitly indicates Candle or Crucifix (Fixes Candle displaying as Crucifix)
+    if promptObjectName:find("candle") or lower:find("candle") then
+        return true, "Candle"
+    end
+    if promptObjectName:find("crucifix") or lower:find("crucifix") then
+        return true, "Crucifix"
+    end
+
+    -- Priority 2: Check if prompt explicitly indicates Smoothie or drink (Fixes Smoothie displaying as Vitamins)
     if promptObjectName:find("smoothie") or lower:find("smoothie") or promptObjectName:find("shake") or lower:find("shake") then
         return true, "Smoothie"
     end
@@ -526,7 +583,7 @@ local function processItem(itemModel)
             or itemModel:FindFirstChildWhichIsA("BasePart", true)
             or (itemModel:IsA("BasePart") and itemModel)
         if targetPart then
-            local baseText = "📦 " .. displayName
+            local baseText = displayName
             local color = Color3.fromRGB(185, 80, 255)
             registerEsp(itemModel, targetPart, baseText, color, "Items", itemModel, Vector3.new(0, 1.2, 0))
         end
@@ -548,7 +605,7 @@ local function processBook(room, bookInstance)
     if bookInstance.Name == "LiveHintBook" or (bookInstance:IsA("Model") and bookInstance.Name:find("HintBook")) then
         local targetPart = bookInstance:IsA("BasePart") and bookInstance or bookInstance:FindFirstChildWhichIsA("BasePart", true)
         if targetPart then
-            local baseText = "📖 Library Book"
+            local baseText = "Library Book"
             local color = Color3.fromRGB(70, 255, 120)
             registerEsp(bookInstance, targetPart, baseText, color, "Books", targetPart, Vector3.new(0, 1.2, 0))
         end
@@ -568,7 +625,7 @@ local function processBreaker(room, breakerInstance)
     if breakerInstance.Name == "BreakerSwitch" or breakerInstance.Name == "LiveBreakerSwitch" or breakerInstance:GetAttribute("IsBreaker") then
         local targetPart = breakerInstance:IsA("BasePart") and breakerInstance or breakerInstance:FindFirstChildWhichIsA("BasePart", true)
         if targetPart then
-            local baseText = "⚡ Breaker Switch"
+            local baseText = "Breaker Switch"
             local color = Color3.fromRGB(0, 255, 200)
             registerEsp(breakerInstance, targetPart, baseText, color, "Breakers", targetPart, Vector3.new(0, 1.2, 0))
         end
@@ -604,7 +661,7 @@ local function processHidingSpot(hidingModel)
                 or hidingModel.PrimaryPart 
                 or hidingModel:FindFirstChildWhichIsA("BasePart")
             if targetPart then
-                local baseText = "🛡️ " .. hName
+                local baseText = hName
                 local color = Color3.fromRGB(110, 195, 255)
                 registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0))
             end
@@ -620,10 +677,19 @@ local function processGold(goldInstance)
         return
     end
 
-    local gName = goldInstance.Name:lower()
+    -- Normalize owner to avoid duplicate ESP on both Model and child BasePart
+    local owner = goldInstance
+    if owner:IsA("BasePart") and owner.Parent and owner.Parent:IsA("Model") then
+        local pName = owner.Parent.Name:lower()
+        if pName == "goldpile" or pName:find("^gold") or pName:find("coin") then
+            owner = owner.Parent
+        end
+    end
+
+    local gName = owner.Name:lower()
     local isGold = gName == "goldpile" or gName:find("^gold") or gName:find("coin")
 
-    local prompt = goldInstance:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local prompt = owner:FindFirstChildWhichIsA("ProximityPrompt", true)
     local displayName = "Gold"
 
     if prompt and prompt.Enabled then
@@ -640,44 +706,48 @@ local function processGold(goldInstance)
 
     if not isGold then return end
 
-    local targetPart = (goldInstance:IsA("Model") and (goldInstance:FindFirstChildWhichIsA("MeshPart", true) or goldInstance:FindFirstChildWhichIsA("BasePart", true)))
-        or (goldInstance:IsA("BasePart") and goldInstance)
+    local targetPart = (owner:IsA("Model") and (owner:FindFirstChildWhichIsA("MeshPart", true) or owner:FindFirstChildWhichIsA("BasePart", true)))
+        or (owner:IsA("BasePart") and owner)
         or (prompt and prompt.Parent and prompt.Parent:IsA("BasePart") and prompt.Parent)
 
     if targetPart then
-        local baseText = string.format("💰 %s", displayName)
+        local baseText = displayName
         local color = Color3.fromRGB(255, 195, 0)
-        registerEsp(goldInstance, targetPart, baseText, color, "Gold", goldInstance, Vector3.new(0, 0.8, 0))
+        registerEsp(owner, targetPart, baseText, color, "Gold", owner, Vector3.new(0, 0.8, 0))
     end
 end
 
--- 8. Comprehensive Entity ESP (Every Monster in DOORS Hotel & The Mines)
+-- 8. Comprehensive Entity ESP (Every Monster in DOORS Hotel & The Mines - All Red, No Emojis)
+local ENTITY_RED = Color3.fromRGB(255, 35, 35)
+
 local ENTITY_REGISTRY = {
-    ["rushmoving"]     = { Name = "Rush",               Emoji = "💀", Color = Color3.fromRGB(255, 35, 35) },
-    ["ambushmoving"]   = { Name = "Ambush",             Emoji = "💀", Color = Color3.fromRGB(30, 255, 160) },
-    ["figurerig"]      = { Name = "Figure",             Emoji = "👹", Color = Color3.fromRGB(255, 50, 50) },
-    ["seekmoving"]     = { Name = "Seek",               Emoji = "👁️", Color = Color3.fromRGB(220, 20, 20) },
-    ["seekrig"]        = { Name = "Seek",               Emoji = "👁️", Color = Color3.fromRGB(220, 20, 20) },
-    ["eyes"]           = { Name = "Eyes (Don't Look!)", Emoji = "👁️", Color = Color3.fromRGB(190, 50, 255) },
-    ["halt"]           = { Name = "Halt",               Emoji = "🛑", Color = Color3.fromRGB(0, 220, 255) },
-    ["shade"]          = { Name = "Halt",               Emoji = "🛑", Color = Color3.fromRGB(0, 220, 255) },
-    ["screech"]        = { Name = "Screech",            Emoji = "🦷", Color = Color3.fromRGB(255, 215, 0) },
-    ["giggleceiling"]  = { Name = "Giggle",             Emoji = "😈", Color = Color3.fromRGB(255, 80, 180) },
-    ["giggle"]         = { Name = "Giggle",             Emoji = "😈", Color = Color3.fromRGB(255, 80, 180) },
-    ["grumble"]        = { Name = "Grumble",            Emoji = "👹", Color = Color3.fromRGB(255, 100, 0) },
-    ["grumblerig"]     = { Name = "Grumble",            Emoji = "👹", Color = Color3.fromRGB(255, 100, 0) },
-    ["snare"]          = { Name = "Snare Trap",         Emoji = "⚠️", Color = Color3.fromRGB(80, 255, 80) },
-    ["glitch"]         = { Name = "Glitch",             Emoji = "⚡", Color = Color3.fromRGB(50, 150, 255) },
-    ["void"]           = { Name = "Void",               Emoji = "🌌", Color = Color3.fromRGB(140, 0, 255) },
-    ["dread"]          = { Name = "Dread",              Emoji = "☠️", Color = Color3.fromRGB(160, 0, 0) },
-    ["timothy"]        = { Name = "Timothy",            Emoji = "🕷️", Color = Color3.fromRGB(180, 180, 180) },
-    ["spider"]         = { Name = "Timothy",            Emoji = "🕷️", Color = Color3.fromRGB(180, 180, 180) },
-    ["a60"]            = { Name = "A-60",               Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
-    ["a-60"]           = { Name = "A-60",               Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
-    ["a90"]            = { Name = "A-90",               Emoji = "🛑", Color = Color3.fromRGB(255, 30, 30) },
-    ["a-90"]           = { Name = "A-90",               Emoji = "🛑", Color = Color3.fromRGB(255, 30, 30) },
-    ["a120"]           = { Name = "A-120",              Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
-    ["a-120"]          = { Name = "A-120",              Emoji = "💀", Color = Color3.fromRGB(255, 40, 40) },
+    ["rushmoving"]     = { Name = "Rush",               Color = ENTITY_RED },
+    ["ambushmoving"]   = { Name = "Ambush",             Color = ENTITY_RED },
+    ["figurerig"]      = { Name = "Figure",             Color = ENTITY_RED },
+    ["seekmoving"]     = { Name = "Seek",               Color = ENTITY_RED },
+    ["seekrig"]        = { Name = "Seek",               Color = ENTITY_RED },
+    ["eyes"]           = { Name = "Eyes (Don't Look!)", Color = ENTITY_RED },
+    ["halt"]           = { Name = "Halt",               Color = ENTITY_RED },
+    ["shade"]          = { Name = "Halt",               Color = ENTITY_RED },
+    ["screech"]        = { Name = "Screech",            Color = ENTITY_RED },
+    ["giggleceiling"]  = { Name = "Giggle",             Color = ENTITY_RED },
+    ["giggle"]         = { Name = "Giggle",             Color = ENTITY_RED },
+    ["grumble"]        = { Name = "Grumble",            Color = ENTITY_RED },
+    ["grumblerig"]     = { Name = "Grumble",            Color = ENTITY_RED },
+    ["snare"]          = { Name = "Snare Trap",         Color = ENTITY_RED },
+    ["glitch"]         = { Name = "Glitch",             Color = ENTITY_RED },
+    ["dupe"]           = { Name = "Dupe",               Color = ENTITY_RED },
+    ["doorfake"]       = { Name = "Dupe",               Color = ENTITY_RED },
+    ["sideroomdupe"]   = { Name = "Dupe",               Color = ENTITY_RED },
+    ["dread"]          = { Name = "Dread",              Color = ENTITY_RED },
+    ["timothy"]        = { Name = "Timothy",            Color = ENTITY_RED },
+    ["spider"]         = { Name = "Timothy",            Color = ENTITY_RED },
+    ["a60"]            = { Name = "A-60",               Color = ENTITY_RED },
+    ["a-60"]           = { Name = "A-60",               Color = ENTITY_RED },
+    ["a90"]            = { Name = "A-90",               Color = ENTITY_RED },
+    ["a-90"]           = { Name = "A-90",               Color = ENTITY_RED },
+    ["a120"]           = { Name = "A-120",              Color = ENTITY_RED },
+    ["a-120"]          = { Name = "A-120",              Color = ENTITY_RED },
 }
 
 local function processEntity(entity)
@@ -691,13 +761,20 @@ local function processEntity(entity)
 
     -- Do not flag players or friendly shop NPCs
     if entity:IsA("Model") and Players:GetPlayerFromCharacter(entity) then return end
-    if eLower:find("bob") or eLower:find("elgoblino") or eLower:find("jeff") and not eLower:find("killer") then return end
+    if eLower:find("bob") or eLower:find("elgoblino") or (eLower:find("jeff") and not eLower:find("killer")) then return end
 
+    -- Check if inside Dupe room or Dupe entity
+    local isDupe = eLower:find("dupe") or eLower:find("doorfake") or (entity.Parent and entity.Parent.Name:lower():find("dupe"))
     local cfg = nil
-    for key, info in pairs(ENTITY_REGISTRY) do
-        if eLower == key or eLower:find(key) then
-            cfg = info
-            break
+
+    if isDupe then
+        cfg = { Name = "Dupe", Color = ENTITY_RED }
+    else
+        for key, info in pairs(ENTITY_REGISTRY) do
+            if eLower == key or eLower:find(key) then
+                cfg = info
+                break
+            end
         end
     end
 
@@ -706,8 +783,37 @@ local function processEntity(entity)
             or (entity:IsA("BasePart") and entity)
 
         if targetPart then
-            local baseText = string.format("%s %s", cfg.Emoji, cfg.Name)
-            registerEsp(entity, targetPart, baseText, cfg.Color, "Entities", entity, Vector3.new(0, 3.0, 0))
+            local highlightTarget = entity
+
+            -- For 2D entities without a multi-part 3D rig (like nextbots, A-60, A-90, Rush sprites), attach a clean rounded neon sphere
+            local is2D = entity:IsA("BasePart") or (entity:IsA("Model") and not entity:FindFirstChildWhichIsA("Humanoid") and #entity:GetChildren() <= 3)
+            if is2D then
+                local sphere = entity:FindFirstChild("Unknown_EntitySphere")
+                if not sphere or not sphere:IsA("BasePart") then
+                    sphere = Instance.new("Part")
+                    sphere.Name = "Unknown_EntitySphere"
+                    sphere.Shape = Enum.PartType.Ball
+                    sphere.Size = Vector3.new(3.5, 3.5, 3.5)
+                    sphere.CFrame = targetPart.CFrame
+                    sphere.Transparency = 0.55
+                    sphere.Color = ENTITY_RED
+                    sphere.Material = Enum.Material.Neon
+                    sphere.CanCollide = false
+                    sphere.CanTouch = false
+                    sphere.CanQuery = false
+                    sphere.Massless = true
+                    sphere.Anchored = false
+                    local weld = Instance.new("WeldConstraint")
+                    weld.Part0 = sphere
+                    weld.Part1 = targetPart
+                    weld.Parent = sphere
+                    sphere.Parent = entity
+                end
+                highlightTarget = sphere
+            end
+
+            local baseText = cfg.Name
+            registerEsp(entity, targetPart, baseText, ENTITY_RED, "Entities", highlightTarget, Vector3.new(0, 3.0, 0))
         end
     end
 end
@@ -740,9 +846,14 @@ local function scanSingleRoom(room)
                 processEntity(desc)
             end
         elseif desc:IsA("BasePart") then
-            if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
-                processGold(desc)
-            elseif dName:find("lever") then
+            local p = desc.Parent
+            local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
+            if not isParentGold then
+                if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
+                    processGold(desc)
+                end
+            end
+            if dName:find("lever") then
                 processLever(desc)
             end
         elseif desc:IsA("ProximityPrompt") then
@@ -806,6 +917,20 @@ pcall(function()
             task.wait(0.2)
             scanSingleRoom(newRoom)
 
+            -- Delayed door verification passes: DOORS room scripts remove default template padlocks 0.3-0.8s later
+            task.delay(0.6, function()
+                if newRoom.Parent then
+                    local door = newRoom:FindFirstChild("Door")
+                    if door then processDoor(newRoom, door) end
+                end
+            end)
+            task.delay(1.2, function()
+                if newRoom.Parent then
+                    local door = newRoom:FindFirstChild("Door")
+                    if door then processDoor(newRoom, door) end
+                end
+            end)
+
             -- Real-time dropped items, drawer looting, and lever discovery
             newRoom.DescendantAdded:Connect(function(desc)
                 task.wait(0.05)
@@ -824,9 +949,14 @@ pcall(function()
                         if State.Entities_ESP then processEntity(desc) end
                     end
                 elseif desc:IsA("BasePart") then
-                    if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
-                        processGold(desc)
-                    elseif dName:find("lever") then
+                    local p = desc.Parent
+                    local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
+                    if not isParentGold then
+                        if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
+                            processGold(desc)
+                        end
+                    end
+                    if dName:find("lever") then
                         processLever(desc)
                     end
                 elseif desc:IsA("ProximityPrompt") then
