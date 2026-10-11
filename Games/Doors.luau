@@ -788,11 +788,51 @@ if State.Fullbright then
 end
 
 -- =========================================================================
--- Active Anti-Rollback & Micro-Smooth Braking Engine
--- 1. Full Native Crouch: No remote interference; crouch works flawlessly while running or standing.
--- 2. Anti-Rollback Interception: Real-time RenderStepped vector progression check prevents rollbacks during sprints.
--- 3. Micro-Smooth Braking: 150ms physics deceleration when releasing keys prevents server accumulator overflow and eliminates the 0.1s snap-back.
+-- Teflon-Glide & Omnidirectional Anti-Rollback Engine
+-- 1. Zero Wall Friction: Collision and HumanoidRootPart friction set to 0,
+--    eliminating rotational snagging and kinetic stops when grazing side objects.
+-- 2. Omnidirectional Trail Tracking: Maintains a recent trajectory buffer.
+--    Detects server rollbacks independently of turning angle or move direction.
+-- 3. Collision-Safe Restoration: Projects restoration vector along obstacles,
+--    preserving current camera rotation and preventing wall penetration.
+-- 4. Micro-Smooth Braking & Resting Anchor: 150ms cosinusoidal deceleration
+--    when keys are released, eliminating the 0.1s twitch.
 -- =========================================================================
+local zeroFriction = PhysicalProperties.new(0.5, 0.0, 0.0, 100, 100)
+local defaultCollProps = nil
+local defaultRootProps = nil
+
+local function applyTeflonGlide(char)
+    if not char then return end
+    local coll = char:FindFirstChild("Collision")
+    local cp = char:FindFirstChild("CollisionPart")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if coll and coll:IsA("BasePart") then
+        if not defaultCollProps then defaultCollProps = coll.CustomPhysicalProperties end
+        coll.CustomPhysicalProperties = zeroFriction
+    end
+    if cp and cp:IsA("BasePart") then
+        cp.CustomPhysicalProperties = zeroFriction
+    end
+    if root and root:IsA("BasePart") then
+        if not defaultRootProps then defaultRootProps = root.CustomPhysicalProperties end
+        root.CustomPhysicalProperties = zeroFriction
+    end
+end
+
+local function restoreDefaultFriction(char)
+    if not char then return end
+    local coll = char:FindFirstChild("Collision")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if coll and coll:IsA("BasePart") and defaultCollProps then
+        coll.CustomPhysicalProperties = defaultCollProps
+    end
+    if root and root:IsA("BasePart") and defaultRootProps then
+        root.CustomPhysicalProperties = defaultRootProps
+    end
+end
+
+local trailHistory = {} -- Ring buffer of { pos = Vector3, cf = CFrame, time = number }
 local lastForwardCFrame = nil
 local lastForwardPos = nil
 local lastMoveVector = Vector3.new(0, 0, 0)
@@ -805,7 +845,11 @@ local stopGraceUntil = 0
 local settledCFrame = nil
 local settledPos = nil
 
-RunService.RenderStepped:Connect(function()
+local wallRayParams = RaycastParams.new()
+wallRayParams.FilterType = RaycastFilterType.Exclude
+wallRayParams.RespectCanCollide = true
+
+RunService.RenderStepped:Connect(function(dt)
     if _G.DOORS_SESSION ~= currentSession then return end
     if not State.WalkSpeed_Enabled or not State.AntiRubberband then 
         lastForwardPos = nil
@@ -815,6 +859,7 @@ RunService.RenderStepped:Connect(function()
         wasMoving = false
         isBraking = false
         stopGraceUntil = 0
+        table.clear(trailHistory)
         return 
     end
 
@@ -823,9 +868,16 @@ RunService.RenderStepped:Connect(function()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not root or not hum or not hum.Parent then return end
 
+    -- Keep teflon glide active
+    local coll = char:FindFirstChild("Collision")
+    if coll and coll.CustomPhysicalProperties ~= zeroFriction then
+        applyTeflonGlide(char)
+    end
+
     local currentPos = root.Position
     local moveDir = hum.MoveDirection
     local isMoving = moveDir.Magnitude > 0.05
+    local now = os.clock()
 
     if isMoving then
         -- Active movement state
@@ -840,27 +892,80 @@ RunService.RenderStepped:Connect(function()
             local frameDelta = currentPos - lastForwardPos
             local dist = frameDelta.Magnitude
 
-            -- Dot product against intended movement direction:
-            -- If server abruptly snaps the player backward opposite to moveDir:
-            local forwardProgression = frameDelta:Dot(moveDir)
+            -- Maximum legitimate step possible at current speed within this frame
+            local maxNaturalStep = math.max(hum.WalkSpeed * dt * 1.5, 1.25)
+            local isRollback = false
 
-            if forwardProgression < -2.2 and dist > 2.2 then
-                -- In-flight rollback neutralized! Instantly restore forward position
-                local restoredCF = lastForwardCFrame + (moveDir * (hum.WalkSpeed * 0.016))
+            if dist > maxNaturalStep then
+                -- Check if currentPos was snapped backwards towards recent history (0.03s - 0.45s ago)
+                for i = #trailHistory, 1, -1 do
+                    local entry = trailHistory[i]
+                    local age = now - entry.time
+                    if age > 0.03 and age < 0.45 then
+                        local distToHistory = (currentPos - entry.pos).Magnitude
+                        if distToHistory < 1.8 then
+                            isRollback = true
+                            break
+                        end
+                    end
+                end
+
+                -- Omnidirectional check: if jump is large and didn't move forward along moveDir
+                if not isRollback and dist > 1.5 then
+                    local progression = frameDelta:Dot(moveDir)
+                    if progression < -0.3 or dist > 2.0 then
+                        isRollback = true
+                    end
+                end
+            end
+
+            if isRollback then
+                -- Neutralize rollback cleanly without snapping camera rotation or clipping walls
+                wallRayParams.FilterDescendantsInstances = {char}
+                local safeDir = moveDir
+                
+                -- Check if moving into a wall/obstacle:
+                local ray = Workspace:Raycast(lastForwardPos, moveDir * 1.5, wallRayParams)
+                if ray and ray.Normal then
+                    -- Project movement along the wall surface
+                    local normal = ray.Normal
+                    local projected = moveDir - normal * moveDir:Dot(normal)
+                    if projected.Magnitude > 0.1 then
+                        safeDir = projected.Unit
+                    else
+                        safeDir = Vector3.new(0, 0, 0)
+                    end
+                end
+
+                local advanceStep = safeDir * (hum.WalkSpeed * math.clamp(dt, 0.01, 0.033))
+                local restoredPos = lastForwardPos + advanceStep
+                local restoredCF = CFrame.new(restoredPos) * root.CFrame.Rotation
+
                 root.CFrame = restoredCF
-                root.AssemblyLinearVelocity = moveDir * hum.WalkSpeed
+                root.AssemblyLinearVelocity = safeDir * hum.WalkSpeed
+
+                lastForwardPos = restoredPos
                 lastForwardCFrame = restoredCF
-                lastForwardPos = restoredCF.Position
+                settledPos = restoredPos
                 settledCFrame = restoredCF
-                settledPos = restoredCF.Position
+
+                table.insert(trailHistory, { pos = restoredPos, cf = restoredCF, time = now })
+                if #trailHistory > 35 then table.remove(trailHistory, 1) end
                 return
             end
         end
 
-        lastForwardPos = root.Position
+        -- Record legitimate position to trail
+        table.insert(trailHistory, { pos = currentPos, cf = root.CFrame, time = now })
+        while #trailHistory > 0 and (now - trailHistory[1].time) > 0.5 do
+            table.remove(trailHistory, 1)
+        end
+
+        lastForwardPos = currentPos
         lastForwardCFrame = root.CFrame
     else
         -- Movement keys released: handle micro-smooth deceleration and resting anchor
+        table.clear(trailHistory)
         local now = os.clock()
 
         if wasMoving and not isBraking then
@@ -897,7 +1002,7 @@ RunService.RenderStepped:Connect(function()
         -- Post-stop settling anchor (1.2s window): absorbs any lingering delayed packets
         if now < stopGraceUntil and settledPos and settledCFrame then
             local horizDelta = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(settledPos.X, 0, settledPos.Z)).Magnitude
-            if horizDelta > 1.8 then
+            if horizDelta > 1.6 then
                 local anchorCF = CFrame.new(settledPos.X, root.CFrame.Y, settledPos.Z) * (settledCFrame - settledCFrame.Position)
                 root.CFrame = anchorCF
                 root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -949,6 +1054,7 @@ end)
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.25)
     if State.WalkSpeed_Enabled then
+        applyTeflonGlide(char)
         local hum = char:WaitForChild("Humanoid", 5)
         if hum then
             hum.WalkSpeed = State.WalkSpeed_Value
@@ -972,13 +1078,15 @@ Hub.CreateSection(mainTab, "🏃 Movement & Speed")
 
 Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
+    local char = getChar()
     if not v then
-        local char = getChar()
+        restoreDefaultFriction(char)
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then hum.WalkSpeed = 15 end
         Hub.Notify("WalkSpeed", "Speed reset to default (15)", 2)
     else
-        Hub.Notify("WalkSpeed", string.format("Speed active: %d studs/s (Anti-Rollback Active)", State.WalkSpeed_Value), 2)
+        applyTeflonGlide(char)
+        Hub.Notify("WalkSpeed", string.format("Speed active: %d studs/s (Teflon + Anti-Rollback Active)", State.WalkSpeed_Value), 2)
     end
 end)
 
