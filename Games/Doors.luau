@@ -843,12 +843,9 @@ local lastForwardCFrame = nil
 local lastForwardPos = nil
 local lastMoveVector = Vector3.new(0, 0, 0)
 local wasMoving = false
-
--- DOORS Server Slide Authorization Engine
--- Informs the server anti-cheat that high speed is legitimate without overriding client crouch input
-local crouchRemote = nil
-local isServerSlideActive = false
-local lastSentCrouchState = false
+local stoppedPos = nil
+local stoppedCF = nil
+local stopHoldUntil = 0
 
 local function getMainGameTable()
     local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
@@ -860,38 +857,6 @@ local function getMainGameTable()
         end
     end
     return nil
-end
-
-local function syncServerSlide(shouldSlide)
-    if not crouchRemote then
-        pcall(function()
-            local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-            crouchRemote = rf and rf:FindFirstChild("Crouch")
-        end)
-    end
-    if not crouchRemote then return end
-
-    local char = getChar()
-    local mgTable = getMainGameTable()
-    local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-
-    if shouldSlide then
-        if not isServerSlideActive or isCrouching ~= lastSentCrouchState then
-            isServerSlideActive = true
-            lastSentCrouchState = isCrouching
-            pcall(function()
-                crouchRemote:FireServer(isCrouching, true)
-            end)
-        end
-    else
-        if isServerSlideActive then
-            isServerSlideActive = false
-            lastSentCrouchState = isCrouching
-            pcall(function()
-                crouchRemote:FireServer(isCrouching, false)
-            end)
-        end
-    end
 end
 
 local wallRayParams = RaycastParams.new()
@@ -910,8 +875,10 @@ local function updateMotion(dt)
         lastForwardPos = nil
         lastForwardCFrame = nil
         wasMoving = false
+        stoppedPos = nil
+        stoppedCF = nil
+        stopHoldUntil = 0
         table.clear(trailHistory)
-        syncServerSlide(false)
         return 
     end
 
@@ -932,9 +899,11 @@ local function updateMotion(dt)
     local now = os.clock()
 
     if isMoving then
-        -- Active movement state: authorize high speed with server
-        syncServerSlide(true)
+        -- Active movement state: clear stop hold immediately for zero-lag motion
         wasMoving = true
+        stoppedPos = nil
+        stoppedCF = nil
+        stopHoldUntil = 0
         lastMoveVector = moveDir
 
         if lastForwardPos then
@@ -1008,11 +977,34 @@ local function updateMotion(dt)
         lastForwardPos = currentPos
         lastForwardCFrame = root.CFrame
     else
-        -- Movement keys released: natural physics stop with zero rubberbanding or yanks
+        -- Movement keys released: natural physics stop with active stop-phase rollback shield
         table.clear(trailHistory)
+
         if wasMoving then
             wasMoving = false
-            syncServerSlide(false)
+            stoppedPos = root.Position
+            stoppedCF = root.CFrame
+            stopHoldUntil = now + 1.2 -- Protect for 1.2s to absorb delayed doorway resets
+        end
+
+        -- Stop-Phase Rollback Shield:
+        -- If the server sends a delayed packet resetting the player back to the doorway/opened door (> 1.4 studs)
+        -- while keys are released, instantly hold and restore the player at their stopped position!
+        if now < stopHoldUntil and stoppedPos and stoppedCF then
+            local horizDelta = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(stoppedPos.X, 0, stoppedPos.Z)).Magnitude
+            if horizDelta > 1.4 then
+                local heldCF = CFrame.new(stoppedPos.X, root.CFrame.Y, stoppedPos.Z) * (stoppedCF - stoppedCF.Position)
+                root.CFrame = heldCF
+                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                return
+            else
+                -- Natural small physics settling (< 1.4 studs) is smoothly tracked
+                stoppedPos = root.Position
+                stoppedCF = root.CFrame
+            end
+        else
+            stoppedPos = root.Position
+            stoppedCF = root.CFrame
         end
 
         lastForwardPos = root.Position
@@ -1094,7 +1086,6 @@ Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function
     State.WalkSpeed_Enabled = v
     local char = getChar()
     if not v then
-        syncServerSlide(false)
         restoreDefaultFriction(char)
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then hum.WalkSpeed = 15 end
