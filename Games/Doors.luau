@@ -216,28 +216,52 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     return hl
 end
 
-local function getCurrentRoomNumber()
-    local cur = LocalPlayer:GetAttribute("CurrentRoom")
-    if cur ~= nil then return tonumber(cur) end
-    local root = getRoot()
-    if root and Workspace:FindFirstChild("CurrentRooms") then
-        local rootPos = root.Position
+local function getObjectRoom(instance)
+    if not instance then return nil, nil end
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not currentRooms then return nil, nil end
+    local cur = instance
+    while cur and cur ~= Workspace and cur.Parent ~= Workspace do
+        if cur.Parent == currentRooms then
+            local num = tonumber(cur.Name) or cur:GetAttribute("RoomID")
+            return cur, num
+        end
+        cur = cur.Parent
+    end
+
+    local instPos = instance:IsA("BasePart") and instance.Position 
+        or (instance:IsA("Model") and (instance.PrimaryPart and instance.PrimaryPart.Position or instance:GetPivot().Position))
+    if instPos then
+        local closestRoom = nil
         local closestNum = nil
         local closestDist = math.huge
-        for _, room in ipairs(Workspace.CurrentRooms:GetChildren()) do
-            local num = tonumber(room.Name)
+        for _, r in ipairs(currentRooms:GetChildren()) do
+            local num = tonumber(r.Name)
             if num then
-                local part = room:FindFirstChildWhichIsA("BasePart")
-                if part then
-                    local d = (part.Position - rootPos).Magnitude
+                local p = r:FindFirstChildWhichIsA("BasePart")
+                if p then
+                    local d = (p.Position - instPos).Magnitude
                     if d < closestDist then
                         closestDist = d
+                        closestRoom = r
                         closestNum = num
                     end
                 end
             end
         end
-        return closestNum
+        return closestRoom, closestNum
+    end
+
+    return nil, nil
+end
+
+local function getCurrentRoomNumber()
+    local cur = LocalPlayer:GetAttribute("CurrentRoom")
+    if cur ~= nil then return tonumber(cur) end
+    local root = getRoot()
+    if root then
+        local _, num = getObjectRoom(root)
+        if num then return num end
     end
     return nil
 end
@@ -281,6 +305,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     removeEspFor(owner)
 
     local visuals = {}
+    local highlightMap = {}
 
     -- 1. Billboard with Distance
     local bb, label = createBillboard(adorneePart, baseText, color, offset)
@@ -290,12 +315,18 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     if partsToHighlight then
         if typeof(partsToHighlight) == "Instance" then
             local hl = createHighlight(partsToHighlight, color)
-            if hl then table.insert(visuals, hl) end
+            if hl then
+                table.insert(visuals, hl)
+                highlightMap[hl] = partsToHighlight
+            end
         elseif type(partsToHighlight) == "table" then
             for _, p in ipairs(partsToHighlight) do
                 if p and p:IsA("BasePart") then
                     local hl = createHighlight(p, color)
-                    if hl then table.insert(visuals, hl) end
+                    if hl then
+                        table.insert(visuals, hl)
+                        highlightMap[hl] = p
+                    end
                 end
             end
         end
@@ -316,6 +347,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         Category = category,
         Label = label,
         Visuals = visuals,
+        HighlightMap = highlightMap,
         RoomNumber = roomNumber
     }
 
@@ -339,14 +371,25 @@ task.spawn(function()
             for _, record in pairs(activeEspRecords) do
                 -- 1. Room Visibility Filter (ONLY applies to Doors and Closets/Beds as requested!)
                 if record.Category == "Doors" or record.Category == "HidingSpots" then
-                    local shouldShow = true
+                    local shouldShow = false
                     if curRoom and record.RoomNumber then
                         shouldShow = (record.RoomNumber == curRoom)
+                    elseif not curRoom then
+                        shouldShow = true
                     end
+
                     if record.Visuals then
                         for _, vis in ipairs(record.Visuals) do
                             if vis:IsA("BillboardGui") or vis:IsA("Highlight") or vis:IsA("SphereHandleAdornment") then
                                 vis.Enabled = shouldShow
+                                -- When hidden, un-adornee highlight so Roblox frees the 31 hardware highlight slots!
+                                if vis:IsA("Highlight") and record.HighlightMap then
+                                    if not shouldShow then
+                                        vis.Adornee = nil
+                                    else
+                                        vis.Adornee = record.HighlightMap[vis] or record.Owner
+                                    end
+                                end
                             end
                         end
                     end
@@ -783,19 +826,8 @@ local function processHidingSpot(hidingModel)
                 local baseText = hName
                 local color = Color3.fromRGB(110, 195, 255)
 
-                -- Find room number of this hiding spot
-                local roomNumber = nil
-                local cur = hidingModel.Parent
-                while cur and cur ~= Workspace and cur ~= Workspace:FindFirstChild("CurrentRooms") do
-                    if tonumber(cur.Name) then
-                        roomNumber = tonumber(cur.Name)
-                        break
-                    end
-                    cur = cur.Parent
-                end
-
-                local highlightParts = { targetPart }
-                registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", highlightParts, Vector3.new(0, 2.5, 0), roomNumber)
+                local _, roomNumber = getObjectRoom(hidingModel)
+                registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0), roomNumber)
             end
         end
     end
@@ -1450,8 +1482,14 @@ local function updateMotion(dt)
         return
     end
 
-    -- Keep server high-speed authorization continuously active while WalkSpeed is enabled
-    syncServerSlide(true)
+    local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+
+    -- Keep server high-speed authorization active only while standing (avoids server crouch conflict rollbacks)
+    if isCrouching then
+        syncServerSlide(false)
+    else
+        syncServerSlide(true)
+    end
 
     -- Keep teflon glide active
     local coll = char:FindFirstChild("Collision")
@@ -1470,8 +1508,9 @@ local function updateMotion(dt)
 
         if lastForwardPos then
             local frameDelta = currentPos - lastForwardPos
-            local dist = frameDelta.Magnitude
-            local progression = frameDelta:Dot(moveDir)
+            local horizDelta = Vector3.new(frameDelta.X, 0, frameDelta.Z)
+            local dist = horizDelta.Magnitude
+            local progression = horizDelta:Dot(moveDir)
             local expectedStep = hum.WalkSpeed * dt
             local maxNaturalStep = math.max(expectedStep * 1.5, 1.4)
             local isRollback = false
@@ -1482,7 +1521,7 @@ local function updateMotion(dt)
                     local entry = trailHistory[i]
                     local age = now - entry.time
                     if age > 0.03 and age < 0.45 then
-                        local distToHistory = (currentPos - entry.pos).Magnitude
+                        local distToHistory = (Vector3.new(currentPos.X - entry.pos.X, 0, currentPos.Z - entry.pos.Z)).Magnitude
                         if distToHistory < 2.0 then
                             isRollback = true
                             break
@@ -1511,7 +1550,7 @@ local function updateMotion(dt)
                 end
 
                 local advanceStep = safeDir * (hum.WalkSpeed * math.clamp(dt, 0.01, 0.033))
-                local restoredPos = lastForwardPos + advanceStep
+                local restoredPos = Vector3.new(lastForwardPos.X, currentPos.Y, lastForwardPos.Z) + advanceStep
                 local restoredCF = CFrame.new(restoredPos) * root.CFrame.Rotation
 
                 root.CFrame = restoredCF
@@ -1562,7 +1601,7 @@ RunService.Heartbeat:Connect(function()
 
     if State.WalkSpeed_Enabled and not hiding then
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-        local targetSpeed = isCrouching and math.max(math.floor(State.WalkSpeed_Value * 0.65), 18) or State.WalkSpeed_Value
+        local targetSpeed = isCrouching and 12 or State.WalkSpeed_Value
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
@@ -1584,7 +1623,7 @@ RunService.Stepped:Connect(function()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then
             local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-            local targetSpeed = isCrouching and math.max(math.floor(State.WalkSpeed_Value * 0.65), 18) or State.WalkSpeed_Value
+            local targetSpeed = isCrouching and 12 or State.WalkSpeed_Value
             if hum.WalkSpeed ~= targetSpeed then
                 hum.WalkSpeed = targetSpeed
             end
