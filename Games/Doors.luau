@@ -102,7 +102,7 @@ local State = {
     Instant_Interact = false,
     Noclip_Interact = false,
     Range_Interact = false,
-    Interact_MaxRange = 22,
+    Interact_MaxRange = 12,
     Auto_Interact = false,
     AutoInteract_Gold = true,
     AutoInteract_Items = true,
@@ -1019,6 +1019,8 @@ end
 -- Snare Trap Defusal (Greenhouse / Flooded Rooms)
 local function defuseSnare(instance)
     if not instance then return end
+    local iName = instance.Name:lower()
+    if not iName:find("snare") then return end
     pcall(function()
         for _, p in ipairs(instance:GetDescendants()) do
             if p:IsA("BasePart") then
@@ -1046,10 +1048,6 @@ end
 -- Full Room Parser
 local function scanSingleRoom(room)
     if not room or not room:IsA("Model") then return end
-
-    if State.Anti_Snare then
-        defuseSnare(room)
-    end
 
     -- 1. Scan Door
     local door = room:FindFirstChild("Door")
@@ -1084,6 +1082,8 @@ local function scanSingleRoom(room)
                 processHidingSpot(desc)
             elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                 processGold(desc)
+            elseif dName:find("snare") then
+                if State.Anti_Snare then defuseSnare(desc) end
             else
                 processItem(desc)
                 processEntity(desc)
@@ -1717,7 +1717,7 @@ local function applyPromptModifications(prompt)
     end
 
     if State.Range_Interact then
-        prompt.MaxActivationDistance = State.Interact_MaxRange
+        prompt.MaxActivationDistance = math.clamp(State.Interact_MaxRange, 6, 14)
     else
         local orig = prompt:GetAttribute("OrigMaxDist")
         if orig ~= nil then prompt.MaxActivationDistance = orig end
@@ -1817,7 +1817,10 @@ local function isPromptSafeToAutoInteract(prompt)
     return false
 end
 
--- Auto Interact Worker Thread
+-- Auto Interact Worker Thread (Hyper-Fast, Non-Blocking, Debounced & Lag-Free)
+local promptDebounce = {}
+local lastCleanup = 0
+
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -1825,23 +1828,78 @@ task.spawn(function()
             local root = getRoot()
             if root then
                 local rootPos = root.Position
-                local maxDist = State.Range_Interact and State.Interact_MaxRange or 12
-                local currentRooms = Workspace:FindFirstChild("CurrentRooms")
-                local searchContainers = currentRooms and { currentRooms, Workspace:FindFirstChild("Drops") } or { Workspace }
+                local maxDist = State.Range_Interact and math.clamp(State.Interact_MaxRange, 6, 14) or 12
+                local now = os.clock()
+
+                -- Clean expired cooldowns periodically (every 5 seconds)
+                if now - lastCleanup > 5 then
+                    lastCleanup = now
+                    for obj, expire in pairs(promptDebounce) do
+                        if now >= expire then
+                            promptDebounce[obj] = nil
+                        end
+                    end
+                end
+
+                -- High-Performance Proximity Scope: Scans ONLY current room, next room, and Drops (zero FPS lag)
+                local curRoom, curNum = getObjectRoom(root)
+                local searchContainers = {}
+                if curRoom then
+                    table.insert(searchContainers, curRoom)
+                    if curNum and Workspace:FindFirstChild("CurrentRooms") then
+                        local nextRoom = Workspace.CurrentRooms:FindFirstChild(tostring(curNum + 1))
+                        if nextRoom then table.insert(searchContainers, nextRoom) end
+                    end
+                else
+                    local cr = Workspace:FindFirstChild("CurrentRooms")
+                    if cr then table.insert(searchContainers, cr) end
+                end
+
+                local drops = Workspace:FindFirstChild("Drops")
+                if drops then table.insert(searchContainers, drops) end
 
                 for _, container in ipairs(searchContainers) do
-                    if container then
-                        for _, prompt in ipairs(container:GetDescendants()) do
-                            if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Parent then
+                    -- 1. Check ProximityPrompts (Drawers, Items, Keys, Books, Levers, Gold)
+                    for _, prompt in ipairs(container:GetDescendants()) do
+                        if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Parent then
+                            if not promptDebounce[prompt] or now >= promptDebounce[prompt] then
                                 local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart")
                                 if pPart then
                                     local dist = (rootPos - pPart.Position).Magnitude
                                     if dist <= maxDist then
                                         if isPromptSafeToAutoInteract(prompt) then
-                                            pcall(function()
-                                                fireproximityprompt(prompt, 0)
+                                            promptDebounce[prompt] = now + 0.55
+                                            task.spawn(function()
+                                                pcall(function()
+                                                    fireproximityprompt(prompt, 0)
+                                                end)
                                             end)
-                                            task.wait(0.04)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    -- 2. Check Side Doors (Touch-based swing open for DoorNormal)
+                    if State.AutoInteract_Doors then
+                        for _, child in ipairs(container:GetChildren()) do
+                            local cName = child.Name:lower()
+                            if cName:find("doornormal") or cName:find("sidedoor") then
+                                local hidden = child:FindFirstChild("Hidden")
+                                if hidden and hidden:IsA("BasePart") then
+                                    local dist = (rootPos - hidden.Position).Magnitude
+                                    if dist <= maxDist then
+                                        if not promptDebounce[hidden] or now >= promptDebounce[hidden] then
+                                            promptDebounce[hidden] = now + 0.8
+                                            task.spawn(function()
+                                                pcall(function()
+                                                    hidden.CanTouch = true
+                                                    firetouchinterest(root, hidden, 0)
+                                                    task.wait()
+                                                    firetouchinterest(root, hidden, 1)
+                                                end)
+                                            end)
                                         end
                                     end
                                 end
@@ -1851,7 +1909,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.12)
+        task.wait(0.05) -- Fast 20Hz loop: instant response, zero stutter
     end
 end)
 
@@ -1995,7 +2053,7 @@ Hub.CreateToggle(mainTab, "Range Interact (Extended Reach)", State.Range_Interac
     Hub.Notify("Interaction", v and string.format("Range Interact: ON (%d studs safe max)", State.Interact_MaxRange) or "Range Interact: OFF", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Max Interact Range", 10, 25, State.Interact_MaxRange, " studs", function(v)
+Hub.CreateSlider(mainTab, "Max Interact Range", 6, 14, State.Interact_MaxRange, " studs", function(v)
     State.Interact_MaxRange = v
     if State.Range_Interact then
         refreshAllPrompts()
