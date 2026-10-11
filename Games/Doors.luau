@@ -262,7 +262,7 @@ end)
 -- Precision Scanners (Doors, Keys, Items, Books, Breakers, Monsters)
 -- =========================================================================
 
--- 1. Precision Door Scanner (Highlights complete rectangular door & hardware)
+-- 1. Precision Door Scanner (Highlights clean door leaf & verified padlock only)
 local function processDoor(room, doorModel)
     if not doorModel or not doorModel:IsA("Model") then return end
     if not State.Doors_ESP then
@@ -270,21 +270,43 @@ local function processDoor(room, doorModel)
         return
     end
 
-    -- In DOORS:
-    -- doorModel has invisible 'Collision' Part (5x8x1.25) and interior 'Hidden' Part (3x8x1.5).
-    -- The actual visible door leaf is MeshPart 'Door', and its visible children: 'CrossBoards', 'Sign', 'Knob', 'Plate'.
+    local dName = doorModel.Name:lower()
+    -- Filter out decorative blocked doors with wooden planks across them
+    if dName:find("blocked") or doorModel:GetAttribute("Blocked") == true then
+        removeEspFor(doorModel)
+        return
+    end
+
+    -- Real playable DOORS exit doors must have 'Door' MeshPart and opening functionality
     local doorMesh = doorModel:FindFirstChild("Door")
     if not doorMesh or not doorMesh:IsA("BasePart") then
         doorMesh = doorModel:FindFirstChildWhichIsA("MeshPart") or doorModel:FindFirstChildWhichIsA("BasePart")
     end
     if not doorMesh then return end
 
-    local lockMesh = doorModel:FindFirstChild("Lock")
-    local isLocked = lockMesh ~= nil
+    -- Verify door has real interactable open components (excludes fake room decor doors)
+    if not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint")) then
+        removeEspFor(doorModel)
+        return
+    end
+
+    -- Precision Lock Detection:
+    -- In DOORS, a door is ONLY locked if there is an actual padlock Model with an unlock prompt!
+    local isLocked = false
+    local lockModel = doorModel:FindFirstChild("Lock")
+    if lockModel and lockModel:IsA("Model") then
+        local prompt = lockModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then
+            isLocked = true
+        end
+    end
+    if doorModel:GetAttribute("Locked") == true then
+        isLocked = true
+    end
 
     -- Check for Dupe (Fake Door)
     local isDupe = false
-    if doorModel:GetAttribute("DupeRoom") or doorModel:GetAttribute("Fake") or doorModel.Name:lower():find("fake") then
+    if doorModel:GetAttribute("DupeRoom") or doorModel:GetAttribute("Fake") or dName:find("fake") then
         isDupe = true
     end
 
@@ -301,27 +323,6 @@ local function processDoor(room, doorModel)
     local doorNumberStr = signText or tostring(room.Name)
     local baseText
     local color
-    local highlightParts = {}
-
-    -- Collect all real visible parts of the door leaf (Door + CrossBoards + Knob + Plate)
-    table.insert(highlightParts, doorMesh)
-    for _, child in ipairs(doorMesh:GetChildren()) do
-        if child:IsA("BasePart") and child.Name ~= "Collision" and child.Name ~= "Hidden" and child.Transparency < 0.95 then
-            table.insert(highlightParts, child)
-        end
-    end
-
-    -- Include lock hardware if locked
-    if isLocked and lockMesh then
-        if lockMesh:IsA("BasePart") and lockMesh.Transparency < 0.95 then
-            table.insert(highlightParts, lockMesh)
-        end
-        for _, desc in ipairs(lockMesh:GetDescendants()) do
-            if desc:IsA("BasePart") and desc.Transparency < 0.95 then
-                table.insert(highlightParts, desc)
-            end
-        end
-    end
 
     if isDupe then
         baseText = "⚠️ FAKE DOOR"
@@ -334,7 +335,8 @@ local function processDoor(room, doorModel)
         color = Color3.fromRGB(0, 215, 255)
     end
 
-    registerEsp(doorModel, doorMesh, baseText, color, "Doors", highlightParts, Vector3.new(0, 1.5, 0))
+    -- Highlight ONLY the door leaf mesh cleanly (No hitbox, no disjointed cutout seams)
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.5, 0))
 end
 
 -- 2. Precision Key Scanner
@@ -404,7 +406,8 @@ local DECOR_BLACKLIST = {
     "bookshelf", "bookcase", "drawer", "desk", "table", "chair", "couch", "sofa",
     "painting", "clock", "cart", "luggage", "fireplace", "chandelier", "lamp",
     "plant", "pillar", "shelf", "carpet", "rug", "door", "window", "curtain",
-    "bell", "plate", "cup", "bottle", "bed"
+    "bell", "plate", "cup", "bottle", "bed", "lightstand", "light_fixture",
+    "lightfixture", "sconce", "hook", "fixture", "helpfullight", "wire", "pipe", "crate"
 }
 
 local function isValidLootItem(model)
@@ -899,8 +902,14 @@ local wallRayParams = RaycastParams.new()
 wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
 wallRayParams.RespectCanCollide = true
 
-RunService.RenderStepped:Connect(function(dt)
-    if _G.DOORS_SESSION ~= currentSession then return end
+local BIND_NAME = "Unknown_AntiRollback_" .. tostring(currentSession)
+
+local function updateMotion(dt)
+    if _G.DOORS_SESSION ~= currentSession then 
+        pcall(function() RunService:UnbindFromRenderStep(BIND_NAME) end)
+        return 
+    end
+
     if not State.WalkSpeed_Enabled or not State.AntiRubberband then 
         lastForwardPos = nil
         lastForwardCFrame = nil
@@ -943,43 +952,40 @@ RunService.RenderStepped:Connect(function(dt)
         if lastForwardPos then
             local frameDelta = currentPos - lastForwardPos
             local dist = frameDelta.Magnitude
-
-            -- Maximum legitimate step possible at current speed within this frame
-            local maxNaturalStep = math.max(hum.WalkSpeed * dt * 1.5, 1.25)
+            local progression = frameDelta:Dot(moveDir)
+            local expectedStep = hum.WalkSpeed * dt
+            local maxNaturalStep = math.max(expectedStep * 1.5, 1.1)
             local isRollback = false
 
-            if dist > maxNaturalStep then
-                -- Check if currentPos was snapped backwards towards recent history (0.03s - 0.45s ago)
+            -- 1. Precision Micro-Rollback Check (Neutralizes 1cm / 1-2 stud returns instantly)
+            if progression < -0.15 and dist > 0.35 then
+                isRollback = true
+            -- 2. Trail History Check (Neutralizes in-flight positional teleports)
+            elseif dist > maxNaturalStep then
                 for i = #trailHistory, 1, -1 do
                     local entry = trailHistory[i]
                     local age = now - entry.time
-                    if age > 0.03 and age < 0.45 then
+                    if age > 0.02 and age < 0.45 then
                         local distToHistory = (currentPos - entry.pos).Magnitude
-                        if distToHistory < 1.8 then
+                        if distToHistory < 2.0 then
                             isRollback = true
                             break
                         end
                     end
                 end
-
-                -- Omnidirectional check: if jump is large and didn't move forward along moveDir
-                if not isRollback and dist > 1.5 then
-                    local progression = frameDelta:Dot(moveDir)
-                    if progression < -0.3 or dist > 2.0 then
-                        isRollback = true
-                    end
+                if not isRollback and (progression < 0.1 or dist > 1.2) then
+                    isRollback = true
                 end
             end
 
             if isRollback then
-                -- Neutralize rollback cleanly without snapping camera rotation or clipping walls
+                -- Neutralize rollback BEFORE the camera script runs! Camera stays 100% steady!
                 wallRayParams.FilterDescendantsInstances = {char}
                 local safeDir = moveDir
                 
                 -- Check if moving into a wall/obstacle:
                 local ray = Workspace:Raycast(lastForwardPos, moveDir * 1.5, wallRayParams)
                 if ray and ray.Normal then
-                    -- Project movement along the wall surface
                     local normal = ray.Normal
                     local projected = moveDir - normal * moveDir:Dot(normal)
                     if projected.Magnitude > 0.1 then
@@ -1069,6 +1075,11 @@ RunService.RenderStepped:Connect(function(dt)
         lastForwardPos = root.Position
         lastForwardCFrame = root.CFrame
     end
+end
+
+-- Bind prior to camera evaluation (CameraPriority - 20) to guarantee zero camera twitch/shake
+pcall(function()
+    RunService:BindToRenderStep(BIND_NAME, Enum.RenderPriority.Camera.Value - 20, updateMotion)
 end)
 
 -- Continuous Heartbeat Enforcement (Ensures target speed without fighting crouch)
