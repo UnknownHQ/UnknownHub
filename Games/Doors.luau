@@ -831,16 +831,25 @@ end
 
 -- =========================================================================
 -- Active Anti-Rollback & Position-Continuity Engine
--- Intercepts server teleport packets on RenderStepped before rendering and restores intended forward movement
+-- Intercepts server teleport packets on RenderStepped before rendering and restores intended forward movement.
+-- Features Post-Stop Anchor Guard to eliminate delayed server rollbacks when stopping abruptly.
 -- =========================================================================
 local lastForwardCFrame = nil
 local lastForwardPos = nil
+local wasMoving = false
+local stopGraceUntil = 0
+local settledCFrame = nil
+local settledPos = nil
 
 RunService.RenderStepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     if not State.WalkSpeed_Enabled or not State.AntiRubberband then 
         lastForwardPos = nil
         lastForwardCFrame = nil
+        settledPos = nil
+        settledCFrame = nil
+        wasMoving = false
+        stopGraceUntil = 0
         return 
     end
 
@@ -854,21 +863,28 @@ RunService.RenderStepped:Connect(function()
     local isMoving = moveDir.Magnitude > 0.05
 
     if isMoving then
+        wasMoving = true
+        stopGraceUntil = 0
+        settledCFrame = root.CFrame
+        settledPos = currentPos
+
         if lastForwardPos then
             local frameDelta = currentPos - lastForwardPos
             local dist = frameDelta.Magnitude
 
             -- Dot product against intended movement direction:
-            -- If the server abruptly teleported the player backward (> 3 studs opposite to moveDir in a single frame):
+            -- If the server abruptly teleported the player backward (> 2.5 studs opposite to moveDir in a single frame):
             local forwardProgression = frameDelta:Dot(moveDir)
 
             if forwardProgression < -2.5 and dist > 2.5 then
-                -- Server rollback detected! Instantly restore the character's forward position
+                -- Server rollback detected while moving! Instantly restore forward position
                 local restoredCF = lastForwardCFrame + (moveDir * (hum.WalkSpeed * 0.016))
                 root.CFrame = restoredCF
                 root.AssemblyLinearVelocity = moveDir * hum.WalkSpeed
                 lastForwardCFrame = restoredCF
                 lastForwardPos = restoredCF.Position
+                settledCFrame = restoredCF
+                settledPos = restoredCF.Position
                 return
             end
         end
@@ -876,6 +892,31 @@ RunService.RenderStepped:Connect(function()
         lastForwardPos = root.Position
         lastForwardCFrame = root.CFrame
     else
+        -- Player is stationary (let go of keys)
+        if wasMoving then
+            -- Transition from moving -> stopped: Start 1.5s Post-Stop Anchor Guard
+            wasMoving = false
+            stopGraceUntil = os.clock() + 1.5
+            settledCFrame = root.CFrame
+            settledPos = currentPos
+            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+
+        if os.clock() < stopGraceUntil and settledPos and settledCFrame then
+            -- Inside post-stop grace window: check if delayed server packet tries to snap us back
+            local horizDelta = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(settledPos.X, 0, settledPos.Z)).Magnitude
+            if horizDelta > 2.0 then
+                -- Delayed server rollback detected! Anchor player to their intended stopping position
+                local anchorCF = CFrame.new(settledPos.X, root.CFrame.Y, settledPos.Z) * (settledCFrame - settledCFrame.Position)
+                root.CFrame = anchorCF
+                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                return
+            end
+        else
+            settledPos = root.Position
+            settledCFrame = root.CFrame
+        end
+
         lastForwardPos = root.Position
         lastForwardCFrame = root.CFrame
     end
