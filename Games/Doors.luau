@@ -1432,6 +1432,8 @@ pcall(function()
     end)
 end)
 
+local lastSlideSyncTime = 0
+
 local function syncServerSlide(shouldAuthorize)
     if not crouchRemote then
         pcall(function()
@@ -1444,10 +1446,11 @@ local function syncServerSlide(shouldAuthorize)
     local char = getChar()
     local mgTable = getMainGameTable()
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+    local now = os.clock()
 
     if shouldAuthorize then
         -- Never authorize slide while hidden or exiting closet
-        if isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil) then
+        if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
             if isServerSlideActive then
                 isServerSlideActive = false
                 pcall(function()
@@ -1459,9 +1462,11 @@ local function syncServerSlide(shouldAuthorize)
 
         -- Keep slide authorized continuously on server while WalkSpeed is active
         -- Never revoke authorization on stop, preventing slide-end door snapbacks
-        if not isServerSlideActive or isCrouching ~= lastSentCrouchState then
+        -- Periodic refresh every 1.2s prevents server-side slide token timeout
+        if not isServerSlideActive or isCrouching ~= lastSentCrouchState or (now - lastSlideSyncTime > 1.2) then
             isServerSlideActive = true
             lastSentCrouchState = isCrouching
+            lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, true)
             end)
@@ -1470,6 +1475,7 @@ local function syncServerSlide(shouldAuthorize)
         if isServerSlideActive then
             isServerSlideActive = false
             lastSentCrouchState = isCrouching
+            lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, false)
             end)
@@ -1533,12 +1539,8 @@ local function updateMotion(dt)
 
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
 
-    -- Keep server high-speed authorization active only while standing (avoids server crouch conflict rollbacks)
-    if isCrouching then
-        syncServerSlide(false)
-    else
-        syncServerSlide(true)
-    end
+    -- Keep server high-speed slide authorization active (supports both standing and crouching speeds)
+    syncServerSlide(true)
 
     -- Keep teflon glide active
     local coll = char:FindFirstChild("Collision")
@@ -1586,8 +1588,9 @@ local function updateMotion(dt)
                 wallRayParams.FilterDescendantsInstances = {char}
                 local safeDir = moveDir
                 
-                -- Check if moving into a wall/obstacle:
-                local ray = Workspace:Raycast(lastForwardPos, moveDir * 1.5, wallRayParams)
+                -- Check if moving into a wall/obstacle (offset downward when crouching to avoid crawlway ceiling collision):
+                local rayOrigin = isCrouching and (lastForwardPos - Vector3.new(0, 0.8, 0)) or lastForwardPos
+                local ray = Workspace:Raycast(rayOrigin, moveDir * 1.5, wallRayParams)
                 if ray and ray.Normal then
                     local normal = ray.Normal
                     local projected = moveDir - normal * moveDir:Dot(normal)
@@ -1599,7 +1602,8 @@ local function updateMotion(dt)
                 end
 
                 local advanceStep = safeDir * (hum.WalkSpeed * math.clamp(dt, 0.01, 0.033))
-                local restoredPos = Vector3.new(lastForwardPos.X, currentPos.Y, lastForwardPos.Z) + advanceStep
+                local targetY = math.abs(currentPos.Y - lastForwardPos.Y) < 2.0 and currentPos.Y or lastForwardPos.Y
+                local restoredPos = Vector3.new(lastForwardPos.X, targetY, lastForwardPos.Z) + advanceStep
                 local restoredCF = CFrame.new(restoredPos) * root.CFrame.Rotation
 
                 root.CFrame = restoredCF
@@ -1649,8 +1653,7 @@ RunService.Heartbeat:Connect(function()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
 
     if State.WalkSpeed_Enabled and not hiding then
-        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-        local targetSpeed = isCrouching and 12 or State.WalkSpeed_Value
+        local targetSpeed = State.WalkSpeed_Value
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
@@ -1671,8 +1674,7 @@ RunService.Stepped:Connect(function()
 
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then
-            local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-            local targetSpeed = isCrouching and 12 or State.WalkSpeed_Value
+            local targetSpeed = State.WalkSpeed_Value
             if hum.WalkSpeed ~= targetSpeed then
                 hum.WalkSpeed = targetSpeed
             end
@@ -1764,6 +1766,11 @@ local function isPromptSafeToAutoInteract(prompt)
     local obj = (prompt.ObjectText or ""):lower()
 
     -- 1. ABSOLUTE EXCLUSIONS (Never auto-interact with dangerous or decorative objects)
+    -- Closing actions (Never close drawers, doors, or containers)
+    if act:find("close") then
+        return false
+    end
+
     -- Hiding spots (Wardrobes, Closets, Lockers, Beds)
     if act:find("hide") or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or mName:find("closet") or mName:find("wardrobe") or mName:find("locker") or mName:find("bed") then
         return false
@@ -1797,9 +1804,23 @@ local function isPromptSafeToAutoInteract(prompt)
         return true
     end
 
-    -- Drawers, Desks, Dressers:
-    if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") then
-        return State.AutoInteract_Drawers
+    -- Drawers, Desks, Dressers, Cabinets (Strictly unopened/closed containers only):
+    if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") or obj:find("drawer") then
+        if not State.AutoInteract_Drawers then return false end
+        if act:find("close") then return false end
+        local interactions = prompt:GetAttribute("Interactions")
+        if interactions and (interactions :: number) > 0 then return false end
+        local interactionsUser = prompt:GetAttribute("Interactions" .. LocalPlayer.Name)
+        if interactionsUser and (interactionsUser :: number) > 0 then return false end
+        if model and (model:GetAttribute("Open") == true or model:GetAttribute("Opened") == true or model:GetAttribute("IsOpen") == true) then
+            return false
+        end
+        return true
+    end
+
+    -- Stardust / Starlight Currency & Pickups:
+    if obj:find("stardust") or obj:find("starlight") or obj:find("star") or act:find("stardust") or act:find("starlight") or pName:find("stardust") or pName:find("starlight") or mName:find("stardust") or mName:find("starlight") then
+        return State.AutoInteract_Items or State.AutoInteract_Gold
     end
 
     -- Gold / Coins:
@@ -1822,8 +1843,9 @@ local function isPromptSafeToAutoInteract(prompt)
         return State.AutoInteract_Books
     end
 
-    -- General Items / Pickups (Lighter, Flashlight, Crucifix, Bandage, etc.):
-    if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("obtain") then
+    -- General Items / Pickups (Lighter, Flashlight, Crucifix, Bandage, Battery, Vitamins, Shears, etc.):
+    if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("obtain") or act:find("heal") or act:find("consume") or act:find("use") or act:find("equip") or act:find("claim") or act:find("harvest")
+        or obj:find("bandage") or obj:find("battery") or obj:find("lighter") or obj:find("flashlight") or obj:find("crucifix") or obj:find("candle") or obj:find("vitamin") or obj:find("shears") or obj:find("gummy") or obj:find("shake") or obj:find("pack") or obj:find("bulk") or obj:find("lockpick") or obj:find("skeleton") or obj:find("herb") or obj:find("plant") or obj:find("barrel") or obj:find("fuse") or obj:find("wrench") or obj:find("anchor") or obj:find("scanner") or obj:find("laser") then
         return State.AutoInteract_Items
     end
 
