@@ -98,6 +98,20 @@ local State = {
     WalkSpeed_Value = 45,
     AntiRubberband = true,
 
+    -- Main / Interactions
+    Instant_Interact = false,
+    Noclip_Interact = false,
+    Range_Interact = false,
+    Interact_MaxRange = 22,
+    Auto_Interact = false,
+    AutoInteract_Gold = true,
+    AutoInteract_Items = true,
+    AutoInteract_Keys = true,
+    AutoInteract_Books = true,
+    AutoInteract_Drawers = true,
+    AutoInteract_Doors = true,
+    AutoInteract_Levers = true,
+
     -- Visuals / ESP
     Master_ESP = true,
     Doors_ESP = true,
@@ -441,20 +455,14 @@ local function processDoor(room, doorModel)
         color = Color3.fromRGB(0, 215, 255)
     end
 
-    -- Precision Highlight: Collect ALL visible door leaves and lock parts (handles both single & double doors, excludes invisible hitboxes!)
+    -- Precision Highlight: Collect ALL visible door components (leaves, nested brass plates, knobs, signs, locks)
     local highlightParts = {}
-    for _, child in ipairs(doorModel:GetChildren()) do
-        if child:IsA("BasePart") then
-            local cName = child.Name:lower()
+    for _, desc in ipairs(doorModel:GetDescendants()) do
+        if desc:IsA("BasePart") then
+            local cName = desc.Name:lower()
             -- Exclude invisible collision boxes and triggers (FigureCollision, Collision, Hidden, Hinge)
-            if child.Transparency < 0.9 and not cName:find("collision") and not cName:find("hidden") and not cName:find("hinge") then
-                table.insert(highlightParts, child)
-            end
-        elseif child:IsA("Model") and (child.Name == "Lock" or child.Name == "Padlock") then
-            for _, sub in ipairs(child:GetChildren()) do
-                if sub:IsA("BasePart") and sub.Transparency < 0.9 then
-                    table.insert(highlightParts, sub)
-                end
+            if desc.Transparency < 0.9 and not cName:find("collision") and not cName:find("hidden") and not cName:find("hinge") then
+                table.insert(highlightParts, desc)
             end
         end
     end
@@ -1597,6 +1605,175 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 end)
 
 -- =========================================================================
+-- Interaction Engine (Instant Interact, Noclip Interact, Range Interact, Auto Interact)
+-- =========================================================================
+local function applyPromptModifications(prompt)
+    if not prompt or not prompt:IsA("ProximityPrompt") then return end
+
+    if not prompt:GetAttribute("OrigHold") then
+        prompt:SetAttribute("OrigHold", prompt.HoldDuration)
+    end
+    if not prompt:GetAttribute("OrigLOS") then
+        prompt:SetAttribute("OrigLOS", prompt.RequiresLineOfSight)
+    end
+    if not prompt:GetAttribute("OrigMaxDist") then
+        prompt:SetAttribute("OrigMaxDist", prompt.MaxActivationDistance)
+    end
+
+    if State.Instant_Interact then
+        prompt.HoldDuration = 0
+    else
+        local orig = prompt:GetAttribute("OrigHold")
+        if orig ~= nil then prompt.HoldDuration = orig end
+    end
+
+    if State.Noclip_Interact then
+        prompt.RequiresLineOfSight = false
+    else
+        local orig = prompt:GetAttribute("OrigLOS")
+        if orig ~= nil then prompt.RequiresLineOfSight = orig end
+    end
+
+    if State.Range_Interact then
+        prompt.MaxActivationDistance = State.Interact_MaxRange
+    else
+        local orig = prompt:GetAttribute("OrigMaxDist")
+        if orig ~= nil then prompt.MaxActivationDistance = orig end
+    end
+end
+
+local function refreshAllPrompts()
+    for _, desc in ipairs(Workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") then
+            pcall(function() applyPromptModifications(desc) end)
+        end
+    end
+end
+
+-- Hook new prompts dynamically
+Workspace.DescendantAdded:Connect(function(desc)
+    if desc:IsA("ProximityPrompt") then
+        task.wait(0.05)
+        pcall(function() applyPromptModifications(desc) end)
+    end
+end)
+
+local function isPromptSafeToAutoInteract(prompt)
+    if not prompt or not prompt.Enabled or not prompt.Parent then return false end
+
+    local parent = prompt.Parent
+    local model = parent:IsA("Model") and parent or parent.Parent
+    local mName = model and model.Name:lower() or ""
+    local pName = parent.Name:lower()
+    local act = (prompt.ActionText or ""):lower()
+    local obj = (prompt.ObjectText or ""):lower()
+
+    -- 1. ABSOLUTE EXCLUSIONS (Never auto-interact with dangerous or decorative objects)
+    -- Hiding spots (Wardrobes, Closets, Lockers, Beds)
+    if act:find("hide") or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or mName:find("closet") or mName:find("wardrobe") or mName:find("locker") or mName:find("bed") then
+        return false
+    end
+
+    -- Paintings, pictures, canvases, frames, portraits, decor
+    if pName:find("paint") or pName:find("canvas") or pName:find("frame") or pName:find("picture") or pName:find("portrait")
+        or mName:find("paint") or mName:find("canvas") or mName:find("frame") or mName:find("picture") or mName:find("portrait")
+        or obj:find("paint") or obj:find("picture") or obj:find("canvas") or obj:find("frame") or obj:find("portrait") then
+        return false
+    end
+
+    -- Fake Doors / Dupe
+    if mName:find("fake") or mName:find("dupe") or pName:find("fake") or pName:find("dupe")
+        or (model and (model:GetAttribute("Fake") or model:GetAttribute("DupeRoom"))) then
+        return false
+    end
+
+    -- Decorative noise / Bells / Lights
+    if act == "inspect" or act == "examine" or obj:find("bell") or obj:find("lamp") or obj:find("light") or pName:find("light") then
+        return false
+    end
+
+    -- 2. USER FILTER CHECKS
+    -- Doors:
+    if mName == "door" or pName == "door" or obj:find("door") or act:find("open door") then
+        if not State.AutoInteract_Doors then return false end
+        if model and model:GetAttribute("Locked") and not State.AutoInteract_Keys then
+            return false
+        end
+        return true
+    end
+
+    -- Drawers, Desks, Dressers:
+    if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") then
+        return State.AutoInteract_Drawers
+    end
+
+    -- Gold / Coins:
+    if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") or pName:find("gold") or mName:find("gold") then
+        return State.AutoInteract_Gold
+    end
+
+    -- Keys:
+    if obj:find("key") or act:find("unlock") or pName:find("key") or mName:find("key") or (model and model:GetAttribute("IsKey")) then
+        return State.AutoInteract_Keys
+    end
+
+    -- Levers:
+    if obj:find("lever") or act:find("pull") or pName:find("lever") or mName:find("lever") then
+        return State.AutoInteract_Levers
+    end
+
+    -- Books & Breakers:
+    if pName:find("book") or mName:find("book") or pName:find("breaker") or mName:find("breaker") or obj:find("book") or obj:find("breaker") or obj:find("paper") or pName:find("paper") then
+        return State.AutoInteract_Books
+    end
+
+    -- General Items / Pickups (Lighter, Flashlight, Crucifix, Bandage, etc.):
+    if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("obtain") then
+        return State.AutoInteract_Items
+    end
+
+    return false
+end
+
+-- Auto Interact Worker Thread
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Auto_Interact then
+            local root = getRoot()
+            if root then
+                local rootPos = root.Position
+                local maxDist = State.Range_Interact and State.Interact_MaxRange or 12
+                local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+                local searchContainers = currentRooms and { currentRooms, Workspace:FindFirstChild("Drops") } or { Workspace }
+
+                for _, container in ipairs(searchContainers) do
+                    if container then
+                        for _, prompt in ipairs(container:GetDescendants()) do
+                            if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Parent then
+                                local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart")
+                                if pPart then
+                                    local dist = (rootPos - pPart.Position).Magnitude
+                                    if dist <= maxDist then
+                                        if isPromptSafeToAutoInteract(prompt) then
+                                            pcall(function()
+                                                fireproximityprompt(prompt, 0)
+                                            end)
+                                            task.wait(0.04)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.12)
+    end
+end)
+
+-- =========================================================================
 -- UI Tabs
 -- =========================================================================
 
@@ -1714,6 +1891,68 @@ Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", fu
             Hub.Notify("Speed Test Result", string.format("✅ Success! Out: %.1fm | Back: %.1fm | Rollback: 0%%", movedForward, movedBack), 4)
         end
     end)
+end)
+
+Hub.CreateSection(mainTab, "🖐️ Interaction Power")
+
+Hub.CreateToggle(mainTab, "Instant Interact (0s Hold)", State.Instant_Interact, function(v)
+    State.Instant_Interact = v
+    refreshAllPrompts()
+    Hub.Notify("Interaction", v and "Instant Interact: ON (Hold duration = 0s)" or "Instant Interact: OFF", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Noclip Interact (Through Walls)", State.Noclip_Interact, function(v)
+    State.Noclip_Interact = v
+    refreshAllPrompts()
+    Hub.Notify("Interaction", v and "Noclip Interact: ON (No line of sight needed)" or "Noclip Interact: OFF", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Range Interact (Extended Reach)", State.Range_Interact, function(v)
+    State.Range_Interact = v
+    refreshAllPrompts()
+    Hub.Notify("Interaction", v and string.format("Range Interact: ON (%d studs safe max)", State.Interact_MaxRange) or "Range Interact: OFF", 2)
+end)
+
+Hub.CreateSlider(mainTab, "Max Interact Range", 10, 25, State.Interact_MaxRange, " studs", function(v)
+    State.Interact_MaxRange = v
+    if State.Range_Interact then
+        refreshAllPrompts()
+    end
+end)
+
+Hub.CreateSection(mainTab, "🤖 Auto Interact (Safe Exclude List)")
+
+Hub.CreateToggle(mainTab, "Auto Interact Master", State.Auto_Interact, function(v)
+    State.Auto_Interact = v
+    Hub.Notify("Auto Interact", v and "Auto Interact: ACTIVE (Decor & Dupe excluded)" or "Auto Interact: OFF", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Auto Loot Gold & Coins", State.AutoInteract_Gold, function(v)
+    State.AutoInteract_Gold = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Grab Items", State.AutoInteract_Items, function(v)
+    State.AutoInteract_Items = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Grab Keys", State.AutoInteract_Keys, function(v)
+    State.AutoInteract_Keys = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Books & Breakers", State.AutoInteract_Books, function(v)
+    State.AutoInteract_Books = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Open Drawers & Desks", State.AutoInteract_Drawers, function(v)
+    State.AutoInteract_Drawers = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Open Normal Doors", State.AutoInteract_Doors, function(v)
+    State.AutoInteract_Doors = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Pull Levers", State.AutoInteract_Levers, function(v)
+    State.AutoInteract_Levers = v
 end)
 
 -- Tab 2: ESP TAB
