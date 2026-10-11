@@ -1413,6 +1413,9 @@ local function isPlayerHiding(char, mgTable)
     return false
 end
 
+local syncServerSlide
+local lastSlideSyncTime = 0
+
 -- Pre-hook ProximityPrompts for hiding spots to instantly prime grace window
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
@@ -1426,15 +1429,13 @@ pcall(function()
                 lastForwardCFrame = nil
                 table.clear(trailHistory)
                 wasMoving = false
-                syncServerSlide(false)
+                if syncServerSlide then syncServerSlide(false) end
             end
         end
     end)
 end)
 
-local lastSlideSyncTime = 0
-
-local function syncServerSlide(shouldAuthorize)
+syncServerSlide = function(shouldAuthorize)
     if not crouchRemote then
         pcall(function()
             local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
