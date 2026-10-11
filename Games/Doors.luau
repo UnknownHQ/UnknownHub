@@ -202,13 +202,40 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     return hl
 end
 
-local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset)
+local function getCurrentRoomNumber()
+    local cur = LocalPlayer:GetAttribute("CurrentRoom")
+    if cur ~= nil then return tonumber(cur) end
+    local root = getRoot()
+    if root and Workspace:FindFirstChild("CurrentRooms") then
+        local rootPos = root.Position
+        local closestNum = nil
+        local closestDist = math.huge
+        for _, room in ipairs(Workspace.CurrentRooms:GetChildren()) do
+            local num = tonumber(room.Name)
+            if num then
+                local part = room:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    local d = (part.Position - rootPos).Magnitude
+                    if d < closestDist then
+                        closestDist = d
+                        closestNum = num
+                    end
+                end
+            end
+        end
+        return closestNum
+    end
+    return nil
+end
+
+local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber, extraVisuals)
     if not State.Master_ESP then return end
     if not adorneePart then return end
 
     -- Anti-flicker guard: if already registered, do NOT destroy and recreate visuals
     local existing = activeEspRecords[owner]
     if existing and existing.Adornee == adorneePart and existing.Category == category then
+        if roomNumber then existing.RoomNumber = roomNumber end
         if existing.BaseText ~= baseText or existing.Color ~= color then
             existing.BaseText = baseText
             existing.Color = color
@@ -220,6 +247,17 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
                     existing.Label.Text = string.format("%s [%dm]", baseText, dist)
                 else
                     existing.Label.Text = baseText
+                end
+            end
+            -- Synchronize Highlight & Adornment colors immediately (Fixes orange highlight with blue text)
+            if existing.Visuals then
+                for _, vis in ipairs(existing.Visuals) do
+                    if vis:IsA("Highlight") then
+                        vis.FillColor = color
+                        vis.OutlineColor = color
+                    elseif vis:IsA("SphereHandleAdornment") then
+                        vis.Color3 = color
+                    end
                 end
             end
         end
@@ -249,6 +287,13 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         end
     end
 
+    -- 3. Extra visuals (e.g. 3D SphereHandleAdornment for 2D monsters)
+    if extraVisuals and type(extraVisuals) == "table" then
+        for _, v in ipairs(extraVisuals) do
+            table.insert(visuals, v)
+        end
+    end
+
     activeEspRecords[owner] = {
         Owner = owner,
         Adornee = adorneePart,
@@ -256,7 +301,8 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         Color = color,
         Category = category,
         Label = label,
-        Visuals = visuals
+        Visuals = visuals,
+        RoomNumber = roomNumber
     }
 
     -- Auto-cleanup on destroy
@@ -267,19 +313,35 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     end)
 end
 
--- Distance Update Loop (Runs every 0.15s, smoothly updates label text without flickering)
+-- Continuous Room & Distance Update Loop (0.15s)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
-        if State.Master_ESP and State.Show_Distance then
+        if State.Master_ESP then
             local root = getRoot()
-            if root then
-                local rootPos = root.Position
-                for _, record in pairs(activeEspRecords) do
-                    if record.Label and record.Adornee and record.Adornee.Parent then
-                        local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
-                        record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
+            local rootPos = root and root.Position or nil
+            local curRoom = getCurrentRoomNumber()
+
+            for _, record in pairs(activeEspRecords) do
+                -- 1. Room Visibility Filter (ONLY applies to Doors and Closets/Beds as requested!)
+                if record.Category == "Doors" or record.Category == "HidingSpots" then
+                    local shouldShow = true
+                    if curRoom and record.RoomNumber then
+                        shouldShow = (record.RoomNumber == curRoom)
                     end
+                    if record.Visuals then
+                        for _, vis in ipairs(record.Visuals) do
+                            if vis:IsA("BillboardGui") or vis:IsA("Highlight") or vis:IsA("SphereHandleAdornment") then
+                                vis.Enabled = shouldShow
+                            end
+                        end
+                    end
+                end
+
+                -- 2. Distance Text Update
+                if State.Show_Distance and rootPos and record.Label and record.Adornee and record.Adornee.Parent then
+                    local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
+                    record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
                 end
             end
         end
@@ -288,17 +350,29 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- =========================================================================
 -- Precision Scanners (Doors, Keys, Items, Books, Breakers, Monsters)
 -- =========================================================================
 
 -- 1. Precision Door Scanner (Highlights clean door leaf & verified padlock only)
 local function processDoor(room, doorModel)
-    if not doorModel or not doorModel:IsA("Model") then return end
+    if not doorModel then return end
     if not State.Doors_ESP then
         removeEspFor(doorModel)
         return
     end
+
+    local roomNumber = tonumber(room.Name)
+
+    -- Case 1: Standalone dupeDoor BasePart / MeshPart
+    if doorModel:IsA("BasePart") then
+        local doorMesh = doorModel
+        local baseText = "Dupe Door"
+        local color = Color3.fromRGB(255, 35, 35)
+        registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNumber)
+        return
+    end
+
+    if not doorModel:IsA("Model") then return end
 
     local dName = doorModel.Name:lower()
     -- Filter out decorative blocked doors with wooden planks across them
@@ -312,7 +386,7 @@ local function processDoor(room, doorModel)
         return
     end
 
-    -- Real playable DOORS exit doors must have 'Door' MeshPart and opening functionality
+    -- Real playable DOORS exit doors must have 'Door' MeshPart
     local doorMesh = doorModel:FindFirstChild("Door")
     if not doorMesh or not doorMesh:IsA("BasePart") then
         doorMesh = doorModel:FindFirstChildWhichIsA("MeshPart") or doorModel:FindFirstChildWhichIsA("BasePart")
@@ -320,13 +394,13 @@ local function processDoor(room, doorModel)
     if not doorMesh then return end
 
     -- Verify door has real interactable open components (excludes fake room decor doors)
-    if not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint")) then
+    local isFake = doorModel.Name == "DoorFake" or dName:find("fake") or (doorModel.Parent and doorModel.Parent.Name:lower():find("dupe"))
+    if not isFake and not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint")) then
         removeEspFor(doorModel)
         return
     end
 
     -- Precision Lock Detection:
-    -- In DOORS, a door is locked IF AND ONLY IF there is an active padlock with an enabled prompt, or Locked attribute
     local isLocked = false
     local lock = doorModel:FindFirstChild("Lock")
     if lock then
@@ -340,10 +414,7 @@ local function processDoor(room, doorModel)
     end
 
     -- Check for Dupe (Fake Door)
-    local isDupe = false
-    if doorModel:GetAttribute("DupeRoom") or doorModel:GetAttribute("Fake") or dName:find("fake") then
-        isDupe = true
-    end
+    local isDupe = isFake or doorModel:GetAttribute("DupeRoom") or doorModel:GetAttribute("Fake") or dName:find("fake") or dName:find("dupe")
 
     local signPart = doorModel:FindFirstChild("Sign")
     local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
@@ -370,8 +441,13 @@ local function processDoor(room, doorModel)
         color = Color3.fromRGB(0, 215, 255)
     end
 
-    -- Highlight unified door model cleanly (Full door leaf + padlock, no internal panel stencil gaps)
-    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorModel, Vector3.new(0, 1.2, 0))
+    -- Precision Highlight: Highlight ONLY the actual door mesh (doorMesh), NEVER doorModel (which includes invisible Collision / Hidden hitboxes!)
+    local highlightParts = { doorMesh }
+    if isLocked and lock and lock:IsA("BasePart") then
+        table.insert(highlightParts, lock)
+    end
+
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", highlightParts, Vector3.new(0, 1.2, 0), roomNumber)
 
     -- Lifecycle listener: automatically update if lock is removed or room scripts finish loading
     if not doorModel:GetAttribute("ESP_Hooked") then
@@ -503,7 +579,7 @@ local function isValidLootItem(model)
         end
     end
 
-    if lower:find("keyobtain") or lower:find("goldpile") or lower:find("door") or lower:find("lever") then
+    if lower:find("keyobtain") or lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever") then
         return false, nil
     end
 
@@ -528,6 +604,11 @@ local function isValidLootItem(model)
     end
 
     local promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
+
+    -- Guarantee Gold / Coins are strictly handled by processGold ONLY
+    if promptObjectName:find("gold") or promptObjectName:find("coin") or action:find("gold") or action:find("coin") then
+        return false, nil
+    end
 
     -- Priority 1: Check if prompt explicitly indicates Candle or Crucifix (Fixes Candle displaying as Crucifix)
     if promptObjectName:find("candle") or lower:find("candle") then
@@ -632,7 +713,7 @@ local function processBreaker(room, breakerInstance)
     end
 end
 
--- 6. Precision Hiding Spot Scanner (Wardrobes, Closets, Lockers, Beds with active Hide prompt)
+-- 6. Precision Hiding Spot Scanner (Wardrobes, Closets, Lockers, Beds with active Hide prompt - Room Restricted!)
 local function processHidingSpot(hidingModel)
     if not hidingModel or not hidingModel:IsA("Model") then return end
     if not State.HidingSpots_ESP then
@@ -663,7 +744,20 @@ local function processHidingSpot(hidingModel)
             if targetPart then
                 local baseText = hName
                 local color = Color3.fromRGB(110, 195, 255)
-                registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0))
+
+                -- Find room number of this hiding spot
+                local roomNumber = nil
+                local cur = hidingModel.Parent
+                while cur and cur ~= Workspace and cur ~= Workspace:FindFirstChild("CurrentRooms") do
+                    if tonumber(cur.Name) then
+                        roomNumber = tonumber(cur.Name)
+                        break
+                    end
+                    cur = cur.Parent
+                end
+
+                local highlightParts = { targetPart }
+                registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", highlightParts, Vector3.new(0, 2.5, 0), roomNumber)
             end
         end
     end
@@ -677,17 +771,22 @@ local function processGold(goldInstance)
         return
     end
 
+    if goldInstance:IsA("ProximityPrompt") then
+        goldInstance = goldInstance.Parent
+    end
+    if not goldInstance then return end
+
     -- Normalize owner to avoid duplicate ESP on both Model and child BasePart
     local owner = goldInstance
-    if owner:IsA("BasePart") and owner.Parent and owner.Parent:IsA("Model") then
+    if owner:IsA("BasePart") and owner.Parent and (owner.Parent:IsA("Model") or owner.Parent:IsA("Folder")) then
         local pName = owner.Parent.Name:lower()
-        if pName == "goldpile" or pName:find("^gold") or pName:find("coin") then
+        if pName:find("gold") or pName:find("coin") then
             owner = owner.Parent
         end
     end
 
     local gName = owner.Name:lower()
-    local isGold = gName == "goldpile" or gName:find("^gold") or gName:find("coin")
+    local isGold = gName == "goldpile" or gName:find("gold") or gName:find("coin")
 
     local prompt = owner:FindFirstChildWhichIsA("ProximityPrompt", true)
     local displayName = "Gold"
@@ -736,9 +835,6 @@ local ENTITY_REGISTRY = {
     ["grumblerig"]     = { Name = "Grumble",            Color = ENTITY_RED },
     ["snare"]          = { Name = "Snare Trap",         Color = ENTITY_RED },
     ["glitch"]         = { Name = "Glitch",             Color = ENTITY_RED },
-    ["dupe"]           = { Name = "Dupe",               Color = ENTITY_RED },
-    ["doorfake"]       = { Name = "Dupe",               Color = ENTITY_RED },
-    ["sideroomdupe"]   = { Name = "Dupe",               Color = ENTITY_RED },
     ["dread"]          = { Name = "Dread",              Color = ENTITY_RED },
     ["timothy"]        = { Name = "Timothy",            Color = ENTITY_RED },
     ["spider"]         = { Name = "Timothy",            Color = ENTITY_RED },
@@ -763,18 +859,16 @@ local function processEntity(entity)
     if entity:IsA("Model") and Players:GetPlayerFromCharacter(entity) then return end
     if eLower:find("bob") or eLower:find("elgoblino") or (eLower:find("jeff") and not eLower:find("killer")) then return end
 
-    -- Check if inside Dupe room or Dupe entity
-    local isDupe = eLower:find("dupe") or eLower:find("doorfake") or (entity.Parent and entity.Parent.Name:lower():find("dupe"))
-    local cfg = nil
+    -- Strictly ignore Dupe & SideroomDupe in entity scanner (Dupe is ONLY shown as a Door!)
+    if eLower:find("dupe") or eLower:find("doorfake") or (entity.Parent and entity.Parent.Name:lower():find("dupe")) or eLower:find("sideroom") then
+        return
+    end
 
-    if isDupe then
-        cfg = { Name = "Dupe", Color = ENTITY_RED }
-    else
-        for key, info in pairs(ENTITY_REGISTRY) do
-            if eLower == key or eLower:find(key) then
-                cfg = info
-                break
-            end
+    local cfg = nil
+    for key, info in pairs(ENTITY_REGISTRY) do
+        if eLower == key or eLower:find(key) then
+            cfg = info
+            break
         end
     end
 
@@ -784,18 +878,40 @@ local function processEntity(entity)
 
         if targetPart then
             local highlightTarget = entity
+            local extraVisuals = {}
 
-            -- For 2D entities without a multi-part 3D rig (like nextbots, A-60, A-90, Rush sprites), attach a clean rounded neon sphere
-            local is2D = entity:IsA("BasePart") or (entity:IsA("Model") and not entity:FindFirstChildWhichIsA("Humanoid") and #entity:GetChildren() <= 3)
+            -- Check if 2D sprite entity, flat nextbot, or Rush/Ambush node
+            local is2D = entity:IsA("BasePart")
+                or (entity:FindFirstChildWhichIsA("BillboardGui", true) ~= nil)
+                or eLower:find("a60") or eLower:find("a-60")
+                or eLower:find("a90") or eLower:find("a-90")
+                or eLower:find("a120") or eLower:find("a-120")
+                or eLower:find("nextbot") or eLower:find("rush")
+                or eLower:find("ambush") or eLower:find("glitch")
+                or (not entity:FindFirstChildWhichIsA("Humanoid") and not entity:FindFirstChildWhichIsA("MeshPart"))
+
             if is2D then
+                -- 1. SphereHandleAdornment: Guaranteed 3D rounded sphere that tracks targetPart in real time ALWAYS THROUGH WALLS!
+                local adorn = Instance.new("SphereHandleAdornment")
+                adorn.Name = "Unknown_EntitySphereAdorn"
+                adorn.Radius = 4.0
+                adorn.Color3 = ENTITY_RED
+                adorn.AlwaysOnTop = true
+                adorn.Transparency = 0.4
+                adorn.ZIndex = 10
+                adorn.Adornee = targetPart
+                adorn.Parent = (gethui and gethui()) or CoreGui
+                table.insert(extraVisuals, adorn)
+
+                -- 2. Physical Neon Ball welded to targetPart
                 local sphere = entity:FindFirstChild("Unknown_EntitySphere")
                 if not sphere or not sphere:IsA("BasePart") then
                     sphere = Instance.new("Part")
                     sphere.Name = "Unknown_EntitySphere"
                     sphere.Shape = Enum.PartType.Ball
-                    sphere.Size = Vector3.new(3.5, 3.5, 3.5)
+                    sphere.Size = Vector3.new(4, 4, 4)
                     sphere.CFrame = targetPart.CFrame
-                    sphere.Transparency = 0.55
+                    sphere.Transparency = 0.4
                     sphere.Color = ENTITY_RED
                     sphere.Material = Enum.Material.Neon
                     sphere.CanCollide = false
@@ -813,7 +929,7 @@ local function processEntity(entity)
             end
 
             local baseText = cfg.Name
-            registerEsp(entity, targetPart, baseText, ENTITY_RED, "Entities", highlightTarget, Vector3.new(0, 3.0, 0))
+            registerEsp(entity, targetPart, baseText, ENTITY_RED, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, extraVisuals)
         end
     end
 end
@@ -826,12 +942,26 @@ local function scanSingleRoom(room)
     local door = room:FindFirstChild("Door")
     if door then processDoor(room, door) end
 
+    -- 1b. Scan Dupe fake door in SideroomDupe
+    local sideDupe = room:FindFirstChild("SideroomDupe")
+    if sideDupe then
+        local fakeDoor = sideDupe:FindFirstChild("DoorFake")
+        if fakeDoor then
+            processDoor(room, fakeDoor)
+        end
+    end
+
     -- 2. Scan Room Descendants
     for _, desc in ipairs(room:GetDescendants()) do
         local dName = desc.Name:lower()
 
+        -- Skip internal Dupe sideroom decorations/models (only DoorFake is tracked as a door)
+        if desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake" then
+            continue
+        end
+
         if desc:IsA("Model") or desc:IsA("Tool") then
-            if desc.Name == "Door" then
+            if desc.Name == "Door" or desc.Name == "DoorFake" then
                 processDoor(room, desc)
             elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
                 processKey(desc)
@@ -839,22 +969,26 @@ local function scanSingleRoom(room)
                 processLever(desc)
             elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
                 processHidingSpot(desc)
-            elseif dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
+            elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                 processGold(desc)
             else
                 processItem(desc)
                 processEntity(desc)
             end
         elseif desc:IsA("BasePart") then
-            local p = desc.Parent
-            local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
-            if not isParentGold then
-                if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
-                    processGold(desc)
+            if desc.Name == "dupeDoor" then
+                processDoor(room, desc)
+            else
+                local p = desc.Parent
+                local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
+                if not isParentGold then
+                    if dName == "goldpile" or dName:find("gold") or dName:find("coin") then
+                        processGold(desc)
+                    end
                 end
-            end
-            if dName:find("lever") then
-                processLever(desc)
+                if dName:find("lever") then
+                    processLever(desc)
+                end
             end
         elseif desc:IsA("ProximityPrompt") then
             local obj = (desc.ObjectText or ""):lower()
@@ -935,29 +1069,40 @@ pcall(function()
             newRoom.DescendantAdded:Connect(function(desc)
                 task.wait(0.05)
                 local dName = desc.Name:lower()
+
+                if desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake" then
+                    return
+                end
+
                 if desc:IsA("Model") or desc:IsA("Tool") then
-                    if desc.Name == "Door" then
+                    if desc.Name == "Door" or desc.Name == "DoorFake" then
                         processDoor(newRoom, desc)
                     elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
                         processKey(desc)
                     elseif dName:find("lever") then
                         processLever(desc)
-                    elseif dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
+                    elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
+                        processHidingSpot(desc)
+                    elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                         processGold(desc)
                     else
                         processItem(desc)
                         if State.Entities_ESP then processEntity(desc) end
                     end
                 elseif desc:IsA("BasePart") then
-                    local p = desc.Parent
-                    local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
-                    if not isParentGold then
-                        if dName == "goldpile" or dName:find("^gold") or dName:find("coin") then
-                            processGold(desc)
+                    if desc.Name == "dupeDoor" then
+                        processDoor(newRoom, desc)
+                    else
+                        local p = desc.Parent
+                        local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
+                        if not isParentGold then
+                            if dName == "goldpile" or dName:find("gold") or dName:find("coin") then
+                                processGold(desc)
+                            end
                         end
-                    end
-                    if dName:find("lever") then
-                        processLever(desc)
+                        if dName:find("lever") then
+                            processLever(desc)
+                        end
                     end
                 elseif desc:IsA("ProximityPrompt") then
                     local obj = (desc.ObjectText or ""):lower()
