@@ -39,9 +39,9 @@ local function destroyOldGui()
     if pGui then table.insert(parents, pGui) end
     for _, parent in ipairs(parents) do
         if parent then
-            for _, child in ipairs(parent:GetChildren()) do
-                if child.Name == LIBRARY_NAME or child.Name:find("Unknown_ESP") then
-                    pcall(function() child:Destroy() end)
+            for _, desc in ipairs(parent:GetDescendants()) do
+                if desc.Name == LIBRARY_NAME or desc.Name:find("Unknown_ESP") then
+                    pcall(function() desc:Destroy() end)
                 end
             end
         end
