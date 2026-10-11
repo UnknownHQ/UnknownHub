@@ -2419,5 +2419,15 @@ Hub.CreateButton(espTab, "🔄 Refresh All ESP Now", function()
 end)
 
 -- Initial Startup Scan
+pcall(function()
+    local rooms = Workspace:FindFirstChild("CurrentRooms")
+    if rooms then
+        for _, desc in ipairs(rooms:GetDescendants()) do
+            if desc:IsA("BasePart") and not desc.Name:lower():find("snare") and not desc.CanTouch then
+                desc.CanTouch = true
+            end
+        end
+    end
+end)
 scanAllRooms()
 Hub.Notify("UNKNOWN HUB", "DOORS Precision ESP Loaded! 👁️", 4)
