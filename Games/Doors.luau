@@ -1157,9 +1157,11 @@ end
 if Camera then
     Camera.ChildAdded:Connect(function(child)
         task.wait(0.05)
-        if State.Entities_ESP then
-            processEntity(child)
-        end
+        pcall(function()
+            if State.Entities_ESP and child and child.Parent then
+                processEntity(child)
+            end
+        end)
     end)
 end
 
@@ -1170,11 +1172,11 @@ task.spawn(function()
         if State.Master_ESP then
             if State.Entities_ESP then
                 for _, child in ipairs(Workspace:GetChildren()) do
-                    processEntity(child)
+                    pcall(function() processEntity(child) end)
                 end
                 if Camera then
                     for _, child in ipairs(Camera:GetChildren()) do
-                        processEntity(child)
+                        pcall(function() processEntity(child) end)
                     end
                 end
             end
