@@ -845,6 +845,56 @@ local stopGraceUntil = 0
 local settledCFrame = nil
 local settledPos = nil
 
+-- DOORS Server Slide Authorization Engine
+-- Informs the server anti-cheat that high speed is legitimate without overriding client crouch input
+local crouchRemote = nil
+local isServerSlideActive = false
+local lastSentCrouchState = false
+
+local function getMainGameTable()
+    local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+    local mg = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game")
+    if mg then
+        local s, res = pcall(require, mg)
+        if s and type(res) == "table" then
+            return res
+        end
+    end
+    return nil
+end
+
+local function syncServerSlide(shouldSlide)
+    if not crouchRemote then
+        pcall(function()
+            local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+            crouchRemote = rf and rf:FindFirstChild("Crouch")
+        end)
+    end
+    if not crouchRemote then return end
+
+    local char = getChar()
+    local mgTable = getMainGameTable()
+    local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+
+    if shouldSlide then
+        if not isServerSlideActive or isCrouching ~= lastSentCrouchState then
+            isServerSlideActive = true
+            lastSentCrouchState = isCrouching
+            pcall(function()
+                crouchRemote:FireServer(isCrouching, true)
+            end)
+        end
+    else
+        if isServerSlideActive then
+            isServerSlideActive = false
+            lastSentCrouchState = isCrouching
+            pcall(function()
+                crouchRemote:FireServer(isCrouching, false)
+            end)
+        end
+    end
+end
+
 local wallRayParams = RaycastParams.new()
 wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
 wallRayParams.RespectCanCollide = true
@@ -860,6 +910,7 @@ RunService.RenderStepped:Connect(function(dt)
         isBraking = false
         stopGraceUntil = 0
         table.clear(trailHistory)
+        syncServerSlide(false)
         return 
     end
 
@@ -880,7 +931,8 @@ RunService.RenderStepped:Connect(function(dt)
     local now = os.clock()
 
     if isMoving then
-        -- Active movement state
+        -- Active movement state: authorize high speed with server
+        syncServerSlide(true)
         wasMoving = true
         isBraking = false
         stopGraceUntil = 0
@@ -996,6 +1048,7 @@ RunService.RenderStepped:Connect(function(dt)
                 settledCFrame = root.CFrame
                 settledPos = root.Position
                 stopGraceUntil = now + 1.2
+                syncServerSlide(false)
             end
         end
 
@@ -1080,6 +1133,7 @@ Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function
     State.WalkSpeed_Enabled = v
     local char = getChar()
     if not v then
+        syncServerSlide(false)
         restoreDefaultFriction(char)
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum then hum.WalkSpeed = 15 end
