@@ -269,6 +269,18 @@ local function getObjectRoom(instance)
     return nil, nil
 end
 
+local function getMainGameTable()
+    local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+    local mg = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game")
+    if mg then
+        local s, res = pcall(require, mg)
+        if s and type(res) == "table" then
+            return res
+        end
+    end
+    return nil
+end
+
 local lastKnownPlayerRoom = nil
 
 local function getCurrentRoomNumber()
@@ -1447,18 +1459,6 @@ local isServerSlideActive = false
 local lastSentCrouchState = nil
 local unhideGraceUntil = 0
 local wasHidingState = false
-
-local function getMainGameTable()
-    local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-    local mg = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game")
-    if mg then
-        local s, res = pcall(require, mg)
-        if s and type(res) == "table" then
-            return res
-        end
-    end
-    return nil
-end
 
 local function isPlayerHiding(char, mgTable)
     if not char then return false end
