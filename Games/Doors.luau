@@ -112,6 +112,27 @@ local State = {
     AutoInteract_Doors = true,
     AutoInteract_Levers = true,
 
+    -- Auto Interact Dynamic Exclude List & Custom Keywords
+    AutoInteract_Excludes = {
+        ["Paintings & Pictures"] = true,
+        ["Fake Doors (Dupe)"] = true,
+        ["Wall Clocks & Bells"] = true,
+        ["Light Switches & Lamps"] = true,
+        ["Normal Exit Doors"] = false,
+        ["Side Room Doors"] = false,
+        ["Drawers & Desks"] = false,
+        ["Gold & Coins"] = false,
+        ["Keys & Skeleton Keys"] = false,
+        ["Levers & Breakers"] = false,
+        ["Books & Papers"] = false,
+        ["Crucifix & Defense Items"] = false,
+        ["Lighters & Flashlights"] = false,
+        ["Health & Bandages"] = false,
+        ["Lockpicks & Shears"] = false,
+        ["Glitch Fragments"] = false,
+    },
+    AutoInteract_CustomKeywords = {},
+
     -- Visuals / ESP
     Master_ESP = true,
     Doors_ESP = true,
@@ -122,6 +143,9 @@ local State = {
     Gold_ESP = false,
     Entities_ESP = true,
     HidingSpots_ESP = false,
+    GlitchFragment_ESP = true,
+    Auto_GetGlitchFragment = false,
+    ESP_Color_GlitchFragment = Color3.fromRGB(245, 50, 255),
     Show_Distance = true,
     Fullbright = true,
 
@@ -1275,6 +1299,145 @@ local function defuseGiggle(giggleModel)
             giggleModel.CanTouch = false
         end
     end)
+-- =========================================================================
+-- Glitch Fragment Engine (ESP & Auto Collection)
+-- =========================================================================
+
+local function isGlitchFragmentInstance(inst)
+    if not inst then return false end
+    local n = inst.Name:lower()
+    return CollectionService:HasTag(inst, "GlitchCube")
+        or n:find("glitchfragment")
+        or n:find("glitch_fragment")
+        or n:find("glitchcube")
+        or (n:find("glitch") and n:find("fragment"))
+        or (n:find("glitch") and n:find("cube"))
+        or n:find("riftfragment")
+        or inst:GetAttribute("GlitchFragment") == true
+        or inst:GetAttribute("IsFragment") == true
+        or (n:find("fragment") and (inst:IsA("Model") or inst:IsA("BasePart")) and not n:find("debug"))
+end
+
+local function collectGlitchFragment(inst)
+    if not inst or not inst.Parent then return false end
+    local root = getRoot()
+    if not root then return false end
+
+    local targetPart = (inst:IsA("Model") and (inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)))
+        or (inst:IsA("BasePart") and inst)
+    if not targetPart then return false end
+
+    -- 1. Check ProximityPrompt
+    local prompt = inst:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt and prompt.Enabled then
+        pcall(function()
+            fireproximityprompt(prompt, 0)
+        end)
+    end
+
+    -- 2. Physical touch interest
+    pcall(function()
+        firetouchinterest(root, targetPart, 0)
+        task.wait(0.04)
+        firetouchinterest(root, targetPart, 1)
+    end)
+
+    return true
+end
+
+local function getGlitchFragmentNow()
+    local root = getRoot()
+    if not root then
+        Hub.Notify("Glitch Fragment", "Character not spawned!", 3)
+        return false
+    end
+
+    local found = nil
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    if currentRooms then
+        for _, desc in ipairs(currentRooms:GetDescendants()) do
+            if isGlitchFragmentInstance(desc) then
+                found = desc
+                break
+            end
+        end
+    end
+
+    if not found then
+        for _, desc in ipairs(Workspace:GetChildren()) do
+            if isGlitchFragmentInstance(desc) then
+                found = desc
+                break
+            end
+        end
+    end
+
+    if not found then
+        local drops = Workspace:FindFirstChild("Drops")
+        if drops then
+            for _, desc in ipairs(drops:GetDescendants()) do
+                if isGlitchFragmentInstance(desc) then
+                    found = desc
+                    break
+                end
+            end
+        end
+    end
+
+    if not found then
+        Hub.Notify("Glitch Fragment", "🔍 No Glitch Fragment currently spawned!", 3)
+        return false
+    end
+
+    local targetPart = (found:IsA("Model") and (found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)))
+        or (found:IsA("BasePart") and found)
+    if not targetPart then return false end
+
+    local oldPos = root.CFrame
+    root.CFrame = targetPart.CFrame + Vector3.new(0, 2, 0)
+    task.wait(0.12)
+    collectGlitchFragment(found)
+    task.wait(0.12)
+    root.CFrame = oldPos
+
+    Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 3)
+    return true
+end
+
+local function processGlitchFragment(inst)
+    if not inst then return end
+    if not isGlitchFragmentInstance(inst) then return end
+    if not State.GlitchFragment_ESP then
+        removeEspFor(inst)
+        return
+    end
+
+    local targetPart = (inst:IsA("Model") and (inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)))
+        or (inst:IsA("BasePart") and inst)
+    if not targetPart then return end
+
+    local color = State.ESP_Color_GlitchFragment or Color3.fromRGB(245, 50, 255)
+    local baseText = "🌀 Glitch Fragment"
+    
+    local extraVisuals = {}
+    local adorn = Instance.new("SphereHandleAdornment")
+    adorn.Name = "Unknown_GlitchSphereAdorn"
+    adorn.Radius = 2.5
+    adorn.Color3 = color
+    adorn.AlwaysOnTop = true
+    adorn.Transparency = 0.35
+    adorn.ZIndex = 12
+    adorn.Adornee = targetPart
+    adorn.Parent = (gethui and gethui()) or CoreGui
+    table.insert(extraVisuals, adorn)
+
+    registerEsp(inst, targetPart, baseText, color, "Items", inst, Vector3.new(0, 1.5, 0), nil, extraVisuals)
+
+    if State.Auto_GetGlitchFragment then
+        task.spawn(function()
+            collectGlitchFragment(inst)
+        end)
+    end
 end
 
 -- Full Room Parser
@@ -1301,6 +1464,10 @@ local function scanSingleRoom(room)
         -- Skip internal Dupe sideroom decorations/models (only DoorFake is tracked as a door)
         if desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake" then
             continue
+        end
+
+        if isGlitchFragmentInstance(desc) then
+            processGlitchFragment(desc)
         end
 
         if desc:IsA("Model") or desc:IsA("Tool") then
@@ -1388,7 +1555,20 @@ local function scanAllRooms()
             if State.Entities_ESP then processEntity(child) end
             if State.Items_ESP then processItem(child) end
         end
+        if isGlitchFragmentInstance(child) then
+            processGlitchFragment(child)
+        end
     end
+
+    local drops = Workspace:FindFirstChild("Drops")
+    if drops then
+        for _, child in ipairs(drops:GetDescendants()) do
+            if isGlitchFragmentInstance(child) then
+                processGlitchFragment(child)
+            end
+        end
+    end
+
     if Camera and State.Entities_ESP then
         for _, child in ipairs(Camera:GetChildren()) do
             processEntity(child)
@@ -1421,6 +1601,10 @@ pcall(function()
 
                 if desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake" then
                     return
+                end
+
+                if isGlitchFragmentInstance(desc) then
+                    processGlitchFragment(desc)
                 end
 
                 if desc:IsA("Model") or desc:IsA("Tool") then
@@ -1996,38 +2180,73 @@ local function isPromptSafeToAutoInteract(prompt)
     local act = (prompt.ActionText or ""):lower()
     local obj = (prompt.ObjectText or ""):lower()
 
-    -- 1. ABSOLUTE EXCLUSIONS (Never auto-interact with dangerous or decorative objects)
-    -- Closing actions (Never close drawers, doors, or containers)
+    -- 0. USER CUSTOM KEYWORD EXCLUSIONS
+    if State.AutoInteract_CustomKeywords then
+        for _, kw in ipairs(State.AutoInteract_CustomKeywords) do
+            if kw and #kw > 0 then
+                local lkw = kw:lower()
+                if pName:find(lkw, 1, true) or mName:find(lkw, 1, true) or obj:find(lkw, 1, true) or act:find(lkw, 1, true) then
+                    return false
+                end
+            end
+        end
+    end
+
+    -- 1. GLITCH FRAGMENTS (Instant Auto Collect Priority)
+    if isGlitchFragmentInstance(model) or isGlitchFragmentInstance(parent) then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Glitch Fragments"] then
+            return false
+        end
+        return true
+    end
+
+    -- 2. HARD SAFETY GUARDS (Never close containers or hide in closets accidentally)
     if act:find("close") then
         return false
     end
 
-    -- Hiding spots (Wardrobes, Closets, Lockers, Beds)
     if act:find("hide") or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or mName:find("closet") or mName:find("wardrobe") or mName:find("locker") or mName:find("bed") then
         return false
     end
 
-    -- Paintings, pictures, canvases, frames, portraits, decor
+    -- 3. CATEGORY EXCLUSION LIST CHECKS
+    -- Paintings & Pictures
     if pName:find("paint") or pName:find("canvas") or pName:find("frame") or pName:find("picture") or pName:find("portrait")
         or mName:find("paint") or mName:find("canvas") or mName:find("frame") or mName:find("picture") or mName:find("portrait")
         or obj:find("paint") or obj:find("picture") or obj:find("canvas") or obj:find("frame") or obj:find("portrait") then
-        return false
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Paintings & Pictures"] ~= false then
+            return false
+        end
     end
 
     -- Fake Doors / Dupe
     if mName:find("fake") or mName:find("dupe") or pName:find("fake") or pName:find("dupe")
         or (model and (model:GetAttribute("Fake") or model:GetAttribute("DupeRoom"))) then
-        return false
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Fake Doors (Dupe)"] ~= false then
+            return false
+        end
     end
 
-    -- Decorative noise / Bells / Lights
-    if act == "inspect" or act == "examine" or obj:find("bell") or obj:find("lamp") or obj:find("light") or pName:find("light") then
-        return false
+    -- Wall Clocks & Bells
+    if obj:find("bell") or act == "ring" or pName:find("bell") or pName:find("clock") or obj:find("clock") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Wall Clocks & Bells"] ~= false then
+            return false
+        end
     end
 
-    -- 2. USER FILTER CHECKS
-    -- Doors:
+    -- Light Switches & Lamps
+    if act == "inspect" or act == "examine" or obj:find("lamp") or obj:find("light") or pName:find("light") or obj:find("switch") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Light Switches & Lamps"] ~= false then
+            return false
+        end
+    end
+
+    -- 4. FUNCTIONAL PROMPT FILTERS
+    -- Normal Exit Doors:
     if mName == "door" or pName == "door" or obj:find("door") or act:find("open door") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Normal Exit Doors"] then
+            return false
+        end
         if not State.AutoInteract_Doors then return false end
         if model and model:GetAttribute("Locked") and not State.AutoInteract_Keys then
             return false
@@ -2035,8 +2254,18 @@ local function isPromptSafeToAutoInteract(prompt)
         return true
     end
 
-    -- Drawers, Desks, Dressers, Cabinets (Strictly unopened/closed containers only):
+    -- Side Room Doors:
+    if (pName:find("sideroom") or mName:find("sideroom") or pName:find("sidedoor") or mName:find("sidedoor")) and (pName:find("door") or mName:find("door")) then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Side Room Doors"] then
+            return false
+        end
+    end
+
+    -- Drawers & Desks (Unopened containers only):
     if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") or obj:find("drawer") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Drawers & Desks"] then
+            return false
+        end
         if not State.AutoInteract_Drawers then return false end
         if act:find("close") then return false end
         local interactions = prompt:GetAttribute("Interactions")
@@ -2049,34 +2278,87 @@ local function isPromptSafeToAutoInteract(prompt)
         return true
     end
 
-    -- Stardust / Starlight Currency & Pickups:
+    -- Stardust & Starlight Pickups:
     if obj:find("stardust") or obj:find("starlight") or obj:find("star") or act:find("stardust") or act:find("starlight") or pName:find("stardust") or pName:find("starlight") or mName:find("stardust") or mName:find("starlight") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Gold & Coins"] then
+            return false
+        end
         return State.AutoInteract_Items or State.AutoInteract_Gold
     end
 
     -- Gold / Coins:
     if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") or pName:find("gold") or mName:find("gold") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Gold & Coins"] then
+            return false
+        end
         return State.AutoInteract_Gold
     end
 
-    -- Keys:
+    -- Keys & Skeleton Keys:
     if obj:find("key") or act:find("unlock") or pName:find("key") or mName:find("key") or (model and model:GetAttribute("IsKey")) then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Keys & Skeleton Keys"] then
+            return false
+        end
         return State.AutoInteract_Keys
     end
 
-    -- Levers:
+    -- Levers & Breakers:
     if obj:find("lever") or act:find("pull") or pName:find("lever") or mName:find("lever") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Levers & Breakers"] then
+            return false
+        end
         return State.AutoInteract_Levers
     end
-
-    -- Books & Breakers:
-    if pName:find("book") or mName:find("book") or pName:find("breaker") or mName:find("breaker") or obj:find("book") or obj:find("breaker") or obj:find("paper") or pName:find("paper") then
+    if pName:find("breaker") or mName:find("breaker") or obj:find("breaker") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Levers & Breakers"] then
+            return false
+        end
         return State.AutoInteract_Books
     end
 
-    -- General Items / Pickups (Lighter, Flashlight, Crucifix, Bandage, Battery, Vitamins, Shears, etc.):
-    if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("obtain") or act:find("heal") or act:find("consume") or act:find("use") or act:find("equip") or act:find("claim") or act:find("harvest")
-        or obj:find("bandage") or obj:find("battery") or obj:find("lighter") or obj:find("flashlight") or obj:find("crucifix") or obj:find("candle") or obj:find("vitamin") or obj:find("shears") or obj:find("gummy") or obj:find("shake") or obj:find("pack") or obj:find("bulk") or obj:find("lockpick") or obj:find("skeleton") or obj:find("herb") or obj:find("plant") or obj:find("barrel") or obj:find("fuse") or obj:find("wrench") or obj:find("anchor") or obj:find("scanner") or obj:find("laser") then
+    -- Books & Papers:
+    if pName:find("book") or mName:find("book") or obj:find("book") or obj:find("paper") or pName:find("paper") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Books & Papers"] then
+            return false
+        end
+        return State.AutoInteract_Books
+    end
+
+    -- Crucifix & Defense Items:
+    if obj:find("crucifix") or obj:find("candle") or pName:find("crucifix") or mName:find("crucifix") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Crucifix & Defense Items"] then
+            return false
+        end
+        return State.AutoInteract_Items
+    end
+
+    -- Lighters & Flashlights:
+    if obj:find("lighter") or obj:find("flashlight") or obj:find("battery") or obj:find("bulk") or pName:find("lighter") or pName:find("flashlight") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Lighters & Flashlights"] then
+            return false
+        end
+        return State.AutoInteract_Items
+    end
+
+    -- Health & Bandages:
+    if obj:find("bandage") or obj:find("vitamin") or obj:find("herb") or obj:find("plant") or act:find("heal") or act:find("consume") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Health & Bandages"] then
+            return false
+        end
+        return State.AutoInteract_Items
+    end
+
+    -- Lockpicks & Shears:
+    if obj:find("lockpick") or obj:find("shears") or obj:find("skeleton") or pName:find("lockpick") or pName:find("shears") then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Lockpicks & Shears"] then
+            return false
+        end
+        return State.AutoInteract_Items
+    end
+
+    -- General Items / Pickups:
+    if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("obtain") or act:find("use") or act:find("equip") or act:find("claim") or act:find("harvest")
+        or obj:find("gummy") or obj:find("shake") or obj:find("pack") or obj:find("barrel") or obj:find("fuse") or obj:find("wrench") or obj:find("anchor") or obj:find("scanner") or obj:find("laser") then
         return State.AutoInteract_Items
     end
 
@@ -2151,7 +2433,7 @@ task.spawn(function()
                     end
 
                     -- 2. Check Side Doors (Touch-based swing open for DoorNormal)
-                    if State.AutoInteract_Doors then
+                    if State.AutoInteract_Doors and not (State.AutoInteract_Excludes and State.AutoInteract_Excludes["Side Room Doors"]) then
                         for _, child in ipairs(container:GetChildren()) do
                             local cName = child.Name:lower()
                             if cName:find("doornormal") or cName:find("sidedoor") then
@@ -2333,7 +2615,69 @@ Hub.CreateSection(mainTab, "🤖 Auto Interact (Safe Exclude List)")
 
 Hub.CreateToggle(mainTab, "Auto Interact Master", State.Auto_Interact, function(v)
     State.Auto_Interact = v
-    Hub.Notify("Auto Interact", v and "Auto Interact: ACTIVE (Decor & Dupe excluded)" or "Auto Interact: OFF", 2)
+    Hub.Notify("Auto Interact", v and "Auto Interact: ACTIVE" or "Auto Interact: OFF", 2)
+end)
+
+local excludeCategories = {
+    { Name = "Paintings & Pictures", Desc = "Wall canvas, portraits & frames" },
+    { Name = "Fake Doors (Dupe)", Desc = "Dupe traps & wrong numbered doors" },
+    { Name = "Wall Clocks & Bells", Desc = "Decorative bells and desk bells" },
+    { Name = "Light Switches & Lamps", Desc = "Table lamps & light toggles" },
+    { Name = "Normal Exit Doors", Desc = "Main progression numbered doors" },
+    { Name = "Side Room Doors", Desc = "Side closet/room touch doors" },
+    { Name = "Drawers & Desks", Desc = "Dressers, tables & loot drawers" },
+    { Name = "Gold & Coins", Desc = "Gold piles, coin stacks & starlight" },
+    { Name = "Keys & Skeleton Keys", Desc = "Room keys & skeleton keys" },
+    { Name = "Levers & Breakers", Desc = "Gate levers & circuit switches" },
+    { Name = "Books & Papers", Desc = "Room 50 library hint books" },
+    { Name = "Crucifix & Defense Items", Desc = "Crucifix, candles & holy items" },
+    { Name = "Lighters & Flashlights", Desc = "Light sources & batteries" },
+    { Name = "Health & Bandages", Desc = "Bandages, vitamins & herbs" },
+    { Name = "Lockpicks & Shears", Desc = "Lockpicks, shears & tool pickups" },
+    { Name = "Glitch Fragments", Desc = "Glitch cubes & rift fragments" },
+}
+
+local excludeList = Hub.CreateList(mainTab, "Auto Interact Exclude List", excludeCategories, 180, false, { MultiSelect = true })
+
+-- Set initially excluded items
+local defaultExcluded = {}
+for name, isExcluded in pairs(State.AutoInteract_Excludes) do
+    if isExcluded then
+        table.insert(defaultExcluded, name)
+    end
+end
+if excludeList and excludeList.SetSelectedItems then
+    excludeList.SetSelectedItems(defaultExcluded)
+end
+
+if excludeList then
+    excludeList.OnSelect = function(name, entryData)
+        local isSelected = false
+        for _, item in ipairs(excludeList.SelectedItems) do
+            if item == entryData or item.Name == name or item == name then
+                isSelected = true
+                break
+            end
+        end
+        State.AutoInteract_Excludes[name] = isSelected
+        Hub.Notify("Exclude Filter", (isSelected and "❌ Excluded: " or "✅ Allowed: ") .. tostring(name), 2)
+    end
+end
+
+Hub.CreateInput(mainTab, "Add Custom Exclude Keyword", "", "Type keyword to exclude...", function(text)
+    if text and #text > 0 then
+        local trimmed = text:match("^%s*(.-)%s*$")
+        if #trimmed > 0 then
+            table.insert(State.AutoInteract_CustomKeywords, trimmed)
+            if excludeList and excludeList.AddItem then
+                local row, entryData = excludeList.AddItem({ Name = trimmed, Desc = "Custom Keyword Exclude" })
+                if excludeList.ToggleSelected then
+                    excludeList.ToggleSelected(entryData)
+                end
+            end
+            Hub.Notify("Custom Exclude", "Added keyword: " .. trimmed, 3)
+        end
+    end
 end)
 
 Hub.CreateToggle(mainTab, "Auto Loot Gold & Coins", State.AutoInteract_Gold, function(v)
@@ -2736,6 +3080,17 @@ Hub.CreateToggle(floorTab, "Auto Solve Circuit Breaker (Room 100)", State.Auto_B
     Hub.Notify("Room 100 Breaker", v and "Auto Breaker: ACTIVE" or "Auto Breaker: OFF", 2)
 end)
 
+Hub.CreateSection(floorTab, "🌀 Glitch Fragment (Special)")
+
+Hub.CreateButton(floorTab, "🌀 Get Glitch Fragment (Teleport & Collect)", function()
+    getGlitchFragmentNow()
+end)
+
+Hub.CreateToggle(floorTab, "Auto Collect Glitch Fragment", State.Auto_GetGlitchFragment, function(v)
+    State.Auto_GetGlitchFragment = v
+    Hub.Notify("Glitch Fragment", v and "Auto Collect: ACTIVE" or "Auto Collect: OFF", 2)
+end)
+
 -- Tab 3: ESP TAB
 local espTab = Hub.CreateTab("ESP", { 
     Icon = "👁️", 
@@ -2830,6 +3185,11 @@ Hub.CreateToggle(espTab, "Keys ESP", State.Keys_ESP, function(v)
 end)
 
 Hub.CreateSection(espTab, "📦 Items & Objectives")
+
+Hub.CreateToggle(espTab, "Glitch Fragment ESP (GlitchCube)", State.GlitchFragment_ESP, function(v)
+    State.GlitchFragment_ESP = v
+    scanAllRooms()
+end)
 
 Hub.CreateToggle(espTab, "Items ESP (Crucifix, Lighter, etc.)", State.Items_ESP, function(v)
     State.Items_ESP = v
