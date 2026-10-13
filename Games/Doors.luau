@@ -1299,6 +1299,8 @@ local function defuseGiggle(giggleModel)
             giggleModel.CanTouch = false
         end
     end)
+end
+
 -- =========================================================================
 -- Glitch Fragment Engine (ESP & Auto Collection)
 -- =========================================================================
