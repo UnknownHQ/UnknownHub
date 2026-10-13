@@ -100,6 +100,8 @@ local State = {
     WalkSpeed_Enabled = false,
     WalkSpeed_Value = 45,
     AntiRubberband = true,
+    Enable_Jumping = false,
+    Enable_Sliding = false,
 
     -- Main / Interactions
     Instant_Interact = false,
@@ -877,6 +879,23 @@ local function isValidLootItem(model)
     if not model or not (model:IsA("Model") or model:IsA("Tool")) then return false, nil end
     local lower = model.Name:lower()
 
+    -- Reject entire room structures, shops, siderooms, hallways, walls, fixtures
+    if lower:find("room") or lower:find("shop") or lower:find("assets") or lower:find("structure")
+        or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom") or lower:find("rift")
+        or lower:find("wall") or lower:find("ceiling") or lower:find("floor") or lower:find("desk")
+        or lower:find("drawer") or lower:find("cabinet") or lower:find("table") or lower:find("skulllock")
+        or lower:find("riftdoor") or lower:find("riftspawn") then
+        return false, nil
+    end
+
+    -- Physical Size Check: In DOORS, loot items are small props (strictly < 8 studs on every axis)
+    if model:IsA("Model") then
+        local cf, sz = model:GetBoundingBox()
+        if sz.X > 8 or sz.Y > 8 or sz.Z > 8 then
+            return false, nil
+        end
+    end
+
     -- Reject blacklist decor & furniture
     for _, blocked in ipairs(DECOR_BLACKLIST) do
         if lower:find(blocked) then
@@ -899,6 +918,11 @@ local function isValidLootItem(model)
             end
             return true, tName
         end
+        return false, nil
+    end
+
+    -- Guard against parent models adopting prompts belonging to deep nested child models
+    if prompt.Parent and prompt.Parent.Parent and prompt.Parent.Parent:IsA("Model") and prompt.Parent.Parent ~= model then
         return false, nil
     end
 
@@ -1165,7 +1189,6 @@ local ENTITY_REGISTRY = {
     ["queen"]          = { Name = "Grumble Queen",      Category = "Grumble" },
     ["gloombats"]      = { Name = "Gloombats",          Category = "Gloombats" },
     ["gloombat"]       = { Name = "Gloombats",          Category = "Gloombats" },
-    ["bat"]            = { Name = "Gloombats",          Category = "Gloombats" },
 
     -- The Rooms (A-1000)
     ["a60"]            = { Name = "A-60",               Category = "Rooms" },
@@ -1205,8 +1228,10 @@ local function processEntity(entity)
         return
     end
 
-    -- Strictly blacklist room fixtures, windows, curtains, and glass from entity scanner
-    if eLower:find("window") or eLower:find("framing") or eLower:find("curtain") or eLower:find("glass") then
+    -- Strictly blacklist room fixtures, windows, curtains, lights, lamps, and glass from entity scanner
+    if eLower:find("window") or eLower:find("framing") or eLower:find("curtain") or eLower:find("glass") 
+        or eLower:find("light") or eLower:find("fixture") or eLower:find("lamp") or eLower:find("sconce") 
+        or eLower:find("bath") then
         return
     end
 
@@ -1262,41 +1287,52 @@ local function processEntity(entity)
                 or (not entity:FindFirstChildWhichIsA("Humanoid") and not entity:FindFirstChildWhichIsA("MeshPart"))
 
             if is2D then
-                -- 1. SphereHandleAdornment: Guaranteed 3D rounded sphere that tracks targetPart in real time ALWAYS THROUGH WALLS!
-                local adorn = Instance.new("SphereHandleAdornment")
-                adorn.Name = "Unknown_EntitySphereAdorn"
-                adorn.Radius = 4.0
-                adorn.Color3 = entityColor
-                adorn.AlwaysOnTop = true
-                adorn.Transparency = 0.4
-                adorn.ZIndex = 10
-                adorn.Adornee = targetPart
-                adorn.Parent = (gethui and gethui()) or CoreGui
-                table.insert(extraVisuals, adorn)
+                -- 1. Semi-transparent 3D Cube Handle Adornment with Depth AlwaysOnTop
+                local boxAdorn = Instance.new("BoxHandleAdornment")
+                boxAdorn.Name = "Unknown_EntityBoxAdorn"
+                boxAdorn.Size = Vector3.new(4.8, 4.8, 4.8)
+                boxAdorn.Color3 = entityColor
+                boxAdorn.AlwaysOnTop = true
+                boxAdorn.Transparency = 0.55
+                boxAdorn.ZIndex = 10
+                boxAdorn.Adornee = targetPart
+                boxAdorn.Parent = (gethui and gethui()) or CoreGui
+                table.insert(extraVisuals, boxAdorn)
 
-                -- 2. Physical Neon Ball welded to targetPart
-                local sphere = entity:FindFirstChild("Unknown_EntitySphere")
-                if not sphere or not sphere:IsA("BasePart") then
-                    sphere = Instance.new("Part")
-                    sphere.Name = "Unknown_EntitySphere"
-                    sphere.Shape = Enum.PartType.Ball
-                    sphere.Size = Vector3.new(4, 4, 4)
-                    sphere.CFrame = targetPart.CFrame
-                    sphere.Transparency = 0.4
-                    sphere.Color = entityColor
-                    sphere.Material = Enum.Material.Neon
-                    sphere.CanCollide = false
-                    sphere.CanTouch = false
-                    sphere.CanQuery = false
-                    sphere.Massless = true
-                    sphere.Anchored = false
+                -- 2. Clean 3D Wireframe Outlines around all cube edges
+                local selBox = Instance.new("SelectionBox")
+                selBox.Name = "Unknown_EntityBoxOutline"
+                selBox.Adornee = targetPart
+                selBox.Color3 = entityColor
+                selBox.LineThickness = 0.08
+                selBox.SurfaceTransparency = 0.75
+                selBox.SurfaceColor3 = entityColor
+                selBox.Parent = (gethui and gethui()) or CoreGui
+                table.insert(extraVisuals, selBox)
+
+                -- 3. Soft Physical Cube welded to targetPart (ForceField gives soft rounded translucent glow on corners)
+                local cube = entity:FindFirstChild("Unknown_EntityCube")
+                if not cube or not cube:IsA("BasePart") then
+                    cube = Instance.new("Part")
+                    cube.Name = "Unknown_EntityCube"
+                    cube.Shape = Enum.PartType.Block
+                    cube.Size = Vector3.new(4.5, 4.5, 4.5)
+                    cube.CFrame = targetPart.CFrame
+                    cube.Transparency = 0.45
+                    cube.Color = entityColor
+                    cube.Material = Enum.Material.ForceField
+                    cube.CanCollide = false
+                    cube.CanTouch = false
+                    cube.CanQuery = false
+                    cube.Massless = true
+                    cube.Anchored = false
                     local weld = Instance.new("WeldConstraint")
-                    weld.Part0 = sphere
+                    weld.Part0 = cube
                     weld.Part1 = targetPart
-                    weld.Parent = sphere
-                    sphere.Parent = entity
+                    weld.Parent = cube
+                    cube.Parent = entity
                 end
-                highlightTarget = sphere
+                highlightTarget = cube
             end
 
             local baseText = cfg.Name
@@ -1551,7 +1587,7 @@ if Camera then
     end)
 end
 
--- Continuous Autonomous Void & Collect Engine for Auto Get Glitch Fragment
+-- Passive Background Scanner for Glitch Fragment
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -1584,88 +1620,11 @@ task.spawn(function()
                 end
             end
 
-            -- Priority 1: If Glitch Fragment is already spawned, collect it immediately!
             if found then
-                local root = getRoot()
-                if root then
-                    local targetPart = (found:IsA("Model") and (found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)))
-                        or (found:IsA("BasePart") and found)
-                    if targetPart then
-                        local oldPos = root.CFrame
-                        root.CFrame = targetPart.CFrame + Vector3.new(0, 2, 0)
-                        task.wait(0.12)
-                        collectGlitchFragment(found)
-                        task.wait(0.12)
-                        root.CFrame = oldPos
-                        Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 5)
-                        State.Auto_GetGlitchFragment = false
-                    end
-                end
-            elseif (State.Glitch_Count or 0) < 5 then
-                -- Priority 2: Not yet at 5 Glitches, perform Roof Out-of-Bounds Walk Routine
-                local char = getChar()
-                local root = getRoot()
-                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                if root and hum and hum.Health > 35 then
-                    local startCount = State.Glitch_Count or 0
-                    local inRoomPos = root.CFrame
-
-                    -- Step 1: Elevate to roof / out-of-bounds upper area if not already there
-                    if root.Position.Y < 8 then
-                        root.CFrame = root.CFrame + Vector3.new(0, 16, 0)
-                        task.wait(0.2)
-                    end
-
-                    local lookDir = root.CFrame.LookVector
-                    if lookDir.Magnitude < 0.1 then lookDir = Vector3.new(0, 0, -1) end
-
-                    Hub.Notify("Glitch Fragment", string.format("⚡ Walking out-of-bounds on roof for Glitch [%d/5]...", startCount + 1), 3)
-
-                    -- Step 2: Walk repeatedly into the open void space (5-10 times until Glitch strikes)
-                    local walkStart = os.clock()
-                    while os.clock() - walkStart < 7.0 and State.Auto_GetGlitchFragment do
-                        -- Stop if Glitch struck and returned player down to the room!
-                        if root.Position.Y < 6 or (State.Glitch_Count or 0) > startCount then
-                            break
-                        end
-
-                        hum:Move(lookDir, false)
-                        root.AssemblyLinearVelocity = lookDir * 22
-                        root.CFrame = root.CFrame + lookDir * 2.8
-                        task.wait(0.2)
-                    end
-
-                    -- Wait for Glitch animation / recovery
-                    task.wait(1.5)
-
-                    -- If remote hook didn't catch it, verify by checking if player was snapped back into room
-                    if (State.Glitch_Count or 0) == startCount then
-                        local curRoot = getRoot()
-                        if curRoot and curRoot.Position.Y < 6 then
-                            State.Glitch_Count = startCount + 1
-                            Hub.Notify("Glitch Secret", string.format("⚡ Glitch struck! [%d/5] (Returned to room)", State.Glitch_Count), 4)
-                        end
-                    end
-
-                    -- If player remained on roof after 7s without strike, return to room for next clean attempt
-                    local curRoot = getRoot()
-                    if curRoot and curRoot.Position.Y > 8 and (State.Glitch_Count or 0) == startCount then
-                        curRoot.CFrame = inRoomPos
-                    end
-
-                    -- Cooldown before next strike attempt
-                    task.wait(2.5)
-                elseif hum and hum.Health <= 35 then
-                    Hub.Notify("Glitch Fragment", "⚠️ Low health, pausing void drops to stay safe...", 3)
-                    task.wait(4.0)
-                end
-            else
-                -- At 5 Glitches: Waiting for fragment to spawn in upcoming rooms (next 2-10 rooms)
-                task.wait(1.5)
+                collectGlitchFragment(found)
             end
-        else
-            task.wait(1.0)
         end
+        task.wait(1.5)
     end
 end)
 
@@ -2336,6 +2295,71 @@ LocalPlayer.CharacterAdded:Connect(function(char)
             hum.WalkSpeed = State.WalkSpeed_Value
         end
     end
+    if State.Enable_Jumping then
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+            hum.JumpPower = 50
+            hum.JumpHeight = 7.2
+        end
+    end
+    if State.Enable_Sliding then
+        syncServerSlide(true)
+        applyTeflonGlide(char)
+    end
+end)
+
+-- =========================================================================
+-- Jumping & Sliding Engine (DOORS Freedom Movement)
+-- =========================================================================
+
+UserInputService.JumpRequest:Connect(function()
+    if State.Enable_Jumping then
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum and hum:GetState() ~= Enum.HumanoidStateType.Dead then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.Space then
+        if State.Enable_Jumping then
+            local char = getChar()
+            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hum and hum:GetState() ~= Enum.HumanoidStateType.Dead then
+                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if _G.DOORS_SESSION ~= currentSession then return end
+    if State.Enable_Jumping then
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then
+            if not hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
+                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+            end
+            if hum.JumpPower ~= 50 then hum.JumpPower = 50 end
+            if hum.JumpHeight ~= 7.2 then hum.JumpHeight = 7.2 end
+        end
+    end
+    if State.Enable_Sliding then
+        syncServerSlide(true)
+        local char = getChar()
+        if char then
+            local coll = char:FindFirstChild("Collision")
+            if coll and coll.CustomPhysicalProperties ~= zeroFriction then
+                applyTeflonGlide(char)
+            end
+        end
+    end
 end)
 
 -- =========================================================================
@@ -2734,6 +2758,32 @@ end)
 
 Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
     State.AntiRubberband = v
+end)
+
+Hub.CreateToggle(mainTab, "Enable Jumping", State.Enable_Jumping, function(v)
+    State.Enable_Jumping = v
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, v)
+        hum.JumpPower = v and 50 or 0
+        hum.JumpHeight = v and 7.2 or 0
+    end
+    Hub.Notify("Movement", v and "Jumping: ENABLED (Space to jump)" or "Jumping: DISABLED", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
+    State.Enable_Sliding = v
+    syncServerSlide(v)
+    local char = getChar()
+    if v then
+        applyTeflonGlide(char)
+    else
+        if not State.WalkSpeed_Enabled then
+            restoreDefaultFriction(char)
+        end
+    end
+    Hub.Notify("Movement", v and "Sliding: ENABLED (Crouch / C to slide)" or "Sliding: DISABLED", 2)
 end)
 
 Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", function()
@@ -3307,13 +3357,6 @@ end)
 Hub.CreateToggle(floorTab, "Auto Solve Circuit Breaker (Room 100)", State.Auto_Breakers, function(v)
     State.Auto_Breakers = v
     Hub.Notify("Room 100 Breaker", v and "Auto Breaker: ACTIVE" or "Auto Breaker: OFF", 2)
-end)
-
-Hub.CreateSection(floorTab, "🌀 Glitch Fragment")
-
-Hub.CreateToggle(floorTab, "Auto Get Glitch Fragment", State.Auto_GetGlitchFragment, function(v)
-    State.Auto_GetGlitchFragment = v
-    Hub.Notify("Glitch Fragment", v and "Auto Get Glitch Fragment: ACTIVE" or "Auto Get Glitch Fragment: OFF", 2)
 end)
 
 -- Tab 3: ESP TAB
