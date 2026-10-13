@@ -1,28 +1,89 @@
+--[[
+    ========================================================================
+    Unknown Hub - Bee Swarm Simulator
+    Complete Automation Suite:
+      - Multi-Field Auto Farm & Smart Token Prioritizer
+      - Autonomous Sprout Detection & Rare Drop Sniping
+      - Smart Hive Honey Conversion Loop
+      - Intelligent Vicious Bee Hunter & Hazard Evading Combat
+      - Automated Mob Rotator with Spawner Skip Timeouts
+      - Collision-Free Navigation & Anti-Stuck Watchdog
+      - Built-in Anti-AFK
+    ========================================================================
+]]
+
 local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
 local LIBRARY_NAME = "Unknown_TabbedHub_UI"
 
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =========================================================================
+-- Built-in Anti-AFK
+-- =========================================================================
+pcall(function()
+    LocalPlayer.Idled:Connect(function()
+        pcall(function()
+            if VirtualUser then
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
+            end
+        end)
+    end)
+end)
+
+-- =========================================================================
+-- GUI Cleanup
+-- =========================================================================
 local function destroyOldGui()
-    local parents = {game:GetService("CoreGui")}
+    local parents = {CoreGui}
     if gethui then pcall(function() table.insert(parents, gethui()) end) end
-    local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
-    if playerGui then table.insert(parents, playerGui) end
+    local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+    if pGui then table.insert(parents, pGui) end
     for _, parent in ipairs(parents) do
         if parent then
-            for _, child in ipairs(parent:GetChildren()) do
-                if child:IsA("ScreenGui") and child.Name == LIBRARY_NAME then
-                    pcall(function() child:Destroy() end)
+            pcall(function()
+                for _, child in ipairs(parent:GetChildren()) do
+                    if child:IsA("ScreenGui") and (child.Name == LIBRARY_NAME or child.Name:find("Unknown_")) then
+                        pcall(function() child:Destroy() end)
+                    end
                 end
-            end
+            end)
         end
     end
 end
 
+-- =========================================================================
+-- UnknownLibrary Dynamic Loader (Online with Local Storage Fallback)
+-- =========================================================================
 local ok, result = pcall(function()
     local source
     local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
-    source = game:HttpGet(LIBRARY_LINK .. cacheBuster)
+    local fetchSuccess, fetchedSource = pcall(function()
+        return game:HttpGet(LIBRARY_LINK .. cacheBuster)
+    end)
+    if fetchSuccess and fetchedSource and #fetchedSource > 100 then
+        source = fetchedSource
+    else
+        if readfile then
+            pcall(function() source = readfile("UnknownLibrary.luau") end)
+            if not source then pcall(function() source = readfile("UnknownLibrary") end) end
+        end
+    end
+    assert(source and #source > 100, "Could not load UnknownLibrary from remote or local storage")
+    pcall(function()
+        source = source:gsub('game:GetService%(["\']CoreGui["\']%)', "(gethui and gethui() or (game:GetService('Players').LocalPlayer and game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')))")
+    end)
     local factoryChunk, compileErr = loadstring(source)
-    assert(factoryChunk, "the linked source did not compile: " .. tostring(compileErr))
+    assert(factoryChunk, "UnknownLibrary compilation failed: " .. tostring(compileErr))
     return factoryChunk()
 end)
 
@@ -32,9 +93,10 @@ destroyOldGui()
 
 local Hub = result({
     name = LIBRARY_NAME,
-    title = "OLESHKA HUB",
-    parent = (gethui and gethui()) or game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"),
-    theme = Color3.fromRGB(255, 155, 0),
+    title = "UNKNOWN HUB",
+    subTitle = "Bee Swarm Simulator",
+    parent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return CoreGui end) and CoreGui),
+    theme = Color3.fromRGB(255, 175, 20),
 })
 
 assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
@@ -43,13 +105,17 @@ assert(type(Hub.CreateToggle) == "function", "UnknownLibrary is missing CreateTo
 assert(type(Hub.CreateList) == "function", "UnknownLibrary is missing CreateList")
 assert(type(Hub.createTabButton) == "function", "UnknownLibrary is missing createTabButton")
 
+-- =========================================================================
+-- Tabs & State Variables
+-- =========================================================================
 local mainPage = Hub.CreateTab("Main", { Icon = "🐝", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
 local combatPage = Hub.CreateTab("Combat", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 80, 80) })
+
 local AutoFarmState = false
 local AutoDigState = false
 local AutoSprinklersState = false
 local CombatState = false
-local SelectedMobName
+local SelectedMobName = nil
 local SelectedMobTypes = {}
 local SelectedTokenExclusions = {}
 local SelectedFarmSettings = {
@@ -92,31 +158,72 @@ local SelectedViciousExcludedFields = {}
 local CombatRequested = false
 local MobThreatActive = false
 local TweenSpeed = 6
-local combatList
+local combatList = nil
 local combatSpawnIndex = 1
 local combatTypeIndex = 1
 local combatTargetSeen = false
+local combatStayStartTime = 0
+local lastCombatSpawnKey = ""
 local farmRunId = 0
-local activeTween
-local activeRoot
-local activeHumanoid
-local activeRootAnchored
-local activeAutoRotate
+local activeTween = nil
+local activeRoot = nil
+local activeHumanoid = nil
+local activeRootAnchored = nil
+local activeAutoRotate = nil
 local blockedTokens = {}
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CollectorsFolder = ReplicatedStorage:WaitForChild("Collectors")
-local LocalCollect = require(CollectorsFolder:WaitForChild("LocalCollect"))
-local TweenService = game:GetService("TweenService")
-local Players = game:GetService("Players")
+local isConvertingAtHive = false
+local convertStartTime = 0
+local SelectedFarmField = nil
 
+-- =========================================================================
+-- Workspace Folders & Modules
+-- =========================================================================
 local FieldsFolder = workspace:WaitForChild("FlowerZones")
 local CollectiblesFolder = workspace:WaitForChild("Collectibles")
 local MonstersFolder = workspace:WaitForChild("Monsters")
 local MonsterSpawnersFolder = workspace:WaitForChild("MonsterSpawners")
 local HoneycombsFolder = workspace:WaitForChild("Honeycombs")
 local HoneyTokenTexture = "rbxassetid://1472135114"
-local Sprinklers = require(ReplicatedStorage:WaitForChild("Sprinklers"))
 
+local CollectorsFolder = ReplicatedStorage:WaitForChild("Collectors")
+local LocalCollect = nil
+pcall(function()
+    LocalCollect = require(CollectorsFolder:WaitForChild("LocalCollect"))
+end)
+
+local Sprinklers = nil
+pcall(function()
+    Sprinklers = require(ReplicatedStorage:WaitForChild("Sprinklers"))
+end)
+
+local function safeStartCollection()
+    pcall(function()
+        if LocalCollect and type(LocalCollect.StartCollection) == "function" then
+            LocalCollect.StartCollection()
+        end
+    end)
+end
+
+local function safeStopCollection()
+    pcall(function()
+        if LocalCollect and type(LocalCollect.StopCollection) == "function" then
+            LocalCollect.StopCollection()
+        end
+    end)
+end
+
+local function getCharacter()
+    local char = LocalPlayer.Character
+    if not char then return nil, nil, nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root or hum.Health <= 0 then return nil, nil, nil end
+    return char, root, hum
+end
+
+-- =========================================================================
+-- Token Texture Mappings
+-- =========================================================================
 local tokenTextureMap = {
     ["Token Link"] = {"2584584968"},
     ["Blue Boost"] = {"2542899798", "2011980087"},
@@ -179,7 +286,7 @@ local function isRareCollectibleToken(tokenPart)
             return true
         end
     end
-    for _, child in ipairs(tokenPart:GetChildren()) do
+    for _, child in ipairs(tokenPart:GetDescendants()) do
         if child:IsA("Decal") or child:IsA("Texture") then
             local tex = string.lower(tostring(child.Texture))
             for _, kw in ipairs(rareTokenKeywords) do
@@ -203,17 +310,51 @@ local function isRareCollectibleToken(tokenPart)
     return false
 end
 
+-- =========================================================================
+-- Noclip & Collision Management
+-- =========================================================================
+local noclipConnection = nil
+local function setNoclip(enabled)
+    if enabled then
+        if not noclipConnection then
+            noclipConnection = RunService.Stepped:Connect(function()
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.CanCollide then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        end
+    else
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
+    end
+end
+
 local function releaseActiveTween()
     if activeTween then
         activeTween:Cancel()
         activeTween = nil
     end
 
+    setNoclip(false)
+
     if activeRoot and activeRoot.Parent then
-        activeRoot.Anchored = activeRootAnchored == true
+        pcall(function()
+            activeRoot.Anchored = activeRootAnchored == true
+            activeRoot.AssemblyLinearVelocity = Vector3.zero
+            activeRoot.AssemblyAngularVelocity = Vector3.zero
+        end)
     end
     if activeHumanoid and activeHumanoid.Parent then
-        activeHumanoid.AutoRotate = activeAutoRotate ~= false
+        pcall(function()
+            activeHumanoid.AutoRotate = activeAutoRotate ~= false
+        end)
     end
 
     activeRoot = nil
@@ -222,6 +363,19 @@ local function releaseActiveTween()
     activeAutoRotate = nil
 end
 
+-- Reset tween on respawn
+LocalPlayer.CharacterAdded:Connect(function()
+    releaseActiveTween()
+    isConvertingAtHive = false
+    task.wait(1)
+    if AutoDigState or AutoFarmState then
+        safeStartCollection()
+    end
+end)
+
+-- =========================================================================
+-- Danger Zone & Hazard Detection
+-- =========================================================================
 local function getActiveDangerZones()
     local dangerZones = {}
 
@@ -287,9 +441,12 @@ local function isPositionInDangerZone(position, dangerZones, margin)
     return false, nil
 end
 
+-- =========================================================================
+-- Motion & Tween Engine
+-- =========================================================================
 local function tweenCharacterTo(root, humanoid, destination, speedMultiplier)
     releaseActiveTween()
-    if not root or not root.Parent or not humanoid or not humanoid.Parent then
+    if not root or not root.Parent or not humanoid or not humanoid.Parent or humanoid.Health <= 0 then
         return
     end
 
@@ -301,6 +458,8 @@ local function tweenCharacterTo(root, humanoid, destination, speedMultiplier)
     root.AssemblyAngularVelocity = Vector3.zero
     root.Anchored = true
     humanoid.AutoRotate = false
+
+    setNoclip(true)
 
     local speed = (TweenSpeed * 4) * (speedMultiplier or 1)
     local distance = (root.Position - destination).Magnitude
@@ -320,7 +479,7 @@ local function tweenCharacterTo(root, humanoid, destination, speedMultiplier)
 end
 
 local function tweenToFieldTarget(field, root, humanoid, runId, targetPosition, targetObject)
-    if not AutoFarmState or runId ~= farmRunId or not root or not root.Parent or not humanoid or not humanoid.Parent then
+    if not AutoFarmState or runId ~= farmRunId or not root or not root.Parent or not humanoid or not humanoid.Parent or humanoid.Health <= 0 then
         return
     end
 
@@ -333,6 +492,8 @@ local function tweenToFieldTarget(field, root, humanoid, runId, targetPosition, 
     root.AssemblyAngularVelocity = Vector3.zero
     root.Anchored = true
     humanoid.AutoRotate = false
+
+    setNoclip(true)
 
     local speed = TweenSpeed * 4
     local distance = (root.Position - targetPosition).Magnitude
@@ -347,7 +508,7 @@ local function tweenToFieldTarget(field, root, humanoid, runId, targetPosition, 
     tween:Play()
 
     local deadline = time() + duration + 0.15
-    while AutoFarmState and runId == farmRunId and root.Parent and time() < deadline and activeTween == tween do
+    while AutoFarmState and runId == farmRunId and root.Parent and humanoid.Health > 0 and time() < deadline and activeTween == tween do
         if MobThreatActive then
             break
         end
@@ -397,7 +558,7 @@ local tokenTextureTypes = {
 
 local function isExcludedToken(tokenPart)
     local textures = {}
-    for _, child in ipairs(tokenPart:GetChildren()) do
+    for _, child in ipairs(tokenPart:GetDescendants()) do
         if child:IsA("Decal") or child:IsA("Texture") then
             textures[child.Texture] = true
         end
@@ -416,7 +577,7 @@ end
 
 local function getTokenPriorityMultiplier(tokenPart)
     local textures = {}
-    for _, child in ipairs(tokenPart:GetChildren()) do
+    for _, child in ipairs(tokenPart:GetDescendants()) do
         if child:IsA("Decal") or child:IsA("Texture") then
             local tex = string.lower(tostring(child.Texture))
             textures[tex] = true
@@ -468,13 +629,16 @@ local function isPositionInField(position, field, margin)
         and math.abs(localPosition.Z) <= field.Size.Z / 2 + (margin or 0)
 end
 
+-- =========================================================================
+-- Field Target Selection
+-- =========================================================================
 local function findNearestFieldTarget(field, root)
-    local nearestTarget
-    local nearestTargetPos
+    local nearestTarget = nil
+    local nearestTargetPos = nil
     local nearestScore = math.huge
     local now = time()
 
-    -- 1. Auto Catch Coconuts (falling coconuts or coconut parts in field)
+    -- 1. Auto Catch Coconuts
     if SelectedFarmSettings["Auto Catch Coconuts"] and workspace:FindFirstChild("Particles") then
         for _, particle in ipairs(workspace.Particles:GetChildren()) do
             if particle:IsA("BasePart") and (string.find(string.lower(particle.Name), "coco") or string.find(string.lower(particle.Name), "nut"))
@@ -492,7 +656,7 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 2. Collectibles (Tokens, Token Links, Fuzzy Bombs, Sprout Tokens, Abilities, Rare Drops)
+    -- 2. Collectibles (Tokens, Abilities, Sprout Loot, Rare Drops)
     for _, collectible in ipairs(CollectiblesFolder:GetChildren()) do
         local tokenPart = getTokenPart(collectible)
         local blockedUntil = tokenPart and blockedTokens[tokenPart]
@@ -508,7 +672,7 @@ local function findNearestFieldTarget(field, root)
             local multiplier = getTokenPriorityMultiplier(tokenPart)
 
             if isRare then
-                multiplier = 0.005 -- Highest priority: instantly rush to rare drop in field
+                multiplier = 0.005 -- Instant priority
             elseif SelectedFarmSettings["Auto Farm Sprouts"] or SelectedSproutActions["Auto Farm Sprouts"] then
                 local sproutsFolder = workspace:FindFirstChild("Sprouts")
                 if sproutsFolder and #sproutsFolder:GetChildren() > 0 then
@@ -525,7 +689,7 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 3. Farm Flames (Demon mask / fire buffs)
+    -- 3. Farm Flames
     if SelectedFarmSettings["Farm Flames"] and workspace:FindFirstChild("PlayerFlames") then
         for _, flame in ipairs(workspace.PlayerFlames:GetChildren()) do
             if flame:IsA("BasePart") and isPositionInField(flame.Position, field, 0) then
@@ -542,7 +706,7 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 4. Farm Bubbles (Tadpole / Bubble wand bubbles)
+    -- 4. Farm Bubbles
     if SelectedFarmSettings["Farm Bubbles"] and workspace:FindFirstChild("Particles") then
         for _, particle in ipairs(workspace.Particles:GetChildren()) do
             if particle:IsA("BasePart") and (particle.Name == "Ripple" or particle.Name == "Orb" or particle.Name == "Part")
@@ -560,7 +724,7 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 5. Farm Balloons (Under-balloon aura/pollen)
+    -- 5. Farm Balloons
     if SelectedFarmSettings["Farm Balloons"] and workspace:FindFirstChild("Balloons") then
         for _, balloon in ipairs(workspace.Balloons:GetChildren()) do
             local balloonPart = balloon:IsA("BasePart") and balloon or balloon:FindFirstChildWhichIsA("BasePart", true)
@@ -599,7 +763,7 @@ local function farmFieldTargets(field, root, humanoid, runId)
 end
 
 local function jumpForOwnedFieldMob(field, character, humanoid, shouldJump)
-    local player = Players.LocalPlayer
+    local player = LocalPlayer
     for _, monster in ipairs(MonstersFolder:GetChildren()) do
         local monsterRoot = monster:FindFirstChild("HumanoidRootPart")
         local monsterHumanoid = monster:FindFirstChildOfClass("Humanoid")
@@ -618,8 +782,35 @@ local function jumpForOwnedFieldMob(field, character, humanoid, shouldJump)
     return false
 end
 
+-- =========================================================================
+-- Hive Detection & Honey Conversion
+-- =========================================================================
 local function getOwnHivePosition()
-    local player = Players.LocalPlayer
+    local player = LocalPlayer
+    if not player then return nil end
+
+    -- 1. Check direct Honeycomb reference on player
+    local hiveObj = player:FindFirstChild("Honeycomb")
+    if hiveObj and hiveObj:IsA("ObjectValue") and hiveObj.Value then
+        local hive = hiveObj.Value
+        local spawnPos = hive:FindFirstChild("SpawnPos")
+        if spawnPos and spawnPos:IsA("CFrameValue") then
+            return spawnPos.Value.Position + Vector3.new(0, 4, 0)
+        end
+        local platform = hive:FindFirstChild("Platform")
+        local platPart = platform and platform:IsA("ObjectValue") and platform.Value
+        if platPart and platPart:IsA("BasePart") then
+            return platPart.Position + Vector3.new(0, 4, 0)
+        end
+    end
+
+    -- 2. Check player's SpawnPos
+    local pSpawn = player:FindFirstChild("SpawnPos")
+    if pSpawn and pSpawn:IsA("CFrameValue") then
+        return pSpawn.Value.Position + Vector3.new(0, 4, 0)
+    end
+
+    -- 3. Search Honeycombs folder
     for _, hive in ipairs(HoneycombsFolder:GetChildren()) do
         local owner = hive:FindFirstChild("Owner")
         local spawnPosition = hive:FindFirstChild("SpawnPos")
@@ -628,16 +819,22 @@ local function getOwnHivePosition()
             return spawnPosition.Value.Position + Vector3.new(0, 4, 0)
         end
     end
+
     return nil
 end
 
-local function isBagFull()
-    local stats = Players.LocalPlayer:FindFirstChild("CoreStats")
+local function getBagStats()
+    local stats = LocalPlayer:FindFirstChild("CoreStats")
     local pollen = stats and stats:FindFirstChild("Pollen")
     local capacity = stats and stats:FindFirstChild("Capacity")
-    return pollen and capacity and pollen.Value >= capacity.Value, pollen
+    local pVal = pollen and pollen.Value or 0
+    local cVal = capacity and capacity.Value or 1
+    return pVal, cVal, (pVal >= cVal)
 end
 
+-- =========================================================================
+-- Sprinkler Management
+-- =========================================================================
 local function getSprinklerPlacementPoints(field, radius, count)
     local points = {}
     if count == 1 then
@@ -671,25 +868,36 @@ local function placeSprinklersInField(field, humanoid, runId)
         return
     end
 
-    local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
-    local cache = statCacheMod and require(statCacheMod):Get()
-    local equippedType = cache and cache.EquippedSprinkler
-    local sprinklerCount = equippedType and Sprinklers.GetStat(equippedType, "Count") or 1
-    local sprinklerRadius = equippedType and Sprinklers.GetStat(equippedType, "Radius") or 12
-    local builderCount = cache and cache.Eggs and cache.Eggs.SprinklerBuilder or 0
+    local equippedType = nil
+    local builderCount = 0
+    pcall(function()
+        local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
+        local cache = statCacheMod and require(statCacheMod):Get()
+        equippedType = cache and cache.EquippedSprinkler
+        builderCount = cache and cache.Eggs and cache.Eggs.SprinklerBuilder or 0
+    end)
+
+    local sprinklerCount = 1
+    local sprinklerRadius = 12
+    if Sprinklers and equippedType then
+        pcall(function()
+            sprinklerCount = Sprinklers.GetStat(equippedType, "Count") or 1
+            sprinklerRadius = Sprinklers.GetStat(equippedType, "Radius") or 12
+        end)
+    end
 
     if not equippedType or equippedType == "None" or builderCount <= 0 then
         return
     end
 
     local PlayerActivesMod = ReplicatedStorage:FindFirstChild("PlayerActives")
-    local PlayerActives = PlayerActivesMod and require(PlayerActivesMod)
-    local EventsMod = ReplicatedStorage:FindFirstChild("Events")
-    local Events = EventsMod and require(EventsMod)
-    local EventsFolder = ReplicatedStorage:FindFirstChild("Events")
+    local PlayerActives = nil
+    pcall(function() PlayerActives = PlayerActivesMod and require(PlayerActivesMod) end)
 
+    local EventsFolder = ReplicatedStorage:FindFirstChild("Events")
     local points = getSprinklerPlacementPoints(field, sprinklerRadius, sprinklerCount)
     local root = humanoid.Parent and humanoid.Parent:FindFirstChild("HumanoidRootPart")
+
     for _, point in ipairs(points) do
         if not AutoSprinklersState or not AutoFarmState or runId ~= farmRunId then
             return
@@ -705,10 +913,6 @@ local function placeSprinklersInField(field, humanoid, runId)
         if active and type(active.ClientActivate) == "function" then
             pcall(function() active:ClientActivate(true) end)
         end
-        if Events and type(Events.ClientCall) == "function" then
-            pcall(function() Events.ClientCall("PlayerActivesCommand", {Name = "Sprinkler Builder"}) end)
-            pcall(function() Events.ClientCall("PlayerActivesCommand", {Name = "SprinklerBuilder"}) end)
-        end
         if EventsFolder and EventsFolder:FindFirstChild("PlayerActivesCommand") then
             pcall(function() EventsFolder.PlayerActivesCommand:FireServer({Name = "Sprinkler Builder"}) end)
             pcall(function() EventsFolder.PlayerActivesCommand:FireServer({Name = "SprinklerBuilder"}) end)
@@ -717,6 +921,9 @@ local function placeSprinklersInField(field, humanoid, runId)
     end
 end
 
+-- =========================================================================
+-- Combat Mobs & Mob Rotation
+-- =========================================================================
 local function getSelectedMobSpawns()
     local spawns = {}
     if not SelectedMobName then
@@ -762,14 +969,37 @@ end
 
 local function runCombatStep(root, humanoid, currentMarker, runId)
     local selectedTypes = getSelectedMobTypes()
+    if #selectedTypes == 0 then return nil end
+
+    if combatTypeIndex > #selectedTypes then
+        combatTypeIndex = 1
+    end
     SelectedMobName = selectedTypes[combatTypeIndex]
     if not SelectedMobName then
         return nil
     end
+
     local spawns = getSelectedMobSpawns()
+    if #spawns == 0 then
+        combatTypeIndex = combatTypeIndex % #selectedTypes + 1
+        combatSpawnIndex = 1
+        return nil
+    end
+
+    if combatSpawnIndex > #spawns then
+        combatSpawnIndex = 1
+    end
     local spawn = spawns[combatSpawnIndex]
     if not spawn then
+        combatSpawnIndex = 1
         return nil
+    end
+
+    local spawnKey = tostring(SelectedMobName) .. "_" .. tostring(spawn.Name)
+    if spawnKey ~= lastCombatSpawnKey then
+        lastCombatSpawnKey = spawnKey
+        combatStayStartTime = os.time()
+        combatTargetSeen = false
     end
 
     local combatField = getCombatField(spawn)
@@ -802,7 +1032,8 @@ local function runCombatStep(root, humanoid, currentMarker, runId)
 
     if liveMonster and liveMonsterRoot then
         combatTargetSeen = true
-        LocalCollect.StartCollection()
+        combatStayStartTime = os.time()
+        safeStartCollection()
 
         local angle = tick() * 2.5
         local orbitRadius = 14
@@ -818,19 +1049,35 @@ local function runCombatStep(root, humanoid, currentMarker, runId)
         end
 
         tweenToFieldTarget(combatField or workspace, root, humanoid, runId, orbitPos, nil)
-    elseif combatTargetSeen then
-        combatTargetSeen = false
-        if combatSpawnIndex >= #spawns then
-            combatSpawnIndex = 1
-            combatTypeIndex = combatTypeIndex % #selectedTypes + 1
-        else
-            combatSpawnIndex = combatSpawnIndex + 1
+    else
+        if combatTargetSeen then
+            combatTargetSeen = false
+            if combatSpawnIndex >= #spawns then
+                combatSpawnIndex = 1
+                combatTypeIndex = combatTypeIndex % #selectedTypes + 1
+            else
+                combatSpawnIndex = combatSpawnIndex + 1
+            end
+            return nil
         end
-        return nil
+
+        -- Timeout: If mob is not spawned after 3 seconds, advance to next spawn or mob
+        if os.time() - combatStayStartTime >= 3 then
+            if combatSpawnIndex >= #spawns then
+                combatSpawnIndex = 1
+                combatTypeIndex = combatTypeIndex % #selectedTypes + 1
+            else
+                combatSpawnIndex = combatSpawnIndex + 1
+            end
+            return nil
+        end
     end
     return currentMarker
 end
 
+-- =========================================================================
+-- Vicious Bee Hunter
+-- =========================================================================
 local function getViciousBeeLevel(monster)
     local lvl = monster:GetAttribute("Level") or (monster:FindFirstChild("Level") and monster.Level.Value)
     if lvl and type(lvl) == "number" then
@@ -926,7 +1173,6 @@ local function findSafeCombatPosition(vPart, vField, dangerZones, currentPos)
     local bestSafetyScore = -math.huge
     local baseY = (vField and vField.Position.Y or vPart.Position.Y) + 4
 
-    -- Sample candidate positions in multiple rings (radii 12, 16, 20, 24) and 16 angles
     for radius = 12, 24, 4 do
         for i = 0, 15 do
             local angle = (i / 16) * math.pi * 2
@@ -962,7 +1208,6 @@ local function findSafeCombatPosition(vPart, vField, dangerZones, currentPos)
         return bestPos
     end
 
-    -- Fallback: if all immediate ring spots are dangerous, find safe position anywhere in field
     if vField then
         local fieldPos = vField.Position
         local fieldSize = vField.Size
@@ -979,7 +1224,6 @@ local function findSafeCombatPosition(vPart, vField, dangerZones, currentPos)
         end
     end
 
-    -- Retreat away from nearest danger
     local awayDir = Vector2.new(1, 0)
     if #dangerZones > 0 then
         local nearestZone = dangerZones[1]
@@ -995,13 +1239,19 @@ end
 
 local function runViciousBeeCombatStep(root, humanoid, runId)
     local vType, vObj, vPart, vField, vLevel = findActiveViciousBee()
-    if not vType or not vPart or not root or not humanoid then
+    if not vType or not vPart or not root or not humanoid or humanoid.Health <= 0 then
         return nil
+    end
+
+    -- Health preservation: back off if HP is critically low
+    if humanoid.Health < 35 and vField then
+        local retreatPos = vField.Position + Vector3.new(0, 18, 0)
+        tweenToFieldTarget(vField, root, humanoid, runId, retreatPos, nil)
+        return vField.Name
     end
 
     local dangerZones = getActiveDangerZones()
 
-    -- Sharp Thorn: tween to thorn to trigger bee emergence
     if vType == "Thorn" then
         local thornPos = vPart.Position + Vector3.new(0, 3, 0)
         tweenCharacterTo(root, humanoid, thornPos)
@@ -1009,10 +1259,8 @@ local function runViciousBeeCombatStep(root, humanoid, runId)
         return vField and vField.Name or "ViciousThorn"
     end
 
-    -- Active Vicious Bee Monster
-    LocalCollect.StartCollection()
+    safeStartCollection()
 
-    -- 1. If currently inside danger zone, evade immediately
     local inDanger = isPositionInDangerZone(root.Position, dangerZones, 6)
     if inDanger then
         local safePos = findSafeCombatPosition(vPart, vField, dangerZones, root.Position)
@@ -1020,7 +1268,6 @@ local function runViciousBeeCombatStep(root, humanoid, runId)
         return vField and vField.Name or "ViciousBee"
     end
 
-    -- 2. Pick safe combat tokens in field (Focus, Impale, Rage, Melody, Super Crit, Token Link) that are NOT in danger zones
     local bestToken = nil
     local bestScore = math.huge
     if vField then
@@ -1048,19 +1295,24 @@ local function runViciousBeeCombatStep(root, humanoid, runId)
         return vField and vField.Name or "ViciousBee"
     end
 
-    -- 3. Move to safe combat position around Vicious Bee avoiding danger zones
     local safeCombatPos = findSafeCombatPosition(vPart, vField, dangerZones, root.Position)
     tweenToFieldTarget(vField or workspace, root, humanoid, runId, safeCombatPos, nil)
     return vField and vField.Name or "ViciousBee"
 end
 
+-- =========================================================================
+-- Sprouts System
+-- =========================================================================
 local function getInventoryBeanCount()
-    local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
-    local cache = statCacheMod and require(statCacheMod):Get()
-    if cache and cache.Eggs then
-        return cache.Eggs["MagicBean"] or cache.Eggs["Magic Bean"] or 0
-    end
-    return 0
+    local count = 0
+    pcall(function()
+        local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
+        local cache = statCacheMod and require(statCacheMod):Get()
+        if cache and cache.Eggs then
+            count = cache.Eggs["MagicBean"] or cache.Eggs["Magic Bean"] or 0
+        end
+    end)
+    return count
 end
 
 local function getSproutInfo(sprout)
@@ -1129,7 +1381,44 @@ local function getActiveSproutField()
     return nil, nil, nil
 end
 
--- UI Elements: Main Page (Toggles & Sliders)
+-- =========================================================================
+-- Field Fallback / Selection Resolver
+-- =========================================================================
+local fieldNames = {}
+local excludedFields = {
+    ["Red Brick Field"] = true,
+    ["White Brick Field"] = true,
+    ["Blue Brick Field"] = true,
+}
+
+for _, field in ipairs(FieldsFolder:GetChildren()) do
+    if not excludedFields[field.Name] then
+        table.insert(fieldNames, {Name = field.Name})
+    end
+end
+table.sort(fieldNames, function(a, b) return a.Name < b.Name end)
+
+local function resolveFarmField()
+    if SelectedFarmField and FieldsFolder:FindFirstChild(SelectedFarmField) then
+        return FieldsFolder:FindFirstChild(SelectedFarmField)
+    end
+    local farmListObj = Hub.GetItemFromList and Hub.GetItemFromList("Select Farm", mainPage, false)
+    local selectedItem = farmListObj and (farmListObj.SelectedItem or (farmListObj.BringSelected and farmListObj:BringSelected()))
+    local selectedName = type(selectedItem) == "table" and (selectedItem.Name or selectedItem[1]) or selectedItem
+    if selectedName and FieldsFolder:FindFirstChild(selectedName) then
+        SelectedFarmField = selectedName
+        return FieldsFolder:FindFirstChild(selectedName)
+    end
+    if #fieldNames > 0 and FieldsFolder:FindFirstChild(fieldNames[1].Name) then
+        SelectedFarmField = fieldNames[1].Name
+        return FieldsFolder:FindFirstChild(fieldNames[1].Name)
+    end
+    return nil
+end
+
+-- =========================================================================
+-- UI Elements: Main Page Toggles & Sliders
+-- =========================================================================
 Hub.CreateSlider(mainPage, "Tween Speed", 4, 16, TweenSpeed, "x", function(value)
     TweenSpeed = value
 end)
@@ -1142,8 +1431,9 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
     if not state then
         CombatState = false
         AutoViciousBeeState = false
+        isConvertingAtHive = false
         if not AutoDigState then
-            LocalCollect.StopCollection()
+            safeStopCollection()
         end
         releaseActiveTween()
         return
@@ -1153,25 +1443,19 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
     AutoViciousBeeState = ViciousBeeRequested
 
     task.spawn(function()
-        local currentFieldName
-        local previousCombatSelection
-        local sprinklersPlacedField
+        local currentFieldName = nil
+        local previousCombatSelection = nil
+        local sprinklersPlacedField = nil
 
-        while AutoFarmState do
+        while AutoFarmState and runId == farmRunId do
             repeat
-                local farmList = Hub.GetItemFromList and Hub.GetItemFromList("Select Farm", mainPage, false)
-                local selectedItem = farmList and (farmList.SelectedItem or (farmList.BringSelected and farmList:BringSelected()))
-                local selectedName = type(selectedItem) == "table" and (selectedItem.Name or selectedItem[1]) or selectedItem
-
-                if runId ~= farmRunId then
-                    return
+                local char, root, humanoid = getCharacter()
+                if not char or not root or not humanoid then
+                    task.wait(0.5)
+                    break
                 end
 
-                local field = selectedName and FieldsFolder:FindFirstChild(selectedName)
-                local character = game:GetService("Players").LocalPlayer.Character
-                local root = character and character:FindFirstChild("HumanoidRootPart")
-                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
+                local field = resolveFarmField()
                 local selectedTypes = getSelectedMobTypes()
                 local combatSelectionKey = table.concat(selectedTypes, "|")
                 if combatSelectionKey ~= previousCombatSelection then
@@ -1184,48 +1468,69 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
                     end
                 end
 
-                local bagFull = isBagFull()
-                if bagFull and root and humanoid then
+                -- Honey & Capacity Management
+                local pollenVal, capVal, bagFull = getBagStats()
+
+                if bagFull and not isConvertingAtHive then
                     local usedMicro = false
                     if SelectedFarmSettings["Auto Micro-Converters"] then
-                        local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
-                        local cache = statCacheMod and require(statCacheMod):Get()
-                        local microCount = cache and cache.Eggs and cache.Eggs["Micro-Converter"] or 0
-                        if microCount > 0 then
-                            local PlayerActivesMod = ReplicatedStorage:FindFirstChild("PlayerActives")
-                            local PlayerActives = PlayerActivesMod and require(PlayerActivesMod)
-                            local active = PlayerActives and (PlayerActives.Get("Micro-Converter") or PlayerActives.Get("MicroConverter"))
-                            if active and type(active.ClientActivate) == "function" then
-                                pcall(function() active:ClientActivate(true) end)
-                                usedMicro = true
-                                task.wait(0.3)
+                        pcall(function()
+                            local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
+                            local cache = statCacheMod and require(statCacheMod):Get()
+                            local microCount = cache and cache.Eggs and cache.Eggs["Micro-Converter"] or 0
+                            if microCount > 0 then
+                                local PlayerActivesMod = ReplicatedStorage:FindFirstChild("PlayerActives")
+                                local PlayerActives = PlayerActivesMod and require(PlayerActivesMod)
+                                local active = PlayerActives and (PlayerActives.Get("Micro-Converter") or PlayerActives.Get("MicroConverter"))
+                                if active and type(active.ClientActivate) == "function" then
+                                    active:ClientActivate(true)
+                                    usedMicro = true
+                                    task.wait(0.3)
+                                end
                             end
-                        end
+                        end)
                     end
 
                     if not usedMicro then
-                        if currentFieldName ~= "__converting" then
-                            currentFieldName = "__converting"
-                            LocalCollect.StopCollection()
-                            local hivePosition = getOwnHivePosition()
-                            if hivePosition then
-                                tweenCharacterTo(root, humanoid, hivePosition)
-                            else
-                                currentFieldName = nil
-                            end
-                        end
-                        task.wait(0.2)
-                        break
-                    end
-                elseif currentFieldName == "__converting" then
-                    currentFieldName = nil
-                    if AutoDigState then
-                        LocalCollect.StartCollection()
+                        isConvertingAtHive = true
+                        convertStartTime = os.time()
+                        safeStopCollection()
+                        releaseActiveTween()
                     end
                 end
 
-                -- Priority 1: Sprouts Handling (Auto Farm Sprouts)
-                local activeSproutField, activeSproutPart, activeRarity
+                -- Hive Conversion State
+                if isConvertingAtHive then
+                    if pollenVal <= 0 or (os.time() - convertStartTime > 180) then
+                        isConvertingAtHive = false
+                        currentFieldName = nil
+                        if AutoDigState then
+                            safeStartCollection()
+                        end
+                    else
+                        local hivePosition = getOwnHivePosition()
+                        if hivePosition then
+                            if currentFieldName ~= "__converting" or (root.Position - hivePosition).Magnitude > 8 then
+                                currentFieldName = "__converting"
+                                tweenCharacterTo(root, humanoid, hivePosition)
+                            end
+                            pcall(function()
+                                local events = ReplicatedStorage:FindFirstChild("Events")
+                                if events and events:FindFirstChild("PlayerHiveCommand") then
+                                    events.PlayerHiveCommand:FireServer({Command = "MakeHoney"})
+                                end
+                            end)
+                        else
+                            isConvertingAtHive = false
+                            currentFieldName = nil
+                        end
+                        task.wait(0.3)
+                        break
+                    end
+                end
+
+                -- Priority 1: Sprouts Handling
+                local activeSproutField, activeSproutPart, activeRarity = nil, nil, nil
                 if SelectedSproutActions["Auto Farm Sprouts"] or SelectedFarmSettings["Auto Farm Sprouts"] then
                     activeSproutField, activeSproutPart, activeRarity = getActiveSproutField()
                 end
@@ -1236,7 +1541,7 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
                         sprinklersPlacedField = nil
                         tweenCharacterTo(root, humanoid, activeSproutField.Position + Vector3.new(0, 4, 0))
                     end
-                    LocalCollect.StartCollection()
+                    safeStartCollection()
                     farmFieldTargets(activeSproutField, root, humanoid, runId)
                     task.wait(0.02)
                     break
@@ -1260,39 +1565,41 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
                     break
                 end
 
-                -- Priority 3: Field Farming
-                if field and root and humanoid and currentFieldName ~= selectedName then
-                    currentFieldName = selectedName
+                -- Priority 4: Field Farming
+                if field and root and humanoid and currentFieldName ~= field.Name then
+                    currentFieldName = field.Name
                     sprinklersPlacedField = nil
                     tweenCharacterTo(root, humanoid, field.Position + Vector3.new(0, 4, 0))
                 end
 
-                if field and humanoid and currentFieldName == selectedName and AutoSprinklersState
-                    and sprinklersPlacedField ~= selectedName then
-                    sprinklersPlacedField = selectedName
+                if field and humanoid and currentFieldName == field.Name and AutoSprinklersState
+                    and sprinklersPlacedField ~= field.Name then
+                    sprinklersPlacedField = field.Name
                     placeSprinklersInField(field, humanoid, runId)
                 end
 
-                -- Optional: Auto Plant Sprouts (Magic Beans)
+                -- Auto Plant Sprouts (Magic Beans)
                 if SelectedSproutActions["Auto Plant Sprouts"] and field and root and isPositionInField(root.Position, field, 5) then
                     if not SelectedSproutExcludedFields[field.Name] then
                         local beansLeft = getInventoryBeanCount()
                         if beansLeft > StopWhenSproutsLeft then
                             local sproutsFolder = workspace:FindFirstChild("Sprouts")
                             if not sproutsFolder or #sproutsFolder:GetChildren() == 0 then
-                                local PlayerActivesMod = ReplicatedStorage:FindFirstChild("PlayerActives")
-                                local PlayerActives = PlayerActivesMod and require(PlayerActivesMod)
-                                local bean = PlayerActives and (PlayerActives.Get("Magic Bean") or PlayerActives.Get("MagicBean"))
-                                if bean and type(bean.ClientActivate) == "function" then
-                                    pcall(function() bean:ClientActivate(true) end)
-                                    task.wait(0.5)
-                                end
+                                pcall(function()
+                                    local PlayerActivesMod = ReplicatedStorage:FindFirstChild("PlayerActives")
+                                    local PlayerActives = PlayerActivesMod and require(PlayerActivesMod)
+                                    local bean = PlayerActives and (PlayerActives.Get("Magic Bean") or PlayerActives.Get("MagicBean"))
+                                    if bean and type(bean.ClientActivate) == "function" then
+                                        bean:ClientActivate(true)
+                                        task.wait(0.5)
+                                    end
+                                end)
                             end
                         end
                     end
                 end
 
-                if field and root and humanoid and currentFieldName == selectedName and AutoFarmState and runId == farmRunId then
+                if field and root and humanoid and currentFieldName == field.Name and AutoFarmState and runId == farmRunId then
                     farmFieldTargets(field, root, humanoid, runId)
                 end
             until true
@@ -1301,26 +1608,22 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
         end
     end)
 
+    -- Mob jump thread
     task.spawn(function()
         local lastJumpAt = 0
 
         while AutoFarmState and runId == farmRunId do
-            local farmList = Hub.GetItemFromList and Hub.GetItemFromList("Select Farm", mainPage, false)
-            local selectedItem = farmList and (farmList.SelectedItem or (farmList.BringSelected and farmList:BringSelected()))
-            local selectedName = type(selectedItem) == "table" and (selectedItem.Name or selectedItem[1]) or selectedItem
-            local field = selectedName and FieldsFolder:FindFirstChild(selectedName)
+            local field = resolveFarmField()
             if CombatState then
                 local combatSpawn = getSelectedMobSpawns()[combatSpawnIndex]
                 field = combatSpawn and getCombatField(combatSpawn) or field
             end
-            local character = Players.LocalPlayer.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            local root = character and character:FindFirstChild("HumanoidRootPart")
+            local char, root, humanoid = getCharacter()
             MobThreatActive = false
 
-            if field and character and humanoid and root and isPositionInField(root.Position, field, 10) then
+            if field and char and humanoid and root and isPositionInField(root.Position, field, 10) then
                 local shouldJump = time() - lastJumpAt >= 1.5
-                if jumpForOwnedFieldMob(field, character, humanoid, shouldJump) then
+                if jumpForOwnedFieldMob(field, char, humanoid, shouldJump) then
                     MobThreatActive = true
                     if shouldJump then
                         lastJumpAt = time()
@@ -1334,11 +1637,12 @@ end)
 
 Hub.CreateToggle(mainPage, "Auto Dig", false, function(state)
     AutoDigState = state
-
     if state then
-        LocalCollect.StartCollection()
+        safeStartCollection()
     else
-        LocalCollect.StopCollection()
+        if not AutoFarmState then
+            safeStopCollection()
+        end
     end
 end)
 
@@ -1346,29 +1650,59 @@ Hub.CreateToggle(mainPage, "Auto Sprinklers", false, function(state)
     AutoSprinklersState = state
 end)
 
--- UI Elements: Main Page (Lists - Nested Hierarchies & Sorted A-Z)
+-- =========================================================================
+-- Anti-Stuck & Void Recovery Watchdog
+-- =========================================================================
+task.spawn(function()
+    local lastPos = nil
+    local stuckCounter = 0
 
--- 1. Select Farm (Sorted A-Z)
-local fieldNames = {}
-local excludedFields = {
-    ["Red Brick Field"] = true,
-    ["White Brick Field"] = true,
-    ["Blue Brick Field"] = true,
-}
-
-for _, field in ipairs(FieldsFolder:GetChildren()) do
-    if not excludedFields[field.Name] then
-        table.insert(fieldNames, {Name = field.Name})
+    while true do
+        task.wait(2)
+        if AutoFarmState and not isConvertingAtHive then
+            local char, root, hum = getCharacter()
+            if root and hum then
+                if root.Position.Y < -40 then
+                    releaseActiveTween()
+                    local hivePos = getOwnHivePosition()
+                    local recoverPos = hivePos or Vector3.new(0, 20, 0)
+                    root.CFrame = CFrame.new(recoverPos)
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    task.wait(0.5)
+                else
+                    if lastPos and (root.Position - lastPos).Magnitude < 2.0 then
+                        stuckCounter = stuckCounter + 1
+                        if stuckCounter >= 6 then
+                            stuckCounter = 0
+                            releaseActiveTween()
+                            hum.Jump = true
+                            root.CFrame = root.CFrame + Vector3.new(0, 5, 0)
+                            root.AssemblyLinearVelocity = Vector3.zero
+                        end
+                    else
+                        stuckCounter = 0
+                        lastPos = root.Position
+                    end
+                end
+            end
+        else
+            stuckCounter = 0
+            lastPos = nil
+        end
     end
-end
-table.sort(fieldNames, function(a, b) return a.Name < b.Name end)
+end)
 
+-- =========================================================================
+-- UI Elements: Main Page Lists & Hierarchies
+-- =========================================================================
+
+-- 1. Select Farm
 local farmList = Hub.CreateList(mainPage, "Select Farm", fieldNames, 170, true)
 
--- 2. Token Customization (Parent list containing Prioritize List and Exclude List)
+-- 2. Token Customization
 local tokenCustomizationList = Hub.CreateList(mainPage, "Token Customization", {}, 340, true)
 
--- 2a. Prioritize List (Sub-list with every single ability token, custom rank typing & click cycling)
+-- 2a. Prioritize List
 local prioritizeTokenNames = {
     "Baby Love",
     "Beam",
@@ -1409,7 +1743,7 @@ for _, tokenName in ipairs(prioritizeTokenNames) do
 end
 local prioritizeList = Hub.CreateList(tokenCustomizationList, "Prioritize List", prioritizeListItems, 210, true)
 
--- 2b. Exclude List (Sub-list, Sorted A-Z)
+-- 2b. Exclude List
 local tokenExclusionNames = {
     "Blueberries",
     "Gumdrops",
@@ -1427,10 +1761,10 @@ for _, tokenName in ipairs(tokenExclusionNames) do
 end
 local farmConfigurationList = Hub.CreateList(tokenCustomizationList, "Exclude List", tokenExclusionItems, 140, true)
 
--- 3. Farm Features & Automation (Parent list)
+-- 3. Farm Features & Automation
 local farmAutomationList = Hub.CreateList(mainPage, "Farm Features & Automation", {}, 330, true)
 
--- 3a. Farm Settings (Sub-list, Sorted A-Z)
+-- 3a. Farm Settings
 local farmSettingsNames = {
     "Auto Catch Coconuts",
     "Auto Farm Sprouts",
@@ -1448,10 +1782,10 @@ for _, settingName in ipairs(farmSettingsNames) do
 end
 local farmSettingsList = Hub.CreateList(farmAutomationList, "Farm Settings", farmSettingsItems, 170, true)
 
--- 4. Sprouts Automation (Parent list containing Sprout Actions, Rarity Selector, and Field Exclusions)
+-- 4. Sprouts Automation
 local sproutsAutomationList = Hub.CreateList(mainPage, "Sprouts Automation", {}, 350, true)
 
--- 4a. Sprout Actions (Sub-list, Sorted A-Z)
+-- 4a. Sprout Actions
 local sproutActionsNames = {
     "Auto Farm Sprouts",
     "Auto Plant Sprouts",
@@ -1466,7 +1800,7 @@ for _, actionName in ipairs(sproutActionsNames) do
 end
 local sproutActionsList = Hub.CreateList(sproutsAutomationList, "Sprout Actions", sproutActionsItems, 150, true)
 
--- 4b. Select Sprout Rarity (Sub-list, Sorted A-Z)
+-- 4b. Select Sprout Rarity
 local sproutRarityNames = {
     "Common",
     "Epic",
@@ -1485,7 +1819,7 @@ for _, rarityName in ipairs(sproutRarityNames) do
 end
 local sproutRaritiesList = Hub.CreateList(sproutsAutomationList, "Select Sprout Rarity", sproutRarityItems, 140, true)
 
--- 4c. Excluded Fields for Sprouts (Sub-list, Sorted A-Z)
+-- 4c. Excluded Fields for Sprouts
 local sproutExcludedFieldItems = {}
 for _, field in ipairs(fieldNames) do
     table.insert(sproutExcludedFieldItems, {Name = field.Name})
@@ -1493,13 +1827,14 @@ end
 table.sort(sproutExcludedFieldItems, function(a, b) return a.Name < b.Name end)
 local sproutExcludedFieldsList = Hub.CreateList(sproutsAutomationList, "Excluded Fields", sproutExcludedFieldItems, 140, false)
 
--- UI Elements: Combat Page (Toggles first, then Lists)
-
+-- =========================================================================
+-- UI Elements: Combat Page
+-- =========================================================================
 Hub.CreateToggle(combatPage, "Kill Selected Mob", false, function(state)
     CombatRequested = state
     CombatState = state and AutoFarmState
     if not CombatState and not AutoDigState then
-        LocalCollect.StopCollection()
+        safeStopCollection()
     end
 end)
 
@@ -1508,10 +1843,9 @@ Hub.CreateToggle(combatPage, "Auto Vicious Bee", false, function(state)
     AutoViciousBeeState = state and AutoFarmState
 end)
 
--- Vicious Bee Settings (Parent List)
+-- Vicious Bee Settings
 local viciousSettingsList = Hub.CreateList(combatPage, "Vicious Bee Settings", {}, 340, true)
 
--- ↳ Min & Max Level Sliders inside Vicious Bee Settings
 Hub.CreateSlider(viciousSettingsList.List, "Min Level", 1, 20, MinViciousLevel, " Lvl", function(value)
     MinViciousLevel = math.floor(value)
 end)
@@ -1520,7 +1854,6 @@ Hub.CreateSlider(viciousSettingsList.List, "Max Level", 1, 20, MaxViciousLevel, 
     MaxViciousLevel = math.floor(value)
 end)
 
--- ↳ Excluded Fields for Vicious Bee (Sub-list, Sorted A-Z)
 local viciousExcludedFieldItems = {}
 for _, field in ipairs(fieldNames) do
     table.insert(viciousExcludedFieldItems, {Name = field.Name})
@@ -1528,7 +1861,7 @@ end
 table.sort(viciousExcludedFieldItems, function(a, b) return a.Name < b.Name end)
 local viciousExcludedFieldsList = Hub.CreateList(viciousSettingsList, "Excluded Fields", viciousExcludedFieldItems, 160, false)
 
--- Select Mobs (Sorted A-Z)
+-- Select Mobs
 local mobNames = {}
 local excludedMobTypes = {
     ["Cave Monster"] = true,
@@ -1551,21 +1884,24 @@ table.sort(mobNames, function(a, b) return a.Name < b.Name end)
 
 combatList = Hub.CreateList(combatPage, "Select Mobs", mobNames, 180, true)
 
+-- =========================================================================
 -- List Row Click & Input Event Bindings
-
-local selectedFarmRow
+-- =========================================================================
+local selectedFarmRow = nil
 local normalFarmColor = Color3.fromRGB(24, 28, 40)
 local selectedFarmColor = Color3.fromRGB(42, 100, 60)
 
 for _, entry in ipairs(farmList.Items or {}) do
     local row = entry.Row
-    if row and row:IsA("TextButton") then
+    local fieldName = entry.Name or (entry.Data and entry.Data.Name)
+    if row and row:IsA("TextButton") and fieldName then
         row.MouseButton1Click:Connect(function()
             if selectedFarmRow and selectedFarmRow.Parent then
                 selectedFarmRow.BackgroundColor3 = normalFarmColor
             end
             selectedFarmRow = row
             row.BackgroundColor3 = selectedFarmColor
+            SelectedFarmField = fieldName
         end)
 
         row.MouseLeave:Connect(function()
@@ -1580,7 +1916,6 @@ for _, entry in ipairs(prioritizeList.Items or {}) do
     local row = entry.Row
     local tokenName = entry.Name or (entry.Data and entry.Data.Name)
     if row and row:IsA("TextButton") and tokenName then
-        -- Hide default checkbox to prevent overlapping bug
         local cb = row:FindFirstChild("Checkbox", true)
         if cb then
             cb.Visible = false
@@ -1673,7 +2008,6 @@ for _, entry in ipairs(farmSettingsList.Items or {}) do
     end
 end
 
--- Sprout Actions row click & textbox handlers
 for _, entry in ipairs(sproutActionsList.Items or {}) do
     local row = entry.Row
     local actionName = entry.Name or (entry.Data and entry.Data.Name)
@@ -1731,7 +2065,6 @@ for _, entry in ipairs(sproutActionsList.Items or {}) do
     end
 end
 
--- Sprout Rarities row click handlers
 for _, entry in ipairs(sproutRaritiesList.Items or {}) do
     local row = entry.Row
     local rarityName = entry.Name or (entry.Data and entry.Data.Name)
@@ -1744,7 +2077,6 @@ for _, entry in ipairs(sproutRaritiesList.Items or {}) do
     end
 end
 
--- Sprout Excluded Fields row click handlers
 for _, entry in ipairs(sproutExcludedFieldsList.Items or {}) do
     local row = entry.Row
     local fieldName = entry.Name or (entry.Data and entry.Data.Name)
@@ -1779,7 +2111,6 @@ for _, entry in ipairs(combatList.Items or {}) do
     end
 end
 
--- Vicious Bee Excluded Fields click handlers
 for _, entry in ipairs(viciousExcludedFieldsList.Items or {}) do
     local row = entry.Row
     local fieldName = entry.Name or (entry.Data and entry.Data.Name)
