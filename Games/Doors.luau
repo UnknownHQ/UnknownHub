@@ -40,11 +40,13 @@ local function destroyOldGui()
     if pGui then table.insert(parents, pGui) end
     for _, parent in ipairs(parents) do
         if parent then
-            for _, desc in ipairs(parent:GetDescendants()) do
-                if desc.Name == LIBRARY_NAME or desc.Name:find("Unknown_ESP") then
-                    pcall(function() desc:Destroy() end)
+            pcall(function()
+                for _, desc in ipairs(parent:GetDescendants()) do
+                    if desc.Name == LIBRARY_NAME or desc.Name:find("Unknown_ESP") or desc.Name:find("Unknown_") then
+                        pcall(function() desc:Destroy() end)
+                    end
                 end
-            end
+            end)
         end
     end
 end
@@ -494,9 +496,9 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     if isRoomRestricted then
         local mode = State.ESP_RoomFilterMode or "Current & Next Room"
         if mode == "Current Room Only" then
-            initiallyVisible = (curRoom ~= nil and roomNumber ~= nil and roomNumber == curRoom)
+            initiallyVisible = (curRoom == nil or roomNumber == nil or roomNumber == curRoom or roomNumber == (curRoom - 1) or roomNumber == (curRoom + 1))
         elseif mode == "Current & Next Room" then
-            initiallyVisible = (curRoom == nil or roomNumber == nil or roomNumber == curRoom or roomNumber == (curRoom + 1))
+            initiallyVisible = (curRoom == nil or roomNumber == nil or math.abs(roomNumber - curRoom) <= 3)
         else
             initiallyVisible = true
         end
@@ -545,15 +547,56 @@ task.spawn(function()
 
             for _, record in pairs(activeEspRecords) do
                 -- 1. Room Visibility Filter (Configurable display mode: Current & Next Room, Current Room Only, or All Rooms)
-                if record.Category == "Doors" or record.Category == "HidingSpots" then
-                    local shouldShow = true
+                if record.Category == "Doors" then
+                    local shouldShow = State.Doors_ESP
+                    if shouldShow then
+                        local isNear = false
+                        if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
+                            if (rootPos - record.Adornee.Position).Magnitude <= 65 then
+                                isNear = true
+                            end
+                        end
+
+                        if isNear then
+                            shouldShow = true
+                        else
+                            local mode = State.ESP_RoomFilterMode or "Current & Next Room"
+                            if mode == "Current Room Only" then
+                                shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
+                            elseif mode == "Current & Next Room" then
+                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 3)
+                            else -- "All Rooms (Full Vision)"
+                                shouldShow = true
+                            end
+                        end
+                    end
+
+                    if record.CurrentlyVisible ~= shouldShow then
+                        record.CurrentlyVisible = shouldShow
+                        if record.Visuals then
+                            for _, vis in ipairs(record.Visuals) do
+                                if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
+                                    vis.Enabled = shouldShow
+                                elseif vis:IsA("Highlight") then
+                                    vis.Enabled = shouldShow
+                                    if not shouldShow then
+                                        vis.Adornee = nil
+                                    else
+                                        vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
+                                    end
+                                end
+                            end
+                        end
+                    end
+                elseif record.Category == "HidingSpots" then
+                    local shouldShow = State.HidingSpots_ESP
                     local mode = State.ESP_RoomFilterMode or "Current & Next Room"
                     if mode == "Current Room Only" then
-                        shouldShow = (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
+                        shouldShow = State.HidingSpots_ESP and (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
                     elseif mode == "Current & Next Room" then
-                        shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom + 1))
+                        shouldShow = State.HidingSpots_ESP and (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom + 1))
                     else -- "All Rooms (Full Vision)"
-                        shouldShow = true
+                        shouldShow = State.HidingSpots_ESP
                     end
 
                     -- Only perform visual property & highlight adornee updates on actual state transitions (eliminates jitter and highlight slot churn!)
@@ -637,7 +680,7 @@ local function processDoor(room, doorModel)
 
     -- Verify door has real interactable open components (excludes fake room decor doors)
     local isFake = doorModel.Name == "DoorFake" or dName:find("fake") or (doorModel.Parent and doorModel.Parent.Name:lower():find("dupe"))
-    if not isFake and not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint")) then
+    if not isFake and not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint") or doorModel:GetAttribute("ESP_Hooked") or doorModel:GetAttribute("Opened") or doorModel:FindFirstChild("Open")) then
         removeEspFor(doorModel)
         return
     end
@@ -1149,6 +1192,11 @@ local function processEntity(entity)
         return
     end
 
+    -- Strictly blacklist room fixtures, windows, curtains, and glass from entity scanner
+    if eLower:find("window") or eLower:find("framing") or eLower:find("curtain") or eLower:find("glass") then
+        return
+    end
+
     local cfg = nil
     for key, info in pairs(ENTITY_REGISTRY) do
         if eLower == key or eLower:find(key) then
@@ -1490,12 +1538,11 @@ if Camera then
     end)
 end
 
-local isGlitchRoutineRunning = false
-
 local function startGetGlitchFragmentRoutine()
-    if isGlitchRoutineRunning then
-        isGlitchRoutineRunning = false
-        Hub.Notify("Glitch Fragment", "⏹️ Glitch routine stopped.", 2)
+    local root = getRoot()
+    local char = getChar()
+    if not root or not char then
+        Hub.Notify("Glitch Fragment", "⚠️ Character not found!", 4)
         return
     end
 
@@ -1528,95 +1575,41 @@ local function startGetGlitchFragmentRoutine()
         end
     end
 
-    -- If found, grab it immediately!
+    -- If already spawned, teleport directly to collect it!
     if found then
-        local root = getRoot()
-        if root then
-            local targetPart = (found:IsA("Model") and (found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)))
-                or (found:IsA("BasePart") and found)
-            if targetPart then
-                local oldPos = root.CFrame
-                root.CFrame = targetPart.CFrame + Vector3.new(0, 2, 0)
-                task.wait(0.12)
-                collectGlitchFragment(found)
-                task.wait(0.12)
-                root.CFrame = oldPos
-                Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 3)
-                return
-            end
+        local targetPart = (found:IsA("Model") and (found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)))
+            or (found:IsA("BasePart") and found)
+        if targetPart then
+            local oldPos = root.CFrame
+            root.CFrame = targetPart.CFrame + Vector3.new(0, 2, 0)
+            task.wait(0.12)
+            collectGlitchFragment(found)
+            task.wait(0.12)
+            root.CFrame = oldPos
+            Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 4)
+            return
         end
     end
 
-    -- 2. If not spawned, start 5x Glitch Spawning Sequence
-    local cRooms = Workspace:FindFirstChild("CurrentRooms")
-    local highestRoomNum = 0
-    if cRooms then
-        for _, r in ipairs(cRooms:GetChildren()) do
-            local n = tonumber(r.Name)
-            if n and n > highestRoomNum then
-                highestRoomNum = n
-            end
-        end
+    -- 2. Direct Instant Void Drop (Out of map) to trigger Glitch strike
+    local safePos = root.CFrame
+    State.Glitch_Count = (State.Glitch_Count or 0) + 1
+    local currentCount = State.Glitch_Count
+
+    -- Teleport out of the map into the void (160 studs down)
+    root.CFrame = safePos - Vector3.new(0, 160, 0)
+
+    if currentCount >= 5 then
+        Hub.Notify("Glitch Fragment", string.format("⚡ Dropped out of map! Glitch strike [%d/5] reached! Spawning in the next 2-10 rooms!", currentCount), 8)
+    else
+        Hub.Notify("Glitch Fragment", string.format("⚡ Dropped out of map! Glitch strike [%d/5]! (Reach 5 strikes to spawn Fragment in upcoming rooms)", currentCount), 6)
     end
 
-    if highestRoomNum < 2 then
-        Hub.Notify("Glitch Fragment", string.format("🚪 You are at Door %d! Open doors up to Room 2 or 3 first so there are old rooms behind you to lag in!", highestRoomNum), 5)
-        return
-    end
-
-    isGlitchRoutineRunning = true
-    Hub.Notify("Glitch Fragment", string.format("🌀 Starting Glitch spawn routine! Progress: [%d/5 strikes]", State.Glitch_Count or 0), 3)
-
-    task.spawn(function()
-        while isGlitchRoutineRunning and (State.Glitch_Count or 0) < 5 do
-            local char = getChar()
-            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-            if hum and hum.Health <= 30 then
-                Hub.Notify("Glitch Fragment", string.format("⚠️ Low health (%.0f HP)! Pause & heal before next strike to stay safe.", hum.Health), 5)
-                isGlitchRoutineRunning = false
-                break
-            end
-
-            -- Find earliest room loaded
-            local roomsFolder = Workspace:FindFirstChild("CurrentRooms")
-            if not roomsFolder then break end
-
-            local earliestRoom = nil
-            local minNum = math.huge
-            for _, r in ipairs(roomsFolder:GetChildren()) do
-                local n = tonumber(r.Name)
-                if n and n < minNum then
-                    minNum = n
-                    earliestRoom = r
-                end
-            end
-
-            if not earliestRoom then break end
-
-            local part = earliestRoom:FindFirstChildWhichIsA("BasePart", true)
-            local root = getRoot()
-            if root and part then
-                local startCount = State.Glitch_Count or 0
-                root.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-                Hub.Notify("Glitch Fragment", string.format("⚡ Teleported back to Room %s! Waiting for Glitch strike [%d/5]...", earliestRoom.Name, startCount + 1), 3)
-
-                -- Wait up to 10 seconds for Glitch to strike
-                local timeout = os.clock() + 10
-                while os.clock() < timeout and isGlitchRoutineRunning do
-                    if (State.Glitch_Count or 0) > startCount then
-                        break
-                    end
-                    task.wait(0.5)
-                end
-            end
-
-            task.wait(2.0)
-        end
-
-        isGlitchRoutineRunning = false
-
-        if (State.Glitch_Count or 0) >= 5 then
-            Hub.Notify("Glitch Fragment", "🎉 5 Glitches completed! Walk through the next door to spawn and collect your Glitch Fragment!", 8)
+    -- Safety net: If DOORS void catcher does not snap player back within 3.5s, restore to safe position
+    task.delay(3.5, function()
+        local curRoot = getRoot()
+        if curRoot and curRoot.Position.Y < -80 then
+            curRoot.CFrame = safePos + Vector3.new(0, 3, 0)
         end
     end)
 end
