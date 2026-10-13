@@ -146,6 +146,7 @@ local State = {
     HidingSpots_ESP = false,
     GlitchFragment_ESP = true,
     Auto_GetGlitchFragment = false,
+    Glitch_Count = 0,
     ESP_Color_GlitchFragment = Color3.fromRGB(245, 50, 255),
     Show_Distance = true,
     Fullbright = true,
@@ -1447,6 +1448,131 @@ local function processGlitchFragment(inst)
             collectGlitchFragment(inst)
         end)
     end
+end
+
+-- =========================================================================
+-- Glitch Strike Detection & 5x Trigger Engine
+-- =========================================================================
+
+local lastGlitchNotification = 0
+local function recordGlitchStrike()
+    local now = os.clock()
+    if now - lastGlitchNotification < 1.5 then return end -- Debounce duplicate audio/remote events
+    lastGlitchNotification = now
+
+    State.Glitch_Count = (State.Glitch_Count or 0) + 1
+    if State.Glitch_Count >= 5 then
+        Hub.Notify("Glitch Secret", string.format("🎉 5/5 Glitches completed! The Glitch Fragment will spawn in the next room!", State.Glitch_Count), 6)
+    else
+        Hub.Notify("Glitch Secret", string.format("⚡ Glitch struck! [%d/5] (Need %d more to spawn Fragment)", State.Glitch_Count, 5 - State.Glitch_Count), 4)
+    end
+end
+
+-- 1. Hook UseEnemyModule remote for server-confirmed Glitch attacks
+pcall(function()
+    local remotes = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
+    local uem = remotes and remotes:FindFirstChild("UseEnemyModule")
+    if uem then
+        uem.OnClientEvent:Connect(function(enemyName, ...)
+            if tostring(enemyName):lower():find("glitch") then
+                recordGlitchStrike()
+            end
+        end)
+    end
+end)
+
+-- 2. Hook Camera Glitch Screen VFX
+if Camera then
+    Camera.ChildAdded:Connect(function(child)
+        if child.Name:lower():find("glitch") then
+            recordGlitchStrike()
+        end
+    end)
+end
+
+local function triggerGlitchLagBehind()
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not currentRooms then
+        Hub.Notify("Glitch Spawner", "⚠️ No rooms loaded yet!", 3)
+        return false
+    end
+    local curRoomNum = getCurrentRoomNumber() or 0
+    if curRoomNum < 2 then
+        Hub.Notify("Glitch Spawner", "⚠️ Please advance to at least Door 2 or 3 first so you can lag behind!", 4)
+        return false
+    end
+    local root = getRoot()
+    if not root then return false end
+
+    -- Find earliest loaded room (Room 0 or 1)
+    local backRoom = currentRooms:FindFirstChild("0") or currentRooms:FindFirstChild("1") or currentRooms:GetChildren()[1]
+    if not backRoom then
+        Hub.Notify("Glitch Spawner", "⚠️ Cannot find lag room!", 3)
+        return false
+    end
+    local part = backRoom:FindFirstChildWhichIsA("BasePart", true)
+    if not part then return false end
+
+    root.CFrame = part.CFrame + Vector3.new(0, 3, 0)
+    Hub.Notify("Glitch Spawner", "⚡ Teleported to Room " .. backRoom.Name .. "! Stay here until Glitch strikes...", 4)
+    return true
+end
+
+local function triggerVoidDrop()
+    local root = getRoot()
+    if not root then return false end
+    root.CFrame = root.CFrame - Vector3.new(0, 60, 0)
+    Hub.Notify("Glitch Spawner", "🕳️ Dropped into void! Glitch failsafe will teleport you back...", 3)
+    return true
+end
+
+local isAutoGlitching = false
+local function autoFarmGlitchFiveTimes()
+    if isAutoGlitching then
+        isAutoGlitching = false
+        Hub.Notify("Glitch Spawner", "⏹️ Auto-Glitch stopped.", 2)
+        return
+    end
+
+    local curRoomNum = getCurrentRoomNumber() or 0
+    if curRoomNum < 2 then
+        Hub.Notify("Glitch Spawner", "⚠️ Advance to at least Door 2 or 3 first so you can lag behind!", 4)
+        return
+    end
+
+    isAutoGlitching = true
+    Hub.Notify("Glitch Spawner", string.format("🌀 Auto-Glitch started! Current: %d/5. Stand by...", State.Glitch_Count or 0), 3)
+
+    task.spawn(function()
+        while isAutoGlitching and (State.Glitch_Count or 0) < 5 do
+            local char = getChar()
+            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hum and hum.Health <= 35 then
+                Hub.Notify("Glitch Spawner", string.format("⚠️ Low health (%.0f HP)! Pause & heal before next strike to stay safe.", hum.Health), 5)
+                isAutoGlitching = false
+                break
+            end
+
+            local startCount = State.Glitch_Count or 0
+            triggerGlitchLagBehind()
+
+            -- Wait for Glitch to strike or up to 8 seconds
+            local timeout = os.clock() + 8
+            while os.clock() < timeout and isAutoGlitching do
+                if (State.Glitch_Count or 0) > startCount then
+                    break
+                end
+                task.wait(0.5)
+            end
+
+            task.wait(2.0) -- recovery buffer between strikes
+        end
+
+        isAutoGlitching = false
+        if (State.Glitch_Count or 0) >= 5 then
+            Hub.Notify("Glitch Spawner", "🎉 5 Glitches completed! Walk through the next door to spawn and collect your Glitch Fragment!", 7)
+        end
+    end)
 end
 
 -- Full Room Parser
@@ -3089,7 +3215,19 @@ Hub.CreateToggle(floorTab, "Auto Solve Circuit Breaker (Room 100)", State.Auto_B
     Hub.Notify("Room 100 Breaker", v and "Auto Breaker: ACTIVE" or "Auto Breaker: OFF", 2)
 end)
 
-Hub.CreateSection(floorTab, "🌀 Glitch Fragment (Special)")
+Hub.CreateSection(floorTab, "🌀 Glitch Fragment Spawner (5x Glitch Secret)")
+
+Hub.CreateButton(floorTab, "⚡ Step Back to Lag Room (Trigger Glitch)", function()
+    triggerGlitchLagBehind()
+end)
+
+Hub.CreateButton(floorTab, "🕳️ Void Drop (Trigger Out-of-Bounds Glitch)", function()
+    triggerVoidDrop()
+end)
+
+Hub.CreateButton(floorTab, "🌀 Auto-Trigger Glitch x5 (Auto Spawn Fragment)", function()
+    autoFarmGlitchFiveTimes()
+end)
 
 Hub.CreateButton(floorTab, "🌀 Get Glitch Fragment (Teleport & Collect)", function()
     getGlitchFragmentNow()
@@ -3098,6 +3236,11 @@ end)
 Hub.CreateToggle(floorTab, "Auto Collect Glitch Fragment", State.Auto_GetGlitchFragment, function(v)
     State.Auto_GetGlitchFragment = v
     Hub.Notify("Glitch Fragment", v and "Auto Collect: ACTIVE" or "Auto Collect: OFF", 2)
+end)
+
+Hub.CreateButton(floorTab, "🔄 Reset Glitch Counter", function()
+    State.Glitch_Count = 0
+    Hub.Notify("Glitch Counter", "Counter reset to 0/5", 2)
 end)
 
 -- Tab 3: ESP TAB
