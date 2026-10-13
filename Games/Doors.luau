@@ -13,6 +13,7 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
+local CollectionService = game:GetService("CollectionService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -1308,7 +1309,13 @@ end
 local function isGlitchFragmentInstance(inst)
     if not inst then return false end
     local n = inst.Name:lower()
-    return CollectionService:HasTag(inst, "GlitchCube")
+    local hasTag = false
+    if CollectionService then
+        pcall(function()
+            hasTag = CollectionService:HasTag(inst, "GlitchCube")
+        end)
+    end
+    return hasTag
         or n:find("glitchfragment")
         or n:find("glitch_fragment")
         or n:find("glitchcube")
