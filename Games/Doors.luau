@@ -1551,7 +1551,7 @@ if Camera then
     end)
 end
 
--- Continuous Background Scanner for Auto Get Glitch Fragment
+-- Continuous Autonomous Void & Collect Engine for Auto Get Glitch Fragment
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -1584,6 +1584,7 @@ task.spawn(function()
                 end
             end
 
+            -- Priority 1: If Glitch Fragment is already spawned, collect it immediately!
             if found then
                 local root = getRoot()
                 if root then
@@ -1596,12 +1597,61 @@ task.spawn(function()
                         collectGlitchFragment(found)
                         task.wait(0.12)
                         root.CFrame = oldPos
-                        Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 4)
+                        Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 5)
+                        State.Auto_GetGlitchFragment = false
                     end
                 end
+            elseif (State.Glitch_Count or 0) < 5 then
+                -- Priority 2: Not yet at 5 Glitches, spam void teleport to force game's Glitch trigger
+                local char = getChar()
+                local root = getRoot()
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                if root and hum and hum.Health > 35 then
+                    local safePos = root.CFrame
+                    local voidCFrame = safePos - Vector3.new(0, 160, 0)
+                    local startCount = State.Glitch_Count or 0
+                    local dropStart = os.clock()
+
+                    Hub.Notify("Glitch Fragment", string.format("⚡ Spamming void drop for Glitch [%d/5]...", startCount + 1), 3)
+
+                    -- Spam teleport into void for 2.6 seconds to hold through rubberbands and force void catcher
+                    while os.clock() - dropStart < 2.6 and State.Auto_GetGlitchFragment do
+                        root.CFrame = voidCFrame
+                        root.AssemblyLinearVelocity = Vector3.new(0, -120, 0)
+                        task.wait(0.03)
+                    end
+
+                    -- Wait for game's Glitch trigger to restore the player
+                    task.wait(1.5)
+
+                    -- If strike was not registered by remote hook, check if game teleported player back
+                    if (State.Glitch_Count or 0) == startCount then
+                        local curRoot = getRoot()
+                        if curRoot and (curRoot.Position.Y > -40) then
+                            State.Glitch_Count = startCount + 1
+                            Hub.Notify("Glitch Secret", string.format("⚡ Glitch struck! [%d/5] (Progress saved)", State.Glitch_Count), 4)
+                        end
+                    end
+
+                    -- Safety recovery if still stuck below
+                    local curRoot = getRoot()
+                    if curRoot and curRoot.Position.Y < -60 then
+                        curRoot.CFrame = safePos + Vector3.new(0, 3, 0)
+                    end
+
+                    -- Cooldown between strikes to allow character stability and health recovery
+                    task.wait(2.5)
+                elseif hum and hum.Health <= 35 then
+                    Hub.Notify("Glitch Fragment", "⚠️ Low health, pausing void drops to stay safe...", 3)
+                    task.wait(4.0)
+                end
+            else
+                -- At 5 Glitches: Waiting for fragment to spawn in upcoming rooms (next 2-10 rooms)
+                task.wait(1.5)
             end
+        else
+            task.wait(1.0)
         end
-        task.wait(1.0)
     end
 end)
 
