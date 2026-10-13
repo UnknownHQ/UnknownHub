@@ -125,6 +125,37 @@ local State = {
     Show_Distance = true,
     Fullbright = true,
 
+    -- ESP Customization & Appearance Configs
+    ESP_TextSize = 15,
+    ESP_FillTransparency = 0.5,
+    ESP_OutlineTransparency = 0,
+    ESP_RoomFilterMode = "Current & Next Room", -- "Current & Next Room", "Current Room Only", "All Rooms (Full Vision)"
+    ESP_ColorTheme = "Default Vibrant",
+    ESP_Color_Doors = Color3.fromRGB(0, 215, 255),
+    ESP_Color_DoorsLocked = Color3.fromRGB(255, 175, 30),
+    ESP_Color_Dupe = Color3.fromRGB(255, 35, 35),
+    ESP_Color_Keys = Color3.fromRGB(255, 220, 50),
+    ESP_Color_Items = Color3.fromRGB(160, 110, 255),
+    ESP_Color_Entities = Color3.fromRGB(255, 35, 35),
+    ESP_Color_Hiding = Color3.fromRGB(80, 220, 120),
+
+    -- Entity Filters (Exclude/Include individual monster types)
+    Entity_Show_Rush = true,
+    Entity_Show_Ambush = true,
+    Entity_Show_Figure = true,
+    Entity_Show_Seek = true,
+    Entity_Show_Eyes = true,
+    Entity_Show_Halt = true,
+    Entity_Show_Screech = true,
+    Entity_Show_Giggle = true,
+    Entity_Show_Grumble = true,
+    Entity_Show_Gloombats = true,
+    Entity_Show_Snare = true,
+    Entity_Show_Timothy = true,
+    Entity_Show_Rooms = true, -- A-60, A-90, A-120
+    Entity_Show_Dread = true,
+    Entity_Show_Other = true,
+
     -- Floor Hazards & Mechanics (Hotel, Mines & Rooms)
     Anti_Screech = true,
     Anti_Eyes = true,
@@ -201,7 +232,7 @@ local function createBillboard(adorneePart, baseText, color, offset)
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 225, 0, 40)
+    bb.Size = UDim2.new(0, 260, 0, 48)
     bb.StudsOffset = offset
     bb.ResetOnSpawn = false
 
@@ -213,7 +244,7 @@ local function createBillboard(adorneePart, baseText, color, offset)
     label.TextStrokeTransparency = 0.45
     label.TextStrokeColor3 = Color3.fromRGB(15, 15, 20)
     label.Font = Enum.Font.Gotham
-    label.TextSize = 15
+    label.TextSize = State.ESP_TextSize or 15
     label.Parent = bb
 
     local initialText = baseText
@@ -232,8 +263,8 @@ end
 
 local function createHighlight(adornee, color, fillTrans, outlineTrans)
     if not adornee then return nil end
-    fillTrans = fillTrans or 0.5
-    outlineTrans = outlineTrans or 0
+    fillTrans = fillTrans or State.ESP_FillTransparency or 0.5
+    outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
 
     local hl = Instance.new("Highlight")
     hl.Name = "Unknown_ESP_Highlight"
@@ -245,6 +276,22 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Parent = CoreGui
     return hl
+end
+
+local function refreshEspVisualSettings()
+    for _, rec in pairs(activeEspRecords) do
+        if rec.Label then
+            rec.Label.TextSize = State.ESP_TextSize or 15
+        end
+        if rec.Visuals then
+            for _, vis in ipairs(rec.Visuals) do
+                if vis:IsA("Highlight") then
+                    vis.FillTransparency = State.ESP_FillTransparency or 0.5
+                    vis.OutlineTransparency = State.ESP_OutlineTransparency or 0
+                end
+            end
+        end
+    end
 end
 
 local function getObjectRoom(instance)
@@ -419,7 +466,14 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     local curRoom = isRoomRestricted and getCurrentRoomNumber() or nil
     local initiallyVisible = true
     if isRoomRestricted then
-        initiallyVisible = (curRoom ~= nil and roomNumber ~= nil and roomNumber == curRoom)
+        local mode = State.ESP_RoomFilterMode or "Current & Next Room"
+        if mode == "Current Room Only" then
+            initiallyVisible = (curRoom ~= nil and roomNumber ~= nil and roomNumber == curRoom)
+        elseif mode == "Current & Next Room" then
+            initiallyVisible = (curRoom == nil or roomNumber == nil or roomNumber == curRoom or roomNumber == (curRoom + 1))
+        else
+            initiallyVisible = true
+        end
         for _, vis in ipairs(visuals) do
             if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
                 vis.Enabled = initiallyVisible
@@ -464,11 +518,16 @@ task.spawn(function()
             local curRoom = getCurrentRoomNumber()
 
             for _, record in pairs(activeEspRecords) do
-                -- 1. Room Visibility Filter (Strictly applies ONLY to Doors and Closets/Beds as requested!)
+                -- 1. Room Visibility Filter (Configurable display mode: Current & Next Room, Current Room Only, or All Rooms)
                 if record.Category == "Doors" or record.Category == "HidingSpots" then
-                    local shouldShow = false
-                    if curRoom ~= nil and record.RoomNumber ~= nil then
-                        shouldShow = (record.RoomNumber == curRoom)
+                    local shouldShow = true
+                    local mode = State.ESP_RoomFilterMode or "Current & Next Room"
+                    if mode == "Current Room Only" then
+                        shouldShow = (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
+                    elseif mode == "Current & Next Room" then
+                        shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom + 1))
+                    else -- "All Rooms (Full Vision)"
+                        shouldShow = true
                     end
 
                     -- Only perform visual property & highlight adornee updates on actual state transitions (eliminates jitter and highlight slot churn!)
@@ -583,46 +642,35 @@ local function processDoor(room, doorModel)
         isDupe = true
     end
 
+    -- Make internal collision/hidden blocks 100% transparent so Highlight ignores them and cleanly outlines the door leaf
+    if doorModel:FindFirstChild("Hidden") then
+        doorModel.Hidden.Transparency = 1
+    end
+    if doorModel:FindFirstChild("Collision") then
+        doorModel.Collision.Transparency = 1
+    end
+
     local doorNumberStr = signText or tostring(room.Name)
     local baseText
     local color
 
     if isDupe then
         baseText = "Dupe Door"
-        color = Color3.fromRGB(255, 35, 35)
+        color = State.ESP_Color_Dupe
     elseif isLocked then
         baseText = string.format("Door %s [LOCKED]", doorNumberStr)
-        color = Color3.fromRGB(255, 175, 30)
+        color = State.ESP_Color_DoorsLocked
     else
         baseText = string.format("Door %s", doorNumberStr)
-        color = Color3.fromRGB(0, 215, 255)
-    end
-
-    -- Clean Door Highlight: Outline ONLY the outer door frame/slab and padlock (strictly excludes decorative inner plate bevels & sign rings)
-    local highlightParts = { doorMesh }
-    local lockPart = doorModel:FindFirstChild("Lock")
-    if lockPart and lockPart:IsA("BasePart") then
-        table.insert(highlightParts, lockPart)
-    end
-
-    -- Support companion door leaf on double doors or gate doors
-    for _, child in ipairs(doorModel:GetChildren()) do
-        if child:IsA("BasePart") and child ~= doorMesh and child ~= lockPart and child.Transparency < 0.9 then
-            local cName = child.Name:lower()
-            if cName:find("door") and not cName:find("collision") and not cName:find("hidden") and not cName:find("hinge") then
-                table.insert(highlightParts, child)
-            end
-        end
+        color = State.ESP_Color_Doors
     end
 
     local adorneePart = doorModel:FindFirstChild("SignPhysical") 
-        or doorModel:FindFirstChild("Sign") 
+        or (doorModel:FindFirstChild("Sign") and doorModel.Sign:IsA("BasePart") and doorModel.Sign)
         or doorMesh
-    if not (adorneePart and adorneePart:IsA("BasePart")) then
-        adorneePart = doorMesh
-    end
 
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", highlightParts, Vector3.new(0, 1.2, 0), roomNumber)
+    -- Clean Unified Door Highlight: Highlighting the Model outlines the complete solid door leaf, sign, and padlock without internal wireframe cuts
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorModel, Vector3.new(0, 1.2, 0), roomNumber)
 
     -- Lifecycle listener: automatically update if lock is removed or room scripts finish loading
     if not doorModel:GetAttribute("ESP_Hooked") then
@@ -999,34 +1047,63 @@ local function processGold(goldInstance)
     end
 end
 
--- 8. Comprehensive Entity ESP (Every Monster in DOORS Hotel & The Mines - All Red, No Emojis)
-local ENTITY_RED = Color3.fromRGB(255, 35, 35)
-
+-- 8. Comprehensive Entity ESP (Every Monster in DOORS Hotel, The Mines & The Rooms)
 local ENTITY_REGISTRY = {
-    ["rushmoving"]     = { Name = "Rush",               Color = ENTITY_RED },
-    ["ambushmoving"]   = { Name = "Ambush",             Color = ENTITY_RED },
-    ["figurerig"]      = { Name = "Figure",             Color = ENTITY_RED },
-    ["seekmoving"]     = { Name = "Seek",               Color = ENTITY_RED },
-    ["seekrig"]        = { Name = "Seek",               Color = ENTITY_RED },
-    ["eyes"]           = { Name = "Eyes (Don't Look!)", Color = ENTITY_RED },
-    ["halt"]           = { Name = "Halt",               Color = ENTITY_RED },
-    ["shade"]          = { Name = "Halt",               Color = ENTITY_RED },
-    ["screech"]        = { Name = "Screech",            Color = ENTITY_RED },
-    ["giggleceiling"]  = { Name = "Giggle",             Color = ENTITY_RED },
-    ["giggle"]         = { Name = "Giggle",             Color = ENTITY_RED },
-    ["grumble"]        = { Name = "Grumble",            Color = ENTITY_RED },
-    ["grumblerig"]     = { Name = "Grumble",            Color = ENTITY_RED },
-    ["snare"]          = { Name = "Snare Trap",         Color = ENTITY_RED },
-    ["glitch"]         = { Name = "Glitch",             Color = ENTITY_RED },
-    ["dread"]          = { Name = "Dread",              Color = ENTITY_RED },
-    ["timothy"]        = { Name = "Timothy",            Color = ENTITY_RED },
-    ["spider"]         = { Name = "Timothy",            Color = ENTITY_RED },
-    ["a60"]            = { Name = "A-60",               Color = ENTITY_RED },
-    ["a-60"]           = { Name = "A-60",               Color = ENTITY_RED },
-    ["a90"]            = { Name = "A-90",               Color = ENTITY_RED },
-    ["a-90"]           = { Name = "A-90",               Color = ENTITY_RED },
-    ["a120"]           = { Name = "A-120",              Color = ENTITY_RED },
-    ["a-120"]          = { Name = "A-120",              Color = ENTITY_RED },
+    -- Hotel Main Roster
+    ["rushmoving"]     = { Name = "Rush",               Category = "Rush" },
+    ["rushnew"]        = { Name = "Rush",               Category = "Rush" },
+    ["rush"]           = { Name = "Rush",               Category = "Rush" },
+    ["ambushmoving"]   = { Name = "Ambush",             Category = "Ambush" },
+    ["ambush"]         = { Name = "Ambush",             Category = "Ambush" },
+    ["figurerig"]      = { Name = "Figure",             Category = "Figure" },
+    ["figure"]         = { Name = "Figure",             Category = "Figure" },
+    ["seekmoving"]     = { Name = "Seek",               Category = "Seek" },
+    ["seekrig"]        = { Name = "Seek",               Category = "Seek" },
+    ["seekarm"]        = { Name = "Seek Arm",           Category = "Seek" },
+    ["eyes"]           = { Name = "Eyes (Don't Look!)", Category = "Eyes" },
+    ["lookman"]        = { Name = "Lookman",            Category = "Eyes" },
+    ["eyesretro"]      = { Name = "Retro Eyes",         Category = "Eyes" },
+    ["halt"]           = { Name = "Halt",               Category = "Halt" },
+    ["shade"]          = { Name = "Halt",               Category = "Halt" },
+    ["screech"]        = { Name = "Screech",            Category = "Screech" },
+    ["screechretro"]   = { Name = "Retro Screech",      Category = "Screech" },
+    ["dread"]          = { Name = "Dread",              Category = "Dread" },
+    ["timothy"]        = { Name = "Timothy",            Category = "Timothy" },
+    ["spider"]         = { Name = "Timothy",            Category = "Timothy" },
+    ["spiderjumpscare"]= { Name = "Timothy",            Category = "Timothy" },
+    ["snare"]          = { Name = "Snare Trap",         Category = "Snare" },
+    ["snaretrap"]      = { Name = "Snare Trap",         Category = "Snare" },
+
+    -- Floor 2: The Mines
+    ["giggleceiling"]  = { Name = "Giggle",             Category = "Giggle" },
+    ["giggle"]         = { Name = "Giggle",             Category = "Giggle" },
+    ["gigglerig"]      = { Name = "Giggle",             Category = "Giggle" },
+    ["grumble"]        = { Name = "Grumble",            Category = "Grumble" },
+    ["grumblerig"]     = { Name = "Grumble",            Category = "Grumble" },
+    ["queen"]          = { Name = "Grumble Queen",      Category = "Grumble" },
+    ["gloombats"]      = { Name = "Gloombats",          Category = "Gloombats" },
+    ["gloombat"]       = { Name = "Gloombats",          Category = "Gloombats" },
+    ["bat"]            = { Name = "Gloombats",          Category = "Gloombats" },
+
+    -- The Rooms (A-1000)
+    ["a60"]            = { Name = "A-60",               Category = "Rooms" },
+    ["a-60"]           = { Name = "A-60",               Category = "Rooms" },
+    ["a90"]            = { Name = "A-90",               Category = "Rooms" },
+    ["a-90"]           = { Name = "A-90",               Category = "Rooms" },
+    ["a120"]           = { Name = "A-120",              Category = "Rooms" },
+    ["a-120"]          = { Name = "A-120",              Category = "Rooms" },
+
+    -- Special & Rare / Modifiers
+    ["glitch"]         = { Name = "Glitch",             Category = "Other" },
+    ["void"]           = { Name = "Void",               Category = "Other" },
+    ["shadow"]         = { Name = "Shadow",             Category = "Other" },
+    ["window"]         = { Name = "Sally",              Category = "Other" },
+    ["sally"]          = { Name = "Sally",              Category = "Other" },
+    ["jack"]           = { Name = "Jack",               Category = "Other" },
+    ["blitz"]          = { Name = "Blitz",              Category = "Other" },
+    ["depth"]          = { Name = "Depth",              Category = "Other" },
+    ["silence"]        = { Name = "Silence",            Category = "Other" },
+    ["greed"]          = { Name = "Greed",              Category = "Other" },
 }
 
 local function processEntity(entity)
@@ -1056,12 +1133,37 @@ local function processEntity(entity)
     end
 
     if cfg then
+        -- Check Entity Filter / Exclude List
+        local isAllowed = true
+        if cfg.Category == "Rush" and not State.Entity_Show_Rush then isAllowed = false
+        elseif cfg.Category == "Ambush" and not State.Entity_Show_Ambush then isAllowed = false
+        elseif cfg.Category == "Figure" and not State.Entity_Show_Figure then isAllowed = false
+        elseif cfg.Category == "Seek" and not State.Entity_Show_Seek then isAllowed = false
+        elseif cfg.Category == "Eyes" and not State.Entity_Show_Eyes then isAllowed = false
+        elseif cfg.Category == "Halt" and not State.Entity_Show_Halt then isAllowed = false
+        elseif cfg.Category == "Screech" and not State.Entity_Show_Screech then isAllowed = false
+        elseif cfg.Category == "Giggle" and not State.Entity_Show_Giggle then isAllowed = false
+        elseif cfg.Category == "Grumble" and not State.Entity_Show_Grumble then isAllowed = false
+        elseif cfg.Category == "Gloombats" and not State.Entity_Show_Gloombats then isAllowed = false
+        elseif cfg.Category == "Snare" and not State.Entity_Show_Snare then isAllowed = false
+        elseif cfg.Category == "Timothy" and not State.Entity_Show_Timothy then isAllowed = false
+        elseif cfg.Category == "Dread" and not State.Entity_Show_Dread then isAllowed = false
+        elseif cfg.Category == "Rooms" and not State.Entity_Show_Rooms then isAllowed = false
+        elseif cfg.Category == "Other" and not State.Entity_Show_Other then isAllowed = false
+        end
+
+        if not isAllowed then
+            removeEspFor(entity)
+            return
+        end
+
         local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChild("Root") or entity:FindFirstChild("Core") or entity:FindFirstChildWhichIsA("BasePart", true)))
             or (entity:IsA("BasePart") and entity)
 
         if targetPart then
             local highlightTarget = entity
             local extraVisuals = {}
+            local entityColor = State.ESP_Color_Entities or Color3.fromRGB(255, 35, 35)
 
             -- Check if 2D sprite entity, flat nextbot, or Rush/Ambush node
             local is2D = entity:IsA("BasePart")
@@ -1078,7 +1180,7 @@ local function processEntity(entity)
                 local adorn = Instance.new("SphereHandleAdornment")
                 adorn.Name = "Unknown_EntitySphereAdorn"
                 adorn.Radius = 4.0
-                adorn.Color3 = ENTITY_RED
+                adorn.Color3 = entityColor
                 adorn.AlwaysOnTop = true
                 adorn.Transparency = 0.4
                 adorn.ZIndex = 10
@@ -1095,7 +1197,7 @@ local function processEntity(entity)
                     sphere.Size = Vector3.new(4, 4, 4)
                     sphere.CFrame = targetPart.CFrame
                     sphere.Transparency = 0.4
-                    sphere.Color = ENTITY_RED
+                    sphere.Color = entityColor
                     sphere.Material = Enum.Material.Neon
                     sphere.CanCollide = false
                     sphere.CanTouch = false
@@ -1112,7 +1214,7 @@ local function processEntity(entity)
             end
 
             local baseText = cfg.Name
-            registerEsp(entity, targetPart, baseText, ENTITY_RED, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, extraVisuals)
+            registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, extraVisuals)
         end
     end
 end
@@ -2643,7 +2745,7 @@ local espTab = Hub.CreateTab("ESP", {
     ActiveColor = Color3.fromRGB(0, 215, 255) 
 })
 
-Hub.CreateSection(espTab, "👁️ Master Control")
+Hub.CreateSection(espTab, "👁️ Master Control & Display Mode")
 
 Hub.CreateToggle(espTab, "Master ESP Switch", State.Master_ESP, function(v)
     State.Master_ESP = v
@@ -2661,6 +2763,59 @@ Hub.CreateToggle(espTab, "Show Distance Labels", State.Show_Distance, function(v
             if rec.Label then rec.Label.Text = rec.BaseText end
         end
     end
+end)
+
+Hub.CreateDropdown(espTab, "Doors & Closets Vision Mode", { "Current & Next Room", "Current Room Only", "All Rooms (Full Vision)" }, State.ESP_RoomFilterMode, function(mode)
+    State.ESP_RoomFilterMode = mode
+    Hub.Notify("ESP Display Mode", "Set to: " .. mode, 2)
+end)
+
+Hub.CreateSlider(espTab, "ESP Text Font Size", 11, 24, State.ESP_TextSize, " px", function(v)
+    State.ESP_TextSize = v
+    refreshEspVisualSettings()
+end)
+
+Hub.CreateSlider(espTab, "Highlight Fill Opacity", 10, 90, math.floor((1 - State.ESP_FillTransparency) * 100), "%", function(v)
+    State.ESP_FillTransparency = 1 - (v / 100)
+    refreshEspVisualSettings()
+end)
+
+Hub.CreateSection(espTab, "🎨 Color Themes & Customization")
+
+Hub.CreateDropdown(espTab, "ESP Color Palette", { "Default Vibrant", "Neon Cyber", "Monochrome Glow", "Pastel Soft" }, State.ESP_ColorTheme, function(theme)
+    State.ESP_ColorTheme = theme
+    if theme == "Default Vibrant" then
+        State.ESP_Color_Doors = Color3.fromRGB(0, 215, 255)
+        State.ESP_Color_DoorsLocked = Color3.fromRGB(255, 175, 30)
+        State.ESP_Color_Keys = Color3.fromRGB(255, 220, 50)
+        State.ESP_Color_Items = Color3.fromRGB(160, 110, 255)
+        State.ESP_Color_Entities = Color3.fromRGB(255, 35, 35)
+        State.ESP_Color_Hiding = Color3.fromRGB(80, 220, 120)
+    elseif theme == "Neon Cyber" then
+        State.ESP_Color_Doors = Color3.fromRGB(0, 255, 136)
+        State.ESP_Color_DoorsLocked = Color3.fromRGB(255, 230, 0)
+        State.ESP_Color_Keys = Color3.fromRGB(0, 238, 255)
+        State.ESP_Color_Items = Color3.fromRGB(255, 0, 128)
+        State.ESP_Color_Entities = Color3.fromRGB(255, 20, 50)
+        State.ESP_Color_Hiding = Color3.fromRGB(50, 255, 180)
+    elseif theme == "Monochrome Glow" then
+        State.ESP_Color_Doors = Color3.fromRGB(240, 240, 255)
+        State.ESP_Color_DoorsLocked = Color3.fromRGB(255, 160, 40)
+        State.ESP_Color_Keys = Color3.fromRGB(255, 240, 100)
+        State.ESP_Color_Items = Color3.fromRGB(200, 200, 255)
+        State.ESP_Color_Entities = Color3.fromRGB(255, 50, 50)
+        State.ESP_Color_Hiding = Color3.fromRGB(180, 230, 200)
+    elseif theme == "Pastel Soft" then
+        State.ESP_Color_Doors = Color3.fromRGB(120, 200, 255)
+        State.ESP_Color_DoorsLocked = Color3.fromRGB(255, 200, 120)
+        State.ESP_Color_Keys = Color3.fromRGB(255, 245, 140)
+        State.ESP_Color_Items = Color3.fromRGB(200, 160, 255)
+        State.ESP_Color_Entities = Color3.fromRGB(255, 100, 100)
+        State.ESP_Color_Hiding = Color3.fromRGB(140, 230, 180)
+    end
+    clearAllEsp()
+    scanAllRooms()
+    Hub.Notify("Color Theme", "Applied: " .. theme, 2)
 end)
 
 Hub.CreateSection(espTab, "🚪 Doors & Navigation")
@@ -2699,13 +2854,90 @@ end)
 
 Hub.CreateSection(espTab, "💀 Entities & Safety")
 
-Hub.CreateToggle(espTab, "Entities ESP (Monsters)", State.Entities_ESP, function(v)
+Hub.CreateToggle(espTab, "Entities ESP (Monsters Master)", State.Entities_ESP, function(v)
     State.Entities_ESP = v
     scanAllRooms()
 end)
 
 Hub.CreateToggle(espTab, "Hiding Spots ESP (Closets & Beds)", State.HidingSpots_ESP, function(v)
     State.HidingSpots_ESP = v
+    scanAllRooms()
+end)
+
+Hub.CreateSection(espTab, "👾 Entity Filter / Exclude List")
+
+Hub.CreateToggle(espTab, "Show Rush", State.Entity_Show_Rush, function(v)
+    State.Entity_Show_Rush = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Ambush", State.Entity_Show_Ambush, function(v)
+    State.Entity_Show_Ambush = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Figure (Library / Electrical)", State.Entity_Show_Figure, function(v)
+    State.Entity_Show_Figure = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Seek", State.Entity_Show_Seek, function(v)
+    State.Entity_Show_Seek = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Eyes / Lookman", State.Entity_Show_Eyes, function(v)
+    State.Entity_Show_Eyes = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Halt", State.Entity_Show_Halt, function(v)
+    State.Entity_Show_Halt = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Screech", State.Entity_Show_Screech, function(v)
+    State.Entity_Show_Screech = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Giggle (Mines Ceilings)", State.Entity_Show_Giggle, function(v)
+    State.Entity_Show_Giggle = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Grumble (Mines Tunnels)", State.Entity_Show_Grumble, function(v)
+    State.Entity_Show_Grumble = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Gloombats", State.Entity_Show_Gloombats, function(v)
+    State.Entity_Show_Gloombats = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Snare Traps", State.Entity_Show_Snare, function(v)
+    State.Entity_Show_Snare = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Timothy (Drawer Spiders)", State.Entity_Show_Timothy, function(v)
+    State.Entity_Show_Timothy = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show The Rooms Monsters (A-60, A-90, A-120)", State.Entity_Show_Rooms, function(v)
+    State.Entity_Show_Rooms = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Dread", State.Entity_Show_Dread, function(v)
+    State.Entity_Show_Dread = v
+    scanAllRooms()
+end)
+
+Hub.CreateToggle(espTab, "Show Special & Rare Entities (Glitch, Void, Sally, Jack, etc.)", State.Entity_Show_Other, function(v)
+    State.Entity_Show_Other = v
     scanAllRooms()
 end)
 
