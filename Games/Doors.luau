@@ -1602,44 +1602,58 @@ task.spawn(function()
                     end
                 end
             elseif (State.Glitch_Count or 0) < 5 then
-                -- Priority 2: Not yet at 5 Glitches, spam void teleport to force game's Glitch trigger
+                -- Priority 2: Not yet at 5 Glitches, perform Roof Out-of-Bounds Walk Routine
                 local char = getChar()
                 local root = getRoot()
                 local hum = char and char:FindFirstChildWhichIsA("Humanoid")
                 if root and hum and hum.Health > 35 then
-                    local safePos = root.CFrame
-                    local voidCFrame = safePos - Vector3.new(0, 160, 0)
                     local startCount = State.Glitch_Count or 0
-                    local dropStart = os.clock()
+                    local inRoomPos = root.CFrame
 
-                    Hub.Notify("Glitch Fragment", string.format("⚡ Spamming void drop for Glitch [%d/5]...", startCount + 1), 3)
-
-                    -- Spam teleport into void for 2.6 seconds to hold through rubberbands and force void catcher
-                    while os.clock() - dropStart < 2.6 and State.Auto_GetGlitchFragment do
-                        root.CFrame = voidCFrame
-                        root.AssemblyLinearVelocity = Vector3.new(0, -120, 0)
-                        task.wait(0.03)
+                    -- Step 1: Elevate to roof / out-of-bounds upper area if not already there
+                    if root.Position.Y < 8 then
+                        root.CFrame = root.CFrame + Vector3.new(0, 16, 0)
+                        task.wait(0.2)
                     end
 
-                    -- Wait for game's Glitch trigger to restore the player
+                    local lookDir = root.CFrame.LookVector
+                    if lookDir.Magnitude < 0.1 then lookDir = Vector3.new(0, 0, -1) end
+
+                    Hub.Notify("Glitch Fragment", string.format("⚡ Walking out-of-bounds on roof for Glitch [%d/5]...", startCount + 1), 3)
+
+                    -- Step 2: Walk repeatedly into the open void space (5-10 times until Glitch strikes)
+                    local walkStart = os.clock()
+                    while os.clock() - walkStart < 7.0 and State.Auto_GetGlitchFragment do
+                        -- Stop if Glitch struck and returned player down to the room!
+                        if root.Position.Y < 6 or (State.Glitch_Count or 0) > startCount then
+                            break
+                        end
+
+                        hum:Move(lookDir, false)
+                        root.AssemblyLinearVelocity = lookDir * 22
+                        root.CFrame = root.CFrame + lookDir * 2.8
+                        task.wait(0.2)
+                    end
+
+                    -- Wait for Glitch animation / recovery
                     task.wait(1.5)
 
-                    -- If strike was not registered by remote hook, check if game teleported player back
+                    -- If remote hook didn't catch it, verify by checking if player was snapped back into room
                     if (State.Glitch_Count or 0) == startCount then
                         local curRoot = getRoot()
-                        if curRoot and (curRoot.Position.Y > -40) then
+                        if curRoot and curRoot.Position.Y < 6 then
                             State.Glitch_Count = startCount + 1
-                            Hub.Notify("Glitch Secret", string.format("⚡ Glitch struck! [%d/5] (Progress saved)", State.Glitch_Count), 4)
+                            Hub.Notify("Glitch Secret", string.format("⚡ Glitch struck! [%d/5] (Returned to room)", State.Glitch_Count), 4)
                         end
                     end
 
-                    -- Safety recovery if still stuck below
+                    -- If player remained on roof after 7s without strike, return to room for next clean attempt
                     local curRoot = getRoot()
-                    if curRoot and curRoot.Position.Y < -60 then
-                        curRoot.CFrame = safePos + Vector3.new(0, 3, 0)
+                    if curRoot and curRoot.Position.Y > 8 and (State.Glitch_Count or 0) == startCount then
+                        curRoot.CFrame = inRoomPos
                     end
 
-                    -- Cooldown between strikes to allow character stability and health recovery
+                    -- Cooldown before next strike attempt
                     task.wait(2.5)
                 elseif hum and hum.Health <= 35 then
                     Hub.Notify("Glitch Fragment", "⚠️ Low health, pausing void drops to stay safe...", 3)
