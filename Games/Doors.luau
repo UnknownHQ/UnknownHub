@@ -1097,7 +1097,6 @@ local ENTITY_REGISTRY = {
     ["glitch"]         = { Name = "Glitch",             Category = "Other" },
     ["void"]           = { Name = "Void",               Category = "Other" },
     ["shadow"]         = { Name = "Shadow",             Category = "Other" },
-    ["window"]         = { Name = "Sally",              Category = "Other" },
     ["sally"]          = { Name = "Sally",              Category = "Other" },
     ["jack"]           = { Name = "Jack",               Category = "Other" },
     ["blitz"]          = { Name = "Blitz",              Category = "Other" },
