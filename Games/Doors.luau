@@ -125,12 +125,14 @@ local State = {
     Show_Distance = true,
     Fullbright = true,
 
-    -- Floor Hazards & Mechanics (Hotel & Mines)
+    -- Floor Hazards & Mechanics (Hotel, Mines & Rooms)
     Anti_Screech = true,
     Anti_Eyes = true,
     Anti_Dupe = true,
     Anti_Snare = true,
     Anti_Timothy = true,
+    Anti_A90 = true,
+    Anti_Giggle = true,
     No_Hide_Kick = true,
     Auto_Heartbeat = true,
     Auto_Library_Code = true,
@@ -1126,6 +1128,36 @@ local function defuseAllSnares()
     end
 end
 
+local function secureDupeDoor(doorModel)
+    if not doorModel then return end
+    pcall(function()
+        for _, p in ipairs(doorModel:GetDescendants()) do
+            if p:IsA("ProximityPrompt") then
+                p.Enabled = false
+            elseif p:IsA("BasePart") then
+                p.CanTouch = false
+            end
+        end
+        if doorModel:IsA("BasePart") then
+            doorModel.CanTouch = false
+        end
+    end)
+end
+
+local function defuseGiggle(giggleModel)
+    if not giggleModel then return end
+    pcall(function()
+        for _, p in ipairs(giggleModel:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanTouch = false
+            end
+        end
+        if giggleModel:IsA("BasePart") then
+            giggleModel.CanTouch = false
+        end
+    end)
+end
+
 -- Full Room Parser
 local function scanSingleRoom(room)
     if not room or not room:IsA("Model") then return end
@@ -1155,6 +1187,9 @@ local function scanSingleRoom(room)
         if desc:IsA("Model") or desc:IsA("Tool") then
             if desc.Name == "Door" or desc.Name == "DoorFake" then
                 processDoor(room, desc)
+                if desc.Name == "DoorFake" and State.Anti_Dupe then
+                    secureDupeDoor(desc)
+                end
             elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
                 processKey(desc)
             elseif dName:find("lever") then
@@ -1165,6 +1200,8 @@ local function scanSingleRoom(room)
                 processGold(desc)
             elseif dName:find("snare") then
                 if State.Anti_Snare then defuseSnare(desc) end
+            elseif dName:find("giggle") then
+                if State.Anti_Giggle then defuseGiggle(desc) end
             else
                 processItem(desc)
                 processEntity(desc)
@@ -1172,6 +1209,11 @@ local function scanSingleRoom(room)
         elseif desc:IsA("BasePart") then
             if desc.Name == "dupeDoor" then
                 processDoor(room, desc)
+                if State.Anti_Dupe then secureDupeDoor(desc) end
+            elseif dName:find("snare") then
+                if State.Anti_Snare then defuseSnare(desc) end
+            elseif dName:find("giggle") then
+                if State.Anti_Giggle then defuseGiggle(desc) end
             else
                 local p = desc.Parent
                 local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
@@ -1265,6 +1307,9 @@ pcall(function()
                 if desc:IsA("Model") or desc:IsA("Tool") then
                     if desc.Name == "Door" or desc.Name == "DoorFake" then
                         processDoor(newRoom, desc)
+                        if desc.Name == "DoorFake" and State.Anti_Dupe then
+                            secureDupeDoor(desc)
+                        end
                     elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
                         processKey(desc)
                     elseif dName:find("lever") then
@@ -1273,6 +1318,10 @@ pcall(function()
                         processHidingSpot(desc, newRoom)
                     elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                         processGold(desc)
+                    elseif dName:find("snare") then
+                        if State.Anti_Snare then defuseSnare(desc) end
+                    elseif dName:find("giggle") then
+                        if State.Anti_Giggle then defuseGiggle(desc) end
                     else
                         processItem(desc)
                         if State.Entities_ESP then processEntity(desc) end
@@ -1280,6 +1329,11 @@ pcall(function()
                 elseif desc:IsA("BasePart") then
                     if desc.Name == "dupeDoor" then
                         processDoor(newRoom, desc)
+                        if State.Anti_Dupe then secureDupeDoor(desc) end
+                    elseif dName:find("snare") then
+                        if State.Anti_Snare then defuseSnare(desc) end
+                    elseif dName:find("giggle") then
+                        if State.Anti_Giggle then defuseGiggle(desc) end
                     else
                         local p = desc.Parent
                         local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
@@ -2213,38 +2267,164 @@ local function updateFloorNativeToggles()
     end
 end
 
--- Camera listener: deflects Screech & Timothy instantly
+-- Eyes detection helper (returns active Eyes model if present in workspace)
+local function isEyesPresent()
+    local e = Workspace:FindFirstChild("Eyes") or Workspace:FindFirstChild("Lookman")
+    if e and e:IsA("Model") then return e end
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    if currentRooms then
+        for _, r in ipairs(currentRooms:GetChildren()) do
+            local eyesInRoom = r:FindFirstChild("Eyes") or r:FindFirstChild("Lookman")
+            if eyesInRoom and eyesInRoom:IsA("Model") then
+                return eyesInRoom
+            end
+        end
+    end
+    for _, child in ipairs(Workspace:GetChildren()) do
+        local n = child.Name:lower()
+        if (n:find("eyes") or n:find("lookman")) and child:IsA("Model") then
+            return child
+        end
+    end
+    return nil
+end
+
+-- Hook Remotes for Eyes pitch spoofing (-899 = looking straight down) and A90 movement spoofing
+local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
+local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
+local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
+
+if hookmetamethod then
+    local rawNamecall
+    rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() then
+            if method == "FireServer" then
+                if self == motorRemote and State.Anti_Eyes and isEyesPresent() then
+                    local args = {...}
+                    args[1] = -899
+                    return rawNamecall(self, unpack(args))
+                elseif self == a90Remote and State.Anti_A90 then
+                    local args = {...}
+                    if args[1] == "moved" then
+                        args[1] = "didnt"
+                    end
+                    return rawNamecall(self, unpack(args))
+                end
+            end
+        end
+        return rawNamecall(self, ...)
+    end))
+end
+
+if hookfunction then
+    if motorRemote and motorRemote.FireServer then
+        local rawMotorFire
+        rawMotorFire = hookfunction(motorRemote.FireServer, newcclosure(function(self, pitch, room, ...)
+            if not checkcaller() and State.Anti_Eyes and isEyesPresent() then
+                pitch = -899
+            end
+            return rawMotorFire(self, pitch, room, ...)
+        end))
+    end
+    if a90Remote and a90Remote.FireServer then
+        local rawA90Fire
+        rawA90Fire = hookfunction(a90Remote.FireServer, newcclosure(function(self, action, ...)
+            if not checkcaller() and State.Anti_A90 and action == "moved" then
+                action = "didnt"
+            end
+            return rawA90Fire(self, action, ...)
+        end))
+    end
+end
+
+-- Camera listener: Non-destructive defusal for Screech and Timothy
 local cam = Workspace.CurrentCamera
 if cam then
     cam.ChildAdded:Connect(function(child)
         local cName = child.Name:lower()
         if State.Anti_Screech and (cName:find("screech") or cName == "screechretro") then
             task.spawn(function()
-                local remote = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder") 
-                    and game:GetService("ReplicatedStorage").RemotesFolder:FindFirstChild("Screech")
+                local remote = remotesFolder and remotesFolder:FindFirstChild("Screech")
                 if remote then
                     remote:FireServer(true)
                 end
-                pcall(function() child:Destroy() end)
-                Hub.Notify("Anti-Screech", "🦇 Screech caught & banished!", 2.5)
+                Hub.Notify("Anti-Screech", "🦇 Screech caught cleanly! (0 damage)", 2)
             end)
         elseif State.Anti_Timothy and (cName:find("spider") or cName == "spiderjumpscare") then
-            pcall(function() child:Destroy() end)
-            Hub.Notify("Anti-Timothy", "🕷️ Timothy spider jumpscare deleted!", 1.5)
+            pcall(function()
+                for _, desc in ipairs(child:GetDescendants()) do
+                    if desc:IsA("Sound") then
+                        desc.Volume = 0
+                        desc:Stop()
+                    elseif desc:IsA("BasePart") then
+                        desc.Transparency = 1
+                    elseif desc:IsA("Decal") or desc:IsA("ImageLabel") then
+                        desc.Transparency = 1
+                    end
+                end
+            end)
+            Hub.Notify("Anti-Timothy", "🕷️ Timothy spider silenced & hidden!", 1.5)
         end
     end)
 end
 
--- Workspace listener for Eyes
-Workspace.ChildAdded:Connect(function(child)
-    local cName = child.Name:lower()
-    if State.Anti_Eyes and cName:find("eyes") then
-        pcall(function()
-            for _, d in ipairs(child:GetDescendants()) do
-                if d:IsA("Sound") then d.Volume = 0 end
+-- Background watchdog for continuous Eyes pitch keep-alive, muting, A90 GUI, and Giggle
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+
+        -- Anti-Eyes Active Pitch Keep-Alive & Volume Silence (leaves model completely intact!)
+        if State.Anti_Eyes then
+            local eyes = isEyesPresent()
+            if eyes then
+                pcall(function()
+                    if motorRemote then
+                        motorRemote:FireServer(-899, getCurrentRoomNumber() or 0)
+                    end
+                    for _, desc in ipairs(eyes:GetDescendants()) do
+                        if desc:IsA("Sound") and desc.Volume > 0 then
+                            desc.Volume = 0
+                        end
+                    end
+                end)
             end
-        end)
-        Hub.Notify("Anti-Eyes", "👁️ Eyes detected — look-damage immune!", 2.5)
+        end
+
+        -- Anti-A90 GUI Auto-Dismiss
+        if State.Anti_A90 then
+            pcall(function()
+                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+                local mainUI = pGui and pGui:FindFirstChild("MainUI")
+                local jumpscare = mainUI and mainUI:FindFirstChild("Jumpscare")
+                local a90Gui = jumpscare and jumpscare:FindFirstChild("Jumpscare_A90")
+                if a90Gui and a90Gui.Visible then
+                    a90Gui.Visible = false
+                end
+            end)
+        end
+
+        -- Anti-Giggle Auto-Detach
+        if State.Anti_Giggle then
+            pcall(function()
+                local char = getChar()
+                if char and char:GetAttribute("Giggled") then
+                    char:SetAttribute("Giggled", nil)
+                end
+            end)
+        end
+
+        -- No Hide Kick / Sickness Reset
+        if State.No_Hide_Kick then
+            pcall(function()
+                local char = getChar()
+                if char and char:GetAttribute("HideSickness") then
+                    char:SetAttribute("HideSickness", 0)
+                end
+            end)
+        end
+
+        task.wait(0.2)
     end
 end)
 
@@ -2393,9 +2573,19 @@ Hub.CreateToggle(floorTab, "Anti-Snare Traps (Greenhouse & Mines)", State.Anti_S
     Hub.Notify("Anti-Snare", v and "Anti-Snare: ACTIVE (Walk through snares safely)" or "Anti-Snare: OFF", 2)
 end)
 
-Hub.CreateToggle(floorTab, "Anti-Timothy (Spider Jumpscare Banish)", State.Anti_Timothy, function(v)
+Hub.CreateToggle(floorTab, "Anti-Timothy (Spider Jumpscare Mute)", State.Anti_Timothy, function(v)
     State.Anti_Timothy = v
-    Hub.Notify("Anti-Timothy", v and "Anti-Timothy: ACTIVE (Drawer spiders deleted)" or "Anti-Timothy: OFF", 2)
+    Hub.Notify("Anti-Timothy", v and "Anti-Timothy: ACTIVE (Drawer spiders silenced & hidden)" or "Anti-Timothy: OFF", 2)
+end)
+
+Hub.CreateToggle(floorTab, "Anti-A-90 (Instant Attack Immunity)", State.Anti_A90, function(v)
+    State.Anti_A90 = v
+    Hub.Notify("Anti-A-90", v and "Anti-A-90: ACTIVE (A-90 attacks neutralized)" or "Anti-A-90: OFF", 2)
+end)
+
+Hub.CreateToggle(floorTab, "Anti-Giggle (Ceiling Snatcher Defusal)", State.Anti_Giggle, function(v)
+    State.Anti_Giggle = v
+    Hub.Notify("Anti-Giggle", v and "Anti-Giggle: ACTIVE (Mines giggles disarmed)" or "Anti-Giggle: OFF", 2)
 end)
 
 Hub.CreateSection(floorTab, "🚪 Hiding & Anti-Kick")
