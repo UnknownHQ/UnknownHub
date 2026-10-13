@@ -379,11 +379,11 @@ end
 local lastKnownPlayerRoom = nil
 
 local function getCurrentRoomNumber()
-    -- 1. Authoritative DOORS internal game state (100% stable, zero flicker)
-    local mgTable = getMainGameTable()
-    if mgTable and type(mgTable.currentrvm) == "number" then
-        lastKnownPlayerRoom = mgTable.currentrvm
-        return mgTable.currentrvm
+    -- 1. LocalPlayer attribute (Authoritative in DOORS!)
+    local pAttr = LocalPlayer and LocalPlayer:GetAttribute("CurrentRoom")
+    if pAttr ~= nil and tonumber(pAttr) then
+        lastKnownPlayerRoom = tonumber(pAttr)
+        return tonumber(pAttr)
     end
 
     -- 2. Character attribute
@@ -396,14 +396,7 @@ local function getCurrentRoomNumber()
         end
     end
 
-    -- 3. LocalPlayer attribute
-    local pAttr = LocalPlayer:GetAttribute("CurrentRoom")
-    if pAttr ~= nil and tonumber(pAttr) then
-        lastKnownPlayerRoom = tonumber(pAttr)
-        return tonumber(pAttr)
-    end
-
-    -- 4. Spatial RootPart check
+    -- 3. Spatial RootPart check
     local root = getRoot()
     if root then
         local _, num = getObjectRoom(root)
@@ -413,7 +406,14 @@ local function getCurrentRoomNumber()
         end
     end
 
-    return lastKnownPlayerRoom
+    -- 4. Authoritative DOORS internal game state fallback
+    local mgTable = getMainGameTable()
+    if mgTable and type(mgTable.currentrvm) == "number" and mgTable.currentrvm > 0 then
+        lastKnownPlayerRoom = mgTable.currentrvm
+        return mgTable.currentrvm
+    end
+
+    return lastKnownPlayerRoom or 0
 end
 
 local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber, extraVisuals)
@@ -552,7 +552,7 @@ task.spawn(function()
                     if shouldShow then
                         local isNear = false
                         if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
-                            if (rootPos - record.Adornee.Position).Magnitude <= 65 then
+                            if (rootPos - record.Adornee.Position).Magnitude <= 90 then
                                 isNear = true
                             end
                         end
@@ -590,13 +590,26 @@ task.spawn(function()
                     end
                 elseif record.Category == "HidingSpots" then
                     local shouldShow = State.HidingSpots_ESP
-                    local mode = State.ESP_RoomFilterMode or "Current & Next Room"
-                    if mode == "Current Room Only" then
-                        shouldShow = State.HidingSpots_ESP and (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
-                    elseif mode == "Current & Next Room" then
-                        shouldShow = State.HidingSpots_ESP and (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom + 1))
-                    else -- "All Rooms (Full Vision)"
-                        shouldShow = State.HidingSpots_ESP
+                    if shouldShow then
+                        local isNear = false
+                        if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
+                            if (rootPos - record.Adornee.Position).Magnitude <= 75 then
+                                isNear = true
+                            end
+                        end
+
+                        if isNear then
+                            shouldShow = true
+                        else
+                            local mode = State.ESP_RoomFilterMode or "Current & Next Room"
+                            if mode == "Current Room Only" then
+                                shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
+                            elseif mode == "Current & Next Room" then
+                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 2)
+                            else -- "All Rooms (Full Vision)"
+                                shouldShow = true
+                            end
+                        end
                     end
 
                     -- Only perform visual property & highlight adornee updates on actual state transitions (eliminates jitter and highlight slot churn!)
@@ -1538,81 +1551,59 @@ if Camera then
     end)
 end
 
-local function startGetGlitchFragmentRoutine()
-    local root = getRoot()
-    local char = getChar()
-    if not root or not char then
-        Hub.Notify("Glitch Fragment", "⚠️ Character not found!", 4)
-        return
-    end
+-- Continuous Background Scanner for Auto Get Glitch Fragment
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Auto_GetGlitchFragment then
+            local found = nil
+            local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+            if currentRooms then
+                for _, desc in ipairs(currentRooms:GetDescendants()) do
+                    if isGlitchFragmentInstance(desc) then
+                        found = desc
+                        break
+                    end
+                end
+            end
+            if not found then
+                for _, desc in ipairs(Workspace:GetChildren()) do
+                    if isGlitchFragmentInstance(desc) then
+                        found = desc
+                        break
+                    end
+                end
+            end
+            local drops = Workspace:FindFirstChild("Drops")
+            if not found and drops then
+                for _, desc in ipairs(drops:GetDescendants()) do
+                    if isGlitchFragmentInstance(desc) then
+                        found = desc
+                        break
+                    end
+                end
+            end
 
-    -- 1. Check if Glitch Fragment already exists anywhere in the map
-    local found = nil
-    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
-    if currentRooms then
-        for _, desc in ipairs(currentRooms:GetDescendants()) do
-            if isGlitchFragmentInstance(desc) then
-                found = desc
-                break
+            if found then
+                local root = getRoot()
+                if root then
+                    local targetPart = (found:IsA("Model") and (found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)))
+                        or (found:IsA("BasePart") and found)
+                    if targetPart then
+                        local oldPos = root.CFrame
+                        root.CFrame = targetPart.CFrame + Vector3.new(0, 2, 0)
+                        task.wait(0.12)
+                        collectGlitchFragment(found)
+                        task.wait(0.12)
+                        root.CFrame = oldPos
+                        Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 4)
+                    end
+                end
             end
         end
+        task.wait(1.0)
     end
-    if not found then
-        for _, desc in ipairs(Workspace:GetChildren()) do
-            if isGlitchFragmentInstance(desc) then
-                found = desc
-                break
-            end
-        end
-    end
-    local drops = Workspace:FindFirstChild("Drops")
-    if not found and drops then
-        for _, desc in ipairs(drops:GetDescendants()) do
-            if isGlitchFragmentInstance(desc) then
-                found = desc
-                break
-            end
-        end
-    end
-
-    -- If already spawned, teleport directly to collect it!
-    if found then
-        local targetPart = (found:IsA("Model") and (found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)))
-            or (found:IsA("BasePart") and found)
-        if targetPart then
-            local oldPos = root.CFrame
-            root.CFrame = targetPart.CFrame + Vector3.new(0, 2, 0)
-            task.wait(0.12)
-            collectGlitchFragment(found)
-            task.wait(0.12)
-            root.CFrame = oldPos
-            Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 4)
-            return
-        end
-    end
-
-    -- 2. Direct Instant Void Drop (Out of map) to trigger Glitch strike
-    local safePos = root.CFrame
-    State.Glitch_Count = (State.Glitch_Count or 0) + 1
-    local currentCount = State.Glitch_Count
-
-    -- Teleport out of the map into the void (160 studs down)
-    root.CFrame = safePos - Vector3.new(0, 160, 0)
-
-    if currentCount >= 5 then
-        Hub.Notify("Glitch Fragment", string.format("⚡ Dropped out of map! Glitch strike [%d/5] reached! Spawning in the next 2-10 rooms!", currentCount), 8)
-    else
-        Hub.Notify("Glitch Fragment", string.format("⚡ Dropped out of map! Glitch strike [%d/5]! (Reach 5 strikes to spawn Fragment in upcoming rooms)", currentCount), 6)
-    end
-
-    -- Safety net: If DOORS void catcher does not snap player back within 3.5s, restore to safe position
-    task.delay(3.5, function()
-        local curRoot = getRoot()
-        if curRoot and curRoot.Position.Y < -80 then
-            curRoot.CFrame = safePos + Vector3.new(0, 3, 0)
-        end
-    end)
-end
+end)
 
 -- Full Room Parser
 local function scanSingleRoom(room)
@@ -3256,13 +3247,9 @@ end)
 
 Hub.CreateSection(floorTab, "🌀 Glitch Fragment")
 
-Hub.CreateButton(floorTab, "🌀 Get Glitch Fragment", function()
-    startGetGlitchFragmentRoutine()
-end)
-
-Hub.CreateToggle(floorTab, "Auto Collect Glitch Fragment", State.Auto_GetGlitchFragment, function(v)
+Hub.CreateToggle(floorTab, "Auto Get Glitch Fragment", State.Auto_GetGlitchFragment, function(v)
     State.Auto_GetGlitchFragment = v
-    Hub.Notify("Glitch Fragment", v and "Auto Collect: ACTIVE" or "Auto Collect: OFF", 2)
+    Hub.Notify("Glitch Fragment", v and "Auto Get Glitch Fragment: ACTIVE" or "Auto Get Glitch Fragment: OFF", 2)
 end)
 
 -- Tab 3: ESP TAB
