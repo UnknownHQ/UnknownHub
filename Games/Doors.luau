@@ -143,6 +143,24 @@ local State = {
 _G.DOORS_SESSION = tick()
 local currentSession = _G.DOORS_SESSION
 
+-- Anti-AFK: Prevents 20-minute idle disconnects so session stays active while away
+pcall(function()
+    if getconnections then
+        for _, conn in ipairs(getconnections(LocalPlayer.Idled)) do
+            if conn.Disable then conn:Disable() elseif conn.Disconnect then conn:Disconnect() end
+        end
+    end
+end)
+LocalPlayer.Idled:Connect(function()
+    pcall(function()
+        local vu = game:GetService("VirtualUser")
+        if vu then
+            vu:CaptureController()
+            vu:ClickButton2(Vector2.new(10, 10))
+        end
+    end)
+end)
+
 local function getChar()
     return LocalPlayer and LocalPlayer.Character
 end
