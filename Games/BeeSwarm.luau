@@ -229,28 +229,36 @@ local MemoryMatchToys = {
     ["Memory Match"] = {
         name = "Memory Match",
         cost = 25000,
+        cooldown = 7200,
         pos = Vector3.new(136.9, 65.4, -95.7),
         desc = "Regular (10 Bee Zone, near Pro Bear)"
     },
     ["Mega Memory Match"] = {
         name = "Mega Memory Match",
         cost = 500000,
+        cooldown = 14400,
         pos = Vector3.new(-429.9, 77.3, -55.0),
         desc = "Mega (15 Bee Zone, near Mountain Top)"
     },
     ["Night Memory Match"] = {
         name = "Night Memory Match",
         cost = 5000000,
+        cooldown = 28800,
         pos = Vector3.new(-18.3, 317.5, -269.0),
         desc = "Night (30 Bee Zone, Moon Room)"
     },
     ["Extreme Memory Match"] = {
         name = "Extreme Memory Match",
         cost = 25000000,
+        cooldown = 28800,
         pos = Vector3.new(-405.4, 126.3, 548.1),
         desc = "Extreme (35 Bee Zone, near Spirit Bear)"
     },
 }
+
+local RemoteOnlyMemoryMatch = false
+local toyCooldownEndTimes = {}
+local toyAttemptBackoffs = {}
 
 -- =========================================================================
 -- Workspace Folders & Modules
@@ -1518,22 +1526,68 @@ local function isNeededItem(prizeName)
 end
 
 local function isMemoryMatchReady(toyName)
-    local toy = workspace:FindFirstChild("Toys") and workspace.Toys:FindFirstChild(toyName)
-    if not toy then return false end
+    local toyData = MemoryMatchToys[toyName]
+    local defaultCd = toyData and toyData.cooldown or 7200
+    local now = os.time()
 
-    local circle = toy:FindFirstChild("Platform") and toy.Platform:FindFirstChild("Circle")
-    local textLabel = circle and circle:FindFirstChild("SurfaceGui") and circle.SurfaceGui:FindFirstChild("TextLabel")
-    if textLabel and textLabel.Text then
-        local txt = textLabel.Text
-        if string.find(txt, ":") then
-            return false
+    -- 1. Session cooldowns & failure backoffs
+    if toyCooldownEndTimes[toyName] and now < toyCooldownEndTimes[toyName] then
+        return false
+    end
+    if toyAttemptBackoffs[toyName] and now < toyAttemptBackoffs[toyName] then
+        return false
+    end
+
+    -- 2. Check ClientStatCache.ToyTimes (BSS native cooldown tracking)
+    local onCooldown = false
+    pcall(function()
+        local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
+        if not statCacheMod then return end
+        local cache = require(statCacheMod):Get()
+        if not cache then return end
+
+        local toyTimes = cache.ToyTimes or {}
+        local lastTime = toyTimes[toyName] or 0
+
+        local osTime = now
+        local OsTimeMod = ReplicatedStorage:FindFirstChild("OsTime")
+        if OsTimeMod then
+            pcall(function() osTime = math.floor(require(OsTimeMod)()) end)
         end
-        if string.find(txt, "%d+") then
-            return true
+
+        local toyModel = workspace:FindFirstChild("Toys") and workspace.Toys:FindFirstChild(toyName)
+        local cdVal = (toyModel and toyModel:FindFirstChild("Cooldown") and toyModel.Cooldown.Value) or defaultCd
+
+        local elapsed = osTime - lastTime
+        if elapsed < cdVal then
+            local left = cdVal - elapsed
+            toyCooldownEndTimes[toyName] = now + left
+            onCooldown = true
+        end
+    end)
+    if onCooldown then
+        return false
+    end
+
+    -- 3. Check 3D SurfaceGui text if available (countdown timer has colons like 01:23:45 or 45:20)
+    local toyModel = workspace:FindFirstChild("Toys") and workspace.Toys:FindFirstChild(toyName)
+    if toyModel then
+        local circle = toyModel:FindFirstChild("Platform") and toyModel.Platform:FindFirstChild("Circle")
+        local textLabel = circle and circle:FindFirstChild("SurfaceGui") and circle.SurfaceGui:FindFirstChild("TextLabel")
+        if textLabel and textLabel.Text then
+            local txt = textLabel.Text
+            if string.find(txt, ":") then
+                local secLeft = 0
+                for part in string.gmatch(txt, "%d+") do
+                    secLeft = (secLeft * 60) + (tonumber(part) or 0)
+                end
+                toyCooldownEndTimes[toyName] = now + (secLeft > 0 and secLeft or 60)
+                return false
+            end
         end
     end
 
-    return false
+    return true
 end
 
 local function getToyPlatformPosition(toyName)
@@ -1878,7 +1932,7 @@ end
 -- Auto Memory Match Background Supervisor
 task.spawn(function()
     while true do
-        task.wait(10)
+        task.wait(8)
         if AutoMemoryMatchState and not isRunningMemoryMatch and not isConvertingAtHive then
             local char, root, humanoid = getCharacter()
             if root and humanoid and humanoid.Health > 0 then
@@ -1893,35 +1947,61 @@ task.spawn(function()
                         local toyData = MemoryMatchToys[toyName]
                         if toyData and honeyVal >= toyData.cost then
                             if isMemoryMatchReady(toyName) then
-                                isRunningMemoryMatch = true
+                                local openedRemotely = false
 
-                                local savedPos = root.Position
-                                local toyPos = getToyPlatformPosition(toyName)
-                                if toyPos then
-                                    tweenCharacterTo(root, humanoid, toyPos)
-                                    task.wait(0.8)
+                                -- Attempt 1: Remote Activation (Zero movement)
+                                activateMemoryMatchToy(toyName)
+                                task.wait(1.5)
 
-                                    activateMemoryMatchToy(toyName)
-                                    task.wait(2.0)
-
+                                local activeFrame, slots = getActiveMemoryMatchGrid()
+                                if activeFrame and #slots >= 16 then
+                                    openedRemotely = true
+                                    isRunningMemoryMatch = true
                                     solveActiveMemoryMatch()
-                                    task.wait(1.5)
-
-                                    for _ = 1, 10 do
-                                        local af = getActiveMemoryMatchGrid()
-                                        if not af then break end
-                                        task.wait(0.5)
-                                    end
-
-                                    local c, r, h = getCharacter()
-                                    if r and h then
-                                        tweenCharacterTo(r, h, savedPos)
-                                    end
+                                    task.wait(1.0)
+                                    toyCooldownEndTimes[toyName] = os.time() + (toyData.cooldown or 7200)
+                                    isRunningMemoryMatch = false
+                                    task.wait(5)
+                                    break
                                 end
 
-                                isRunningMemoryMatch = false
-                                task.wait(5)
-                                break
+                                -- Attempt 2: If remote failed and not remote-only, travel to platform
+                                if not openedRemotely and not RemoteOnlyMemoryMatch then
+                                    local toyPos = getToyPlatformPosition(toyName)
+                                    if toyPos then
+                                        isRunningMemoryMatch = true
+                                        local savedPos = root.Position
+
+                                        tweenCharacterTo(root, humanoid, toyPos)
+                                        task.wait(0.6)
+
+                                        activateMemoryMatchToy(toyName)
+                                        task.wait(1.8)
+
+                                        local frameOnSite, siteSlots = getActiveMemoryMatchGrid()
+                                        if frameOnSite and #siteSlots >= 16 then
+                                            solveActiveMemoryMatch()
+                                            task.wait(1.0)
+                                            toyCooldownEndTimes[toyName] = os.time() + (toyData.cooldown or 7200)
+                                        else
+                                            -- Did not open on site; backoff 10 minutes to prevent repeat visits
+                                            toyAttemptBackoffs[toyName] = os.time() + 600
+                                        end
+
+                                        -- Return safely to original farming position
+                                        local c, r, h = getCharacter()
+                                        if r and h then
+                                            tweenCharacterTo(r, h, savedPos)
+                                        end
+
+                                        isRunningMemoryMatch = false
+                                        task.wait(5)
+                                        break
+                                    end
+                                else
+                                    -- Remote attempt did not open and RemoteOnly is enabled
+                                    toyAttemptBackoffs[toyName] = os.time() + 300
+                                end
                             end
                         end
                     end
@@ -2405,6 +2485,10 @@ end)
 
 Hub.CreateToggle(itemsPage, "Ghost Memory Match", true, function(state)
     GhostMemoryMatchState = state
+end)
+
+Hub.CreateToggle(itemsPage, "Remote Match Only", false, function(state)
+    RemoteOnlyMemoryMatch = state
 end)
 
 local memoryMatchOptions = {
