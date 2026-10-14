@@ -1575,110 +1575,100 @@ local function getActiveMemoryMatchGrid()
     local pGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not pGui then return nil, nil end
     local screenGui = pGui:FindFirstChild("ScreenGui")
-    local mmFrame = screenGui and (screenGui:FindFirstChild("MemoryMatchFrame") or screenGui:FindFirstChild("MemoryMatch", true))
-    if not mmFrame then
-        for _, gui in ipairs(pGui:GetChildren()) do
-            if gui:IsA("ScreenGui") then
-                local found = gui:FindFirstChild("MemoryMatchFrame", true)
-                if found then
-                    mmFrame = found
-                    break
-                end
-            end
-        end
-    end
-    if not mmFrame then return nil, nil end
+    if not screenGui then return nil, nil end
 
-    local tiles = {}
-    for _, desc in ipairs(mmFrame:GetDescendants()) do
-        if desc:IsA("ImageButton") or desc:IsA("TextButton") then
-            local index = desc:GetAttribute("TileIndex") or tonumber(desc.Name) or desc:GetAttribute("Index")
-            if index then
-                tiles[index] = desc
+    local minigameLayer = screenGui:FindFirstChild("MinigameLayer")
+    if not minigameLayer or not minigameLayer.Visible then
+        return nil, nil
+    end
+
+    local activeFrame = nil
+    for _, child in ipairs(minigameLayer:GetChildren()) do
+        if child.Name == "MemoryMatchFrame" and child:IsA("GuiObject") then
+            if child.Visible and child.Position.Y.Scale < 0.9 then
+                activeFrame = child
+                break
             end
         end
     end
 
-    if #tiles == 0 then
-        local grid = mmFrame:FindFirstChild("Grid") or mmFrame:FindFirstChildWhichIsA("Frame")
-        if grid then
-            for _, child in ipairs(grid:GetChildren()) do
-                if child:IsA("GuiObject") then
-                    local btn = child:IsA("ImageButton") and child or child:FindFirstChildWhichIsA("ImageButton", true) or child:FindFirstChildWhichIsA("TextButton", true)
-                    if btn then
-                        table.insert(tiles, btn)
-                    end
-                end
+    if not activeFrame then
+        return nil, nil
+    end
+
+    local slots = {}
+    local guiGrid = activeFrame:FindFirstChild("GuiGrid")
+    local innerGrid = guiGrid and (guiGrid:FindFirstChild("GuiGrid") or guiGrid)
+    if innerGrid then
+        for _, child in ipairs(innerGrid:GetChildren()) do
+            if child.Name == "MemoryMatchGuiSlot" and child:IsA("GuiObject") then
+                table.insert(slots, child)
             end
         end
     end
-    return mmFrame, tiles
+
+    return activeFrame, slots
 end
 
 local function applyGhostOverlay(tileIndex, prizeInfo)
     if not GhostMemoryMatchState or not prizeInfo then return end
-    local mmFrame, tiles = getActiveMemoryMatchGrid()
-    local btn = tiles and tiles[tileIndex]
-    if btn and btn.Parent then
-        local ghost = btn:FindFirstChild("GhostPreview")
-        if not ghost then
-            ghost = Instance.new("ImageLabel")
-            ghost.Name = "GhostPreview"
-            ghost.Size = UDim2.new(0.75, 0, 0.75, 0)
-            ghost.Position = UDim2.new(0.125, 0, 0.125, 0)
-            ghost.BackgroundTransparency = 1
-            ghost.ZIndex = (btn.ZIndex or 1) + 5
-            ghost.Parent = btn
-        end
-        if prizeInfo.Image then
-            ghost.Image = tostring(prizeInfo.Image)
-            ghost.ImageTransparency = 0.35
-            ghost.Visible = true
-        end
-
-        if isNeededItem(prizeInfo.Name) then
-            local stroke = btn:FindFirstChild("GhostStroke")
-            if not stroke then
-                stroke = Instance.new("UIStroke")
-                stroke.Name = "GhostStroke"
-                stroke.Thickness = 2.5
-                stroke.Parent = btn
+    local activeFrame, slots = getActiveMemoryMatchGrid()
+    local slotFrame = slots and slots[tileIndex]
+    if slotFrame and slotFrame.Parent then
+        local card = slotFrame:FindFirstChild("ObjCard", true)
+        if card then
+            local ghost = card:FindFirstChild("GhostPreview")
+            if not ghost then
+                ghost = Instance.new("ImageLabel")
+                ghost.Name = "GhostPreview"
+                ghost.Size = UDim2.new(0.75, 0, 0.75, 0)
+                ghost.Position = UDim2.new(0.125, 0, 0.125, 0)
+                ghost.BackgroundTransparency = 1
+                ghost.ZIndex = (card.ZIndex or 1) + 5
+                ghost.Parent = card
             end
-            stroke.Color = Color3.fromRGB(255, 205, 50)
-            stroke.Transparency = 0.1
+            if prizeInfo.Image then
+                ghost.Image = tostring(prizeInfo.Image)
+                ghost.ImageTransparency = 0.35
+                ghost.Visible = true
+            end
+
+            if isNeededItem(prizeInfo.Name) then
+                local stroke = card:FindFirstChild("GhostStroke")
+                if not stroke then
+                    stroke = Instance.new("UIStroke")
+                    stroke.Name = "GhostStroke"
+                    stroke.Thickness = 2.5
+                    stroke.Parent = card
+                end
+                stroke.Color = Color3.fromRGB(255, 205, 50)
+                stroke.Transparency = 0.1
+            end
         end
     end
 end
 
-local function selectMemoryMatchTile(index, tileBtn)
+local function clickMemoryMatchSlot(slotIndex, slotFrame)
+    if not slotFrame or not slotFrame.Parent then return end
+
+    local btn = slotFrame:FindFirstChild("ObjButton", true) or slotFrame:FindFirstChild("ObjCard", true)
+    if btn then
+        pcall(function()
+            for _, conn in ipairs(getconnections and getconnections(btn.MouseButton1Click) or {}) do
+                conn:Fire()
+            end
+        end)
+    end
+
     pcall(function()
         local Events = ReplicatedStorage:FindFirstChild("Events")
         if Events and Events:FindFirstChild("MemoryMatchEvent") then
             Events.MemoryMatchEvent:FireServer({
                 Action = "SelectTile",
-                TileIndex = index
+                TileIndex = slotIndex
             })
         end
     end)
-    pcall(function()
-        local EventsMod = ReplicatedStorage:FindFirstChild("Events")
-        local Events = EventsMod and require(EventsMod)
-        if Events and type(Events.ClientCall) == "function" then
-            Events.ClientCall("MemoryMatchEvent", {
-                Action = "SelectTile",
-                TileIndex = index
-            })
-        end
-    end)
-    if tileBtn and tileBtn.Parent then
-        pcall(function()
-            if typeof(tileBtn) == "Instance" and tileBtn:IsA("GuiButton") then
-                for _, conn in ipairs(getconnections and getconnections(tileBtn.MouseButton1Click) or {}) do
-                    conn:Fire()
-                end
-            end
-        end)
-    end
 end
 
 -- Hook MemoryMatchEvent
@@ -1720,17 +1710,85 @@ pcall(function()
     end
 end)
 
+local function playMemoryMatchTurn(pick1, pick2, slots)
+    clickMemoryMatchSlot(pick1, slots[pick1])
+
+    local t1 = time()
+    while time() - t1 < 1.0 do
+        if knownTiles[pick1] then break end
+        task.wait(0.05)
+    end
+    task.wait(0.65)
+
+    local actualPick2 = pick2
+    local item1 = knownTiles[pick1]
+    if item1 then
+        for j = 1, #slots do
+            if j ~= pick1 and knownTiles[j] and not matchedTiles[j] then
+                local itemJ = knownTiles[j]
+                if (item1.Image and itemJ.Image and item1.Image == itemJ.Image)
+                    or (item1.Name and itemJ.Name and item1.Name == itemJ.Name and item1.Name ~= "Unknown") then
+                    actualPick2 = j
+                    break
+                end
+            end
+        end
+    end
+
+    clickMemoryMatchSlot(actualPick2, slots[actualPick2])
+
+    local t2 = time()
+    while time() - t2 < 1.0 do
+        if knownTiles[actualPick2] then break end
+        task.wait(0.05)
+    end
+    task.wait(0.65)
+
+    local item2 = knownTiles[actualPick2]
+    local isMatch = false
+    if item1 and item2 then
+        if (item1.Image and item2.Image and item1.Image == item2.Image)
+            or (item1.Name and item2.Name and item1.Name == item2.Name and item1.Name ~= "Unknown") then
+            isMatch = true
+        end
+    end
+
+    if isMatch then
+        matchedTiles[pick1] = true
+        matchedTiles[actualPick2] = true
+        task.wait(1.2)
+    else
+        task.wait(1.8)
+    end
+end
+
 local function solveActiveMemoryMatch()
     local startTime = os.time()
-    task.wait(1.0)
 
-    while (os.time() - startTime) < 90 do
-        local mmFrame, tiles = getActiveMemoryMatchGrid()
-        if not mmFrame or not mmFrame.Parent or not mmFrame.Visible then
+    local activeFrame, slots = nil, nil
+    for _ = 1, 10 do
+        activeFrame, slots = getActiveMemoryMatchGrid()
+        if activeFrame and #slots >= 16 then break end
+        task.wait(0.5)
+    end
+
+    if not activeFrame or #slots < 16 then
+        return
+    end
+
+    local totalTiles = #slots
+
+    while (os.time() - startTime) < 120 do
+        activeFrame, slots = getActiveMemoryMatchGrid()
+        if not activeFrame or not activeFrame.Parent or not activeFrame.Visible or activeFrame.Position.Y.Scale > 0.9 then
             break
         end
 
-        local totalTiles = #tiles > 0 and #tiles or 16
+        local chancesLbl = activeFrame:FindFirstChild("ChancesFrame") and activeFrame.ChancesFrame:FindFirstChild("CountLabel")
+        if chancesLbl and chancesLbl.Text == "0" then
+            task.wait(2)
+            break
+        end
 
         local pairA, pairB = nil, nil
         local pairIsNeeded = false
@@ -1766,12 +1824,7 @@ local function solveActiveMemoryMatch()
         end
 
         if pairA and pairB then
-            selectMemoryMatchTile(pairA, tiles[pairA])
-            task.wait(0.45)
-            selectMemoryMatchTile(pairB, tiles[pairB])
-            matchedTiles[pairA] = true
-            matchedTiles[pairB] = true
-            task.wait(0.6)
+            playMemoryMatchTurn(pairA, pairB, slots)
         else
             local pick1 = nil
             for i = 1, totalTiles do
@@ -1794,53 +1847,31 @@ local function solveActiveMemoryMatch()
                 break
             end
 
-            selectMemoryMatchTile(pick1, tiles[pick1])
-            task.wait(0.45)
-
             local pick2 = nil
-            local item1 = knownTiles[pick1]
-            if item1 then
-                for j = 1, totalTiles do
-                    if j ~= pick1 and knownTiles[j] and not matchedTiles[j] then
-                        local itemJ = knownTiles[j]
-                        if (item1.Image and itemJ.Image and item1.Image == itemJ.Image)
-                            or (item1.Name and itemJ.Name and item1.Name == itemJ.Name and item1.Name ~= "Unknown") then
-                            pick2 = j
-                            break
-                        end
-                    end
+            for j = 1, totalTiles do
+                if j ~= pick1 and not knownTiles[j] and not matchedTiles[j] then
+                    pick2 = j
+                    break
                 end
             end
 
-            if pick2 then
-                selectMemoryMatchTile(pick2, tiles[pick2])
-                matchedTiles[pick1] = true
-                matchedTiles[pick2] = true
-                task.wait(0.6)
-            else
+            if not pick2 then
                 for j = 1, totalTiles do
-                    if j ~= pick1 and not knownTiles[j] and not matchedTiles[j] then
+                    if j ~= pick1 and not matchedTiles[j] then
                         pick2 = j
                         break
                     end
                 end
-                if not pick2 then
-                    for j = 1, totalTiles do
-                        if j ~= pick1 and not matchedTiles[j] then
-                            pick2 = j
-                            break
-                        end
-                    end
-                end
-
-                if pick2 then
-                    selectMemoryMatchTile(pick2, tiles[pick2])
-                    task.wait(0.6)
-                end
             end
+
+            if not pick2 then
+                break
+            end
+
+            playMemoryMatchTurn(pick1, pick2, slots)
         end
 
-        task.wait(0.25)
+        task.wait(0.3)
     end
 end
 
@@ -1868,13 +1899,19 @@ task.spawn(function()
                                 local toyPos = getToyPlatformPosition(toyName)
                                 if toyPos then
                                     tweenCharacterTo(root, humanoid, toyPos)
-                                    task.wait(0.5)
+                                    task.wait(0.8)
 
                                     activateMemoryMatchToy(toyName)
-                                    task.wait(1.5)
+                                    task.wait(2.0)
 
                                     solveActiveMemoryMatch()
-                                    task.wait(1.0)
+                                    task.wait(1.5)
+
+                                    for _ = 1, 10 do
+                                        local af = getActiveMemoryMatchGrid()
+                                        if not af then break end
+                                        task.wait(0.5)
+                                    end
 
                                     local c, r, h = getCharacter()
                                     if r and h then
