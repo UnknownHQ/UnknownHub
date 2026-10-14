@@ -8,6 +8,8 @@
       - Intelligent Vicious Bee Hunter & Hazard Evading Combat
       - Automated Mob Rotator with Spawner Skip Timeouts
       - Collision-Free Navigation & Anti-Stuck Watchdog
+      - Autonomous Memory Match Suite (Regular, Mega, Night, Extreme)
+      - Ghost Memory Match Card Visualizer & Needed Items Priority Solver
       - Built-in Anti-AFK
     ========================================================================
 ]]
@@ -80,7 +82,7 @@ local ok, result = pcall(function()
     end
     assert(source and #source > 100, "Could not load UnknownLibrary from remote or local storage")
     pcall(function()
-        source = source:gsub('game:GetService%(["\']CoreGui["\']%)', "(gethui and gethui() or (game:GetService('Players').LocalPlayer and game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')))")
+        source = source:gsub('game:GetService%([\"\'CoreGui\"\'%]%)', "(gethui and gethui() or (game:GetService('Players').LocalPlayer and game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')))")
     end)
     local factoryChunk, compileErr = loadstring(source)
     assert(factoryChunk, "UnknownLibrary compilation failed: " .. tostring(compileErr))
@@ -110,6 +112,7 @@ assert(type(Hub.createTabButton) == "function", "UnknownLibrary is missing creat
 -- =========================================================================
 local mainPage = Hub.CreateTab("Main", { Icon = "🐝", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
 local combatPage = Hub.CreateTab("Combat", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 80, 80) })
+local itemsPage = Hub.CreateTab("Items", { Icon = "🎒", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(120, 220, 150) })
 
 local AutoFarmState = false
 local AutoDigState = false
@@ -174,6 +177,80 @@ local blockedTokens = {}
 local isConvertingAtHive = false
 local convertStartTime = 0
 local SelectedFarmField = nil
+
+-- Memory Match States
+local AutoMemoryMatchState = false
+local GhostMemoryMatchState = true
+local isRunningMemoryMatch = false
+local knownTiles = {}
+local matchedTiles = {}
+local isMemoryMatchActive = false
+
+local SelectedMemoryMatches = {
+    ["Memory Match"] = true,
+    ["Mega Memory Match"] = true,
+    ["Night Memory Match"] = true,
+    ["Extreme Memory Match"] = true,
+}
+
+local SelectedNeededItems = {
+    ["Mythic Egg"] = true,
+    ["Star Treat"] = true,
+    ["Atomic Treat"] = true,
+    ["Star Jelly"] = true,
+    ["Super Smoothie"] = true,
+    ["Festive Bean"] = true,
+    ["Night Bell"] = true,
+    ["Diamond Egg"] = true,
+    ["Gold Egg"] = true,
+    ["Silver Egg"] = true,
+    ["Hard Wax"] = true,
+    ["Swirled Wax"] = true,
+    ["Soft Wax"] = true,
+    ["Smooth Dice"] = true,
+    ["Cloud Vial"] = true,
+    ["Glitter"] = true,
+    ["Glue"] = true,
+    ["Oil"] = true,
+    ["Enzymes"] = true,
+    ["Red Extract"] = true,
+    ["Blue Extract"] = true,
+    ["Tropical Drink"] = true,
+    ["Neonberry"] = true,
+    ["Magic Bean"] = true,
+    ["Micro-Converter"] = true,
+    ["Field Dice"] = true,
+    ["Ticket"] = true,
+    ["Moon Charm"] = true,
+    ["Royal Jelly"] = true,
+}
+
+local MemoryMatchToys = {
+    ["Memory Match"] = {
+        name = "Memory Match",
+        cost = 25000,
+        pos = Vector3.new(136.9, 65.4, -95.7),
+        desc = "Regular (10 Bee Zone, near Pro Bear)"
+    },
+    ["Mega Memory Match"] = {
+        name = "Mega Memory Match",
+        cost = 500000,
+        pos = Vector3.new(-429.9, 77.3, -55.0),
+        desc = "Mega (15 Bee Zone, near Mountain Top)"
+    },
+    ["Night Memory Match"] = {
+        name = "Night Memory Match",
+        cost = 5000000,
+        pos = Vector3.new(-18.3, 317.5, -269.0),
+        desc = "Night (30 Bee Zone, Moon Room)"
+    },
+    ["Extreme Memory Match"] = {
+        name = "Extreme Memory Match",
+        cost = 25000000,
+        pos = Vector3.new(-405.4, 126.3, 548.1),
+        desc = "Extreme (35 Bee Zone, near Spirit Bear)"
+    },
+}
 
 -- =========================================================================
 -- Workspace Folders & Modules
@@ -363,10 +440,10 @@ local function releaseActiveTween()
     activeAutoRotate = nil
 end
 
--- Reset tween on respawn
 LocalPlayer.CharacterAdded:Connect(function()
     releaseActiveTween()
     isConvertingAtHive = false
+    isRunningMemoryMatch = false
     task.wait(1)
     if AutoDigState or AutoFarmState then
         safeStartCollection()
@@ -512,6 +589,9 @@ local function tweenToFieldTarget(field, root, humanoid, runId, targetPosition, 
         if MobThreatActive then
             break
         end
+        if isRunningMemoryMatch then
+            break
+        end
         if AutoViciousBeeState then
             local dangerZones = getActiveDangerZones()
             if isPositionInDangerZone(root.Position, dangerZones, 5) then
@@ -638,7 +718,6 @@ local function findNearestFieldTarget(field, root)
     local nearestScore = math.huge
     local now = time()
 
-    -- 1. Auto Catch Coconuts
     if SelectedFarmSettings["Auto Catch Coconuts"] and workspace:FindFirstChild("Particles") then
         for _, particle in ipairs(workspace.Particles:GetChildren()) do
             if particle:IsA("BasePart") and (string.find(string.lower(particle.Name), "coco") or string.find(string.lower(particle.Name), "nut"))
@@ -656,7 +735,6 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 2. Collectibles (Tokens, Abilities, Sprout Loot, Rare Drops)
     for _, collectible in ipairs(CollectiblesFolder:GetChildren()) do
         local tokenPart = getTokenPart(collectible)
         local blockedUntil = tokenPart and blockedTokens[tokenPart]
@@ -672,7 +750,7 @@ local function findNearestFieldTarget(field, root)
             local multiplier = getTokenPriorityMultiplier(tokenPart)
 
             if isRare then
-                multiplier = 0.005 -- Instant priority
+                multiplier = 0.005
             elseif SelectedFarmSettings["Auto Farm Sprouts"] or SelectedSproutActions["Auto Farm Sprouts"] then
                 local sproutsFolder = workspace:FindFirstChild("Sprouts")
                 if sproutsFolder and #sproutsFolder:GetChildren() > 0 then
@@ -689,7 +767,6 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 3. Farm Flames
     if SelectedFarmSettings["Farm Flames"] and workspace:FindFirstChild("PlayerFlames") then
         for _, flame in ipairs(workspace.PlayerFlames:GetChildren()) do
             if flame:IsA("BasePart") and isPositionInField(flame.Position, field, 0) then
@@ -706,7 +783,6 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 4. Farm Bubbles
     if SelectedFarmSettings["Farm Bubbles"] and workspace:FindFirstChild("Particles") then
         for _, particle in ipairs(workspace.Particles:GetChildren()) do
             if particle:IsA("BasePart") and (particle.Name == "Ripple" or particle.Name == "Orb" or particle.Name == "Part")
@@ -724,7 +800,6 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 5. Farm Balloons
     if SelectedFarmSettings["Farm Balloons"] and workspace:FindFirstChild("Balloons") then
         for _, balloon in ipairs(workspace.Balloons:GetChildren()) do
             local balloonPart = balloon:IsA("BasePart") and balloon or balloon:FindFirstChildWhichIsA("BasePart", true)
@@ -789,7 +864,6 @@ local function getOwnHivePosition()
     local player = LocalPlayer
     if not player then return nil end
 
-    -- 1. Check direct Honeycomb reference on player
     local hiveObj = player:FindFirstChild("Honeycomb")
     if hiveObj and hiveObj:IsA("ObjectValue") and hiveObj.Value then
         local hive = hiveObj.Value
@@ -804,13 +878,11 @@ local function getOwnHivePosition()
         end
     end
 
-    -- 2. Check player's SpawnPos
     local pSpawn = player:FindFirstChild("SpawnPos")
     if pSpawn and pSpawn:IsA("CFrameValue") then
         return pSpawn.Value.Position + Vector3.new(0, 4, 0)
     end
 
-    -- 3. Search Honeycombs folder
     for _, hive in ipairs(HoneycombsFolder:GetChildren()) do
         local owner = hive:FindFirstChild("Owner")
         local spawnPosition = hive:FindFirstChild("SpawnPos")
@@ -1061,7 +1133,6 @@ local function runCombatStep(root, humanoid, currentMarker, runId)
             return nil
         end
 
-        -- Timeout: If mob is not spawned after 3 seconds, advance to next spawn or mob
         if os.time() - combatStayStartTime >= 3 then
             if combatSpawnIndex >= #spawns then
                 combatSpawnIndex = 1
@@ -1102,7 +1173,6 @@ local function getViciousBeeLevel(monster)
 end
 
 local function findActiveViciousBee()
-    -- 1. Check workspace.Monsters
     for _, monster in ipairs(MonstersFolder:GetChildren()) do
         local monsterType = monster:FindFirstChild("MonsterType")
         local typeName = monsterType and monsterType:IsA("StringValue") and monsterType.Value or monster.Name
@@ -1126,7 +1196,6 @@ local function findActiveViciousBee()
         end
     end
 
-    -- 2. Check for sharp Thorn in fields
     local possibleFolders = {
         workspace:FindFirstChild("Particles"),
         workspace:FindFirstChild("Spikes"),
@@ -1243,7 +1312,6 @@ local function runViciousBeeCombatStep(root, humanoid, runId)
         return nil
     end
 
-    -- Health preservation: back off if HP is critically low
     if humanoid.Health < 35 and vField then
         local retreatPos = vField.Position + Vector3.new(0, 18, 0)
         tweenToFieldTarget(vField, root, humanoid, runId, retreatPos, nil)
@@ -1417,6 +1485,416 @@ local function resolveFarmField()
 end
 
 -- =========================================================================
+-- Memory Match Engine (Ghost Memory Match, Needed Items & Auto Solver)
+-- =========================================================================
+local function normalizePrizeName(data)
+    if not data then return "Unknown" end
+    if type(data) == "string" then return data end
+    if type(data) == "table" then
+        if data.Name then return tostring(data.Name) end
+        if data.Type then return tostring(data.Type) end
+        if data.Prize then
+            if type(data.Prize) == "string" then return data.Prize end
+            if type(data.Prize) == "table" then
+                return tostring(data.Prize.Type or data.Prize.Name or "Unknown")
+            end
+        end
+    end
+    return "Unknown"
+end
+
+local function isNeededItem(prizeName)
+    if not prizeName then return false end
+    local clean = string.lower(tostring(prizeName)):gsub("%s+", ""):gsub("%d+", "")
+    for neededName, enabled in pairs(SelectedNeededItems) do
+        if enabled then
+            local cleanNeeded = string.lower(neededName):gsub("%s+", ""):gsub("%d+", "")
+            if string.find(clean, cleanNeeded) or string.find(cleanNeeded, clean) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function isMemoryMatchReady(toyName)
+    local toy = workspace:FindFirstChild("Toys") and workspace.Toys:FindFirstChild(toyName)
+    if not toy then return false end
+
+    local circle = toy:FindFirstChild("Platform") and toy.Platform:FindFirstChild("Circle")
+    local textLabel = circle and circle:FindFirstChild("SurfaceGui") and circle.SurfaceGui:FindFirstChild("TextLabel")
+    if textLabel and textLabel.Text then
+        local txt = textLabel.Text
+        if string.find(txt, ":") then
+            return false
+        end
+        if string.find(txt, "%d+") then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function getToyPlatformPosition(toyName)
+    local toy = workspace:FindFirstChild("Toys") and workspace.Toys:FindFirstChild(toyName)
+    if toy then
+        local platform = toy:FindFirstChild("Platform")
+        if platform then
+            local circle = platform:FindFirstChild("Circle")
+            if circle then
+                return circle.Position + Vector3.new(0, 4, 0)
+            end
+            return platform.Position + Vector3.new(0, 4, 0)
+        end
+        local pivot = toy:GetPivot()
+        return pivot.Position + Vector3.new(0, 4, 0)
+    end
+    return MemoryMatchToys[toyName] and MemoryMatchToys[toyName].pos
+end
+
+local function activateMemoryMatchToy(toyName)
+    pcall(function()
+        local Events = ReplicatedStorage:FindFirstChild("Events")
+        if Events and Events:FindFirstChild("ToyEvent") then
+            Events.ToyEvent:FireServer(toyName)
+        end
+    end)
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local actBtn = pGui and pGui:FindFirstChild("ScreenGui") and pGui.ScreenGui:FindFirstChild("ActivateButton")
+        if actBtn and actBtn.Visible then
+            for _, conn in ipairs(getconnections and getconnections(actBtn.MouseButton1Click) or {}) do
+                conn:Fire()
+            end
+        end
+    end)
+end
+
+local function getActiveMemoryMatchGrid()
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pGui then return nil, nil end
+    local screenGui = pGui:FindFirstChild("ScreenGui")
+    local mmFrame = screenGui and (screenGui:FindFirstChild("MemoryMatchFrame") or screenGui:FindFirstChild("MemoryMatch", true))
+    if not mmFrame then
+        for _, gui in ipairs(pGui:GetChildren()) do
+            if gui:IsA("ScreenGui") then
+                local found = gui:FindFirstChild("MemoryMatchFrame", true)
+                if found then
+                    mmFrame = found
+                    break
+                end
+            end
+        end
+    end
+    if not mmFrame then return nil, nil end
+
+    local tiles = {}
+    for _, desc in ipairs(mmFrame:GetDescendants()) do
+        if desc:IsA("ImageButton") or desc:IsA("TextButton") then
+            local index = desc:GetAttribute("TileIndex") or tonumber(desc.Name) or desc:GetAttribute("Index")
+            if index then
+                tiles[index] = desc
+            end
+        end
+    end
+
+    if #tiles == 0 then
+        local grid = mmFrame:FindFirstChild("Grid") or mmFrame:FindFirstChildWhichIsA("Frame")
+        if grid then
+            for _, child in ipairs(grid:GetChildren()) do
+                if child:IsA("GuiObject") then
+                    local btn = child:IsA("ImageButton") and child or child:FindFirstChildWhichIsA("ImageButton", true) or child:FindFirstChildWhichIsA("TextButton", true)
+                    if btn then
+                        table.insert(tiles, btn)
+                    end
+                end
+            end
+        end
+    end
+    return mmFrame, tiles
+end
+
+local function applyGhostOverlay(tileIndex, prizeInfo)
+    if not GhostMemoryMatchState or not prizeInfo then return end
+    local mmFrame, tiles = getActiveMemoryMatchGrid()
+    local btn = tiles and tiles[tileIndex]
+    if btn and btn.Parent then
+        local ghost = btn:FindFirstChild("GhostPreview")
+        if not ghost then
+            ghost = Instance.new("ImageLabel")
+            ghost.Name = "GhostPreview"
+            ghost.Size = UDim2.new(0.75, 0, 0.75, 0)
+            ghost.Position = UDim2.new(0.125, 0, 0.125, 0)
+            ghost.BackgroundTransparency = 1
+            ghost.ZIndex = (btn.ZIndex or 1) + 5
+            ghost.Parent = btn
+        end
+        if prizeInfo.Image then
+            ghost.Image = tostring(prizeInfo.Image)
+            ghost.ImageTransparency = 0.35
+            ghost.Visible = true
+        end
+
+        if isNeededItem(prizeInfo.Name) then
+            local stroke = btn:FindFirstChild("GhostStroke")
+            if not stroke then
+                stroke = Instance.new("UIStroke")
+                stroke.Name = "GhostStroke"
+                stroke.Thickness = 2.5
+                stroke.Parent = btn
+            end
+            stroke.Color = Color3.fromRGB(255, 205, 50)
+            stroke.Transparency = 0.1
+        end
+    end
+end
+
+local function selectMemoryMatchTile(index, tileBtn)
+    pcall(function()
+        local Events = ReplicatedStorage:FindFirstChild("Events")
+        if Events and Events:FindFirstChild("MemoryMatchEvent") then
+            Events.MemoryMatchEvent:FireServer({
+                Action = "SelectTile",
+                TileIndex = index
+            })
+        end
+    end)
+    pcall(function()
+        local EventsMod = ReplicatedStorage:FindFirstChild("Events")
+        local Events = EventsMod and require(EventsMod)
+        if Events and type(Events.ClientCall) == "function" then
+            Events.ClientCall("MemoryMatchEvent", {
+                Action = "SelectTile",
+                TileIndex = index
+            })
+        end
+    end)
+    if tileBtn and tileBtn.Parent then
+        pcall(function()
+            if typeof(tileBtn) == "Instance" and tileBtn:IsA("GuiButton") then
+                for _, conn in ipairs(getconnections and getconnections(tileBtn.MouseButton1Click) or {}) do
+                    conn:Fire()
+                end
+            end
+        end)
+    end
+end
+
+-- Hook MemoryMatchEvent
+pcall(function()
+    local Events = ReplicatedStorage:FindFirstChild("Events")
+    local mmEvent = Events and Events:FindFirstChild("MemoryMatchEvent")
+    if mmEvent then
+        mmEvent.OnClientEvent:Connect(function(data)
+            if type(data) ~= "table" then return end
+            local action = data.Action
+
+            if action == "Start" or action == "Init" then
+                knownTiles = {}
+                matchedTiles = {}
+                isMemoryMatchActive = true
+            elseif action == "RevealTile" then
+                local idx = data.TileIndex
+                if idx then
+                    local pName = normalizePrizeName(data)
+                    local img = data.Image or (data.Prize and data.Prize.Image)
+                    knownTiles[idx] = {
+                        Name = pName,
+                        Image = img,
+                        Prize = data.Prize
+                    }
+                    applyGhostOverlay(idx, knownTiles[idx])
+                end
+            elseif action == "Match" or action == "Matched" then
+                if data.Tile1 then matchedTiles[data.Tile1] = true end
+                if data.Tile2 then matchedTiles[data.Tile2] = true end
+            elseif action == "RevealAll" or action == "EndGame" or action == "Finish" then
+                isMemoryMatchActive = false
+                task.delay(1.5, function()
+                    knownTiles = {}
+                    matchedTiles = {}
+                end)
+            end
+        end)
+    end
+end)
+
+local function solveActiveMemoryMatch()
+    local startTime = os.time()
+    task.wait(1.0)
+
+    while (os.time() - startTime) < 90 do
+        local mmFrame, tiles = getActiveMemoryMatchGrid()
+        if not mmFrame or not mmFrame.Parent or not mmFrame.Visible then
+            break
+        end
+
+        local totalTiles = #tiles > 0 and #tiles or 16
+
+        local pairA, pairB = nil, nil
+        local pairIsNeeded = false
+
+        for i = 1, totalTiles do
+            if knownTiles[i] and not matchedTiles[i] then
+                local itemA = knownTiles[i]
+                for j = i + 1, totalTiles do
+                    if knownTiles[j] and not matchedTiles[j] then
+                        local itemB = knownTiles[j]
+                        local matches = false
+                        if itemA.Image and itemB.Image and itemA.Image == itemB.Image then
+                            matches = true
+                        elseif itemA.Name and itemB.Name and itemA.Name == itemB.Name and itemA.Name ~= "Unknown" then
+                            matches = true
+                        end
+
+                        if matches then
+                            if isNeededItem(itemA.Name) then
+                                pairA = i
+                                pairB = j
+                                pairIsNeeded = true
+                                break
+                            elseif not pairA then
+                                pairA = i
+                                pairB = j
+                            end
+                        end
+                    end
+                end
+                if pairIsNeeded then break end
+            end
+        end
+
+        if pairA and pairB then
+            selectMemoryMatchTile(pairA, tiles[pairA])
+            task.wait(0.45)
+            selectMemoryMatchTile(pairB, tiles[pairB])
+            matchedTiles[pairA] = true
+            matchedTiles[pairB] = true
+            task.wait(0.6)
+        else
+            local pick1 = nil
+            for i = 1, totalTiles do
+                if not knownTiles[i] and not matchedTiles[i] then
+                    pick1 = i
+                    break
+                end
+            end
+
+            if not pick1 then
+                for i = 1, totalTiles do
+                    if not matchedTiles[i] then
+                        pick1 = i
+                        break
+                    end
+                end
+            end
+
+            if not pick1 then
+                break
+            end
+
+            selectMemoryMatchTile(pick1, tiles[pick1])
+            task.wait(0.45)
+
+            local pick2 = nil
+            local item1 = knownTiles[pick1]
+            if item1 then
+                for j = 1, totalTiles do
+                    if j ~= pick1 and knownTiles[j] and not matchedTiles[j] then
+                        local itemJ = knownTiles[j]
+                        if (item1.Image and itemJ.Image and item1.Image == itemJ.Image)
+                            or (item1.Name and itemJ.Name and item1.Name == itemJ.Name and item1.Name ~= "Unknown") then
+                            pick2 = j
+                            break
+                        end
+                    end
+                end
+            end
+
+            if pick2 then
+                selectMemoryMatchTile(pick2, tiles[pick2])
+                matchedTiles[pick1] = true
+                matchedTiles[pick2] = true
+                task.wait(0.6)
+            else
+                for j = 1, totalTiles do
+                    if j ~= pick1 and not knownTiles[j] and not matchedTiles[j] then
+                        pick2 = j
+                        break
+                    end
+                end
+                if not pick2 then
+                    for j = 1, totalTiles do
+                        if j ~= pick1 and not matchedTiles[j] then
+                            pick2 = j
+                            break
+                        end
+                    end
+                end
+
+                if pick2 then
+                    selectMemoryMatchTile(pick2, tiles[pick2])
+                    task.wait(0.6)
+                end
+            end
+        end
+
+        task.wait(0.25)
+    end
+end
+
+-- Auto Memory Match Background Supervisor
+task.spawn(function()
+    while true do
+        task.wait(10)
+        if AutoMemoryMatchState and not isRunningMemoryMatch and not isConvertingAtHive then
+            local char, root, humanoid = getCharacter()
+            if root and humanoid and humanoid.Health > 0 then
+                local honeyVal = 0
+                pcall(function()
+                    local stats = LocalPlayer:FindFirstChild("CoreStats")
+                    honeyVal = stats and stats:FindFirstChild("Honey") and stats.Honey.Value or 0
+                end)
+
+                for toyName, enabled in pairs(SelectedMemoryMatches) do
+                    if enabled and AutoMemoryMatchState and not isConvertingAtHive then
+                        local toyData = MemoryMatchToys[toyName]
+                        if toyData and honeyVal >= toyData.cost then
+                            if isMemoryMatchReady(toyName) then
+                                isRunningMemoryMatch = true
+
+                                local savedPos = root.Position
+                                local toyPos = getToyPlatformPosition(toyName)
+                                if toyPos then
+                                    tweenCharacterTo(root, humanoid, toyPos)
+                                    task.wait(0.5)
+
+                                    activateMemoryMatchToy(toyName)
+                                    task.wait(1.5)
+
+                                    solveActiveMemoryMatch()
+                                    task.wait(1.0)
+
+                                    local c, r, h = getCharacter()
+                                    if r and h then
+                                        tweenCharacterTo(r, h, savedPos)
+                                    end
+                                end
+
+                                isRunningMemoryMatch = false
+                                task.wait(5)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- =========================================================================
 -- UI Elements: Main Page Toggles & Sliders
 -- =========================================================================
 Hub.CreateSlider(mainPage, "Tween Speed", 4, 16, TweenSpeed, "x", function(value)
@@ -1449,6 +1927,11 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
 
         while AutoFarmState and runId == farmRunId do
             repeat
+                if isRunningMemoryMatch then
+                    task.wait(0.5)
+                    break
+                end
+
                 local char, root, humanoid = getCharacter()
                 if not char or not root or not humanoid then
                     task.wait(0.5)
@@ -1468,7 +1951,6 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
                     end
                 end
 
-                -- Honey & Capacity Management
                 local pollenVal, capVal, bagFull = getBagStats()
 
                 if bagFull and not isConvertingAtHive then
@@ -1499,7 +1981,6 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
                     end
                 end
 
-                -- Hive Conversion State
                 if isConvertingAtHive then
                     if pollenVal <= 0 or (os.time() - convertStartTime > 180) then
                         isConvertingAtHive = false
@@ -1578,7 +2059,6 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
                     placeSprinklersInField(field, humanoid, runId)
                 end
 
-                -- Auto Plant Sprouts (Magic Beans)
                 if SelectedSproutActions["Auto Plant Sprouts"] and field and root and isPositionInField(root.Position, field, 5) then
                     if not SelectedSproutExcludedFields[field.Name] then
                         local beansLeft = getInventoryBeanCount()
@@ -1608,25 +2088,26 @@ Hub.CreateToggle(mainPage, "Auto Farm", false, function(state)
         end
     end)
 
-    -- Mob jump thread
     task.spawn(function()
         local lastJumpAt = 0
 
         while AutoFarmState and runId == farmRunId do
-            local field = resolveFarmField()
-            if CombatState then
-                local combatSpawn = getSelectedMobSpawns()[combatSpawnIndex]
-                field = combatSpawn and getCombatField(combatSpawn) or field
-            end
-            local char, root, humanoid = getCharacter()
-            MobThreatActive = false
+            if not isRunningMemoryMatch then
+                local field = resolveFarmField()
+                if CombatState then
+                    local combatSpawn = getSelectedMobSpawns()[combatSpawnIndex]
+                    field = combatSpawn and getCombatField(combatSpawn) or field
+                end
+                local char, root, humanoid = getCharacter()
+                MobThreatActive = false
 
-            if field and char and humanoid and root and isPositionInField(root.Position, field, 10) then
-                local shouldJump = time() - lastJumpAt >= 1.5
-                if jumpForOwnedFieldMob(field, char, humanoid, shouldJump) then
-                    MobThreatActive = true
-                    if shouldJump then
-                        lastJumpAt = time()
+                if field and char and humanoid and root and isPositionInField(root.Position, field, 10) then
+                    local shouldJump = time() - lastJumpAt >= 1.5
+                    if jumpForOwnedFieldMob(field, char, humanoid, shouldJump) then
+                        MobThreatActive = true
+                        if shouldJump then
+                            lastJumpAt = time()
+                        end
                     end
                 end
             end
@@ -1659,7 +2140,7 @@ task.spawn(function()
 
     while true do
         task.wait(2)
-        if AutoFarmState and not isConvertingAtHive then
+        if AutoFarmState and not isConvertingAtHive and not isRunningMemoryMatch then
             local char, root, hum = getCharacter()
             if root and hum then
                 if root.Position.Y < -40 then
@@ -1764,7 +2245,6 @@ local farmConfigurationList = Hub.CreateList(tokenCustomizationList, "Exclude Li
 -- 3. Farm Features & Automation
 local farmAutomationList = Hub.CreateList(mainPage, "Farm Features & Automation", {}, 330, true)
 
--- 3a. Farm Settings
 local farmSettingsNames = {
     "Auto Catch Coconuts",
     "Auto Farm Sprouts",
@@ -1785,7 +2265,6 @@ local farmSettingsList = Hub.CreateList(farmAutomationList, "Farm Settings", far
 -- 4. Sprouts Automation
 local sproutsAutomationList = Hub.CreateList(mainPage, "Sprouts Automation", {}, 350, true)
 
--- 4a. Sprout Actions
 local sproutActionsNames = {
     "Auto Farm Sprouts",
     "Auto Plant Sprouts",
@@ -1800,7 +2279,6 @@ for _, actionName in ipairs(sproutActionsNames) do
 end
 local sproutActionsList = Hub.CreateList(sproutsAutomationList, "Sprout Actions", sproutActionsItems, 150, true)
 
--- 4b. Select Sprout Rarity
 local sproutRarityNames = {
     "Common",
     "Epic",
@@ -1819,7 +2297,6 @@ for _, rarityName in ipairs(sproutRarityNames) do
 end
 local sproutRaritiesList = Hub.CreateList(sproutsAutomationList, "Select Sprout Rarity", sproutRarityItems, 140, true)
 
--- 4c. Excluded Fields for Sprouts
 local sproutExcludedFieldItems = {}
 for _, field in ipairs(fieldNames) do
     table.insert(sproutExcludedFieldItems, {Name = field.Name})
@@ -1843,7 +2320,6 @@ Hub.CreateToggle(combatPage, "Auto Vicious Bee", false, function(state)
     AutoViciousBeeState = state and AutoFarmState
 end)
 
--- Vicious Bee Settings
 local viciousSettingsList = Hub.CreateList(combatPage, "Vicious Bee Settings", {}, 340, true)
 
 Hub.CreateSlider(viciousSettingsList.List, "Min Level", 1, 20, MinViciousLevel, " Lvl", function(value)
@@ -1861,7 +2337,6 @@ end
 table.sort(viciousExcludedFieldItems, function(a, b) return a.Name < b.Name end)
 local viciousExcludedFieldsList = Hub.CreateList(viciousSettingsList, "Excluded Fields", viciousExcludedFieldItems, 160, false)
 
--- Select Mobs
 local mobNames = {}
 local excludedMobTypes = {
     ["Cave Monster"] = true,
@@ -1883,6 +2358,69 @@ end
 table.sort(mobNames, function(a, b) return a.Name < b.Name end)
 
 combatList = Hub.CreateList(combatPage, "Select Mobs", mobNames, 180, true)
+
+-- =========================================================================
+-- UI Elements: Items Page (Memory Match Suite)
+-- =========================================================================
+Hub.CreateToggle(itemsPage, "Auto Memory Match", false, function(state)
+    AutoMemoryMatchState = state
+end)
+
+Hub.CreateToggle(itemsPage, "Ghost Memory Match", true, function(state)
+    GhostMemoryMatchState = state
+end)
+
+local memoryMatchOptions = {
+    "Memory Match",
+    "Mega Memory Match",
+    "Night Memory Match",
+    "Extreme Memory Match",
+}
+local memoryMatchListItems = {}
+for _, name in ipairs(memoryMatchOptions) do
+    table.insert(memoryMatchListItems, {Name = name})
+end
+local memoryMatchList = Hub.CreateList(itemsPage, "Select Memory Matches", memoryMatchListItems, 160, true)
+
+local neededItemOptions = {
+    "Atomic Treat",
+    "Bitterberry",
+    "Blue Extract",
+    "Cloud Vial",
+    "Diamond Egg",
+    "Enzymes",
+    "Festive Bean",
+    "Field Dice",
+    "Glitter",
+    "Glue",
+    "Gold Egg",
+    "Hard Wax",
+    "Magic Bean",
+    "Micro-Converter",
+    "Moon Charm",
+    "Mythic Egg",
+    "Neonberry",
+    "Night Bell",
+    "Oil",
+    "Red Extract",
+    "Royal Jelly",
+    "Silver Egg",
+    "Smooth Dice",
+    "Soft Wax",
+    "Star Jelly",
+    "Star Treat",
+    "Super Smoothie",
+    "Swirled Wax",
+    "Ticket",
+    "Tropical Drink",
+}
+table.sort(neededItemOptions)
+
+local neededItemListItems = {}
+for _, name in ipairs(neededItemOptions) do
+    table.insert(neededItemListItems, {Name = name})
+end
+local neededItemsList = Hub.CreateList(itemsPage, "Needed Items (Priority)", neededItemListItems, 260, true)
 
 -- =========================================================================
 -- List Row Click & Input Event Bindings
@@ -2119,6 +2657,31 @@ for _, entry in ipairs(viciousExcludedFieldsList.Items or {}) do
         row.MouseButton1Click:Connect(function()
             SelectedViciousExcludedFields[fieldName] = not SelectedViciousExcludedFields[fieldName]
             row.BackgroundColor3 = SelectedViciousExcludedFields[fieldName] and selectedFarmColor or normalFarmColor
+        end)
+    end
+end
+
+-- Memory Match & Needed Items row click handlers
+for _, entry in ipairs(memoryMatchList.Items or {}) do
+    local row = entry.Row
+    local mmName = entry.Name or (entry.Data and entry.Data.Name)
+    if row and row:IsA("TextButton") and mmName then
+        row.BackgroundColor3 = SelectedMemoryMatches[mmName] and selectedFarmColor or normalFarmColor
+        row.MouseButton1Click:Connect(function()
+            SelectedMemoryMatches[mmName] = not SelectedMemoryMatches[mmName]
+            row.BackgroundColor3 = SelectedMemoryMatches[mmName] and selectedFarmColor or normalFarmColor
+        end)
+    end
+end
+
+for _, entry in ipairs(neededItemsList.Items or {}) do
+    local row = entry.Row
+    local itemName = entry.Name or (entry.Data and entry.Data.Name)
+    if row and row:IsA("TextButton") and itemName then
+        row.BackgroundColor3 = SelectedNeededItems[itemName] and selectedFarmColor or normalFarmColor
+        row.MouseButton1Click:Connect(function()
+            SelectedNeededItems[itemName] = not SelectedNeededItems[itemName]
+            row.BackgroundColor3 = SelectedNeededItems[itemName] and selectedFarmColor or normalFarmColor
         end)
     end
 end
