@@ -246,13 +246,65 @@ local function removeEspFor(owner)
     end
 end
 
+local function clearCategoryEsp(category)
+    for owner, record in pairs(activeEspRecords) do
+        if record.Category == category then
+            removeEspFor(owner)
+        end
+    end
+    if category == "Entities" then
+        pcall(function()
+            for _, desc in ipairs(Workspace:GetDescendants()) do
+                if desc.Name == "Unknown_RoundedCube" then
+                    desc:Destroy()
+                end
+            end
+        end)
+    end
+end
+
+local function clearEntitySubcategory(entityCategory)
+    for owner, record in pairs(activeEspRecords) do
+        if record.Category == "Entities" and record.EntityCategory == entityCategory then
+            removeEspFor(owner)
+        end
+    end
+end
+
 local function clearAllEsp()
     for owner, record in pairs(activeEspRecords) do
-        for _, obj in ipairs(record.Visuals) do
-            pcall(function() obj:Destroy() end)
+        if record.Visuals then
+            for _, obj in ipairs(record.Visuals) do
+                pcall(function() obj:Destroy() end)
+            end
         end
     end
     table.clear(activeEspRecords)
+
+    -- Purge any orphaned Highlights and Billboards from CoreGui and gethui
+    pcall(function()
+        local uiContainers = { CoreGui }
+        if gethui then
+            local h = gethui()
+            if h and h ~= CoreGui then table.insert(uiContainers, h) end
+        end
+        for _, container in ipairs(uiContainers) do
+            for _, child in ipairs(container:GetChildren()) do
+                if child.Name == "Unknown_ESP_Highlight" or child.Name == "Unknown_ESP_Billboard" then
+                    child:Destroy()
+                end
+            end
+        end
+    end)
+
+    -- Purge any orphaned rounded cubes and highlights from Workspace
+    pcall(function()
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc.Name == "Unknown_RoundedCube" or desc.Name == "Unknown_ESP_Highlight" or desc.Name == "Unknown_ESP_Billboard" then
+                desc:Destroy()
+            end
+        end
+    end)
 end
 
 local function createBillboard(adorneePart, baseText, color, offset)
@@ -419,7 +471,7 @@ local function getCurrentRoomNumber()
     return lastKnownPlayerRoom or 0
 end
 
-local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber, extraVisuals)
+local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber, extraVisuals, entityCategory)
     if not State.Master_ESP then return end
     if not adorneePart then return end
 
@@ -427,6 +479,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     local existing = activeEspRecords[owner]
     if existing and existing.Adornee == adorneePart and existing.Category == category then
         if roomNumber then existing.RoomNumber = roomNumber end
+        if entityCategory then existing.EntityCategory = entityCategory end
         if existing.BaseText ~= baseText or existing.Color ~= color then
             existing.BaseText = baseText
             existing.Color = color
@@ -523,6 +576,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         BaseText = baseText,
         Color = color,
         Category = category,
+        EntityCategory = entityCategory,
         Label = label,
         Visuals = visuals,
         HighlightMap = highlightMap,
@@ -548,100 +602,104 @@ task.spawn(function()
             local rootPos = root and root.Position or nil
             local curRoom = getCurrentRoomNumber()
 
-            for _, record in pairs(activeEspRecords) do
-                -- 1. Room Visibility Filter (Configurable display mode: Current & Next Room, Current Room Only, or All Rooms)
-                if record.Category == "Doors" then
-                    local shouldShow = State.Doors_ESP
-                    if shouldShow then
-                        local isNear = false
-                        if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
-                            if (rootPos - record.Adornee.Position).Magnitude <= 90 then
-                                isNear = true
+            for owner, record in pairs(activeEspRecords) do
+                if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
+                    removeEspFor(owner)
+                else
+                    -- 1. Room Visibility Filter (Configurable display mode: Current & Next Room, Current Room Only, or All Rooms)
+                    if record.Category == "Doors" then
+                        local shouldShow = State.Doors_ESP
+                        if shouldShow then
+                            local isNear = false
+                            if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
+                                if (rootPos - record.Adornee.Position).Magnitude <= 90 then
+                                    isNear = true
+                                end
                             end
-                        end
 
-                        if isNear then
-                            shouldShow = true
-                        else
-                            local mode = State.ESP_RoomFilterMode or "Current & Next Room"
-                            if mode == "Current Room Only" then
-                                shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
-                            elseif mode == "Current & Next Room" then
-                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 3)
-                            else -- "All Rooms (Full Vision)"
+                            if isNear then
                                 shouldShow = true
+                            else
+                                local mode = State.ESP_RoomFilterMode or "Current & Next Room"
+                                if mode == "Current Room Only" then
+                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
+                                elseif mode == "Current & Next Room" then
+                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 3)
+                                else -- "All Rooms (Full Vision)"
+                                    shouldShow = true
+                                end
                             end
                         end
-                    end
 
-                    if record.CurrentlyVisible ~= shouldShow then
-                        record.CurrentlyVisible = shouldShow
-                        if record.Visuals then
-                            for _, vis in ipairs(record.Visuals) do
-                                if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
-                                    vis.Enabled = shouldShow
-                                elseif vis:IsA("Highlight") then
-                                    vis.Enabled = shouldShow
-                                    if not shouldShow then
-                                        vis.Adornee = nil
-                                    else
-                                        vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
+                        if record.CurrentlyVisible ~= shouldShow then
+                            record.CurrentlyVisible = shouldShow
+                            if record.Visuals then
+                                for _, vis in ipairs(record.Visuals) do
+                                    if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
+                                        vis.Enabled = shouldShow
+                                    elseif vis:IsA("Highlight") then
+                                        vis.Enabled = shouldShow
+                                        if not shouldShow then
+                                            vis.Adornee = nil
+                                        else
+                                            vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    elseif record.Category == "HidingSpots" then
+                        local shouldShow = State.HidingSpots_ESP
+                        if shouldShow then
+                            local isNear = false
+                            if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
+                                if (rootPos - record.Adornee.Position).Magnitude <= 75 then
+                                    isNear = true
+                                end
+                            end
+
+                            if isNear then
+                                shouldShow = true
+                            else
+                                local mode = State.ESP_RoomFilterMode or "Current & Next Room"
+                                if mode == "Current Room Only" then
+                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
+                                elseif mode == "Current & Next Room" then
+                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 2)
+                                else -- "All Rooms (Full Vision)"
+                                    shouldShow = true
+                                end
+                            end
+                        end
+
+                        -- Only perform visual property & highlight adornee updates on actual state transitions (eliminates jitter and highlight slot churn!)
+                        if record.CurrentlyVisible ~= shouldShow then
+                            record.CurrentlyVisible = shouldShow
+                            if record.Visuals then
+                                for _, vis in ipairs(record.Visuals) do
+                                    if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
+                                        vis.Enabled = shouldShow
+                                    elseif vis:IsA("Highlight") then
+                                        vis.Enabled = shouldShow
+                                        if not shouldShow then
+                                            vis.Adornee = nil
+                                        else
+                                            vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
+                                        end
                                     end
                                 end
                             end
                         end
                     end
-                elseif record.Category == "HidingSpots" then
-                    local shouldShow = State.HidingSpots_ESP
-                    if shouldShow then
-                        local isNear = false
-                        if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
-                            if (rootPos - record.Adornee.Position).Magnitude <= 75 then
-                                isNear = true
-                            end
-                        end
 
-                        if isNear then
-                            shouldShow = true
-                        else
-                            local mode = State.ESP_RoomFilterMode or "Current & Next Room"
-                            if mode == "Current Room Only" then
-                                shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
-                            elseif mode == "Current & Next Room" then
-                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 2)
-                            else -- "All Rooms (Full Vision)"
-                                shouldShow = true
-                            end
+                    -- 2. Distance Text Update (Only updates visible records when integer distance changes)
+                    local isVisible = (record.Category ~= "Doors" and record.Category ~= "HidingSpots") or (record.CurrentlyVisible == true)
+                    if isVisible and State.Show_Distance and rootPos and record.Label and record.Adornee and record.Adornee.Parent then
+                        local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
+                        if dist ~= record.LastDist then
+                            record.LastDist = dist
+                            record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
                         end
-                    end
-
-                    -- Only perform visual property & highlight adornee updates on actual state transitions (eliminates jitter and highlight slot churn!)
-                    if record.CurrentlyVisible ~= shouldShow then
-                        record.CurrentlyVisible = shouldShow
-                        if record.Visuals then
-                            for _, vis in ipairs(record.Visuals) do
-                                if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
-                                    vis.Enabled = shouldShow
-                                elseif vis:IsA("Highlight") then
-                                    vis.Enabled = shouldShow
-                                    if not shouldShow then
-                                        vis.Adornee = nil
-                                    else
-                                        vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-
-                -- 2. Distance Text Update (Only updates visible records when integer distance changes)
-                local isVisible = (record.Category ~= "Doors" and record.Category ~= "HidingSpots") or (record.CurrentlyVisible == true)
-                if isVisible and State.Show_Distance and rootPos and record.Label and record.Adornee and record.Adornee.Parent then
-                    local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
-                    if dist ~= record.LastDist then
-                        record.LastDist = dist
-                        record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
                     end
                 end
             end
@@ -1359,100 +1417,169 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
 end
 
 local function processEntity(entity)
-    if not entity then return end
-    if not State.Entities_ESP then
+    if not entity or not entity.Parent then return end
+    if not State.Entities_ESP or not State.Master_ESP then
         removeEspFor(entity)
         return
     end
 
     local eLower = entity.Name:lower()
 
-    -- Do not flag players or friendly shop NPCs
+    -- 1. Anti-Player & Anti-Character Check
     if entity:IsA("Model") and Players:GetPlayerFromCharacter(entity) then return end
-    if eLower:find("bob") or eLower:find("elgoblino") or (eLower:find("jeff") and not eLower:find("killer")) then return end
+    local char = getChar()
+    if char and (entity == char or entity:IsDescendantOf(char)) then return end
 
-    -- Strictly ignore Dupe & SideroomDupe in entity scanner (Dupe is ONLY shown as a Door!)
+    -- 2. Reject Camera viewmodel parts (arms, items, baserig, clothing)
+    -- In DOORS, Camera contains the first-person viewmodel ("baserig") and held tool models.
+    -- ONLY Screech and jumpscare spiders are valid entities inside Camera.
+    if Camera and (entity.Parent == Camera or entity:IsDescendantOf(Camera)) then
+        local isCameraMonster = eLower:find("screech") or eLower:find("spider") or eLower:find("timothy")
+        if not isCameraMonster then
+            return
+        end
+    end
+
+    -- 3. Reject Viewmodel, Shop NPCs, and harmless entities
+    if eLower == "baserig" or eLower:find("viewmodel") or eLower:find("bob") or eLower:find("elgoblino") or (eLower:find("jeff") and not eLower:find("killer")) then
+        return
+    end
+
+    -- 4. Strictly ignore Dupe & SideroomDupe in entity scanner (Dupe is ONLY shown as a Door!)
     if eLower:find("dupe") or eLower:find("doorfake") or (entity.Parent and entity.Parent.Name:lower():find("dupe")) or eLower:find("sideroom") then
         return
     end
 
-    -- Strictly blacklist room fixtures, windows, curtains, lights, lamps, and glass from entity scanner
-    if eLower:find("window") or eLower:find("framing") or eLower:find("curtain") or eLower:find("glass") 
-        or eLower:find("light") or eLower:find("fixture") or eLower:find("lamp") or eLower:find("sconce") 
-        or eLower:find("bath") then
-        return
+    -- 5. Strictly reject any furniture, decor, room structure, fixtures, lights, or beds
+    for _, blocked in ipairs(DECOR_BLACKLIST) do
+        if eLower == blocked or eLower:find("^" .. blocked) or eLower:find("_" .. blocked) or eLower:find(blocked .. "$") then
+            return
+        end
     end
 
-    local cfg = nil
-    for key, info in pairs(ENTITY_REGISTRY) do
-        if eLower == key or eLower:find(key) then
-            cfg = info
-            break
+    -- 6. CurrentRooms Descendant Check:
+    -- Roaming monsters in DOORS do NOT spawn as static children of room furniture.
+    -- If an object is inside CurrentRooms, it can ONLY be an entity if it is explicitly Snare, Giggle, FigureRig, Grumble, or Seek.
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    if currentRooms and entity:IsDescendantOf(currentRooms) then
+        local isRoomMonster = eLower:find("snare") or eLower:find("giggle") or eLower:find("figure") or eLower:find("grumble") or eLower:find("seek")
+        if not isRoomMonster then
+            return
         end
+    end
+
+    -- 7. Strict Entity Identification against known monsters (eliminates false positives like lampshades, jackets, queen beds)
+    local cfg = nil
+    if eLower == "rush" or eLower:find("^rush") or eLower:find("rushmoving") or eLower:find("rushnew") then
+        cfg = { Name = "Rush", Category = "Rush" }
+    elseif eLower == "ambush" or eLower:find("^ambush") or eLower:find("ambushmoving") then
+        cfg = { Name = "Ambush", Category = "Ambush" }
+    elseif eLower:find("figure") then
+        cfg = { Name = "Figure", Category = "Figure" }
+    elseif eLower == "seek" or eLower:find("^seek") or eLower:find("seekmoving") or eLower:find("seekrig") then
+        cfg = { Name = "Seek", Category = "Seek" }
+    elseif eLower == "eyes" or eLower:find("^eyes") or eLower:find("lookman") or eLower:find("eyesretro") then
+        cfg = { Name = "Eyes (Don't Look!)", Category = "Eyes" }
+    elseif eLower == "halt" or eLower:find("^halt") or eLower == "shade" then
+        cfg = { Name = "Halt", Category = "Halt" }
+    elseif eLower:find("screech") then
+        cfg = { Name = "Screech", Category = "Screech" }
+    elseif eLower == "dread" then
+        cfg = { Name = "Dread", Category = "Dread" }
+    elseif eLower == "timothy" or eLower:find("spiderjumpscare") or eLower == "spider" then
+        cfg = { Name = "Timothy", Category = "Timothy" }
+    elseif eLower:find("snare") then
+        cfg = { Name = "Snare Trap", Category = "Snare" }
+    elseif eLower:find("giggle") then
+        cfg = { Name = "Giggle", Category = "Giggle" }
+    elseif eLower:find("grumble") or eLower == "queen" or eLower == "grumblequeen" then
+        cfg = { Name = (eLower:find("queen") and "Grumble Queen" or "Grumble"), Category = "Grumble" }
+    elseif eLower:find("gloombat") then
+        cfg = { Name = "Gloombats", Category = "Gloombats" }
+    elseif eLower == "a60" or eLower == "a-60" or eLower:find("^a%-?60") then
+        cfg = { Name = "A-60", Category = "Rooms" }
+    elseif eLower == "a90" or eLower == "a-90" or eLower:find("^a%-?90") then
+        cfg = { Name = "A-90", Category = "Rooms" }
+    elseif eLower == "a120" or eLower == "a-120" or eLower:find("^a%-?120") then
+        cfg = { Name = "A-120", Category = "Rooms" }
+    elseif eLower == "glitch" or eLower:find("^glitch") then
+        cfg = { Name = "Glitch", Category = "Other" }
+    elseif eLower == "void" then
+        cfg = { Name = "Void", Category = "Other" }
+    elseif eLower == "shadow" then
+        cfg = { Name = "Shadow", Category = "Other" }
+    elseif eLower == "sally" then
+        cfg = { Name = "Sally", Category = "Other" }
+    elseif eLower == "jack" then
+        cfg = { Name = "Jack", Category = "Other" }
+    elseif eLower == "blitz" or eLower == "depth" or eLower == "silence" or eLower == "greed" then
+        cfg = { Name = entity.Name, Category = "Other" }
+    elseif eLower:find("nextbot") then
+        cfg = { Name = entity.Name, Category = "Other" }
+    elseif (entity.Parent and entity.Parent.Name == "LiveEntities") or eLower:find("^monster") then
+        cfg = { Name = entity.Name, Category = "Other" }
     end
 
     if not cfg then
-        if (entity.Parent and (entity.Parent.Name == "LiveEntities" or entity.Parent.Name == "Camera"))
-            or eLower:find("nextbot") or eLower:find("monster") or eLower:find("a-") or eLower:find("a_") then
-            cfg = { Name = entity.Name, Category = "Other" }
-        end
+        return
     end
 
-    if cfg then
-        -- Check Entity Filter / Exclude List
-        local isAllowed = true
-        if cfg.Category == "Rush" and not State.Entity_Show_Rush then isAllowed = false
-        elseif cfg.Category == "Ambush" and not State.Entity_Show_Ambush then isAllowed = false
-        elseif cfg.Category == "Figure" and not State.Entity_Show_Figure then isAllowed = false
-        elseif cfg.Category == "Seek" and not State.Entity_Show_Seek then isAllowed = false
-        elseif cfg.Category == "Eyes" and not State.Entity_Show_Eyes then isAllowed = false
-        elseif cfg.Category == "Halt" and not State.Entity_Show_Halt then isAllowed = false
-        elseif cfg.Category == "Screech" and not State.Entity_Show_Screech then isAllowed = false
-        elseif cfg.Category == "Giggle" and not State.Entity_Show_Giggle then isAllowed = false
-        elseif cfg.Category == "Grumble" and not State.Entity_Show_Grumble then isAllowed = false
-        elseif cfg.Category == "Gloombats" and not State.Entity_Show_Gloombats then isAllowed = false
-        elseif cfg.Category == "Snare" and not State.Entity_Show_Snare then isAllowed = false
-        elseif cfg.Category == "Timothy" and not State.Entity_Show_Timothy then isAllowed = false
-        elseif cfg.Category == "Dread" and not State.Entity_Show_Dread then isAllowed = false
-        elseif cfg.Category == "Rooms" and not State.Entity_Show_Rooms then isAllowed = false
-        elseif cfg.Category == "Other" and not State.Entity_Show_Other then isAllowed = false
-        end
+    -- 8. Check Entity Filter / Exclude List
+    local isAllowed = true
+    if cfg.Category == "Rush" and not State.Entity_Show_Rush then isAllowed = false
+    elseif cfg.Category == "Ambush" and not State.Entity_Show_Ambush then isAllowed = false
+    elseif cfg.Category == "Figure" and not State.Entity_Show_Figure then isAllowed = false
+    elseif cfg.Category == "Seek" and not State.Entity_Show_Seek then isAllowed = false
+    elseif cfg.Category == "Eyes" and not State.Entity_Show_Eyes then isAllowed = false
+    elseif cfg.Category == "Halt" and not State.Entity_Show_Halt then isAllowed = false
+    elseif cfg.Category == "Screech" and not State.Entity_Show_Screech then isAllowed = false
+    elseif cfg.Category == "Giggle" and not State.Entity_Show_Giggle then isAllowed = false
+    elseif cfg.Category == "Grumble" and not State.Entity_Show_Grumble then isAllowed = false
+    elseif cfg.Category == "Gloombats" and not State.Entity_Show_Gloombats then isAllowed = false
+    elseif cfg.Category == "Snare" and not State.Entity_Show_Snare then isAllowed = false
+    elseif cfg.Category == "Timothy" and not State.Entity_Show_Timothy then isAllowed = false
+    elseif cfg.Category == "Dread" and not State.Entity_Show_Dread then isAllowed = false
+    elseif cfg.Category == "Rooms" and not State.Entity_Show_Rooms then isAllowed = false
+    elseif cfg.Category == "Other" and not State.Entity_Show_Other then isAllowed = false
+    end
 
-        if not isAllowed then
-            removeEspFor(entity)
-            return
-        end
+    if not isAllowed then
+        removeEspFor(entity)
+        return
+    end
 
-        local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChild("Root") or entity:FindFirstChild("Core") or entity:FindFirstChildWhichIsA("BasePart", true)))
-            or (entity:IsA("BasePart") and entity)
+    -- Anti-Leak Guard: If already actively registered, do not recreate rounded cubes or reallocate models!
+    if activeEspRecords[entity] and activeEspRecords[entity].Category == "Entities" then
+        return
+    end
 
-        if targetPart then
-            local highlightTarget = entity
-            local extraVisuals = {}
-            local entityColor = State.ESP_Color_Entities or Color3.fromRGB(255, 35, 35)
+    local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChild("Root") or entity:FindFirstChild("Core") or entity:FindFirstChildWhichIsA("BasePart", true)))
+        or (entity:IsA("BasePart") and entity)
 
-            -- Check if 2D sprite entity, flat nextbot, or Rush/Ambush node
-            local is2D = entity:IsA("BasePart")
-                or (entity:FindFirstChildWhichIsA("BillboardGui", true) ~= nil)
-                or eLower:find("a60") or eLower:find("a-60")
-                or eLower:find("a90") or eLower:find("a-90")
-                or eLower:find("a120") or eLower:find("a-120")
-                or eLower:find("nextbot") or eLower:find("rush")
-                or eLower:find("ambush") or eLower:find("glitch")
-                or (not entity:FindFirstChildWhichIsA("Humanoid") and not entity:FindFirstChildWhichIsA("MeshPart"))
+    if targetPart then
+        local highlightTarget = entity
+        local extraVisuals = {}
+        local entityColor = State.ESP_Color_Entities or Color3.fromRGB(255, 35, 35)
 
-            if is2D then
-                -- Procedural 3D Cube with smooth rounded corners and rounded edges
-                local roundedCube = createRoundedCubeModel(targetPart, 5.0, 0.85, entityColor)
-                if roundedCube then
-                    table.insert(extraVisuals, roundedCube)
-                    highlightTarget = roundedCube
-                end
+        -- Exclusively target verified 2D sprite entities (A-60, A-90, A-120, Rush, Ambush, Nextbots, Dread, Glitch)
+        local is2D = (cfg.Category == "Rooms")
+            or (cfg.Category == "Rush")
+            or (cfg.Category == "Ambush")
+            or (cfg.Category == "Dread")
+            or (cfg.Name == "Glitch")
+            or eLower:find("nextbot")
+
+        if is2D then
+            -- Procedural 3D Cube with smooth rounded corners and rounded edges
+            local roundedCube = createRoundedCubeModel(targetPart, 5.0, 0.85, entityColor)
+            if roundedCube then
+                table.insert(extraVisuals, roundedCube)
+                highlightTarget = roundedCube
             end
-
-            local baseText = cfg.Name
-            registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, extraVisuals)
         end
+
+        local baseText = cfg.Name
+        registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, extraVisuals, cfg.Category)
     end
 end
 
@@ -1786,11 +1913,14 @@ local function scanSingleRoom(room)
                     processGold(desc)
                 elseif dName:find("snare") then
                     if State.Anti_Snare then defuseSnare(desc) end
+                    if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("giggle") then
                     if State.Anti_Giggle then defuseGiggle(desc) end
+                    if State.Entities_ESP then processEntity(desc) end
+                elseif dName:find("figure") then
+                    if State.Entities_ESP then processEntity(desc) end
                 else
                     processItem(desc)
-                    processEntity(desc)
                 end
             elseif desc:IsA("BasePart") then
                 if desc.Name == "dupeDoor" then
@@ -1924,11 +2054,14 @@ pcall(function()
                         processGold(desc)
                     elseif dName:find("snare") then
                         if State.Anti_Snare then defuseSnare(desc) end
+                        if State.Entities_ESP then processEntity(desc) end
                     elseif dName:find("giggle") then
                         if State.Anti_Giggle then defuseGiggle(desc) end
+                        if State.Entities_ESP then processEntity(desc) end
+                    elseif dName:find("figure") then
+                        if State.Entities_ESP then processEntity(desc) end
                     else
                         processItem(desc)
-                        if State.Entities_ESP then processEntity(desc) end
                     end
                 elseif desc:IsA("BasePart") then
                     if desc.Name == "dupeDoor" then
@@ -2005,7 +2138,10 @@ if Camera then
         task.wait(0.05)
         pcall(function()
             if State.Entities_ESP and child and child.Parent then
-                processEntity(child)
+                local cName = child.Name:lower()
+                if cName:find("screech") or cName:find("spider") or cName:find("timothy") then
+                    processEntity(child)
+                end
             end
         end)
     end)
@@ -2022,12 +2158,15 @@ task.spawn(function()
                 end
                 if Camera then
                     for _, child in ipairs(Camera:GetChildren()) do
-                        pcall(function() processEntity(child) end)
+                        local cName = child.Name:lower()
+                        if cName:find("screech") or cName:find("spider") or cName:find("timothy") then
+                            pcall(function() processEntity(child) end)
+                        end
                     end
                 end
             end
         end
-        task.wait(0.4)
+        task.wait(0.5)
     end
 end)
 
@@ -2457,6 +2596,17 @@ RunService.Heartbeat:Connect(function()
 
     local mgTable = getMainGameTable()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+
+    if isSlidingActive and not hiding then
+        local elapsed = os.clock() - slideStartTime
+        if elapsed > 1.25 then
+            stopSlide()
+        else
+            local targetSpeed = math.max(State.WalkSpeed_Value or 35, 42)
+            local slideSpeed = targetSpeed * math.clamp(1 - (elapsed / 1.35) * 0.45, 0.5, 1.0)
+            root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * slideSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * slideSpeed)
+        end
+    end
 
     if State.WalkSpeed_Enabled and not hiding then
         local targetSpeed = State.WalkSpeed_Value
@@ -3686,128 +3836,224 @@ Hub.CreateSection(espTab, "🚪 Doors & Navigation")
 
 Hub.CreateToggle(espTab, "Doors ESP (Real & Fake)", State.Doors_ESP, function(v)
     State.Doors_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("Doors")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Keys ESP", State.Keys_ESP, function(v)
     State.Keys_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("Keys")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateSection(espTab, "📦 Items & Objectives")
 
 Hub.CreateToggle(espTab, "Glitch Fragment ESP (GlitchCube)", State.GlitchFragment_ESP, function(v)
     State.GlitchFragment_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("GlitchFragment")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Items ESP (Crucifix, Lighter, etc.)", State.Items_ESP, function(v)
     State.Items_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("Items")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Books ESP (Room 50 Library Only)", State.Books_ESP, function(v)
     State.Books_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("Books")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Breakers ESP (Room 100 Only)", State.Breakers_ESP, function(v)
     State.Breakers_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("Breakers")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Gold Coins ESP", State.Gold_ESP, function(v)
     State.Gold_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("Gold")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateSection(espTab, "💀 Entities & Safety")
 
 Hub.CreateToggle(espTab, "Entities ESP (Monsters Master)", State.Entities_ESP, function(v)
     State.Entities_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("Entities")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Hiding Spots ESP (Closets & Beds)", State.HidingSpots_ESP, function(v)
     State.HidingSpots_ESP = v
-    scanAllRooms()
+    if not v then
+        clearCategoryEsp("HidingSpots")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateSection(espTab, "👾 Entity Filter / Exclude List")
 
 Hub.CreateToggle(espTab, "Show Rush", State.Entity_Show_Rush, function(v)
     State.Entity_Show_Rush = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Rush")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Ambush", State.Entity_Show_Ambush, function(v)
     State.Entity_Show_Ambush = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Ambush")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Figure (Library / Electrical)", State.Entity_Show_Figure, function(v)
     State.Entity_Show_Figure = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Figure")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Seek", State.Entity_Show_Seek, function(v)
     State.Entity_Show_Seek = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Seek")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Eyes / Lookman", State.Entity_Show_Eyes, function(v)
     State.Entity_Show_Eyes = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Eyes")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Halt", State.Entity_Show_Halt, function(v)
     State.Entity_Show_Halt = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Halt")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Screech", State.Entity_Show_Screech, function(v)
     State.Entity_Show_Screech = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Screech")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Giggle (Mines Ceilings)", State.Entity_Show_Giggle, function(v)
     State.Entity_Show_Giggle = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Giggle")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Grumble (Mines Tunnels)", State.Entity_Show_Grumble, function(v)
     State.Entity_Show_Grumble = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Grumble")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Gloombats", State.Entity_Show_Gloombats, function(v)
     State.Entity_Show_Gloombats = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Gloombats")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Snare Traps", State.Entity_Show_Snare, function(v)
     State.Entity_Show_Snare = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Snare")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Timothy (Drawer Spiders)", State.Entity_Show_Timothy, function(v)
     State.Entity_Show_Timothy = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Timothy")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show The Rooms Monsters (A-60, A-90, A-120)", State.Entity_Show_Rooms, function(v)
     State.Entity_Show_Rooms = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Rooms")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Dread", State.Entity_Show_Dread, function(v)
     State.Entity_Show_Dread = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Dread")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateToggle(espTab, "Show Special & Rare Entities (Glitch, Void, Sally, Jack, etc.)", State.Entity_Show_Other, function(v)
     State.Entity_Show_Other = v
-    scanAllRooms()
+    if not v then
+        clearEntitySubcategory("Other")
+    else
+        scanAllRooms()
+    end
 end)
 
 Hub.CreateSection(espTab, "💡 Visual Enhancements")
