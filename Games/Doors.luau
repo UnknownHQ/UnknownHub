@@ -1211,6 +1211,153 @@ local ENTITY_REGISTRY = {
     ["greed"]          = { Name = "Greed",              Category = "Other" },
 }
 
+local function createRoundedCubeModel(targetPart, size, radius, color)
+    if not targetPart or not targetPart.Parent then return nil end
+    local model = Instance.new("Model")
+    model.Name = "Unknown_RoundedCube"
+
+    local s = size or 5.0
+    local r = radius or 0.85
+    local inner = math.max(s - 2 * r, 0.5)
+    local d = 2 * r
+
+    -- Central core block
+    local core = Instance.new("Part")
+    core.Name = "Core"
+    core.Size = Vector3.new(inner, inner, inner)
+    core.Color = color
+    core.Transparency = 0.55
+    core.Material = Enum.Material.SmoothPlastic
+    core.CanCollide = false
+    core.CanTouch = false
+    core.CanQuery = false
+    core.Massless = true
+    core.CastShadow = false
+    core.CFrame = targetPart.CFrame
+    core.Parent = model
+
+    -- 6 Face slabs: extending from inner core to outer faces
+    local faceConfigs = {
+        { size = Vector3.new(inner, inner, r), offset = Vector3.new(0, 0, inner/2 + r/2) },
+        { size = Vector3.new(inner, inner, r), offset = Vector3.new(0, 0, -(inner/2 + r/2)) },
+        { size = Vector3.new(inner, r, inner), offset = Vector3.new(0, inner/2 + r/2, 0) },
+        { size = Vector3.new(inner, r, inner), offset = Vector3.new(0, -(inner/2 + r/2), 0) },
+        { size = Vector3.new(r, inner, inner), offset = Vector3.new(inner/2 + r/2, 0, 0) },
+        { size = Vector3.new(r, inner, inner), offset = Vector3.new(-(inner/2 + r/2), 0, 0) },
+    }
+    for i, cfg in ipairs(faceConfigs) do
+        local face = Instance.new("Part")
+        face.Name = "Face_" .. i
+        face.Size = cfg.size
+        face.Color = color
+        face.Transparency = 0.55
+        face.Material = Enum.Material.SmoothPlastic
+        face.CanCollide = false
+        face.CanTouch = false
+        face.CanQuery = false
+        face.Massless = true
+        face.CastShadow = false
+        face.CFrame = targetPart.CFrame * CFrame.new(cfg.offset)
+        face.Parent = model
+    end
+
+    -- 8 Corner Spheres
+    local signs = {-1, 1}
+    for _, sx in ipairs(signs) do
+        for _, sy in ipairs(signs) do
+            for _, sz in ipairs(signs) do
+                local sphere = Instance.new("Part")
+                sphere.Name = "CornerSphere"
+                sphere.Shape = Enum.PartType.Ball
+                sphere.Size = Vector3.new(d, d, d)
+                sphere.Color = color
+                sphere.Transparency = 0.55
+                sphere.Material = Enum.Material.SmoothPlastic
+                sphere.CanCollide = false
+                sphere.CanTouch = false
+                sphere.CanQuery = false
+                sphere.Massless = true
+                sphere.CastShadow = false
+                sphere.CFrame = targetPart.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), sz * (inner/2))
+                sphere.Parent = model
+            end
+        end
+    end
+
+    -- 12 Edge Cylinders
+    -- X-axis edges (4): length along X
+    for _, sy in ipairs(signs) do
+        for _, sz in ipairs(signs) do
+            local cyl = Instance.new("Part")
+            cyl.Name = "EdgeCyl_X"
+            cyl.Shape = Enum.PartType.Cylinder
+            cyl.Size = Vector3.new(inner, d, d)
+            cyl.Color = color
+            cyl.Transparency = 0.55
+            cyl.Material = Enum.Material.SmoothPlastic
+            cyl.CanCollide = false
+            cyl.CanTouch = false
+            cyl.CanQuery = false
+            cyl.Massless = true
+            cyl.CastShadow = false
+            cyl.CFrame = targetPart.CFrame * CFrame.new(0, sy * (inner/2), sz * (inner/2))
+            cyl.Parent = model
+        end
+    end
+    -- Y-axis edges (4): length along Y (Cylinder X rotated to Y)
+    for _, sx in ipairs(signs) do
+        for _, sz in ipairs(signs) do
+            local cyl = Instance.new("Part")
+            cyl.Name = "EdgeCyl_Y"
+            cyl.Shape = Enum.PartType.Cylinder
+            cyl.Size = Vector3.new(inner, d, d)
+            cyl.Color = color
+            cyl.Transparency = 0.55
+            cyl.Material = Enum.Material.SmoothPlastic
+            cyl.CanCollide = false
+            cyl.CanTouch = false
+            cyl.CanQuery = false
+            cyl.Massless = true
+            cyl.CastShadow = false
+            cyl.CFrame = targetPart.CFrame * CFrame.new(sx * (inner/2), 0, sz * (inner/2)) * CFrame.Angles(0, 0, math.pi / 2)
+            cyl.Parent = model
+        end
+    end
+    -- Z-axis edges (4): length along Z (Cylinder X rotated to Z)
+    for _, sx in ipairs(signs) do
+        for _, sy in ipairs(signs) do
+            local cyl = Instance.new("Part")
+            cyl.Name = "EdgeCyl_Z"
+            cyl.Shape = Enum.PartType.Cylinder
+            cyl.Size = Vector3.new(inner, d, d)
+            cyl.Color = color
+            cyl.Transparency = 0.55
+            cyl.Material = Enum.Material.SmoothPlastic
+            cyl.CanCollide = false
+            cyl.CanTouch = false
+            cyl.CanQuery = false
+            cyl.Massless = true
+            cyl.CastShadow = false
+            cyl.CFrame = targetPart.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), 0) * CFrame.Angles(0, math.pi / 2, 0)
+            cyl.Parent = model
+        end
+    end
+
+    -- Weld all parts to targetPart so the rounded cube moves smoothly with the entity
+    for _, part in ipairs(model:GetChildren()) do
+        if part:IsA("BasePart") then
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = part
+            weld.Part1 = targetPart
+            weld.Parent = part
+        end
+    end
+
+    model.PrimaryPart = core
+    model.Parent = targetPart.Parent or Workspace
+    return model
+end
+
 local function processEntity(entity)
     if not entity then return end
     if not State.Entities_ESP then
@@ -1241,6 +1388,13 @@ local function processEntity(entity)
         if eLower == key or eLower:find(key) then
             cfg = info
             break
+        end
+    end
+
+    if not cfg then
+        if (entity.Parent and (entity.Parent.Name == "LiveEntities" or entity.Parent.Name == "Camera"))
+            or eLower:find("nextbot") or eLower:find("monster") or eLower:find("a-") or eLower:find("a_") then
+            cfg = { Name = entity.Name, Category = "Other" }
         end
     end
 
@@ -1288,52 +1442,12 @@ local function processEntity(entity)
                 or (not entity:FindFirstChildWhichIsA("Humanoid") and not entity:FindFirstChildWhichIsA("MeshPart"))
 
             if is2D then
-                -- 1. Semi-transparent 3D Cube Handle Adornment with Depth AlwaysOnTop
-                local boxAdorn = Instance.new("BoxHandleAdornment")
-                boxAdorn.Name = "Unknown_EntityBoxAdorn"
-                boxAdorn.Size = Vector3.new(4.8, 4.8, 4.8)
-                boxAdorn.Color3 = entityColor
-                boxAdorn.AlwaysOnTop = true
-                boxAdorn.Transparency = 0.55
-                boxAdorn.ZIndex = 10
-                boxAdorn.Adornee = targetPart
-                boxAdorn.Parent = (gethui and gethui()) or CoreGui
-                table.insert(extraVisuals, boxAdorn)
-
-                -- 2. Clean 3D Wireframe Outlines around all cube edges
-                local selBox = Instance.new("SelectionBox")
-                selBox.Name = "Unknown_EntityBoxOutline"
-                selBox.Adornee = targetPart
-                selBox.Color3 = entityColor
-                selBox.LineThickness = 0.08
-                selBox.SurfaceTransparency = 0.75
-                selBox.SurfaceColor3 = entityColor
-                selBox.Parent = (gethui and gethui()) or CoreGui
-                table.insert(extraVisuals, selBox)
-
-                -- 3. Soft Physical Cube welded to targetPart (ForceField gives soft rounded translucent glow on corners)
-                local cube = entity:FindFirstChild("Unknown_EntityCube")
-                if not cube or not cube:IsA("BasePart") then
-                    cube = Instance.new("Part")
-                    cube.Name = "Unknown_EntityCube"
-                    cube.Shape = Enum.PartType.Block
-                    cube.Size = Vector3.new(4.5, 4.5, 4.5)
-                    cube.CFrame = targetPart.CFrame
-                    cube.Transparency = 0.45
-                    cube.Color = entityColor
-                    cube.Material = Enum.Material.ForceField
-                    cube.CanCollide = false
-                    cube.CanTouch = false
-                    cube.CanQuery = false
-                    cube.Massless = true
-                    cube.Anchored = false
-                    local weld = Instance.new("WeldConstraint")
-                    weld.Part0 = cube
-                    weld.Part1 = targetPart
-                    weld.Parent = cube
-                    cube.Parent = entity
+                -- Procedural 3D Cube with smooth rounded corners and rounded edges
+                local roundedCube = createRoundedCubeModel(targetPart, 5.0, 0.85, entityColor)
+                if roundedCube then
+                    table.insert(extraVisuals, roundedCube)
+                    highlightTarget = roundedCube
                 end
-                highlightTarget = cube
             end
 
             local baseText = cfg.Name
@@ -1651,76 +1765,74 @@ local function scanSingleRoom(room)
         local dName = desc.Name:lower()
 
         -- Skip internal Dupe sideroom decorations/models (only DoorFake is tracked as a door)
-        if desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake" then
-            continue
-        end
-
-        if isGlitchFragmentInstance(desc) then
-            processGlitchFragment(desc)
-        end
-
-        if desc:IsA("Model") or desc:IsA("Tool") then
-            if desc.Name == "Door" or desc.Name == "DoorFake" then
-                processDoor(room, desc)
-                if desc.Name == "DoorFake" and State.Anti_Dupe then
-                    secureDupeDoor(desc)
-                end
-            elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
-                processKey(desc)
-            elseif dName:find("lever") then
-                processLever(desc)
-            elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
-                processHidingSpot(desc, room)
-            elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
-                processGold(desc)
-            elseif dName:find("snare") then
-                if State.Anti_Snare then defuseSnare(desc) end
-            elseif dName:find("giggle") then
-                if State.Anti_Giggle then defuseGiggle(desc) end
-            else
-                processItem(desc)
-                processEntity(desc)
+        if not (desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake") then
+            if isGlitchFragmentInstance(desc) then
+                processGlitchFragment(desc)
             end
-        elseif desc:IsA("BasePart") then
-            if desc.Name == "dupeDoor" then
-                processDoor(room, desc)
-                if State.Anti_Dupe then secureDupeDoor(desc) end
-            elseif dName:find("snare") then
-                if State.Anti_Snare then defuseSnare(desc) end
-            elseif dName:find("giggle") then
-                if State.Anti_Giggle then defuseGiggle(desc) end
-            else
-                local p = desc.Parent
-                local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
-                if not isParentGold then
-                    if dName == "goldpile" or dName:find("gold") or dName:find("coin") then
-                        processGold(desc)
+
+            if desc:IsA("Model") or desc:IsA("Tool") then
+                if desc.Name == "Door" or desc.Name == "DoorFake" then
+                    processDoor(room, desc)
+                    if desc.Name == "DoorFake" and State.Anti_Dupe then
+                        secureDupeDoor(desc)
+                    end
+                elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
+                    processKey(desc)
+                elseif dName:find("lever") then
+                    processLever(desc)
+                elseif desc.Name == "Wardrobe" or desc.Name == "Closet" or desc.Name == "Locker" or desc.Name:find("Bed") then
+                    processHidingSpot(desc, room)
+                elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
+                    processGold(desc)
+                elseif dName:find("snare") then
+                    if State.Anti_Snare then defuseSnare(desc) end
+                elseif dName:find("giggle") then
+                    if State.Anti_Giggle then defuseGiggle(desc) end
+                else
+                    processItem(desc)
+                    processEntity(desc)
+                end
+            elseif desc:IsA("BasePart") then
+                if desc.Name == "dupeDoor" then
+                    processDoor(room, desc)
+                    if State.Anti_Dupe then secureDupeDoor(desc) end
+                elseif dName:find("snare") then
+                    if State.Anti_Snare then defuseSnare(desc) end
+                elseif dName:find("giggle") then
+                    if State.Anti_Giggle then defuseGiggle(desc) end
+                else
+                    local p = desc.Parent
+                    local isParentGold = p and p:IsA("Model") and (p.Name:lower():find("gold") or p.Name:lower():find("coin"))
+                    if not isParentGold then
+                        if dName == "goldpile" or dName:find("gold") or dName:find("coin") then
+                            processGold(desc)
+                        end
+                    end
+                    if dName:find("lever") then
+                        processLever(desc)
                     end
                 end
-                if dName:find("lever") then
-                    processLever(desc)
+            elseif desc:IsA("ProximityPrompt") then
+                local obj = (desc.ObjectText or ""):lower()
+                local act = (desc.ActionText or ""):lower()
+                if obj:find("lever") or act:find("pull") then
+                    processLever(desc.Parent)
+                elseif act:find("take") or act:find("pick") or act:find("grab") then
+                    if desc.Parent and (desc.Parent:IsA("Model") or desc.Parent:IsA("Tool")) then
+                        processItem(desc.Parent)
+                    end
                 end
             end
-        elseif desc:IsA("ProximityPrompt") then
-            local obj = (desc.ObjectText or ""):lower()
-            local act = (desc.ActionText or ""):lower()
-            if obj:find("lever") or act:find("pull") then
-                processLever(desc.Parent)
-            elseif act:find("take") or act:find("pick") or act:find("grab") then
-                if desc.Parent and (desc.Parent:IsA("Model") or desc.Parent:IsA("Tool")) then
-                    processItem(desc.Parent)
-                end
+
+            -- Check Book (Strictly Room 50 Library Only)
+            if room.Name == "50" or room:GetAttribute("RoomID") == 50 then
+                processBook(room, desc)
             end
-        end
 
-        -- Check Book (Strictly Room 50 Library Only)
-        if room.Name == "50" or room:GetAttribute("RoomID") == 50 then
-            processBook(room, desc)
-        end
-
-        -- Check Breaker (Strictly Room 100 Electrical Only)
-        if room.Name == "100" or room:GetAttribute("RoomID") == 100 then
-            processBreaker(room, desc)
+            -- Check Breaker (Strictly Room 100 Electrical Only)
+            if room.Name == "100" or room:GetAttribute("RoomID") == 100 then
+                processBreaker(room, desc)
+            end
         end
     end
 end
@@ -2038,7 +2150,17 @@ pcall(function()
     end)
 end)
 
-syncServerSlide = function(shouldAuthorize)
+local crouchRemote = nil
+local isServerSlideActive = false
+local lastSentCrouchState = nil
+local lastSentSlideState = nil
+local lastSlideSyncTime = 0
+
+local isSlidingActive = false
+local slideStartTime = 0
+local slideDirection = Vector3.zero
+
+syncServerSlide = function(shouldAuthorize, isActuallySliding)
     if not crouchRemote then
         pcall(function()
             local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
@@ -2050,35 +2172,42 @@ syncServerSlide = function(shouldAuthorize)
     local char = getChar()
     local mgTable = getMainGameTable()
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+    local isSliding = (isActuallySliding == true)
     local now = os.clock()
 
-    if shouldAuthorize then
-        -- Never authorize slide while hidden or exiting closet
-        if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
-            if isServerSlideActive then
-                isServerSlideActive = false
-                pcall(function()
-                    crouchRemote:FireServer(false, false)
-                end)
-            end
-            return
+    if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
+        if lastSentCrouchState ~= false or lastSentSlideState ~= false then
+            lastSentCrouchState = false
+            lastSentSlideState = false
+            lastSlideSyncTime = now
+            pcall(function() crouchRemote:FireServer(false, false) end)
         end
+        return
+    end
 
-        -- Keep slide authorized continuously on server while WalkSpeed is active
-        -- Never revoke authorization on stop, preventing slide-end door snapbacks
-        -- Periodic refresh every 1.2s prevents server-side slide token timeout
-        if not isServerSlideActive or isCrouching ~= lastSentCrouchState or (now - lastSlideSyncTime > 1.2) then
-            isServerSlideActive = true
+    if shouldAuthorize then
+        local stateChanged = (isCrouching ~= lastSentCrouchState) or (isSliding ~= lastSentSlideState)
+        -- Debounce crouch spam to avoid server anti-cheat snapback
+        if stateChanged then
+            if (now - lastSlideSyncTime < 0.25) then
+                return
+            end
             lastSentCrouchState = isCrouching
+            lastSentSlideState = isSliding
             lastSlideSyncTime = now
             pcall(function()
-                crouchRemote:FireServer(isCrouching, true)
+                crouchRemote:FireServer(isCrouching, isSliding)
+            end)
+        elseif isSliding and (now - lastSlideSyncTime > 1.2) then
+            lastSlideSyncTime = now
+            pcall(function()
+                crouchRemote:FireServer(isCrouching, isSliding)
             end)
         end
     else
-        if isServerSlideActive then
-            isServerSlideActive = false
+        if lastSentSlideState == true or (lastSentCrouchState ~= isCrouching and now - lastSlideSyncTime >= 0.25) then
             lastSentCrouchState = isCrouching
+            lastSentSlideState = false
             lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, false)
@@ -2087,11 +2216,64 @@ syncServerSlide = function(shouldAuthorize)
     end
 end
 
+local function startSlide()
+    if not State.Enable_Sliding then return end
+    if isSlidingActive then return end
+
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return end
+
+    local moveDir = hum.MoveDirection
+    if moveDir.Magnitude < 0.05 then return end
+
+    isSlidingActive = true
+    slideStartTime = os.clock()
+    slideDirection = moveDir.Unit
+
+    local mgTable = getMainGameTable()
+    if mgTable then
+        mgTable.sliding = true
+        mgTable.crouching = true
+        if mgTable.animations and mgTable.animations.Slide then
+            pcall(function() mgTable.animations.Slide:Play(0.1, 1, 1.25) end)
+        end
+    end
+
+    syncServerSlide(true, true)
+    applyTeflonGlide(char)
+
+    local targetSpeed = math.max(State.WalkSpeed_Value or 35, 42)
+    root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * targetSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * targetSpeed)
+end
+
+local function stopSlide()
+    if not isSlidingActive then return end
+    isSlidingActive = false
+
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+
+    local mgTable = getMainGameTable()
+    if mgTable then
+        mgTable.sliding = false
+        if mgTable.animations and mgTable.animations.Slide then
+            pcall(function() mgTable.animations.Slide:Stop(0.25) end)
+        end
+    end
+
+    syncServerSlide(true, false)
+end
+
 local wallRayParams = RaycastParams.new()
 wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
 wallRayParams.RespectCanCollide = true
 
 local BIND_NAME = "Unknown_AntiRollback_" .. tostring(currentSession)
+local lastCrouchStateForMotion = nil
+local crouchTransitionCooldown = 0
 
 local function updateMotion(dt)
     if _G.DOORS_SESSION ~= currentSession then 
@@ -2104,7 +2286,7 @@ local function updateMotion(dt)
         lastForwardCFrame = nil
         wasMoving = false
         table.clear(trailHistory)
-        syncServerSlide(false)
+        syncServerSlide(false, false)
         return 
     end
 
@@ -2124,7 +2306,7 @@ local function updateMotion(dt)
         lastForwardCFrame = nil
         table.clear(trailHistory)
         wasMoving = false
-        syncServerSlide(false)
+        syncServerSlide(false, false)
         return
     elseif wasHidingState then
         wasHidingState = false
@@ -2137,14 +2319,24 @@ local function updateMotion(dt)
         lastForwardCFrame = root.CFrame
         table.clear(trailHistory)
         wasMoving = false
-        syncServerSlide(false)
+        syncServerSlide(false, false)
         return
     end
 
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+    local now = os.clock()
 
-    -- Keep server high-speed slide authorization active (supports both standing and crouching speeds)
-    syncServerSlide(true)
+    -- Check crouch state change (crouch spam tolerance)
+    if isCrouching ~= lastCrouchStateForMotion then
+        lastCrouchStateForMotion = isCrouching
+        crouchTransitionCooldown = now + 0.35
+        table.clear(trailHistory)
+        lastForwardPos = root.Position
+        lastForwardCFrame = root.CFrame
+    end
+
+    -- Keep server slide authorization in sync
+    syncServerSlide(true, isSlidingActive)
 
     -- Keep teflon glide active
     local coll = char:FindFirstChild("Collision")
@@ -2155,7 +2347,23 @@ local function updateMotion(dt)
     local currentPos = root.Position
     local moveDir = hum.MoveDirection
     local isMoving = moveDir.Magnitude > 0.05
-    local now = os.clock()
+    local humState = hum:GetState()
+    local isAirborne = (humState == Enum.HumanoidStateType.Jumping or humState == Enum.HumanoidStateType.Freefall)
+
+    -- DO NOT perform anti-rollback or position snapping while airborne (prevents jump camera bounce/shake)
+    if isAirborne then
+        lastForwardPos = currentPos
+        lastForwardCFrame = root.CFrame
+        table.clear(trailHistory)
+        return
+    end
+
+    -- DO NOT perform anti-rollback during rapid crouch/uncrouch transitions (prevents crouch camera bounce/shake)
+    if now < crouchTransitionCooldown then
+        lastForwardPos = currentPos
+        lastForwardCFrame = root.CFrame
+        return
+    end
 
     if isMoving then
         wasMoving = true
@@ -2166,25 +2374,20 @@ local function updateMotion(dt)
             local horizDelta = Vector3.new(frameDelta.X, 0, frameDelta.Z)
             local dist = horizDelta.Magnitude
             local progression = horizDelta:Dot(moveDir)
-            local expectedStep = hum.WalkSpeed * dt
-            local maxNaturalStep = math.max(expectedStep * 1.5, 1.4)
             local isRollback = false
 
-            -- In-flight rollback check: only triggers if snapped backwards against moveDir or towards past history
-            if dist > maxNaturalStep then
+            -- True server rollback detection: only trigger if snapped significantly backwards against moveDir
+            if dist > 3.0 and progression < -2.5 then
                 for i = #trailHistory, 1, -1 do
                     local entry = trailHistory[i]
                     local age = now - entry.time
-                    if age > 0.03 and age < 0.45 then
+                    if age > 0.05 and age < 0.5 then
                         local distToHistory = (Vector3.new(currentPos.X - entry.pos.X, 0, currentPos.Z - entry.pos.Z)).Magnitude
-                        if distToHistory < 2.0 then
+                        if distToHistory < 2.5 then
                             isRollback = true
                             break
                         end
                     end
-                end
-                if not isRollback and progression < -0.25 then
-                    isRollback = true
                 end
             end
 
@@ -2192,7 +2395,6 @@ local function updateMotion(dt)
                 wallRayParams.FilterDescendantsInstances = {char}
                 local safeDir = moveDir
                 
-                -- Check if moving into a wall/obstacle (offset downward when crouching to avoid crawlway ceiling collision):
                 local rayOrigin = isCrouching and (lastForwardPos - Vector3.new(0, 0.8, 0)) or lastForwardPos
                 local ray = Workspace:Raycast(rayOrigin, moveDir * 1.5, wallRayParams)
                 if ray and ray.Normal then
@@ -2206,12 +2408,14 @@ local function updateMotion(dt)
                 end
 
                 local advanceStep = safeDir * (hum.WalkSpeed * math.clamp(dt, 0.01, 0.033))
-                local targetY = math.abs(currentPos.Y - lastForwardPos.Y) < 2.0 and currentPos.Y or lastForwardPos.Y
-                local restoredPos = Vector3.new(lastForwardPos.X, targetY, lastForwardPos.Z) + advanceStep
+                -- Strictly preserve current vertical height to avoid camera Y-axis jerking
+                local restoredPos = Vector3.new(lastForwardPos.X, currentPos.Y, lastForwardPos.Z) + advanceStep
                 local restoredCF = CFrame.new(restoredPos) * root.CFrame.Rotation
 
                 root.CFrame = restoredCF
-                root.AssemblyLinearVelocity = safeDir * hum.WalkSpeed
+                -- Preserve vertical velocity so jumping/gravity isn't wiped out!
+                local curYVel = root.AssemblyLinearVelocity.Y
+                root.AssemblyLinearVelocity = Vector3.new(safeDir.X * hum.WalkSpeed, curYVel, safeDir.Z * hum.WalkSpeed)
 
                 lastForwardPos = restoredPos
                 lastForwardCFrame = restoredCF
@@ -2231,8 +2435,6 @@ local function updateMotion(dt)
         lastForwardPos = currentPos
         lastForwardCFrame = root.CFrame
     else
-        -- Movement keys released: natural physics stop
-        -- Slide authorization remains ACTIVE on server so no slide-end boundary check is ever fired
         table.clear(trailHistory)
         wasMoving = false
         lastForwardPos = root.Position
@@ -2305,7 +2507,6 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         end
     end
     if State.Enable_Sliding then
-        syncServerSlide(true)
         applyTeflonGlide(char)
     end
 end)
@@ -2336,6 +2537,36 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end
         end
     end
+
+    if not gameProcessed and (input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftControl) then
+        if State.Enable_Sliding then
+            startSlide()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftControl then
+        if isSlidingActive then
+            stopSlide()
+        end
+    end
+end)
+
+-- Mobile Crouch Button Slide Support
+pcall(function()
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local crBtn = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("MainFrame")
+        and pGui.MainUI.MainFrame:FindFirstChild("MobileButtons")
+        and pGui.MainUI.MainFrame.MobileButtons:FindFirstChild("CrouchButton")
+    if crBtn then
+        crBtn.InputBegan:Connect(function()
+            if State.Enable_Sliding then startSlide() end
+        end)
+        crBtn.InputEnded:Connect(function()
+            if isSlidingActive then stopSlide() end
+        end)
+    end
 end)
 
 RunService.Heartbeat:Connect(function()
@@ -2351,14 +2582,22 @@ RunService.Heartbeat:Connect(function()
             if hum.JumpHeight ~= 7.2 then hum.JumpHeight = 7.2 end
         end
     end
-    if State.Enable_Sliding then
-        syncServerSlide(true)
+
+    if State.Enable_Sliding and isSlidingActive then
         local char = getChar()
-        if char then
-            local coll = char:FindFirstChild("Collision")
-            if coll and coll.CustomPhysicalProperties ~= zeroFriction then
-                applyTeflonGlide(char)
+        local root = getRoot()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if root and hum and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead then
+            local elapsed = os.clock() - slideStartTime
+            if elapsed > 2.0 or hum.MoveDirection.Magnitude < 0.05 then
+                stopSlide()
+            else
+                local decay = math.clamp(1 - (elapsed / 2.3), 0.55, 1)
+                local slideSpeed = math.max(State.WalkSpeed_Value or 35, 42) * decay
+                root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * slideSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * slideSpeed)
             end
+        else
+            stopSlide()
         end
     end
 end)
@@ -2523,9 +2762,9 @@ local function isPromptSafeToAutoInteract(prompt)
         if not State.AutoInteract_Drawers then return false end
         if act:find("close") then return false end
         local interactions = prompt:GetAttribute("Interactions")
-        if interactions and (interactions :: number) > 0 then return false end
+        if interactions and tonumber(interactions) and tonumber(interactions) > 0 then return false end
         local interactionsUser = prompt:GetAttribute("Interactions" .. LocalPlayer.Name)
-        if interactionsUser and (interactionsUser :: number) > 0 then return false end
+        if interactionsUser and tonumber(interactionsUser) and tonumber(interactionsUser) > 0 then return false end
         if model and (model:GetAttribute("Open") == true or model:GetAttribute("Opened") == true or model:GetAttribute("IsOpen") == true) then
             return false
         end
@@ -2775,7 +3014,9 @@ end)
 
 Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
     State.Enable_Sliding = v
-    syncServerSlide(v)
+    if not v and isSlidingActive then
+        stopSlide()
+    end
     local char = getChar()
     if v then
         applyTeflonGlide(char)
