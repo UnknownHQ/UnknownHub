@@ -357,8 +357,29 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     hl.OutlineColor = color
     hl.OutlineTransparency = outlineTrans
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = CoreGui
+    -- CRITICAL: Highlight must be parented in 3D world (adornee or Camera or Workspace) to render through walls.
+    -- Parenting to CoreGui causes Roblox engine to ignore it for 3D world space rendering!
+    if adornee:IsA("Instance") and adornee.Parent then
+        pcall(function() hl.Parent = adornee end)
+    end
+    if not hl.Parent then
+        hl.Parent = Workspace.CurrentCamera or Workspace
+    end
     return hl
+end
+
+local function createBoxAdornment(adorneePart, color)
+    if not adorneePart or not adorneePart:IsA("BasePart") then return nil end
+    local box = Instance.new("BoxHandleAdornment")
+    box.Name = "Unknown_ESP_BoxAdornment"
+    box.Adornee = adorneePart
+    box.Size = adorneePart.Size + Vector3.new(0.08, 0.08, 0.08)
+    box.Color3 = color
+    box.Transparency = 0.45
+    box.AlwaysOnTop = true
+    box.ZIndex = 10
+    box.Parent = adorneePart
+    return box
 end
 
 local function refreshEspVisualSettings()
@@ -371,6 +392,8 @@ local function refreshEspVisualSettings()
                 if vis:IsA("Highlight") then
                     vis.FillTransparency = State.ESP_FillTransparency or 0.5
                     vis.OutlineTransparency = State.ESP_OutlineTransparency or 0
+                elseif vis:IsA("BoxHandleAdornment") then
+                    vis.Transparency = State.ESP_FillTransparency or 0.45
                 end
             end
         end
@@ -1516,6 +1539,8 @@ local function processEntity(entity)
         cfg = { Name = entity.Name, Category = "Other" }
     elseif eLower:find("nextbot") then
         cfg = { Name = entity.Name, Category = "Other" }
+    elseif eLower == "entity" or eLower:find("^entity") or eLower:find("entity part") or eLower:find("entitypart") or eLower:find("entity_part") or (eLower == "part" and entity.Parent and entity.Parent.Name:lower():find("entity")) then
+        cfg = { Name = entity.Name, Category = "Other" }
     elseif (entity.Parent and entity.Parent.Name == "LiveEntities") or eLower:find("^monster") then
         cfg = { Name = entity.Name, Category = "Other" }
     end
@@ -1575,6 +1600,14 @@ local function processEntity(entity)
             if roundedCube then
                 table.insert(extraVisuals, roundedCube)
                 highlightTarget = roundedCube
+            end
+        else
+            -- 3D / BasePart Entity: Add guaranteed AlwaysOnTop BoxHandleAdornment so it shines through walls even on single parts
+            if targetPart:IsA("BasePart") then
+                local box = createBoxAdornment(targetPart, entityColor)
+                if box then
+                    table.insert(extraVisuals, box)
+                end
             end
         end
 
@@ -2311,7 +2344,8 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     local char = getChar()
     local mgTable = getMainGameTable()
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-    local isSliding = (isActuallySliding == true)
+    -- When WalkSpeed is enabled and player is crouching, authorize sliding so the DOORS server permits high speed and never rubberbands
+    local isSliding = (isActuallySliding == true) or (State.WalkSpeed_Enabled and isCrouching)
     local now = os.clock()
 
     if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
@@ -2406,187 +2440,9 @@ local function stopSlide()
     syncServerSlide(true, false)
 end
 
-local wallRayParams = RaycastParams.new()
-wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
-wallRayParams.RespectCanCollide = true
-
-local BIND_NAME = "Unknown_AntiRollback_" .. tostring(currentSession)
-local lastCrouchStateForMotion = nil
-local crouchTransitionCooldown = 0
-
-local function updateMotion(dt)
-    if _G.DOORS_SESSION ~= currentSession then 
-        pcall(function() RunService:UnbindFromRenderStep(BIND_NAME) end)
-        return 
-    end
-
-    if not State.WalkSpeed_Enabled or not State.AntiRubberband then 
-        lastForwardPos = nil
-        lastForwardCFrame = nil
-        wasMoving = false
-        table.clear(trailHistory)
-        syncServerSlide(false, false)
-        return 
-    end
-
-    local char = getChar()
-    local root = getRoot()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if not root or not hum or not hum.Parent then return end
-
-    local mgTable = getMainGameTable()
-    local hidden = isPlayerHiding(char, mgTable)
-
-    -- Detect closet enter/exit state transitions
-    if hidden then
-        wasHidingState = true
-        unhideGraceUntil = os.clock() + 0.85
-        lastForwardPos = nil
-        lastForwardCFrame = nil
-        table.clear(trailHistory)
-        wasMoving = false
-        syncServerSlide(false, false)
-        return
-    elseif wasHidingState then
-        wasHidingState = false
-        unhideGraceUntil = os.clock() + 0.85
-    end
-
-    -- During closet unhide transition, permit natural teleport/cutscene out into the room
-    if os.clock() < unhideGraceUntil then
-        lastForwardPos = root.Position
-        lastForwardCFrame = root.CFrame
-        table.clear(trailHistory)
-        wasMoving = false
-        syncServerSlide(false, false)
-        return
-    end
-
-    local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-    local now = os.clock()
-
-    -- Check crouch state change (crouch spam tolerance)
-    if isCrouching ~= lastCrouchStateForMotion then
-        lastCrouchStateForMotion = isCrouching
-        crouchTransitionCooldown = now + 0.35
-        table.clear(trailHistory)
-        lastForwardPos = root.Position
-        lastForwardCFrame = root.CFrame
-    end
-
-    -- Keep server slide authorization in sync
-    syncServerSlide(true, isSlidingActive)
-
-    -- Keep teflon glide active
-    local coll = char:FindFirstChild("Collision")
-    if coll and coll.CustomPhysicalProperties ~= zeroFriction then
-        applyTeflonGlide(char)
-    end
-
-    local currentPos = root.Position
-    local moveDir = hum.MoveDirection
-    local isMoving = moveDir.Magnitude > 0.05
-    local humState = hum:GetState()
-    local isAirborne = (humState == Enum.HumanoidStateType.Jumping or humState == Enum.HumanoidStateType.Freefall)
-
-    -- DO NOT perform anti-rollback or position snapping while airborne (prevents jump camera bounce/shake)
-    if isAirborne then
-        lastForwardPos = currentPos
-        lastForwardCFrame = root.CFrame
-        table.clear(trailHistory)
-        return
-    end
-
-    -- DO NOT perform anti-rollback during rapid crouch/uncrouch transitions (prevents crouch camera bounce/shake)
-    if now < crouchTransitionCooldown then
-        lastForwardPos = currentPos
-        lastForwardCFrame = root.CFrame
-        return
-    end
-
-    if isMoving then
-        wasMoving = true
-        lastMoveVector = moveDir
-
-        if lastForwardPos then
-            local frameDelta = currentPos - lastForwardPos
-            local horizDelta = Vector3.new(frameDelta.X, 0, frameDelta.Z)
-            local dist = horizDelta.Magnitude
-            local progression = horizDelta:Dot(moveDir)
-            local isRollback = false
-
-            -- True server rollback detection: only trigger if snapped significantly backwards against moveDir
-            if dist > 3.0 and progression < -2.5 then
-                for i = #trailHistory, 1, -1 do
-                    local entry = trailHistory[i]
-                    local age = now - entry.time
-                    if age > 0.05 and age < 0.5 then
-                        local distToHistory = (Vector3.new(currentPos.X - entry.pos.X, 0, currentPos.Z - entry.pos.Z)).Magnitude
-                        if distToHistory < 2.5 then
-                            isRollback = true
-                            break
-                        end
-                    end
-                end
-            end
-
-            if isRollback then
-                wallRayParams.FilterDescendantsInstances = {char}
-                local safeDir = moveDir
-                
-                local rayOrigin = isCrouching and (lastForwardPos - Vector3.new(0, 0.8, 0)) or lastForwardPos
-                local ray = Workspace:Raycast(rayOrigin, moveDir * 1.5, wallRayParams)
-                if ray and ray.Normal then
-                    local normal = ray.Normal
-                    local projected = moveDir - normal * moveDir:Dot(normal)
-                    if projected.Magnitude > 0.1 then
-                        safeDir = projected.Unit
-                    else
-                        safeDir = Vector3.new(0, 0, 0)
-                    end
-                end
-
-                local advanceStep = safeDir * (hum.WalkSpeed * math.clamp(dt, 0.01, 0.033))
-                -- Strictly preserve current vertical height to avoid camera Y-axis jerking
-                local restoredPos = Vector3.new(lastForwardPos.X, currentPos.Y, lastForwardPos.Z) + advanceStep
-                local restoredCF = CFrame.new(restoredPos) * root.CFrame.Rotation
-
-                root.CFrame = restoredCF
-                -- Preserve vertical velocity so jumping/gravity isn't wiped out!
-                local curYVel = root.AssemblyLinearVelocity.Y
-                root.AssemblyLinearVelocity = Vector3.new(safeDir.X * hum.WalkSpeed, curYVel, safeDir.Z * hum.WalkSpeed)
-
-                lastForwardPos = restoredPos
-                lastForwardCFrame = restoredCF
-
-                table.insert(trailHistory, { pos = restoredPos, cf = restoredCF, time = now })
-                if #trailHistory > 35 then table.remove(trailHistory, 1) end
-                return
-            end
-        end
-
-        -- Record legitimate position to trail
-        table.insert(trailHistory, { pos = currentPos, cf = root.CFrame, time = now })
-        while #trailHistory > 0 and (now - trailHistory[1].time) > 0.5 do
-            table.remove(trailHistory, 1)
-        end
-
-        lastForwardPos = currentPos
-        lastForwardCFrame = root.CFrame
-    else
-        table.clear(trailHistory)
-        wasMoving = false
-        lastForwardPos = root.Position
-        lastForwardCFrame = root.CFrame
-    end
-end
-
--- Bind prior to camera evaluation (CameraPriority - 20) to guarantee zero camera twitch/shake
-pcall(function()
-    RunService:BindToRenderStep(BIND_NAME, Enum.RenderPriority.Camera.Value - 20, updateMotion)
-end)
-
--- Continuous Heartbeat Enforcement (Ensures target speed with smooth crouch support & hiding safety)
+-- =========================================================================
+-- Continuous Heartbeat Enforcement (Zero-Shake Speed, Smooth Glide & Crouch Authorization)
+-- =========================================================================
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -2597,6 +2453,22 @@ RunService.Heartbeat:Connect(function()
     local mgTable = getMainGameTable()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
 
+    if State.WalkSpeed_Enabled and not hiding then
+        applyTeflonGlide(char)
+        syncServerSlide(true, isSlidingActive)
+
+        local targetSpeed = State.WalkSpeed_Value
+        if hum.WalkSpeed ~= targetSpeed then
+            hum.WalkSpeed = targetSpeed
+        end
+    else
+        syncServerSlide(false, false)
+        if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled then
+            hum.WalkSpeed = 15
+        end
+    end
+
+    -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
     if isSlidingActive and not hiding then
         local elapsed = os.clock() - slideStartTime
         if elapsed > 1.25 then
@@ -2605,17 +2477,6 @@ RunService.Heartbeat:Connect(function()
             local targetSpeed = math.max(State.WalkSpeed_Value or 35, 42)
             local slideSpeed = targetSpeed * math.clamp(1 - (elapsed / 1.35) * 0.45, 0.5, 1.0)
             root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * slideSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * slideSpeed)
-        end
-    end
-
-    if State.WalkSpeed_Enabled and not hiding then
-        local targetSpeed = State.WalkSpeed_Value
-        if hum.WalkSpeed ~= targetSpeed then
-            hum.WalkSpeed = targetSpeed
-        end
-    else
-        if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled then
-            hum.WalkSpeed = 15
         end
     end
 end)
