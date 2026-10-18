@@ -204,6 +204,16 @@ local function getPlayerFarm()
     return farm
 end
 
+local function getHalloweenGardenFarm()
+    local myFarm = getPlayerFarm()
+    local hGarden = Workspace:FindFirstChild("GhoulGarden") 
+        or Workspace:FindFirstChild("HalloweenGarden")
+        or Workspace:FindFirstChild("GhoulGardenTomb")
+        or (Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("GhoulGarden"))
+        or (Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("Halloween2026MarketModel") and Workspace.Interaction.Halloween2026MarketModel:FindFirstChild("MarketModel") and Workspace.Interaction.Halloween2026MarketModel.MarketModel:FindFirstChild("GhoulGardenTomb"))
+    return myFarm, hGarden
+end
+
 local function getPlantGrowthInfo(plant)
     if not plant or not plant.Parent then return nil end
     local maxAge = tonumber(plant:GetAttribute("MaxAge")) or 100
@@ -308,6 +318,39 @@ local function buildGardenFruitCatalog()
     return sortedList
 end
 
+-- Dynamic list of plants in Halloween / Ghoul Garden
+local function buildHalloweenPlantsCatalog()
+    local plantSet = {}
+    pcall(function()
+        local myFarm, hGarden = getHalloweenGardenFarm()
+        local farmsToScan = {}
+        if myFarm then table.insert(farmsToScan, myFarm) end
+        if hGarden and hGarden ~= myFarm then table.insert(farmsToScan, hGarden) end
+
+        for _, f in ipairs(farmsToScan) do
+            local imp = f:FindFirstChild("Important")
+            local plantsFolder = (imp and imp:FindFirstChild("Plants_Physical")) or f:FindFirstChild("Plants_Physical") or f:FindFirstChild("Plants")
+            if plantsFolder then
+                for _, plant in ipairs(plantsFolder:GetChildren()) do
+                    if plant and plant.Name and plant.Name ~= "" then
+                        plantSet[plant.Name] = true
+                    end
+                end
+            end
+        end
+    end)
+    local sortedList = {"All Halloween Plants"}
+    local temp = {}
+    for pName, _ in pairs(plantSet) do
+        table.insert(temp, pName)
+    end
+    table.sort(temp)
+    for _, name in ipairs(temp) do
+        table.insert(sortedList, name)
+    end
+    return sortedList
+end
+
 -- Helper to safely add an item to a Hub List without creating duplicates
 local function safeAddToList(listObj, newItem)
     if not listObj or not newItem or newItem == "" then return end
@@ -325,6 +368,58 @@ local function safeAddToList(listObj, newItem)
     end
 
     listObj.AddItem(newItem)
+end
+
+-- Helper to fully synchronize a list's items (add new ones, remove removed ones, preserve selection)
+local function syncListEntries(listObj, desiredItems, preserveHeaderItem)
+    if not listObj or not desiredItems or not listObj.Items then return end
+    pcall(function()
+        local desiredMap = {}
+        for _, item in ipairs(desiredItems) do
+            local n = type(item) == "table" and (item.Name or item[1] or tostring(item)) or tostring(item)
+            desiredMap[n] = item
+        end
+        if preserveHeaderItem then
+            desiredMap[preserveHeaderItem] = preserveHeaderItem
+        end
+
+        -- 1. Remove entries that are no longer in desiredMap
+        local i = 1
+        while i <= #listObj.Items do
+            local entry = listObj.Items[i]
+            local eName = entry and entry.Name
+            if eName and not desiredMap[eName] and eName ~= preserveHeaderItem then
+                if entry.Row then
+                    pcall(function() entry.Row:Destroy() end)
+                end
+                table.remove(listObj.Items, i)
+            else
+                i = i + 1
+            end
+        end
+
+        -- 2. Add entries that are in desiredMap but not yet in listObj.Items
+        local currentMap = {}
+        for _, entry in ipairs(listObj.Items) do
+            if entry and entry.Name then
+                currentMap[entry.Name] = true
+            end
+        end
+
+        for _, item in ipairs(desiredItems) do
+            local n = type(item) == "table" and (item.Name or item[1] or tostring(item)) or tostring(item)
+            if not currentMap[n] then
+                if listObj.AddItem then
+                    listObj.AddItem(item)
+                    currentMap[n] = true
+                end
+            end
+        end
+
+        if listObj.UpdateHeight then
+            pcall(function() listObj.UpdateHeight(false) end)
+        end
+    end)
 end
 
 local function findWateringCanTool()
@@ -346,25 +441,10 @@ local function findWateringCanTool()
         end
     end
 
-    -- Priority 1: Standard "Watering Can" (strictly not "Super")
+    -- Priority 1: Standard "Watering Can" strictly (exclude "Super" and other tools)
     for _, item in ipairs(candidates) do
         local n = item.tool.Name:lower()
         if n:find("watering can", 1, true) and not n:find("super", 1, true) then
-            return item.tool, item.isEquipped
-        end
-    end
-
-    -- Priority 2: Any tool containing "watering can" or "water"
-    for _, item in ipairs(candidates) do
-        local n = item.tool.Name:lower()
-        if n:find("watering can", 1, true) then
-            return item.tool, item.isEquipped
-        end
-    end
-
-    for _, item in ipairs(candidates) do
-        local n = item.tool.Name:lower()
-        if (n:find("can", 1, true) or n:find("water", 1, true)) and not n:find("seed", 1, true) and not n:find("sprinkler", 1, true) and not n:find("melon", 1, true) then
             return item.tool, item.isEquipped
         end
     end
@@ -1892,6 +1972,7 @@ local autoSellHalloweenFruitsToggle
 local autoSubmitWitchesBrewToggle
 local autoSubmitJackOLanternToggle
 local autoSubmitHarvestReaperToggle
+local halloweenWaterPlantListObj
 
 -- Acorn Chaos Tracking & Execution Engine
 local activeAcornIds = {}
@@ -4829,15 +4910,6 @@ local function isFruitHalloween(instanceOrTool)
 end
 
 -- 1. 🎃 Auto Collect Fruits (Halloween Garden)
-local function getHalloweenGardenFarm()
-    local myFarm = getPlayerFarm()
-    local hGarden = Workspace:FindFirstChild("GhoulGarden") 
-        or Workspace:FindFirstChild("HalloweenGarden")
-        or Workspace:FindFirstChild("GhoulGardenTomb")
-        or (Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("GhoulGarden"))
-        or (Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("Halloween2026MarketModel") and Workspace.Interaction.Halloween2026MarketModel:FindFirstChild("MarketModel") and Workspace.Interaction.Halloween2026MarketModel.MarketModel:FindFirstChild("GhoulGardenTomb"))
-    return myFarm, hGarden
-end
 
 local function executeHalloweenCollectCycle()
     local colRemote = getCollectRemote()
@@ -5186,21 +5258,27 @@ task.spawn(function()
 end)
 
 -- 5. 💧 Auto Water Fruits & Crops (Watering Can at Fruit Positions)
--- Equips player's Watering Can and fires Water_RE / TrySuperWateringCan directly at fruit positions!
+-- Equips player's standard Watering Can and fires Water_RE directly at fruit positions!
 local function getPlayerWateringCan()
     local char = LocalPlayer.Character
     if char then
         for _, t in ipairs(char:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find("water") then
-                return t
+            if t:IsA("Tool") then
+                local n = t.Name:lower()
+                if n:find("watering can", 1, true) and not n:find("super", 1, true) then
+                    return t
+                end
             end
         end
     end
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
         for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") and t.Name:lower():find("water") then
-                return t
+            if t:IsA("Tool") then
+                local n = t.Name:lower()
+                if n:find("watering can", 1, true) and not n:find("super", 1, true) then
+                    return t
+                end
             end
         end
     end
@@ -5211,7 +5289,7 @@ local function executeHalloweenWaterFruits(isManual)
     pcall(function()
         local canTool = getPlayerWateringCan()
         if not canTool then
-            if isManual then Hub.Notify("💧 Watering Can", "No Watering Can found in backpack or character!", 3) end
+            if isManual then Hub.Notify("💧 Watering Can", "Standard Watering Can not found in backpack or character!", 3) end
             return
         end
 
@@ -5231,59 +5309,72 @@ local function executeHalloweenWaterFruits(isManual)
         if myFarm then table.insert(farmsToScan, myFarm) end
         if hGarden and hGarden ~= myFarm then table.insert(farmsToScan, hGarden) end
 
+        -- Plant filter selection from halloweenWaterPlantListObj
+        local selectedPlants = getUIListMultipleVals(halloweenWaterPlantListObj, "All Halloween Plants")
+        local isAllSelected = false
+        local selectedPlantMap = {}
+        for _, s in ipairs(selectedPlants) do
+            if s == "All Halloween Plants" or s == "All Garden Plants" then
+                isAllSelected = true
+                break
+            end
+            selectedPlantMap[s:lower()] = true
+        end
+
         local targetPositions = {}
         for _, f in ipairs(farmsToScan) do
             local imp = f:FindFirstChild("Important")
             local plantsFolder = (imp and imp:FindFirstChild("Plants_Physical")) or f:FindFirstChild("Plants_Physical") or f:FindFirstChild("Plants")
             if plantsFolder then
                 for _, plant in ipairs(plantsFolder:GetChildren()) do
-                    -- 1. Scan for individual Fruit models & parts
-                    local fruitsFolder = plant:FindFirstChild("Fruits")
-                    if fruitsFolder then
-                        for _, fruit in ipairs(fruitsFolder:GetChildren()) do
-                            local fruitPart = fruit:FindFirstChildWhichIsA("BasePart") or (fruit:IsA("BasePart") and fruit)
-                            if fruitPart then
-                                table.insert(targetPositions, fruitPart.Position)
+                    local pName = plant.Name:lower()
+                    local shouldWater = isAllSelected or selectedPlantMap[pName] == true
+                    if not shouldWater then
+                        for sKey, _ in pairs(selectedPlantMap) do
+                            if pName:find(sKey, 1, true) or sKey:find(pName, 1, true) then
+                                shouldWater = true
+                                break
                             end
                         end
                     end
-                    -- 2. Include plant base / dirt root position
-                    local basePart = plant:FindFirstChild("Base") or plant:FindFirstChildWhichIsA("BasePart")
-                    if basePart then
-                        table.insert(targetPositions, basePart.Position)
+
+                    if shouldWater then
+                        -- 1. Scan for individual Fruit models & parts
+                        local fruitsFolder = plant:FindFirstChild("Fruits")
+                        if fruitsFolder then
+                            for _, fruit in ipairs(fruitsFolder:GetChildren()) do
+                                local fruitPart = fruit:FindFirstChildWhichIsA("BasePart") or (fruit:IsA("BasePart") and fruit)
+                                if fruitPart then
+                                    table.insert(targetPositions, fruitPart.Position)
+                                end
+                            end
+                        end
+                        -- 2. Include plant base / dirt root position
+                        local basePart = plant:FindFirstChild("Base") or plant:FindFirstChildWhichIsA("BasePart")
+                        if basePart then
+                            table.insert(targetPositions, basePart.Position)
+                        end
                     end
                 end
             end
         end
 
         if #targetPositions == 0 then
-            if isManual then Hub.Notify("💧 Watering Can", "No plants or fruits found in garden.", 3) end
+            if isManual then Hub.Notify("💧 Watering Can", "No matching plants or fruits found to water.", 3) end
             return
         end
 
         local rep = ReplicatedStorage
         local ge = rep:FindFirstChild("GameEvents")
-        local isSuperCan = canTool.Name:lower():find("super")
-        local waterRemote = isSuperCan and (ge and ge:FindFirstChild("TrySuperWateringCan")) or (ge and ge:FindFirstChild("Water_RE"))
-        if not waterRemote then
-            waterRemote = ge and (ge:FindFirstChild("Water_RE") or ge:FindFirstChild("TrySuperWateringCan"))
-        end
-
+        local waterRemote = ge and ge:FindFirstChild("Water_RE")
         if not waterRemote then return end
 
         local wateredCount = 0
         local charPos = hrp.Position
         for _, pos in ipairs(targetPositions) do
-            -- Check proximity to player (Watering Can tool limit is 20-30 studs)
-            local dist = (charPos - pos).Magnitude
-            if dist <= 28 then
-                pcall(function() waterRemote:FireServer(pos) end)
-                wateredCount = wateredCount + 1
-            else
-                -- If slightly further, still fire so nearby server radius catches it
-                pcall(function() waterRemote:FireServer(pos) end)
-                wateredCount = wateredCount + 1
-            end
+            -- Fire water remote directly at fruit/plant position
+            pcall(function() waterRemote:FireServer(pos) end)
+            wateredCount = wateredCount + 1
         end
 
         if isManual then
@@ -6341,9 +6432,7 @@ wateringPlantListObj = Hub.CreateList(farmTab, "Watering: Target Plants (Growing
 Hub.CreateButton(farmTab, "🔄 Refresh Growing Plants List", function()
     if wateringPlantListObj then
         local growingPlants = buildGrowingPlantsInGardenCatalog()
-        for _, entry in ipairs(growingPlants) do
-            safeAddToList(wateringPlantListObj, entry)
-        end
+        syncListEntries(wateringPlantListObj, growingPlants, "All Growing Plants")
     end
 end)
 
@@ -6968,12 +7057,21 @@ Hub.CreateToggle(eventTab, "💧 Auto Water Fruits & Crops", false, function(v)
     end
 end)
 
+halloweenWaterPlantListObj = Hub.CreateList(eventTab, "Watering: Target Plants (Halloween)", buildHalloweenPlantsCatalog(), 220, false, true)
+
+Hub.CreateButton(eventTab, "🔄 Refresh Halloween Plants List", function()
+    if halloweenWaterPlantListObj then
+        local hPlants = buildHalloweenPlantsCatalog()
+        syncListEntries(halloweenWaterPlantListObj, hPlants, "All Halloween Plants")
+    end
+end)
+
 Hub.CreateTextBox(eventTab, "Watering Delay (0.05 - 2.0s)", "Enter water cycle delay (default: 0.2)", function(text)
     local num = tonumber(text)
     if num then State.HalloweenWater_Delay = math.clamp(num, 0.05, 2.0) end
 end)
 
-Hub.CreateButton(eventTab, "💧 Water All Fruits & Plants Now (Manual)", function()
+Hub.CreateButton(eventTab, "💧 Water Selected Fruits & Plants Now (Manual)", function()
     task.spawn(function() executeHalloweenWaterFruits(true) end)
 end)
 
@@ -7449,33 +7547,33 @@ task.spawn(function()
 
     local function syncGardenPlantLists()
         if isSyncing then return end
-        if not (reclaimerPlantListObj or shovelPlantListObj or wateringPlantListObj or collectFruitListObj) then return end
+        if not (reclaimerPlantListObj or shovelPlantListObj or wateringPlantListObj or collectFruitListObj or halloweenWaterPlantListObj) then return end
         isSyncing = true
 
         pcall(function()
             local allPlants = buildPlantsInGardenCatalog()
             if reclaimerPlantListObj then
-                for _, entry in ipairs(allPlants) do
-                    safeAddToList(reclaimerPlantListObj, entry)
-                end
+                syncListEntries(reclaimerPlantListObj, allPlants, "All Garden Plants")
             end
             if shovelPlantListObj then
-                for _, entry in ipairs(allPlants) do
-                    safeAddToList(shovelPlantListObj, entry)
-                end
+                syncListEntries(shovelPlantListObj, allPlants, "All Garden Plants")
             end
             if collectFruitListObj then
+                local fruitsList = {}
                 for _, entry in ipairs(allPlants) do
                     if entry ~= "All Garden Plants" then
-                        safeAddToList(collectFruitListObj, entry)
+                        table.insert(fruitsList, entry)
                     end
                 end
+                syncListEntries(collectFruitListObj, fruitsList, "None")
             end
             if wateringPlantListObj then
                 local growingPlants = buildGrowingPlantsInGardenCatalog()
-                for _, entry in ipairs(growingPlants) do
-                    safeAddToList(wateringPlantListObj, entry)
-                end
+                syncListEntries(wateringPlantListObj, growingPlants, "All Growing Plants")
+            end
+            if halloweenWaterPlantListObj then
+                local hPlants = buildHalloweenPlantsCatalog()
+                syncListEntries(halloweenWaterPlantListObj, hPlants, "All Halloween Plants")
             end
         end)
         isSyncing = false
@@ -7491,30 +7589,42 @@ task.spawn(function()
     end
 
     local hookedFolders = {}
-    local function ensureFarmHooked()
+    local function ensureFarmsHooked()
         pcall(function()
             local farm = getPlayerFarm()
-            local pPhys = farm and farm:FindFirstChild("Plants_Physical", true)
-            if pPhys and not hookedFolders[pPhys] then
-                hookedFolders[pPhys] = true
-                pPhys.ChildAdded:Connect(function(child)
+            local myFarm, hGarden = getHalloweenGardenFarm()
+            local folders = {}
+            if farm then
+                local pPhys = farm:FindFirstChild("Plants_Physical", true)
+                if pPhys then table.insert(folders, pPhys) end
+            end
+            if hGarden and hGarden ~= farm then
+                local pPhys = hGarden:FindFirstChild("Plants_Physical", true) or hGarden:FindFirstChild("Plants", true)
+                if pPhys then table.insert(folders, pPhys) end
+            end
+
+            for _, folder in ipairs(folders) do
+                if folder and not hookedFolders[folder] then
+                    hookedFolders[folder] = true
+                    folder.ChildAdded:Connect(function()
+                        debouncedSync()
+                    end)
+                    folder.ChildRemoved:Connect(function()
+                        debouncedSync()
+                    end)
                     debouncedSync()
-                end)
-                pPhys.ChildRemoved:Connect(function(child)
-                    debouncedSync()
-                end)
-                debouncedSync()
+                end
             end
         end)
     end
 
-    ensureFarmHooked()
+    ensureFarmsHooked()
 
-    -- Background Periodic Refresh every 20 seconds (lightweight fallback)
+    -- Background Periodic Refresh every 5 seconds (auto-updates new and removed plants for all lists)
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        task.wait(20)
-        ensureFarmHooked()
+        task.wait(5)
+        ensureFarmsHooked()
         syncGardenPlantLists()
     end
 end)
