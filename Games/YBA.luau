@@ -186,23 +186,54 @@ local ybaNPCsCatalog = {
 local function detectAvailableAbilities()
     local abilities = {
         "Punch / M1",
-        "Heavy Punch (M2)",
-        "Stand Barrage (E)",
-        "Barrage Finisher (R)"
+        "Heavy Punch (M2)"
     }
-    local seen = {}
-    for _, ab in ipairs(abilities) do seen[ab] = true end
+    local seen = {
+        ["Punch / M1"] = true,
+        ["Heavy Punch (M2)"] = true
+    }
 
+    -- Common default Stand keybinds
+    local defaultKeybinds = {
+        "Stand Barrage (E)",
+        "Barrage Finisher (R)",
+        "Heavy Strike (T)",
+        "Special Ability (Y)",
+        "Movement Ability (Z)",
+        "Ultimate Ability (X)",
+        "Stand Ability (C)",
+        "Fighting Style (V)",
+        "Fighting Style (B)",
+        "Fighting Style (G)"
+    }
+    for _, k in ipairs(defaultKeybinds) do
+        if not seen[k] then
+            seen[k] = true
+            table.insert(abilities, k)
+        end
+    end
+
+    -- Dynamic scan from HUD for player's specific skills and fighting style keybinds
     pcall(function()
         local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-        local hud = pGui and pGui:FindFirstChild("HUD")
+        local hud = pGui and (pGui:FindFirstChild("HUD") or pGui:FindFirstChild("MainGui") or pGui:FindFirstChild("Skills"))
         if hud then
             for _, desc in ipairs(hud:GetDescendants()) do
-                if desc:IsA("TextLabel") and desc.Name == "SkillName" and desc.Text ~= "" then
-                    local name = desc.Text
-                    if not seen[name] then
-                        seen[name] = true
-                        table.insert(abilities, name)
+                if desc:IsA("TextLabel") and desc.Text ~= "" then
+                    local parent = desc.Parent
+                    local text = desc.Text:gsub("^%s*(.-)%s*$", "%1")
+                    if desc.Name == "SkillName" or desc.Name == "Key" or (parent and (parent.Name:find("Skill") or parent.Name:find("Slot"))) then
+                        -- Check if text looks like a skill or keybind
+                        if #text >= 1 and #text <= 30 and not text:find("\n") then
+                            local formatted = text
+                            if desc.Name == "Key" and #text <= 3 then
+                                formatted = "Skill Key (" .. text:upper() .. ")"
+                            end
+                            if not seen[formatted] then
+                                seen[formatted] = true
+                                table.insert(abilities, formatted)
+                            end
+                        end
                     end
                 end
             end
@@ -319,8 +350,46 @@ local function getPlayerStand()
     local char = getCharacter()
     if not char then return nil end
     for _, child in ipairs(char:GetChildren()) do
-        if child:IsA("Model") and (child:FindFirstChild("StandMorph") or child:FindFirstChild("StandRoot") or child:FindFirstChild("Head")) then
+        if child:IsA("Model") and (child:FindFirstChild("StandMorph") or child:FindFirstChild("StandRoot") or (child.Name ~= char.Name and child:FindFirstChild("Head") and child:FindFirstChild("HumanoidRootPart"))) then
             return child
+        end
+    end
+    return nil
+end
+
+local function hasStand()
+    -- Check if player owns a stand in stats or character
+    if getPlayerStand() then return true end
+    local pStats = LocalPlayer and (LocalPlayer:FindFirstChild("PlayerStats") or LocalPlayer:FindFirstChild("Stats"))
+    if pStats then
+        local standVal = pStats:FindFirstChild("Stand")
+        if standVal and standVal:IsA("StringValue") and standVal.Value ~= "" and standVal.Value ~= "None" and standVal.Value ~= "Standless" then
+            return true, standVal.Value
+        end
+    end
+    local char = getCharacter()
+    if char then
+        local standVal = char:FindFirstChild("Stand")
+        if standVal and standVal:IsA("StringValue") and standVal.Value ~= "" and standVal.Value ~= "None" and standVal.Value ~= "Standless" then
+            return true, standVal.Value
+        end
+    end
+    return false, nil
+end
+
+local function getPlayerStyle()
+    local pStats = LocalPlayer and (LocalPlayer:FindFirstChild("PlayerStats") or LocalPlayer:FindFirstChild("Stats"))
+    if pStats then
+        local styleVal = pStats:FindFirstChild("Spec") or pStats:FindFirstChild("Style") or pStats:FindFirstChild("FightingStyle")
+        if styleVal and styleVal:IsA("StringValue") and styleVal.Value ~= "" and styleVal.Value ~= "None" then
+            return styleVal.Value
+        end
+    end
+    local char = getCharacter()
+    if char then
+        local styleVal = char:FindFirstChild("Spec") or char:FindFirstChild("Style") or char:FindFirstChild("FightingStyle")
+        if styleVal and styleVal:IsA("StringValue") and styleVal.Value ~= "" and styleVal.Value ~= "None" then
+            return styleVal.Value
         end
     end
     return nil
@@ -677,8 +746,7 @@ end
 task.spawn(function()
     local lastM1 = 0
     local lastM2 = 0
-    local lastBarrage = 0
-    local lastFinisher = 0
+    local abilityTimers = {}
 
     local function getTargetNPC()
         local living = getLivingFolder()
@@ -786,31 +854,52 @@ task.spawn(function()
                 -- Ensure Stand is summoned if player has one
                 local rem = getRemoteEvent()
                 if rem then
+                    local playerHasStand = hasStand()
                     local stand = getPlayerStand()
-                    -- If stand exists but not manifested, press Q to summon
-                    if not stand then
+                    -- If player actually owns a stand but it's not manifested, summon it (Q)
+                    if playerHasStand and not stand then
                         pcall(function()
                             rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.Q })
                         end)
                     end
 
-                    -- Attack rotation using whitelisted abilities
+                    -- Dynamic Ability Key Map & Timers Table
+                    local abilityCooldowns = {
+                        ["Stand Barrage (E)"] = { key = Enum.KeyCode.E, cd = 6.0, standOnly = true },
+                        ["Barrage Finisher (R)"] = { key = Enum.KeyCode.R, cd = 7.0, standOnly = true },
+                        ["Heavy Strike (T)"] = { key = Enum.KeyCode.T, cd = 8.0, standOnly = true },
+                        ["Special Ability (Y)"] = { key = Enum.KeyCode.Y, cd = 9.0, standOnly = false },
+                        ["Movement Ability (Z)"] = { key = Enum.KeyCode.Z, cd = 12.0, standOnly = false },
+                        ["Ultimate Ability (X)"] = { key = Enum.KeyCode.X, cd = 15.0, standOnly = false },
+                        ["Stand Ability (C)"] = { key = Enum.KeyCode.C, cd = 8.0, standOnly = true },
+                        ["Fighting Style (V)"] = { key = Enum.KeyCode.V, cd = 5.0, standOnly = false },
+                        ["Fighting Style (B)"] = { key = Enum.KeyCode.B, cd = 7.0, standOnly = false },
+                        ["Fighting Style (G)"] = { key = Enum.KeyCode.G, cd = 10.0, standOnly = false }
+                    }
+
                     local now = tick()
                     local didSpecial = false
 
-                    if State.WhitelistAbilities["Stand Barrage (E)"] and (now - lastBarrage >= 6.0) then
-                        pcall(function()
-                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.E })
-                        end)
-                        lastBarrage = now
-                        didSpecial = true
-                    elseif State.WhitelistAbilities["Barrage Finisher (R)"] and (now - lastFinisher >= 7.0) then
-                        pcall(function()
-                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.R })
-                        end)
-                        lastFinisher = now
-                        didSpecial = true
-                    elseif State.WhitelistAbilities["Heavy Punch (M2)"] and (now - lastM2 >= 2.5) then
+                    -- 1. Check user-whitelisted abilities & fighting style specials
+                    for abName, abInfo in pairs(abilityCooldowns) do
+                        if State.WhitelistAbilities[abName] then
+                            -- Only use stand-locked moves if player has an active Stand
+                            if not abInfo.standOnly or (playerHasStand and stand) then
+                                local lastUsed = abilityTimers[abName] or 0
+                                if (now - lastUsed >= abInfo.cd) then
+                                    pcall(function()
+                                        rem:FireServer("InputBegan", { ["Input"] = abInfo.key })
+                                    end)
+                                    abilityTimers[abName] = now
+                                    didSpecial = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+
+                    -- 2. Heavy Punch (M2) — available to both Stand and Standless (fighting style/boxing)
+                    if not didSpecial and State.WhitelistAbilities["Heavy Punch (M2)"] and (now - lastM2 >= 2.5) then
                         pcall(function()
                             rem:FireServer("InputBegan", { ["Input"] = Enum.UserInputType.MouseButton2 })
                             rem:FireServer("Attack", "M2")
@@ -819,7 +908,8 @@ task.spawn(function()
                         didSpecial = true
                     end
 
-                    -- Standard Light Attack (M1) when specials are on cooldown
+                    -- 3. Standard Light Attack (M1 / Classic Punch / Standless Fist)
+                    -- Falls back directly to classic punches if Standless or abilities on cooldown
                     if not didSpecial or State.WhitelistAbilities["Punch / M1"] then
                         if (now - lastM1 >= 0.28) then
                             pcall(function()
@@ -936,14 +1026,49 @@ local bossCatalogItems = {
 }
 Hub.CreateList(combatTab, "Target Bosses (Multi-Select)", bossCatalogItems, 160, false, true)
 
-Hub.CreateSection(combatTab, "🥋 Ability Whitelist")
+Hub.CreateSection(combatTab, "🥋 Ability & Keybind Whitelist")
 
 local detectedAbilities = detectAvailableAbilities()
 local abilityCatalogItems = {}
 for _, ab in ipairs(detectedAbilities) do
     table.insert(abilityCatalogItems, {Name = ab})
 end
-Hub.CreateList(combatTab, "Whitelisted Attacks (Multi-Select)", abilityCatalogItems, 160, false, true)
+
+local abilityListObj = Hub.CreateList(combatTab, "Allowed Attacks / Keybinds (Multi-Select)", abilityCatalogItems, 180, false, true, function(selectedName, entryData)
+    if selectedName then
+        -- Toggle selection in State.WhitelistAbilities
+        State.WhitelistAbilities[selectedName] = not State.WhitelistAbilities[selectedName]
+    end
+end)
+
+-- Initialize defaults into listObject
+if abilityListObj and abilityListObj.SetSelectedItems then
+    local defaultSelected = {}
+    for abName, enabled in pairs(State.WhitelistAbilities) do
+        if enabled then table.insert(defaultSelected, abName) end
+    end
+    pcall(function() abilityListObj.SetSelectedItems(defaultSelected) end)
+end
+
+Hub.CreateButton(combatTab, "🔄 Refresh Detected Keybinds & Skills", function()
+    local updated = detectAvailableAbilities()
+    local updatedCatalog = {}
+    for _, ab in ipairs(updated) do
+        table.insert(updatedCatalog, {Name = ab})
+    end
+    if abilityListObj and abilityListObj.Items then
+        for _, itm in ipairs(updatedCatalog) do
+            local exists = false
+            for _, ex in ipairs(abilityListObj.Items) do
+                if ex.Name == itm.Name then exists = true; break end
+            end
+            if not exists and abilityListObj.AddListItem then
+                abilityListObj.AddListItem(itm.Name, "")
+            end
+        end
+    end
+    Hub.Notify("🥋 Skills Refreshed", "Scanned player skills, styles, and available keybinds!", 2)
+end)
 
 -- -------------------------------------------------------------------------
 -- 2. 📜 Quests & Farm Tab
