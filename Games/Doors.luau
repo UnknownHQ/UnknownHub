@@ -808,12 +808,27 @@ local function processDoor(room, doorModel)
         isDupe = true
     end
 
-    -- Make internal collision/hidden blocks 100% transparent so Highlight ignores them and cleanly outlines the door leaf
-    if doorModel:FindFirstChild("Hidden") then
-        doorModel.Hidden.Transparency = 1
-    end
-    if doorModel:FindFirstChild("Collision") then
-        doorModel.Collision.Transparency = 1
+    -- Door Passability & Collision Smoothing:
+    -- When a door opens or is unlocked, disable collisions on the swinging door leaf and collision barrier
+    -- so high-speed walking never clips the door edge or frame and causes physics rebound snaps.
+    local isOpened = doorModel:GetAttribute("Opened") == true 
+        or doorModel:FindFirstChild("Open") ~= nil
+        or (not isLocked and not doorModel:FindFirstChild("Lock"))
+
+    for _, ch in ipairs(doorModel:GetChildren()) do
+        if ch:IsA("BasePart") then
+            local chName = ch.Name:lower()
+            if chName == "hidden" then
+                ch.Transparency = 1
+            elseif chName == "collision" then
+                ch.Transparency = 1
+                if isOpened then
+                    ch.CanCollide = false
+                end
+            elseif (chName == "door" or chName == "door2") and isOpened then
+                ch.CanCollide = false
+            end
+        end
     end
 
     local doorNumberStr = signText or tostring(room.Name)
@@ -842,18 +857,28 @@ local function processDoor(room, doorModel)
     if not doorModel:GetAttribute("ESP_Hooked") then
         doorModel:SetAttribute("ESP_Hooked", true)
         pcall(function()
-            doorModel.ChildAdded:Connect(function()
-                task.wait(0.1)
-                if doorModel.Parent then processDoor(room, doorModel) end
-            end)
-            doorModel.ChildRemoved:Connect(function()
-                task.wait(0.1)
-                if doorModel.Parent then processDoor(room, doorModel) end
-            end)
-            doorModel.AttributeChanged:Connect(function()
-                task.wait(0.1)
-                if doorModel.Parent then processDoor(room, doorModel) end
-            end)
+            local function onDoorStateChanged()
+                task.wait(0.05)
+                if doorModel.Parent then
+                    local nowOpened = doorModel:GetAttribute("Opened") == true 
+                        or doorModel:FindFirstChild("Open") ~= nil
+                        or not (doorModel:GetAttribute("Locked") == true or doorModel:FindFirstChild("Lock"))
+                    if nowOpened then
+                        for _, ch in ipairs(doorModel:GetChildren()) do
+                            if ch:IsA("BasePart") then
+                                local chName = ch.Name:lower()
+                                if chName == "collision" or chName == "door" or chName == "door2" then
+                                    ch.CanCollide = false
+                                end
+                            end
+                        end
+                    end
+                    processDoor(room, doorModel)
+                end
+            end
+            doorModel.ChildAdded:Connect(onDoorStateChanged)
+            doorModel.ChildRemoved:Connect(onDoorStateChanged)
+            doorModel.AttributeChanged:Connect(onDoorStateChanged)
         end)
     end
 end
@@ -2265,6 +2290,13 @@ local function applyTeflonGlide(char)
         if not defaultRootProps then defaultRootProps = root.CustomPhysicalProperties end
         root.CustomPhysicalProperties = zeroFriction
     end
+    -- Prevent character limbs from snagging on narrow door frames or tight openings
+    for _, part in ipairs(char:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "Collision" and part.Name ~= "HumanoidRootPart" then
+            part.CanCollide = false
+            part.CustomPhysicalProperties = zeroFriction
+        end
+    end
 end
 
 local function restoreDefaultFriction(char)
@@ -2287,6 +2319,9 @@ local wasMoving = false
 local crouchRemote = nil
 local isServerSlideActive = false
 local lastSentCrouchState = nil
+local lastSentSlideState = nil
+local lastSlideSyncTime = 0
+local pendingCrouchState = nil
 local unhideGraceUntil = 0
 local wasHidingState = false
 
@@ -2301,7 +2336,6 @@ local function isPlayerHiding(char, mgTable)
 end
 
 local syncServerSlide
-local lastSlideSyncTime = 0
 
 -- Pre-hook ProximityPrompts for hiding spots to instantly prime grace window
 pcall(function()
@@ -2322,12 +2356,6 @@ pcall(function()
     end)
 end)
 
-local crouchRemote = nil
-local isServerSlideActive = false
-local lastSentCrouchState = nil
-local lastSentSlideState = nil
-local lastSlideSyncTime = 0
-
 local isSlidingActive = false
 local slideStartTime = 0
 local slideDirection = Vector3.zero
@@ -2344,14 +2372,16 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     local char = getChar()
     local mgTable = getMainGameTable()
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-    -- When WalkSpeed is enabled and player is crouching, authorize sliding so the DOORS server permits high speed and never rubberbands
-    local isSliding = (isActuallySliding == true) or (State.WalkSpeed_Enabled and isCrouching)
+    -- Crucial: When WalkSpeed is enabled OR when the player is actively sliding, sliding MUST be authorized on the DOORS server (arg 2 = true).
+    -- This raises the server's anti-cheat speed threshold and eliminates door/room transition rubberbanding!
+    local isSliding = (shouldAuthorize == true) and (State.WalkSpeed_Enabled or (isActuallySliding == true) or isCrouching)
     local now = os.clock()
 
     if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
         if lastSentCrouchState ~= false or lastSentSlideState ~= false then
             lastSentCrouchState = false
             lastSentSlideState = false
+            pendingCrouchState = nil
             lastSlideSyncTime = now
             pcall(function() crouchRemote:FireServer(false, false) end)
         end
@@ -2359,28 +2389,43 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     end
 
     if shouldAuthorize then
-        local stateChanged = (isCrouching ~= lastSentCrouchState) or (isSliding ~= lastSentSlideState)
-        -- Debounce crouch spam to avoid server anti-cheat snapback
-        if stateChanged then
-            if (now - lastSlideSyncTime < 0.25) then
+        local crouchChanged = (isCrouching ~= lastSentCrouchState)
+        local slideChanged = (isSliding ~= lastSentSlideState)
+
+        if crouchChanged or slideChanged then
+            -- Rate-limit rapid crouch toggles to prevent server packet drop / anti-cheat desync
+            if (now - lastSlideSyncTime < 0.12) then
+                pendingCrouchState = isCrouching
                 return
             end
+            pendingCrouchState = nil
             lastSentCrouchState = isCrouching
             lastSentSlideState = isSliding
             lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, isSliding)
             end)
-        elseif isSliding and (now - lastSlideSyncTime > 1.2) then
+        elseif pendingCrouchState ~= nil and (now - lastSlideSyncTime >= 0.12) then
+            local toSend = pendingCrouchState
+            pendingCrouchState = nil
+            lastSentCrouchState = toSend
+            lastSentSlideState = isSliding
+            lastSlideSyncTime = now
+            pcall(function()
+                crouchRemote:FireServer(toSend, isSliding)
+            end)
+        elseif isSliding and (now - lastSlideSyncTime > 0.9) then
+            -- Heartbeat keep-alive every 0.9s to prevent server-side slide token expiration
             lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, isSliding)
             end)
         end
     else
-        if lastSentSlideState == true or (lastSentCrouchState ~= isCrouching and now - lastSlideSyncTime >= 0.25) then
+        if lastSentSlideState == true or (lastSentCrouchState ~= isCrouching and now - lastSlideSyncTime >= 0.12) then
             lastSentCrouchState = isCrouching
             lastSentSlideState = false
+            pendingCrouchState = nil
             lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, false)
@@ -2460,6 +2505,25 @@ RunService.Heartbeat:Connect(function()
         local targetSpeed = State.WalkSpeed_Value
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
+        end
+
+        -- Ensure opened doors in current and next room remain 100% collision-free
+        local currentRoomNum = getCurrentRoomNumber()
+        local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+        if currentRoomNum and currentRooms then
+            local r1 = currentRooms:FindFirstChild(tostring(currentRoomNum))
+            local r2 = currentRooms:FindFirstChild(tostring(currentRoomNum + 1))
+            for _, r in ipairs({r1, r2}) do
+                if r then
+                    local d = r:FindFirstChild("Door")
+                    if d and (d:GetAttribute("Opened") == true or d:FindFirstChild("Open") ~= nil) then
+                        local dPart = d:FindFirstChild("Door")
+                        if dPart and dPart:IsA("BasePart") and dPart.CanCollide then dPart.CanCollide = false end
+                        local cPart = d:FindFirstChild("Collision")
+                        if cPart and cPart:IsA("BasePart") and cPart.CanCollide then cPart.CanCollide = false end
+                    end
+                end
+            end
         end
     else
         syncServerSlide(false, false)
@@ -3333,19 +3397,41 @@ if hookfunction then
     end
 end
 
--- Camera listener: Non-destructive defusal for Screech and Timothy
+-- Camera listener: Instant Silent Defusal for Screech (0 Camera Movement, 0 Damage) & Timothy
 local cam = Workspace.CurrentCamera
 if cam then
     cam.ChildAdded:Connect(function(child)
         local cName = child.Name:lower()
         if State.Anti_Screech and (cName:find("screech") or cName == "screechretro") then
-            task.spawn(function()
-                local remote = remotesFolder and remotesFolder:FindFirstChild("Screech")
-                if remote then
-                    remote:FireServer(true)
+            -- 1. Synchronously register caught on server so player takes 0 bite damage
+            local remote = remotesFolder and remotesFolder:FindFirstChild("Screech")
+            if remote then
+                pcall(function() remote:FireServer(true) end)
+            end
+
+            -- 2. Immediately mute all screech audio on frame 0
+            pcall(function()
+                for _, desc in ipairs(child:GetDescendants()) do
+                    if desc:IsA("Sound") then
+                        desc.Volume = 0
+                        desc:Stop()
+                    end
                 end
-                Hub.Notify("Anti-Screech", "🦇 Screech caught cleanly! (0 damage)", 2)
             end)
+
+            -- 3. Instantly unparent and destroy Screech from Camera so DOORS Main_Game cannot swivel camera or play jumpscare
+            child.Parent = nil
+            pcall(function() child:Destroy() end)
+
+            -- 4. Clean up any active screech state in DOORS Main_Game table
+            pcall(function()
+                local mg = getMainGameTable()
+                if mg and mg.screech then
+                    mg.screech = nil
+                end
+            end)
+
+            Hub.Notify("Anti-Screech", "🦇 Screech defused silently! (0 damage, camera undisturbed)", 2)
         elseif State.Anti_Timothy and (cName:find("spider") or cName == "spiderjumpscare") then
             pcall(function()
                 for _, desc in ipairs(child:GetDescendants()) do
