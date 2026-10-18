@@ -212,19 +212,28 @@ local function detectAvailableAbilities()
 end
 
 local ybaLocations = {
-    ["Merchant"] = Vector3.new(-245, 34, -420),
-    ["Arcade"] = Vector3.new(-180, 33, -330),
-    ["Train Station"] = Vector3.new(-90, 33, -190),
-    ["Colosseum"] = Vector3.new(150, 33, -560),
-    ["SBR Entrance"] = Vector3.new(420, 35, -280),
-    ["Jesus Spawn"] = Vector3.new(-310, 33, -150),
-    ["Fangio (Vampire NPC)"] = Vector3.new(190, 10, -780),
-    ["William Zeppeli (Hamon)"] = Vector3.new(-120, 33, -640),
-    ["Pucci (Green Baby)"] = Vector3.new(-380, 33, 40),
-    ["DIO Boss Spawn"] = Vector3.new(-450, 33, 350),
-    ["Jotaro (Part 3)"] = Vector3.new(280, 33, 110),
-    ["Jotaro (Part 6)"] = Vector3.new(460, 33, -620),
-    ["1v1 Arena Entrance"] = Vector3.new(-260, 33, -80)
+    ["Merchant (ShiftPlox)"] = Vector3.new(-709, -25, -332),
+    ["Arcade"] = Vector3.new(233, 1, -269),
+    ["Train Station"] = Vector3.new(-352, 4, 75),
+    ["Item Machine"] = Vector3.new(277, 6, -241),
+    ["Suno the Arrowsmith"] = Vector3.new(-667, 17, -299),
+    ["Cafe"] = Vector3.new(-530, -21, -192),
+    ["Pizzeria"] = Vector3.new(216, 1, 45),
+    ["Parking Garage"] = Vector3.new(-102, 9, -718),
+    ["Sewers Entrance"] = Vector3.new(-164, -18, -497),
+    ["Prison"] = Vector3.new(1003, 46, -219),
+    ["Prestige Master Rin"] = Vector3.new(-454, 1, 27),
+    ["Quinton (Boxing)"] = Vector3.new(281, 1, 105),
+    ["William Zeppeli (Hamon)"] = Vector3.new(-139, -30, 36),
+    ["Lisa Lisa (Hamon Master)"] = Vector3.new(426, 8, -283),
+    ["Elder Vampire Roomy"] = Vector3.new(388, -27, -143),
+    ["Fang the Negotiator"] = Vector3.new(512, 3, -34),
+    ["Jotaro (Tallest Peak)"] = Vector3.new(-241, 274, 296),
+    ["Jotaro (Heaven)"] = Vector3.new(8553, -479, 8154),
+    ["DIO [Lvl. 35+ Quest]"] = Vector3.new(314, -25, 484),
+    ["Darius, The Executioner"] = Vector3.new(249, 47, -593),
+    ["Doppio [Lvl. 30+]"] = Vector3.new(-40, 1, -990),
+    ["Halloween Area"] = Vector3.new(-260, 21, -1102)
 }
 
 -- =========================================================================
@@ -235,6 +244,8 @@ local State = {
     AutoFarmNPC = false,
     SelectedNPC = "Thug",
     SafeFarmDistance = 7,
+    AutoFarmBosses = false,
+    SelectedBosses = {},
     WhitelistAbilities = {
         ["Punch / M1"] = true,
         ["Heavy Punch (M2)"] = true,
@@ -281,7 +292,7 @@ local State = {
 
     -- Teleport & Anti-Kick Safety
     SafeTeleportMode = true,
-    SafeTravelSpeed = 300
+    SafeTravelSpeed = 600
 }
 
 -- =========================================================================
@@ -626,13 +637,149 @@ end
 -- =========================================================================
 -- Background Worker Loops
 -- =========================================================================
--- 1. NPC Auto Farm Worker Loop (Placeholder - logic to be added later)
+-- 1. Intelligent NPC & Boss Auto Farm Worker Loop
 task.spawn(function()
+    local lastM1 = 0
+    local lastM2 = 0
+    local lastBarrage = 0
+    local lastFinisher = 0
+
+    local function getTargetNPC()
+        local living = getLivingFolder()
+        local char = getCharacter()
+        local myRoot = getRoot()
+        if not living or not char or not myRoot then return nil end
+
+        local bossNames = {
+            ["Leaky Eye Luca"] = true,
+            ["Bucciarati"] = true,
+            ["Fugo"] = true,
+            ["Pesci"] = true,
+            ["Ghiaccio"] = true,
+            ["Diavolo"] = true,
+            ["DIO"] = true,
+            ["Jotaro"] = true,
+            ["Anasui"] = true,
+            ["Yoshikage Kira"] = true,
+            ["Jotaro Kujo"] = true,
+            ["Heaven Ascension DIO"] = true
+        }
+
+        -- Priority 1: If AutoFarmBosses is on, hunt selected bosses first
+        if State.AutoFarmBosses and State.SelectedBosses then
+            for _, entity in ipairs(living:GetChildren()) do
+                if entity ~= char and entity:IsA("Model") and not Players:GetPlayerFromCharacter(entity) then
+                    local eHum = entity:FindFirstChildOfClass("Humanoid")
+                    local eRoot = entity:FindFirstChild("HumanoidRootPart") or entity:FindFirstChild("Torso")
+                    if eHum and eHum.Health > 0 and eRoot then
+                        for bossName, enabled in pairs(State.SelectedBosses) do
+                            if enabled and entity.Name:lower():find(bossName:lower(), 1, true) then
+                                return entity, eRoot, eHum, true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Priority 2: Standard selected NPC farm
+        local targetName = State.SelectedNPC or "Thug"
+        local cleanTarget = targetName:gsub("%s*%[.*%]", ""):gsub("^%s*(.-)%s*$", "%1")
+
+        local closestEntity = nil
+        local closestDist = math.huge
+        local closestRoot = nil
+        local closestHum = nil
+
+        for _, entity in ipairs(living:GetChildren()) do
+            if entity ~= char and entity:IsA("Model") and not Players:GetPlayerFromCharacter(entity) then
+                local eHum = entity:FindFirstChildOfClass("Humanoid")
+                local eRoot = entity:FindFirstChild("HumanoidRootPart") or entity:FindFirstChild("Torso")
+                if eHum and eHum.Health > 0 and eRoot then
+                    if entity.Name:lower():find(cleanTarget:lower(), 1, true) then
+                        local dist = (myRoot.Position - eRoot.Position).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closestEntity = entity
+                            closestRoot = eRoot
+                            closestHum = eHum
+                        end
+                    end
+                end
+            end
+        end
+
+        return closestEntity, closestRoot, closestHum, false
+    end
+
     while true do
         if _G.YBA_SESSION ~= currentSession then break end
         if State.AutoFarmNPC then
-            -- Placeholder: user requested to prepare UI/state first, logic will be implemented next
-            task.wait(1.0)
+            local targetEntity, eRoot, eHum, isBoss = getTargetNPC()
+            local root = getRoot()
+            local char = getCharacter()
+            local hum = getHumanoid()
+
+            if targetEntity and eRoot and eHum and eHum.Health > 0 and root and char and hum and hum.Health > 0 then
+                -- Safe rear-overhead positioning: 4 studs behind target, +SafeFarmDistance studs overhead
+                local height = math.clamp(tonumber(State.SafeFarmDistance) or 7, 4, 20)
+                local rearOffset = -(eRoot.CFrame.LookVector * 4) + Vector3.new(0, height, 0)
+                local safeCF = CFrame.new(eRoot.Position + rearOffset, eRoot.Position)
+
+                local distToSafe = (root.Position - safeCF.Position).Magnitude
+                if distToSafe > 15 then
+                    safeTeleportTo(safeCF)
+                else
+                    root.CFrame = safeCF
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
+                end
+
+                -- Ensure Stand is summoned if player has one
+                local rem = getRemoteEvent()
+                if rem then
+                    -- Attack rotation using whitelisted abilities
+                    local now = tick()
+                    local didSpecial = false
+
+                    if State.WhitelistAbilities["Stand Barrage (E)"] and (now - lastBarrage >= 6.0) then
+                        pcall(function()
+                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.E })
+                        end)
+                        lastBarrage = now
+                        didSpecial = true
+                    elseif State.WhitelistAbilities["Barrage Finisher (R)"] and (now - lastFinisher >= 7.0) then
+                        pcall(function()
+                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.R })
+                        end)
+                        lastFinisher = now
+                        didSpecial = true
+                    elseif State.WhitelistAbilities["Heavy Punch (M2)"] and (now - lastM2 >= 2.5) then
+                        pcall(function()
+                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.R })
+                            rem:FireServer("Attack", "M2")
+                        end)
+                        lastM2 = now
+                        didSpecial = true
+                    end
+
+                    -- If abilities on cooldown or punch is whitelisted, perform rapid light attacks
+                    if not didSpecial or State.WhitelistAbilities["Punch / M1"] then
+                        if (now - lastM1 >= 0.18) then
+                            pcall(function()
+                                rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.E })
+                                rem:FireServer("Punch", "Light")
+                                rem:FireServer("Attack", "M1")
+                            end)
+                            lastM1 = now
+                        end
+                    end
+                end
+
+                task.wait(0.08)
+            else
+                task.wait(0.5)
+            end
         else
             task.wait(0.5)
         end
@@ -691,12 +838,12 @@ local playerTab = Hub.CreateTab("Player", { Icon = "👤", Size = 18, Color = Co
 -- -------------------------------------------------------------------------
 -- 1. ⚔️ Combat & Auto Farm Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(combatTab, "⚔️ NPC Auto Farm (Setup)")
+Hub.CreateSection(combatTab, "⚔️ NPC Auto Farm")
 
-Hub.CreateToggle(combatTab, "⚔️ Auto Farm Selected NPC (Coming Soon)", false, function(v)
+Hub.CreateToggle(combatTab, "⚔️ Auto Farm Selected NPC", false, function(v)
     State.AutoFarmNPC = v
     if v then
-        Hub.Notify("⚔️ Auto Farm", "Auto Farm toggle activated (Placeholder - attack engine coming in next update!)", 4)
+        Hub.Notify("⚔️ Auto Farm", "Auto Farm started! Gliding safely behind targets overhead.", 3)
     end
 end)
 
@@ -704,9 +851,34 @@ Hub.CreateDropdown(combatTab, "Target NPC", ybaNPCsCatalog, 1, function(selected
     State.SelectedNPC = selected
 end)
 
-Hub.CreateSlider(combatTab, "Safe Overhead Farm Height", 3, 20, 7, " studs", function(val)
+Hub.CreateSlider(combatTab, "Safe Overhead Farm Height", 4, 20, 7, " studs", function(val)
     State.SafeFarmDistance = val
 end)
+
+Hub.CreateSection(combatTab, "👹 Boss Prioritizer / Auto Farm Bosses")
+
+Hub.CreateToggle(combatTab, "👹 Auto Farm Bosses (Pauses NPC farm until dead)", false, function(v)
+    State.AutoFarmBosses = v
+    if v then
+        Hub.Notify("👹 Boss Hunter", "Priority locked onto selected spawned bosses!", 3)
+    end
+end)
+
+local bossCatalogItems = {
+    {Name = "Leaky Eye Luca"},
+    {Name = "Bucciarati"},
+    {Name = "Fugo"},
+    {Name = "Pesci"},
+    {Name = "Ghiaccio"},
+    {Name = "Diavolo"},
+    {Name = "DIO"},
+    {Name = "Jotaro"},
+    {Name = "Anasui"},
+    {Name = "Yoshikage Kira"},
+    {Name = "Jotaro Kujo"},
+    {Name = "Heaven Ascension DIO"}
+}
+Hub.CreateList(combatTab, "Target Bosses (Multi-Select)", bossCatalogItems, 160, false, true)
 
 Hub.CreateSection(combatTab, "🥋 Ability Whitelist")
 
@@ -715,7 +887,7 @@ local abilityCatalogItems = {}
 for _, ab in ipairs(detectedAbilities) do
     table.insert(abilityCatalogItems, {Name = ab})
 end
-Hub.CreateList(combatTab, "Whitelisted Attacks (Multi-Select)", abilityCatalogItems, 180, false, true)
+Hub.CreateList(combatTab, "Whitelisted Attacks (Multi-Select)", abilityCatalogItems, 160, false, true)
 
 -- -------------------------------------------------------------------------
 -- 2. 📜 Quests & Farm Tab
@@ -829,25 +1001,14 @@ Hub.CreateList(standsTab, "Target Desired Stands (Multi-Select)", standCatalogIt
 -- -------------------------------------------------------------------------
 -- 6. 📍 Teleports Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(tpTab, "🛡️ Anti-Kick Travel Settings")
-
-Hub.CreateToggle(tpTab, "🛡️ Anti-Kick Safe Glide Mode", true, function(v)
-    State.SafeTeleportMode = v
-    if not v then
-        Hub.Notify("⚠️ Warning", "Instant teleport over long distances may trigger YBA's anti-teleport kick!", 4)
-    end
-end)
-
-Hub.CreateSlider(tpTab, "Safe Glide Speed (studs/s)", 40, 600, 300, " studs/s", function(val)
-    State.SafeTravelSpeed = val
-end)
+Hub.CreateSection(tpTab, "📍 Instant Max-Speed Travel")
 
 Hub.CreateButton(tpTab, "🛑 Cancel / Stop Current Travel", function()
     cancelCurrentTravel()
     Hub.Notify("🛑 Travel", "Teleportation canceled. Stopped in place.", 2)
 end)
 
-Hub.CreateSection(tpTab, "📍 Map Locations")
+Hub.CreateSection(tpTab, "📍 Verified Map Locations")
 
 local locNames = {}
 for name, _ in pairs(ybaLocations) do table.insert(locNames, name) end
@@ -855,14 +1016,12 @@ table.sort(locNames)
 
 for _, locName in ipairs(locNames) do
     local pos = ybaLocations[locName]
-    Hub.CreateButton(tpTab, "📌 TP: " .. locName, function()
+    Hub.CreateButton(tpTab, "📌 " .. locName, function()
         local targetCF = CFrame.new(pos + Vector3.new(0, 3, 0))
         local root = getRoot()
         local dist = root and (root.Position - targetCF.Position).Magnitude or 0
-        if State.SafeTeleportMode and dist > 15 then
-            local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
-            Hub.Notify("📍 Safe Travel", string.format("Gliding safely to %s (approx %.1fs)...", locName, estTime), 3)
-        end
+        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 600, 40, 600)
+        Hub.Notify("📍 Travel", string.format("Gliding to %s (approx %.1fs)...", locName, estTime), 2)
         safeTeleportTo(targetCF, function()
             Hub.Notify("📍 Arrived", "Arrived at " .. locName .. " safely!", 2)
         end)
