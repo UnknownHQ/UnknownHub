@@ -1818,6 +1818,11 @@ local State = {
     AutoSubmit_JackOLantern = false,
     AutoSubmit_HarvestReaper = false,
 
+    -- Halloween Garden: Sprinkler Hydration & Plant Booster (Bypass for Dev Sprinkler Restriction)
+    AutoGhostSprinkler_Halloween = false,
+    HalloweenSprinkler_Delay = 0.5,
+    HalloweenSprinkler_Mode = "All Plants (Physical)",
+
     -- General
     MaxBackpackCapacity = 500,
     BatchSize = 35,
@@ -5180,6 +5185,84 @@ task.spawn(function()
     end
 end)
 
+-- 5. 💧 Halloween Garden Ghost Sprinkler & Plant Growth Accelerator
+-- Bypasses server-side slot restrictions by directly boosting and hydrating all Halloween plants!
+local function executeHalloweenSprinklerBoost(isManual)
+    pcall(function()
+        local myFarm, hGarden = getHalloweenGardenFarm()
+        local farmsToScan = {}
+        if myFarm then table.insert(farmsToScan, myFarm) end
+        if hGarden and hGarden ~= myFarm then table.insert(farmsToScan, hGarden) end
+
+        local targetPlants = {}
+        for _, f in ipairs(farmsToScan) do
+            local imp = f:FindFirstChild("Important")
+            local plantsFolder = (imp and imp:FindFirstChild("Plants_Physical")) or f:FindFirstChild("Plants_Physical") or f:FindFirstChild("Plants")
+            if plantsFolder then
+                for _, plant in ipairs(plantsFolder:GetChildren()) do
+                    table.insert(targetPlants, plant)
+                end
+            end
+        end
+
+        local rep = ReplicatedStorage
+        local ge = rep:FindFirstChild("GameEvents")
+        local boostEvents = ge and ge:FindFirstChild("PlantBoostServiceEvents")
+        local boostRem = boostEvents and boostEvents:FindFirstChild("Boost")
+        local waterRem = ge and (ge:FindFirstChild("Water_RE") or ge:FindFirstChild("TrySuperWateringCan") or ge:FindFirstChild("AdWeatherWater_RE"))
+        local fertRem = ge and ge:FindFirstChild("FertilizerService_RE")
+        local sprinklerService = ge and ge:FindFirstChild("SprinklerService")
+
+        -- Attempt 1: Forced Remote Placement with Sprinkler Tool (Border/Plot Bypass)
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        local char = LocalPlayer.Character
+        local sprinklerTool = nil
+        if char then sprinklerTool = char:FindFirstChildWhichIsA("Tool") end
+        if not sprinklerTool or not sprinklerTool.Name:find("Sprinkler") then
+            if backpack then
+                for _, t in ipairs(backpack:GetChildren()) do
+                    if t:IsA("Tool") and t.Name:find("Sprinkler") then
+                        sprinklerTool = t
+                        break
+                    end
+                end
+            end
+        end
+
+        if sprinklerTool and sprinklerService and #targetPlants > 0 then
+            pcall(function()
+                local samplePlant = targetPlants[1]
+                local rootPart = samplePlant:FindFirstChild("PrimaryPart") or samplePlant:FindFirstChildWhichIsA("BasePart")
+                if rootPart then
+                    local targetCF = CFrame.new(rootPart.Position + Vector3.new(0, 1.5, 0))
+                    sprinklerService:FireServer("Create", targetCF)
+                end
+            end)
+        end
+
+        -- Attempt 2: Direct Plant Boost & Hydration Stream
+        local boostedCount = 0
+        for _, plant in ipairs(targetPlants) do
+            if plant and plant.Parent then
+                if boostRem then
+                    pcall(function() boostRem:FireServer(plant) end)
+                    boostedCount = boostedCount + 1
+                end
+                if waterRem then
+                    pcall(function() waterRem:FireServer(plant) end)
+                end
+                if fertRem then
+                    pcall(function() fertRem:FireServer(plant) end)
+                end
+            end
+        end
+
+        if isManual then
+            Hub.Notify("💧 Halloween Sprinkler", string.format("Hydrated & boosted %d Halloween plants!", boostedCount), 3)
+        end
+    end)
+end
+
 -- Background Worker: Event Offerings
 task.spawn(function()
     while true do
@@ -5194,6 +5277,20 @@ task.spawn(function()
             pcall(executeHarvestReaperSubmit)
         end
         task.wait(1.0)
+    end
+end)
+
+-- Background Worker: Halloween Ghost Sprinkler / Plant Booster
+task.spawn(function()
+    while true do
+        if _G.GAG_SESSION ~= currentSession then break end
+        if State.AutoGhostSprinkler_Halloween then
+            pcall(function() executeHalloweenSprinklerBoost(false) end)
+            local delayVal = math.clamp(tonumber(State.HalloweenSprinkler_Delay) or 0.5, 0.1, 5.0)
+            task.wait(delayVal)
+        else
+            task.wait(0.5)
+        end
     end
 end)
 
@@ -6829,6 +6926,40 @@ Hub.CreateButton(eventTab, "✨ Submit All Offerings Now (Cauldron + Jack + Reap
         executeJackOLanternSubmit()
         executeHarvestReaperSubmit()
         Hub.Notify("🎃 Offerings", "Submitted eligible fruits to Witches Brew, Jack-O'-Lantern, and Reaper!", 3)
+    end)
+end)
+
+-- 5. 💧 Halloween Garden Ghost Sprinkler (Dev Restriction Bypass)
+Hub.CreateSection(eventTab, "💧 Halloween Sprinkler & Growth Booster")
+
+Hub.CreateToggle(eventTab, "💧 Ghost Sprinkler (Growth & Hydration Booster)", false, function(v)
+    if type(v) == "boolean" then State.AutoGhostSprinkler_Halloween = v else State.AutoGhostSprinkler_Halloween = not State.AutoGhostSprinkler_Halloween end
+    if State.AutoGhostSprinkler_Halloween then
+        task.spawn(function() executeHalloweenSprinklerBoost(false) end)
+    end
+end)
+
+Hub.CreateTextBox(eventTab, "Boost Frequency (0.1 - 5.0s)", "Enter boost cycle delay (default: 0.5)", function(text)
+    local num = tonumber(text)
+    if num then State.HalloweenSprinkler_Delay = math.clamp(num, 0.1, 5.0) end
+end)
+
+Hub.CreateButton(eventTab, "⚡ Hydrate & Boost Halloween Plants Now (Manual)", function()
+    task.spawn(function() executeHalloweenSprinklerBoost(true) end)
+end)
+
+Hub.CreateButton(eventTab, "🔨 Attempt Force Place Sprinkler (Tool)", function()
+    task.spawn(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local sprinklerService = ge and ge:FindFirstChild("SprinklerService")
+        local char = LocalPlayer.Character
+        local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso"))
+        if sprinklerService and root then
+            sprinklerService:FireServer("Create", CFrame.new(root.Position - Vector3.new(0, 2.5, 0)))
+            Hub.Notify("💧 Sprinkler Place", "Fired sprinkler placement at your current position!", 3)
+        else
+            Hub.Notify("💧 Sprinkler Place", "No character position found.", 3)
+        end
     end)
 end)
 
