@@ -236,6 +236,28 @@ local function getPlantGrowthInfo(plant)
     }
 end
 
+local function isFruitFullyGrown(fruit)
+    if not fruit or not fruit.Parent then return true end
+    local maxAge = tonumber(fruit:GetAttribute("MaxAge"))
+    if not maxAge then
+        local p = fruit.Parent and fruit.Parent.Parent
+        maxAge = p and tonumber(p:GetAttribute("MaxAge")) or 3
+    end
+    local currentParts = 0
+    for _, c in ipairs(fruit:GetChildren()) do
+        local n = tonumber(c.Name)
+        if n and n > currentParts then
+            currentParts = n
+        end
+    end
+    local ageVal = fruit:FindFirstChild("Age")
+    if ageVal and ageVal:IsA("ValueBase") then
+        local v = tonumber(ageVal.Value) or 0
+        if v < maxAge then return false end
+    end
+    return currentParts >= maxAge
+end
+
 local function getMyGardenPlants()
     local plants = {}
     pcall(function()
@@ -1407,8 +1429,9 @@ local function buildDynamicGearCatalog()
             local gTable = res.Gear or res
             for k, v in pairs(gTable) do
                 if type(v) == "table" and k ~= "RefreshTime" then
-                    local name = v.GearName or v.Name or k
-                    local price = tonumber(v.Price) or 0
+                    local gSub = (type(v.Gear) == "table" and v.Gear) or v
+                    local name = gSub.GearName or gSub.Name or v.GearName or v.Name or k
+                    local price = tonumber(v.Price) or (type(gSub) == "table" and tonumber(gSub.Price)) or 0
                     table.insert(gears, {
                         Name = tostring(name) .. " (" .. formatCurrency(price) .. "¢)",
                         ItemName = tostring(name),
@@ -1900,7 +1923,9 @@ local State = {
 
     -- Halloween Garden: Auto Water Fruits & Plants (Using Watering Can at Target Positions)
     AutoWaterFruits_Halloween = false,
-    HalloweenWater_Delay = 0.2,
+    HalloweenWater_Delay = 1.0,
+    HalloweenWater_MaxBatch = 3,
+    HalloweenWater_OnlyNonGrown = true,
     HalloweenWater_Target = "Fruits & Plants",
 
     -- General
@@ -4512,10 +4537,12 @@ local function executeInstantShopPurchases()
         local buyAllGear = State.AutoBuy_AllGears
         if buySelGear or buyAllGear then
             if buyAllGear then
+                local gearsBought = false
                 if data and data.GearStock and data.GearStock.Stocks then
                     for gearName, info in pairs(data.GearStock.Stocks) do
                         local stock = tonumber(info.Stock) or 0
                         if stock > 0 then
+                            gearsBought = true
                             if BuyGearStockRemote then
                                 BuyGearStockRemote:FireServer(tostring(gearName))
                             end
@@ -4529,6 +4556,32 @@ local function executeInstantShopPurchases()
                             end)
                         end
                     end
+                end
+                -- Fallback: buy from active GUI or catalog
+                if not gearsBought then
+                    pcall(function()
+                        local gShop = pGui and pGui:FindFirstChild("Gear_Shop")
+                        local sf = gShop and gShop:FindFirstChild("ScrollingFrame", true)
+                        if sf then
+                            for _, child in ipairs(sf:GetChildren()) do
+                                if child:IsA("GuiObject") and child.Visible then
+                                    local btn = child:FindFirstChild("Sheckles_Buy", true) or child:FindFirstChild("Buy", true)
+                                    if btn and getconnections then
+                                        for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                    end
+                                    if BuyGearStockRemote then
+                                        BuyGearStockRemote:FireServer(child.Name)
+                                    end
+                                end
+                            end
+                        else
+                            for _, gearItem in ipairs(allAvailableGears) do
+                                if BuyGearStockRemote and gearItem.ItemName then
+                                    BuyGearStockRemote:FireServer(gearItem.ItemName)
+                                end
+                            end
+                        end
+                    end)
                 end
             elseif buySelGear then
                 local selVal = tostring(getUIListVal(selectGearListObj, (allAvailableGears[1] and allAvailableGears[1].Name) or "None"))
@@ -4554,11 +4607,13 @@ local function executeInstantShopPurchases()
         local buyAllSeed = State.AutoBuy_AllSeeds
         if buySelSeed or buyAllSeed then
             if buyAllSeed then
+                local seedsBought = false
                 if data and data.SeedStocks then
                     if data.SeedStocks.Shop and data.SeedStocks.Shop.Stocks then
                         for seedName, info in pairs(data.SeedStocks.Shop.Stocks) do
                             local stock = tonumber(info.Stock) or 0
                             if stock > 0 then
+                                seedsBought = true
                                 if BuySeedStockRemote then
                                     BuySeedStockRemote:FireServer("Shop", tostring(seedName))
                                 end
@@ -4577,6 +4632,7 @@ local function executeInstantShopPurchases()
                         for seedName, info in pairs(data.SeedStocks["Daily Deals"].Stocks) do
                             local stock = tonumber(info.Stock) or 0
                             if stock > 0 then
+                                seedsBought = true
                                 if BuySeedStockRemote then
                                     BuySeedStockRemote:FireServer("Shop", tostring(seedName))
                                 end
@@ -4594,6 +4650,33 @@ local function executeInstantShopPurchases()
                             end
                         end
                     end
+                end
+                -- Fallback: buy from active GUI or catalog
+                if not seedsBought then
+                    pcall(function()
+                        local sShop = pGui and pGui:FindFirstChild("Seed_Shop")
+                        local sf = sShop and sShop:FindFirstChild("ScrollingFrame", true)
+                        if sf then
+                            for _, child in ipairs(sf:GetChildren()) do
+                                if child:IsA("GuiObject") and child.Visible then
+                                    local btn = child:FindFirstChild("Sheckles_Buy", true) or child:FindFirstChild("Buy", true)
+                                    if btn and getconnections then
+                                        for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+                                    end
+                                    if BuySeedStockRemote then
+                                        BuySeedStockRemote:FireServer("Shop", child.Name)
+                                    end
+                                end
+                            end
+                        else
+                            for _, seedItem in ipairs(allAvailableSeedShop) do
+                                local sName = seedItem.RawKey or seedItem.ItemName
+                                if BuySeedStockRemote and sName then
+                                    BuySeedStockRemote:FireServer("Shop", sName)
+                                end
+                            end
+                        end
+                    end)
                 end
             elseif buySelSeed then
                 local selVal = tostring(getUIListVal(selectSeedShopListObj, (allAvailableSeedShop[1] and allAvailableSeedShop[1].Name) or "None"))
@@ -5339,20 +5422,25 @@ local function executeHalloweenWaterFruits(isManual)
                     end
 
                     if shouldWater then
-                        -- 1. Scan for individual Fruit models & parts
+                        -- 1. Scan for individual Fruit models & parts (ONLY if NOT fully grown)
                         local fruitsFolder = plant:FindFirstChild("Fruits")
                         if fruitsFolder then
                             for _, fruit in ipairs(fruitsFolder:GetChildren()) do
-                                local fruitPart = fruit:FindFirstChildWhichIsA("BasePart") or (fruit:IsA("BasePart") and fruit)
-                                if fruitPart then
-                                    table.insert(targetPositions, fruitPart.Position)
+                                if not isFruitFullyGrown(fruit) then
+                                    local fruitPart = fruit:FindFirstChildWhichIsA("BasePart") or (fruit:IsA("BasePart") and fruit)
+                                    if fruitPart then
+                                        table.insert(targetPositions, fruitPart.Position)
+                                    end
                                 end
                             end
                         end
-                        -- 2. Include plant base / dirt root position
-                        local basePart = plant:FindFirstChild("Base") or plant:FindFirstChildWhichIsA("BasePart")
-                        if basePart then
-                            table.insert(targetPositions, basePart.Position)
+                        -- 2. Include plant base / dirt root position (ONLY if plant is still growing)
+                        local plantInfo = getPlantGrowthInfo(plant)
+                        if plantInfo and plantInfo.isGrowing then
+                            local basePart = plant:FindFirstChild("Base") or plant:FindFirstChildWhichIsA("BasePart")
+                            if basePart then
+                                table.insert(targetPositions, basePart.Position)
+                            end
                         end
                     end
                 end
@@ -5360,7 +5448,7 @@ local function executeHalloweenWaterFruits(isManual)
         end
 
         if #targetPositions == 0 then
-            if isManual then Hub.Notify("💧 Watering Can", "No matching plants or fruits found to water.", 3) end
+            if isManual then Hub.Notify("💧 Watering Can", "No matching plants or non-grown fruits found to water.", 3) end
             return
         end
 
@@ -5369,10 +5457,10 @@ local function executeHalloweenWaterFruits(isManual)
         local waterRemote = ge and ge:FindFirstChild("Water_RE")
         if not waterRemote then return end
 
+        local maxPerCycle = isManual and #targetPositions or math.clamp(tonumber(State.HalloweenWater_MaxBatch) or 3, 1, 10)
         local wateredCount = 0
-        local charPos = hrp.Position
-        for _, pos in ipairs(targetPositions) do
-            -- Fire water remote directly at fruit/plant position
+        for i = 1, math.min(#targetPositions, maxPerCycle) do
+            local pos = targetPositions[i]
             pcall(function() waterRemote:FireServer(pos) end)
             wateredCount = wateredCount + 1
         end
@@ -7066,9 +7154,13 @@ Hub.CreateButton(eventTab, "🔄 Refresh Halloween Plants List", function()
     end
 end)
 
-Hub.CreateTextBox(eventTab, "Watering Delay (0.05 - 2.0s)", "Enter water cycle delay (default: 0.2)", function(text)
+Hub.CreateTextBox(eventTab, "Watering Delay (0.2 - 5.0s)", "Enter water cycle delay (default: 1.0)", function(text)
     local num = tonumber(text)
-    if num then State.HalloweenWater_Delay = math.clamp(num, 0.05, 2.0) end
+    if num then State.HalloweenWater_Delay = math.clamp(num, 0.1, 10.0) end
+end)
+
+Hub.CreateSlider(eventTab, "Max Waters Per Cycle (Conserve Can)", 1, 10, 3, " fruits/plants", function(val)
+    State.HalloweenWater_MaxBatch = val
 end)
 
 Hub.CreateButton(eventTab, "💧 Water Selected Fruits & Plants Now (Manual)", function()
