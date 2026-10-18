@@ -440,8 +440,8 @@ local function safeTeleportTo(targetCF, callback)
     -- Cancel any active travel before starting new one
     cancelCurrentTravel()
 
-    -- 1. If very close (< 10 studs) or safe mode disabled, direct micro-teleport is completely safe
-    if dist <= 10 or not State.SafeTeleportMode then
+    -- 1. If very close (< 6 studs) or safe mode disabled, direct micro-teleport is completely safe
+    if dist <= 6 or not State.SafeTeleportMode then
         root.CFrame = targetCF
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
@@ -449,12 +449,15 @@ local function safeTeleportTo(targetCF, callback)
         return
     end
 
-    -- 2. Anti-Rubberband High-Velocity Heartbeat Micro-Stepper
-    -- Server allows physics frames without rollback as long as velocity and step size match
+    -- 2. Anti-Rubberband High-Velocity Heartbeat Micro-Stepper with Adaptive Physics S-Curve
+    -- Starts at safe cruise speed (120 studs/s), ramps up smoothly to 500-600 studs/s,
+    -- and smoothly decelerates into the target so server physics buffers never spike.
     isTraveling = true
     cancelTravelFlag = false
 
-    local targetSpeed = math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
+    local maxConfigSpeed = math.clamp(tonumber(State.SafeTravelSpeed) or 500, 40, 600)
+    local minStartSpeed = 120
+    local accelRate = 450 -- studs/s^2 smooth ramping
 
     -- Anchor-free zero-gravity float
     local bv = Instance.new("BodyVelocity")
@@ -489,6 +492,8 @@ local function safeTeleportTo(targetCF, callback)
             table.insert(waypoints, targetCF)
         end
 
+        local currentSpeed = minStartSpeed
+
         for _, wp in ipairs(waypoints) do
             if cancelTravelFlag or not isTraveling then break end
             local wpPos = wp.Position
@@ -499,7 +504,7 @@ local function safeTeleportTo(targetCF, callback)
 
                 local toTarget = wpPos - currentRoot.Position
                 local remDist = toTarget.Magnitude
-                if remDist <= 4 then
+                if remDist <= 3.5 then
                     currentRoot.CFrame = CFrame.new(wpPos, wpPos + targetCF.LookVector)
                     break
                 end
@@ -508,8 +513,18 @@ local function safeTeleportTo(targetCF, callback)
                 local dt = RunService.Heartbeat:Wait()
                 if cancelTravelFlag or not isTraveling then break end
 
-                -- Step size calculated per frame according to chosen travel speed
-                local maxStep = math.clamp(targetSpeed * dt, 2.0, 25.0)
+                -- Adaptive Speed Profile:
+                -- Accelerate during flight, decelerate when approaching destination
+                if remDist < 60 then
+                    -- Approaching: gently scale down speed so we land cleanly
+                    currentSpeed = math.max(minStartSpeed, maxConfigSpeed * (remDist / 60))
+                else
+                    -- Ramping up smoothly
+                    currentSpeed = math.min(maxConfigSpeed, currentSpeed + (accelRate * dt))
+                end
+
+                -- Step size calculated per frame
+                local maxStep = math.clamp(currentSpeed * dt, 1.5, 18.0)
                 local stepDist = math.min(remDist, maxStep)
                 local dir = toTarget.Unit
 
@@ -596,13 +611,13 @@ local function executeAutoCollectItems()
                 Hub.Notify("⭐ RARE ITEM DETECTED!", "Sniping " .. item.name .. "...", 3)
             end
 
-            local targetCF = (item.cf and item.cf + Vector3.new(0, 1.5, 0)) or (item.pos and CFrame.new(item.pos + Vector3.new(0, 1.5, 0))) or item.prompt.Parent.CFrame
+            local targetCF = (item.cf and item.cf + Vector3.new(0, 1.0, 0)) or (item.pos and CFrame.new(item.pos + Vector3.new(0, 1.0, 0))) or item.prompt.Parent.CFrame
             local dist = (currRoot.Position - targetCF.Position).Magnitude
 
-            if dist > 10 and State.SafeTeleportMode then
+            if dist > 8 and State.SafeTeleportMode then
                 local arrived = false
                 safeTeleportTo(targetCF, function() arrived = true end)
-                local waitTimeout = (dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)) + 2.0
+                local waitTimeout = (dist / 120) + 3.0
                 local startT = tick()
                 while not arrived and (tick() - startT < waitTimeout) do
                     if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then
@@ -615,21 +630,30 @@ local function executeAutoCollectItems()
                 currRoot.CFrame = targetCF
             end
 
+            -- Ensure we give a brief physics stabilization pause so the server syncs client position
+            task.wait(0.2)
+
             currRoot = getRoot()
             if currRoot and item.prompt and item.prompt.Parent then
                 pcall(function()
-                    -- Fire prompt's RemoteEvent directly or trigger prompt
-                    local rem = item.prompt:FindFirstChildOfClass("RemoteEvent")
-                    if rem then
-                        rem:FireServer()
-                    end
-                    if fireproximityprompt then
-                        fireproximityprompt(item.prompt, 0)
+                    -- Fire prompt's RemoteEvent only once client is confirmed within interaction radius
+                    local promptPos = item.pos or (item.cf and item.cf.Position)
+                    local currentDist = promptPos and (currRoot.Position - promptPos).Magnitude or 0
+
+                    if currentDist <= 12 then
+                        local rem = item.prompt:FindFirstChildOfClass("RemoteEvent")
+                        if rem then
+                            rem:FireServer()
+                        end
+                        if fireproximityprompt then
+                            fireproximityprompt(item.prompt, 0)
+                        end
                     end
                 end)
             end
 
-            task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.3, 0.1, 2.0))
+            -- Safe pause between consecutive item travels to allow server item-spawner to register pickup
+            task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.8, 0.4, 3.0))
         end
     end
 end
