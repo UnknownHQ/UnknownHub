@@ -239,7 +239,11 @@ local State = {
     -- Visuals / ESP
     ItemESP = false,
     PlayerESP = false,
-    NPCESP = false
+    NPCESP = false,
+
+    -- Teleport & Anti-Kick Safety
+    SafeTeleportMode = true,
+    SafeTravelSpeed = 30
 }
 
 -- =========================================================================
@@ -363,17 +367,116 @@ local function executeMobAura()
     end
 end
 
+-- =========================================================================
+-- Anti-Kick Teleport & Travel Engine
+-- =========================================================================
+local currentTravelTween = nil
+local currentTravelNoclip = nil
+local currentTravelBV = nil
+local isTraveling = false
+
+local function cancelCurrentTravel()
+    if currentTravelTween then
+        pcall(function() currentTravelTween:Cancel() end)
+        currentTravelTween = nil
+    end
+    if currentTravelNoclip then
+        pcall(function() currentTravelNoclip:Disconnect() end)
+        currentTravelNoclip = nil
+    end
+    if currentTravelBV then
+        pcall(function() currentTravelBV:Destroy() end)
+        currentTravelBV = nil
+    end
+    local root = getRoot()
+    if root then
+        pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+    end
+    isTraveling = false
+end
+
+local function safeTeleportTo(targetCF, callback)
+    local root = getRoot()
+    local char = getCharacter()
+    if not root or not char then return end
+
+    if typeof(targetCF) == "Vector3" then
+        targetCF = CFrame.new(targetCF)
+    end
+
+    local dist = (root.Position - targetCF.Position).Magnitude
+
+    -- Cancel any active travel before starting new one
+    cancelCurrentTravel()
+
+    -- 1. If very close (< 15 studs) or safe mode disabled, direct micro-teleport is completely safe
+    if dist <= 15 or not State.SafeTeleportMode then
+        root.CFrame = targetCF
+        if callback then callback() end
+        return
+    end
+
+    -- 2. Anti-Kick Safe Glide Mode (Tweening at safe speed, within sprint limits)
+    isTraveling = true
+    local speed = math.clamp(tonumber(State.SafeTravelSpeed) or 30, 15, 45)
+    local travelTime = math.clamp(dist / speed, 0.2, 90)
+
+    -- Temporary BodyVelocity to float and eliminate gravity/falling
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "Unknown_SafeGlide_BV"
+    bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bv.Velocity = Vector3.zero
+    bv.Parent = root
+    currentTravelBV = bv
+
+    -- Temporary Noclip so character never gets stuck on buildings/terrain
+    local noclipConn = RunService.Stepped:Connect(function()
+        if char and char.Parent then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = false
+                end
+            end
+        end
+    end)
+    currentTravelNoclip = noclipConn
+
+    local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCF})
+    currentTravelTween = tween
+
+    tween.Completed:Connect(function(playbackState)
+        if currentTravelNoclip == noclipConn then
+            noclipConn:Disconnect()
+            currentTravelNoclip = nil
+        end
+        if currentTravelBV == bv then
+            bv:Destroy()
+            currentTravelBV = nil
+        end
+        if root and root.Parent then
+            pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+        end
+        isTraveling = false
+        currentTravelTween = nil
+
+        if playbackState == Enum.PlaybackState.Completed and callback then
+            callback()
+        end
+    end)
+
+    tween:Play()
+end
+
 local function executeAutoCollectItems()
     local root = getRoot()
     if not root then return end
 
     local items = getSpawnedItems()
     local isAllSelected = State.ItemWhitelist["All Items"] == true
+    local candidateItems = {}
 
     for _, item in ipairs(items) do
-        if not State.AutoCollectItems then break end
-        if _G.YBA_SESSION ~= currentSession then break end
-
         local shouldCollect = isAllSelected or State.ItemWhitelist[item.name] == true
         if not shouldCollect then
             for key, _ in pairs(State.ItemWhitelist) do
@@ -383,20 +486,55 @@ local function executeAutoCollectItems()
                 end
             end
         end
-
         if shouldCollect and item.part and item.part.Parent then
+            table.insert(candidateItems, item)
+        end
+    end
+
+    -- Sort candidate items so closest are collected first
+    table.sort(candidateItems, function(a, b)
+        local currRoot = getRoot()
+        local pos = currRoot and currRoot.Position or Vector3.zero
+        return (pos - a.pos).Magnitude < (pos - b.pos).Magnitude
+    end)
+
+    for _, item in ipairs(candidateItems) do
+        if not State.AutoCollectItems then break end
+        if _G.YBA_SESSION ~= currentSession then break end
+        local currRoot = getRoot()
+        if currRoot and item.part and item.part.Parent then
             if State.NotifyLuckyArrow and item.name:lower():find("lucky", 1, true) then
-                Hub.Notify("⭐ LUCKY ARROW DETECTED!", "Teleporting to Lucky Arrow: " .. tostring(item.pos), 5)
+                Hub.Notify("⭐ LUCKY ARROW DETECTED!", "Collecting Lucky Arrow at: " .. tostring(item.pos), 4)
             end
 
-            -- Smooth micro-teleport to touch and pick up item
-            local origCF = root.CFrame
-            pcall(function()
-                root.CFrame = item.part.CFrame + Vector3.new(0, 1.5, 0)
-                firetouchinterest(root, item.part, 0)
-                task.wait(0.05)
-                firetouchinterest(root, item.part, 1)
-            end)
+            local targetCF = item.part.CFrame + Vector3.new(0, 1.5, 0)
+            local dist = (currRoot.Position - targetCF.Position).Magnitude
+
+            if dist > 15 and State.SafeTeleportMode then
+                local arrived = false
+                safeTeleportTo(targetCF, function() arrived = true end)
+                local waitTimeout = (dist / math.clamp(State.SafeTravelSpeed, 15, 45)) + 2.0
+                local startT = tick()
+                while not arrived and (tick() - startT < waitTimeout) do
+                    if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then
+                        cancelCurrentTravel()
+                        break
+                    end
+                    task.wait(0.1)
+                end
+            else
+                currRoot.CFrame = targetCF
+            end
+
+            currRoot = getRoot()
+            if currRoot and item.part and item.part.Parent then
+                pcall(function()
+                    firetouchinterest(currRoot, item.part, 0)
+                    task.wait(0.05)
+                    firetouchinterest(currRoot, item.part, 1)
+                end)
+            end
+
             task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.3, 0.1, 2.0))
         end
     end
@@ -563,13 +701,29 @@ Hub.CreateToggle(sbrTab, "🌪️ Anti-Sandstorm / Zone Damage", false, function
 end)
 
 Hub.CreateButton(sbrTab, "🏁 Teleport to Stage 1 Finish", function()
+    local targetCF = CFrame.new(220, 25, -2350)
     local root = getRoot()
-    if root then root.CFrame = CFrame.new(220, 25, -2350) end
+    local dist = root and (root.Position - targetCF.Position).Magnitude or 0
+    if State.SafeTeleportMode and dist > 15 then
+        local estTime = dist / math.clamp(State.SafeTravelSpeed, 15, 45)
+        Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Stage 1 (%.1fs)...", estTime), 3)
+    end
+    safeTeleportTo(targetCF, function()
+        Hub.Notify("🐎 SBR", "Arrived at Stage 1 Finish line safely!", 3)
+    end)
 end)
 
 Hub.CreateButton(sbrTab, "🏆 Teleport to Final Finish Line", function()
+    local targetCF = CFrame.new(350, 40, -5600)
     local root = getRoot()
-    if root then root.CFrame = CFrame.new(350, 40, -5600) end
+    local dist = root and (root.Position - targetCF.Position).Magnitude or 0
+    if State.SafeTeleportMode and dist > 15 then
+        local estTime = dist / math.clamp(State.SafeTravelSpeed, 15, 45)
+        Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Final Finish Line (%.1fs)...", estTime), 3)
+    end
+    safeTeleportTo(targetCF, function()
+        Hub.Notify("🐎 SBR", "Arrived at Final Finish Line safely!", 3)
+    end)
 end)
 
 -- -------------------------------------------------------------------------
@@ -599,7 +753,25 @@ Hub.CreateList(standsTab, "Target Desired Stands (Multi-Select)", standCatalogIt
 -- -------------------------------------------------------------------------
 -- 6. 📍 Teleports Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(tpTab, "📍 Map Locations & Fast Teleports")
+Hub.CreateSection(tpTab, "🛡️ Anti-Kick Travel Settings")
+
+Hub.CreateToggle(tpTab, "🛡️ Anti-Kick Safe Glide Mode", true, function(v)
+    State.SafeTeleportMode = v
+    if not v then
+        Hub.Notify("⚠️ Warning", "Instant teleport over long distances may trigger YBA's anti-teleport kick!", 4)
+    end
+end)
+
+Hub.CreateSlider(tpTab, "Safe Glide Speed (studs/s)", 15, 45, 30, " studs/s", function(val)
+    State.SafeTravelSpeed = val
+end)
+
+Hub.CreateButton(tpTab, "🛑 Cancel / Stop Current Travel", function()
+    cancelCurrentTravel()
+    Hub.Notify("🛑 Travel", "Teleportation canceled. Stopped in place.", 2)
+end)
+
+Hub.CreateSection(tpTab, "📍 Map Locations")
 
 local locNames = {}
 for name, _ in pairs(ybaLocations) do table.insert(locNames, name) end
@@ -608,11 +780,16 @@ table.sort(locNames)
 for _, locName in ipairs(locNames) do
     local pos = ybaLocations[locName]
     Hub.CreateButton(tpTab, "📌 TP: " .. locName, function()
+        local targetCF = CFrame.new(pos + Vector3.new(0, 3, 0))
         local root = getRoot()
-        if root then
-            root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-            Hub.Notify("📍 Teleport", "Teleported to " .. locName, 2)
+        local dist = root and (root.Position - targetCF.Position).Magnitude or 0
+        if State.SafeTeleportMode and dist > 15 then
+            local estTime = dist / math.clamp(State.SafeTravelSpeed, 15, 45)
+            Hub.Notify("📍 Safe Travel", string.format("Gliding safely to %s (approx %.1fs)...", locName, estTime), 3)
         end
+        safeTeleportTo(targetCF, function()
+            Hub.Notify("📍 Arrived", "Arrived at " .. locName .. " safely!", 2)
+        end)
     end)
 end
 
