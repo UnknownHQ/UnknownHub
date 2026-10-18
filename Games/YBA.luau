@@ -292,7 +292,10 @@ local State = {
 
     -- Teleport & Anti-Kick Safety
     SafeTeleportMode = true,
-    SafeTravelSpeed = 600
+    SafeTravelSpeed = 600,
+    AutoTravelToTarget = false,
+    SelectedTravelTarget = nil,
+    TravelTargetType = "Location"
 }
 
 -- =========================================================================
@@ -480,61 +483,43 @@ local function safeTeleportTo(targetCF, callback)
     currentTravelNoclip = noclipConn
 
     task.spawn(function()
-        -- Determine path: if long distance (> 35 studs), elevate 10 studs overhead
-        local waypoints = {}
-        if dist > 35 then
-            local elevatedStart = root.Position + Vector3.new(0, 10, 0)
-            local elevatedEnd = targetCF.Position + Vector3.new(0, 10, 0)
-            table.insert(waypoints, CFrame.new(elevatedStart, elevatedStart + root.CFrame.LookVector))
-            table.insert(waypoints, CFrame.new(elevatedEnd, targetCF.Position))
-            table.insert(waypoints, targetCF)
-        else
-            table.insert(waypoints, targetCF)
-        end
-
         local currentSpeed = minStartSpeed
 
-        for _, wp in ipairs(waypoints) do
-            if cancelTravelFlag or not isTraveling then break end
-            local wpPos = wp.Position
+        while isTraveling and not cancelTravelFlag do
+            local currentRoot = getRoot()
+            if not currentRoot then break end
 
-            while isTraveling and not cancelTravelFlag do
-                local currentRoot = getRoot()
-                if not currentRoot then break end
-
-                local toTarget = wpPos - currentRoot.Position
-                local remDist = toTarget.Magnitude
-                if remDist <= 3.5 then
-                    currentRoot.CFrame = CFrame.new(wpPos, wpPos + targetCF.LookVector)
-                    break
-                end
-
-                -- Delta time between frames
-                local dt = RunService.Heartbeat:Wait()
-                if cancelTravelFlag or not isTraveling then break end
-
-                -- Adaptive Speed Profile:
-                -- Accelerate during flight, decelerate when approaching destination
-                if remDist < 60 then
-                    -- Approaching: gently scale down speed so we land cleanly
-                    currentSpeed = math.max(minStartSpeed, maxConfigSpeed * (remDist / 60))
-                else
-                    -- Ramping up smoothly
-                    currentSpeed = math.min(maxConfigSpeed, currentSpeed + (accelRate * dt))
-                end
-
-                -- Step size calculated per frame
-                local maxStep = math.clamp(currentSpeed * dt, 1.5, 18.0)
-                local stepDist = math.min(remDist, maxStep)
-                local dir = toTarget.Unit
-
-                -- Update position smoothly per Heartbeat
-                currentRoot.CFrame = CFrame.new(currentRoot.Position + (dir * stepDist), currentRoot.Position + (dir * stepDist) + dir)
-
-                -- Keep AssemblyLinearVelocity aligned to prevent server detecting stationary desync
-                currentRoot.AssemblyLinearVelocity = dir * (stepDist / math.max(dt, 0.001))
-                currentRoot.AssemblyAngularVelocity = Vector3.zero
+            local toTarget = targetCF.Position - currentRoot.Position
+            local remDist = toTarget.Magnitude
+            if remDist <= 2.5 then
+                currentRoot.CFrame = targetCF
+                break
             end
+
+            -- Delta time between frames
+            local dt = RunService.Heartbeat:Wait()
+            if cancelTravelFlag or not isTraveling then break end
+
+            -- Adaptive Speed Profile:
+            -- Smoothly accelerates from 120 studs/s up to maxConfigSpeed (500-600 studs/s)
+            -- Gently decelerates within the last 50 studs for a soft, undetectable stop
+            if remDist < 50 then
+                currentSpeed = math.max(minStartSpeed, maxConfigSpeed * (remDist / 50))
+            else
+                currentSpeed = math.min(maxConfigSpeed, currentSpeed + (accelRate * dt))
+            end
+
+            -- Step size calculated per frame
+            local maxStep = math.clamp(currentSpeed * dt, 1.0, 18.0)
+            local stepDist = math.min(remDist, maxStep)
+            local dir = toTarget.Unit
+
+            -- Update position smoothly per Heartbeat
+            currentRoot.CFrame = CFrame.new(currentRoot.Position + (dir * stepDist), currentRoot.Position + (dir * stepDist) + dir)
+
+            -- Keep AssemblyLinearVelocity aligned to prevent server detecting stationary desync
+            currentRoot.AssemblyLinearVelocity = dir * (stepDist / math.max(dt, 0.001))
+            currentRoot.AssemblyAngularVelocity = Vector3.zero
         end
 
         -- Finish travel and settle character
@@ -614,13 +599,13 @@ local function executeAutoCollectItems()
             local targetCF = (item.cf and item.cf + Vector3.new(0, 1.0, 0)) or (item.pos and CFrame.new(item.pos + Vector3.new(0, 1.0, 0))) or item.prompt.Parent.CFrame
             local dist = (currRoot.Position - targetCF.Position).Magnitude
 
-            if dist > 8 and State.SafeTeleportMode then
-                local arrived = false
+            local arrived = false
+            if dist > 6 and State.SafeTeleportMode then
                 safeTeleportTo(targetCF, function() arrived = true end)
                 local waitTimeout = (dist / 120) + 3.0
                 local startT = tick()
                 while not arrived and (tick() - startT < waitTimeout) do
-                    -- Check if item was collected by another player while we are traveling
+                    -- Immediate abort if item was picked up by someone else
                     if not item.prompt or not item.prompt.Parent then
                         cancelCurrentTravel()
                         break
@@ -629,32 +614,54 @@ local function executeAutoCollectItems()
                         cancelCurrentTravel()
                         break
                     end
-                    task.wait(0.05)
+                    task.wait(0.04)
                 end
             else
                 currRoot.CFrame = targetCF
+                arrived = true
             end
 
-            -- Ensure we give a brief physics stabilization pause so the server syncs client position
-            task.wait(0.2)
+            -- Ensure we arrived and item is still present
+            if not item.prompt or not item.prompt.Parent then
+                cancelCurrentTravel()
+            else
+                -- Physics stabilization pause so server syncs client position
+                task.wait(0.2)
 
-            currRoot = getRoot()
-            if currRoot and item.prompt and item.prompt.Parent then
-                pcall(function()
-                    -- Fire prompt's RemoteEvent only once client is confirmed within interaction radius
-                    local promptPos = item.pos or (item.cf and item.cf.Position)
-                    local currentDist = promptPos and (currRoot.Position - promptPos).Magnitude or 0
+                currRoot = getRoot()
+                if currRoot and item.prompt and item.prompt.Parent then
+                    pcall(function()
+                        local currentDist = (currRoot.Position - targetCF.Position).Magnitude
+                        if currentDist <= 12 then
+                            -- 1. Find live replicated prompt in Workspace.Item_Spawns.Items
+                            local realPrompt = nil
+                            local itemSpawns = Workspace:FindFirstChild("Item_Spawns")
+                            local itemsFolder = itemSpawns and itemSpawns:FindFirstChild("Items")
+                            if itemsFolder then
+                                for _, itm in ipairs(itemsFolder:GetChildren()) do
+                                    local p = itm:FindFirstChildOfClass("ProximityPrompt")
+                                    if p and p.Enabled and p.MaxActivationDistance > 0 then
+                                        local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
+                                        if part and (part.Position - targetCF.Position).Magnitude <= 10 then
+                                            realPrompt = p
+                                            break
+                                        end
+                                    end
+                                end
+                            end
 
-                    if currentDist <= 12 then
-                        local rem = item.prompt:FindFirstChildOfClass("RemoteEvent")
-                        if rem then
-                            rem:FireServer()
+                            -- 2. Fallback to item.prompt if it is enabled with distance
+                            if not realPrompt and item.prompt.Enabled and item.prompt.MaxActivationDistance > 0 then
+                                realPrompt = item.prompt
+                            end
+
+                            -- 3. Safely trigger prompt natively via fireproximityprompt
+                            if realPrompt and fireproximityprompt then
+                                fireproximityprompt(realPrompt, 0)
+                            end
                         end
-                        if fireproximityprompt then
-                            fireproximityprompt(item.prompt, 0)
-                        end
-                    end
-                end)
+                    end)
+                end
             end
 
             -- Safe pause between consecutive item travels to allow server item-spawner to register pickup
@@ -750,20 +757,27 @@ task.spawn(function()
             local hum = getHumanoid()
 
             if targetEntity and eRoot and eHum and eHum.Health > 0 and root and char and hum and hum.Health > 0 then
-                -- Safe rear positioning: 3.5 studs directly behind the NPC's back
-                -- Hovering too high causes YBA to treat character as Falling/Airborne, which disables attacks!
-                local rearOffset = -(eRoot.CFrame.LookVector * 3.5) + Vector3.new(0, 0.5, 0)
+                -- Pin directly behind NPC at exact target ground level
+                -- Offset slightly back (3 studs), 0 vertical lift, facing the target
+                local rearOffset = -(eRoot.CFrame.LookVector * 3.0)
                 local safeCF = CFrame.new(eRoot.Position + rearOffset, eRoot.Position)
 
                 local distToSafe = (root.Position - safeCF.Position).Magnitude
-                if distToSafe > 15 then
+                if distToSafe > 20 then
                     safeTeleportTo(safeCF)
                 else
+                    -- Immediate ground lock
                     root.CFrame = safeCF
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
 
-                    -- Keep Humanoid in Running state so attacks are never locked out due to falling
+                    -- Cancel any stray travel body velocity if present
+                    if currentTravelBV then
+                        pcall(function() currentTravelBV:Destroy() end)
+                        currentTravelBV = nil
+                    end
+
+                    -- Force Running humanoid state so game registers M1/M2/E/R hits
                     pcall(function()
                         hum:ChangeState(Enum.HumanoidStateType.Running)
                     end)
@@ -1037,9 +1051,90 @@ Hub.CreateList(standsTab, "Target Desired Stands (Multi-Select)", standCatalogIt
 -- -------------------------------------------------------------------------
 Hub.CreateSection(tpTab, "📍 Quick Travel Controls")
 
-Hub.CreateButton(tpTab, "🛑 Cancel / Stop Current Travel", function()
-    cancelCurrentTravel()
-    Hub.Notify("🛑 Travel", "Teleportation canceled. Stopped in place.", 2)
+local function resolveTargetCFrame()
+    local targetType = State.TravelTargetType or "Location"
+    local targetName = State.SelectedTravelTarget
+    if not targetName then return nil end
+
+    if targetType == "Location" then
+        local pos = ybaLocations[targetName]
+        if pos then
+            return CFrame.new(pos + Vector3.new(0, 3, 0))
+        end
+    elseif targetType == "Boss" then
+        local cleanName = targetName:gsub("%s*%b()", ""):gsub("^%s*(.-)%s*$", "%1")
+        local living = getLivingFolder()
+        if living and cleanName ~= "" and not cleanName:find("No active") then
+            for _, ch in ipairs(living:GetChildren()) do
+                if ch:IsA("Model") and ch.Name:lower():find(cleanName:lower(), 1, true) then
+                    local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                    if root then
+                        return CFrame.new(root.Position + Vector3.new(0, 3, 0))
+                    end
+                end
+            end
+        end
+    elseif targetType == "NPC" then
+        local living = getLivingFolder()
+        if living and targetName ~= "" then
+            for _, ch in ipairs(living:GetChildren()) do
+                if ch:IsA("Model") and ch.Name:lower():find(targetName:lower(), 1, true) then
+                    local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                    if root then
+                        return CFrame.new(root.Position + Vector3.new(0, 3, 0))
+                    end
+                end
+            end
+        end
+    elseif targetType == "Player" then
+        local username = targetName:match("@([%w_]+)") or targetName
+        local targetPlr = Players:FindFirstChild(username)
+        local tChar = targetPlr and targetPlr.Character
+        local tRoot = tChar and (tChar:FindFirstChild("HumanoidRootPart") or tChar:FindFirstChild("Torso"))
+        if tRoot then
+            return CFrame.new(tRoot.Position + Vector3.new(0, 3, 0))
+        end
+    end
+
+    return nil
+end
+
+local travelToggleRef = nil
+
+local function triggerTravelToSelected()
+    if not State.AutoTravelToTarget then return end
+    local targetCF = resolveTargetCFrame()
+    if not targetCF then
+        Hub.Notify("⚠️ Travel Notice", "Selected target not found or alive. Please select a valid target.", 3)
+        State.AutoTravelToTarget = false
+        return
+    end
+
+    local root = getRoot()
+    local dist = root and (root.Position - targetCF.Position).Magnitude or 0
+    local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 500, 40, 600)
+    Hub.Notify("📍 Safe Travel", string.format("Gliding to %s (approx %.1fs)...", tostring(State.SelectedTravelTarget), estTime), 2)
+
+    safeTeleportTo(targetCF, function()
+        Hub.Notify("📍 Arrived", "Arrived at destination safely!", 2)
+        -- Auto reset toggle once arrived so player doesn't continuously loop
+        State.AutoTravelToTarget = false
+    end)
+end
+
+travelToggleRef = Hub.CreateToggle(tpTab, "🚀 Enable Travel to Selected Target", false, function(v)
+    State.AutoTravelToTarget = v
+    if v then
+        if not State.SelectedTravelTarget then
+            Hub.Notify("⚠️ Select Target", "Choose a Location, Boss, NPC, or Player below first!", 3)
+            State.AutoTravelToTarget = false
+            return
+        end
+        triggerTravelToSelected()
+    else
+        cancelCurrentTravel()
+        Hub.Notify("🛑 Travel", "Travel disabled. Stopped cleanly in place.", 2)
+    end
 end)
 
 -- 1. Locations Category
@@ -1051,18 +1146,15 @@ for name, _ in pairs(ybaLocations) do table.insert(sortedLocNames, name) end
 table.sort(sortedLocNames)
 for _, name in ipairs(sortedLocNames) do table.insert(locationCatalogItems, {Name = name}) end
 
-Hub.CreateList(tpTab, "Select Location to Travel", locationCatalogItems, 160, false, false, function(selectedItem)
+Hub.CreateList(tpTab, "Select Location", locationCatalogItems, 160, false, false, function(selectedItem)
     local locName = selectedItem and (selectedItem.Name or selectedItem)
-    local pos = locName and ybaLocations[locName]
-    if pos then
-        local targetCF = CFrame.new(pos + Vector3.new(0, 3, 0))
-        local root = getRoot()
-        local dist = root and (root.Position - targetCF.Position).Magnitude or 0
-        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 500, 40, 600)
-        Hub.Notify("📍 Travel", string.format("Gliding to %s (approx %.1fs)...", locName, estTime), 2)
-        safeTeleportTo(targetCF, function()
-            Hub.Notify("📍 Arrived", "Arrived at " .. locName .. " safely!", 2)
-        end)
+    if locName then
+        State.SelectedTravelTarget = locName
+        State.TravelTargetType = "Location"
+        Hub.Notify("🎯 Target Selected", "Location: " .. locName .. " (Toggle Travel above to go!)", 2)
+        if State.AutoTravelToTarget then
+            triggerTravelToSelected()
+        end
     end
 end)
 
@@ -1109,25 +1201,16 @@ local function getLiveBossItems()
 end
 
 local liveBossList = getLiveBossItems()
-Hub.CreateList(tpTab, "Select Boss to Travel", liveBossList, 140, false, false, function(selectedItem)
+Hub.CreateList(tpTab, "Select Boss", liveBossList, 140, false, false, function(selectedItem)
     local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
-    local cleanName = rawName:gsub("%s*%b()", ""):gsub("^%s*(.-)%s*$", "%1")
-    local living = getLivingFolder()
-    if living and cleanName ~= "" and not cleanName:find("No active") then
-        for _, ch in ipairs(living:GetChildren()) do
-            if ch:IsA("Model") and ch.Name:lower():find(cleanName:lower(), 1, true) then
-                local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
-                if root then
-                    local targetCF = CFrame.new(root.Position + Vector3.new(0, 3, 0))
-                    Hub.Notify("👹 Travel", "Gliding to boss: " .. ch.Name .. "...", 2)
-                    safeTeleportTo(targetCF, function()
-                        Hub.Notify("👹 Arrived", "Arrived at " .. ch.Name .. "!", 2)
-                    end)
-                    return
-                end
-            end
+    if rawName ~= "" and not rawName:find("No active") then
+        local cleanName = rawName:gsub("%s*%b()", ""):gsub("^%s*(.-)%s*$", "%1")
+        State.SelectedTravelTarget = cleanName
+        State.TravelTargetType = "Boss"
+        Hub.Notify("🎯 Target Selected", "Boss: " .. cleanName .. " (Toggle Travel above to go!)", 2)
+        if State.AutoTravelToTarget then
+            triggerTravelToSelected()
         end
-        Hub.Notify("⚠️ Boss Despawned", "The selected boss is no longer alive.", 2)
     end
 end)
 
@@ -1154,22 +1237,14 @@ local function getLiveNPCItems()
 end
 
 local liveNPCList = getLiveNPCItems()
-Hub.CreateList(tpTab, "Select NPC to Travel", liveNPCList, 140, false, false, function(selectedItem)
+Hub.CreateList(tpTab, "Select NPC", liveNPCList, 140, false, false, function(selectedItem)
     local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
-    local living = getLivingFolder()
-    if living and rawName ~= "" then
-        for _, ch in ipairs(living:GetChildren()) do
-            if ch:IsA("Model") and ch.Name:lower():find(rawName:lower(), 1, true) then
-                local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
-                if root then
-                    local targetCF = CFrame.new(root.Position + Vector3.new(0, 3, 0))
-                    Hub.Notify("👤 Travel", "Gliding to " .. ch.Name .. "...", 2)
-                    safeTeleportTo(targetCF, function()
-                        Hub.Notify("👤 Arrived", "Arrived at " .. ch.Name .. "!", 2)
-                    end)
-                    return
-                end
-            end
+    if rawName ~= "" then
+        State.SelectedTravelTarget = rawName
+        State.TravelTargetType = "NPC"
+        Hub.Notify("🎯 Target Selected", "NPC: " .. rawName .. " (Toggle Travel above to go!)", 2)
+        if State.AutoTravelToTarget then
+            triggerTravelToSelected()
         end
     end
 end)
@@ -1191,20 +1266,15 @@ local function getOnlinePlayerItems()
 end
 
 local onlinePlayerList = getOnlinePlayerItems()
-Hub.CreateList(tpTab, "Select Player to Travel", onlinePlayerList, 140, false, false, function(selectedItem)
+Hub.CreateList(tpTab, "Select Player", onlinePlayerList, 140, false, false, function(selectedItem)
     local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
-    local username = rawName:match("@([%w_]+)") or rawName
-    local targetPlr = Players:FindFirstChild(username)
-    local tChar = targetPlr and targetPlr.Character
-    local tRoot = tChar and (tChar:FindFirstChild("HumanoidRootPart") or tChar:FindFirstChild("Torso"))
-    if tRoot then
-        local targetCF = CFrame.new(tRoot.Position + Vector3.new(0, 3, 0))
-        Hub.Notify("🎮 Travel", "Gliding to " .. targetPlr.DisplayName .. "...", 2)
-        safeTeleportTo(targetCF, function()
-            Hub.Notify("🎮 Arrived", "Arrived at " .. targetPlr.DisplayName .. "!", 2)
-        end)
-    else
-        Hub.Notify("⚠️ Unavailable", "Player character not loaded or alive.", 2)
+    if rawName ~= "" and not rawName:find("No other players") then
+        State.SelectedTravelTarget = rawName
+        State.TravelTargetType = "Player"
+        Hub.Notify("🎯 Target Selected", "Player: " .. rawName .. " (Toggle Travel above to go!)", 2)
+        if State.AutoTravelToTarget then
+            triggerTravelToSelected()
+        end
     end
 end)
 
