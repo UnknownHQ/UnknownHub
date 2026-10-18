@@ -5385,7 +5385,7 @@ local function executeHalloweenWaterFruits(isManual)
         -- Auto-equip Watering Can if not currently equipped
         if canTool.Parent ~= char then
             pcall(function() hum:EquipTool(canTool) end)
-            task.wait(0.15)
+            task.wait(0.2)
         end
 
         local myFarm, hGarden = getHalloweenGardenFarm()
@@ -5413,7 +5413,9 @@ local function executeHalloweenWaterFruits(isManual)
             selectedPlantMap[s:lower()] = true
         end
 
-        local targetPositions = {}
+        local allTargets = {}
+        local unwateredTargets = {}
+
         for _, f in ipairs(farmsToScan) do
             local imp = f:FindFirstChild("Important")
             local plantsFolder = (imp and imp:FindFirstChild("Plants_Physical")) or f:FindFirstChild("Plants_Physical") or f:FindFirstChild("Plants")
@@ -5431,24 +5433,20 @@ local function executeHalloweenWaterFruits(isManual)
                     end
 
                     if shouldWater then
-                        -- 1. Scan for individual Fruit models & parts (ONLY if NOT fully grown)
-                        local fruitsFolder = plant:FindFirstChild("Fruits")
-                        if fruitsFolder then
-                            for _, fruit in ipairs(fruitsFolder:GetChildren()) do
-                                if not isFruitFullyGrown(fruit) then
-                                    local fruitPart = fruit:FindFirstChildWhichIsA("BasePart") or (fruit:IsA("BasePart") and fruit)
-                                    if fruitPart then
-                                        table.insert(targetPositions, fruitPart.Position)
-                                    end
-                                end
-                            end
-                        end
-                        -- 2. Include plant base / dirt root position (ONLY if plant is still growing)
-                        local plantInfo = getPlantGrowthInfo(plant)
-                        if plantInfo and plantInfo.isGrowing then
-                            local basePart = plant:FindFirstChild("Base") or plant:FindFirstChildWhichIsA("BasePart")
-                            if basePart then
-                                table.insert(targetPositions, basePart.Position)
+                        local basePart = plant:FindFirstChild("Base") or plant:FindFirstChildWhichIsA("BasePart")
+                        if basePart then
+                            local multi = tonumber(plant:GetAttribute("GrowRateMulti")) or 1
+                            local dist = (hrp.Position - basePart.Position).Magnitude
+                            local item = {
+                                plant = plant,
+                                pos = basePart.Position,
+                                multi = multi,
+                                dist = dist,
+                                name = plant.Name
+                            }
+                            table.insert(allTargets, item)
+                            if multi <= 1 then
+                                table.insert(unwateredTargets, item)
                             end
                         end
                     end
@@ -5456,10 +5454,14 @@ local function executeHalloweenWaterFruits(isManual)
             end
         end
 
-        if #targetPositions == 0 then
-            if isManual then Hub.Notify("💧 Watering Can", "All selected fruits & plants are already fully grown!", 3) end
+        if #allTargets == 0 then
+            if isManual then Hub.Notify("💧 Watering Can", "No matching Halloween plants found in farm!", 3) end
             return
         end
+
+        -- Prioritize unwatered plants (multi <= 1) to conserve uses; if all are already boosted, water all matching
+        local targetsToWater = (#unwateredTargets > 0) and unwateredTargets or allTargets
+        table.sort(targetsToWater, function(a, b) return a.dist < b.dist end)
 
         local rep = ReplicatedStorage
         local ge = rep:FindFirstChild("GameEvents")
@@ -5467,30 +5469,30 @@ local function executeHalloweenWaterFruits(isManual)
         if not waterRemote then return end
 
         if isManual then
-            Hub.Notify("💧 Watering Can", string.format("Watering %d target locations...", #targetPositions), 2)
+            Hub.Notify("💧 Watering Can", string.format("Watering %d plant location(s)...", #targetsToWater), 2)
         end
 
         local origCF = hrp.CFrame
         local wateredCount = 0
 
-        for _, pos in ipairs(targetPositions) do
+        for _, target in ipairs(targetsToWater) do
             if not hrp or not hrp.Parent then break end
 
             if canTool.Parent ~= char then
                 pcall(function() hum:EquipTool(canTool) end)
-                task.wait(0.05)
+                task.wait(0.1)
             end
 
-            -- Server requires proximity (< 20 studs from tool Handle to target position)
-            local dist = (hrp.Position - pos).Magnitude
-            if dist > 15 then
-                hrp.CFrame = CFrame.new(pos.X, pos.Y + 2.5, pos.Z)
-                task.wait(0.04)
-            end
+            local pos = target.pos
+            -- Position character directly above soil/plant base so server proximity & raycast pass 100%
+            hrp.CFrame = CFrame.new(pos.X, pos.Y + 2.5, pos.Z)
+            task.wait(0.08)
 
             pcall(function() waterRemote:FireServer(pos) end)
             wateredCount = wateredCount + 1
-            task.wait(0.04)
+
+            -- Wait for server animation debounce before moving to next plant
+            task.wait(0.25)
         end
 
         if hrp and origCF then
@@ -5499,7 +5501,7 @@ local function executeHalloweenWaterFruits(isManual)
         end
 
         if isManual then
-            Hub.Notify("💧 Watering Can", string.format("Successfully watered %d fruit & plant locations!", wateredCount), 3)
+            Hub.Notify("💧 Watering Can", string.format("Successfully watered %d plant(s)! (Growth Boost Active)", wateredCount), 3)
         end
     end)
 end
