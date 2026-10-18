@@ -238,6 +238,11 @@ end
 
 local function isFruitFullyGrown(fruit)
     if not fruit or not fruit.Parent then return true end
+    local sTime = workspace:GetServerTimeNow()
+    local doneTime = tonumber(fruit:GetAttribute("DoneGrowTime"))
+    if doneTime and sTime < doneTime then
+        return false
+    end
     local maxAge = tonumber(fruit:GetAttribute("MaxAge"))
     if not maxAge then
         local p = fruit.Parent and fruit.Parent.Parent
@@ -1921,12 +1926,8 @@ local State = {
     AutoSubmit_JackOLantern = false,
     AutoSubmit_HarvestReaper = false,
 
-    -- Halloween Garden: Auto Water Fruits & Plants (Using Watering Can at Target Positions)
-    AutoWaterFruits_Halloween = false,
-    HalloweenWater_Delay = 1.0,
-    HalloweenWater_MaxBatch = 3,
+    -- Halloween Garden: Water Selected Fruits & Plants (Using Watering Can at Target Positions)
     HalloweenWater_OnlyNonGrown = true,
-    HalloweenWater_Target = "Fruits & Plants",
 
     -- General
     MaxBackpackCapacity = 500,
@@ -5384,13 +5385,21 @@ local function executeHalloweenWaterFruits(isManual)
         -- Auto-equip Watering Can if not currently equipped
         if canTool.Parent ~= char then
             pcall(function() hum:EquipTool(canTool) end)
-            task.wait(0.1)
+            task.wait(0.15)
         end
 
         local myFarm, hGarden = getHalloweenGardenFarm()
         local farmsToScan = {}
         if myFarm then table.insert(farmsToScan, myFarm) end
         if hGarden and hGarden ~= myFarm then table.insert(farmsToScan, hGarden) end
+        if #farmsToScan == 0 then
+            local farmFolder = Workspace:FindFirstChild("Farm") or Workspace:FindFirstChild("Farms")
+            if farmFolder then
+                for _, f in ipairs(farmFolder:GetChildren()) do
+                    table.insert(farmsToScan, f)
+                end
+            end
+        end
 
         -- Plant filter selection from halloweenWaterPlantListObj
         local selectedPlants = getUIListMultipleVals(halloweenWaterPlantListObj, "All Halloween Plants")
@@ -5448,7 +5457,7 @@ local function executeHalloweenWaterFruits(isManual)
         end
 
         if #targetPositions == 0 then
-            if isManual then Hub.Notify("💧 Watering Can", "No matching plants or non-grown fruits found to water.", 3) end
+            if isManual then Hub.Notify("💧 Watering Can", "All selected fruits & plants are already fully grown!", 3) end
             return
         end
 
@@ -5457,16 +5466,40 @@ local function executeHalloweenWaterFruits(isManual)
         local waterRemote = ge and ge:FindFirstChild("Water_RE")
         if not waterRemote then return end
 
-        local maxPerCycle = isManual and #targetPositions or math.clamp(tonumber(State.HalloweenWater_MaxBatch) or 3, 1, 10)
+        if isManual then
+            Hub.Notify("💧 Watering Can", string.format("Watering %d target locations...", #targetPositions), 2)
+        end
+
+        local origCF = hrp.CFrame
         local wateredCount = 0
-        for i = 1, math.min(#targetPositions, maxPerCycle) do
-            local pos = targetPositions[i]
+
+        for _, pos in ipairs(targetPositions) do
+            if not hrp or not hrp.Parent then break end
+
+            if canTool.Parent ~= char then
+                pcall(function() hum:EquipTool(canTool) end)
+                task.wait(0.05)
+            end
+
+            -- Server requires proximity (< 20 studs from tool Handle to target position)
+            local dist = (hrp.Position - pos).Magnitude
+            if dist > 15 then
+                hrp.CFrame = CFrame.new(pos.X, pos.Y + 2.5, pos.Z)
+                task.wait(0.04)
+            end
+
             pcall(function() waterRemote:FireServer(pos) end)
             wateredCount = wateredCount + 1
+            task.wait(0.04)
+        end
+
+        if hrp and origCF then
+            hrp.CFrame = origCF
+            pcall(function() hrp.AssemblyLinearVelocity = Vector3.zero end)
         end
 
         if isManual then
-            Hub.Notify("💧 Watering Can", string.format("Watered %d fruit & plant locations!", wateredCount), 3)
+            Hub.Notify("💧 Watering Can", string.format("Successfully watered %d fruit & plant locations!", wateredCount), 3)
         end
     end)
 end
@@ -5485,20 +5518,6 @@ task.spawn(function()
             pcall(executeHarvestReaperSubmit)
         end
         task.wait(1.0)
-    end
-end)
-
--- Background Worker: Auto Water Fruits (Watering Can at Fruit Positions)
-task.spawn(function()
-    while true do
-        if _G.GAG_SESSION ~= currentSession then break end
-        if State.AutoWaterFruits_Halloween then
-            pcall(function() executeHalloweenWaterFruits(false) end)
-            local delayVal = math.clamp(tonumber(State.HalloweenWater_Delay) or 0.2, 0.05, 5.0)
-            task.wait(delayVal)
-        else
-            task.wait(0.5)
-        end
     end
 end)
 
@@ -7135,15 +7154,8 @@ Hub.CreateButton(eventTab, "✨ Submit All Offerings Now (Cauldron + Jack + Reap
     end)
 end)
 
--- 5. 💧 Auto Water Fruits (Watering Can at Fruit Positions)
-Hub.CreateSection(eventTab, "💧 Auto Water Fruits (Watering Can)")
-
-Hub.CreateToggle(eventTab, "💧 Auto Water Fruits & Crops", false, function(v)
-    if type(v) == "boolean" then State.AutoWaterFruits_Halloween = v else State.AutoWaterFruits_Halloween = not State.AutoWaterFruits_Halloween end
-    if State.AutoWaterFruits_Halloween then
-        task.spawn(function() executeHalloweenWaterFruits(false) end)
-    end
-end)
+-- 5. 💧 Water Selected Fruits & Plants (Watering Can)
+Hub.CreateSection(eventTab, "💧 Water Selected Fruits & Plants (Watering Can)")
 
 halloweenWaterPlantListObj = Hub.CreateList(eventTab, "Watering: Target Plants (Halloween)", buildHalloweenPlantsCatalog(), 220, false, true)
 
@@ -7154,16 +7166,7 @@ Hub.CreateButton(eventTab, "🔄 Refresh Halloween Plants List", function()
     end
 end)
 
-Hub.CreateTextBox(eventTab, "Watering Delay (0.2 - 5.0s)", "Enter water cycle delay (default: 1.0)", function(text)
-    local num = tonumber(text)
-    if num then State.HalloweenWater_Delay = math.clamp(num, 0.1, 10.0) end
-end)
-
-Hub.CreateSlider(eventTab, "Max Waters Per Cycle (Conserve Can)", 1, 10, 3, " fruits/plants", function(val)
-    State.HalloweenWater_MaxBatch = val
-end)
-
-Hub.CreateButton(eventTab, "💧 Water Selected Fruits & Plants Now (Manual)", function()
+Hub.CreateButton(eventTab, "💧 Water Selected Fruits & Plants Now", function()
     task.spawn(function() executeHalloweenWaterFruits(true) end)
 end)
 
