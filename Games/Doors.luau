@@ -103,6 +103,7 @@ local State = {
     AntiRubberband = true,
     Enable_Jumping = false,
     Enable_Sliding = false,
+    Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
     -- Main / Interactions
     Instant_Interact = false,
@@ -160,7 +161,8 @@ local State = {
     ESP_TextSize = 15,
     ESP_FillTransparency = 0.5,
     ESP_OutlineTransparency = 0,
-    ESP_RoomFilterMode = "Current & Next Room", -- "Current & Next Room", "Current Room Only", "All Rooms (Full Vision)"
+    ESP_OnlyCurrentRoom = true, -- Exclusively show doors and closets in current room only!
+    ESP_RoomFilterMode = "Current Room Only",
     ESP_ColorTheme = "Default Vibrant",
     ESP_Color_Doors = Color3.fromRGB(0, 215, 255),
     ESP_Color_DoorsLocked = Color3.fromRGB(255, 175, 30),
@@ -573,11 +575,10 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     local curRoom = isRoomRestricted and getCurrentRoomNumber() or nil
     local initiallyVisible = true
     if isRoomRestricted then
-        local mode = State.ESP_RoomFilterMode or "Current & Next Room"
-        if mode == "Current Room Only" then
-            initiallyVisible = (curRoom == nil or roomNumber == nil or roomNumber == curRoom or roomNumber == (curRoom - 1) or roomNumber == (curRoom + 1))
-        elseif mode == "Current & Next Room" then
-            initiallyVisible = (curRoom == nil or roomNumber == nil or math.abs(roomNumber - curRoom) <= 3)
+        if State.ESP_OnlyCurrentRoom or State.ESP_RoomFilterMode == "Current Room Only" then
+            initiallyVisible = (curRoom ~= nil and roomNumber ~= nil and roomNumber == curRoom)
+        elseif State.ESP_RoomFilterMode == "Current & Next Room" then
+            initiallyVisible = (curRoom == nil or roomNumber == nil or math.abs(roomNumber - curRoom) <= 1)
         else
             initiallyVisible = true
         end
@@ -629,28 +630,16 @@ task.spawn(function()
                 if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
                     removeEspFor(owner)
                 else
-                    -- 1. Room Visibility Filter (Configurable display mode: Current & Next Room, Current Room Only, or All Rooms)
+                    -- 1. Room Visibility Filter (Exclusively show doors and closets in current room only!)
                     if record.Category == "Doors" then
                         local shouldShow = State.Doors_ESP
                         if shouldShow then
-                            local isNear = false
-                            if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
-                                if (rootPos - record.Adornee.Position).Magnitude <= 90 then
-                                    isNear = true
-                                end
-                            end
-
-                            if isNear then
+                            if State.ESP_OnlyCurrentRoom or State.ESP_RoomFilterMode == "Current Room Only" then
+                                shouldShow = (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
+                            elseif State.ESP_RoomFilterMode == "Current & Next Room" then
+                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 1)
+                            else -- "All Rooms (Full Vision)"
                                 shouldShow = true
-                            else
-                                local mode = State.ESP_RoomFilterMode or "Current & Next Room"
-                                if mode == "Current Room Only" then
-                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
-                                elseif mode == "Current & Next Room" then
-                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 3)
-                                else -- "All Rooms (Full Vision)"
-                                    shouldShow = true
-                                end
                             end
                         end
 
@@ -674,24 +663,12 @@ task.spawn(function()
                     elseif record.Category == "HidingSpots" then
                         local shouldShow = State.HidingSpots_ESP
                         if shouldShow then
-                            local isNear = false
-                            if rootPos and record.Adornee and record.Adornee:IsA("BasePart") then
-                                if (rootPos - record.Adornee.Position).Magnitude <= 75 then
-                                    isNear = true
-                                end
-                            end
-
-                            if isNear then
+                            if State.ESP_OnlyCurrentRoom or State.ESP_RoomFilterMode == "Current Room Only" then
+                                shouldShow = (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
+                            elseif State.ESP_RoomFilterMode == "Current & Next Room" then
+                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 1)
+                            else -- "All Rooms (Full Vision)"
                                 shouldShow = true
-                            else
-                                local mode = State.ESP_RoomFilterMode or "Current & Next Room"
-                                if mode == "Current Room Only" then
-                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or record.RoomNumber == curRoom or record.RoomNumber == (curRoom - 1) or record.RoomNumber == (curRoom + 1))
-                                elseif mode == "Current & Next Room" then
-                                    shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 2)
-                                else -- "All Rooms (Full Vision)"
-                                    shouldShow = true
-                                end
                             end
                         end
 
@@ -979,7 +956,9 @@ local DECOR_BLACKLIST = {
     "painting", "clock", "cart", "luggage", "fireplace", "chandelier", "lamp",
     "plant", "pillar", "shelf", "carpet", "rug", "door", "window", "curtain",
     "bell", "plate", "cup", "bed", "lightstand", "light_fixture",
-    "lightfixture", "sconce", "hook", "fixture", "helpfullight", "wire", "pipe", "crate"
+    "lightfixture", "sconce", "hook", "fixture", "helpfullight", "wire", "pipe", "crate",
+    "shadow", "node", "spawn", "point", "waypoint", "decor", "dresser", "wardrobe",
+    "closet", "locker", "frame", "railing", "trim", "support", "beam", "plank"
 }
 
 local function isValidLootItem(model)
@@ -1500,13 +1479,13 @@ local function processEntity(entity)
 
     -- 5. Strictly reject any furniture, decor, room structure, fixtures, lights, or beds
     for _, blocked in ipairs(DECOR_BLACKLIST) do
-        if eLower == blocked or eLower:find("^" .. blocked) or eLower:find("_" .. blocked) or eLower:find(blocked .. "$") then
+        if eLower == blocked or eLower:find("^" .. blocked) or eLower:find("_" .. blocked) or eLower:find(blocked .. "$") or eLower:find(blocked) then
             return
         end
     end
 
     -- 6. CurrentRooms Descendant Check:
-    -- Roaming monsters in DOORS do NOT spawn as static children of room furniture.
+    -- Roaming monsters in DOORS do NOT spawn as static children of room furniture or rooms.
     -- If an object is inside CurrentRooms, it can ONLY be an entity if it is explicitly Snare, Giggle, FigureRig, Grumble, or Seek.
     local currentRooms = Workspace:FindFirstChild("CurrentRooms")
     if currentRooms and entity:IsDescendantOf(currentRooms) then
@@ -1516,11 +1495,16 @@ local function processEntity(entity)
         end
     end
 
-    -- 7. Strict Entity Identification against known monsters (eliminates false positives like lampshades, jackets, queen beds)
+    -- Real DOORS monsters are always Models (except floor Snare traps)
+    if not entity:IsA("Model") and not eLower:find("snare") then
+        return
+    end
+
+    -- 7. Strict Entity Identification against verified monsters only
     local cfg = nil
-    if eLower == "rush" or eLower:find("^rush") or eLower:find("rushmoving") or eLower:find("rushnew") then
+    if eLower == "rush" or eLower:find("rushmoving") or eLower:find("rushnew") or (eLower:find("rush") and entity:IsA("Model")) then
         cfg = { Name = "Rush", Category = "Rush" }
-    elseif eLower == "ambush" or eLower:find("^ambush") or eLower:find("ambushmoving") then
+    elseif eLower == "ambush" or eLower:find("ambushmoving") or (eLower:find("ambush") and entity:IsA("Model")) then
         cfg = { Name = "Ambush", Category = "Ambush" }
     elseif eLower:find("figure") then
         cfg = { Name = "Figure", Category = "Figure" }
@@ -1554,19 +1538,11 @@ local function processEntity(entity)
         cfg = { Name = "Glitch", Category = "Other" }
     elseif eLower == "void" then
         cfg = { Name = "Void", Category = "Other" }
-    elseif eLower == "shadow" then
-        cfg = { Name = "Shadow", Category = "Other" }
-    elseif eLower == "sally" then
+    elseif eLower == "sally" and entity:IsA("Model") then
         cfg = { Name = "Sally", Category = "Other" }
-    elseif eLower == "jack" then
+    elseif eLower == "jack" and entity:IsA("Model") then
         cfg = { Name = "Jack", Category = "Other" }
-    elseif eLower == "blitz" or eLower == "depth" or eLower == "silence" or eLower == "greed" then
-        cfg = { Name = entity.Name, Category = "Other" }
     elseif eLower:find("nextbot") then
-        cfg = { Name = entity.Name, Category = "Other" }
-    elseif eLower == "entity" or eLower:find("^entity") or eLower:find("entity part") or eLower:find("entitypart") or eLower:find("entity_part") or (eLower == "part" and entity.Parent and entity.Parent.Name:lower():find("entity")) then
-        cfg = { Name = entity.Name, Category = "Other" }
-    elseif (entity.Parent and entity.Parent.Name == "LiveEntities") or eLower:find("^monster") then
         cfg = { Name = entity.Name, Category = "Other" }
     end
 
@@ -1603,7 +1579,7 @@ local function processEntity(entity)
         return
     end
 
-    local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChild("Root") or entity:FindFirstChild("Core") or entity:FindFirstChildWhichIsA("BasePart", true)))
+    local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChild("RushNew") or entity:FindFirstChild("Root") or entity:FindFirstChild("Core") or entity:FindFirstChildWhichIsA("BasePart", true)))
         or (entity:IsA("BasePart") and entity)
 
     if targetPart then
@@ -1625,6 +1601,12 @@ local function processEntity(entity)
             if roundedCube then
                 table.insert(extraVisuals, roundedCube)
                 highlightTarget = roundedCube
+            end
+            if targetPart:IsA("BasePart") then
+                local box = createBoxAdornment(targetPart, entityColor)
+                if box then
+                    table.insert(extraVisuals, box)
+                end
             end
         else
             -- 3D / BasePart Entity: Add guaranteed AlwaysOnTop BoxHandleAdornment so it shines through walls even on single parts
@@ -2453,7 +2435,6 @@ local function startSlide()
     local mgTable = getMainGameTable()
     if mgTable then
         mgTable.sliding = true
-        mgTable.crouching = true
         if mgTable.animations and mgTable.animations.Slide then
             pcall(function() mgTable.animations.Slide:Play(0.1, 1, 1.25) end)
         end
@@ -2469,10 +2450,6 @@ end
 local function stopSlide()
     if not isSlidingActive then return end
     isSlidingActive = false
-
-    local char = getChar()
-    local root = getRoot()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
 
     local mgTable = getMainGameTable()
     if mgTable then
@@ -2507,6 +2484,20 @@ RunService.Heartbeat:Connect(function()
             hum.WalkSpeed = targetSpeed
         end
 
+        -- Instant Responsive Movement (No Slip / Zero Acceleration Drift):
+        -- When walking, horizontal velocity is immediately redirected into the current MoveDirection.
+        -- When changing directions, old momentum is extinguished instantly without ice-skate slipping.
+        -- When keys are released, horizontal motion stops on a dime. Vertical velocity (Y) is preserved for natural jumping/gravity.
+        if State.Instant_Movement and not isSlidingActive then
+            local moveDir = hum.MoveDirection
+            local curY = root.AssemblyLinearVelocity.Y
+            if moveDir.Magnitude > 0.05 then
+                root.AssemblyLinearVelocity = Vector3.new(moveDir.X * targetSpeed, curY, moveDir.Z * targetSpeed)
+            else
+                root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
+            end
+        end
+
         -- Ensure opened doors in current and next room remain 100% collision-free
         local currentRoomNum = getCurrentRoomNumber()
         local currentRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -2535,7 +2526,7 @@ RunService.Heartbeat:Connect(function()
     -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
     if isSlidingActive and not hiding then
         local elapsed = os.clock() - slideStartTime
-        if elapsed > 1.25 then
+        if elapsed > 1.25 or hum.MoveDirection.Magnitude < 0.05 then
             stopSlide()
         else
             local targetSpeed = math.max(State.WalkSpeed_Value or 35, 42)
@@ -2594,28 +2585,23 @@ UserInputService.JumpRequest:Connect(function()
     if State.Enable_Jumping then
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum and hum:GetState() ~= Enum.HumanoidStateType.Dead then
-            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+        if hum and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead then
+            if not hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
+                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+            end
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
         end
     end
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.Space then
-        if State.Enable_Jumping then
-            local char = getChar()
-            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-            if hum and hum:GetState() ~= Enum.HumanoidStateType.Dead then
-                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end
-    end
-
     if not gameProcessed and (input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftControl) then
         if State.Enable_Sliding then
-            startSlide()
+            local char = getChar()
+            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hum and hum.MoveDirection.Magnitude > 0.15 then
+                startSlide()
+            end
         end
     end
 end)
@@ -2636,44 +2622,17 @@ pcall(function()
         and pGui.MainUI.MainFrame.MobileButtons:FindFirstChild("CrouchButton")
     if crBtn then
         crBtn.InputBegan:Connect(function()
-            if State.Enable_Sliding then startSlide() end
+            if State.Enable_Sliding then
+                local char = getChar()
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                if hum and hum.MoveDirection.Magnitude > 0.15 then
+                    startSlide()
+                end
+            end
         end)
         crBtn.InputEnded:Connect(function()
             if isSlidingActive then stopSlide() end
         end)
-    end
-end)
-
-RunService.Heartbeat:Connect(function()
-    if _G.DOORS_SESSION ~= currentSession then return end
-    if State.Enable_Jumping then
-        local char = getChar()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then
-            if not hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
-                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-            end
-            if hum.JumpPower ~= 50 then hum.JumpPower = 50 end
-            if hum.JumpHeight ~= 7.2 then hum.JumpHeight = 7.2 end
-        end
-    end
-
-    if State.Enable_Sliding and isSlidingActive then
-        local char = getChar()
-        local root = getRoot()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if root and hum and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead then
-            local elapsed = os.clock() - slideStartTime
-            if elapsed > 2.0 or hum.MoveDirection.Magnitude < 0.05 then
-                stopSlide()
-            else
-                local decay = math.clamp(1 - (elapsed / 2.3), 0.55, 1)
-                local slideSpeed = math.max(State.WalkSpeed_Value or 35, 42) * decay
-                root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * slideSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * slideSpeed)
-            end
-        else
-            stopSlide()
-        end
     end
 end)
 
@@ -2697,7 +2656,7 @@ local function applyPromptModifications(prompt)
     local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
 
     if State.Instant_Interact then
-        prompt.HoldDuration = 0.01
+        prompt.HoldDuration = 0
     else
         local orig = prompt:GetAttribute("OrigHold")
         if orig ~= nil then prompt.HoldDuration = orig end
@@ -2721,6 +2680,42 @@ local function applyPromptModifications(prompt)
         if orig ~= nil then prompt.MaxActivationDistance = orig end
     end
 end
+
+-- Suppress and dismiss any lingering circular hold progress GUI in PlayerGui on Instant Interact
+pcall(function()
+    local pps = game:GetService("ProximityPromptService")
+    pps.PromptButtonHoldBegan:Connect(function(prompt, player)
+        if player == LocalPlayer and State.Instant_Interact then
+            pcall(function()
+                prompt:InputHoldBegin()
+                prompt:InputHoldEnd()
+            end)
+        end
+    end)
+    pps.PromptTriggered:Connect(function(prompt, player)
+        if player == LocalPlayer and State.Instant_Interact then
+            task.defer(function()
+                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+                if pGui then
+                    for _, g in ipairs(pGui:GetChildren()) do
+                        if g:IsA("ScreenGui") then
+                            for _, obj in ipairs(g:GetDescendants()) do
+                                if obj:IsA("ImageLabel") or obj:IsA("Frame") then
+                                    local n = obj.Name:lower()
+                                    if n:find("hold") or n:find("progress") or n:find("circle") then
+                                        if obj.Visible then
+                                            obj.Visible = false
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end)
 
 local function refreshAllPrompts()
     for _, desc in ipairs(Workspace:GetDescendants()) do
@@ -3073,6 +3068,11 @@ end)
 
 Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
     State.AntiRubberband = v
+end)
+
+Hub.CreateToggle(mainTab, "Instant Responsive Turning (No Slip)", State.Instant_Movement, function(v)
+    State.Instant_Movement = v
+    Hub.Notify("Movement", v and "Instant Turning: ON (Zero ice-skate slipping)" or "Instant Turning: OFF", 2)
 end)
 
 Hub.CreateToggle(mainTab, "Enable Jumping", State.Enable_Jumping, function(v)
