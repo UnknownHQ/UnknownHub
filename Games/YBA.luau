@@ -104,22 +104,27 @@ assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub instance")
 -- =========================================================================
 local ybaItemsCatalog = {
     "All Items",
-    "Mysterious Arrow",
-    "Rokakaka",
-    "Pure Rokakaka",
     "Lucky Arrow",
+    "Lucky Stone Mask",
+    "Pure Rokakaka",
+    "Rokakaka",
+    "Mysterious Arrow",
+    "Requiem Arrow",
     "Rib Cage of the Saint's Corpse",
+    "DIO's Diary",
     "Steel Ball",
     "Quinton's Glove",
     "Ancient Scroll",
     "Stone Mask",
-    "DIO's Diary",
-    "Requiem Arrow",
     "Gold Coin",
     "Diamond",
-    "Zepellin's Headband",
     "Caesar's Headband",
-    "Clackers"
+    "Zeppeli's Hat",
+    "Clackers",
+    "Yellow Candy",
+    "Red Candy",
+    "Green Candy",
+    "Blue Candy"
 }
 
 local ybaStandsCatalog = {
@@ -157,21 +162,54 @@ local ybaStandsCatalog = {
     "Soft & Wet"
 }
 
-local ybaQuestsCatalog = {
-    "Thugs (Level 1+)",
-    "Corrupt Police (Level 5+)",
-    "Zombie Henchmen (Level 10+)",
-    "Vampires (Level 15+)",
-    "Leaky Eye Luca",
-    "Bucciarati (Level 20+)",
-    "Fugo (Level 25+)",
-    "Pesci (Level 30+)",
-    "Ghiaccio (Level 35+)",
-    "Diavolo (Level 40+)",
-    "DIO (Level 45+)",
-    "Jotaro Kujo (P3)",
-    "Jotaro Kujo (P6)"
+local ybaNPCsCatalog = {
+    "Thug [Lvl. 1+]",
+    "Security Guard [Lvl. 1+]",
+    "Corrupt Police [Lvl. 5+]",
+    "Alpha Thug [Lvl. 5+]",
+    "Zombie Henchman [Lvl. 10+]",
+    "Vampire [Lvl. 15+]",
+    "Leaky Eye Luca [Lvl. 20+ Boss]",
+    "Bucciarati [Lvl. 20+ Boss]",
+    "Fugo [Lvl. 25+ Boss]",
+    "Pesci [Lvl. 30+ Boss]",
+    "Ghiaccio [Lvl. 35+ Boss]",
+    "Diavolo [Lvl. 40+ Boss]",
+    "DIO [Lvl. 45+ Boss]",
+    "Jotaro [Lvl. 50+ Boss]",
+    "Anasui [Lvl. 50+ Boss]",
+    "Yoshikage Kira [Boss]",
+    "Jotaro Kujo [Heaven Boss]",
+    "Heaven Ascension DIO [Heaven Boss]"
 }
+
+local function detectAvailableAbilities()
+    local abilities = {
+        "Punch / M1",
+        "Heavy Punch (M2)",
+        "Stand Barrage (E)",
+        "Barrage Finisher (R)"
+    }
+    local seen = {}
+    for _, ab in ipairs(abilities) do seen[ab] = true end
+
+    pcall(function()
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local hud = pGui and pGui:FindFirstChild("HUD")
+        if hud then
+            for _, desc in ipairs(hud:GetDescendants()) do
+                if desc:IsA("TextLabel") and desc.Name == "SkillName" and desc.Text ~= "" then
+                    local name = desc.Text
+                    if not seen[name] then
+                        seen[name] = true
+                        table.insert(abilities, name)
+                    end
+                end
+            end
+        end
+    end)
+    return abilities
+end
 
 local ybaLocations = {
     ["Merchant"] = Vector3.new(-245, 34, -420),
@@ -193,27 +231,27 @@ local ybaLocations = {
 -- State Configuration
 -- =========================================================================
 local State = {
-    -- Combat
-    MobAura = false,
-    AuraRange = 15,
-    FastAttack = false,
-    AutoHeavy = false,
-    AutoBarrage = false,
-    AntiRagdoll = false,
-    AntiStun = false,
-    StandDefense = false,
+    -- Combat & NPC Auto Farm
+    AutoFarmNPC = false,
+    SelectedNPC = "Thug",
+    SafeFarmDistance = 7,
+    WhitelistAbilities = {
+        ["Punch / M1"] = true,
+        ["Heavy Punch (M2)"] = true,
+        ["Stand Barrage (E)"] = true,
+        ["Barrage Finisher (R)"] = true
+    },
 
     -- Auto Quest & Farm
     AutoFarmQuests = false,
     SelectedQuest = "Thugs (Level 1+)",
-    SafeFarmDistance = 7,
     AutoClaimQuest = true,
     AutoSkillPoints = false,
 
     -- Items & Farm
     AutoCollectItems = false,
     CollectItemDelay = 0.5,
-    NotifyLuckyArrow = true,
+    PrioritizeRareItems = true,
     ItemWhitelist = { ["All Items"] = true },
 
     -- SBR
@@ -243,7 +281,7 @@ local State = {
 
     -- Teleport & Anti-Kick Safety
     SafeTeleportMode = true,
-    SafeTravelSpeed = 150
+    SafeTravelSpeed = 300
 }
 
 -- =========================================================================
@@ -297,74 +335,55 @@ end
 
 local function getSpawnedItems()
     local items = {}
-    local spawnsFolder = Workspace:FindFirstChild("Item_Spawns") or Workspace:FindFirstChild("ItemSpawns") or Workspace:FindFirstChild("Items")
-    if spawnsFolder then
-        for _, obj in ipairs(spawnsFolder:GetDescendants()) do
-            if obj:IsA("TouchTransmitter") and obj.Parent and obj.Parent:IsA("BasePart") then
-                local toolModel = obj.Parent.Parent or obj.Parent
-                table.insert(items, {
-                    name = toolModel.Name,
-                    instance = toolModel,
-                    part = obj.Parent,
-                    pos = obj.Parent.Position
-                })
-            elseif obj:IsA("Tool") or (obj:IsA("Model") and obj:FindFirstChildWhichIsA("TouchTransmitter", true)) then
-                local rootPart = obj:FindFirstChildWhichIsA("BasePart")
-                if rootPart then
-                    table.insert(items, {
-                        name = obj.Name,
-                        instance = obj,
-                        part = rootPart,
-                        pos = rootPart.Position
-                    })
-                end
-            end
-        end
-    end
-    -- Fallback scan on direct workspace objects
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj:IsA("Tool") and obj:FindFirstChildWhichIsA("BasePart") then
-            table.insert(items, {
-                name = obj.Name,
-                instance = obj,
-                part = obj:FindFirstChildWhichIsA("BasePart"),
-                pos = obj:FindFirstChildWhichIsA("BasePart").Position
-            })
-        end
-    end
-    return items
-end
+    local seen = {}
 
--- =========================================================================
--- Combat & Farm Automation Logic
--- =========================================================================
-local function executeMobAura()
-    local root = getRoot()
-    local hum = getHumanoid()
-    if not root or not hum or hum.Health <= 0 then return end
-
-    local rem = getRemoteEvent()
-    local living = getLivingFolder()
-    local char = getCharacter()
-
-    for _, entity in ipairs(living:GetChildren()) do
-        if entity ~= char and entity:IsA("Model") then
-            local eHum = entity:FindFirstChildOfClass("Humanoid")
-            local eRoot = entity:FindFirstChild("HumanoidRootPart") or entity:FindFirstChild("Torso")
-            if eHum and eHum.Health > 0 and eRoot then
-                local dist = (root.Position - eRoot.Position).Magnitude
-                if dist <= State.AuraRange then
-                    if rem then
-                        pcall(function()
-                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.E })
-                            rem:FireServer("Punch", "Light")
-                            rem:FireServer("Attack", "M1")
-                        end)
+    -- 1. Primary method: Read exact spawned items and coordinates from ReplicatedFirst.ItemSpawn closures
+    pcall(function()
+        local itemSpawnScript = game:GetService("ReplicatedFirst"):FindFirstChild("ItemSpawn")
+        if itemSpawnScript then
+            for _, fn in ipairs(getgc()) do
+                if type(fn) == "function" and islclosure(fn) and rawget(getfenv(fn), "script") == itemSpawnScript then
+                    local info = debug.getinfo(fn)
+                    if info.linedefined == 82 then
+                        local ups = getupvalues(fn)
+                        local cd = ups[4]
+                        local cf = ups[5]
+                        if typeof(cd) == "Instance" and cd.Parent and typeof(cf) == "CFrame" then
+                            local itemName = (cd.ObjectText ~= "" and cd.ObjectText) or cd.Name
+                            if not seen[cd] then
+                                seen[cd] = true
+                                table.insert(items, {
+                                    name = itemName,
+                                    prompt = cd,
+                                    part = cd:FindFirstAncestorWhichIsA("BasePart"),
+                                    cf = cf,
+                                    pos = cf.Position
+                                })
+                            end
+                        end
                     end
                 end
             end
         end
+    end)
+
+    -- 2. Secondary fallback: ProximityPrompts under Workspace or Item_Spawns
+    if #items == 0 then
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            if obj:IsA("ProximityPrompt") and obj.ActionText == "Pick Up" and not seen[obj] then
+                seen[obj] = true
+                local name = (obj.ObjectText ~= "" and obj.ObjectText) or obj.Name
+                table.insert(items, {
+                    name = name,
+                    prompt = obj,
+                    part = nil,
+                    pos = Vector3.zero
+                })
+            end
+        end
     end
+
+    return items
 end
 
 -- =========================================================================
@@ -424,7 +443,7 @@ local function safeTeleportTo(targetCF, callback)
     isTraveling = true
     cancelTravelFlag = false
 
-    local targetSpeed = math.clamp(tonumber(State.SafeTravelSpeed) or 150, 40, 300)
+    local targetSpeed = math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
 
     -- Anchor-free zero-gravity float
     local bv = Instance.new("BodyVelocity")
@@ -478,8 +497,8 @@ local function safeTeleportTo(targetCF, callback)
                 local dt = RunService.Heartbeat:Wait()
                 if cancelTravelFlag or not isTraveling then break end
 
-                -- Step size calculated per frame according to chosen travel speed (capped safely to 14 studs/frame)
-                local maxStep = math.clamp(targetSpeed * dt, 2.0, 14.0)
+                -- Step size calculated per frame according to chosen travel speed
+                local maxStep = math.clamp(targetSpeed * dt, 2.0, 25.0)
                 local stepDist = math.min(remDist, maxStep)
                 local dir = toTarget.Unit
 
@@ -534,15 +553,26 @@ local function executeAutoCollectItems()
                 end
             end
         end
-        if shouldCollect and item.part and item.part.Parent then
+        if shouldCollect and item.prompt and item.prompt.Parent then
             table.insert(candidateItems, item)
         end
     end
 
-    -- Sort candidate items so closest are collected first
+    local function isRareItem(name)
+        local n = name:lower()
+        return n:find("lucky", 1, true) or n:find("requiem", 1, true) or n:find("pure", 1, true) or n:find("rib", 1, true) or n:find("diary", 1, true)
+    end
+
+    -- Sort candidates: Prioritize rare items first if enabled, then sort by distance
     table.sort(candidateItems, function(a, b)
         local currRoot = getRoot()
         local pos = currRoot and currRoot.Position or Vector3.zero
+        if State.PrioritizeRareItems then
+            local aRare = isRareItem(a.name)
+            local bRare = isRareItem(b.name)
+            if aRare and not bRare then return true end
+            if bRare and not aRare then return false end
+        end
         return (pos - a.pos).Magnitude < (pos - b.pos).Magnitude
     end)
 
@@ -550,36 +580,41 @@ local function executeAutoCollectItems()
         if not State.AutoCollectItems then break end
         if _G.YBA_SESSION ~= currentSession then break end
         local currRoot = getRoot()
-        if currRoot and item.part and item.part.Parent then
-            if State.NotifyLuckyArrow and item.name:lower():find("lucky", 1, true) then
-                Hub.Notify("⭐ LUCKY ARROW DETECTED!", "Collecting Lucky Arrow at: " .. tostring(item.pos), 4)
+        if currRoot and item.prompt and item.prompt.Parent then
+            if isRareItem(item.name) then
+                Hub.Notify("⭐ RARE ITEM DETECTED!", "Sniping " .. item.name .. "...", 3)
             end
 
-            local targetCF = item.part.CFrame + Vector3.new(0, 1.5, 0)
+            local targetCF = (item.cf and item.cf + Vector3.new(0, 1.5, 0)) or (item.pos and CFrame.new(item.pos + Vector3.new(0, 1.5, 0))) or item.prompt.Parent.CFrame
             local dist = (currRoot.Position - targetCF.Position).Magnitude
 
-            if dist > 15 and State.SafeTeleportMode then
+            if dist > 10 and State.SafeTeleportMode then
                 local arrived = false
                 safeTeleportTo(targetCF, function() arrived = true end)
-                local waitTimeout = (dist / math.clamp(tonumber(State.SafeTravelSpeed) or 150, 40, 300)) + 2.0
+                local waitTimeout = (dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)) + 2.0
                 local startT = tick()
                 while not arrived and (tick() - startT < waitTimeout) do
                     if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then
                         cancelCurrentTravel()
                         break
                     end
-                    task.wait(0.1)
+                    task.wait(0.05)
                 end
             else
                 currRoot.CFrame = targetCF
             end
 
             currRoot = getRoot()
-            if currRoot and item.part and item.part.Parent then
+            if currRoot and item.prompt and item.prompt.Parent then
                 pcall(function()
-                    firetouchinterest(currRoot, item.part, 0)
-                    task.wait(0.05)
-                    firetouchinterest(currRoot, item.part, 1)
+                    -- Fire prompt's RemoteEvent directly or trigger prompt
+                    local rem = item.prompt:FindFirstChildOfClass("RemoteEvent")
+                    if rem then
+                        rem:FireServer()
+                    end
+                    if fireproximityprompt then
+                        fireproximityprompt(item.prompt, 0)
+                    end
                 end)
             end
 
@@ -591,13 +626,13 @@ end
 -- =========================================================================
 -- Background Worker Loops
 -- =========================================================================
--- 1. Combat & Mob Aura Loop
+-- 1. NPC Auto Farm Worker Loop (Placeholder - logic to be added later)
 task.spawn(function()
     while true do
         if _G.YBA_SESSION ~= currentSession then break end
-        if State.MobAura then
-            pcall(executeMobAura)
-            task.wait(0.12)
+        if State.AutoFarmNPC then
+            -- Placeholder: user requested to prepare UI/state first, logic will be implemented next
+            task.wait(1.0)
         else
             task.wait(0.5)
         end
@@ -654,35 +689,33 @@ local espTab    = Hub.CreateTab("Visuals", { Icon = "👁️", Size = 18, Color 
 local playerTab = Hub.CreateTab("Player", { Icon = "👤", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(241, 196, 15) })
 
 -- -------------------------------------------------------------------------
--- 1. ⚔️ Combat Tab
+-- 1. ⚔️ Combat & Auto Farm Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(combatTab, "⚔️ Mob Aura & Auto Combat")
+Hub.CreateSection(combatTab, "⚔️ NPC Auto Farm (Setup)")
 
-Hub.CreateToggle(combatTab, "⚔️ Mob Aura (Light Attack)", false, function(v)
-    State.MobAura = v
+Hub.CreateToggle(combatTab, "⚔️ Auto Farm Selected NPC (Coming Soon)", false, function(v)
+    State.AutoFarmNPC = v
+    if v then
+        Hub.Notify("⚔️ Auto Farm", "Auto Farm toggle activated (Placeholder - attack engine coming in next update!)", 4)
+    end
 end)
 
-Hub.CreateSlider(combatTab, "Aura Attack Range", 5, 30, 15, " studs", function(val)
-    State.AuraRange = val
+Hub.CreateDropdown(combatTab, "Target NPC", ybaNPCsCatalog, 1, function(selected)
+    State.SelectedNPC = selected
 end)
 
-Hub.CreateToggle(combatTab, "⚡ Auto Heavy Punch (M2)", false, function(v)
-    State.AutoHeavy = v
+Hub.CreateSlider(combatTab, "Safe Overhead Farm Height", 3, 20, 7, " studs", function(val)
+    State.SafeFarmDistance = val
 end)
 
-Hub.CreateToggle(combatTab, "🥊 Auto Barrage (E)", false, function(v)
-    State.AutoBarrage = v
-end)
+Hub.CreateSection(combatTab, "🥋 Ability Whitelist")
 
-Hub.CreateSection(combatTab, "🛡️ Defense & Status Buffs")
-
-Hub.CreateToggle(combatTab, "🛡️ Anti-Ragdoll", false, function(v)
-    State.AntiRagdoll = v
-end)
-
-Hub.CreateToggle(combatTab, "✨ Anti-Stun & Anti-Freeze", false, function(v)
-    State.AntiStun = v
-end)
+local detectedAbilities = detectAvailableAbilities()
+local abilityCatalogItems = {}
+for _, ab in ipairs(detectedAbilities) do
+    table.insert(abilityCatalogItems, {Name = ab})
+end
+Hub.CreateList(combatTab, "Whitelisted Attacks (Multi-Select)", abilityCatalogItems, 180, false, true)
 
 -- -------------------------------------------------------------------------
 -- 2. 📜 Quests & Farm Tab
@@ -693,7 +726,7 @@ Hub.CreateToggle(questTab, "📜 Auto Farm Selected Quest", false, function(v)
     State.AutoFarmQuests = v
 end)
 
-Hub.CreateDropdown(questTab, "Target Quest", ybaQuestsCatalog, 1, function(selected)
+Hub.CreateDropdown(questTab, "Target Quest", ybaNPCsCatalog, 1, function(selected)
     State.SelectedQuest = selected
 end)
 
@@ -718,13 +751,8 @@ Hub.CreateSlider(itemsTab, "Item Collection Delay", 0.1, 2.0, 0.5, "s", function
     State.CollectItemDelay = val
 end)
 
-Hub.CreateToggle(itemsTab, "🌟 Lucky Arrow Alert & Auto-Snipe", true, function(v)
-    State.NotifyLuckyArrow = v
-end)
-
-Hub.CreateButton(itemsTab, "⚡ Scan & Collect All Spawned Items Now", function()
-    task.spawn(executeAutoCollectItems)
-    Hub.Notify("💎 Item Sniper", "Scanning map for spawned items...", 3)
+Hub.CreateToggle(itemsTab, "🌟 Prioritize Rare Items (Lucky Arrow, Diary, Ribs)", true, function(v)
+    State.PrioritizeRareItems = v
 end)
 
 local itemCatalogItems = {}
@@ -753,7 +781,7 @@ Hub.CreateButton(sbrTab, "🏁 Teleport to Stage 1 Finish", function()
     local root = getRoot()
     local dist = root and (root.Position - targetCF.Position).Magnitude or 0
     if State.SafeTeleportMode and dist > 15 then
-        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 150, 40, 300)
+        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
         Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Stage 1 (%.1fs)...", estTime), 3)
     end
     safeTeleportTo(targetCF, function()
@@ -766,7 +794,7 @@ Hub.CreateButton(sbrTab, "🏆 Teleport to Final Finish Line", function()
     local root = getRoot()
     local dist = root and (root.Position - targetCF.Position).Magnitude or 0
     if State.SafeTeleportMode and dist > 15 then
-        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 150, 40, 300)
+        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
         Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Final Finish Line (%.1fs)...", estTime), 3)
     end
     safeTeleportTo(targetCF, function()
@@ -810,7 +838,7 @@ Hub.CreateToggle(tpTab, "🛡️ Anti-Kick Safe Glide Mode", true, function(v)
     end
 end)
 
-Hub.CreateSlider(tpTab, "Safe Glide Speed (studs/s)", 40, 300, 150, " studs/s", function(val)
+Hub.CreateSlider(tpTab, "Safe Glide Speed (studs/s)", 40, 600, 300, " studs/s", function(val)
     State.SafeTravelSpeed = val
 end)
 
@@ -832,7 +860,7 @@ for _, locName in ipairs(locNames) do
         local root = getRoot()
         local dist = root and (root.Position - targetCF.Position).Magnitude or 0
         if State.SafeTeleportMode and dist > 15 then
-            local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 150, 40, 300)
+            local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
             Hub.Notify("📍 Safe Travel", string.format("Gliding safely to %s (approx %.1fs)...", locName, estTime), 3)
         end
         safeTeleportTo(targetCF, function()
