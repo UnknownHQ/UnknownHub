@@ -786,6 +786,14 @@ task.spawn(function()
                 -- Ensure Stand is summoned if player has one
                 local rem = getRemoteEvent()
                 if rem then
+                    local stand = getPlayerStand()
+                    -- If stand exists but not manifested, press Q to summon
+                    if not stand then
+                        pcall(function()
+                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.Q })
+                        end)
+                    end
+
                     -- Attack rotation using whitelisted abilities
                     local now = tick()
                     local didSpecial = false
@@ -804,18 +812,18 @@ task.spawn(function()
                         didSpecial = true
                     elseif State.WhitelistAbilities["Heavy Punch (M2)"] and (now - lastM2 >= 2.5) then
                         pcall(function()
-                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.R })
+                            rem:FireServer("InputBegan", { ["Input"] = Enum.UserInputType.MouseButton2 })
                             rem:FireServer("Attack", "M2")
                         end)
                         lastM2 = now
                         didSpecial = true
                     end
 
-                    -- If abilities on cooldown or punch is whitelisted, perform rapid light attacks
+                    -- Standard Light Attack (M1) when specials are on cooldown
                     if not didSpecial or State.WhitelistAbilities["Punch / M1"] then
-                        if (now - lastM1 >= 0.18) then
+                        if (now - lastM1 >= 0.28) then
                             pcall(function()
-                                rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.E })
+                                rem:FireServer("InputBegan", { ["Input"] = Enum.UserInputType.MouseButton1 })
                                 rem:FireServer("Punch", "Light")
                                 rem:FireServer("Attack", "M1")
                             end)
