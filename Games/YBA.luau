@@ -243,7 +243,7 @@ local State = {
 
     -- Teleport & Anti-Kick Safety
     SafeTeleportMode = true,
-    SafeTravelSpeed = 30
+    SafeTravelSpeed = 60
 }
 
 -- =========================================================================
@@ -416,12 +416,11 @@ local function safeTeleportTo(targetCF, callback)
         return
     end
 
-    -- 2. Anti-Kick Safe Glide Mode (Tweening at safe speed, within sprint limits)
+    -- 2. Anti-Kick Fast Overhead Glide Mode (Glides above obstacles, descends safely at destination)
     isTraveling = true
-    local speed = math.clamp(tonumber(State.SafeTravelSpeed) or 30, 15, 45)
-    local travelTime = math.clamp(dist / speed, 0.2, 90)
+    local speed = math.clamp(tonumber(State.SafeTravelSpeed) or 60, 20, 100)
 
-    -- Temporary BodyVelocity to float and eliminate gravity/falling
+    -- Floating BodyVelocity to prevent falling or gravity glitches
     local bv = Instance.new("BodyVelocity")
     bv.Name = "Unknown_SafeGlide_BV"
     bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
@@ -429,7 +428,7 @@ local function safeTeleportTo(targetCF, callback)
     bv.Parent = root
     currentTravelBV = bv
 
-    -- Temporary Noclip so character never gets stuck on buildings/terrain
+    -- Active Noclip to pass cleanly through geometry
     local noclipConn = RunService.Stepped:Connect(function()
         if char and char.Parent then
             for _, p in ipairs(char:GetDescendants()) do
@@ -441,31 +440,87 @@ local function safeTeleportTo(targetCF, callback)
     end)
     currentTravelNoclip = noclipConn
 
-    local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear)
-    local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCF})
-    currentTravelTween = tween
+    -- If traveling over 45 studs, glide 12 studs overhead to skip building collisions and terrain snagging
+    if dist > 45 then
+        local highStartCF = root.CFrame + Vector3.new(0, 12, 0)
+        local highTargetCF = CFrame.new(targetCF.Position + Vector3.new(0, 12, 0), targetCF.Position + targetCF.LookVector + Vector3.new(0, 12, 0))
+        local horizontalDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(targetCF.Position.X, 0, targetCF.Position.Z)).Magnitude
+        local glideTime = math.clamp(horizontalDist / speed, 0.25, 45)
 
-    tween.Completed:Connect(function(playbackState)
-        if currentTravelNoclip == noclipConn then
-            noclipConn:Disconnect()
-            currentTravelNoclip = nil
-        end
-        if currentTravelBV == bv then
-            bv:Destroy()
-            currentTravelBV = nil
-        end
-        if root and root.Parent then
-            pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
-        end
-        isTraveling = false
-        currentTravelTween = nil
+        -- Quick lift
+        root.CFrame = highStartCF
 
-        if playbackState == Enum.PlaybackState.Completed and callback then
-            callback()
-        end
-    end)
+        local tweenInfo = TweenInfo.new(glideTime, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(root, tweenInfo, {CFrame = highTargetCF})
+        currentTravelTween = tween
 
-    tween:Play()
+        tween.Completed:Connect(function(playbackState)
+            if playbackState == Enum.PlaybackState.Completed then
+                -- Final descent to ground target
+                local landTween = TweenService:Create(root, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = targetCF})
+                landTween.Completed:Connect(function()
+                    if currentTravelNoclip == noclipConn then
+                        noclipConn:Disconnect()
+                        currentTravelNoclip = nil
+                    end
+                    if currentTravelBV == bv then
+                        bv:Destroy()
+                        currentTravelBV = nil
+                    end
+                    if root and root.Parent then
+                        pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+                    end
+                    isTraveling = false
+                    currentTravelTween = nil
+                    if callback then callback() end
+                end)
+                landTween:Play()
+            else
+                if currentTravelNoclip == noclipConn then
+                    noclipConn:Disconnect()
+                    currentTravelNoclip = nil
+                end
+                if currentTravelBV == bv then
+                    bv:Destroy()
+                    currentTravelBV = nil
+                end
+                if root and root.Parent then
+                    pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+                end
+                isTraveling = false
+                currentTravelTween = nil
+            end
+        end)
+
+        tween:Play()
+    else
+        local travelTime = math.clamp(dist / speed, 0.15, 5)
+        local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCF})
+        currentTravelTween = tween
+
+        tween.Completed:Connect(function(playbackState)
+            if currentTravelNoclip == noclipConn then
+                noclipConn:Disconnect()
+                currentTravelNoclip = nil
+            end
+            if currentTravelBV == bv then
+                bv:Destroy()
+                currentTravelBV = nil
+            end
+            if root and root.Parent then
+                pcall(function() root.AssemblyLinearVelocity = Vector3.zero end)
+            end
+            isTraveling = false
+            currentTravelTween = nil
+
+            if playbackState == Enum.PlaybackState.Completed and callback then
+                callback()
+            end
+        end)
+
+        tween:Play()
+    end
 end
 
 local function executeAutoCollectItems()
@@ -513,7 +568,7 @@ local function executeAutoCollectItems()
             if dist > 15 and State.SafeTeleportMode then
                 local arrived = false
                 safeTeleportTo(targetCF, function() arrived = true end)
-                local waitTimeout = (dist / math.clamp(State.SafeTravelSpeed, 15, 45)) + 2.0
+                local waitTimeout = (dist / math.clamp(tonumber(State.SafeTravelSpeed) or 60, 20, 100)) + 2.0
                 local startT = tick()
                 while not arrived and (tick() - startT < waitTimeout) do
                     if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then
@@ -705,7 +760,7 @@ Hub.CreateButton(sbrTab, "🏁 Teleport to Stage 1 Finish", function()
     local root = getRoot()
     local dist = root and (root.Position - targetCF.Position).Magnitude or 0
     if State.SafeTeleportMode and dist > 15 then
-        local estTime = dist / math.clamp(State.SafeTravelSpeed, 15, 45)
+        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 60, 20, 100)
         Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Stage 1 (%.1fs)...", estTime), 3)
     end
     safeTeleportTo(targetCF, function()
@@ -718,7 +773,7 @@ Hub.CreateButton(sbrTab, "🏆 Teleport to Final Finish Line", function()
     local root = getRoot()
     local dist = root and (root.Position - targetCF.Position).Magnitude or 0
     if State.SafeTeleportMode and dist > 15 then
-        local estTime = dist / math.clamp(State.SafeTravelSpeed, 15, 45)
+        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 60, 20, 100)
         Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Final Finish Line (%.1fs)...", estTime), 3)
     end
     safeTeleportTo(targetCF, function()
@@ -762,7 +817,7 @@ Hub.CreateToggle(tpTab, "🛡️ Anti-Kick Safe Glide Mode", true, function(v)
     end
 end)
 
-Hub.CreateSlider(tpTab, "Safe Glide Speed (studs/s)", 15, 45, 30, " studs/s", function(val)
+Hub.CreateSlider(tpTab, "Safe Glide Speed (studs/s)", 20, 100, 60, " studs/s", function(val)
     State.SafeTravelSpeed = val
 end)
 
@@ -784,7 +839,7 @@ for _, locName in ipairs(locNames) do
         local root = getRoot()
         local dist = root and (root.Position - targetCF.Position).Magnitude or 0
         if State.SafeTeleportMode and dist > 15 then
-            local estTime = dist / math.clamp(State.SafeTravelSpeed, 15, 45)
+            local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 60, 20, 100)
             Hub.Notify("📍 Safe Travel", string.format("Gliding safely to %s (approx %.1fs)...", locName, estTime), 3)
         end
         safeTeleportTo(targetCF, function()
