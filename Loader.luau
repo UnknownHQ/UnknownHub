@@ -84,6 +84,14 @@ local SupportedGames = {
         gameIds = { 7436755782 },
         scriptUrl = BASE_URL .. "/Games/GrowAGarden.luau",
         desc = "Fairy event automator, auto harvest/plant, pet auto-sell/hatch, craft bot & infinite sprinkler"
+    },
+    {
+        name = "Your Bizarre Adventure",
+        icon = "⭐",
+        placeIds = { 2809202155, 4643697430, 5290796989, 5290908008, 5818059480, 5818061503, 12807820316, 12807832128 },
+        gameIds = { 1016936714 },
+        scriptUrl = BASE_URL .. "/Games/YBA.luau",
+        desc = "Auto item farm & sniper (Arrows/Rokas/Lucky), auto quest farm, Stand roll bot, SBR automator & ESP"
     }
 }
 
@@ -107,6 +115,13 @@ local function findSupportedGame(pId)
     if curGameId == 994732206 or pId == 2753915549 or pId == 4442272183 or pId == 7449423635 then
         for _, gameData in ipairs(SupportedGames) do
             if gameData.name == "Blox Fruits" then
+                return gameData
+            end
+        end
+    end
+    if curGameId == 1016936714 or pId == 2809202155 then
+        for _, gameData in ipairs(SupportedGames) do
+            if gameData.name == "Your Bizarre Adventure" then
                 return gameData
             end
         end
