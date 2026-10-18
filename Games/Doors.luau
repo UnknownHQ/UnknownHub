@@ -789,8 +789,8 @@ local function processDoor(room, doorModel)
     -- When a door opens or is unlocked, disable collisions on the swinging door leaf and collision barrier
     -- so high-speed walking never clips the door edge or frame and causes physics rebound snaps.
     local isOpened = doorModel:GetAttribute("Opened") == true 
-        or doorModel:FindFirstChild("Open") ~= nil
-        or (not isLocked and not doorModel:FindFirstChild("Lock"))
+        or doorModel:FindFirstChild("ClientOpen") ~= nil
+        or doorModel:GetAttribute("Open") == true
 
     for _, ch in ipairs(doorModel:GetChildren()) do
         if ch:IsA("BasePart") then
@@ -838,8 +838,8 @@ local function processDoor(room, doorModel)
                 task.wait(0.05)
                 if doorModel.Parent then
                     local nowOpened = doorModel:GetAttribute("Opened") == true 
-                        or doorModel:FindFirstChild("Open") ~= nil
-                        or not (doorModel:GetAttribute("Locked") == true or doorModel:FindFirstChild("Lock"))
+                        or doorModel:FindFirstChild("ClientOpen") ~= nil
+                        or doorModel:GetAttribute("Open") == true
                     if nowOpened then
                         for _, ch in ipairs(doorModel:GetChildren()) do
                             if ch:IsA("BasePart") then
@@ -2396,8 +2396,8 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
             pcall(function()
                 crouchRemote:FireServer(toSend, isSliding)
             end)
-        elseif isSliding and (now - lastSlideSyncTime > 0.9) then
-            -- Heartbeat keep-alive every 0.9s to prevent server-side slide token expiration
+        elseif isSliding and (now - lastSlideSyncTime >= 0.45) then
+            -- Heartbeat keep-alive every 0.45s to prevent server-side slide token expiration
             lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, isSliding)
@@ -2488,11 +2488,38 @@ RunService.Heartbeat:Connect(function()
         -- When walking, horizontal velocity is immediately redirected into the current MoveDirection.
         -- When changing directions, old momentum is extinguished instantly without ice-skate slipping.
         -- When keys are released, horizontal motion stops on a dime. Vertical velocity (Y) is preserved for natural jumping/gravity.
+        -- Micro-raycast wall deflection prevents driving capsule into door frames or wall colliders, eliminating anti-cheat rollbacks.
         if State.Instant_Movement and not isSlidingActive then
             local moveDir = hum.MoveDirection
             local curY = root.AssemblyLinearVelocity.Y
             if moveDir.Magnitude > 0.05 then
-                root.AssemblyLinearVelocity = Vector3.new(moveDir.X * targetSpeed, curY, moveDir.Z * targetSpeed)
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = {char}
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+                local hit = workspace:Raycast(root.Position, moveDir * 1.8, rayParams)
+                if hit and hit.Instance and hit.Instance.CanCollide then
+                    local n = hit.Normal
+                    local hNormal = Vector3.new(n.X, 0, n.Z)
+                    if hNormal.Magnitude > 0.1 then
+                        hNormal = hNormal.Unit
+                        local dot = moveDir:Dot(hNormal)
+                        if dot < 0 then
+                            local deflected = (moveDir - hNormal * dot)
+                            if deflected.Magnitude > 0.05 then
+                                moveDir = deflected.Unit
+                            else
+                                moveDir = Vector3.zero
+                            end
+                        end
+                    end
+                end
+
+                if moveDir.Magnitude > 0.05 then
+                    root.AssemblyLinearVelocity = Vector3.new(moveDir.X * targetSpeed, curY, moveDir.Z * targetSpeed)
+                else
+                    root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
+                end
             else
                 root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
             end
@@ -2507,7 +2534,7 @@ RunService.Heartbeat:Connect(function()
             for _, r in ipairs({r1, r2}) do
                 if r then
                     local d = r:FindFirstChild("Door")
-                    if d and (d:GetAttribute("Opened") == true or d:FindFirstChild("Open") ~= nil) then
+                    if d and (d:GetAttribute("Opened") == true or d:FindFirstChild("ClientOpen") ~= nil or d:GetAttribute("Open") == true) then
                         local dPart = d:FindFirstChild("Door")
                         if dPart and dPart:IsA("BasePart") and dPart.CanCollide then dPart.CanCollide = false end
                         local cPart = d:FindFirstChild("Collision")
@@ -2671,7 +2698,7 @@ local function applyPromptModifications(prompt)
 
     if State.Range_Interact then
         if isDrawerOrContainer then
-            prompt.MaxActivationDistance = math.clamp(prompt:GetAttribute("OrigMaxDist") or 6, 6, 7)
+            prompt.MaxActivationDistance = math.clamp(State.Interact_MaxRange, 8, 12)
         else
             prompt.MaxActivationDistance = math.clamp(State.Interact_MaxRange, 6, 14)
         end
@@ -2969,6 +2996,7 @@ task.spawn(function()
                 local drops = Workspace:FindFirstChild("Drops")
                 if drops then table.insert(searchContainers, drops) end
 
+                local batchCount = 0
                 for _, container in ipairs(searchContainers) do
                     -- 1. Check ProximityPrompts (Drawers, Items, Keys, Books, Levers, Gold)
                     for _, prompt in ipairs(container:GetDescendants()) do
@@ -2979,13 +3007,18 @@ task.spawn(function()
                                     local dist = (rootPos - pPart.Position).Magnitude
                                     local pObj = (prompt.ObjectText or ""):lower()
                                     local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
-                                    local promptReach = isDrawerOrContainer and 6.5 or maxDist
+                                    local promptReach = isDrawerOrContainer and math.clamp(maxDist, 9, 12) or maxDist
                                     if dist <= promptReach then
                                         if isPromptSafeToAutoInteract(prompt) then
-                                            promptDebounce[prompt] = now + 0.55
+                                            promptDebounce[prompt] = now + 0.45
+                                            batchCount = batchCount + 1
+                                            local stagger = (batchCount - 1) * 0.015
                                             task.spawn(function()
+                                                if stagger > 0 then task.wait(stagger) end
                                                 pcall(function()
                                                     fireproximityprompt(prompt, 0)
+                                                    prompt:InputHoldBegin()
+                                                    prompt:InputHoldEnd()
                                                 end)
                                             end)
                                         end
@@ -3023,7 +3056,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.05) -- Fast 20Hz loop: instant response, zero stutter
+        task.wait(0.03) -- Ultra-fast 33Hz loop: rapid multi-prompt interaction, zero stutter
     end
 end)
 
@@ -3041,7 +3074,7 @@ local mainTab = Hub.CreateTab("Main", {
 
 Hub.CreateSection(mainTab, "🏃 Movement & Speed")
 
-Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function(v)
+Hub.CreateToggle(mainTab, "Change Walkspeed", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
     local char = getChar()
     if not v then
@@ -3057,6 +3090,11 @@ Hub.CreateToggle(mainTab, "Walkspeed Changer", State.WalkSpeed_Enabled, function
     end
 end)
 
+Hub.CreateToggle(mainTab, "No Acceleration", State.Instant_Movement, function(v)
+    State.Instant_Movement = v
+    Hub.Notify("Movement", v and "No Acceleration: ON (Instant turning & stopping)" or "No Acceleration: OFF", 2)
+end)
+
 Hub.CreateSlider(mainTab, "Speed Value", 15, 75, State.WalkSpeed_Value, " studs/s", function(v)
     State.WalkSpeed_Value = v
     if State.WalkSpeed_Enabled then
@@ -3068,11 +3106,6 @@ end)
 
 Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
     State.AntiRubberband = v
-end)
-
-Hub.CreateToggle(mainTab, "Instant Responsive Turning (No Slip)", State.Instant_Movement, function(v)
-    State.Instant_Movement = v
-    Hub.Notify("Movement", v and "Instant Turning: ON (Zero ice-skate slipping)" or "Instant Turning: OFF", 2)
 end)
 
 Hub.CreateToggle(mainTab, "Enable Jumping", State.Enable_Jumping, function(v)
@@ -3101,83 +3134,6 @@ Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
         end
     end
     Hub.Notify("Movement", v and "Sliding: ENABLED (Crouch / C to slide)" or "Sliding: DISABLED", 2)
-end)
-
-Hub.CreateButton(mainTab, "🧪 Test Speed 45 (Clearance-Aware Motion Test)", function()
-    task.spawn(function()
-        local char = getChar()
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        local vim = game:GetService("VirtualInputManager")
-        if not root or not hum or not vim then return end
-
-        -- 1. Scan for open clearance in 4 cardinal directions to guarantee we never test into a wall
-        local dirs = {
-            { key = Enum.KeyCode.W, name = "Forward", dir = root.CFrame.LookVector },
-            { key = Enum.KeyCode.S, name = "Backward", dir = -root.CFrame.LookVector },
-            { key = Enum.KeyCode.D, name = "Right", dir = root.CFrame.RightVector },
-            { key = Enum.KeyCode.A, name = "Left", dir = -root.CFrame.RightVector }
-        }
-
-        local params = RaycastParams.new()
-        params.FilterDescendantsInstances = {char}
-        params.FilterType = Enum.RaycastFilterType.Exclude
-
-        local bestDir = nil
-        local maxDist = 0
-        for _, d in ipairs(dirs) do
-            local hit = workspace:Raycast(root.Position, d.dir * 45, params)
-            local dist = hit and hit.Distance or 45
-            if dist > maxDist then
-                maxDist = dist
-                bestDir = d
-            end
-        end
-
-        if maxDist < 6 then
-            Hub.Notify("Speed Test Warning", "⚠️ In a tight corner! Please step into a hallway before testing.", 3)
-            return
-        end
-
-        local oldWS = hum.WalkSpeed
-        local wasEnabled = State.WalkSpeed_Enabled
-
-        hum.WalkSpeed = 45
-
-        local pStart = root.Position
-        Hub.Notify("Speed Test", string.format("Moving %s at 45 speed (Clearance: %.1fm)...", bestDir.name, maxDist), 2)
-        vim:SendKeyEvent(true, bestDir.key, false, game)
-        task.wait(0.50)
-        vim:SendKeyEvent(false, bestDir.key, false, game)
-
-        task.wait(0.25)
-        local pMid = root.Position
-        local movedForward = (pMid - pStart).Magnitude
-
-        -- Opposite direction key
-        local oppKey = (bestDir.key == Enum.KeyCode.W and Enum.KeyCode.S) 
-            or (bestDir.key == Enum.KeyCode.S and Enum.KeyCode.W)
-            or (bestDir.key == Enum.KeyCode.D and Enum.KeyCode.A) 
-            or Enum.KeyCode.D
-
-        Hub.Notify("Speed Test", "Moving opposite direction at 45 speed...", 2)
-        vim:SendKeyEvent(true, oppKey, false, game)
-        task.wait(0.50)
-        vim:SendKeyEvent(false, oppKey, false, game)
-
-        task.wait(0.25)
-        local pFinal = root.Position
-        local movedBack = (pFinal - pMid).Magnitude
-
-        hum.WalkSpeed = wasEnabled and State.WalkSpeed_Value or oldWS
-
-        local rubberbandDetected = (movedForward < 4) or (movedBack < 4)
-        if rubberbandDetected then
-            Hub.Notify("Speed Test Result", string.format("⚠️ Rollback or obstacle: Out: %.1fm | Back: %.1fm", movedForward, movedBack), 4)
-        else
-            Hub.Notify("Speed Test Result", string.format("✅ Success! Out: %.1fm | Back: %.1fm | Rollback: 0%%", movedForward, movedBack), 4)
-        end
-    end)
 end)
 
 Hub.CreateSection(mainTab, "🖐️ Interaction Power")
