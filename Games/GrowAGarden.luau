@@ -1818,10 +1818,10 @@ local State = {
     AutoSubmit_JackOLantern = false,
     AutoSubmit_HarvestReaper = false,
 
-    -- Halloween Garden: Sprinkler Hydration & Plant Booster (Bypass for Dev Sprinkler Restriction)
-    AutoGhostSprinkler_Halloween = false,
-    HalloweenSprinkler_Delay = 0.5,
-    HalloweenSprinkler_Mode = "All Plants (Physical)",
+    -- Halloween Garden: Auto Water Fruits & Plants (Using Watering Can at Target Positions)
+    AutoWaterFruits_Halloween = false,
+    HalloweenWater_Delay = 0.2,
+    HalloweenWater_Target = "Fruits & Plants",
 
     -- General
     MaxBackpackCapacity = 500,
@@ -5185,80 +5185,109 @@ task.spawn(function()
     end
 end)
 
--- 5. 💧 Halloween Garden Ghost Sprinkler & Plant Growth Accelerator
--- Bypasses server-side slot restrictions by directly boosting and hydrating all Halloween plants!
-local function executeHalloweenSprinklerBoost(isManual)
+-- 5. 💧 Auto Water Fruits & Crops (Watering Can at Fruit Positions)
+-- Equips player's Watering Can and fires Water_RE / TrySuperWateringCan directly at fruit positions!
+local function getPlayerWateringCan()
+    local char = LocalPlayer.Character
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") and t.Name:lower():find("water") then
+                return t
+            end
+        end
+    end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") and t.Name:lower():find("water") then
+                return t
+            end
+        end
+    end
+    return nil
+end
+
+local function executeHalloweenWaterFruits(isManual)
     pcall(function()
+        local canTool = getPlayerWateringCan()
+        if not canTool then
+            if isManual then Hub.Notify("💧 Watering Can", "No Watering Can found in backpack or character!", 3) end
+            return
+        end
+
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso"))
+        if not hum or not hrp then return end
+
+        -- Auto-equip Watering Can if not currently equipped
+        if canTool.Parent ~= char then
+            pcall(function() hum:EquipTool(canTool) end)
+            task.wait(0.1)
+        end
+
         local myFarm, hGarden = getHalloweenGardenFarm()
         local farmsToScan = {}
         if myFarm then table.insert(farmsToScan, myFarm) end
         if hGarden and hGarden ~= myFarm then table.insert(farmsToScan, hGarden) end
 
-        local targetPlants = {}
+        local targetPositions = {}
         for _, f in ipairs(farmsToScan) do
             local imp = f:FindFirstChild("Important")
             local plantsFolder = (imp and imp:FindFirstChild("Plants_Physical")) or f:FindFirstChild("Plants_Physical") or f:FindFirstChild("Plants")
             if plantsFolder then
                 for _, plant in ipairs(plantsFolder:GetChildren()) do
-                    table.insert(targetPlants, plant)
-                end
-            end
-        end
-
-        local rep = ReplicatedStorage
-        local ge = rep:FindFirstChild("GameEvents")
-        local boostEvents = ge and ge:FindFirstChild("PlantBoostServiceEvents")
-        local boostRem = boostEvents and boostEvents:FindFirstChild("Boost")
-        local waterRem = ge and (ge:FindFirstChild("Water_RE") or ge:FindFirstChild("TrySuperWateringCan") or ge:FindFirstChild("AdWeatherWater_RE"))
-        local fertRem = ge and ge:FindFirstChild("FertilizerService_RE")
-        local sprinklerService = ge and ge:FindFirstChild("SprinklerService")
-
-        -- Attempt 1: Forced Remote Placement with Sprinkler Tool (Border/Plot Bypass)
-        local backpack = LocalPlayer:FindFirstChild("Backpack")
-        local char = LocalPlayer.Character
-        local sprinklerTool = nil
-        if char then sprinklerTool = char:FindFirstChildWhichIsA("Tool") end
-        if not sprinklerTool or not sprinklerTool.Name:find("Sprinkler") then
-            if backpack then
-                for _, t in ipairs(backpack:GetChildren()) do
-                    if t:IsA("Tool") and t.Name:find("Sprinkler") then
-                        sprinklerTool = t
-                        break
+                    -- 1. Scan for individual Fruit models & parts
+                    local fruitsFolder = plant:FindFirstChild("Fruits")
+                    if fruitsFolder then
+                        for _, fruit in ipairs(fruitsFolder:GetChildren()) do
+                            local fruitPart = fruit:FindFirstChildWhichIsA("BasePart") or (fruit:IsA("BasePart") and fruit)
+                            if fruitPart then
+                                table.insert(targetPositions, fruitPart.Position)
+                            end
+                        end
+                    end
+                    -- 2. Include plant base / dirt root position
+                    local basePart = plant:FindFirstChild("Base") or plant:FindFirstChildWhichIsA("BasePart")
+                    if basePart then
+                        table.insert(targetPositions, basePart.Position)
                     end
                 end
             end
         end
 
-        if sprinklerTool and sprinklerService and #targetPlants > 0 then
-            pcall(function()
-                local samplePlant = targetPlants[1]
-                local rootPart = samplePlant:FindFirstChild("PrimaryPart") or samplePlant:FindFirstChildWhichIsA("BasePart")
-                if rootPart then
-                    local targetCF = CFrame.new(rootPart.Position + Vector3.new(0, 1.5, 0))
-                    sprinklerService:FireServer("Create", targetCF)
-                end
-            end)
+        if #targetPositions == 0 then
+            if isManual then Hub.Notify("💧 Watering Can", "No plants or fruits found in garden.", 3) end
+            return
         end
 
-        -- Attempt 2: Direct Plant Boost & Hydration Stream
-        local boostedCount = 0
-        for _, plant in ipairs(targetPlants) do
-            if plant and plant.Parent then
-                if boostRem then
-                    pcall(function() boostRem:FireServer(plant) end)
-                    boostedCount = boostedCount + 1
-                end
-                if waterRem then
-                    pcall(function() waterRem:FireServer(plant) end)
-                end
-                if fertRem then
-                    pcall(function() fertRem:FireServer(plant) end)
-                end
+        local rep = ReplicatedStorage
+        local ge = rep:FindFirstChild("GameEvents")
+        local isSuperCan = canTool.Name:lower():find("super")
+        local waterRemote = isSuperCan and (ge and ge:FindFirstChild("TrySuperWateringCan")) or (ge and ge:FindFirstChild("Water_RE"))
+        if not waterRemote then
+            waterRemote = ge and (ge:FindFirstChild("Water_RE") or ge:FindFirstChild("TrySuperWateringCan"))
+        end
+
+        if not waterRemote then return end
+
+        local wateredCount = 0
+        local charPos = hrp.Position
+        for _, pos in ipairs(targetPositions) do
+            -- Check proximity to player (Watering Can tool limit is 20-30 studs)
+            local dist = (charPos - pos).Magnitude
+            if dist <= 28 then
+                pcall(function() waterRemote:FireServer(pos) end)
+                wateredCount = wateredCount + 1
+            else
+                -- If slightly further, still fire so nearby server radius catches it
+                pcall(function() waterRemote:FireServer(pos) end)
+                wateredCount = wateredCount + 1
             end
         end
 
         if isManual then
-            Hub.Notify("💧 Halloween Sprinkler", string.format("Hydrated & boosted %d Halloween plants!", boostedCount), 3)
+            Hub.Notify("💧 Watering Can", string.format("Watered %d fruit & plant locations!", wateredCount), 3)
         end
     end)
 end
@@ -5280,13 +5309,13 @@ task.spawn(function()
     end
 end)
 
--- Background Worker: Halloween Ghost Sprinkler / Plant Booster
+-- Background Worker: Auto Water Fruits (Watering Can at Fruit Positions)
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if State.AutoGhostSprinkler_Halloween then
-            pcall(function() executeHalloweenSprinklerBoost(false) end)
-            local delayVal = math.clamp(tonumber(State.HalloweenSprinkler_Delay) or 0.5, 0.1, 5.0)
+        if State.AutoWaterFruits_Halloween then
+            pcall(function() executeHalloweenWaterFruits(false) end)
+            local delayVal = math.clamp(tonumber(State.HalloweenWater_Delay) or 0.2, 0.05, 5.0)
             task.wait(delayVal)
         else
             task.wait(0.5)
@@ -6929,38 +6958,23 @@ Hub.CreateButton(eventTab, "✨ Submit All Offerings Now (Cauldron + Jack + Reap
     end)
 end)
 
--- 5. 💧 Halloween Garden Ghost Sprinkler (Dev Restriction Bypass)
-Hub.CreateSection(eventTab, "💧 Halloween Sprinkler & Growth Booster")
+-- 5. 💧 Auto Water Fruits (Watering Can at Fruit Positions)
+Hub.CreateSection(eventTab, "💧 Auto Water Fruits (Watering Can)")
 
-Hub.CreateToggle(eventTab, "💧 Ghost Sprinkler (Growth & Hydration Booster)", false, function(v)
-    if type(v) == "boolean" then State.AutoGhostSprinkler_Halloween = v else State.AutoGhostSprinkler_Halloween = not State.AutoGhostSprinkler_Halloween end
-    if State.AutoGhostSprinkler_Halloween then
-        task.spawn(function() executeHalloweenSprinklerBoost(false) end)
+Hub.CreateToggle(eventTab, "💧 Auto Water Fruits & Crops", false, function(v)
+    if type(v) == "boolean" then State.AutoWaterFruits_Halloween = v else State.AutoWaterFruits_Halloween = not State.AutoWaterFruits_Halloween end
+    if State.AutoWaterFruits_Halloween then
+        task.spawn(function() executeHalloweenWaterFruits(false) end)
     end
 end)
 
-Hub.CreateTextBox(eventTab, "Boost Frequency (0.1 - 5.0s)", "Enter boost cycle delay (default: 0.5)", function(text)
+Hub.CreateTextBox(eventTab, "Watering Delay (0.05 - 2.0s)", "Enter water cycle delay (default: 0.2)", function(text)
     local num = tonumber(text)
-    if num then State.HalloweenSprinkler_Delay = math.clamp(num, 0.1, 5.0) end
+    if num then State.HalloweenWater_Delay = math.clamp(num, 0.05, 2.0) end
 end)
 
-Hub.CreateButton(eventTab, "⚡ Hydrate & Boost Halloween Plants Now (Manual)", function()
-    task.spawn(function() executeHalloweenSprinklerBoost(true) end)
-end)
-
-Hub.CreateButton(eventTab, "🔨 Attempt Force Place Sprinkler (Tool)", function()
-    task.spawn(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local sprinklerService = ge and ge:FindFirstChild("SprinklerService")
-        local char = LocalPlayer.Character
-        local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso"))
-        if sprinklerService and root then
-            sprinklerService:FireServer("Create", CFrame.new(root.Position - Vector3.new(0, 2.5, 0)))
-            Hub.Notify("💧 Sprinkler Place", "Fired sprinkler placement at your current position!", 3)
-        else
-            Hub.Notify("💧 Sprinkler Place", "No character position found.", 3)
-        end
-    end)
+Hub.CreateButton(eventTab, "💧 Water All Fruits & Plants Now (Manual)", function()
+    task.spawn(function() executeHalloweenWaterFruits(true) end)
 end)
 
 
