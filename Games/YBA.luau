@@ -620,6 +620,11 @@ local function executeAutoCollectItems()
                 local waitTimeout = (dist / 120) + 3.0
                 local startT = tick()
                 while not arrived and (tick() - startT < waitTimeout) do
+                    -- Check if item was collected by another player while we are traveling
+                    if not item.prompt or not item.prompt.Parent then
+                        cancelCurrentTravel()
+                        break
+                    end
                     if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then
                         cancelCurrentTravel()
                         break
@@ -745,9 +750,9 @@ task.spawn(function()
             local hum = getHumanoid()
 
             if targetEntity and eRoot and eHum and eHum.Health > 0 and root and char and hum and hum.Health > 0 then
-                -- Safe rear-overhead positioning: 4 studs behind target, +SafeFarmDistance studs overhead
-                local height = math.clamp(tonumber(State.SafeFarmDistance) or 7, 4, 20)
-                local rearOffset = -(eRoot.CFrame.LookVector * 4) + Vector3.new(0, height, 0)
+                -- Safe rear positioning: 3.5 studs directly behind the NPC's back
+                -- Hovering too high causes YBA to treat character as Falling/Airborne, which disables attacks!
+                local rearOffset = -(eRoot.CFrame.LookVector * 3.5) + Vector3.new(0, 0.5, 0)
                 local safeCF = CFrame.new(eRoot.Position + rearOffset, eRoot.Position)
 
                 local distToSafe = (root.Position - safeCF.Position).Magnitude
@@ -757,6 +762,11 @@ task.spawn(function()
                     root.CFrame = safeCF
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
+
+                    -- Keep Humanoid in Running state so attacks are never locked out due to falling
+                    pcall(function()
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end)
                 end
 
                 -- Ensure Stand is summoned if player has one
@@ -1025,32 +1035,178 @@ Hub.CreateList(standsTab, "Target Desired Stands (Multi-Select)", standCatalogIt
 -- -------------------------------------------------------------------------
 -- 6. 📍 Teleports Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(tpTab, "📍 Instant Max-Speed Travel")
+Hub.CreateSection(tpTab, "📍 Quick Travel Controls")
 
 Hub.CreateButton(tpTab, "🛑 Cancel / Stop Current Travel", function()
     cancelCurrentTravel()
     Hub.Notify("🛑 Travel", "Teleportation canceled. Stopped in place.", 2)
 end)
 
+-- 1. Locations Category
 Hub.CreateSection(tpTab, "📍 Verified Map Locations")
 
-local locNames = {}
-for name, _ in pairs(ybaLocations) do table.insert(locNames, name) end
-table.sort(locNames)
+local locationCatalogItems = {}
+local sortedLocNames = {}
+for name, _ in pairs(ybaLocations) do table.insert(sortedLocNames, name) end
+table.sort(sortedLocNames)
+for _, name in ipairs(sortedLocNames) do table.insert(locationCatalogItems, {Name = name}) end
 
-for _, locName in ipairs(locNames) do
-    local pos = ybaLocations[locName]
-    Hub.CreateButton(tpTab, "📌 " .. locName, function()
+Hub.CreateList(tpTab, "Select Location to Travel", locationCatalogItems, 160, false, false, function(selectedItem)
+    local locName = selectedItem and (selectedItem.Name or selectedItem)
+    local pos = locName and ybaLocations[locName]
+    if pos then
         local targetCF = CFrame.new(pos + Vector3.new(0, 3, 0))
         local root = getRoot()
         local dist = root and (root.Position - targetCF.Position).Magnitude or 0
-        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 600, 40, 600)
+        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 500, 40, 600)
         Hub.Notify("📍 Travel", string.format("Gliding to %s (approx %.1fs)...", locName, estTime), 2)
         safeTeleportTo(targetCF, function()
             Hub.Notify("📍 Arrived", "Arrived at " .. locName .. " safely!", 2)
         end)
-    end)
+    end
+end)
+
+-- 2. Bosses Category
+Hub.CreateSection(tpTab, "👹 Active Spawned Bosses")
+
+local function getLiveBossItems()
+    local living = getLivingFolder()
+    local bossNames = {
+        ["Leaky Eye Luca"] = true,
+        ["Bucciarati"] = true,
+        ["Fugo"] = true,
+        ["Pesci"] = true,
+        ["Ghiaccio"] = true,
+        ["Diavolo"] = true,
+        ["DIO"] = true,
+        ["Jotaro"] = true,
+        ["Anasui"] = true,
+        ["Yoshikage Kira"] = true,
+        ["Jotaro Kujo"] = true,
+        ["Heaven Ascension DIO"] = true
+    }
+    local items = {}
+    if living then
+        for _, ch in ipairs(living:GetChildren()) do
+            if ch:IsA("Model") and not Players:GetPlayerFromCharacter(ch) then
+                local hum = ch:FindFirstChildOfClass("Humanoid")
+                local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                if hum and hum.Health > 0 and root then
+                    for bName, _ in pairs(bossNames) do
+                        if ch.Name:lower():find(bName:lower(), 1, true) then
+                            table.insert(items, {Name = ch.Name .. " (" .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth) .. " HP)"})
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if #items == 0 then
+        table.insert(items, {Name = "No active bosses alive right now"})
+    end
+    return items
 end
+
+local liveBossList = getLiveBossItems()
+Hub.CreateList(tpTab, "Select Boss to Travel", liveBossList, 140, false, false, function(selectedItem)
+    local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
+    local cleanName = rawName:gsub("%s*%b()", ""):gsub("^%s*(.-)%s*$", "%1")
+    local living = getLivingFolder()
+    if living and cleanName ~= "" and not cleanName:find("No active") then
+        for _, ch in ipairs(living:GetChildren()) do
+            if ch:IsA("Model") and ch.Name:lower():find(cleanName:lower(), 1, true) then
+                local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                if root then
+                    local targetCF = CFrame.new(root.Position + Vector3.new(0, 3, 0))
+                    Hub.Notify("👹 Travel", "Gliding to boss: " .. ch.Name .. "...", 2)
+                    safeTeleportTo(targetCF, function()
+                        Hub.Notify("👹 Arrived", "Arrived at " .. ch.Name .. "!", 2)
+                    end)
+                    return
+                end
+            end
+        end
+        Hub.Notify("⚠️ Boss Despawned", "The selected boss is no longer alive.", 2)
+    end
+end)
+
+-- 3. Regular NPCs Category
+Hub.CreateSection(tpTab, "👤 Spawned NPCs & Dialogue Questgivers")
+
+local function getLiveNPCItems()
+    local living = getLivingFolder()
+    local items = {}
+    local seen = {}
+    if living then
+        for _, ch in ipairs(living:GetChildren()) do
+            if ch:IsA("Model") and not Players:GetPlayerFromCharacter(ch) then
+                local hum = ch:FindFirstChildOfClass("Humanoid")
+                local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                if hum and hum.Health > 0 and root and not seen[ch.Name] then
+                    seen[ch.Name] = true
+                    table.insert(items, {Name = ch.Name})
+                end
+            end
+        end
+    end
+    return items
+end
+
+local liveNPCList = getLiveNPCItems()
+Hub.CreateList(tpTab, "Select NPC to Travel", liveNPCList, 140, false, false, function(selectedItem)
+    local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
+    local living = getLivingFolder()
+    if living and rawName ~= "" then
+        for _, ch in ipairs(living:GetChildren()) do
+            if ch:IsA("Model") and ch.Name:lower():find(rawName:lower(), 1, true) then
+                local root = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                if root then
+                    local targetCF = CFrame.new(root.Position + Vector3.new(0, 3, 0))
+                    Hub.Notify("👤 Travel", "Gliding to " .. ch.Name .. "...", 2)
+                    safeTeleportTo(targetCF, function()
+                        Hub.Notify("👤 Arrived", "Arrived at " .. ch.Name .. "!", 2)
+                    end)
+                    return
+                end
+            end
+        end
+    end
+end)
+
+-- 4. Players Category
+Hub.CreateSection(tpTab, "🎮 Online Players")
+
+local function getOnlinePlayerItems()
+    local items = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(items, {Name = p.DisplayName .. " (@" .. p.Name .. ")"})
+        end
+    end
+    if #items == 0 then
+        table.insert(items, {Name = "No other players in server"})
+    end
+    return items
+end
+
+local onlinePlayerList = getOnlinePlayerItems()
+Hub.CreateList(tpTab, "Select Player to Travel", onlinePlayerList, 140, false, false, function(selectedItem)
+    local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
+    local username = rawName:match("@([%w_]+)") or rawName
+    local targetPlr = Players:FindFirstChild(username)
+    local tChar = targetPlr and targetPlr.Character
+    local tRoot = tChar and (tChar:FindFirstChild("HumanoidRootPart") or tChar:FindFirstChild("Torso"))
+    if tRoot then
+        local targetCF = CFrame.new(tRoot.Position + Vector3.new(0, 3, 0))
+        Hub.Notify("🎮 Travel", "Gliding to " .. targetPlr.DisplayName .. "...", 2)
+        safeTeleportTo(targetCF, function()
+            Hub.Notify("🎮 Arrived", "Arrived at " .. targetPlr.DisplayName .. "!", 2)
+        end)
+    else
+        Hub.Notify("⚠️ Unavailable", "Player character not loaded or alive.", 2)
+    end
+end)
 
 -- -------------------------------------------------------------------------
 -- 7. 👁️ Visuals / ESP Tab
