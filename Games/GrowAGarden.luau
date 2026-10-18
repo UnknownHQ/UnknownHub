@@ -89,7 +89,7 @@ local function resolveRemotes()
             elseif crops then
                 Remotes.Collect = crops:FindFirstChild("Collect") or (crops.WaitForChild and crops:WaitForChild("Collect", 2))
             end
-            Remotes.SellInv = ge:FindFirstChild("Sell_Inventory") or ge:FindFirstChild("SellInventory") or ge:FindFirstChild("Sell")
+            Remotes.SellInv = ge:FindFirstChild("Sell_Inventory") or ge:FindFirstChild("SellInventory") or ge:FindFirstChild("Sell") or ge:FindFirstChild("SellFood_RE")
             Remotes.SellItem = ge:FindFirstChild("Sell_Item") or ge:FindFirstChild("SellItem")
             Remotes.SellAllPets = ge:FindFirstChild("SellAllPets_RE") or ge:FindFirstChild("SellAllPets") or ge:FindFirstChild("SellPets")
             
@@ -1625,13 +1625,14 @@ local function buildDynamicCraftCatalogs()
     return craftPlants, craftGears
 end
 
-local function buildFairyUpgradesCatalog()
+local function buildHalloweenShopCatalog()
     local list = {
-        {Name = "All Upgrades", Key = "All"},
-        {Name = "Glimmer Multiplier", Key = "Glimmer Multiplier"},
-        {Name = "Roaming Fairy Spawn Amount", Key = "Loose Fairy Spawn Amount"},
-        {Name = "Fairy Event Duration", Key = "Fairy Event Duration"},
-        {Name = "Fairy Spawn Amount", Key = "Fairy Spawn Amount"}
+        {Name = "All Shops & Packs", Key = "All"},
+        {Name = "Seeds (Pumpkin, Bloodred Mushroom)", Key = "SeedShop"},
+        {Name = "Haunted Seed Packs", Key = "Packs"},
+        {Name = "Event Pets", Key = "PetShop"},
+        {Name = "Event Gear", Key = "GearShop"},
+        {Name = "Event Cosmetics", Key = "CosmeticShop"}
     }
     return list
 end
@@ -1648,7 +1649,7 @@ local allAvailableSeedShop = buildDynamicSeedShopCatalog()
 local allAvailableCosmetics = buildDynamicCosmeticCatalog()
 local allAvailableSprinklers = buildDynamicSprinklerCatalog()
 local allAvailableCraftPlants, allAvailableCraftGears = buildDynamicCraftCatalogs()
-local allAvailableFairyUpgrades = buildFairyUpgradesCatalog()
+local allAvailableHalloweenShops = buildHalloweenShopCatalog()
 
 local function destroyOldGui()
     local parents = {game:GetService("CoreGui")}
@@ -1799,18 +1800,23 @@ local State = {
     InfiniteSprinkler = false,
     InfiniteSprinkler_Target = "All Sprinklers",
 
-    -- Events Tab: Fairy Event (Fountain, Glimmering Fruits, Upgrades, Loose Fairies)
-    AutoCollect_GlimmeringFruit = false,
-    AutoSubmit_FairyFountain = false,
-    AutoMake_FairyWish = true,
-    FairyFountain_AutoTeleport = false,
-    FairyFountain_Delay = 0.5,
+    -- Events Tab: Halloween Event 2026 (Halloween Garden, Event Shops, Auto Sell, Cauldron & Reaper)
+    AutoCollect_HalloweenFruits = false,
+    HalloweenCollect_Delay = 0.1,
+    HalloweenCollect_AutoTeleport = false,
 
-    AutoBuy_FairyUpgrades = false,
-    AutoBuy_SelectedFairyUpgrades = {"All Upgrades"},
-    FairyUpgrades_BuyDelay = 0.5,
+    AutoBuy_HalloweenShops = false,
+    AutoBuy_HalloweenCategory = "All Shops & Packs",
+    HalloweenShop_BuyDelay = 1.0,
 
-    AutoCollect_RoamingFairies = false,
+    AutoSell_HalloweenFruits = false,
+    HalloweenSell_WaitMaxBackpack = false,
+    HalloweenSell_Delay = 0.5,
+    HalloweenSell_AutoTeleport = false,
+
+    AutoSubmit_WitchesBrew = false,
+    AutoSubmit_JackOLantern = false,
+    AutoSubmit_HarvestReaper = false,
 
     -- General
     MaxBackpackCapacity = 500,
@@ -1874,12 +1880,13 @@ local hideFruitsToggle
 local infiniteSprinklerToggle
 local selectSprinklerListObj
 
-local autoCollectGlimmeringFruitToggle
-local autoSubmitFairyFountainToggle
-local autoMakeFairyWishToggle
-local autoBuyFairyUpgradesToggle
-local selectFairyUpgradeListObj
-local autoCollectRoamingFairiesToggle
+local autoCollectHalloweenFruitsToggle
+local autoBuyHalloweenShopsToggle
+local selectHalloweenShopListObj
+local autoSellHalloweenFruitsToggle
+local autoSubmitWitchesBrewToggle
+local autoSubmitJackOLanternToggle
+local autoSubmitHarvestReaperToggle
 
 -- Acorn Chaos Tracking & Execution Engine
 local activeAcornIds = {}
@@ -4766,8 +4773,13 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- Fairy Event Automator & Glimmering Fruit Engine
+-- 🎃 Halloween Event 2026 Engine
+-- 1. Auto Collect Fruits (from Halloween Garden / Ghoul Garden / Event Crops)
+-- 2. Auto Buy Items (for every shop in event: Seed, Pet, Gear, Cosmetic, Packs)
+-- 3. Auto Sell Halloween Fruits (Pumpkin, Bloodred Mushroom, Spooky/Haunted)
+-- 4. Auto Submit Offerings (Witches' Brew Cauldron, Jack-O'-Lantern, Harvest Reaper)
 -- =========================================================================
+
 local function isFruitTool(tool)
     if not tool or not tool:IsA("Tool") then return false end
     if tool:GetAttribute("PET_UUID") or tool:GetAttribute("PetType") or tool:GetAttribute("ItemType") == "Pet" then return false end
@@ -4780,34 +4792,29 @@ local function isFruitTool(tool)
     return true
 end
 
-local function isToolGlimmering(tool)
-    if not tool or not tool:IsA("Tool") then return false end
-    if not isFruitTool(tool) then return false end
-    if tool:GetAttribute("Glimmering") == true or tool:GetAttribute("glm") == true then return true end
-    local m = tool:GetAttribute("Mutation") or tool:GetAttribute("m")
-    if m == "Glimmering" or m == "glm" then return true end
-    if tool.Name:lower():find("glimmer") then return true end
-    return false
-end
-
-local function isPlantOrFruitGlimmering(instance)
-    if not instance then return false end
-    if instance:GetAttribute("Glimmering") == true or instance:GetAttribute("glm") == true then
+local function isFruitHalloween(instanceOrTool)
+    if not instanceOrTool then return false end
+    local name = instanceOrTool.Name:lower()
+    if name:find("pumpkin") or name:find("bloodred") or name:find("mushroom") or name:find("haunted") 
+        or name:find("ghoul") or name:find("ghost") or name:find("witch") or name:find("spooky") 
+        or name:find("halloween") or name:find("candy") then
         return true
     end
-    local m = instance:GetAttribute("Mutation") or instance:GetAttribute("m")
-    if m == "Glimmering" or m == "glm" then
+    if instanceOrTool:GetAttribute("Halloween") == true or instanceOrTool:GetAttribute("IsHalloween") == true 
+        or instanceOrTool:GetAttribute("Event") == "Halloween" or instanceOrTool:GetAttribute("Special") == true then
         return true
     end
-    if instance.Name:lower():find("glimmer") then
+    local m = instanceOrTool:GetAttribute("Mutation") or instanceOrTool:GetAttribute("m")
+    if m and (tostring(m):lower():find("haunt") or tostring(m):lower():find("spooky") or tostring(m):lower():find("ghoul") or tostring(m):lower():find("ghost")) then
         return true
     end
     local mh = MutationHandler or (ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("MutationHandler") and require(ReplicatedStorage.Modules.MutationHandler))
     if mh and type(mh.GetPlantMutations) == "function" then
-        local success, muts = pcall(function() return mh:GetPlantMutations(instance) end)
+        local success, muts = pcall(function() return mh:GetPlantMutations(instanceOrTool) end)
         if success and type(muts) == "table" then
             for _, mutName in ipairs(muts) do
-                if tostring(mutName):lower():find("glimmer") or mutName == "glm" then
+                local lm = tostring(mutName):lower()
+                if lm:find("haunt") or lm:find("spooky") or lm:find("ghoul") or lm:find("ghost") or lm:find("pumpkin") then
                     return true
                 end
             end
@@ -4816,212 +4823,342 @@ local function isPlantOrFruitGlimmering(instance)
     return false
 end
 
--- 1. Auto Collect Glimmering Fruit
-local function executeGlimmeringCollectCycle()
+-- 1. 🎃 Auto Collect Fruits (Halloween Garden)
+local function getHalloweenGardenFarm()
+    local myFarm = getPlayerFarm()
+    local hGarden = Workspace:FindFirstChild("GhoulGarden") 
+        or Workspace:FindFirstChild("HalloweenGarden")
+        or Workspace:FindFirstChild("GhoulGardenTomb")
+        or (Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("GhoulGarden"))
+        or (Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("Halloween2026MarketModel") and Workspace.Interaction.Halloween2026MarketModel:FindFirstChild("MarketModel") and Workspace.Interaction.Halloween2026MarketModel.MarketModel:FindFirstChild("GhoulGardenTomb"))
+    return myFarm, hGarden
+end
+
+local function executeHalloweenCollectCycle()
     local colRemote = getCollectRemote()
-    if not colRemote then return end
     if isBackpackFull() then return end
 
+    local myFarm, hGarden = getHalloweenGardenFarm()
     local farmFolder = Workspace:FindFirstChild("Farm") or Workspace
-    local myFarm = getPlayerFarm()
-    local farmList = (myFarm and {myFarm}) or farmFolder:GetChildren()
-
     local targetsToCollect = {}
-    local function scanFarms(list)
-        for _, farm in ipairs(list) do
-            local important = farm:FindFirstChild("Important")
-            local plantsFolder = important and important:FindFirstChild("Plants_Physical")
-            if plantsFolder then
-                for _, plant in ipairs(plantsFolder:GetChildren()) do
-                    local plantIsGlimmer = isPlantOrFruitGlimmering(plant)
-                    local fruitsFolder = plant:FindFirstChild("Fruits")
-                    if fruitsFolder then
-                        for _, fruitGroup in ipairs(fruitsFolder:GetChildren()) do
-                            if plantIsGlimmer or isPlantOrFruitGlimmering(fruitGroup) then
-                                table.insert(targetsToCollect, fruitGroup)
-                            end
-                        end
+
+    local function scanFarmPlants(farm)
+        if not farm then return end
+        local important = farm:FindFirstChild("Important")
+        local plantsFolder = (important and important:FindFirstChild("Plants_Physical")) or farm:FindFirstChild("Plants_Physical") or farm:FindFirstChild("Plants")
+        if plantsFolder then
+            for _, plant in ipairs(plantsFolder:GetChildren()) do
+                local fruitsFolder = plant:FindFirstChild("Fruits")
+                if fruitsFolder then
+                    for _, fruitGroup in ipairs(fruitsFolder:GetChildren()) do
+                        table.insert(targetsToCollect, fruitGroup)
+                    end
+                else
+                    local prompt = plant:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt and prompt.Parent then
+                        table.insert(targetsToCollect, prompt.Parent)
                     else
-                        -- Single-harvest crop or plant-level prompt
-                        if plantIsGlimmer then
-                            local prompt = plant:FindFirstChildWhichIsA("ProximityPrompt", true)
-                            if prompt and prompt.Parent then
-                                table.insert(targetsToCollect, prompt.Parent)
-                            else
-                                table.insert(targetsToCollect, plant)
-                            end
-                        else
-                            for _, child in ipairs(plant:GetChildren()) do
-                                if isPlantOrFruitGlimmering(child) then
-                                    table.insert(targetsToCollect, child)
-                                end
-                            end
-                        end
+                        table.insert(targetsToCollect, plant)
                     end
                 end
             end
         end
     end
 
-    scanFarms(farmList)
-    if #targetsToCollect == 0 and myFarm and farmFolder ~= Workspace then
-        scanFarms(farmFolder:GetChildren())
+    if myFarm then scanFarmPlants(myFarm) end
+    if hGarden then scanFarmPlants(hGarden) end
+    if #targetsToCollect == 0 and farmFolder ~= Workspace then
+        for _, f in ipairs(farmFolder:GetChildren()) do
+            scanFarmPlants(f)
+        end
     end
 
     if #targetsToCollect > 0 then
         local batch = {}
         local maxBatch = State.BatchSize or 35
         for _, target in ipairs(targetsToCollect) do
-            if not isToggleActive(autoCollectGlimmeringFruitToggle, State.AutoCollect_GlimmeringFruit, "Auto Collect Glimmering Fruit") then break end
+            if not State.AutoCollect_HalloweenFruits then break end
             if isBackpackFull() then break end
             table.insert(batch, target)
+            local p = target:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if p and fireproximityprompt then
+                pcall(function() fireproximityprompt(p, 0) end)
+            end
             if #batch >= maxBatch then
-                pcall(function() colRemote:FireServer(batch) end)
+                if colRemote then
+                    pcall(function() colRemote:FireServer(batch) end)
+                end
                 batch = {}
                 task.wait(0.04)
             end
         end
-        if #batch > 0 and isToggleActive(autoCollectGlimmeringFruitToggle, State.AutoCollect_GlimmeringFruit, "Auto Collect Glimmering Fruit") then
+        if #batch > 0 and colRemote and State.AutoCollect_HalloweenFruits then
             pcall(function() colRemote:FireServer(batch) end)
         end
     end
 end
 
--- 2. Fairy Fountain Submissions & Wishes
-local function getWishFountainRoot()
-    local feModel = Workspace:FindFirstChild("Interaction") and Workspace.Interaction:FindFirstChild("FairyEventModel")
-    if feModel then
-        local wf = feModel:FindFirstChild("WishFountain")
-        if wf then
-            return wf:FindFirstChild("Root") or wf:FindFirstChild("Head") or wf.PrimaryPart or wf:FindFirstChildWhichIsA("BasePart", true)
-        end
-    end
-    return nil
-end
-
-local function executeFairyFountainSubmissionCycle(isManual)
+-- 2. 🛒 Auto Buy Items (For Every Shop in Event)
+local function executeHalloweenShopAutoBuy(isManual)
     pcall(function()
+        local boughtCount = 0
         local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local ev = ge and ge:FindFirstChild("Events")
-        local fe = ev and ev:FindFirstChild("FairyEvent")
-        if not fe then return end
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
 
-        local submitAllRem = fe:FindFirstChild("SubmitFairyFountainAllPlants") or fe:FindFirstChild("SubmitAllPlants")
-        local submitHeldRem = fe:FindFirstChild("SubmitFairyFountainHeldPlant") or fe:FindFirstChild("SubmitHeldPlant")
-        local makeWishRem = fe:FindFirstChild("MakeFairyWish")
-        local claimRewardRem = fe:FindFirstChild("ClaimFairyReward")
+        local shopDataMod = ReplicatedStorage:FindFirstChild("Data") 
+            and ReplicatedStorage.Data:FindFirstChild("Events") 
+            and ReplicatedStorage.Data.Events:FindFirstChild("HalloweenEvent") 
+            and ReplicatedStorage.Data.Events.HalloweenEvent:FindFirstChild("HalloweenEventShopData")
+        local shopData = shopDataMod and require(shopDataMod)
 
-        local rootPart = getWishFountainRoot()
-        local didTeleport = false
-        local prevCF = nil
+        local buySeedRemote = Remotes.BuySeedStock or (ge and ge:FindFirstChild("BuySeedStock"))
+        local buyDailySeedRemote = Remotes.BuyDailySeedShopStock or (ge and ge:FindFirstChild("BuyDailySeedShopStock"))
+        local buyPetEggRemote = Remotes.BuyPetEgg or (ge and ge:FindFirstChild("BuyPetEgg"))
+        local buyGearRemote = Remotes.BuyGearStock or (ge and ge:FindFirstChild("BuyGearStock"))
+        local buyCosmeticRemote = Remotes.BuyCosmeticItem or (ge and ge:FindFirstChild("BuyCosmeticItem"))
 
-        -- Proximity handling: Teleport closer to fountain if enabled and far away
-        if State.FairyFountain_AutoTeleport and rootPart and LocalPlayer.Character then
-            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local dist = (hrp.Position - rootPart.Position).Magnitude
-                if dist > 30 then
-                    prevCF = hrp.CFrame
-                    hrp.CFrame = CFrame.new(rootPart.Position + Vector3.new(0, 3, 5), rootPart.Position)
-                    didTeleport = true
-                    task.wait(0.15)
+        -- 2a. Seeds in Halloween Event Shop
+        if shopData and shopData.SeedShop then
+            for seedName, seedInfo in pairs(shopData.SeedShop) do
+                local sName = tostring(seedName)
+                if buySeedRemote then
+                    pcall(function() buySeedRemote:FireServer("HalloweenEvent", sName) end)
+                    pcall(function() buySeedRemote:FireServer("HalloweenEventShop", sName) end)
+                    pcall(function() buySeedRemote:FireServer("Shop", sName) end)
+                end
+                if buyDailySeedRemote then
+                    pcall(function() buyDailySeedRemote:FireServer("HalloweenEvent", sName) end)
+                    pcall(function() buyDailySeedRemote:FireServer("HalloweenEventShop", sName) end)
+                    pcall(function() buyDailySeedRemote:FireServer("Shop", sName) end)
+                end
+                boughtCount = boughtCount + 1
+            end
+        end
+
+        -- 2b. Pets in Halloween Event Shop
+        if shopData and shopData.PetShop then
+            for petName, petInfo in pairs(shopData.PetShop) do
+                local pName = tostring(petName)
+                if buyPetEggRemote then
+                    pcall(function() buyPetEggRemote:FireServer(pName, "HalloweenEvent") end)
+                    boughtCount = boughtCount + 1
                 end
             end
         end
 
-        -- 1. Batch Submit all qualifying glimmering plants from backpack
-        if submitAllRem then
-            submitAllRem:FireServer()
+        -- 2c. Gear in Halloween Event Shop
+        if shopData and shopData.GearShop then
+            for gearName, gearInfo in pairs(shopData.GearShop) do
+                local gName = tostring(gearName)
+                if buyGearRemote then
+                    pcall(function() buyGearRemote:FireServer(gName, "HalloweenEvent") end)
+                    boughtCount = boughtCount + 1
+                end
+            end
         end
 
-        -- 2. Fallback: Check if any glimmering fruit is held or remains in backpack
+        -- 2d. Cosmetics in Halloween Event Shop
+        if shopData and shopData.CosmeticShop then
+            for cosName, cosInfo in pairs(shopData.CosmeticShop) do
+                local cName = tostring(cosName)
+                if buyCosmeticRemote then
+                    pcall(function() buyCosmeticRemote:FireServer(cName, "HalloweenEvent") end)
+                    boughtCount = boughtCount + 1
+                end
+            end
+        end
+
+        -- 2e. GUI Click Automation for HalloweenEventShop_UI
+        local hShopGui = pGui and pGui:FindFirstChild("Events") and pGui.Events:FindFirstChild("HalloweenEvent") and pGui.Events.HalloweenEvent:FindFirstChild("HalloweenEventShop_UI")
+        if hShopGui then
+            for _, desc in ipairs(hShopGui:GetDescendants()) do
+                if desc:IsA("GuiButton") then
+                    local bName = desc.Name:lower()
+                    if bName:find("buy") or bName:find("purchase") or bName:find("confirm") or bName:find("sheckles") or bName:find("candycorn") then
+                        if firesignal then
+                            pcall(function() firesignal(desc.Activated) end)
+                            pcall(function() firesignal(desc.MouseButton1Click) end)
+                        end
+                        if getconnections then
+                            for _, c in ipairs(getconnections(desc.Activated)) do pcall(function() c:Fire() end) end
+                            for _, c in ipairs(getconnections(desc.MouseButton1Click)) do pcall(function() c:Fire() end) end
+                        end
+                        boughtCount = boughtCount + 1
+                    end
+                end
+            end
+        end
+
+        -- 2f. World Interaction: ProximityPrompts for Packs & Event Stands
+        local inter = Workspace:FindFirstChild("Interaction")
+        if inter then
+            local hungry = inter:FindFirstChild("HalloweenHungryModel")
+            if hungry then
+                for _, prompt in ipairs(hungry:GetDescendants()) do
+                    if prompt:IsA("ProximityPrompt") and prompt.Enabled and fireproximityprompt then
+                        pcall(function() fireproximityprompt(prompt, 0) end)
+                        boughtCount = boughtCount + 1
+                    end
+                end
+            end
+            local market = inter:FindFirstChild("Halloween2026MarketModel")
+            if market then
+                for _, prompt in ipairs(market:GetDescendants()) do
+                    if prompt:IsA("ProximityPrompt") and prompt.Enabled and fireproximityprompt then
+                        local pAct = (prompt.ActionText or ""):lower()
+                        local pObj = (prompt.ObjectText or ""):lower()
+                        if pAct:find("buy") or pAct:find("open") or pAct:find("shop") or pObj:find("shop") or pObj:find("seed") then
+                            pcall(function() fireproximityprompt(prompt, 0) end)
+                            boughtCount = boughtCount + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        if isManual then
+            Hub.Notify("🎃 Halloween Shop", string.format("Processed purchases across all event shops! (%d actions triggered)", boughtCount), 3)
+        end
+    end)
+end
+
+-- 3. 💰 Auto Sell Halloween Fruits
+local function executeHalloweenSellCycle(isManual)
+    pcall(function()
+        if not isManual and State.HalloweenSell_WaitMaxBackpack and not isBackpackFull() then
+            return
+        end
+
+        local allTools = getAllPlayerTools()
+        if #allTools == 0 then
+            if isManual then Hub.Notify("🎃 Auto Sell", "No fruits in backpack to sell.", 3) end
+            return
+        end
+
+        local sellItemRem = getSellItemRemote()
+        local sellInvRem = getSellInvRemote()
+
+        local soldCount = 0
+        for _, tool in ipairs(allTools) do
+            if tool and tool.Parent and tool:IsA("Tool") and isFruitTool(tool) then
+                if isFruitHalloween(tool) then
+                    soldCount = soldCount + 1
+                    if sellItemRem then
+                        pcall(function() sellItemRem:FireServer(tool) end)
+                    end
+                end
+            end
+        end
+
+        if soldCount > 0 then
+            if sellInvRem then
+                pcall(function() sellInvRem:FireServer() end)
+            end
+            local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+            local sellFood = ge and ge:FindFirstChild("SellFood_RE")
+            if sellFood then
+                pcall(function() sellFood:FireServer() end)
+            end
+
+            local npcs = Workspace:FindFirstChild("NPCS")
+            local sellNpc = npcs and (npcs:FindFirstChild("Sell_NPC") or npcs:FindFirstChild("SellNPC") or npcs:FindFirstChild("Market_NPC"))
+            if sellNpc and fireproximityprompt then
+                local prompt = sellNpc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt and prompt.Enabled then
+                    pcall(function() fireproximityprompt(prompt, 0) end)
+                end
+            end
+
+            if isManual then
+                Hub.Notify("🎃 Auto Sell", string.format("Sold %d Halloween fruits!", soldCount), 3)
+            end
+        else
+            if isManual then
+                Hub.Notify("🎃 Auto Sell", "No Halloween fruits detected in backpack.", 3)
+            end
+        end
+    end)
+end
+
+-- 4. 🧙‍♀️ Event Offerings (Cauldron, Jack-O'-Lantern, Harvest Reaper)
+local function executeWitchesBrewSubmit()
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local he = ev and ev:FindFirstChild("HalloweenEvent")
+        local wb = he and he:FindFirstChild("WitchesBrew")
+        local submitRem = wb and (wb:FindFirstChild("SubmitItemToCauldron") or wb:FindFirstChild("SubmitItem"))
+        if not submitRem then return end
+
         local allTools = getAllPlayerTools()
         for _, tool in ipairs(allTools) do
-            if tool and tool.Parent and isToolGlimmering(tool) then
-                if submitHeldRem then
-                    equipTool(tool)
-                    task.wait(0.05)
-                    submitHeldRem:FireServer()
+            if tool and tool.Parent and isFruitTool(tool) then
+                if submitRem:IsA("RemoteFunction") then
+                    pcall(function() submitRem:InvokeServer(tool) end)
+                else
+                    pcall(function() submitRem:FireServer(tool) end)
                 end
             end
-        end
-
-        -- 3. Auto Make Wish when all 3 offerings are satisfied
-        if makeWishRem and (State.AutoMake_FairyWish or isManual) then
-            local shouldWish = false
-            local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
-            if dsMod then
-                local ds = require(dsMod)
-                local data = ds:GetData()
-                if data and data.FairyEvent and data.FairyEvent.FairyQuests then
-                    local fq = data.FairyEvent.FairyQuests
-                    if fq.CompletionSource ~= nil then
-                        shouldWish = true
-                    elseif fq.Containers and #fq.Containers > 0 then
-                        local allDone = true
-                        for _, cId in ipairs(fq.Containers) do
-                            local qc = data.QuestContainers and data.QuestContainers[cId]
-                            if qc and qc.Quests and qc.Quests[1] then
-                                if qc.Quests[1].Completed ~= true then
-                                    allDone = false
-                                    break
-                                end
-                            else
-                                allDone = false
-                                break
-                            end
-                        end
-                        if allDone then shouldWish = true end
-                    end
-                end
-            end
-
-            if shouldWish or isManual then
-                makeWishRem:FireServer()
-                if isManual then
-                    Hub.Notify("✨ Fairy Fountain", "Made a wish at the Wishing Fountain!", 3)
-                end
-            end
-        end
-
-        -- 4. Auto Claim Milestone / Tier Rewards
-        if claimRewardRem then
-            claimRewardRem:FireServer()
-        end
-
-        -- Return to previous location if teleported
-        if didTeleport and prevCF and LocalPlayer.Character then
-            task.wait(0.15)
-            local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then hrp.CFrame = prevCF end
-        end
-
-        if isManual then
-            Hub.Notify("✨ Fairy Fountain", "Submitted Glimmering Fruits to Fountain!", 3)
         end
     end)
 end
 
--- Background Worker: Auto Collect Glimmering Fruits
+local function executeJackOLanternSubmit()
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local he = ev and ev:FindFirstChild("HalloweenEvent")
+        local jol = he and he:FindFirstChild("JackOLantern")
+        local submitRem = jol and (jol:FindFirstChild("SubmitJackOLanternItem") or jol:FindFirstChild("SubmitItem"))
+        if not submitRem then return end
+
+        local allTools = getAllPlayerTools()
+        for _, tool in ipairs(allTools) do
+            if tool and tool.Parent and isFruitTool(tool) then
+                pcall(function() submitRem:FireServer(tool) end)
+            end
+        end
+    end)
+end
+
+local function executeHarvestReaperSubmit()
+    pcall(function()
+        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
+        local ev = ge and ge:FindFirstChild("Events")
+        local he = ev and ev:FindFirstChild("HalloweenEvent")
+        local hr = he and he:FindFirstChild("HarvestReaper")
+        local submitRem = hr and (hr:FindFirstChild("SubmitHarvestReaper") or hr:FindFirstChild("SubmitItem"))
+        if not submitRem then return end
+
+        local allTools = getAllPlayerTools()
+        for _, tool in ipairs(allTools) do
+            if tool and tool.Parent and isFruitTool(tool) then
+                pcall(function() submitRem:FireServer(tool) end)
+            end
+        end
+    end)
+end
+
+-- Background Worker: Auto Collect Halloween Fruits
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if isToggleActive(autoCollectGlimmeringFruitToggle, State.AutoCollect_GlimmeringFruit, "Auto Collect Glimmering Fruit") then
-            pcall(executeGlimmeringCollectCycle)
-            task.wait(State.HarvestDelay or 0.1)
+        if State.AutoCollect_HalloweenFruits then
+            pcall(executeHalloweenCollectCycle)
+            task.wait(State.HalloweenCollect_Delay or 0.1)
         else
             task.wait(0.5)
         end
     end
 end)
 
--- Background Worker: Auto Submit Glimmering Fruits to Fairy Fountain
+-- Background Worker: Auto Buy Halloween Shops
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if State.AutoSubmit_FairyFountain then
-            local delayVal = math.clamp(tonumber(State.FairyFountain_Delay) or 0.5, 0.25, 10.0)
-            pcall(function() executeFairyFountainSubmissionCycle(false) end)
+        if State.AutoBuy_HalloweenShops then
+            local delayVal = math.clamp(tonumber(State.HalloweenShop_BuyDelay) or 1.0, 0.25, 5.0)
+            pcall(function() executeHalloweenShopAutoBuy(false) end)
             task.wait(delayVal)
         else
             task.wait(0.5)
@@ -5029,97 +5166,13 @@ task.spawn(function()
     end
 end)
 
--- =========================================================================
--- Fairy Upgrades Auto-Buy Engine
--- =========================================================================
-local function executeFairyUpgradesAutoBuy(isManual)
-    pcall(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local ev = ge and ge:FindFirstChild("Events")
-        local fe = ev and ev:FindFirstChild("FairyEvent")
-        local upgradeRem = fe and fe:FindFirstChild("Upgrade")
-        if not upgradeRem then return end
-
-        local dsMod = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("DataService")
-        local ds = dsMod and require(dsMod)
-        local data = ds and ds:GetData()
-        if not data then return end
-
-        local fairyPoints = (data.SpecialCurrency and data.SpecialCurrency.FairyPoints) or 0
-        local playerUpgrades = (data.FairyEvent and data.FairyEvent.Upgrades) or {}
-
-        local dataMod = ReplicatedStorage:FindFirstChild("Data") and ReplicatedStorage.Data:FindFirstChild("Events") and ReplicatedStorage.Data.Events:FindFirstChild("FairyEvent") and ReplicatedStorage.Data.Events.FairyEvent:FindFirstChild("FairyUpgradesData")
-        local upgradesConfig = dataMod and require(dataMod)
-        if not upgradesConfig then return end
-
-        local selectedUpgrades = {}
-        if selectFairyUpgradeListObj then
-            selectedUpgrades = getUIListMultipleVals(selectFairyUpgradeListObj, "All Upgrades")
-        end
-        if #selectedUpgrades == 0 then
-            selectedUpgrades = State.AutoBuy_SelectedFairyUpgrades or {"All Upgrades"}
-        end
-
-        local buyAll = false
-        for _, sel in ipairs(selectedUpgrades) do
-            if sel == "All Upgrades" or sel == "All" then
-                buyAll = true
-                break
-            end
-        end
-
-        local categoriesToProcess = {
-            "Glimmer Multiplier",
-            "Loose Fairy Spawn Amount",
-            "Fairy Event Duration",
-            "Fairy Spawn Amount"
-        }
-
-        local boughtCount = 0
-        for _, categoryKey in ipairs(categoriesToProcess) do
-            local cfg = upgradesConfig[categoryKey]
-            local uiTitle = (cfg and cfg.Title) or categoryKey
-
-            local isSelected = buyAll
-            if not isSelected then
-                for _, sel in ipairs(selectedUpgrades) do
-                    if sel == categoryKey or sel == uiTitle or sel:lower():find(categoryKey:lower(), 1, true) then
-                        isSelected = true
-                        break
-                    end
-                end
-            end
-
-            if isSelected and cfg and cfg.Upgrades then
-                local currentTier = tonumber(playerUpgrades[categoryKey]) or 0
-                local nextTier = currentTier + 1
-                local tierData = cfg.Upgrades[nextTier]
-
-                if tierData and tierData.Price then
-                    if fairyPoints >= tierData.Price then
-                        upgradeRem:FireServer(categoryKey)
-                        fairyPoints = fairyPoints - tierData.Price
-                        boughtCount = boughtCount + 1
-                        Hub.Notify("🔮 Fairy Upgrades", string.format("Upgraded %s to Tier %d! (%d pts)", uiTitle, nextTier, tierData.Price), 3)
-                        task.wait(0.2)
-                    end
-                end
-            end
-        end
-
-        if isManual and boughtCount == 0 then
-            Hub.Notify("🔮 Fairy Upgrades", "No affordable upgrades for selected categories.", 3)
-        end
-    end)
-end
-
--- Background Worker: Auto Buy Fairy Upgrades
+-- Background Worker: Auto Sell Halloween Fruits
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if State.AutoBuy_FairyUpgrades then
-            local delayVal = math.clamp(tonumber(State.FairyUpgrades_BuyDelay) or 0.5, 0.2, 5.0)
-            pcall(function() executeFairyUpgradesAutoBuy(false) end)
+        if State.AutoSell_HalloweenFruits then
+            local delayVal = math.clamp(tonumber(State.HalloweenSell_Delay) or 0.5, 0.2, 5.0)
+            pcall(function() executeHalloweenSellCycle(false) end)
             task.wait(delayVal)
         else
             task.wait(0.5)
@@ -5127,57 +5180,20 @@ task.spawn(function()
     end
 end)
 
--- =========================================================================
--- Roaming Fairies Collect Engine
--- =========================================================================
-local function executeRoamingFairiesCollectCycle(isManual)
-    pcall(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local ev = ge and ge:FindFirstChild("Events")
-        local fe = ev and ev:FindFirstChild("FairyEvent")
-        local collectLooseRem = fe and fe:FindFirstChild("CollectLooseFairy")
-
-        local count = 0
-        local looseFairies = CollectionService:GetTagged("LooseFairy")
-        for _, fairy in ipairs(looseFairies) do
-            if collectLooseRem then
-                collectLooseRem:FireServer(fairy)
-                count = count + 1
-            end
-            local prompt = fairy:FindFirstChildWhichIsA("ProximityPrompt", true)
-            if prompt and fireproximityprompt then
-                pcall(function() fireproximityprompt(prompt) end)
-            end
-        end
-
-        pcall(function()
-            for _, obj in ipairs(Workspace:GetChildren()) do
-                if obj.Name:lower():find("fairy") and obj ~= Workspace:FindFirstChild("Farm") then
-                    local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
-                    if prompt and fireproximityprompt then
-                        pcall(function() fireproximityprompt(prompt) end)
-                        count = count + 1
-                    end
-                end
-            end
-        end)
-
-        if isManual then
-            Hub.Notify("✨ Roaming Fairies", string.format("Collected %d roaming fairies!", count), 3)
-        end
-    end)
-end
-
--- Background Worker: Auto Collect Roaming Fairies
+-- Background Worker: Event Offerings
 task.spawn(function()
     while true do
         if _G.GAG_SESSION ~= currentSession then break end
-        if State.AutoCollect_RoamingFairies then
-            pcall(function() executeRoamingFairiesCollectCycle(false) end)
-            task.wait(1.0)
-        else
-            task.wait(0.5)
+        if State.AutoSubmit_WitchesBrew then
+            pcall(executeWitchesBrewSubmit)
         end
+        if State.AutoSubmit_JackOLantern then
+            pcall(executeJackOLanternSubmit)
+        end
+        if State.AutoSubmit_HarvestReaper then
+            pcall(executeHarvestReaperSubmit)
+        end
+        task.wait(1.0)
     end
 end)
 
@@ -5228,8 +5244,8 @@ for _, item in ipairs(allAvailableCraftPlants) do table.insert(craftablePlantsLi
 local craftableGearsListItems = {}
 for _, item in ipairs(allAvailableCraftGears) do table.insert(craftableGearsListItems, {Name = item.Name}) end
 
-local fairyUpgradesListItems = {}
-for _, item in ipairs(allAvailableFairyUpgrades) do table.insert(fairyUpgradesListItems, {Name = item.Name}) end
+local halloweenShopListItems = {}
+for _, item in ipairs(allAvailableHalloweenShops) do table.insert(halloweenShopListItems, {Name = item.Name}) end
 
 local slotListItems = {
     {Name = "None"},
@@ -5244,7 +5260,7 @@ local slotListItems = {
 local farmTab = Hub.CreateTab("Farm", { Icon = "🌱", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 220, 120) })
 local petTab = Hub.CreateTab("Pets", { Icon = "🐾", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 180, 50) })
 local shopTab = Hub.CreateTab("Shop", { Icon = "🛒", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
-local eventTab = Hub.CreateTab("Events", { Icon = "🎪", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(240, 100, 200) })
+local eventTab = Hub.CreateTab("Events", { Icon = "🎃", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 130, 20) })
 local tradeTab = Hub.CreateTab("Trade", { Icon = "🔄", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 200, 255) })
 local miscTab = Hub.CreateTab("Misc", { Icon = "🔮", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(180, 140, 255) })
 
@@ -6720,93 +6736,100 @@ Hub.CreateButton(shopTab, "🛠️ Spawn Event Crafting Tables (Dino, Fairy, Smi
 end)
 
 -- ==========================================
--- Section: Events Tab (Fairy Event)
+-- Section: Events Tab (🎃 Halloween Event 2026)
 -- ==========================================
 
--- 1. 🧚 Fairy Fountain Automator
-Hub.CreateSection(eventTab, "🧚 Fairy Fountain Automator")
+-- 1. 🎃 Auto Collect Fruits (Halloween Garden)
+Hub.CreateSection(eventTab, "🎃 Halloween Garden Fruits")
 
-autoSubmitFairyFountainToggle = Hub.CreateToggle(eventTab, "Auto Submit Fruit to Fairy Fountain", false, function(v)
-    if type(v) == "boolean" then State.AutoSubmit_FairyFountain = v else State.AutoSubmit_FairyFountain = not State.AutoSubmit_FairyFountain end
-    if State.AutoSubmit_FairyFountain then
-        task.spawn(function() executeFairyFountainSubmissionCycle(false) end)
+autoCollectHalloweenFruitsToggle = Hub.CreateToggle(eventTab, "Auto Collect Fruits (Halloween Garden)", false, function(v)
+    if type(v) == "boolean" then State.AutoCollect_HalloweenFruits = v else State.AutoCollect_HalloweenFruits = not State.AutoCollect_HalloweenFruits end
+    if State.AutoCollect_HalloweenFruits then
+        task.spawn(executeHalloweenCollectCycle)
     end
 end)
 
-autoCollectGlimmeringFruitToggle = Hub.CreateToggle(eventTab, "Auto Collect Glimmering Fruit", false, function(v)
-    if type(v) == "boolean" then State.AutoCollect_GlimmeringFruit = v else State.AutoCollect_GlimmeringFruit = not State.AutoCollect_GlimmeringFruit end
-    if State.AutoCollect_GlimmeringFruit then
-        task.spawn(executeGlimmeringCollectCycle)
-    end
-end)
-
-autoMakeFairyWishToggle = Hub.CreateToggle(eventTab, "Auto Make Wish (When Ready)", true, function(v)
-    if type(v) == "boolean" then State.AutoMake_FairyWish = v else State.AutoMake_FairyWish = not State.AutoMake_FairyWish end
-end)
-
-Hub.CreateToggle(eventTab, "Auto Teleport to Fountain (Submitting)", false, function(v)
-    if type(v) == "boolean" then State.FairyFountain_AutoTeleport = v else State.FairyFountain_AutoTeleport = not State.FairyFountain_AutoTeleport end
-end)
-
-Hub.CreateTextBox(eventTab, "Fountain Check Delay (0.25 - 10.0s)", "Enter check delay (default: 0.5)", function(text)
+Hub.CreateTextBox(eventTab, "Harvest Delay (0.05 - 2.0s)", "Enter check delay (default: 0.1)", function(text)
     local num = tonumber(text)
-    if num then
-        State.FairyFountain_Delay = math.clamp(num, 0.25, 10.0)
-    end
+    if num then State.HalloweenCollect_Delay = math.clamp(num, 0.05, 2.0) end
 end)
 
-Hub.CreateButton(eventTab, "✨ Submit Fruit to Fountain Now (Manual)", function()
-    task.spawn(function() executeFairyFountainSubmissionCycle(true) end)
-end)
-
-Hub.CreateButton(eventTab, "🌟 Make Wish Now (Manual)", function()
-    pcall(function()
-        local ge = ReplicatedStorage:FindFirstChild("GameEvents")
-        local ev = ge and ge:FindFirstChild("Events")
-        local fe = ev and ev:FindFirstChild("FairyEvent")
-        local makeWishRem = fe and fe:FindFirstChild("MakeFairyWish")
-        if makeWishRem then
-            makeWishRem:FireServer()
-            Hub.Notify("✨ Fairy Fountain", "Made a wish at the Wishing Fountain!", 3)
-        end
+Hub.CreateButton(eventTab, "🎃 Collect Halloween Fruits Now (Manual)", function()
+    task.spawn(function()
+        executeHalloweenCollectCycle()
+        Hub.Notify("🎃 Harvest", "Harvested available fruits from Halloween Garden!", 3)
     end)
 end)
 
--- 2. 🔮 Fairy Upgrades Auto-Buy
-Hub.CreateSection(eventTab, "🔮 Fairy Upgrades Auto-Buy")
+-- 2. 🛒 Auto Buy Items (For Every Shop in Event)
+Hub.CreateSection(eventTab, "🛒 Auto Buy Event Shops (Every Shop)")
 
-autoBuyFairyUpgradesToggle = Hub.CreateToggle(eventTab, "Auto Buy Fairy Upgrades", false, function(v)
-    if type(v) == "boolean" then State.AutoBuy_FairyUpgrades = v else State.AutoBuy_FairyUpgrades = not State.AutoBuy_FairyUpgrades end
-    if State.AutoBuy_FairyUpgrades then
-        task.spawn(function() executeFairyUpgradesAutoBuy(false) end)
+autoBuyHalloweenShopsToggle = Hub.CreateToggle(eventTab, "Auto Buy All Event Shop Items", false, function(v)
+    if type(v) == "boolean" then State.AutoBuy_HalloweenShops = v else State.AutoBuy_HalloweenShops = not State.AutoBuy_HalloweenShops end
+    if State.AutoBuy_HalloweenShops then
+        task.spawn(function() executeHalloweenShopAutoBuy(false) end)
     end
 end)
 
-selectFairyUpgradeListObj = Hub.CreateList(eventTab, "Select Fairy Upgrades to Buy", fairyUpgradesListItems, 220, false, { MultiSelect = true })
+selectHalloweenShopListObj = Hub.CreateList(eventTab, "Filter Shop Category", halloweenShopListItems, 180, false, false)
 
-Hub.CreateTextBox(eventTab, "Upgrade Check Delay (0.2 - 5.0s)", "Enter check delay (default: 0.5)", function(text)
+Hub.CreateTextBox(eventTab, "Shop Check Delay (0.25 - 5.0s)", "Enter check delay (default: 1.0)", function(text)
     local num = tonumber(text)
-    if num then
-        State.FairyUpgrades_BuyDelay = math.clamp(num, 0.2, 5.0)
+    if num then State.HalloweenShop_BuyDelay = math.clamp(num, 0.25, 5.0) end
+end)
+
+Hub.CreateButton(eventTab, "🛍️ Buy All Event Items Now (Manual)", function()
+    task.spawn(function() executeHalloweenShopAutoBuy(true) end)
+end)
+
+-- 3. 💰 Auto Sell Halloween Fruits
+Hub.CreateSection(eventTab, "💰 Auto Sell Halloween Fruits")
+
+autoSellHalloweenFruitsToggle = Hub.CreateToggle(eventTab, "Auto Sell Halloween Fruits", false, function(v)
+    if type(v) == "boolean" then State.AutoSell_HalloweenFruits = v else State.AutoSell_HalloweenFruits = not State.AutoSell_HalloweenFruits end
+    if State.AutoSell_HalloweenFruits then
+        task.spawn(function() executeHalloweenSellCycle(false) end)
     end
 end)
 
-Hub.CreateButton(eventTab, "💎 Buy Selected Upgrades Now (Manual)", function()
-    task.spawn(function() executeFairyUpgradesAutoBuy(true) end)
+Hub.CreateToggle(eventTab, "Wait For Full Backpack (Sell)", false, function(v)
+    if type(v) == "boolean" then State.HalloweenSell_WaitMaxBackpack = v else State.HalloweenSell_WaitMaxBackpack = not State.HalloweenSell_WaitMaxBackpack end
 end)
 
--- 3. ✨ Roaming Fairies
-Hub.CreateSection(eventTab, "✨ Roaming Fairies")
-
-autoCollectRoamingFairiesToggle = Hub.CreateToggle(eventTab, "Auto Collect Roaming Fairies", false, function(v)
-    if type(v) == "boolean" then State.AutoCollect_RoamingFairies = v else State.AutoCollect_RoamingFairies = not State.AutoCollect_RoamingFairies end
-    if State.AutoCollect_RoamingFairies then
-        task.spawn(function() executeRoamingFairiesCollectCycle(false) end)
-    end
+Hub.CreateTextBox(eventTab, "Sell Check Delay (0.2 - 5.0s)", "Enter check delay (default: 0.5)", function(text)
+    local num = tonumber(text)
+    if num then State.HalloweenSell_Delay = math.clamp(num, 0.2, 5.0) end
 end)
 
-Hub.CreateButton(eventTab, "🧚 Collect Roaming Fairies Now (Manual)", function()
-    task.spawn(function() executeRoamingFairiesCollectCycle(true) end)
+Hub.CreateButton(eventTab, "💰 Sell Halloween Fruits Now (Manual)", function()
+    task.spawn(function() executeHalloweenSellCycle(true) end)
+end)
+
+-- 4. 🧙‍♀️ Event Offerings (Cauldron, Jack-O'-Lantern, Reaper)
+Hub.CreateSection(eventTab, "🧙‍♀️ Event Offerings & Sacrifices")
+
+autoSubmitWitchesBrewToggle = Hub.CreateToggle(eventTab, "Auto Submit to Witches' Brew (Cauldron)", false, function(v)
+    if type(v) == "boolean" then State.AutoSubmit_WitchesBrew = v else State.AutoSubmit_WitchesBrew = not State.AutoSubmit_WitchesBrew end
+    if State.AutoSubmit_WitchesBrew then task.spawn(executeWitchesBrewSubmit) end
+end)
+
+autoSubmitJackOLanternToggle = Hub.CreateToggle(eventTab, "Auto Submit to Jack-O'-Lantern", false, function(v)
+    if type(v) == "boolean" then State.AutoSubmit_JackOLantern = v else State.AutoSubmit_JackOLantern = not State.AutoSubmit_JackOLantern end
+    if State.AutoSubmit_JackOLantern then task.spawn(executeJackOLanternSubmit) end
+end)
+
+autoSubmitHarvestReaperToggle = Hub.CreateToggle(eventTab, "Auto Submit to Harvest Reaper", false, function(v)
+    if type(v) == "boolean" then State.AutoSubmit_HarvestReaper = v else State.AutoSubmit_HarvestReaper = not State.AutoSubmit_HarvestReaper end
+    if State.AutoSubmit_HarvestReaper then task.spawn(executeHarvestReaperSubmit) end
+end)
+
+Hub.CreateButton(eventTab, "✨ Submit All Offerings Now (Cauldron + Jack + Reaper)", function()
+    task.spawn(function()
+        executeWitchesBrewSubmit()
+        executeJackOLanternSubmit()
+        executeHarvestReaperSubmit()
+        Hub.Notify("🎃 Offerings", "Submitted eligible fruits to Witches Brew, Jack-O'-Lantern, and Reaper!", 3)
+    end)
 end)
 
 
