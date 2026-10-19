@@ -340,7 +340,23 @@ local State = {
     CollectItemDelay = 0.5,
     PrioritizeRareItems = true,
     ItemNotifier = true,
+    AlertRareItems = {
+        ["Lucky Arrow"] = true,
+        ["Lucky Stone Mask"] = true,
+        ["Pure Rokakaka"] = true,
+        ["Requiem Arrow"] = true,
+        ["Rib Cage of the Saint's Corpse"] = true,
+        ["DIO's Diary"] = true
+    },
     AutoSellCommon = false,
+    SellExcludedItems = {
+        ["Lucky Arrow"] = true,
+        ["Lucky Stone Mask"] = true,
+        ["Pure Rokakaka"] = true,
+        ["Requiem Arrow"] = true,
+        ["Rib Cage of the Saint's Corpse"] = true,
+        ["DIO's Diary"] = true
+    },
     ItemWhitelist = { ["All Items"] = true },
 
     -- SBR
@@ -367,6 +383,9 @@ local State = {
     ItemESP = false,
     PlayerESP = false,
     NPCESP = false,
+    BossESP = false,
+    ESPTracers = false,
+    ESPDistance = false,
 
     -- Teleport & Anti-Kick Safety
     SafeTeleportMode = true,
@@ -1007,7 +1026,182 @@ task.spawn(function()
     end
 end)
 
--- 3. Stamina & Character Modifiers Loop
+-- 3. High-Performance Visuals / ESP Engine Loop
+local espGuiFolder = nil
+pcall(function()
+    local parent = (gethui and gethui()) or LocalPlayer:FindFirstChild("PlayerGui") or game:GetService("CoreGui")
+    local existing = parent:FindFirstChild("YBA_Master_ESP")
+    if existing then existing:Destroy() end
+    local folder = Instance.new("Folder")
+    folder.Name = "YBA_Master_ESP"
+    folder.Parent = parent
+    espGuiFolder = folder
+end)
+
+local function getEspColor(name, isBoss, isPlayer)
+    if isPlayer then return Color3.fromRGB(80, 200, 255) end
+    if isBoss then return Color3.fromRGB(255, 60, 60) end
+    local n = name:lower()
+    if n:find("lucky") then return Color3.fromRGB(255, 215, 0)
+    elseif n:find("requiem") then return Color3.fromRGB(180, 70, 255)
+    elseif n:find("pure") then return Color3.fromRGB(0, 255, 200)
+    elseif n:find("diary") or n:find("rib") then return Color3.fromRGB(255, 120, 0)
+    end
+    return Color3.fromRGB(220, 220, 230)
+end
+
+local function createBillboardESP(adornee, titleText, color, showDistance)
+    if not espGuiFolder or not adornee or not adornee.Parent then return end
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "ESP_" .. tostring(titleText)
+    bb.Size = UDim2.new(0, 160, 0, 32)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.AlwaysOnTop = true
+    bb.Adornee = adornee
+    bb.Parent = espGuiFolder
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = titleText
+    label.TextColor3 = color
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.TextStrokeTransparency = 0.2
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 12
+    label.Parent = bb
+    return bb
+end
+
+task.spawn(function()
+    while true do
+        if _G.YBA_SESSION ~= currentSession then break end
+        if State.ItemESP or State.PlayerESP or State.NPCESP or State.BossESP then
+            pcall(function()
+                if espGuiFolder then espGuiFolder:ClearAllChildren() end
+                local myRoot = getRoot()
+                local myPos = myRoot and myRoot.Position or Vector3.zero
+
+                -- 1. Item ESP
+                if State.ItemESP then
+                    local spawnedItems = getSpawnedItems()
+                    for _, it in ipairs(spawnedItems) do
+                        local part = it.part or (it.prompt and it.prompt.Parent)
+                        if part and part:IsA("BasePart") then
+                            local dist = math.floor((myPos - part.Position).Magnitude)
+                            local title = it.name .. (State.ESPDistance and (" [" .. dist .. "m]") or "")
+                            createBillboardESP(part, "💎 " .. title, getEspColor(it.name, false, false), State.ESPDistance)
+                        end
+                    end
+                end
+
+                -- 2. Player ESP
+                if State.PlayerESP then
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and p.Character then
+                            local pRoot = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Torso")
+                            local pHum = p.Character:FindFirstChildOfClass("Humanoid")
+                            if pRoot and pHum and pHum.Health > 0 then
+                                local dist = math.floor((myPos - pRoot.Position).Magnitude)
+                                local title = p.DisplayName .. " (" .. math.floor(pHum.Health) .. " HP)" .. (State.ESPDistance and (" [" .. dist .. "m]") or "")
+                                createBillboardESP(pRoot, "👤 " .. title, getEspColor("", false, true), State.ESPDistance)
+                            end
+                        end
+                    end
+                end
+
+                -- 3. NPC & Boss ESP
+                if State.NPCESP or State.BossESP then
+                    local living = getLivingFolder()
+                    if living then
+                        local bossNames = {
+                            ["Leaky Eye Luca"] = true, ["Bucciarati"] = true, ["Fugo"] = true,
+                            ["Pesci"] = true, ["Ghiaccio"] = true, ["Diavolo"] = true,
+                            ["DIO"] = true, ["Jotaro"] = true, ["Anasui"] = true,
+                            ["Yoshikage Kira"] = true, ["Jotaro Kujo"] = true, ["Heaven Ascension DIO"] = true
+                        }
+                        for _, ch in ipairs(living:GetChildren()) do
+                            if ch:IsA("Model") and not Players:GetPlayerFromCharacter(ch) then
+                                local cRoot = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso")
+                                local cHum = ch:FindFirstChildOfClass("Humanoid")
+                                if cRoot and cHum and cHum.Health > 0 then
+                                    local isBoss = false
+                                    for bName, _ in pairs(bossNames) do
+                                        if ch.Name:lower():find(bName:lower(), 1, true) then
+                                            isBoss = true; break
+                                        end
+                                    end
+                                    if (isBoss and State.BossESP) or (not isBoss and State.NPCESP) then
+                                        local dist = math.floor((myPos - cRoot.Position).Magnitude)
+                                        local tag = isBoss and "👹 [BOSS] " or "👤 "
+                                        local title = tag .. ch.Name .. " (" .. math.floor(cHum.Health) .. " HP)" .. (State.ESPDistance and (" [" .. dist .. "m]") or "")
+                                        createBillboardESP(cRoot, title, getEspColor("", isBoss, false), State.ESPDistance)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            task.wait(1.2)
+        else
+            if espGuiFolder and #espGuiFolder:GetChildren() > 0 then
+                pcall(function() espGuiFolder:ClearAllChildren() end)
+            end
+            task.wait(1.0)
+        end
+    end
+end)
+
+-- 4. "Sell when full" Background Merchant Worker
+task.spawn(function()
+    while true do
+        if _G.YBA_SESSION ~= currentSession then break end
+        if State.AutoSellCommon then
+            pcall(function()
+                local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+                if backpack then
+                    local totalItems = #backpack:GetChildren()
+                    -- Standard YBA inventory max capacity check (typically 20-30 items)
+                    if totalItems >= 18 then
+                        local rem = getRemoteFunction() or getRemoteEvent()
+                        for _, item in ipairs(backpack:GetChildren()) do
+                            if not State.AutoSellCommon then break end
+                            local iName = item.Name
+                            -- Check exclusions: do NOT sell if whitelisted in SellExcludedItems
+                            local isExcluded = State.SellExcludedItems[iName] == true
+                            if not isExcluded then
+                                for ex, enabled in pairs(State.SellExcludedItems) do
+                                    if enabled and iName:lower():find(ex:lower(), 1, true) then
+                                        isExcluded = true; break
+                                    end
+                                end
+                            end
+
+                            if not isExcluded then
+                                -- Sell item safely via Dialogue / EndDialogue / Merchant Remote
+                                pcall(function()
+                                    if rem:IsA("RemoteFunction") then
+                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                    elseif rem:IsA("RemoteEvent") then
+                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                    end
+                                end)
+                                task.wait(0.3)
+                            end
+                        end
+                        Hub.Notify("💰 Sell when full", "Cleared bag of unexcluded common items at Merchant!", 3)
+                    end
+                end
+            end)
+            task.wait(5.0)
+        else
+            task.wait(2.0)
+        end
+    end
+end)
+
+-- 5. Stamina & Character Modifiers Loop
 task.spawn(function()
     while true do
         if _G.YBA_SESSION ~= currentSession then break end
@@ -1055,9 +1249,21 @@ Hub.CreateToggle(combatTab, "⚔️ Auto Farm Selected NPC", false, function(v)
     end
 end)
 
-Hub.CreateDropdown(combatTab, "Target NPC", ybaNPCsCatalog, 1, function(selected)
-    State.SelectedNPC = selected
+local targetNpcCatalogItems = {}
+for _, npc in ipairs(ybaNPCsCatalog) do
+    table.insert(targetNpcCatalogItems, {Name = npc})
+end
+
+local targetNpcListObj = Hub.CreateList(combatTab, "Target NPC Selection (Click to Set)", targetNpcCatalogItems, 160, false, false, function(selectedName, entryData)
+    local rawName = entryData and entryData.Name or selectedName
+    if rawName and rawName ~= "" then
+        State.SelectedNPC = rawName
+        Hub.Notify("🎯 Target Locked", "Auto Farm targeting: " .. rawName, 2)
+    end
 end)
+if targetNpcListObj and targetNpcListObj.SetSelected then
+    pcall(function() targetNpcListObj.SetSelected(State.SelectedNPC or "Thug [Lvl. 1+]") end)
+end
 
 Hub.CreateSlider(combatTab, "⚡ Punch / M1 Delay", 0.10, 0.40, 0.16, "s", function(val)
     State.FastAttackSpeed = val
@@ -1170,20 +1376,66 @@ Hub.CreateSlider(itemsTab, "Item Collection Delay", 0.1, 2.0, 0.5, "s", function
     State.CollectItemDelay = val
 end)
 
-Hub.CreateToggle(itemsTab, "🌟 Prioritize Rare Items (Lucky Arrow, Diary, Ribs)", true, function(v)
+Hub.CreateToggle(itemsTab, "🌟 Prioritize Rare Items", true, function(v)
     State.PrioritizeRareItems = v
 end)
 
-Hub.CreateToggle(itemsTab, "🔔 Rare Item Server Alerts", true, function(v)
+Hub.CreateToggle(itemsTab, "🔔 Rare Item Spawn Alert", true, function(v)
     State.ItemNotifier = v
 end)
 
-Hub.CreateToggle(itemsTab, "💰 Auto Sell Common Items to ShiftPlox", false, function(v)
-    State.AutoSellCommon = v
-    if v then
-        Hub.Notify("💰 Merchant Automation", "Will automatically sell common arrows/coins when inventory gets full!", 3)
+-- Multi-select list of which rare items trigger notifications
+local rareAlertItems = {}
+for _, it in ipairs(ybaItemsCatalog) do
+    if it ~= "All Items" and (it:lower():find("lucky") or it:lower():find("pure") or it:lower():find("requiem") or it:lower():find("rib") or it:lower():find("diary")) then
+        table.insert(rareAlertItems, {Name = it})
+    end
+end
+local rareAlertListObj = Hub.CreateList(itemsTab, "Rare Item Alert Whitelist (Multi-Select)", rareAlertItems, 140, false, true, function(selectedName, entryData)
+    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName)
+    if rawName then
+        State.AlertRareItems[rawName] = not State.AlertRareItems[rawName]
     end
 end)
+if rareAlertListObj and rareAlertListObj.SetSelectedItems then
+    local preSelectedAlerts = {}
+    for name, enabled in pairs(State.AlertRareItems) do
+        if enabled then table.insert(preSelectedAlerts, name) end
+    end
+    pcall(function() rareAlertListObj.SetSelectedItems(preSelectedAlerts) end)
+end
+
+Hub.CreateSection(itemsTab, "💰 Merchant Sell Automation")
+
+Hub.CreateToggle(itemsTab, "💰 Sell when full", false, function(v)
+    State.AutoSellCommon = v
+    if v then
+        Hub.Notify("💰 Sell when full", "Enabled! When your bag is full, items will be sold to ShiftPlox.", 3)
+    end
+end)
+
+-- Multi-select list of excluded items that will NEVER be sold
+local excludeSellItems = {}
+for _, it in ipairs(ybaItemsCatalog) do
+    if it ~= "All Items" then
+        table.insert(excludeSellItems, {Name = it})
+    end
+end
+local excludeSellListObj = Hub.CreateList(itemsTab, "Exclude Sell Items (Never Sell)", excludeSellItems, 160, false, true, function(selectedName, entryData)
+    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName)
+    if rawName then
+        State.SellExcludedItems[rawName] = not State.SellExcludedItems[rawName]
+    end
+end)
+if excludeSellListObj and excludeSellListObj.SetSelectedItems then
+    local preSelectedExcludes = {}
+    for name, enabled in pairs(State.SellExcludedItems) do
+        if enabled then table.insert(preSelectedExcludes, name) end
+    end
+    pcall(function() excludeSellListObj.SetSelectedItems(preSelectedExcludes) end)
+end
+
+Hub.CreateSection(itemsTab, "📦 Collect Whitelist & Radar")
 
 local itemCatalogItems = {}
 for _, it in ipairs(ybaItemsCatalog) do table.insert(itemCatalogItems, {Name = it}) end
@@ -1368,9 +1620,9 @@ for name, _ in pairs(ybaLocations) do table.insert(sortedLocNames, name) end
 table.sort(sortedLocNames)
 for _, name in ipairs(sortedLocNames) do table.insert(locationCatalogItems, {Name = name}) end
 
-Hub.CreateList(tpTab, "Select Location", locationCatalogItems, 160, false, false, function(selectedItem)
-    local locName = selectedItem and (selectedItem.Name or selectedItem)
-    if locName then
+local locationListObj = Hub.CreateList(tpTab, "Select Location", locationCatalogItems, 160, false, false, function(selectedName, entryData)
+    local locName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName)
+    if locName and locName ~= "" then
         State.SelectedTravelTarget = locName
         State.TravelTargetType = "Location"
         Hub.Notify("🎯 Target Selected", "Location: " .. locName .. " (Toggle Travel above to go!)", 2)
@@ -1423,8 +1675,8 @@ local function getLiveBossItems()
 end
 
 local liveBossList = getLiveBossItems()
-Hub.CreateList(tpTab, "Select Boss", liveBossList, 140, false, false, function(selectedItem)
-    local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
+local bossListObj = Hub.CreateList(tpTab, "Select Boss", liveBossList, 140, false, false, function(selectedName, entryData)
+    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName) or ""
     if rawName ~= "" and not rawName:find("No active") then
         local cleanName = rawName:gsub("%s*%b()", ""):gsub("^%s*(.-)%s*$", "%1")
         State.SelectedTravelTarget = cleanName
@@ -1459,8 +1711,8 @@ local function getLiveNPCItems()
 end
 
 local liveNPCList = getLiveNPCItems()
-Hub.CreateList(tpTab, "Select NPC", liveNPCList, 140, false, false, function(selectedItem)
-    local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
+local npcListObj = Hub.CreateList(tpTab, "Select NPC", liveNPCList, 140, false, false, function(selectedName, entryData)
+    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName) or ""
     if rawName ~= "" then
         State.SelectedTravelTarget = rawName
         State.TravelTargetType = "NPC"
@@ -1488,8 +1740,8 @@ local function getOnlinePlayerItems()
 end
 
 local onlinePlayerList = getOnlinePlayerItems()
-Hub.CreateList(tpTab, "Select Player", onlinePlayerList, 140, false, false, function(selectedItem)
-    local rawName = selectedItem and (selectedItem.Name or selectedItem) or ""
+local playerListObj = Hub.CreateList(tpTab, "Select Player", onlinePlayerList, 140, false, false, function(selectedName, entryData)
+    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName) or ""
     if rawName ~= "" and not rawName:find("No other players") then
         State.SelectedTravelTarget = rawName
         State.TravelTargetType = "Player"
@@ -1518,8 +1770,16 @@ Hub.CreateToggle(espTab, "👤 Player ESP", false, function(v)
     State.PlayerESP = v
 end)
 
-Hub.CreateToggle(espTab, "👹 NPC & Boss ESP", false, function(v)
+Hub.CreateToggle(espTab, "👹 Boss ESP (DIO, Jotaro, Diavolo)", false, function(v)
+    State.BossESP = v
+end)
+
+Hub.CreateToggle(espTab, "👤 NPC ESP", false, function(v)
     State.NPCESP = v
+end)
+
+Hub.CreateToggle(espTab, "📏 Show Distance Tags", true, function(v)
+    State.ESPDistance = v
 end)
 
 -- -------------------------------------------------------------------------
