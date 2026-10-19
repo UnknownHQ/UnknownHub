@@ -571,10 +571,10 @@ end
 local currentTravelNoclip = nil
 local currentTravelBV = nil
 local isTraveling = false
-local cancelTravelFlag = false
+local currentTravelGeneration = 0
 
 local function cancelCurrentTravel()
-    cancelTravelFlag = true
+    currentTravelGeneration = currentTravelGeneration + 1
     if currentTravelNoclip then
         pcall(function() currentTravelNoclip:Disconnect() end)
         currentTravelNoclip = nil
@@ -605,8 +605,9 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
 
     local dist = (root.Position - targetCF.Position).Magnitude
 
-    -- Cancel any active travel before starting new one
+    -- Cancel any active travel and increment generation counter
     cancelCurrentTravel()
+    local myTravelGeneration = currentTravelGeneration
 
     -- 1. If very close (< 6 studs) or safe mode disabled, direct micro-teleport is completely safe
     if dist <= 6 or not State.SafeTeleportMode then
@@ -618,10 +619,7 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
     end
 
     -- 2. Anti-Rubberband High-Velocity Heartbeat Micro-Stepper with Adaptive Physics S-Curve
-    -- Starts at safe cruise speed (120 studs/s), ramps up smoothly to 500-600 studs/s,
-    -- and smoothly decelerates into the target so server physics buffers never spike.
     isTraveling = true
-    cancelTravelFlag = false
 
     local maxConfigSpeed = math.clamp(tonumber(State.SafeTravelSpeed) or 500, 40, 600)
     local minStartSpeed = 120
@@ -650,9 +648,8 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
     task.spawn(function()
         local currentSpeed = minStartSpeed
 
-        while isTraveling and not cancelTravelFlag do
+        while currentTravelGeneration == myTravelGeneration do
             if abortCondition and abortCondition() then
-                cancelCurrentTravel()
                 break
             end
 
@@ -668,16 +665,13 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
 
             -- Delta time between frames
             local dt = RunService.Heartbeat:Wait()
-            if cancelTravelFlag or not isTraveling then break end
+            if currentTravelGeneration ~= myTravelGeneration then break end
 
             if abortCondition and abortCondition() then
-                cancelCurrentTravel()
                 break
             end
 
-            -- Adaptive Speed Profile:
-            -- Smoothly accelerates from 120 studs/s up to maxConfigSpeed (500-600 studs/s)
-            -- Gently decelerates within the last 50 studs for a soft, undetectable stop
+            -- Adaptive Speed Profile
             if remDist < 50 then
                 currentSpeed = math.max(minStartSpeed, maxConfigSpeed * (remDist / 50))
             else
@@ -697,26 +691,28 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
             currentRoot.AssemblyAngularVelocity = Vector3.zero
         end
 
-        -- Finish travel and settle character
-        local endRoot = getRoot()
-        if endRoot and not cancelTravelFlag then
-            endRoot.CFrame = targetCF
-            endRoot.AssemblyLinearVelocity = Vector3.zero
-            endRoot.AssemblyAngularVelocity = Vector3.zero
-        end
+        local isThisTravelActive = (currentTravelGeneration == myTravelGeneration)
 
         if currentTravelNoclip == noclipConn then
             noclipConn:Disconnect()
             currentTravelNoclip = nil
         end
         if currentTravelBV == bv then
-            bv:Destroy()
+            pcall(function() bv:Destroy() end)
             currentTravelBV = nil
         end
-        isTraveling = false
 
-        if not cancelTravelFlag and callback then
-            callback()
+        if isThisTravelActive then
+            local endRoot = getRoot()
+            if endRoot then
+                endRoot.CFrame = targetCF
+                endRoot.AssemblyLinearVelocity = Vector3.zero
+                endRoot.AssemblyAngularVelocity = Vector3.zero
+            end
+            isTraveling = false
+            if callback then
+                callback()
+            end
         end
     end)
 end
@@ -796,7 +792,7 @@ local function executeAutoCollectItems()
     local candidateItems = {}
 
     for _, item in ipairs(items) do
-        local atCap, curAmt, maxAmt = isItemAtCap(item.name)
+        local atCap = isItemAtCap(item.name)
         if not atCap then
             local shouldCollect = isAllSelected or State.ItemWhitelist[item.name] == true
             if not shouldCollect then
@@ -813,110 +809,94 @@ local function executeAutoCollectItems()
         end
     end
 
+    if #candidateItems == 0 then return end
+
     local function isRareItem(name)
         local n = name:lower()
         return n:find("lucky", 1, true) or n:find("requiem", 1, true) or n:find("pure", 1, true) or n:find("rib", 1, true) or n:find("diary", 1, true)
     end
 
-    -- Sort candidates: Prioritize rare items first if enabled, then sort by distance
+    -- Prioritize rare items first if enabled, then sort by proximity
+    local currPos = root.Position
     table.sort(candidateItems, function(a, b)
-        local currRoot = getRoot()
-        local pos = currRoot and currRoot.Position or Vector3.zero
         if State.PrioritizeRareItems then
             local aRare = isRareItem(a.name)
             local bRare = isRareItem(b.name)
             if aRare and not bRare then return true end
             if bRare and not aRare then return false end
         end
-        return (pos - a.pos).Magnitude < (pos - b.pos).Magnitude
+        return (currPos - a.pos).Magnitude < (currPos - b.pos).Magnitude
     end)
 
-    for _, item in ipairs(candidateItems) do
-        if not State.AutoCollectItems then break end
-        if _G.YBA_SESSION ~= currentSession then break end
-        local currRoot = getRoot()
-        if currRoot and item.prompt and item.prompt.Parent then
-            if isRareItem(item.name) then
-                Hub.Notify("⭐ RARE ITEM DETECTED!", "Sniping " .. item.name .. "...", 3)
-            end
+    -- Pick the single best candidate item
+    local item = candidateItems[1]
+    if not item or not item.prompt or not item.prompt.Parent then return end
 
-            local targetCF = (item.cf and item.cf + Vector3.new(0, 1.0, 0)) or (item.pos and CFrame.new(item.pos + Vector3.new(0, 1.0, 0))) or item.prompt.Parent.CFrame
-            local dist = (currRoot.Position - targetCF.Position).Magnitude
-
-            local arrived = false
-            local function isItemInvalid()
-                return not item.prompt or not item.prompt.Parent or not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession
-            end
-
-            if dist > 6 and State.SafeTeleportMode then
-                safeTeleportTo(targetCF, function() arrived = true end, isItemInvalid)
-                local waitTimeout = math.clamp((dist / 120) + 3.0, 3.0, 15.0)
-                local startT = tick()
-                while not arrived and (tick() - startT < waitTimeout) do
-                    if isItemInvalid() then
-                        cancelCurrentTravel()
-                        break
-                    end
-                    task.wait(0.05)
-                end
-            else
-                currRoot.CFrame = targetCF
-                arrived = true
-            end
-
-            -- Ensure we arrived and item is still present
-            if not item.prompt or not item.prompt.Parent then
-                cancelCurrentTravel()
-            else
-                -- Physics stabilization pause so server syncs client position
-                task.wait(0.12)
-
-                currRoot = getRoot()
-                if currRoot and item.prompt and item.prompt.Parent then
-                    pcall(function()
-                        local currentDist = (currRoot.Position - targetCF.Position).Magnitude
-                        if currentDist <= 16 then
-                            -- Poll briefly (up to 0.5s) for ItemSpawn to clone the live replica prompt
-                            local realPrompt = nil
-                            local pollStart = tick()
-                            while (tick() - pollStart < 0.5) do
-                                if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then break end
-                                local itemSpawns = Workspace:FindFirstChild("Item_Spawns")
-                                local itemsFolder = itemSpawns and itemSpawns:FindFirstChild("Items")
-                                if itemsFolder then
-                                    for _, itm in ipairs(itemsFolder:GetChildren()) do
-                                        local p = itm:FindFirstChildOfClass("ProximityPrompt") or itm:FindFirstChildWhichIsA("ProximityPrompt")
-                                        if p and p.Enabled and p.MaxActivationDistance > 0 then
-                                            local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
-                                            if part and (part.Position - targetCF.Position).Magnitude <= 14 then
-                                                realPrompt = p
-                                                break
-                                            end
-                                        end
-                                    end
-                                end
-                                if realPrompt then break end
-                                task.wait(0.05)
-                            end
-
-                            -- Fallback to item.prompt ONLY if it is an active enabled prompt with distance
-                            if not realPrompt and item.prompt and item.prompt.Parent and item.prompt.Enabled and item.prompt.MaxActivationDistance > 0 then
-                                realPrompt = item.prompt
-                            end
-
-                            -- Trigger prompt cleanly via fireproximityprompt only if valid
-                            if realPrompt and realPrompt.Parent and fireproximityprompt then
-                                fireproximityprompt(realPrompt, 0)
-                            end
-                        end
-                    end)
-                end
-            end
-
-            -- Safe pause between consecutive item travels to allow server item-spawner to register pickup
-            task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.6, 0.2, 3.0))
-        end
+    if isRareItem(item.name) then
+        Hub.Notify("⭐ RARE ITEM DETECTED!", "Sniping " .. item.name .. "...", 3)
     end
+
+    local targetCF = (item.cf and item.cf + Vector3.new(0, 1.0, 0)) or (item.pos and CFrame.new(item.pos + Vector3.new(0, 1.0, 0))) or item.prompt.Parent.CFrame
+    local dist = (root.Position - targetCF.Position).Magnitude
+
+    local arrived = false
+    local function isItemInvalid()
+        return not item.prompt or not item.prompt.Parent or not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession
+    end
+
+    if dist > 6 and State.SafeTeleportMode then
+        safeTeleportTo(targetCF, function() arrived = true end, isItemInvalid)
+        local waitTimeout = math.clamp((dist / 120) + 3.0, 3.0, 15.0)
+        local startT = tick()
+        while not arrived and (tick() - startT < waitTimeout) do
+            if isItemInvalid() then
+                cancelCurrentTravel()
+                break
+            end
+            task.wait(0.05)
+        end
+    else
+        root.CFrame = targetCF
+        arrived = true
+    end
+
+    -- Ensure character is positioned at item
+    local currentRoot = getRoot()
+    if currentRoot and item.prompt and item.prompt.Parent and State.AutoCollectItems and _G.YBA_SESSION == currentSession then
+        task.wait(0.1)
+
+        pcall(function()
+            local realPrompt = nil
+
+            -- 1. Scan live replica prompt in Item_Spawns.Items
+            local itemSpawns = Workspace:FindFirstChild("Item_Spawns")
+            local itemsFolder = itemSpawns and itemSpawns:FindFirstChild("Items")
+            if itemsFolder then
+                for _, itm in ipairs(itemsFolder:GetChildren()) do
+                    local p = itm:FindFirstChildOfClass("ProximityPrompt") or itm:FindFirstChildWhichIsA("ProximityPrompt")
+                    if p and p.Enabled then
+                        local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
+                        if part and (part.Position - targetCF.Position).Magnitude <= 14 then
+                            realPrompt = p
+                            break
+                        end
+                    end
+                end
+            end
+
+            -- 2. Fallback to closure/discovered prompt
+            if not realPrompt and item.prompt and item.prompt.Parent then
+                realPrompt = item.prompt
+            end
+
+            if realPrompt and realPrompt.Parent and fireproximityprompt then
+                fireproximityprompt(realPrompt, 0)
+            end
+        end)
+    end
+
+    -- Delay between items
+    task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.5, 0.1, 2.0))
 end
 
 -- =========================================================================
@@ -1323,13 +1303,12 @@ task.spawn(function()
         if State.AutoSellCommon then
             pcall(function()
                 local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+                local char = getCharacter()
+                local itemsToSell = {}
+
                 if backpack then
-                    local rem = getRemoteFunction() or getRemoteEvent()
-                    local soldCount = 0
                     for _, item in ipairs(backpack:GetChildren()) do
-                        if not State.AutoSellCommon or _G.YBA_SESSION ~= currentSession then break end
                         local iName = item.Name
-                        -- Check exclusions: do NOT sell if whitelisted in SellExcludedItems
                         local isExcluded = State.SellExcludedItems[iName] == true
                         if not isExcluded then
                             for ex, enabled in pairs(State.SellExcludedItems) do
@@ -1338,28 +1317,60 @@ task.spawn(function()
                                 end
                             end
                         end
-
-                        if not isExcluded and rem then
-                            -- Sell item safely via Dialogue / EndDialogue / Merchant Remote
-                            pcall(function()
-                                if rem:IsA("RemoteFunction") then
-                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                                elseif rem:IsA("RemoteEvent") then
-                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                                end
-                            end)
-                            soldCount = soldCount + 1
-                            task.wait(0.25)
+                        if not isExcluded then
+                            table.insert(itemsToSell, item)
                         end
                     end
+                end
+
+                if #itemsToSell > 0 then
+                    -- Collect candidate remotes from Character and ReplicatedStorage
+                    local remotes = {}
+                    if char then
+                        local crf = char:FindFirstChild("RemoteFunction")
+                        local cre = char:FindFirstChild("RemoteEvent")
+                        if crf then table.insert(remotes, crf) end
+                        if cre then table.insert(remotes, cre) end
+                    end
+                    local repRf = ReplicatedStorage:FindFirstChild("RemoteFunction")
+                    local repRe = ReplicatedStorage:FindFirstChild("RemoteEvent")
+                    if repRf and not table.find(remotes, repRf) then table.insert(remotes, repRf) end
+                    if repRe and not table.find(remotes, repRe) then table.insert(remotes, repRe) end
+
+                    local soldCount = 0
+                    for _, item in ipairs(itemsToSell) do
+                        if not State.AutoSellCommon or _G.YBA_SESSION ~= currentSession then break end
+                        if item.Parent then
+                            for _, rem in ipairs(remotes) do
+                            pcall(function()
+                                if rem:IsA("RemoteFunction") then
+                                    -- Try Option2 (direct sell option in ShiftPlox dialogue)
+                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
+                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
+                                    -- Try Option1 fallback
+                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
+                                elseif rem:IsA("RemoteEvent") then
+                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
+                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
+                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
+                                end
+                            end)
+                        end
+                        soldCount = soldCount + 1
+                        task.wait(0.2)
+                    end
+                end
+
                     if soldCount > 0 then
-                        Hub.Notify("💰 Auto Sell", string.format("Sold %d unexcluded item(s) to ShiftPlox!", soldCount), 3)
+                        Hub.Notify("💰 Auto Sell", string.format("Processed %d unexcluded item(s) to ShiftPlox!", soldCount), 3)
                     end
                 end
             end)
-            task.wait(3.0)
-        else
             task.wait(2.0)
+        else
+            task.wait(1.5)
         end
     end
 end)
