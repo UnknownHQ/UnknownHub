@@ -314,12 +314,14 @@ local ybaLocations = {
 -- State Configuration
 -- =========================================================================
 local State = {
-    -- Combat & NPC Auto Farm
+    -- Auto Farm
     AutoFarmNPC = false,
     SelectedNPC = "Thug",
     SafeFarmDistance = 7,
     FastAttackSpeed = 0.16,
     AutoBlock = true,
+    AutoClaimQuest = true,
+    AutoClaimBossQuest = true,
     AutoFarmBosses = false,
     SelectedBosses = {},
     WhitelistAbilities = {
@@ -328,12 +330,6 @@ local State = {
         ["Stand Barrage (E)"] = true,
         ["Barrage Finisher (R)"] = true
     },
-
-    -- Auto Quest & Farm
-    AutoFarmQuests = false,
-    SelectedQuest = "Thugs (Level 1+)",
-    AutoClaimQuest = true,
-    AutoSkillPoints = false,
 
     -- Items & Farm
     AutoCollectItems = false,
@@ -563,7 +559,7 @@ local function cancelCurrentTravel()
     isTraveling = false
 end
 
-local function safeTeleportTo(targetCF, callback)
+local function safeTeleportTo(targetCF, callback, abortCondition)
     local root = getRoot()
     local char = getCharacter()
     local hum = getHumanoid()
@@ -621,6 +617,11 @@ local function safeTeleportTo(targetCF, callback)
         local currentSpeed = minStartSpeed
 
         while isTraveling and not cancelTravelFlag do
+            if abortCondition and abortCondition() then
+                cancelCurrentTravel()
+                break
+            end
+
             local currentRoot = getRoot()
             if not currentRoot then break end
 
@@ -634,6 +635,11 @@ local function safeTeleportTo(targetCF, callback)
             -- Delta time between frames
             local dt = RunService.Heartbeat:Wait()
             if cancelTravelFlag or not isTraveling then break end
+
+            if abortCondition and abortCondition() then
+                cancelCurrentTravel()
+                break
+            end
 
             -- Adaptive Speed Profile:
             -- Smoothly accelerates from 120 studs/s up to maxConfigSpeed (500-600 studs/s)
@@ -681,6 +687,72 @@ local function safeTeleportTo(targetCF, callback)
     end)
 end
 
+local ybaItemCaps = {
+    ["mysterious arrow"] = 25,
+    ["rokakaka"] = 25,
+    ["pure rokakaka"] = 10,
+    ["lucky arrow"] = 10,
+    ["lucky stone mask"] = 10,
+    ["requiem arrow"] = 4,
+    ["rib cage"] = 10,
+    ["dio's diary"] = 10,
+    ["steel ball"] = 10,
+    ["quinton's glove"] = 10,
+    ["ancient scroll"] = 10,
+    ["stone mask"] = 10,
+    ["gold coin"] = 45,
+    ["diamond"] = 30,
+    ["caesar's headband"] = 10,
+    ["zeppeli's hat"] = 10,
+    ["clackers"] = 10,
+    ["candy"] = 30
+}
+
+local function getPlayerItemCount(itemName)
+    local count = 0
+    local lowerName = itemName:lower()
+    local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item.Name:lower():find(lowerName, 1, true) or lowerName:find(item.Name:lower(), 1, true) then
+                local val = item:FindFirstChild("Amount") or item:FindFirstChild("Count") or item:FindFirstChild("Value")
+                if val and val:IsA("IntValue") then
+                    count = count + val.Value
+                else
+                    count = count + 1
+                end
+            end
+        end
+    end
+    local char = getCharacter()
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") and (item.Name:lower():find(lowerName, 1, true) or lowerName:find(item.Name:lower(), 1, true)) then
+                local val = item:FindFirstChild("Amount") or item:FindFirstChild("Count") or item:FindFirstChild("Value")
+                if val and val:IsA("IntValue") then
+                    count = count + val.Value
+                else
+                    count = count + 1
+                end
+            end
+        end
+    end
+    return count
+end
+
+local function isItemAtCap(itemName)
+    local lowerName = itemName:lower()
+    for capKey, maxAllowed in pairs(ybaItemCaps) do
+        if lowerName:find(capKey, 1, true) then
+            local current = getPlayerItemCount(capKey)
+            if current >= maxAllowed then
+                return true, current, maxAllowed
+            end
+        end
+    end
+    return false, 0, 0
+end
+
 local function executeAutoCollectItems()
     local root = getRoot()
     if not root then return end
@@ -690,17 +762,20 @@ local function executeAutoCollectItems()
     local candidateItems = {}
 
     for _, item in ipairs(items) do
-        local shouldCollect = isAllSelected or State.ItemWhitelist[item.name] == true
-        if not shouldCollect then
-            for key, _ in pairs(State.ItemWhitelist) do
-                if item.name:lower():find(key:lower(), 1, true) then
-                    shouldCollect = true
-                    break
+        local atCap, curAmt, maxAmt = isItemAtCap(item.name)
+        if not atCap then
+            local shouldCollect = isAllSelected or State.ItemWhitelist[item.name] == true
+            if not shouldCollect then
+                for key, _ in pairs(State.ItemWhitelist) do
+                    if item.name:lower():find(key:lower(), 1, true) then
+                        shouldCollect = true
+                        break
+                    end
                 end
             end
-        end
-        if shouldCollect and item.prompt and item.prompt.Parent then
-            table.insert(candidateItems, item)
+            if shouldCollect and item.prompt and item.prompt.Parent then
+                table.insert(candidateItems, item)
+            end
         end
     end
 
@@ -735,17 +810,16 @@ local function executeAutoCollectItems()
             local dist = (currRoot.Position - targetCF.Position).Magnitude
 
             local arrived = false
+            local itemGone = function()
+                return not item.prompt or not item.prompt.Parent or not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession
+            end
+
             if dist > 6 and State.SafeTeleportMode then
-                safeTeleportTo(targetCF, function() arrived = true end)
+                safeTeleportTo(targetCF, function() arrived = true end, itemGone)
                 local waitTimeout = (dist / 120) + 3.0
                 local startT = tick()
                 while not arrived and (tick() - startT < waitTimeout) do
-                    -- Immediate abort if item was picked up by someone else
-                    if not item.prompt or not item.prompt.Parent then
-                        cancelCurrentTravel()
-                        break
-                    end
-                    if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then
+                    if itemGone() then
                         cancelCurrentTravel()
                         break
                     end
@@ -888,6 +962,59 @@ task.spawn(function()
         return closestEntity, closestRoot, closestHum, false
     end
 
+    local lastQuestClaimTick = 0
+    local questNpcMap = {
+        ["thug"] = "Officer Higgins",
+        ["security guard"] = "Officer Higgins",
+        ["corrupt police"] = "Officer Higgins",
+        ["alpha thug"] = "Officer Higgins",
+        ["zombie henchman"] = "William Zeppeli",
+        ["vampire"] = "William Zeppeli",
+        ["leaky eye luca"] = "Giorno Giovanna",
+        ["bucciarati"] = "Giorno Giovanna",
+        ["fugo"] = "Trish Una",
+        ["pesci"] = "Prosciutto",
+        ["ghiaccio"] = "Giorno Giovanna",
+        ["diavolo"] = "Trish Una",
+        ["dio"] = "Jotaro",
+        ["jotaro"] = "DIO",
+        ["anasui"] = "Jolyne",
+        ["yoshikage kira"] = "Koichi Hirose",
+        ["jotaro kujo"] = "Heaven Ascension DIO",
+        ["heaven ascension dio"] = "Jotaro Kujo"
+    }
+
+    local function attemptClaimQuestFor(entityName, isBossTarget)
+        if tick() - lastQuestClaimTick < 8.0 then return end
+        local shouldClaim = (isBossTarget and State.AutoClaimBossQuest) or (not isBossTarget and State.AutoClaimQuest)
+        if not shouldClaim then return end
+
+        local lowerName = entityName:lower()
+        local questGiver = nil
+        for key, giver in pairs(questNpcMap) do
+            if lowerName:find(key, 1, true) then
+                questGiver = giver
+                break
+            end
+        end
+
+        if questGiver then
+            lastQuestClaimTick = tick()
+            task.spawn(function()
+                pcall(function()
+                    local rem = getRemoteFunction() or getRemoteEvent()
+                    if rem then
+                        if rem:IsA("RemoteFunction") then
+                            rem:InvokeServer("EndDialogue", { ["NPC"] = questGiver, ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                        elseif rem:IsA("RemoteEvent") then
+                            rem:FireServer("EndDialogue", { ["NPC"] = questGiver, ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                        end
+                    end
+                end)
+            end)
+        end
+    end
+
     while true do
         if _G.YBA_SESSION ~= currentSession then break end
         if State.AutoFarmNPC then
@@ -897,6 +1024,8 @@ task.spawn(function()
             local hum = getHumanoid()
 
             if targetEntity and eRoot and eHum and eHum.Health > 0 and root and char and hum and hum.Health > 0 then
+                -- Automatically claim quest for current target NPC or Boss if enabled
+                attemptClaimQuestFor(targetEntity.Name, isBoss)
                 -- Pin directly behind NPC at exact target ground level
                 -- Offset slightly back (3 studs), 0 vertical lift, facing the target
                 local rearOffset = -(eRoot.CFrame.LookVector * 3.0)
@@ -1228,8 +1357,7 @@ end)
 -- =========================================================================
 -- UI Tabs & Control Layout
 -- =========================================================================
-local combatTab = Hub.CreateTab("Combat", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 75, 75) })
-local questTab  = Hub.CreateTab("Quests", { Icon = "📜", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
+local farmTab   = Hub.CreateTab("Auto Farm", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 75, 75) })
 local itemsTab  = Hub.CreateTab("Items", { Icon = "💎", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
 local sbrTab    = Hub.CreateTab("SBR", { Icon = "🐎", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 140, 50) })
 local standsTab = Hub.CreateTab("Stands", { Icon = "🎰", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(180, 100, 255) })
@@ -1238,15 +1366,19 @@ local espTab    = Hub.CreateTab("Visuals", { Icon = "👁️", Size = 18, Color 
 local playerTab = Hub.CreateTab("Player", { Icon = "👤", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(241, 196, 15) })
 
 -- -------------------------------------------------------------------------
--- 1. ⚔️ Combat & Auto Farm Tab
+-- 1. ⚔️ Auto Farm Tab
 -- -------------------------------------------------------------------------
-Hub.CreateSection(combatTab, "⚔️ NPC Auto Farm")
+Hub.CreateSection(farmTab, "⚔️ NPC Auto Farm")
 
-Hub.CreateToggle(combatTab, "⚔️ Auto Farm Selected NPC", false, function(v)
+Hub.CreateToggle(farmTab, "⚔️ Auto Farm Selected NPC", false, function(v)
     State.AutoFarmNPC = v
     if v then
         Hub.Notify("⚔️ Auto Farm", "Auto Farm started! Gliding safely behind targets overhead.", 3)
     end
+end)
+
+Hub.CreateToggle(farmTab, "📜 Auto Claim Quest for NPC", true, function(v)
+    State.AutoClaimQuest = v
 end)
 
 local targetNpcCatalogItems = {}
@@ -1254,7 +1386,7 @@ for _, npc in ipairs(ybaNPCsCatalog) do
     table.insert(targetNpcCatalogItems, {Name = npc})
 end
 
-local targetNpcListObj = Hub.CreateList(combatTab, "Target NPC Selection (Click to Set)", targetNpcCatalogItems, 160, false, false, function(selectedName, entryData)
+local targetNpcListObj = Hub.CreateList(farmTab, "Target NPC Selection (Click to Set)", targetNpcCatalogItems, 160, false, false, function(selectedName, entryData)
     local rawName = entryData and entryData.Name or selectedName
     if rawName and rawName ~= "" then
         State.SelectedNPC = rawName
@@ -1265,21 +1397,25 @@ if targetNpcListObj and targetNpcListObj.SetSelected then
     pcall(function() targetNpcListObj.SetSelected(State.SelectedNPC or "Thug [Lvl. 1+]") end)
 end
 
-Hub.CreateSlider(combatTab, "⚡ Punch / M1 Delay", 0.10, 0.40, 0.16, "s", function(val)
+Hub.CreateSlider(farmTab, "⚡ Punch / M1 Delay", 0.10, 0.40, 0.16, "s", function(val)
     State.FastAttackSpeed = val
 end)
 
-Hub.CreateToggle(combatTab, "🛡️ Smart Auto Block (Defensive Guard)", true, function(v)
+Hub.CreateToggle(farmTab, "🛡️ Smart Auto Block (Defensive Guard)", true, function(v)
     State.AutoBlock = v
 end)
 
-Hub.CreateSection(combatTab, "👹 Boss Prioritizer / Auto Farm Bosses")
+Hub.CreateSection(farmTab, "👹 Boss Prioritizer / Auto Farm Bosses")
 
-Hub.CreateToggle(combatTab, "👹 Auto Farm Bosses (Pauses NPC farm until dead)", false, function(v)
+Hub.CreateToggle(farmTab, "👹 Auto Farm Bosses (Pauses NPC farm until dead)", false, function(v)
     State.AutoFarmBosses = v
     if v then
         Hub.Notify("👹 Boss Hunter", "Priority locked onto selected spawned bosses!", 3)
     end
+end)
+
+Hub.CreateToggle(farmTab, "📜 Auto Claim Quest for Bosses", true, function(v)
+    State.AutoClaimBossQuest = v
 end)
 
 local bossCatalogItems = {
@@ -1296,9 +1432,14 @@ local bossCatalogItems = {
     {Name = "Jotaro Kujo"},
     {Name = "Heaven Ascension DIO"}
 }
-Hub.CreateList(combatTab, "Target Bosses (Multi-Select)", bossCatalogItems, 160, false, true)
+local bossListObj = Hub.CreateList(farmTab, "Target Bosses (Multi-Select)", bossCatalogItems, 160, false, true, function(selectedName, entryData)
+    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName)
+    if rawName then
+        State.SelectedBosses[rawName] = not State.SelectedBosses[rawName]
+    end
+end)
 
-Hub.CreateSection(combatTab, "🥋 Ability & Keybind Whitelist")
+Hub.CreateSection(farmTab, "🥋 Ability & Keybind Whitelist")
 
 local detectedAbilities = detectAvailableAbilities()
 local abilityCatalogItems = {}
@@ -1306,7 +1447,7 @@ for _, ab in ipairs(detectedAbilities) do
     table.insert(abilityCatalogItems, {Name = ab})
 end
 
-local abilityListObj = Hub.CreateList(combatTab, "Allowed Attacks / Keybinds (Multi-Select)", abilityCatalogItems, 180, false, true, function(selectedName, entryData)
+local abilityListObj = Hub.CreateList(farmTab, "Allowed Attacks / Keybinds (Multi-Select)", abilityCatalogItems, 180, false, true, function(selectedName, entryData)
     if selectedName then
         -- Toggle selection in State.WhitelistAbilities
         State.WhitelistAbilities[selectedName] = not State.WhitelistAbilities[selectedName]
@@ -1322,7 +1463,7 @@ if abilityListObj and abilityListObj.SetSelectedItems then
     pcall(function() abilityListObj.SetSelectedItems(defaultSelected) end)
 end
 
-Hub.CreateButton(combatTab, "🔄 Refresh Detected Keybinds & Skills", function()
+Hub.CreateButton(farmTab, "🔄 Refresh Detected Keybinds & Skills", function()
     local updated = detectAvailableAbilities()
     local updatedCatalog = {}
     for _, ab in ipairs(updated) do
@@ -1343,28 +1484,7 @@ Hub.CreateButton(combatTab, "🔄 Refresh Detected Keybinds & Skills", function(
 end)
 
 -- -------------------------------------------------------------------------
--- 2. 📜 Quests & Farm Tab
--- -------------------------------------------------------------------------
-Hub.CreateSection(questTab, "📜 Auto Quest & Level Farm")
-
-Hub.CreateToggle(questTab, "📜 Auto Farm Selected Quest", false, function(v)
-    State.AutoFarmQuests = v
-end)
-
-Hub.CreateDropdown(questTab, "Target Quest", ybaNPCsCatalog, 1, function(selected)
-    State.SelectedQuest = selected
-end)
-
-Hub.CreateSlider(questTab, "Safe Farm Overhead Distance", 3, 15, 7, " studs", function(val)
-    State.SafeFarmDistance = val
-end)
-
-Hub.CreateToggle(questTab, "⭐ Auto Allocate Skill Points", false, function(v)
-    State.AutoSkillPoints = v
-end)
-
--- -------------------------------------------------------------------------
--- 3. 💎 Items & Farm Tab
+-- 2. 💎 Items & Farm Tab
 -- -------------------------------------------------------------------------
 Hub.CreateSection(itemsTab, "💎 Auto Collect Spawned Items")
 
@@ -1379,6 +1499,29 @@ end)
 Hub.CreateToggle(itemsTab, "🌟 Prioritize Rare Items", true, function(v)
     State.PrioritizeRareItems = v
 end)
+
+-- Item Collect Whitelist positioned directly under Auto Collect
+local itemCatalogItems = {}
+for _, it in ipairs(ybaItemsCatalog) do table.insert(itemCatalogItems, {Name = it}) end
+local itemWhitelistObj = Hub.CreateList(itemsTab, "Item Whitelist (Multi-Select)", itemCatalogItems, 180, false, true, function(selectedName, entryData)
+    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName)
+    if rawName then
+        if rawName == "All Items" then
+            State.ItemWhitelist["All Items"] = not State.ItemWhitelist["All Items"]
+        else
+            State.ItemWhitelist[rawName] = not State.ItemWhitelist[rawName]
+        end
+    end
+end)
+if itemWhitelistObj and itemWhitelistObj.SetSelectedItems then
+    local preSelectedWhitelist = {}
+    for name, enabled in pairs(State.ItemWhitelist) do
+        if enabled then table.insert(preSelectedWhitelist, name) end
+    end
+    pcall(function() itemWhitelistObj.SetSelectedItems(preSelectedWhitelist) end)
+end
+
+Hub.CreateSection(itemsTab, "🔔 Rare Item Notifications")
 
 Hub.CreateToggle(itemsTab, "🔔 Rare Item Spawn Alert", true, function(v)
     State.ItemNotifier = v
@@ -1434,24 +1577,6 @@ if excludeSellListObj and excludeSellListObj.SetSelectedItems then
     end
     pcall(function() excludeSellListObj.SetSelectedItems(preSelectedExcludes) end)
 end
-
-Hub.CreateSection(itemsTab, "📦 Collect Whitelist & Radar")
-
-local itemCatalogItems = {}
-for _, it in ipairs(ybaItemsCatalog) do table.insert(itemCatalogItems, {Name = it}) end
-Hub.CreateList(itemsTab, "Item Whitelist (Multi-Select)", itemCatalogItems, 180, false, true)
-
-Hub.CreateButton(itemsTab, "📊 Scan Live Items in Server", function()
-    local spawned = getSpawnedItems()
-    local rareCount = 0
-    for _, it in ipairs(spawned) do
-        local n = it.name:lower()
-        if n:find("lucky") or n:find("requiem") or n:find("pure") or n:find("rib") or n:find("diary") then
-            rareCount = rareCount + 1
-        end
-    end
-    Hub.Notify("📊 Item Radar", string.format("Detected %d total items (%d rare) spawned across the map!", #spawned, rareCount), 3)
-end)
 
 -- -------------------------------------------------------------------------
 -- 4. 🐎 Steel Ball Run (SBR) Tab
