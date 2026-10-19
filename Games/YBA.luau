@@ -73,17 +73,60 @@ local function destroyOldGui()
 end
 
 -- =========================================================================
--- Load Unknown Hub Library Factory
--- =========================================================================
-local ok, factoryResult = pcall(function()
-    local source
-    local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
-    source = game:HttpGet(LIBRARY_LINK .. cacheBuster)
+local function loadLibraryFactory()
+    local endpoints = {
+        "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary",
+        "https://cdn.jsdelivr.net/gh/UnknownHQ/UnknownHub@main/UnknownLibrary",
+        "https://raw.githack.com/UnknownHQ/UnknownHub/main/UnknownLibrary",
+        "https://cdn.statically.io/gh/UnknownHQ/UnknownHub/main/UnknownLibrary"
+    }
+
+    local source = nil
+
+    -- 1. Try local executor file cache first if available
+    if readfile then
+        pcall(function()
+            local paths = {
+                "UnknownLibrary",
+                "UnknownLibrary.luau",
+                "UnknownHub/UnknownLibrary",
+                "UnknownHub/UnknownLibrary.luau"
+            }
+            for _, p in ipairs(paths) do
+                if isfile and isfile(p) then
+                    source = readfile(p)
+                    if source and #source > 100 then break end
+                end
+            end
+        end)
+    end
+
+    -- 2. Try network endpoints with cache buster
+    if not source or #source < 100 then
+        local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
+        for _, url in ipairs(endpoints) do
+            local success, body = pcall(function()
+                return game:HttpGet(url .. cacheBuster)
+            end)
+            if success and body and #body > 500 and not body:find("404: Not Found") then
+                source = body
+                -- Optionally save to local cache for future offline runs
+                if writefile then
+                    pcall(function() writefile("UnknownLibrary.luau", body) end)
+                end
+                break
+            end
+        end
+    end
+
+    assert(source and #source > 500, "Could not retrieve UnknownLibrary from any network mirror or local cache. Check your network/DNS connection to GitHub.")
+
     local factoryChunk, compileErr = loadstring(source)
     assert(factoryChunk, "UnknownLibrary failed to compile: " .. tostring(compileErr))
     return factoryChunk()
-end)
+end
 
+local ok, factoryResult = pcall(loadLibraryFactory)
 assert(ok and type(factoryResult) == "function", "UnknownLibrary failed to load: " .. tostring(factoryResult))
 
 destroyOldGui()
