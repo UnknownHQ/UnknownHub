@@ -695,37 +695,43 @@ local function executeAutoCollectItems()
                 cancelCurrentTravel()
             else
                 -- Physics stabilization pause so server syncs client position
-                task.wait(0.2)
+                task.wait(0.15)
 
                 currRoot = getRoot()
                 if currRoot and item.prompt and item.prompt.Parent then
                     pcall(function()
                         local currentDist = (currRoot.Position - targetCF.Position).Magnitude
-                        if currentDist <= 12 then
-                            -- 1. Find live replicated prompt in Workspace.Item_Spawns.Items
+                        if currentDist <= 14 then
+                            -- Poll briefly (up to 0.4s) for ItemSpawn to clone the live replica prompt
                             local realPrompt = nil
-                            local itemSpawns = Workspace:FindFirstChild("Item_Spawns")
-                            local itemsFolder = itemSpawns and itemSpawns:FindFirstChild("Items")
-                            if itemsFolder then
-                                for _, itm in ipairs(itemsFolder:GetChildren()) do
-                                    local p = itm:FindFirstChildOfClass("ProximityPrompt")
-                                    if p and p.Enabled and p.MaxActivationDistance > 0 then
-                                        local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
-                                        if part and (part.Position - targetCF.Position).Magnitude <= 10 then
-                                            realPrompt = p
-                                            break
+                            local pollStart = tick()
+                            while (tick() - pollStart < 0.4) do
+                                if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then break end
+                                local itemSpawns = Workspace:FindFirstChild("Item_Spawns")
+                                local itemsFolder = itemSpawns and itemSpawns:FindFirstChild("Items")
+                                if itemsFolder then
+                                    for _, itm in ipairs(itemsFolder:GetChildren()) do
+                                        local p = itm:FindFirstChildOfClass("ProximityPrompt")
+                                        if p and p.Enabled and p.MaxActivationDistance > 0 then
+                                            local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
+                                            if part and (part.Position - targetCF.Position).Magnitude <= 12 then
+                                                realPrompt = p
+                                                break
+                                            end
                                         end
                                     end
                                 end
+                                if realPrompt then break end
+                                task.wait(0.05)
                             end
 
-                            -- 2. Fallback to item.prompt if it is enabled with distance
-                            if not realPrompt and item.prompt.Enabled and item.prompt.MaxActivationDistance > 0 then
+                            -- Fallback to item.prompt ONLY if it is an active enabled prompt with distance
+                            if not realPrompt and item.prompt and item.prompt.Parent and item.prompt.Enabled and item.prompt.MaxActivationDistance > 0 then
                                 realPrompt = item.prompt
                             end
 
-                            -- 3. Safely trigger prompt natively via fireproximityprompt
-                            if realPrompt and fireproximityprompt then
+                            -- Trigger prompt cleanly via fireproximityprompt only if valid
+                            if realPrompt and realPrompt.Parent and fireproximityprompt then
                                 fireproximityprompt(realPrompt, 0)
                             end
                         end
@@ -831,9 +837,9 @@ task.spawn(function()
                 local safeCF = CFrame.new(eRoot.Position + rearOffset, eRoot.Position)
 
                 local distToSafe = (root.Position - safeCF.Position).Magnitude
-                if distToSafe > 20 then
+                if distToSafe > 25 and not isTraveling then
                     safeTeleportTo(safeCF)
-                else
+                elseif not isTraveling then
                     -- Immediate ground lock
                     root.CFrame = safeCF
                     root.AssemblyLinearVelocity = Vector3.zero
