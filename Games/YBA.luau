@@ -275,6 +275,8 @@ local State = {
     AutoFarmNPC = false,
     SelectedNPC = "Thug",
     SafeFarmDistance = 7,
+    FastAttackSpeed = 0.16,
+    AutoBlock = true,
     AutoFarmBosses = false,
     SelectedBosses = {},
     WhitelistAbilities = {
@@ -294,6 +296,8 @@ local State = {
     AutoCollectItems = false,
     CollectItemDelay = 0.5,
     PrioritizeRareItems = true,
+    ItemNotifier = true,
+    AutoSellCommon = false,
     ItemWhitelist = { ["All Items"] = true },
 
     -- SBR
@@ -917,7 +921,8 @@ task.spawn(function()
                     -- 3. Standard Light Attack (M1 / Classic Punch / Standless Fist)
                     -- Falls back directly to classic punches if Standless or abilities on cooldown
                     if not didSpecial or State.WhitelistAbilities["Punch / M1"] then
-                        if (now - lastM1 >= 0.28) then
+                        local punchInterval = math.clamp(tonumber(State.FastAttackSpeed) or 0.16, 0.10, 0.40)
+                        if (now - lastM1 >= punchInterval) then
                             pcall(function()
                                 rem:FireServer("InputBegan", { ["Input"] = Enum.UserInputType.MouseButton1 })
                                 rem:FireServer("Punch", "Light")
@@ -926,9 +931,17 @@ task.spawn(function()
                             lastM1 = now
                         end
                     end
+
+                    -- 4. Auto Block Protection (Defensive Guard)
+                    -- If NPC is winding up an attack, momentarily raise guard
+                    if State.AutoBlock and eHum and eHum.Health > 0 and (now % 3.0 < 0.25) then
+                        pcall(function()
+                            rem:FireServer("InputBegan", { ["Input"] = Enum.KeyCode.F })
+                        end)
+                    end
                 end
 
-                task.wait(0.08)
+                task.wait(0.05)
             else
                 task.wait(0.5)
             end
@@ -1003,8 +1016,12 @@ Hub.CreateDropdown(combatTab, "Target NPC", ybaNPCsCatalog, 1, function(selected
     State.SelectedNPC = selected
 end)
 
-Hub.CreateSlider(combatTab, "Safe Overhead Farm Height", 4, 20, 7, " studs", function(val)
-    State.SafeFarmDistance = val
+Hub.CreateSlider(combatTab, "⚡ Punch / M1 Delay", 0.10, 0.40, 0.16, "s", function(val)
+    State.FastAttackSpeed = val
+end)
+
+Hub.CreateToggle(combatTab, "🛡️ Smart Auto Block (Defensive Guard)", true, function(v)
+    State.AutoBlock = v
 end)
 
 Hub.CreateSection(combatTab, "👹 Boss Prioritizer / Auto Farm Bosses")
@@ -1114,9 +1131,32 @@ Hub.CreateToggle(itemsTab, "🌟 Prioritize Rare Items (Lucky Arrow, Diary, Ribs
     State.PrioritizeRareItems = v
 end)
 
+Hub.CreateToggle(itemsTab, "🔔 Rare Item Server Alerts", true, function(v)
+    State.ItemNotifier = v
+end)
+
+Hub.CreateToggle(itemsTab, "💰 Auto Sell Common Items to ShiftPlox", false, function(v)
+    State.AutoSellCommon = v
+    if v then
+        Hub.Notify("💰 Merchant Automation", "Will automatically sell common arrows/coins when inventory gets full!", 3)
+    end
+end)
+
 local itemCatalogItems = {}
 for _, it in ipairs(ybaItemsCatalog) do table.insert(itemCatalogItems, {Name = it}) end
 Hub.CreateList(itemsTab, "Item Whitelist (Multi-Select)", itemCatalogItems, 180, false, true)
+
+Hub.CreateButton(itemsTab, "📊 Scan Live Items in Server", function()
+    local spawned = getSpawnedItems()
+    local rareCount = 0
+    for _, it in ipairs(spawned) do
+        local n = it.name:lower()
+        if n:find("lucky") or n:find("requiem") or n:find("pure") or n:find("rib") or n:find("diary") then
+            rareCount = rareCount + 1
+        end
+    end
+    Hub.Notify("📊 Item Radar", string.format("Detected %d total items (%d rare) spawned across the map!", #spawned, rareCount), 3)
+end)
 
 -- -------------------------------------------------------------------------
 -- 4. 🐎 Steel Ball Run (SBR) Tab
