@@ -512,21 +512,55 @@ local function getSpawnedItems()
         end
     end)
 
-    -- 2. Secondary fallback: ProximityPrompts under Workspace or Item_Spawns
-    if #items == 0 then
-        for _, obj in ipairs(Workspace:GetChildren()) do
-            if obj:IsA("ProximityPrompt") and obj.ActionText == "Pick Up" and not seen[obj] then
-                seen[obj] = true
-                local name = (obj.ObjectText ~= "" and obj.ObjectText) or obj.Name
-                table.insert(items, {
-                    name = name,
-                    prompt = obj,
-                    part = nil,
-                    pos = Vector3.zero
-                })
+    -- 2. Scan Workspace.Item_Spawns.Items directly (active physical spawned items)
+    pcall(function()
+        local itemSpawns = Workspace:FindFirstChild("Item_Spawns")
+        local itemsFolder = itemSpawns and itemSpawns:FindFirstChild("Items")
+        if itemsFolder then
+            for _, itm in ipairs(itemsFolder:GetChildren()) do
+                local p = itm:FindFirstChildOfClass("ProximityPrompt") or itm:FindFirstChildWhichIsA("ProximityPrompt")
+                if p and p.Parent then
+                    local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
+                    local name = (p.ObjectText ~= "" and p.ObjectText) or itm.Name
+                    if not seen[p] and not seen[itm] then
+                        seen[p] = true
+                        seen[itm] = true
+                        local cf = part and part.CFrame or CFrame.new(0, 0, 0)
+                        table.insert(items, {
+                            name = name,
+                            prompt = p,
+                            part = part,
+                            cf = cf,
+                            pos = cf.Position
+                        })
+                    end
+                end
             end
         end
-    end
+    end)
+
+    -- 3. Tertiary fallback: ProximityPrompts anywhere under Workspace with Pick Up action
+    pcall(function()
+        for _, desc in ipairs(Workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") and (desc.ActionText == "Pick Up" or desc.ActionText:lower():find("pick") or desc.ActionText:lower():find("take")) then
+                if not seen[desc] and desc.Parent then
+                    seen[desc] = true
+                    local name = (desc.ObjectText ~= "" and desc.ObjectText) or desc.Parent.Name
+                    local part = desc:FindFirstAncestorWhichIsA("BasePart")
+                    local cf = part and part.CFrame or (desc.Parent:IsA("BasePart") and desc.Parent.CFrame)
+                    if cf then
+                        table.insert(items, {
+                            name = name,
+                            prompt = desc,
+                            part = part,
+                            cf = cf,
+                            pos = cf.Position
+                        })
+                    end
+                end
+            end
+        end
+    end)
 
     return items
 end
@@ -810,20 +844,20 @@ local function executeAutoCollectItems()
             local dist = (currRoot.Position - targetCF.Position).Magnitude
 
             local arrived = false
-            local itemGone = function()
+            local function isItemInvalid()
                 return not item.prompt or not item.prompt.Parent or not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession
             end
 
             if dist > 6 and State.SafeTeleportMode then
-                safeTeleportTo(targetCF, function() arrived = true end, itemGone)
-                local waitTimeout = (dist / 120) + 3.0
+                safeTeleportTo(targetCF, function() arrived = true end, isItemInvalid)
+                local waitTimeout = math.clamp((dist / 120) + 3.0, 3.0, 15.0)
                 local startT = tick()
                 while not arrived and (tick() - startT < waitTimeout) do
-                    if itemGone() then
+                    if isItemInvalid() then
                         cancelCurrentTravel()
                         break
                     end
-                    task.wait(0.04)
+                    task.wait(0.05)
                 end
             else
                 currRoot.CFrame = targetCF
@@ -835,26 +869,26 @@ local function executeAutoCollectItems()
                 cancelCurrentTravel()
             else
                 -- Physics stabilization pause so server syncs client position
-                task.wait(0.15)
+                task.wait(0.12)
 
                 currRoot = getRoot()
                 if currRoot and item.prompt and item.prompt.Parent then
                     pcall(function()
                         local currentDist = (currRoot.Position - targetCF.Position).Magnitude
-                        if currentDist <= 14 then
-                            -- Poll briefly (up to 0.4s) for ItemSpawn to clone the live replica prompt
+                        if currentDist <= 16 then
+                            -- Poll briefly (up to 0.5s) for ItemSpawn to clone the live replica prompt
                             local realPrompt = nil
                             local pollStart = tick()
-                            while (tick() - pollStart < 0.4) do
+                            while (tick() - pollStart < 0.5) do
                                 if not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession then break end
                                 local itemSpawns = Workspace:FindFirstChild("Item_Spawns")
                                 local itemsFolder = itemSpawns and itemSpawns:FindFirstChild("Items")
                                 if itemsFolder then
                                     for _, itm in ipairs(itemsFolder:GetChildren()) do
-                                        local p = itm:FindFirstChildOfClass("ProximityPrompt")
+                                        local p = itm:FindFirstChildOfClass("ProximityPrompt") or itm:FindFirstChildWhichIsA("ProximityPrompt")
                                         if p and p.Enabled and p.MaxActivationDistance > 0 then
                                             local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
-                                            if part and (part.Position - targetCF.Position).Magnitude <= 12 then
+                                            if part and (part.Position - targetCF.Position).Magnitude <= 14 then
                                                 realPrompt = p
                                                 break
                                             end
@@ -880,7 +914,7 @@ local function executeAutoCollectItems()
             end
 
             -- Safe pause between consecutive item travels to allow server item-spawner to register pickup
-            task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.8, 0.4, 3.0))
+            task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.6, 0.2, 3.0))
         end
     end
 end
@@ -1282,7 +1316,7 @@ task.spawn(function()
     end
 end)
 
--- 4. "Sell when full" Background Merchant Worker
+-- 4. Merchant Auto-Sell Background Worker (Sells all unexcluded items)
 task.spawn(function()
     while true do
         if _G.YBA_SESSION ~= currentSession then break end
@@ -1290,40 +1324,40 @@ task.spawn(function()
             pcall(function()
                 local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
                 if backpack then
-                    local totalItems = #backpack:GetChildren()
-                    -- Standard YBA inventory max capacity check (typically 20-30 items)
-                    if totalItems >= 18 then
-                        local rem = getRemoteFunction() or getRemoteEvent()
-                        for _, item in ipairs(backpack:GetChildren()) do
-                            if not State.AutoSellCommon then break end
-                            local iName = item.Name
-                            -- Check exclusions: do NOT sell if whitelisted in SellExcludedItems
-                            local isExcluded = State.SellExcludedItems[iName] == true
-                            if not isExcluded then
-                                for ex, enabled in pairs(State.SellExcludedItems) do
-                                    if enabled and iName:lower():find(ex:lower(), 1, true) then
-                                        isExcluded = true; break
-                                    end
+                    local rem = getRemoteFunction() or getRemoteEvent()
+                    local soldCount = 0
+                    for _, item in ipairs(backpack:GetChildren()) do
+                        if not State.AutoSellCommon or _G.YBA_SESSION ~= currentSession then break end
+                        local iName = item.Name
+                        -- Check exclusions: do NOT sell if whitelisted in SellExcludedItems
+                        local isExcluded = State.SellExcludedItems[iName] == true
+                        if not isExcluded then
+                            for ex, enabled in pairs(State.SellExcludedItems) do
+                                if enabled and iName:lower():find(ex:lower(), 1, true) then
+                                    isExcluded = true; break
                                 end
                             end
-
-                            if not isExcluded then
-                                -- Sell item safely via Dialogue / EndDialogue / Merchant Remote
-                                pcall(function()
-                                    if rem:IsA("RemoteFunction") then
-                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                                    elseif rem:IsA("RemoteEvent") then
-                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                                    end
-                                end)
-                                task.wait(0.3)
-                            end
                         end
-                        Hub.Notify("💰 Sell when full", "Cleared bag of unexcluded common items at Merchant!", 3)
+
+                        if not isExcluded and rem then
+                            -- Sell item safely via Dialogue / EndDialogue / Merchant Remote
+                            pcall(function()
+                                if rem:IsA("RemoteFunction") then
+                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                elseif rem:IsA("RemoteEvent") then
+                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                end
+                            end)
+                            soldCount = soldCount + 1
+                            task.wait(0.25)
+                        end
+                    end
+                    if soldCount > 0 then
+                        Hub.Notify("💰 Auto Sell", string.format("Sold %d unexcluded item(s) to ShiftPlox!", soldCount), 3)
                     end
                 end
             end)
-            task.wait(5.0)
+            task.wait(3.0)
         else
             task.wait(2.0)
         end
@@ -1550,10 +1584,10 @@ end
 
 Hub.CreateSection(itemsTab, "💰 Merchant Sell Automation")
 
-Hub.CreateToggle(itemsTab, "💰 Sell when full", false, function(v)
+Hub.CreateToggle(itemsTab, "💰 Auto Sell (All unexcluded items)", false, function(v)
     State.AutoSellCommon = v
     if v then
-        Hub.Notify("💰 Sell when full", "Enabled! When your bag is full, items will be sold to ShiftPlox.", 3)
+        Hub.Notify("💰 Auto Sell", "Enabled! Automatically selling unexcluded items to ShiftPlox.", 3)
     end
 end)
 
