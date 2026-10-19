@@ -519,7 +519,7 @@ local function getSpawnedItems()
         if itemsFolder then
             for _, itm in ipairs(itemsFolder:GetChildren()) do
                 local p = itm:FindFirstChildOfClass("ProximityPrompt") or itm:FindFirstChildWhichIsA("ProximityPrompt")
-                if p and p.Parent then
+                if p and p.Parent and p.Enabled then
                     local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
                     local name = (p.ObjectText ~= "" and p.ObjectText) or itm.Name
                     if not seen[p] and not seen[itm] then
@@ -542,7 +542,7 @@ local function getSpawnedItems()
     -- 3. Tertiary fallback: ProximityPrompts anywhere under Workspace with Pick Up action
     pcall(function()
         for _, desc in ipairs(Workspace:GetDescendants()) do
-            if desc:IsA("ProximityPrompt") and (desc.ActionText == "Pick Up" or desc.ActionText:lower():find("pick") or desc.ActionText:lower():find("take")) then
+            if desc:IsA("ProximityPrompt") and desc.Enabled and (desc.ActionText == "Pick Up" or desc.ActionText:lower():find("pick") or desc.ActionText:lower():find("take")) then
                 if not seen[desc] and desc.Parent then
                     seen[desc] = true
                     local name = (desc.ObjectText ~= "" and desc.ObjectText) or desc.Parent.Name
@@ -654,7 +654,7 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
             end
 
             local currentRoot = getRoot()
-            if not currentRoot then break end
+            if not currentRoot or not currentRoot.Parent then break end
 
             local toTarget = targetCF.Position - currentRoot.Position
             local remDist = toTarget.Magnitude
@@ -663,23 +663,24 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
                 break
             end
 
-            -- Delta time between frames
-            local dt = RunService.Heartbeat:Wait()
+            -- Delta time between frames with strict clamp against freeze/spike
+            local rawDt = RunService.Heartbeat:Wait()
+            local dt = math.clamp(rawDt or 0.016, 0.001, 0.05)
             if currentTravelGeneration ~= myTravelGeneration then break end
 
             if abortCondition and abortCondition() then
                 break
             end
 
-            -- Adaptive Speed Profile
-            if remDist < 50 then
-                currentSpeed = math.max(minStartSpeed, maxConfigSpeed * (remDist / 50))
+            -- Adaptive Speed Profile with smooth curve
+            if remDist < 45 then
+                currentSpeed = math.max(minStartSpeed, maxConfigSpeed * (remDist / 45))
             else
                 currentSpeed = math.min(maxConfigSpeed, currentSpeed + (accelRate * dt))
             end
 
             -- Step size calculated per frame
-            local maxStep = math.clamp(currentSpeed * dt, 1.0, 18.0)
+            local maxStep = math.clamp(currentSpeed * dt, 1.0, 16.0)
             local stepDist = math.min(remDist, maxStep)
             local dir = toTarget.Unit
 
@@ -687,14 +688,14 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
             currentRoot.CFrame = CFrame.new(currentRoot.Position + (dir * stepDist), currentRoot.Position + (dir * stepDist) + dir)
 
             -- Keep AssemblyLinearVelocity aligned to prevent server detecting stationary desync
-            currentRoot.AssemblyLinearVelocity = dir * (stepDist / math.max(dt, 0.001))
+            currentRoot.AssemblyLinearVelocity = dir * (stepDist / dt)
             currentRoot.AssemblyAngularVelocity = Vector3.zero
         end
 
         local isThisTravelActive = (currentTravelGeneration == myTravelGeneration)
 
         if currentTravelNoclip == noclipConn then
-            noclipConn:Disconnect()
+            pcall(function() noclipConn:Disconnect() end)
             currentTravelNoclip = nil
         end
         if currentTravelBV == bv then
@@ -704,14 +705,14 @@ local function safeTeleportTo(targetCF, callback, abortCondition)
 
         if isThisTravelActive then
             local endRoot = getRoot()
-            if endRoot then
+            if endRoot and endRoot.Parent then
                 endRoot.CFrame = targetCF
                 endRoot.AssemblyLinearVelocity = Vector3.zero
                 endRoot.AssemblyAngularVelocity = Vector3.zero
             end
             isTraveling = false
             if callback then
-                callback()
+                pcall(callback)
             end
         end
     end)
@@ -866,7 +867,7 @@ local function executeAutoCollectItems()
     -- Ensure character is positioned at item
     local currentRoot = getRoot()
     if currentRoot and item.prompt and item.prompt.Parent and State.AutoCollectItems and _G.YBA_SESSION == currentSession then
-        task.wait(0.1)
+        task.wait(0.08)
 
         pcall(function()
             local realPrompt = nil
@@ -877,7 +878,7 @@ local function executeAutoCollectItems()
             if itemsFolder then
                 for _, itm in ipairs(itemsFolder:GetChildren()) do
                     local p = itm:FindFirstChildOfClass("ProximityPrompt") or itm:FindFirstChildWhichIsA("ProximityPrompt")
-                    if p and p.Enabled then
+                    if p and p.Enabled and p.Parent then
                         local part = itm:IsA("BasePart") and itm or itm:FindFirstChildWhichIsA("BasePart")
                         if part and (part.Position - targetCF.Position).Magnitude <= 14 then
                             realPrompt = p
@@ -893,13 +894,19 @@ local function executeAutoCollectItems()
             end
 
             if realPrompt and realPrompt.Parent and fireproximityprompt then
+                -- Fire prompt cleanly with 0 hold duration
                 fireproximityprompt(realPrompt, 0)
+                task.wait(0.12)
+                -- If item still persists, fire one more time to guarantee collection
+                if realPrompt and realPrompt.Parent then
+                    fireproximityprompt(realPrompt, 0)
+                end
             end
         end)
     end
 
     -- Delay between items
-    task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.5, 0.1, 2.0))
+    task.wait(math.clamp(tonumber(State.CollectItemDelay) or 0.35, 0.1, 2.0))
 end
 
 -- =========================================================================
@@ -1049,10 +1056,10 @@ task.spawn(function()
                 local safeCF = CFrame.new(eRoot.Position + rearOffset, eRoot.Position)
 
                 local distToSafe = (root.Position - safeCF.Position).Magnitude
-                if distToSafe > 25 and not isTraveling then
+                if distToSafe > 14 and not isTraveling then
                     safeTeleportTo(safeCF)
                 elseif not isTraveling then
-                    -- Immediate ground lock
+                    -- Immediate ground lock behind target, facing directly at target root
                     root.CFrame = safeCF
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
@@ -1165,7 +1172,7 @@ task.spawn(function()
         if _G.YBA_SESSION ~= currentSession then break end
         if State.AutoCollectItems then
             pcall(executeAutoCollectItems)
-            task.wait(1.0)
+            task.wait(0.15)
         else
             task.wait(0.5)
         end
@@ -1524,7 +1531,6 @@ end)
 -- =========================================================================
 local farmTab   = Hub.CreateTab("Auto Farm", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 75, 75) })
 local itemsTab  = Hub.CreateTab("Items", { Icon = "💎", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
-local sbrTab    = Hub.CreateTab("SBR", { Icon = "🐎", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 140, 50) })
 local standsTab = Hub.CreateTab("Stands", { Icon = "🎰", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(180, 100, 255) })
 local tpTab     = Hub.CreateTab("Teleports", { Icon = "📍", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 220, 140) })
 local espTab    = Hub.CreateTab("Visuals", { Icon = "👁️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(155, 89, 182) })
@@ -1751,50 +1757,7 @@ if excludeSellListObj and excludeSellListObj.SetSelectedItems then
 end
 
 -- -------------------------------------------------------------------------
--- 4. 🐎 Steel Ball Run (SBR) Tab
--- -------------------------------------------------------------------------
-Hub.CreateSection(sbrTab, "🐎 Steel Ball Run Automations")
-
-Hub.CreateToggle(sbrTab, "🐎 Horse Speed Multiplier", false, function(v)
-    State.SBR_SpeedBoost = v
-end)
-
-Hub.CreateSlider(sbrTab, "Horse Speed Limit", 30, 100, 50, " studs/s", function(val)
-    State.SBR_HorseSpeed = val
-end)
-
-Hub.CreateToggle(sbrTab, "🌪️ Anti-Sandstorm / Zone Damage", false, function(v)
-    State.SBR_AntiSandstorm = v
-end)
-
-Hub.CreateButton(sbrTab, "🏁 Teleport to Stage 1 Finish", function()
-    local targetCF = CFrame.new(220, 25, -2350)
-    local root = getRoot()
-    local dist = root and (root.Position - targetCF.Position).Magnitude or 0
-    if State.SafeTeleportMode and dist > 15 then
-        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
-        Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Stage 1 (%.1fs)...", estTime), 3)
-    end
-    safeTeleportTo(targetCF, function()
-        Hub.Notify("🐎 SBR", "Arrived at Stage 1 Finish line safely!", 3)
-    end)
-end)
-
-Hub.CreateButton(sbrTab, "🏆 Teleport to Final Finish Line", function()
-    local targetCF = CFrame.new(350, 40, -5600)
-    local root = getRoot()
-    local dist = root and (root.Position - targetCF.Position).Magnitude or 0
-    if State.SafeTeleportMode and dist > 15 then
-        local estTime = dist / math.clamp(tonumber(State.SafeTravelSpeed) or 300, 40, 600)
-        Hub.Notify("🐎 SBR Safe Travel", string.format("Gliding safely to Final Finish Line (%.1fs)...", estTime), 3)
-    end
-    safeTeleportTo(targetCF, function()
-        Hub.Notify("🐎 SBR", "Arrived at Final Finish Line safely!", 3)
-    end)
-end)
-
--- -------------------------------------------------------------------------
--- 5. 🎰 Stand Roller Tab
+-- 3. 🎰 Stand Roller Tab
 -- -------------------------------------------------------------------------
 Hub.CreateSection(standsTab, "🎰 Stand Rolling & Arcade Automation")
 
