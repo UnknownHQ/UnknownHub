@@ -783,7 +783,10 @@ local function isItemAtCap(itemName)
     return false, 0, 0
 end
 
+local isSellingActive = false
+
 local function executeAutoCollectItems()
+    if isSellingActive then return end
     local root = getRoot()
     if not root then return end
 
@@ -1331,6 +1334,10 @@ local function performMerchantSell(forceSell)
         return
     end
 
+    -- Prioritize selling: Pause auto collection and ongoing travel while selling
+    isSellingActive = true
+    cancelCurrentTravel()
+
     local merchant = (Workspace:FindFirstChild("Dialogues") and Workspace.Dialogues:FindFirstChild("ShiftPlox, The Travelling Merchant"))
         or Workspace:FindFirstChild("ShiftPlox, The Travelling Merchant", true)
 
@@ -1345,29 +1352,52 @@ local function performMerchantSell(forceSell)
     local savedCF = root.CFrame
     local distToMerchant = (root.Position - merchantPos).Magnitude
 
-    -- Ensure player is at ShiftPlox for server distance validation
+    -- Ensure player is right in front of ShiftPlox for server distance validation
     local movedForSell = false
-    if distToMerchant > 12 then
+    if distToMerchant > 10 then
         movedForSell = true
         local merchantCF = CFrame.new(merchantPos + Vector3.new(0, 2.5, 3), merchantPos)
         if State.SafeTeleportMode and distToMerchant > 20 then
             local arrived = false
             safeTeleportTo(merchantCF, function() arrived = true end)
             local t0 = tick()
-            while not arrived and (tick() - t0 < 8.0) do
+            while not arrived and (tick() - t0 < 6.0) do
                 task.wait(0.05)
             end
         else
             root.CFrame = merchantCF
         end
-        task.wait(0.25)
+        task.wait(0.2)
     end
 
     -- Trigger ShiftPlox ProximityPrompt to open dialogue session
     if merchantPrompt and merchantPrompt.Enabled and fireproximityprompt then
         pcall(function() fireproximityprompt(merchantPrompt, 0) end)
-        task.wait(0.2)
     end
+    task.wait(0.3)
+
+    -- Advance dialogue: In YBA DialogueGui, select reply ("Option1" / "I'd like to sell this...")
+    local function selectDialogueReply()
+        pcall(function()
+            local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+            local dGui = pGui and pGui:FindFirstChild("DialogueGui")
+            if dGui then
+                -- Search for Option1 button or text button containing "sell"
+                for _, desc in ipairs(dGui:GetDescendants()) do
+                    if desc:IsA("TextButton") and desc.Visible then
+                        local txt = desc.Text:lower()
+                        if desc.Name == "Option1" or desc.Parent.Name == "Option1" or txt:find("sell") or txt:find("like to sell") then
+                            if firesignal then
+                                firesignal(desc.MouseButton1Click)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+    selectDialogueReply()
+    task.wait(0.2)
 
     local remotes = {}
     local crf = char:FindFirstChild("RemoteFunction")
@@ -1379,6 +1409,21 @@ local function performMerchantSell(forceSell)
     if repRf and not table.find(remotes, repRf) then table.insert(remotes, repRf) end
     if repRe and not table.find(remotes, repRe) then table.insert(remotes, repRe) end
 
+    -- Advance dialogue on server as well
+    for _, rem in ipairs(remotes) do
+        pcall(function()
+            if rem:IsA("RemoteFunction") then
+                rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                rem:InvokeServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+            elseif rem:IsA("RemoteEvent") then
+                rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                rem:FireServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+            end
+        end)
+    end
+    task.wait(0.15)
+    selectDialogueReply()
+
     local soldCount = 0
     for _, item in ipairs(itemsToSell) do
         if item.Parent then
@@ -1387,17 +1432,17 @@ local function performMerchantSell(forceSell)
                     if rem:IsA("RemoteFunction") then
                         rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
                         rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item.Name })
+                        rem:InvokeServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
                         rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
                         rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
                         rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
-                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
                     elseif rem:IsA("RemoteEvent") then
                         rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
                         rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item.Name })
+                        rem:FireServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
                         rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
                         rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
                         rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
-                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
                     end
                 end)
             end
@@ -1406,9 +1451,10 @@ local function performMerchantSell(forceSell)
         end
     end
 
-    -- Close dialogue GUI if active on screen
+    -- Close dialogue GUI cleanly so it never stays stuck on screen
     pcall(function()
-        local dGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("DialogueGui")
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local dGui = pGui and pGui:FindFirstChild("DialogueGui")
         if dGui then dGui:Destroy() end
     end)
 
@@ -1425,6 +1471,9 @@ local function performMerchantSell(forceSell)
     if soldCount > 0 then
         Hub.Notify("💰 Merchant", string.format("Sold %d maxed item(s) to ShiftPlox!", soldCount), 3)
     end
+
+    -- Release lock so auto collect can resume smoothly
+    isSellingActive = false
 end
 
 -- 4. Merchant Auto-Sell Background Worker (Sells maxed, unexcluded items)
@@ -1844,6 +1893,28 @@ local function triggerTravelToSelected()
     end)
 end
 
+local function onTravelTargetSelected(rawSelected, entryData, targetType)
+    local raw = (entryData and entryData.Name)
+        or (type(rawSelected) == "table" and (rawSelected.Name or rawSelected[1]))
+        or (type(rawSelected) == "string" and rawSelected)
+        or ""
+
+    if raw == "" or raw:find("No active") or raw:find("No other") then return end
+
+    local clean = raw
+    if targetType == "Boss" then
+        clean = raw:gsub("%s*%b()", ""):gsub("^%s*(.-)%s*$", "%1")
+    end
+
+    State.SelectedTravelTarget = clean
+    State.TravelTargetType = targetType
+    Hub.Notify("🎯 Target Selected", targetType .. ": " .. clean .. " (Toggle Travel above to go!)", 2)
+
+    if State.AutoTravelToTarget then
+        triggerTravelToSelected()
+    end
+end
+
 travelToggleRef = Hub.CreateToggle(tpTab, "🚀 Enable Travel to Selected Target", false, function(v)
     State.AutoTravelToTarget = v
     if v then
@@ -1859,15 +1930,6 @@ travelToggleRef = Hub.CreateToggle(tpTab, "🚀 Enable Travel to Selected Target
     end
 end)
 
-Hub.CreateButton(tpTab, "📍 Travel to Selected Target Now (Direct Click)", function()
-    if not State.SelectedTravelTarget or State.SelectedTravelTarget == "" then
-        Hub.Notify("⚠️ Select Target", "Choose a Location, Boss, NPC, or Player below first!", 3)
-        return
-    end
-    State.AutoTravelToTarget = true
-    triggerTravelToSelected()
-end)
-
 -- 1. Locations Category
 Hub.CreateSection(tpTab, "📍 Verified Map Locations")
 
@@ -1878,15 +1940,7 @@ table.sort(sortedLocNames)
 for _, name in ipairs(sortedLocNames) do table.insert(locationCatalogItems, {Name = name}) end
 
 local locationListObj = Hub.CreateList(tpTab, "Select Location", locationCatalogItems, 160, false, false, function(selectedName, entryData)
-    local locName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName)
-    if locName and locName ~= "" then
-        State.SelectedTravelTarget = locName
-        State.TravelTargetType = "Location"
-        Hub.Notify("🎯 Target Selected", "Location: " .. locName .. " (Toggle Travel above to go!)", 2)
-        if State.AutoTravelToTarget then
-            triggerTravelToSelected()
-        end
-    end
+    onTravelTargetSelected(selectedName, entryData, "Location")
 end)
 
 -- 2. Bosses Category
@@ -1933,16 +1987,7 @@ end
 
 local liveBossList = getLiveBossItems()
 local bossListObj = Hub.CreateList(tpTab, "Select Boss", liveBossList, 140, false, false, function(selectedName, entryData)
-    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName) or ""
-    if rawName ~= "" and not rawName:find("No active") then
-        local cleanName = rawName:gsub("%s*%b()", ""):gsub("^%s*(.-)%s*$", "%1")
-        State.SelectedTravelTarget = cleanName
-        State.TravelTargetType = "Boss"
-        Hub.Notify("🎯 Target Selected", "Boss: " .. cleanName .. " (Toggle Travel above to go!)", 2)
-        if State.AutoTravelToTarget then
-            triggerTravelToSelected()
-        end
-    end
+    onTravelTargetSelected(selectedName, entryData, "Boss")
 end)
 
 -- 3. Regular NPCs Category
@@ -1969,15 +2014,7 @@ end
 
 local liveNPCList = getLiveNPCItems()
 local npcListObj = Hub.CreateList(tpTab, "Select NPC", liveNPCList, 140, false, false, function(selectedName, entryData)
-    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName) or ""
-    if rawName ~= "" then
-        State.SelectedTravelTarget = rawName
-        State.TravelTargetType = "NPC"
-        Hub.Notify("🎯 Target Selected", "NPC: " .. rawName .. " (Toggle Travel above to go!)", 2)
-        if State.AutoTravelToTarget then
-            triggerTravelToSelected()
-        end
-    end
+    onTravelTargetSelected(selectedName, entryData, "NPC")
 end)
 
 -- 4. Players Category
@@ -1998,15 +2035,7 @@ end
 
 local onlinePlayerList = getOnlinePlayerItems()
 local playerListObj = Hub.CreateList(tpTab, "Select Player", onlinePlayerList, 140, false, false, function(selectedName, entryData)
-    local rawName = (entryData and entryData.Name) or (type(selectedName) == "table" and selectedName.Name) or (type(selectedName) == "string" and selectedName) or ""
-    if rawName ~= "" and not rawName:find("No other players") then
-        State.SelectedTravelTarget = rawName
-        State.TravelTargetType = "Player"
-        Hub.Notify("🎯 Target Selected", "Player: " .. rawName .. " (Toggle Travel above to go!)", 2)
-        if State.AutoTravelToTarget then
-            triggerTravelToSelected()
-        end
-    end
+    onTravelTargetSelected(selectedName, entryData, "Player")
 end)
 
 -- -------------------------------------------------------------------------
