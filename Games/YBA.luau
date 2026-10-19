@@ -1298,40 +1298,81 @@ end)
 
 -- 4. Merchant Auto-Sell Background Worker (Sells all unexcluded items)
 task.spawn(function()
+    local isSellingInProgress = false
+
     while true do
         if _G.YBA_SESSION ~= currentSession then break end
-        if State.AutoSellCommon then
+        if State.AutoSellCommon and not isSellingInProgress then
             pcall(function()
                 local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
                 local char = getCharacter()
-                local itemsToSell = {}
+                local root = getRoot()
+                if not backpack or not char or not root then return end
 
-                if backpack then
-                    for _, item in ipairs(backpack:GetChildren()) do
-                        local iName = item.Name
-                        local isExcluded = State.SellExcludedItems[iName] == true
-                        if not isExcluded then
-                            for ex, enabled in pairs(State.SellExcludedItems) do
-                                if enabled and iName:lower():find(ex:lower(), 1, true) then
-                                    isExcluded = true; break
-                                end
+                local itemsToSell = {}
+                for _, item in ipairs(backpack:GetChildren()) do
+                    local iName = item.Name
+                    local isExcluded = State.SellExcludedItems[iName] == true
+                    if not isExcluded then
+                        for ex, enabled in pairs(State.SellExcludedItems) do
+                            if enabled and iName:lower():find(ex:lower(), 1, true) then
+                                isExcluded = true; break
                             end
                         end
-                        if not isExcluded then
-                            table.insert(itemsToSell, item)
-                        end
+                    end
+                    if not isExcluded then
+                        table.insert(itemsToSell, item)
                     end
                 end
 
                 if #itemsToSell > 0 then
+                    isSellingInProgress = true
+
+                    local merchant = (Workspace:FindFirstChild("Dialogues") and Workspace.Dialogues:FindFirstChild("ShiftPlox, The Travelling Merchant"))
+                        or Workspace:FindFirstChild("ShiftPlox, The Travelling Merchant", true)
+
+                    local merchantPos = Vector3.new(-709, -25, -332)
+                    local merchantPrompt = nil
+                    if merchant then
+                        local tBox = merchant:FindFirstChild("TalkBox") or merchant:FindFirstChild("HumanoidRootPart")
+                        if tBox then merchantPos = tBox.Position end
+                        merchantPrompt = merchant:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    end
+
+                    local savedCF = root.CFrame
+                    local distToMerchant = (root.Position - merchantPos).Magnitude
+
+                    -- If distance > 14 studs, position near ShiftPlox safely to pass server dialogue distance check
+                    local movedForSell = false
+                    if distToMerchant > 12 then
+                        movedForSell = true
+                        local merchantCF = CFrame.new(merchantPos + Vector3.new(0, 2.5, 3), merchantPos)
+                        if State.SafeTeleportMode and distToMerchant > 20 then
+                            local arrived = false
+                            safeTeleportTo(merchantCF, function() arrived = true end)
+                            local t0 = tick()
+                            while not arrived and (tick() - t0 < 8.0) do
+                                if not State.AutoSellCommon or _G.YBA_SESSION ~= currentSession then break end
+                                task.wait(0.05)
+                            end
+                        else
+                            root.CFrame = merchantCF
+                        end
+                        task.wait(0.25)
+                    end
+
+                    -- Trigger ShiftPlox ProximityPrompt to open dialogue session if present
+                    if merchantPrompt and merchantPrompt.Enabled and fireproximityprompt then
+                        pcall(function() fireproximityprompt(merchantPrompt, 0) end)
+                        task.wait(0.2)
+                    end
+
                     -- Collect candidate remotes from Character and ReplicatedStorage
                     local remotes = {}
-                    if char then
-                        local crf = char:FindFirstChild("RemoteFunction")
-                        local cre = char:FindFirstChild("RemoteEvent")
-                        if crf then table.insert(remotes, crf) end
-                        if cre then table.insert(remotes, cre) end
-                    end
+                    local crf = char:FindFirstChild("RemoteFunction")
+                    local cre = char:FindFirstChild("RemoteEvent")
+                    if crf then table.insert(remotes, crf) end
+                    if cre then table.insert(remotes, cre) end
                     local repRf = ReplicatedStorage:FindFirstChild("RemoteFunction")
                     local repRe = ReplicatedStorage:FindFirstChild("RemoteEvent")
                     if repRf and not table.find(remotes, repRf) then table.insert(remotes, repRf) end
@@ -1342,33 +1383,56 @@ task.spawn(function()
                         if not State.AutoSellCommon or _G.YBA_SESSION ~= currentSession then break end
                         if item.Parent then
                             for _, rem in ipairs(remotes) do
-                            pcall(function()
-                                if rem:IsA("RemoteFunction") then
-                                    -- Try Option2 (direct sell option in ShiftPlox dialogue)
-                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
-                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
-                                    -- Try Option1 fallback
-                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                                    rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
-                                elseif rem:IsA("RemoteEvent") then
-                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
-                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
-                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                                    rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
-                                end
-                            end)
+                                pcall(function()
+                                    if rem:IsA("RemoteFunction") then
+                                        -- Format A: EndDialogue with Dialogue & Option1
+                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
+                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item.Name })
+                                        -- Format B: EndDialogue Option1 direct
+                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
+                                        -- Format C: EndDialogue Option2
+                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
+                                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
+                                    elseif rem:IsA("RemoteEvent") then
+                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
+                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item.Name })
+                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
+                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
+                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
+                                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item.Name })
+                                    end
+                                end)
+                            end
+                            soldCount = soldCount + 1
+                            task.wait(0.2)
                         end
-                        soldCount = soldCount + 1
-                        task.wait(0.2)
                     end
-                end
+
+                    -- Close dialogue GUI if active on screen
+                    pcall(function()
+                        local dGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("DialogueGui")
+                        if dGui then dGui:Destroy() end
+                    end)
+
+                    -- Return player back to previous position if we moved for selling
+                    if movedForSell then
+                        local currR = getRoot()
+                        if currR then
+                            currR.CFrame = savedCF
+                            currR.AssemblyLinearVelocity = Vector3.zero
+                            currR.AssemblyAngularVelocity = Vector3.zero
+                        end
+                    end
 
                     if soldCount > 0 then
-                        Hub.Notify("💰 Auto Sell", string.format("Processed %d unexcluded item(s) to ShiftPlox!", soldCount), 3)
+                        Hub.Notify("💰 Auto Sell", string.format("Sold %d unexcluded item(s) to ShiftPlox!", soldCount), 3)
                     end
+                    isSellingInProgress = false
                 end
             end)
-            task.wait(2.0)
+            isSellingInProgress = false
+            task.wait(2.5)
         else
             task.wait(1.5)
         end
