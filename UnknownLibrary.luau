@@ -443,14 +443,14 @@ return function(opts)
             end)
         end
     end
-        function hubState.startOceanWaveBackground(parent)
+    function hubState.startOceanWaveBackground(parent)
         local success, cg = pcall(function()
             local c = Instance.new("CanvasGroup")
             c.GroupTransparency = 0
             return c
         end)
         local waveContainer = (success and cg) or Instance.new("Frame")
-        waveContainer.Name = "OceanWaveViewport"
+        waveContainer.Name = "AtmosphereViewport"
         waveContainer.Size = UDim2.new(1, 0, 1, 0)
         waveContainer.Position = UDim2.new(0, 0, 0, 0)
         waveContainer.BackgroundTransparency = 1
@@ -460,155 +460,147 @@ return function(opts)
         waveContainer.ZIndex = 0
         waveContainer.Parent = parent
         applyCorner(waveContainer, 10)
-        local starNodesData = {
-            { x = 0.08, y = 0.10, size = 5, speed = 2.1, phase = 0.2, isDiamond = true },
-            { x = 0.18, y = 0.07, size = 4, speed = 1.7, phase = 1.5, isDiamond = false },
-            { x = 0.28, y = 0.18, size = 6, speed = 2.4, phase = 2.8, isDiamond = true },
-            { x = 0.38, y = 0.08, size = 4, speed = 1.9, phase = 3.9, isDiamond = false },
-            { x = 0.48, y = 0.15, size = 5, speed = 2.8, phase = 0.8, isDiamond = true },
-            { x = 0.58, y = 0.06, size = 4, speed = 1.5, phase = 4.4, isDiamond = false },
-            { x = 0.68, y = 0.20, size = 6, speed = 2.2, phase = 5.2, isDiamond = true },
-            { x = 0.78, y = 0.10, size = 5, speed = 1.8, phase = 2.1, isDiamond = true },
-            { x = 0.88, y = 0.21, size = 4, speed = 2.6, phase = 3.5, isDiamond = false },
-            { x = 0.14, y = 0.30, size = 4, speed = 2.0, phase = 1.9, isDiamond = false },
-            { x = 0.84, y = 0.32, size = 5, speed = 1.6, phase = 4.8, isDiamond = true },
-            { x = 0.50, y = 0.28, size = 4, speed = 3.0, phase = 2.6, isDiamond = false },
-        }
-        local activeStarElements = {}
-        for _, star in ipairs(starNodesData) do
-            local starHolder = Instance.new("Frame")
-            starHolder.Name = "CosmicStar"
-            starHolder.Size = UDim2.new(0, star.size, 0, star.size)
-            starHolder.Position = UDim2.new(star.x, 0, star.y, 0)
-            starHolder.AnchorPoint = Vector2.new(0.5, 0.5)
-            starHolder.BackgroundColor3 = Color3.fromRGB(240, 250, 255)
-            starHolder.BackgroundTransparency = 0.65
-            starHolder.BorderSizePixel = 0
-            starHolder.Active = false
-            starHolder.ZIndex = 0
-            starHolder.Rotation = star.isDiamond and 45 or 0
-            starHolder.Parent = waveContainer
-            applyCorner(starHolder, star.isDiamond and 1 or math.floor(star.size / 2))
-            local starGlow = Instance.new("Frame")
-            starGlow.Name = "Glow"
-            starGlow.Size = UDim2.new(1.8, 0, 1.8, 0)
-            starGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
-            starGlow.AnchorPoint = Vector2.new(0.5, 0.5)
-            starGlow.BackgroundColor3 = hubState.currentThemeColor
-            starGlow.BackgroundTransparency = 0.82
-            starGlow.BorderSizePixel = 0
-            starGlow.Active = false
-            starGlow.ZIndex = 0
-            starGlow.Rotation = 45
-            starGlow.Parent = starHolder
-            applyCorner(starGlow, math.floor(star.size))
-            hubState.registerThemeFrame(starGlow)
-            table.insert(activeStarElements, {
-                holder = starHolder,
-                glow = starGlow,
-                speed = star.speed,
-                phase = star.phase,
-            })
-        end
-        local meteorStreak = Instance.new("Frame")
-        meteorStreak.Name = "MeteorStreak"
-        meteorStreak.Size = UDim2.new(0, 75, 0, 2)
-        meteorStreak.Position = UDim2.new(0, -100, 0, 20)
-        meteorStreak.AnchorPoint = Vector2.new(1, 0.5)
-        meteorStreak.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        meteorStreak.BackgroundTransparency = 1
-        meteorStreak.BorderSizePixel = 0
-        meteorStreak.Rotation = -24
-        meteorStreak.Active = false
-        meteorStreak.ZIndex = 0
-        meteorStreak.Parent = waveContainer
-        applyCorner(meteorStreak, 1)
-        local meteorGrad = Instance.new("UIGradient")
-        meteorGrad.Color = hubState.getThemeColorSequence(Color3.fromRGB(255, 255, 255), hubState.secondaryThemeColor)
-        meteorGrad.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(0.65, 0.35),
-            NumberSequenceKeypoint.new(1, 0)
-        })
-        meteorGrad.Parent = meteorStreak
-        hubState.registerThemeGradient(meteorGrad, 0)
-        local centerGlow = Instance.new("Frame")
-        centerGlow.Name = "OceanCenterGlow"
-        centerGlow.Size = UDim2.new(1, 0, 0, 160)
-        centerGlow.Position = UDim2.new(0, 0, 0.5, 0)
-        centerGlow.AnchorPoint = Vector2.new(0, 0.5)
-        centerGlow.BackgroundTransparency = 0.92
-        centerGlow.BackgroundColor3 = hubState.currentThemeColor
-        centerGlow.BorderSizePixel = 0
-        centerGlow.ZIndex = 0
-        centerGlow.Parent = waveContainer
-        hubState.registerThemeBackground(centerGlow)
-        local glowGradient = Instance.new("UIGradient")
-        glowGradient.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(0.5, 0.1),
+
+        -- Volumetric doorway moonlight beams & atmosphere
+        local doorHalo = Instance.new("Frame")
+        doorHalo.Name = "DoorGlowAura"
+        doorHalo.Size = UDim2.new(0, 52, 0.82, 0)
+        doorHalo.Position = UDim2.new(0, -6, 0.09, 0)
+        doorHalo.BackgroundColor3 = Color3.fromRGB(180, 215, 255)
+        doorHalo.BackgroundTransparency = 0.86
+        doorHalo.BorderSizePixel = 0
+        doorHalo.Active = false
+        doorHalo.ZIndex = 0
+        doorHalo.Parent = waveContainer
+        applyCorner(doorHalo, 10)
+        local haloGrad = Instance.new("UIGradient")
+        haloGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.55),
+            NumberSequenceKeypoint.new(0.40, 0.82),
             NumberSequenceKeypoint.new(1, 1)
         })
-        glowGradient.Rotation = 90
-        glowGradient.Parent = centerGlow
-        local wavePattern = "╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲╱╲"
-        local waveLayersData = {
-            { name = "AbyssWave", offsetY = -28, speed = 14, amp = 7,  freq = 0.75, trans = 0.92, fontSize = 44, colorMix = 0.2 },
-            { name = "DeepWave",  offsetY = -10, speed = 24, amp = 10, freq = 1.15, trans = 0.86, fontSize = 52, colorMix = 0.4 },
-            { name = "MidWave",   offsetY =  12, speed = 36, amp = 13, freq = 1.65, trans = 0.80, fontSize = 60, colorMix = 0.7 },
-            { name = "CrestWave", offsetY =  32, speed = 50, amp = 16, freq = 2.20, trans = 0.72, fontSize = 66, colorMix = 1.0 },
-        }
-        local waveLabels = {}
-        for _, data in ipairs(waveLayersData) do
-            local layerFrame = Instance.new("Frame")
-            layerFrame.Name = data.name
-            layerFrame.Size = UDim2.new(1, 0, 0, 85)
-            layerFrame.Position = UDim2.new(0, 0, 0.5, data.offsetY)
-            layerFrame.AnchorPoint = Vector2.new(0, 0.5)
-            layerFrame.BackgroundTransparency = 1
-            layerFrame.BorderSizePixel = 0
-            layerFrame.ClipsDescendants = true
-            layerFrame.Active = false
-            layerFrame.ZIndex = 0
-            layerFrame.Parent = waveContainer
-            for part = 1, 2 do
-                local waveLbl = Instance.new("TextLabel")
-                waveLbl.Name = "WavePart_" .. tostring(part)
-                waveLbl.Size = UDim2.new(0, 1600, 1, 0)
-                waveLbl.Position = UDim2.new(0, (part - 1) * 1600, 0, 0)
-                waveLbl.BackgroundTransparency = 1
-                waveLbl.Text = wavePattern
-                waveLbl.TextColor3 = hubState.currentThemeColor
-                waveLbl.TextTransparency = data.trans
-                waveLbl.Font = Enum.Font.GothamBold
-                waveLbl.TextSize = data.fontSize
-                waveLbl.TextXAlignment = Enum.TextXAlignment.Left
-                waveLbl.TextYAlignment = Enum.TextYAlignment.Center
-                waveLbl.Active = false
-                waveLbl.ClipsDescendants = true
-                waveLbl.ZIndex = 0
-                waveLbl.Parent = layerFrame
-                hubState.registerThemeText(waveLbl)
-                local waveGradient = Instance.new("UIGradient")
-                waveGradient.Color = hubState.getThemeColorSequence(hubState.currentThemeColor, hubState.secondaryThemeColor)
-                waveGradient.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.45),
-                    NumberSequenceKeypoint.new(0.5, 0),
-                    NumberSequenceKeypoint.new(1, 0.65)
-                })
-                waveGradient.Rotation = 90
-                waveGradient.Parent = waveLbl
-                hubState.registerThemeGradient(waveGradient, 90)
-                table.insert(waveLabels, {
-                    label = waveLbl,
-                    layerFrame = layerFrame,
-                    layerData = data,
-                    part = part,
-                    width = 1600,
-                })
+        haloGrad.Parent = doorHalo
+
+        local doorCrack = Instance.new("Frame")
+        doorCrack.Name = "DoorLightCrack"
+        doorCrack.Size = UDim2.new(0, 2, 0.78, 0)
+        doorCrack.Position = UDim2.new(0, 0, 0.11, 0)
+        doorCrack.BackgroundColor3 = Color3.fromRGB(240, 250, 255)
+        doorCrack.BackgroundTransparency = 0.25
+        doorCrack.BorderSizePixel = 0
+        doorCrack.Active = false
+        doorCrack.ZIndex = 0
+        doorCrack.Parent = waveContainer
+        applyCorner(doorCrack, 1)
+
+        -- Wide diagonal moonlight ray from doorway
+        local moonBeamMain = Instance.new("Frame")
+        moonBeamMain.Name = "MoonBeamMain"
+        moonBeamMain.Size = UDim2.new(1.45, 0, 0.68, 0)
+        moonBeamMain.Position = UDim2.new(-0.08, 0, 0.10, 0)
+        moonBeamMain.Rotation = 27
+        moonBeamMain.BackgroundColor3 = Color3.fromRGB(185, 218, 255)
+        moonBeamMain.BackgroundTransparency = 0.90
+        moonBeamMain.BorderSizePixel = 0
+        moonBeamMain.Active = false
+        moonBeamMain.ZIndex = 0
+        moonBeamMain.Parent = waveContainer
+        local beamMainGrad = Instance.new("UIGradient")
+        beamMainGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.84),
+            NumberSequenceKeypoint.new(0.35, 0.90),
+            NumberSequenceKeypoint.new(0.70, 0.96),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        beamMainGrad.Parent = moonBeamMain
+
+        -- Concentrated bright core beam
+        local moonBeamCore = Instance.new("Frame")
+        moonBeamCore.Name = "MoonBeamCore"
+        moonBeamCore.Size = UDim2.new(1.35, 0, 0.26, 0)
+        moonBeamCore.Position = UDim2.new(-0.06, 0, 0.26, 0)
+        moonBeamCore.Rotation = 27
+        moonBeamCore.BackgroundColor3 = Color3.fromRGB(235, 248, 255)
+        moonBeamCore.BackgroundTransparency = 0.93
+        moonBeamCore.BorderSizePixel = 0
+        moonBeamCore.Active = false
+        moonBeamCore.ZIndex = 0
+        moonBeamCore.Parent = waveContainer
+        local beamCoreGrad = Instance.new("UIGradient")
+        beamCoreGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.88),
+            NumberSequenceKeypoint.new(0.40, 0.93),
+            NumberSequenceKeypoint.new(0.75, 0.98),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        beamCoreGrad.Parent = moonBeamCore
+
+        -- Floor light pool
+        local floorLightPool = Instance.new("Frame")
+        floorLightPool.Name = "FloorLightPool"
+        floorLightPool.Size = UDim2.new(0.9, 0, 0, 52)
+        floorLightPool.Position = UDim2.new(0.1, 0, 1, -52)
+        floorLightPool.BackgroundColor3 = Color3.fromRGB(175, 210, 250)
+        floorLightPool.BackgroundTransparency = 0.94
+        floorLightPool.BorderSizePixel = 0
+        floorLightPool.Active = false
+        floorLightPool.ZIndex = 0
+        floorLightPool.Parent = waveContainer
+        local floorGrad = Instance.new("UIGradient")
+        floorGrad.Rotation = 90
+        floorGrad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.60, 0.96),
+            NumberSequenceKeypoint.new(1, 0.91)
+        })
+        floorGrad.Parent = floorLightPool
+
+        -- Register subtle theme tinting
+        hubState.registerThemeUpdater(function(c1, c2)
+            if moonBeamMain and moonBeamMain.Parent then
+                moonBeamMain.BackgroundColor3 = hubState.getThemeColorSequence(Color3.fromRGB(185, 218, 255), c1).Keypoints[1].Value
             end
+        end)
+
+        -- Ambient floating dust motes that catch and highlight in the moonlight beam
+        local dustMoteCount = 30
+        local dustMotes = {}
+        for i = 1, dustMoteCount do
+            local baseSz = (i % 3 == 0) and 3 or 2
+            local startX = (i * 0.033 + (math.sin(i * 1.7) * 0.05)) % 1.0
+            local startY = ((i * 0.071 + (math.cos(i * 2.3) * 0.06)) % 0.96) + 0.02
+            local moteFrame = Instance.new("Frame")
+            moteFrame.Name = "DustMote"
+            moteFrame.Size = UDim2.new(0, baseSz, 0, baseSz)
+            moteFrame.Position = UDim2.new(startX, 0, startY, 0)
+            moteFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+            moteFrame.BackgroundColor3 = Color3.fromRGB(205, 225, 250)
+            moteFrame.BackgroundTransparency = 0.88
+            moteFrame.BorderSizePixel = 0
+            moteFrame.Active = false
+            moteFrame.ZIndex = 1
+            moteFrame.Parent = waveContainer
+            applyCorner(moteFrame, 2)
+
+            table.insert(dustMotes, {
+                frame = moteFrame,
+                baseSize = baseSz,
+                x = startX,
+                y = startY,
+                driftY = -0.012 - ((i % 5) * 0.005),
+                driftX = 0.004 + ((i % 4) * 0.003),
+                swayAmp = 0.012 + ((i % 6) * 0.003),
+                swaySpeed = 0.7 + ((i % 7) * 0.22),
+                swayPhase = (i * 0.84) % 6.28,
+                shimmerSpeed = 1.6 + ((i % 8) * 0.35),
+                shimmerPhase = (i * 1.25) % 6.28,
+                baseTrans = 0.86 + ((i % 4) * 0.02),
+                peakTrans = 0.18 + ((i % 3) * 0.05),
+            })
         end
+
         local startTime = tick()
+        local lastTick = startTime
         local waveConn
         waveConn = RunService.RenderStepped:Connect(function()
             if not waveContainer or not waveContainer.Parent or not parent or not parent.Parent then
@@ -618,35 +610,65 @@ return function(opts)
             if not waveContainer.Visible or not parent.Visible or (parent.AbsoluteSize and parent.AbsoluteSize.Y < 60) then
                 return
             end
-            local elapsed = tick() - startTime
-            for _, star in ipairs(activeStarElements) do
-                local flicker = (math.sin((elapsed * star.speed) + star.phase) * 0.32) + 0.60
-                star.holder.BackgroundTransparency = math.clamp(flicker, 0.25, 0.95)
-                star.glow.BackgroundTransparency = math.clamp(flicker + 0.20, 0.50, 1.0)
-            end
-            if meteorStreak and meteorStreak.Parent then
-                local cycleTime = elapsed % 7.5
-                if cycleTime < 1.3 then
-                    local progress = cycleTime / 1.3
-                    local startX = -60
-                    local endX = 460
-                    local currentX = startX + (endX - startX) * progress
-                    local currentY = 15 + (progress * 135)
-                    meteorStreak.Position = UDim2.new(0, currentX, 0, currentY)
-                    local alpha = math.sin(progress * math.pi)
-                    meteorStreak.BackgroundTransparency = 1 - (alpha * 0.80)
-                else
-                    meteorStreak.BackgroundTransparency = 1
+            local curTick = tick()
+            local dt = math.clamp(curTick - lastTick, 0, 0.05)
+            lastTick = curTick
+            local elapsed = curTick - startTime
+
+            -- Gentle ambient breath of the doorway light
+            local beamPulse = math.sin(elapsed * 0.8) * 0.02
+            moonBeamMain.BackgroundTransparency = math.clamp(0.90 + beamPulse, 0.86, 0.94)
+            moonBeamCore.BackgroundTransparency = math.clamp(0.93 + (beamPulse * 0.8), 0.89, 0.96)
+
+            -- Update all dust motes
+            for _, mote in ipairs(dustMotes) do
+                mote.y = mote.y + (mote.driftY * dt)
+                if mote.y < -0.03 then
+                    mote.y = 1.03
+                elseif mote.y > 1.03 then
+                    mote.y = -0.03
                 end
-            end
-            for _, item in ipairs(waveLabels) do
-                local data = item.layerData
-                local speed = data.speed
-                local width = item.width
-                local xOffset = ((elapsed * speed) + ((item.part - 1) * width)) % (width * 2) - width
-                local yOffset = (math.sin(elapsed * data.freq) * data.amp)
-                              + (math.cos(elapsed * data.freq * 0.5) * (data.amp * 0.35))
-                item.label.Position = UDim2.new(0, xOffset, 0, yOffset)
+
+                mote.x = mote.x + (mote.driftX * dt)
+                if mote.x > 1.03 then
+                    mote.x = -0.03
+                elseif mote.x < -0.03 then
+                    mote.x = 1.03
+                end
+
+                local sway = math.sin((elapsed * mote.swaySpeed) + mote.swayPhase) * mote.swayAmp
+                local curX = mote.x + sway
+                local curY = mote.y
+
+                -- Calculate distance from mote to central axis of moonlight beam (origin at (0, 0.28), angle ~27 deg)
+                local beamDist = math.abs((curX - 0.0) * (-0.454) + (curY - 0.28) * 0.891)
+                local beamAlong = (curX - 0.0) * 0.891 + (curY - 0.28) * 0.454
+
+                if beamAlong > -0.04 and beamAlong < 1.35 and beamDist < 0.22 then
+                    -- Caught in the moonlight beam: highlight brilliantly
+                    local normDist = 1 - (beamDist / 0.22)
+                    local alongAtten = math.clamp(1.1 - (beamAlong * 0.65), 0.35, 1.0)
+                    local highlight = (normDist * normDist) * alongAtten
+                    local shimmer = math.sin((elapsed * mote.shimmerSpeed) + mote.shimmerPhase) * 0.06
+                    local targetTrans = math.clamp(mote.baseTrans - highlight * (mote.baseTrans - mote.peakTrans) + shimmer, 0.12, 0.98)
+                    mote.frame.BackgroundTransparency = targetTrans
+                    if highlight > 0.38 then
+                        mote.frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                        local bloomSz = mote.baseSize + 1
+                        mote.frame.Size = UDim2.new(0, bloomSz, 0, bloomSz)
+                    else
+                        mote.frame.BackgroundColor3 = Color3.fromRGB(215, 235, 255)
+                        mote.frame.Size = UDim2.new(0, mote.baseSize, 0, mote.baseSize)
+                    end
+                else
+                    -- Outside the beam: faint ambient drifting dust speck
+                    local shimmer = math.sin((elapsed * mote.shimmerSpeed) + mote.shimmerPhase) * 0.03
+                    mote.frame.BackgroundTransparency = math.clamp(mote.baseTrans + shimmer, 0.82, 0.98)
+                    mote.frame.BackgroundColor3 = Color3.fromRGB(190, 215, 245)
+                    mote.frame.Size = UDim2.new(0, mote.baseSize, 0, mote.baseSize)
+                end
+
+                mote.frame.Position = UDim2.new(curX, 0, curY, 0)
             end
         end)
         hubState.trackConnection(waveConn)
@@ -3478,12 +3500,14 @@ return function(opts)
     -- TOP & BOTTOM NEON LIGHT EFFECTS & GLOWING BEAM LINES
     local topNeonGlow = Instance.new("Frame")
     topNeonGlow.Name = "TopNeonGlow"
-    topNeonGlow.Size = UDim2.new(1, 0, 0, 22)
-    topNeonGlow.Position = UDim2.new(0, 0, 0, 0)
+    topNeonGlow.Size = UDim2.new(1, -28, 0, 18)
+    topNeonGlow.Position = UDim2.new(0.5, 0, 0, 1)
+    topNeonGlow.AnchorPoint = Vector2.new(0.5, 0)
     topNeonGlow.BackgroundColor3 = hubState.currentThemeColor
     topNeonGlow.BorderSizePixel = 0
     topNeonGlow.ZIndex = 42
     topNeonGlow.Parent = hubState.mainFrame
+    applyCorner(topNeonGlow, 6)
     local topGlowGradient = Instance.new("UIGradient")
     topGlowGradient.Rotation = 90
     topGlowGradient.Transparency = NumberSequence.new({
@@ -3498,29 +3522,33 @@ return function(opts)
 
     local topNeonBeam = Instance.new("Frame")
     topNeonBeam.Name = "TopNeonBeam"
-    topNeonBeam.Size = UDim2.new(1, 0, 0, 2)
-    topNeonBeam.Position = UDim2.new(0, 0, 0, 0)
+    topNeonBeam.Size = UDim2.new(1, -24, 0, 2)
+    topNeonBeam.Position = UDim2.new(0.5, 0, 0, 1)
+    topNeonBeam.AnchorPoint = Vector2.new(0.5, 0)
     topNeonBeam.BackgroundColor3 = hubState.currentThemeColor
     topNeonBeam.BorderSizePixel = 0
     topNeonBeam.ZIndex = 43
     topNeonBeam.Parent = hubState.mainFrame
+    applyCorner(topNeonBeam, 1)
     local topBeamGradient = Instance.new("UIGradient")
     topBeamGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(240, 250, 255)),
         ColorSequenceKeypoint.new(0.5, hubState.currentThemeColor),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(240, 250, 255))
     })
     topBeamGradient.Parent = topNeonBeam
     hubState.registerThemeFrame(topNeonBeam)
 
     local bottomNeonGlow = Instance.new("Frame")
     bottomNeonGlow.Name = "BottomNeonGlow"
-    bottomNeonGlow.Size = UDim2.new(1, 0, 0, 22)
-    bottomNeonGlow.Position = UDim2.new(0, 0, 1, -22)
+    bottomNeonGlow.Size = UDim2.new(1, -28, 0, 18)
+    bottomNeonGlow.Position = UDim2.new(0.5, 0, 1, -19)
+    bottomNeonGlow.AnchorPoint = Vector2.new(0.5, 0)
     bottomNeonGlow.BackgroundColor3 = hubState.currentThemeColor
     bottomNeonGlow.BorderSizePixel = 0
     bottomNeonGlow.ZIndex = 42
     bottomNeonGlow.Parent = hubState.mainFrame
+    applyCorner(bottomNeonGlow, 6)
     local bottomGlowGradient = Instance.new("UIGradient")
     bottomGlowGradient.Rotation = 270
     bottomGlowGradient.Transparency = NumberSequence.new({
@@ -3535,17 +3563,19 @@ return function(opts)
 
     local bottomNeonBeam = Instance.new("Frame")
     bottomNeonBeam.Name = "BottomNeonBeam"
-    bottomNeonBeam.Size = UDim2.new(1, 0, 0, 2)
-    bottomNeonBeam.Position = UDim2.new(0, 0, 1, -2)
+    bottomNeonBeam.Size = UDim2.new(1, -24, 0, 2)
+    bottomNeonBeam.Position = UDim2.new(0.5, 0, 1, -2)
+    bottomNeonBeam.AnchorPoint = Vector2.new(0.5, 0)
     bottomNeonBeam.BackgroundColor3 = hubState.currentThemeColor
     bottomNeonBeam.BorderSizePixel = 0
     bottomNeonBeam.ZIndex = 43
     bottomNeonBeam.Parent = hubState.mainFrame
+    applyCorner(bottomNeonBeam, 1)
     local bottomBeamGradient = Instance.new("UIGradient")
     bottomBeamGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(240, 250, 255)),
         ColorSequenceKeypoint.new(0.5, hubState.currentThemeColor),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(240, 250, 255))
     })
     bottomBeamGradient.Parent = bottomNeonBeam
     hubState.registerThemeFrame(bottomNeonBeam)
@@ -4324,6 +4354,10 @@ return function(opts)
             minimizeBtn.Text = "+"
             if resizerGrip then resizerGrip.Visible = false end
             if waveBackground then waveBackground.Visible = false end
+            if topNeonBeam then topNeonBeam.Visible = false end
+            if topNeonGlow then topNeonGlow.Visible = false end
+            if bottomNeonBeam then bottomNeonBeam.Visible = false end
+            if bottomNeonGlow then bottomNeonGlow.Visible = false end
             headerCover.Visible = false
             headerDivider.Visible = false
             sidebar.Visible = false
@@ -4337,6 +4371,10 @@ return function(opts)
             hubState.isWindowCollapsed = false
             minimizeBtn.Text = "-"
             if waveBackground then waveBackground.Visible = true end
+            if topNeonBeam then topNeonBeam.Visible = true end
+            if topNeonGlow then topNeonGlow.Visible = true end
+            if bottomNeonBeam then bottomNeonBeam.Visible = true end
+            if bottomNeonGlow then bottomNeonGlow.Visible = true end
             headerCover.Visible = true
             headerDivider.Visible = true
             sidebar.Visible = true
