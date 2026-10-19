@@ -5896,7 +5896,7 @@ return function(opts)
         if list.SelectedItem ~= nil then return list.SelectedItem end
         return nil
     end
-    hubState.CreateList = function(parent, title, items, height, expanded, selectionOptions)
+    hubState.CreateList = function(parent, title, items, height, expanded, selectionOptions, extraCallback)
         local parentTarget = parent
         local itemTitle = title or "List"
         local itemValues = items or {}
@@ -5946,13 +5946,18 @@ return function(opts)
                 maxAllowedHeight = rawHeight + (isNestedList and 30 or 32) + 24
             end
         end
-        local selectionCallback = type(height) == "function" and height or nil
+        local selectionCallback = (type(extraCallback) == "function" and extraCallback)
+            or (type(selectionOptions) == "function" and selectionOptions)
+            or (type(height) == "function" and height)
+            or (type(expanded) == "function" and expanded)
+            or (type(selectionOptions) == "table" and (selectionOptions.Callback or selectionOptions.callback or selectionOptions.OnSelect or selectionOptions.onSelect))
+            or nil
         local itemBuilder = type(items) == "function" and items or nil
         if itemBuilder then itemValues = {} end
         if type(itemValues) ~= "table" then itemValues = {} end
         if not parentTarget then parentTarget = contentArea end
         local titleBtnHeight = isNestedList and 30 or 32
-        local open = itemExpanded
+        local open = (expanded == true) or (type(selectionOptions) == "table" and (selectionOptions.Expanded == true or selectionOptions.expanded == true))
         local frame = Instance.new("Frame")
         frame.Name = "List_" .. tostring(itemTitle)
         frame.Size = UDim2.new(1, -6, 0, titleBtnHeight)
