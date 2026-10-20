@@ -785,11 +785,218 @@ local function isItemAtCap(itemName)
 end
 
 local isSellingActive = false
+local isSellingInProgress = false
+
+local function getEligibleItemsToSell(forceSell)
+    local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+    local char = getCharacter()
+    if not backpack or not char then return {} end
+
+    local itemsToSell = {}
+    local function checkItem(item)
+        if not item or not item:IsA("Tool") then return end
+        local iName = item.Name
+        local isExcluded = State.SellExcludedItems[iName] == true
+        if not isExcluded then
+            for ex, enabled in pairs(State.SellExcludedItems) do
+                if enabled and iName:lower():find(ex:lower(), 1, true) then
+                    isExcluded = true
+                    break
+                end
+            end
+        end
+
+        local lower = iName:lower()
+        -- Exclude non-sellable currency and redeemed items
+        if lower:find("gold coin", 1, true) or lower:find("redeemed", 1, true) then
+            isExcluded = true
+        end
+
+        if not isExcluded then
+            local atCap = isItemAtCap(iName)
+            if forceSell or atCap then
+                table.insert(itemsToSell, item)
+            end
+        end
+    end
+
+    for _, it in ipairs(backpack:GetChildren()) do checkItem(it) end
+    for _, it in ipairs(char:GetChildren()) do checkItem(it) end
+
+    return itemsToSell
+end
+
+local function performMerchantSell(forceSell)
+    if isSellingInProgress then return end
+    local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+    local char = getCharacter()
+    local root = getRoot()
+    if not backpack or not char or not root then return end
+
+    local itemsToSell = getEligibleItemsToSell(forceSell)
+    if #itemsToSell == 0 then
+        if forceSell then
+            Hub.Notify("💰 Sell Items", "No eligible maxed items to sell (check exclusions).", 3)
+        end
+        return
+    end
+
+    -- Prioritize selling: Pause auto collection and ongoing travel while selling
+    isSellingInProgress = true
+    isSellingActive = true
+    cancelCurrentTravel()
+
+    local merchant = (Workspace:FindFirstChild("Dialogues") and Workspace.Dialogues:FindFirstChild("ShiftPlox, The Travelling Merchant"))
+        or Workspace:FindFirstChild("ShiftPlox, The Travelling Merchant", true)
+
+    local merchantPos = Vector3.new(-709, -25, -332)
+    local merchantPrompt = nil
+    if merchant then
+        local tBox = merchant:FindFirstChild("TalkBox") or merchant:FindFirstChild("HumanoidRootPart")
+        if tBox then merchantPos = tBox.Position end
+        merchantPrompt = merchant:FindFirstChildWhichIsA("ProximityPrompt", true)
+    end
+
+    local savedCF = root.CFrame
+    local distToMerchant = (root.Position - merchantPos).Magnitude
+
+    -- Ensure player is right in front of ShiftPlox for server distance validation
+    local movedForSell = false
+    local merchantCF = CFrame.new(merchantPos + Vector3.new(0, 2.5, 3), merchantPos)
+    if distToMerchant > 12 then
+        movedForSell = true
+        if State.SafeTeleportMode and distToMerchant > 20 then
+            local arrived = false
+            safeTeleportTo(merchantCF, function() arrived = true end)
+            local travelTimeout = math.clamp((distToMerchant / 40) + 5.0, 8.0, 30.0)
+            local t0 = tick()
+            while not arrived and (tick() - t0 < travelTimeout) do
+                task.wait(0.05)
+            end
+        end
+        local curR = getRoot()
+        if curR then
+            curR.CFrame = merchantCF
+            curR.AssemblyLinearVelocity = Vector3.zero
+            curR.AssemblyAngularVelocity = Vector3.zero
+        end
+        task.wait(0.25)
+    end
+
+    -- Advance dialogue helper: Select Option1 ("Deal" / "Yes" / "Sell")
+    local function selectDialogueReply()
+        pcall(function()
+            local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+            local dGui = pGui and pGui:FindFirstChild("DialogueGui")
+            if dGui then
+                for _, desc in ipairs(dGui:GetDescendants()) do
+                    if desc:IsA("TextButton") and desc.Visible then
+                        local txt = desc.Text:lower()
+                        if desc.Name == "Option1" or desc.Parent.Name == "Option1" or txt:find("sell") or txt:find("like to sell") or txt:find("deal") or txt:find("sure") or txt:find("yes") then
+                            if firesignal then
+                                firesignal(desc.MouseButton1Click)
+                                firesignal(desc.Activated)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    local remotes = {}
+    local crf = char:FindFirstChild("RemoteFunction")
+    local cre = char:FindFirstChild("RemoteEvent")
+    if crf then table.insert(remotes, crf) end
+    if cre then table.insert(remotes, cre) end
+    local repRf = ReplicatedStorage:FindFirstChild("RemoteFunction")
+    local repRe = ReplicatedStorage:FindFirstChild("RemoteEvent")
+    if repRf and not table.find(remotes, repRf) then table.insert(remotes, repRf) end
+    if repRe and not table.find(remotes, repRe) then table.insert(remotes, repRe) end
+
+    local soldCount = 0
+    for _, item in ipairs(itemsToSell) do
+        if item.Parent and (item.Parent == backpack or item.Parent == char) then
+            -- 1. Equip item so it is held in hand (ShiftPlox requires holding the item to buy it!)
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and item.Parent == backpack then
+                hum:EquipTool(item)
+                task.wait(0.12)
+            end
+
+            -- 2. Trigger ShiftPlox ProximityPrompt to open dialogue session
+            if merchantPrompt and merchantPrompt.Enabled and fireproximityprompt then
+                pcall(function() fireproximityprompt(merchantPrompt, 0) end)
+            end
+            task.wait(0.2)
+            selectDialogueReply()
+
+            -- 3. Advance dialogue on server with EndDialogue
+            for _, rem in ipairs(remotes) do
+                pcall(function()
+                    if rem:IsA("RemoteFunction") then
+                        rem:InvokeServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                        rem:InvokeServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2" })
+                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2" })
+                    elseif rem:IsA("RemoteEvent") then
+                        rem:FireServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                        rem:FireServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2" })
+                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
+                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2" })
+                    end
+                end)
+            end
+            task.wait(0.15)
+            selectDialogueReply()
+
+            soldCount = soldCount + 1
+            task.wait(0.15)
+        end
+    end
+
+    -- Close dialogue GUI cleanly
+    pcall(function()
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local dGui = pGui and pGui:FindFirstChild("DialogueGui")
+        if dGui then dGui:Destroy() end
+    end)
+
+    -- Return player back to previous position if moved
+    if movedForSell then
+        local currR = getRoot()
+        if currR then
+            currR.CFrame = savedCF
+            currR.AssemblyLinearVelocity = Vector3.zero
+            currR.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+
+    if soldCount > 0 then
+        Hub.Notify("💰 Merchant", string.format("Sold %d maxed item(s) to ShiftPlox!", soldCount), 3)
+    end
+
+    -- Release locks so auto collect can resume immediately
+    isSellingActive = false
+    isSellingInProgress = false
+end
 
 local function executeAutoCollectItems()
     if isSellingActive then return end
     local root = getRoot()
     if not root then return end
+
+    -- Check if inventory has capped items that should be sold first
+    if State.AutoSellCommon then
+        local maxedItems = getEligibleItemsToSell(false)
+        if #maxedItems > 0 then
+            cancelCurrentTravel()
+            pcall(function()
+                performMerchantSell(false)
+            end)
+            return
+        end
+    end
 
     local items = getSpawnedItems()
     local isAllSelected = State.ItemWhitelist["All Items"] == true
@@ -810,10 +1017,23 @@ local function executeAutoCollectItems()
             if shouldCollect and item.prompt and item.prompt.Parent then
                 table.insert(candidateItems, item)
             end
+        else
+            -- Item on ground is at cap: trigger merchant sell so we can collect it!
+            if State.AutoSellCommon then
+                local maxedItems = getEligibleItemsToSell(false)
+                if #maxedItems > 0 then
+                    cancelCurrentTravel()
+                    pcall(function()
+                        performMerchantSell(false)
+                    end)
+                    return
+                end
+            end
         end
     end
 
     if #candidateItems == 0 then return end
+    if isSellingActive then return end
 
     local function isRareItem(name)
         local n = name:lower()
@@ -845,7 +1065,7 @@ local function executeAutoCollectItems()
 
     local arrived = false
     local function isItemInvalid()
-        return not item.prompt or not item.prompt.Parent or not State.AutoCollectItems or _G.YBA_SESSION ~= currentSession
+        return not item.prompt or not item.prompt.Parent or not State.AutoCollectItems or isSellingActive or _G.YBA_SESSION ~= currentSession
     end
 
     if dist > 6 and State.SafeTeleportMode then
@@ -866,7 +1086,7 @@ local function executeAutoCollectItems()
 
     -- Ensure character is positioned at item
     local currentRoot = getRoot()
-    if currentRoot and item.prompt and item.prompt.Parent and State.AutoCollectItems and _G.YBA_SESSION == currentSession then
+    if currentRoot and item.prompt and item.prompt.Parent and State.AutoCollectItems and not isSellingActive and _G.YBA_SESSION == currentSession then
         task.wait(0.08)
 
         pcall(function()
@@ -1306,195 +1526,17 @@ task.spawn(function()
     end
 end)
 
--- 4. Merchant Auto-Sell Background Worker (Sells all unexcluded items)
-local function performMerchantSell(forceSell)
-    local backpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
-    local char = getCharacter()
-    local root = getRoot()
-    if not backpack or not char or not root then return end
-
-    local itemsToSell = {}
-    for _, item in ipairs(backpack:GetChildren()) do
-        local iName = item.Name
-        local isExcluded = State.SellExcludedItems[iName] == true
-        if not isExcluded then
-            for ex, enabled in pairs(State.SellExcludedItems) do
-                if enabled and iName:lower():find(ex:lower(), 1, true) then
-                    isExcluded = true; break
-                end
-            end
-        end
-
-        if not isExcluded then
-            -- Check if item is maxed out / capped or if manual forced sell was clicked
-            local atCap = isItemAtCap(iName)
-            if forceSell or atCap then
-                table.insert(itemsToSell, item)
-            end
-        end
-    end
-
-    if #itemsToSell == 0 then
-        if forceSell then
-            Hub.Notify("💰 Sell Items", "No eligible maxed items to sell (check exclusions).", 3)
-        end
-        return
-    end
-
-    -- Prioritize selling: Pause auto collection and ongoing travel while selling
-    isSellingActive = true
-    cancelCurrentTravel()
-
-    local merchant = (Workspace:FindFirstChild("Dialogues") and Workspace.Dialogues:FindFirstChild("ShiftPlox, The Travelling Merchant"))
-        or Workspace:FindFirstChild("ShiftPlox, The Travelling Merchant", true)
-
-    local merchantPos = Vector3.new(-709, -25, -332)
-    local merchantPrompt = nil
-    if merchant then
-        local tBox = merchant:FindFirstChild("TalkBox") or merchant:FindFirstChild("HumanoidRootPart")
-        if tBox then merchantPos = tBox.Position end
-        merchantPrompt = merchant:FindFirstChildWhichIsA("ProximityPrompt", true)
-    end
-
-    local savedCF = root.CFrame
-    local distToMerchant = (root.Position - merchantPos).Magnitude
-
-    -- Ensure player is right in front of ShiftPlox for server distance validation
-    local movedForSell = false
-    if distToMerchant > 10 then
-        movedForSell = true
-        local merchantCF = CFrame.new(merchantPos + Vector3.new(0, 2.5, 3), merchantPos)
-        if State.SafeTeleportMode and distToMerchant > 20 then
-            local arrived = false
-            safeTeleportTo(merchantCF, function() arrived = true end)
-            local t0 = tick()
-            while not arrived and (tick() - t0 < 6.0) do
-                task.wait(0.05)
-            end
-        else
-            root.CFrame = merchantCF
-        end
-        task.wait(0.2)
-    end
-
-    -- Trigger ShiftPlox ProximityPrompt to open dialogue session
-    if merchantPrompt and merchantPrompt.Enabled and fireproximityprompt then
-        pcall(function() fireproximityprompt(merchantPrompt, 0) end)
-    end
-    task.wait(0.3)
-
-    -- Advance dialogue: In YBA DialogueGui, select reply ("Option1" / "I'd like to sell this...")
-    local function selectDialogueReply()
-        pcall(function()
-            local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-            local dGui = pGui and pGui:FindFirstChild("DialogueGui")
-            if dGui then
-                -- Search for Option1 button or text button containing "sell"
-                for _, desc in ipairs(dGui:GetDescendants()) do
-                    if desc:IsA("TextButton") and desc.Visible then
-                        local txt = desc.Text:lower()
-                        if desc.Name == "Option1" or desc.Parent.Name == "Option1" or txt:find("sell") or txt:find("like to sell") then
-                            if firesignal then
-                                firesignal(desc.MouseButton1Click)
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-    end
-    selectDialogueReply()
-    task.wait(0.2)
-
-    local remotes = {}
-    local crf = char:FindFirstChild("RemoteFunction")
-    local cre = char:FindFirstChild("RemoteEvent")
-    if crf then table.insert(remotes, crf) end
-    if cre then table.insert(remotes, cre) end
-    local repRf = ReplicatedStorage:FindFirstChild("RemoteFunction")
-    local repRe = ReplicatedStorage:FindFirstChild("RemoteEvent")
-    if repRf and not table.find(remotes, repRf) then table.insert(remotes, repRf) end
-    if repRe and not table.find(remotes, repRe) then table.insert(remotes, repRe) end
-
-    -- Advance dialogue on server as well
-    for _, rem in ipairs(remotes) do
-        pcall(function()
-            if rem:IsA("RemoteFunction") then
-                rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
-                rem:InvokeServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
-            elseif rem:IsA("RemoteEvent") then
-                rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
-                rem:FireServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue1" })
-            end
-        end)
-    end
-    task.wait(0.15)
-    selectDialogueReply()
-
-    local soldCount = 0
-    for _, item in ipairs(itemsToSell) do
-        if item.Parent then
-            for _, rem in ipairs(remotes) do
-                pcall(function()
-                    if rem:IsA("RemoteFunction") then
-                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
-                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item.Name })
-                        rem:InvokeServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
-                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
-                        rem:InvokeServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
-                    elseif rem:IsA("RemoteEvent") then
-                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
-                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item.Name })
-                        rem:FireServer("EndDialogue", { ["NPC"] = "ShiftPlox, The Travelling Merchant", ["Option"] = "Option1", ["Dialogue"] = "Dialogue2", ["Item"] = item })
-                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item })
-                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option1", ["Item"] = item.Name })
-                        rem:FireServer("EndDialogue", { ["NPC"] = "Merchant", ["Option"] = "Option2", ["Item"] = item })
-                    end
-                end)
-            end
-            soldCount = soldCount + 1
-            task.wait(0.2)
-        end
-    end
-
-    -- Close dialogue GUI cleanly so it never stays stuck on screen
-    pcall(function()
-        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-        local dGui = pGui and pGui:FindFirstChild("DialogueGui")
-        if dGui then dGui:Destroy() end
-    end)
-
-    -- Return player back to previous position if moved
-    if movedForSell then
-        local currR = getRoot()
-        if currR then
-            currR.CFrame = savedCF
-            currR.AssemblyLinearVelocity = Vector3.zero
-            currR.AssemblyAngularVelocity = Vector3.zero
-        end
-    end
-
-    if soldCount > 0 then
-        Hub.Notify("💰 Merchant", string.format("Sold %d maxed item(s) to ShiftPlox!", soldCount), 3)
-    end
-
-    -- Release lock so auto collect can resume smoothly
-    isSellingActive = false
-end
-
 -- 4. Merchant Auto-Sell Background Worker (Sells maxed, unexcluded items)
 task.spawn(function()
-    local isSellingInProgress = false
-
     while true do
         if _G.YBA_SESSION ~= currentSession then break end
-        if State.AutoSellCommon and not isSellingInProgress then
-            isSellingInProgress = true
-            pcall(function()
-                performMerchantSell(false)
-            end)
-            isSellingInProgress = false
+        if State.AutoSellCommon and not isSellingActive and not isSellingInProgress then
+            local maxed = getEligibleItemsToSell(false)
+            if #maxed > 0 then
+                pcall(function()
+                    performMerchantSell(false)
+                end)
+            end
             task.wait(3.0)
         else
             task.wait(1.5)
@@ -1721,10 +1763,10 @@ end
 
 Hub.CreateSection(itemsTab, "💰 Merchant Sell Automation")
 
-Hub.CreateToggle(itemsTab, "💰 Auto Sell Maxed Items (Continuous)", false, function(v)
+Hub.CreateToggle(itemsTab, "💰 Sell when full", false, function(v)
     State.AutoSellCommon = v
     if v then
-        Hub.Notify("💰 Auto Sell", "Enabled! Automatically selling capped/maxed unexcluded items to ShiftPlox.", 3)
+        Hub.Notify("💰 Sell when full", "Enabled! Automatically selling capped/maxed unexcluded items to ShiftPlox.", 3)
     end
 end)
 
