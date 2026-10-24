@@ -102,6 +102,7 @@ local State = {
     WalkSpeed_Value = 45,
     Enable_Jumping = false,
     Enable_Sliding = false,
+    Noclip = false,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
     -- Main / Interactions
@@ -1031,17 +1032,25 @@ local function isValidLootItem(model)
 
     local action = (prompt.ActionText or ""):lower()
     local isPickup = action:find("take") or action:find("obtain") or action:find("steal") 
-        or action:find("grab") or action:find("pick") or action:find("equip") or action:find("collect") or action:find("get") or action:find("use")
+        or action:find("grab") or action:find("pick") or action:find("equip") or action:find("collect")
     if not isPickup then
         return false, nil
     end
 
     local promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
 
-    -- Guarantee Gold / Coins / Paintings are strictly excluded from general item ESP
-    if promptObjectName:find("gold") or promptObjectName:find("coin") or action:find("gold") or action:find("coin")
-        or promptObjectName:find("painting") or promptObjectName:find("picture") or promptObjectName:find("canvas") or promptObjectName:find("frame") or promptObjectName:find("portrait") then
-        return false, nil
+    -- Strictly reject containers, furniture, mechanisms, doors, lights, paintings, and decor
+    local forbiddenPromptWords = {
+        "gold", "coin", "painting", "picture", "canvas", "frame", "portrait", "photo",
+        "drawer", "knob", "desk", "table", "dresser", "container", "chest", "shelf",
+        "closet", "wardrobe", "locker", "bed", "door", "gate", "lever", "switch",
+        "button", "wheel", "valve", "lock", "padlock", "keyhole", "window", "curtain",
+        "lamp", "light", "bell", "clock", "breaker"
+    }
+    for _, bad in ipairs(forbiddenPromptWords) do
+        if promptObjectName == bad or promptObjectName:find(bad) or lower:find(bad) then
+            return false, nil
+        end
     end
 
     -- Priority 1: Check if prompt explicitly indicates Candle or Crucifix (Fixes Candle displaying as Crucifix)
@@ -1081,8 +1090,8 @@ local function isValidLootItem(model)
         end
     end
 
-    -- Fallback for custom or dropped items with clean prompt object name
-    if prompt.ObjectText and #prompt.ObjectText > 1 then
+    -- Fallback exclusively for Tool instances with non-decor pickup prompts
+    if model:IsA("Tool") and #promptObjectName > 1 then
         return true, prompt.ObjectText
     end
 
@@ -2509,28 +2518,30 @@ RunService.Heartbeat:Connect(function()
         -- When walking, horizontal velocity is immediately redirected into the current MoveDirection.
         -- When changing directions, old momentum is extinguished instantly without ice-skate slipping.
         -- When keys are released, horizontal motion stops on a dime. Vertical velocity (Y) is preserved for natural jumping/gravity.
-        -- Micro-raycast wall deflection prevents driving capsule into door frames or wall colliders, eliminating anti-cheat rollbacks.
+        -- Micro-raycast wall deflection prevents driving capsule into door frames or wall colliders (bypassed when Noclipping).
         if State.Instant_Movement and not isSlidingActive then
             local moveDir = hum.MoveDirection
             local curY = root.AssemblyLinearVelocity.Y
             if moveDir.Magnitude > 0.05 then
-                local rayParams = RaycastParams.new()
-                rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                rayParams.RespectCanCollide = true
+                if not State.Noclip then
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                    rayParams.RespectCanCollide = true
 
-                local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
-                local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
-                if hit and hit.Instance and hit.Instance.CanCollide then
-                    local n = hit.Normal
-                    local hNormal = Vector3.new(n.X, 0, n.Z)
-                    if hNormal.Magnitude > 0.1 then
-                        hNormal = hNormal.Unit
-                        local dot = moveDir:Dot(hNormal)
-                        if dot < 0 then
-                            local deflected = (moveDir - hNormal * dot)
-                            if deflected.Magnitude > 0.05 then
-                                moveDir = deflected.Unit
+                    local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
+                    local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
+                    if hit and hit.Instance and hit.Instance.CanCollide then
+                        local n = hit.Normal
+                        local hNormal = Vector3.new(n.X, 0, n.Z)
+                        if hNormal.Magnitude > 0.1 then
+                            hNormal = hNormal.Unit
+                            local dot = moveDir:Dot(hNormal)
+                            if dot < 0 then
+                                local deflected = (moveDir - hNormal * dot)
+                                if deflected.Magnitude > 0.05 then
+                                    moveDir = deflected.Unit
+                                end
                             end
                         end
                     end
@@ -2557,9 +2568,55 @@ RunService.Heartbeat:Connect(function()
             end
         end
     else
-        syncServerSlide(false, false)
+        if not State.Noclip and not State.Enable_Sliding then
+            syncServerSlide(false, false)
+        end
         if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled then
             hum.WalkSpeed = 15
+        end
+        if State.Noclip and not hiding and hum.MoveDirection.Magnitude > 0.05 then
+            local curY = root.AssemblyLinearVelocity.Y
+            root.AssemblyLinearVelocity = Vector3.new(hum.MoveDirection.X * 16, curY, hum.MoveDirection.Z * 16)
+        end
+    end
+
+    -- Anti-Cheat Noclip Ground Pinning & Safe Room Crossing:
+    -- Prevents sinking below floor level (which triggers DOORS anti-cheat void rollback)
+    -- Maintains server slide state and auto-satisfies door checks across boundaries
+    if State.Noclip and not hiding then
+        syncServerSlide(true, isSlidingActive)
+
+        local downParams = RaycastParams.new()
+        downParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+        downParams.FilterType = Enum.RaycastFilterType.Exclude
+        downParams.RespectCanCollide = true
+
+        local downHit = workspace:Raycast(root.Position + Vector3.new(0, 1.2, 0), Vector3.new(0, -6.5, 0), downParams)
+        if downHit and downHit.Position then
+            local expectedY = downHit.Position.Y + (hum.HipHeight > 0 and hum.HipHeight or 2.0) + 1.2
+            local state = hum:GetState()
+            local isJumping = state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall
+            if not isJumping and root.Position.Y < expectedY - 0.15 then
+                root.CFrame = CFrame.new(root.Position.X, expectedY, root.Position.Z) * (root.CFrame - root.Position)
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, math.max(0, root.AssemblyLinearVelocity.Y), root.AssemblyLinearVelocity.Z)
+            end
+        end
+
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, rm in ipairs(curRooms:GetChildren()) do
+                local d = rm:FindFirstChild("Door")
+                if d and d:IsA("Model") and not d:GetAttribute("Opened") and not d:FindFirstChild("ClientOpen") then
+                    local dPart = d:FindFirstChild("Door") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                    if dPart and (root.Position - dPart.Position).Magnitude <= 14 then
+                        d:SetAttribute("Opened", true)
+                        local prompt = d:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt and prompt.Enabled then
+                            pcall(function() fireproximityprompt(prompt) end)
+                        end
+                    end
+                end
+            end
         end
     end
 
@@ -2576,7 +2633,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Stepped Guard: Ensures WalkSpeed and Jumping are maintained across DOORS physics steps
+-- Stepped Guard: Ensures WalkSpeed, Jumping, and Noclip Collisions are maintained across DOORS physics steps
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -2599,6 +2656,24 @@ RunService.Stepped:Connect(function()
         if hum.JumpHeight < 5 then hum.JumpHeight = 7.5 end
         if not hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
             hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+        end
+    end
+
+    if State.Noclip then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+        local coll = char:FindFirstChild("Collision")
+        if coll and coll:IsA("BasePart") then
+            coll.CanCollide = false
+            coll.CanTouch = false
+        end
+        local cp = char:FindFirstChild("CollisionPart")
+        if cp and cp:IsA("BasePart") then
+            cp.CanCollide = false
+            cp.CanTouch = false
         end
     end
 end)
@@ -3112,12 +3187,35 @@ Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
         applyTeflonGlide(char)
         syncServerSlide(true, false)
     else
-        if not State.WalkSpeed_Enabled then
+        if not State.WalkSpeed_Enabled and not State.Noclip then
             restoreDefaultFriction(char)
             syncServerSlide(false, false)
         end
     end
     Hub.Notify("Movement", v and "Sliding: ENABLED (C / Ctrl to slide)" or "Sliding: DISABLED", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Anti-Cheat Noclip (Walk Through Walls)", State.Noclip, function(v)
+    State.Noclip = v
+    local char = getChar()
+    if not v and char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if part.Name == "HumanoidRootPart" then
+                    part.CanCollide = false
+                elseif part.Name == "Collision" or part.Name == "CollisionPart" then
+                    part.CanCollide = true
+                    part.CanTouch = true
+                else
+                    part.CanCollide = true
+                end
+            end
+        end
+        if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+            syncServerSlide(false, false)
+        end
+    end
+    Hub.Notify("Movement", v and "Anti-Cheat Noclip: ACTIVE (Walk through walls safely)" or "Anti-Cheat Noclip: OFF", 2)
 end)
 
 Hub.CreateSection(mainTab, "🖐️ Interaction Power")
