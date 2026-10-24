@@ -100,7 +100,6 @@ local State = {
     -- Main / Movement
     WalkSpeed_Enabled = false,
     WalkSpeed_Value = 45,
-    AntiRubberband = true,
     Enable_Jumping = false,
     Enable_Sliding = false,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
@@ -197,7 +196,6 @@ local State = {
     Anti_Timothy = true,
     Anti_A90 = true,
     Anti_Giggle = true,
-    No_Hide_Kick = true,
     Auto_Heartbeat = true,
     Auto_Library_Code = true,
     Auto_Breakers = false
@@ -792,17 +790,13 @@ local function processDoor(room, doorModel)
         or doorModel:FindFirstChild("ClientOpen") ~= nil
         or doorModel:GetAttribute("Open") == true
 
-    for _, ch in ipairs(doorModel:GetChildren()) do
+    for _, ch in ipairs(doorModel:GetDescendants()) do
         if ch:IsA("BasePart") then
             local chName = ch.Name:lower()
-            if chName == "hidden" then
+            if chName == "hidden" or chName == "collision" then
                 ch.Transparency = 1
-            elseif chName == "collision" then
-                ch.Transparency = 1
-                if isOpened then
-                    ch.CanCollide = false
-                end
-            elseif (chName == "door" or chName == "door2") and isOpened then
+            end
+            if isOpened and not chName:find("frame") then
                 ch.CanCollide = false
             end
         end
@@ -841,12 +835,9 @@ local function processDoor(room, doorModel)
                         or doorModel:FindFirstChild("ClientOpen") ~= nil
                         or doorModel:GetAttribute("Open") == true
                     if nowOpened then
-                        for _, ch in ipairs(doorModel:GetChildren()) do
-                            if ch:IsA("BasePart") then
-                                local chName = ch.Name:lower()
-                                if chName == "collision" or chName == "door" or chName == "door2" then
-                                    ch.CanCollide = false
-                                end
+                        for _, ch in ipairs(doorModel:GetDescendants()) do
+                            if ch:IsA("BasePart") and not ch.Name:lower():find("frame") then
+                                ch.CanCollide = false
                             end
                         end
                     end
@@ -1311,13 +1302,14 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
     core.Name = "Core"
     core.Size = Vector3.new(inner, inner, inner)
     core.Color = color
-    core.Transparency = 0.55
+    core.Transparency = 0.45
     core.Material = Enum.Material.SmoothPlastic
     core.CanCollide = false
     core.CanTouch = false
     core.CanQuery = false
     core.Massless = true
     core.CastShadow = false
+    core.Anchored = true
     core.CFrame = targetPart.CFrame
     core.Parent = model
 
@@ -1335,14 +1327,15 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
         face.Name = "Face_" .. i
         face.Size = cfg.size
         face.Color = color
-        face.Transparency = 0.55
+        face.Transparency = 0.45
         face.Material = Enum.Material.SmoothPlastic
         face.CanCollide = false
         face.CanTouch = false
         face.CanQuery = false
         face.Massless = true
         face.CastShadow = false
-        face.CFrame = targetPart.CFrame * CFrame.new(cfg.offset)
+        face.Anchored = true
+        face.CFrame = core.CFrame * CFrame.new(cfg.offset)
         face.Parent = model
     end
 
@@ -1356,14 +1349,15 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
                 sphere.Shape = Enum.PartType.Ball
                 sphere.Size = Vector3.new(d, d, d)
                 sphere.Color = color
-                sphere.Transparency = 0.55
+                sphere.Transparency = 0.45
                 sphere.Material = Enum.Material.SmoothPlastic
                 sphere.CanCollide = false
                 sphere.CanTouch = false
                 sphere.CanQuery = false
                 sphere.Massless = true
                 sphere.CastShadow = false
-                sphere.CFrame = targetPart.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), sz * (inner/2))
+                sphere.Anchored = true
+                sphere.CFrame = core.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), sz * (inner/2))
                 sphere.Parent = model
             end
         end
@@ -1378,14 +1372,15 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
             cyl.Shape = Enum.PartType.Cylinder
             cyl.Size = Vector3.new(inner, d, d)
             cyl.Color = color
-            cyl.Transparency = 0.55
+            cyl.Transparency = 0.45
             cyl.Material = Enum.Material.SmoothPlastic
             cyl.CanCollide = false
             cyl.CanTouch = false
             cyl.CanQuery = false
             cyl.Massless = true
             cyl.CastShadow = false
-            cyl.CFrame = targetPart.CFrame * CFrame.new(0, sy * (inner/2), sz * (inner/2))
+            cyl.Anchored = true
+            cyl.CFrame = core.CFrame * CFrame.new(0, sy * (inner/2), sz * (inner/2))
             cyl.Parent = model
         end
     end
@@ -1397,14 +1392,15 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
             cyl.Shape = Enum.PartType.Cylinder
             cyl.Size = Vector3.new(inner, d, d)
             cyl.Color = color
-            cyl.Transparency = 0.55
+            cyl.Transparency = 0.45
             cyl.Material = Enum.Material.SmoothPlastic
             cyl.CanCollide = false
             cyl.CanTouch = false
             cyl.CanQuery = false
             cyl.Massless = true
             cyl.CastShadow = false
-            cyl.CFrame = targetPart.CFrame * CFrame.new(sx * (inner/2), 0, sz * (inner/2)) * CFrame.Angles(0, 0, math.pi / 2)
+            cyl.Anchored = true
+            cyl.CFrame = core.CFrame * CFrame.new(sx * (inner/2), 0, sz * (inner/2)) * CFrame.Angles(0, 0, math.pi / 2)
             cyl.Parent = model
         end
     end
@@ -1416,30 +1412,35 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
             cyl.Shape = Enum.PartType.Cylinder
             cyl.Size = Vector3.new(inner, d, d)
             cyl.Color = color
-            cyl.Transparency = 0.55
+            cyl.Transparency = 0.45
             cyl.Material = Enum.Material.SmoothPlastic
             cyl.CanCollide = false
             cyl.CanTouch = false
             cyl.CanQuery = false
             cyl.Massless = true
             cyl.CastShadow = false
-            cyl.CFrame = targetPart.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), 0) * CFrame.Angles(0, math.pi / 2, 0)
+            cyl.Anchored = true
+            cyl.CFrame = core.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), 0) * CFrame.Angles(0, math.pi / 2, 0)
             cyl.Parent = model
         end
     end
 
-    -- Weld all parts to targetPart so the rounded cube moves smoothly with the entity
-    for _, part in ipairs(model:GetChildren()) do
-        if part:IsA("BasePart") then
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = part
-            weld.Part1 = targetPart
-            weld.Parent = part
-        end
-    end
-
     model.PrimaryPart = core
-    model.Parent = targetPart.Parent or Workspace
+    model.Parent = Workspace
+
+    -- Active RenderStepped tracking: continuously synchronizes rounded cube to the moving 2D entity
+    local followConn
+    followConn = RunService.RenderStepped:Connect(function()
+        if not targetPart or not targetPart.Parent or not model.Parent then
+            if followConn then followConn:Disconnect() end
+            return
+        end
+        model:PivotTo(targetPart.CFrame)
+    end)
+    model.Destroying:Connect(function()
+        if followConn then followConn:Disconnect() end
+    end)
+
     return model
 end
 
@@ -1486,10 +1487,10 @@ local function processEntity(entity)
 
     -- 6. CurrentRooms Descendant Check:
     -- Roaming monsters in DOORS do NOT spawn as static children of room furniture or rooms.
-    -- If an object is inside CurrentRooms, it can ONLY be an entity if it is explicitly Snare, Giggle, FigureRig, Grumble, or Seek.
+    -- If an object is inside CurrentRooms, it can ONLY be an entity if it is explicitly Snare, Giggle, FigureRig, Grumble, Seek, or Sally.
     local currentRooms = Workspace:FindFirstChild("CurrentRooms")
     if currentRooms and entity:IsDescendantOf(currentRooms) then
-        local isRoomMonster = eLower:find("snare") or eLower:find("giggle") or eLower:find("figure") or eLower:find("grumble") or eLower:find("seek")
+        local isRoomMonster = eLower:find("snare") or eLower:find("giggle") or eLower:find("figure") or eLower:find("grumble") or eLower:find("seek") or eLower:find("sally")
         if not isRoomMonster then
             return
         end
@@ -1538,7 +1539,7 @@ local function processEntity(entity)
         cfg = { Name = "Glitch", Category = "Other" }
     elseif eLower == "void" then
         cfg = { Name = "Void", Category = "Other" }
-    elseif eLower == "sally" and entity:IsA("Model") then
+    elseif (eLower == "sally" or eLower == "sallyrig" or eLower:find("^sally")) and entity:IsA("Model") then
         cfg = { Name = "Sally", Category = "Other" }
     elseif eLower == "jack" and entity:IsA("Model") then
         cfg = { Name = "Jack", Category = "Other" }
@@ -1601,12 +1602,6 @@ local function processEntity(entity)
             if roundedCube then
                 table.insert(extraVisuals, roundedCube)
                 highlightTarget = roundedCube
-            end
-            if targetPart:IsA("BasePart") then
-                local box = createBoxAdornment(targetPart, entityColor)
-                if box then
-                    table.insert(extraVisuals, box)
-                end
             end
         else
             -- 3D / BasePart Entity: Add guaranteed AlwaysOnTop BoxHandleAdornment so it shines through walls even on single parts
@@ -2494,10 +2489,12 @@ RunService.Heartbeat:Connect(function()
             local curY = root.AssemblyLinearVelocity.Y
             if moveDir.Magnitude > 0.05 then
                 local rayParams = RaycastParams.new()
-                rayParams.FilterDescendantsInstances = {char}
+                rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
                 rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.RespectCanCollide = true
 
-                local hit = workspace:Raycast(root.Position, moveDir * 1.8, rayParams)
+                local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
+                local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
                 if hit and hit.Instance and hit.Instance.CanCollide then
                     local n = hit.Normal
                     local hNormal = Vector3.new(n.X, 0, n.Z)
@@ -2508,37 +2505,27 @@ RunService.Heartbeat:Connect(function()
                             local deflected = (moveDir - hNormal * dot)
                             if deflected.Magnitude > 0.05 then
                                 moveDir = deflected.Unit
-                            else
-                                moveDir = Vector3.zero
                             end
                         end
                     end
                 end
 
-                if moveDir.Magnitude > 0.05 then
-                    root.AssemblyLinearVelocity = Vector3.new(moveDir.X * targetSpeed, curY, moveDir.Z * targetSpeed)
-                else
-                    root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
-                end
+                root.AssemblyLinearVelocity = Vector3.new(moveDir.X * targetSpeed, curY, moveDir.Z * targetSpeed)
             else
                 root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
             end
         end
 
-        -- Ensure opened doors in current and next room remain 100% collision-free
-        local currentRoomNum = getCurrentRoomNumber()
+        -- Ensure opened doors across all active rooms remain 100% collision-free
         local currentRooms = Workspace:FindFirstChild("CurrentRooms")
-        if currentRoomNum and currentRooms then
-            local r1 = currentRooms:FindFirstChild(tostring(currentRoomNum))
-            local r2 = currentRooms:FindFirstChild(tostring(currentRoomNum + 1))
-            for _, r in ipairs({r1, r2}) do
-                if r then
-                    local d = r:FindFirstChild("Door")
-                    if d and (d:GetAttribute("Opened") == true or d:FindFirstChild("ClientOpen") ~= nil or d:GetAttribute("Open") == true) then
-                        local dPart = d:FindFirstChild("Door")
-                        if dPart and dPart:IsA("BasePart") and dPart.CanCollide then dPart.CanCollide = false end
-                        local cPart = d:FindFirstChild("Collision")
-                        if cPart and cPart:IsA("BasePart") and cPart.CanCollide then cPart.CanCollide = false end
+        if currentRooms then
+            for _, r in ipairs(currentRooms:GetChildren()) do
+                local d = r:FindFirstChild("Door")
+                if d and (d:GetAttribute("Opened") == true or d:FindFirstChild("ClientOpen") ~= nil or d:GetAttribute("Open") == true) then
+                    for _, part in ipairs(d:GetDescendants()) do
+                        if part:IsA("BasePart") and part.CanCollide and not part.Name:lower():find("frame") then
+                            part.CanCollide = false
+                        end
                     end
                 end
             end
@@ -2563,20 +2550,29 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Stepped Guard: Ensures WalkSpeed is maintained across DOORS physics steps
+-- Stepped Guard: Ensures WalkSpeed and Jumping are maintained across DOORS physics steps
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
-    if State.WalkSpeed_Enabled then
-        local char = getChar()
-        local mgTable = getMainGameTable()
-        if isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil) then return end
+    local char = getChar()
+    local mgTable = getMainGameTable()
+    if isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil) then return end
 
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then
-            local targetSpeed = State.WalkSpeed_Value
-            if hum.WalkSpeed ~= targetSpeed then
-                hum.WalkSpeed = targetSpeed
-            end
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not hum then return end
+
+    if State.WalkSpeed_Enabled then
+        local targetSpeed = State.WalkSpeed_Value
+        if hum.WalkSpeed ~= targetSpeed then
+            hum.WalkSpeed = targetSpeed
+        end
+    end
+
+    if State.Enable_Jumping then
+        if not hum.UseJumpPower then hum.UseJumpPower = true end
+        if hum.JumpPower < 50 then hum.JumpPower = 52 end
+        if hum.JumpHeight < 5 then hum.JumpHeight = 7.5 end
+        if not hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
         end
     end
 end)
@@ -2595,8 +2591,9 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         local hum = char:WaitForChild("Humanoid", 5)
         if hum then
             hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-            hum.JumpPower = 50
-            hum.JumpHeight = 7.2
+            hum.UseJumpPower = true
+            hum.JumpPower = 52
+            hum.JumpHeight = 7.5
         end
     end
     if State.Enable_Sliding then
@@ -2611,22 +2608,29 @@ end)
 UserInputService.JumpRequest:Connect(function()
     if State.Enable_Jumping then
         local char = getChar()
+        local root = getRoot()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead then
             if not hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
                 hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
             end
+            hum.UseJumpPower = true
+            hum.JumpPower = 52
+            hum.JumpHeight = 7.5
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            if root and math.abs(root.AssemblyLinearVelocity.Y) < 2.0 then
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 52, root.AssemblyLinearVelocity.Z)
+            end
         end
     end
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and (input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftControl) then
+    if input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftControl then
         if State.Enable_Sliding then
             local char = getChar()
             local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-            if hum and hum.MoveDirection.Magnitude > 0.15 then
+            if hum and hum.MoveDirection.Magnitude > 0.1 then
                 startSlide()
             end
         end
@@ -3104,18 +3108,15 @@ Hub.CreateSlider(mainTab, "Speed Value", 15, 75, State.WalkSpeed_Value, " studs/
     end
 end)
 
-Hub.CreateToggle(mainTab, "Anti-Rubberband Protection", State.AntiRubberband, function(v)
-    State.AntiRubberband = v
-end)
-
 Hub.CreateToggle(mainTab, "Enable Jumping", State.Enable_Jumping, function(v)
     State.Enable_Jumping = v
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if hum then
         hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, v)
-        hum.JumpPower = v and 50 or 0
-        hum.JumpHeight = v and 7.2 or 0
+        hum.UseJumpPower = true
+        hum.JumpPower = v and 52 or 0
+        hum.JumpHeight = v and 7.5 or 0
     end
     Hub.Notify("Movement", v and "Jumping: ENABLED (Space to jump)" or "Jumping: DISABLED", 2)
 end)
@@ -3128,12 +3129,14 @@ Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
     local char = getChar()
     if v then
         applyTeflonGlide(char)
+        syncServerSlide(true, false)
     else
         if not State.WalkSpeed_Enabled then
             restoreDefaultFriction(char)
+            syncServerSlide(false, false)
         end
     end
-    Hub.Notify("Movement", v and "Sliding: ENABLED (Crouch / C to slide)" or "Sliding: DISABLED", 2)
+    Hub.Notify("Movement", v and "Sliding: ENABLED (C / Ctrl to slide)" or "Sliding: DISABLED", 2)
 end)
 
 Hub.CreateSection(mainTab, "🖐️ Interaction Power")
@@ -3275,9 +3278,6 @@ local function updateFloorNativeToggles()
         end
         if gd:FindFirstChild("EntityDisableDupe") then
             gd.EntityDisableDupe.Value = State.Anti_Dupe
-        end
-        if gd:FindFirstChild("EarliestHidingKick") then
-            gd.EarliestHidingKick.Value = State.No_Hide_Kick and math.huge or 0
         end
     end
 end
@@ -3451,16 +3451,6 @@ task.spawn(function()
             end)
         end
 
-        -- No Hide Kick / Sickness Reset
-        if State.No_Hide_Kick then
-            pcall(function()
-                local char = getChar()
-                if char and char:GetAttribute("HideSickness") then
-                    char:SetAttribute("HideSickness", 0)
-                end
-            end)
-        end
-
         task.wait(0.2)
     end
 end)
@@ -3584,75 +3574,92 @@ local floorTab = Hub.CreateTab(floorTabName, {
     ActiveColor = Color3.fromRGB(255, 180, 70) 
 })
 
-Hub.CreateSection(floorTab, "🦇 Entity Defenses (Hotel & Mines)")
+local floorLower = string.lower(tostring(detectedFloor))
+local isHotel = (floorLower:find("hotel") ~= nil or floorLower == "floor1" or floorLower == "1")
+local isMines = (floorLower:find("mine") ~= nil or floorLower == "floor2" or floorLower == "2")
+local isRooms = (floorLower:find("room") ~= nil or floorLower == "a")
+local isBackdoor = (floorLower:find("backdoor") ~= nil)
+local isRetro = (floorLower:find("retro") ~= nil)
+if not isHotel and not isMines and not isRooms and not isBackdoor and not isRetro then
+    isHotel = true
+end
 
-Hub.CreateToggle(floorTab, "Anti-Screech (Auto-Catch & Banish)", State.Anti_Screech, function(v)
-    State.Anti_Screech = v
-    updateFloorNativeToggles()
-    Hub.Notify("Anti-Screech", v and "Anti-Screech: ACTIVE (Zero bite & jumpscare)" or "Anti-Screech: OFF", 2)
-end)
+Hub.CreateSection(floorTab, "🦇 Entity Defenses")
 
-Hub.CreateToggle(floorTab, "Anti-Eyes (Look Immunity)", State.Anti_Eyes, function(v)
-    State.Anti_Eyes = v
-    updateFloorNativeToggles()
-    Hub.Notify("Anti-Eyes", v and "Anti-Eyes: ACTIVE (Look-damage immune)" or "Anti-Eyes: OFF", 2)
-end)
+-- Common defenses (Hotel & Mines)
+if isHotel or isMines or isRetro then
+    Hub.CreateToggle(floorTab, "Anti-Screech (Auto-Catch & Banish)", State.Anti_Screech, function(v)
+        State.Anti_Screech = v
+        updateFloorNativeToggles()
+        Hub.Notify("Anti-Screech", v and "Anti-Screech: ACTIVE (Zero bite & jumpscare)" or "Anti-Screech: OFF", 2)
+    end)
 
-Hub.CreateToggle(floorTab, "Anti-Dupe (Fake Door Protection)", State.Anti_Dupe, function(v)
-    State.Anti_Dupe = v
-    updateFloorNativeToggles()
-    Hub.Notify("Anti-Dupe", v and "Anti-Dupe: ACTIVE" or "Anti-Dupe: OFF", 2)
-end)
+    Hub.CreateToggle(floorTab, "Anti-Eyes (Look Immunity)", State.Anti_Eyes, function(v)
+        State.Anti_Eyes = v
+        updateFloorNativeToggles()
+        Hub.Notify("Anti-Eyes", v and "Anti-Eyes: ACTIVE (Look-damage immune)" or "Anti-Eyes: OFF", 2)
+    end)
 
-Hub.CreateToggle(floorTab, "Anti-Snare Traps (Greenhouse & Mines)", State.Anti_Snare, function(v)
-    State.Anti_Snare = v
-    defuseAllSnares()
-    Hub.Notify("Anti-Snare", v and "Anti-Snare: ACTIVE (Walk through snares safely)" or "Anti-Snare: OFF", 2)
-end)
+    Hub.CreateToggle(floorTab, "Anti-Dupe (Fake Door Protection)", State.Anti_Dupe, function(v)
+        State.Anti_Dupe = v
+        updateFloorNativeToggles()
+        Hub.Notify("Anti-Dupe", v and "Anti-Dupe: ACTIVE" or "Anti-Dupe: OFF", 2)
+    end)
 
-Hub.CreateToggle(floorTab, "Anti-Timothy (Spider Jumpscare Mute)", State.Anti_Timothy, function(v)
-    State.Anti_Timothy = v
-    Hub.Notify("Anti-Timothy", v and "Anti-Timothy: ACTIVE (Drawer spiders silenced & hidden)" or "Anti-Timothy: OFF", 2)
-end)
+    Hub.CreateToggle(floorTab, "Anti-Snare Traps (Greenhouse & Mines)", State.Anti_Snare, function(v)
+        State.Anti_Snare = v
+        defuseAllSnares()
+        Hub.Notify("Anti-Snare", v and "Anti-Snare: ACTIVE (Walk through snares safely)" or "Anti-Snare: OFF", 2)
+    end)
 
-Hub.CreateToggle(floorTab, "Anti-A-90 (Instant Attack Immunity)", State.Anti_A90, function(v)
-    State.Anti_A90 = v
-    Hub.Notify("Anti-A-90", v and "Anti-A-90: ACTIVE (A-90 attacks neutralized)" or "Anti-A-90: OFF", 2)
-end)
+    Hub.CreateToggle(floorTab, "Anti-Timothy (Spider Jumpscare Mute)", State.Anti_Timothy, function(v)
+        State.Anti_Timothy = v
+        Hub.Notify("Anti-Timothy", v and "Anti-Timothy: ACTIVE (Drawer spiders silenced & hidden)" or "Anti-Timothy: OFF", 2)
+    end)
+end
 
-Hub.CreateToggle(floorTab, "Anti-Giggle (Ceiling Snatcher Defusal)", State.Anti_Giggle, function(v)
-    State.Anti_Giggle = v
-    Hub.Notify("Anti-Giggle", v and "Anti-Giggle: ACTIVE (Mines giggles disarmed)" or "Anti-Giggle: OFF", 2)
-end)
+-- Rooms / Backdoor / Retro only defenses
+if isRooms or isBackdoor or isRetro then
+    Hub.CreateToggle(floorTab, "Anti-A-90 (Instant Attack Immunity)", State.Anti_A90, function(v)
+        State.Anti_A90 = v
+        Hub.Notify("Anti-A-90", v and "Anti-A-90: ACTIVE (A-90 attacks neutralized)" or "Anti-A-90: OFF", 2)
+    end)
+end
 
-Hub.CreateSection(floorTab, "🚪 Hiding & Anti-Kick")
+-- Mines (Floor 2) only defenses
+if isMines then
+    Hub.CreateToggle(floorTab, "Anti-Giggle (Ceiling Snatcher Defusal)", State.Anti_Giggle, function(v)
+        State.Anti_Giggle = v
+        Hub.Notify("Anti-Giggle", v and "Anti-Giggle: ACTIVE (Mines giggles disarmed)" or "Anti-Giggle: OFF", 2)
+    end)
+end
 
-Hub.CreateToggle(floorTab, "No Hide Kick (Infinite Closet Hiding)", State.No_Hide_Kick, function(v)
-    State.No_Hide_Kick = v
-    updateFloorNativeToggles()
-    Hub.Notify("No Hide Kick", v and "No Hide Kick: ACTIVE (Hide forever in closets/beds)" or "No Hide Kick: OFF", 2)
-end)
+-- Shared Minigames (Hotel & Mines)
+if isHotel or isMines then
+    Hub.CreateSection(floorTab, "🎮 Minigames & Puzzles")
 
-Hub.CreateToggle(floorTab, "Auto Heartbeat Minigame (Auto-Win)", State.Auto_Heartbeat, function(v)
-    State.Auto_Heartbeat = v
-    Hub.Notify("Heartbeat Minigame", v and "Auto Heartbeat: ACTIVE (100% win rate)" or "Auto Heartbeat: OFF", 2)
-end)
+    Hub.CreateToggle(floorTab, "Auto Heartbeat Minigame (Auto-Win)", State.Auto_Heartbeat, function(v)
+        State.Auto_Heartbeat = v
+        Hub.Notify("Heartbeat Minigame", v and "Auto Heartbeat: ACTIVE (100% win rate)" or "Auto Heartbeat: OFF", 2)
+    end)
+end
 
-Hub.CreateSection(floorTab, "🧩 Floor 1 Puzzles (Room 50 & 100)")
+-- Hotel (Floor 1) specific Puzzles
+if isHotel then
+    Hub.CreateButton(floorTab, "🔍 Solve Library Code (Room 50 Padlock)", function()
+        local code, status = solveLibraryCode()
+        if code then
+            Hub.Notify("Room 50 Code", "Padlock Code: " .. code, 6)
+        else
+            Hub.Notify("Room 50 Code", status or "Need Books & Hint Paper!", 4)
+        end
+    end)
 
-Hub.CreateButton(floorTab, "🔍 Solve Library Code (Room 50 Padlock)", function()
-    local code, status = solveLibraryCode()
-    if code then
-        Hub.Notify("Room 50 Code", "Padlock Code: " .. code, 6)
-    else
-        Hub.Notify("Room 50 Code", status or "Need Books & Hint Paper!", 4)
-    end
-end)
-
-Hub.CreateToggle(floorTab, "Auto Solve Circuit Breaker (Room 100)", State.Auto_Breakers, function(v)
-    State.Auto_Breakers = v
-    Hub.Notify("Room 100 Breaker", v and "Auto Breaker: ACTIVE" or "Auto Breaker: OFF", 2)
-end)
+    Hub.CreateToggle(floorTab, "Auto Solve Circuit Breaker (Room 100)", State.Auto_Breakers, function(v)
+        State.Auto_Breakers = v
+        Hub.Notify("Room 100 Breaker", v and "Auto Breaker: ACTIVE" or "Auto Breaker: OFF", 2)
+    end)
+end
 
 -- Tab 3: ESP TAB
 local espTab = Hub.CreateTab("ESP", { 
