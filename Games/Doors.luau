@@ -2495,6 +2495,8 @@ end
 -- =========================================================================
 -- Continuous Heartbeat Enforcement (Zero-Shake Speed, Smooth Glide & Crouch Authorization)
 -- =========================================================================
+local noclipAnchorY = nil
+
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -2519,29 +2521,27 @@ RunService.Heartbeat:Connect(function()
         -- When changing directions, old momentum is extinguished instantly without ice-skate slipping.
         -- When keys are released, horizontal motion stops on a dime. Vertical velocity (Y) is preserved for natural jumping/gravity.
         -- Micro-raycast wall deflection prevents driving capsule into door frames or wall colliders (bypassed when Noclipping).
-        if State.Instant_Movement and not isSlidingActive then
+        if State.Instant_Movement and not isSlidingActive and not State.Noclip then
             local moveDir = hum.MoveDirection
             local curY = root.AssemblyLinearVelocity.Y
             if moveDir.Magnitude > 0.05 then
-                if not State.Noclip then
-                    local rayParams = RaycastParams.new()
-                    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                    rayParams.RespectCanCollide = true
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.RespectCanCollide = true
 
-                    local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
-                    local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
-                    if hit and hit.Instance and hit.Instance.CanCollide then
-                        local n = hit.Normal
-                        local hNormal = Vector3.new(n.X, 0, n.Z)
-                        if hNormal.Magnitude > 0.1 then
-                            hNormal = hNormal.Unit
-                            local dot = moveDir:Dot(hNormal)
-                            if dot < 0 then
-                                local deflected = (moveDir - hNormal * dot)
-                                if deflected.Magnitude > 0.05 then
-                                    moveDir = deflected.Unit
-                                end
+                local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
+                local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
+                if hit and hit.Instance and hit.Instance.CanCollide then
+                    local n = hit.Normal
+                    local hNormal = Vector3.new(n.X, 0, n.Z)
+                    if hNormal.Magnitude > 0.1 then
+                        hNormal = hNormal.Unit
+                        local dot = moveDir:Dot(hNormal)
+                        if dot < 0 then
+                            local deflected = (moveDir - hNormal * dot)
+                            if deflected.Magnitude > 0.05 then
+                                moveDir = deflected.Unit
                             end
                         end
                     end
@@ -2574,32 +2574,53 @@ RunService.Heartbeat:Connect(function()
         if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled then
             hum.WalkSpeed = 15
         end
-        if State.Noclip and not hiding and hum.MoveDirection.Magnitude > 0.05 then
-            local curY = root.AssemblyLinearVelocity.Y
-            root.AssemblyLinearVelocity = Vector3.new(hum.MoveDirection.X * 16, curY, hum.MoveDirection.Z * 16)
-        end
     end
 
-    -- Anti-Cheat Noclip Ground Pinning & Safe Room Crossing:
-    -- Prevents sinking below floor level (which triggers DOORS anti-cheat void rollback)
-    -- Maintains server slide state and auto-satisfies door checks across boundaries
+    -- Anti-Cheat Noclip Movement & Anti-Void Engine:
+    -- Bypasses DOORS displacement rubberbanding by:
+    -- 1. Locking vertical velocity to zero so character never drops into freefall or void
+    -- 2. Stabilizing horizontal velocity smoothly through all walls and obstacles
+    -- 3. Only adapting vertical height when walking on genuine horizontal floors/stairs (Normal.Y > 0.75), ignoring wall colliders
+    -- 4. Providing smooth Space (fly up) / Ctrl/C (fly down) elevation control
+    -- 5. Auto-opening adjacent doors on boundary approach so room transitions are validated by server
     if State.Noclip and not hiding then
         syncServerSlide(true, isSlidingActive)
 
-        local downParams = RaycastParams.new()
-        downParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-        downParams.FilterType = Enum.RaycastFilterType.Exclude
-        downParams.RespectCanCollide = true
+        if not noclipAnchorY then
+            noclipAnchorY = root.Position.Y
+        end
 
-        local downHit = workspace:Raycast(root.Position + Vector3.new(0, 1.2, 0), Vector3.new(0, -6.5, 0), downParams)
-        if downHit and downHit.Position then
-            local expectedY = downHit.Position.Y + (hum.HipHeight > 0 and hum.HipHeight or 2.0) + 1.2
-            local state = hum:GetState()
-            local isJumping = state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall
-            if not isJumping and root.Position.Y < expectedY - 0.15 then
-                root.CFrame = CFrame.new(root.Position.X, expectedY, root.Position.Z) * (root.CFrame - root.Position)
-                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, math.max(0, root.AssemblyLinearVelocity.Y), root.AssemblyLinearVelocity.Z)
+        local isSpaceHeld = UserInputService:IsKeyDown(Enum.KeyCode.Space)
+        local isCtrlHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C)
+
+        if isSpaceHeld then
+            noclipAnchorY = noclipAnchorY + 0.35
+        elseif isCtrlHeld then
+            noclipAnchorY = noclipAnchorY - 0.35
+        else
+            local floorParams = RaycastParams.new()
+            floorParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            floorParams.FilterType = Enum.RaycastFilterType.Exclude
+            floorParams.RespectCanCollide = true
+
+            local floorHit = workspace:Raycast(root.Position + Vector3.new(0, 0.5, 0), Vector3.new(0, -4.5, 0), floorParams)
+            if floorHit and floorHit.Normal and floorHit.Normal.Y > 0.75 then
+                local hipH = (hum.HipHeight > 0 and hum.HipHeight or 2.0)
+                local targetY = floorHit.Position.Y + hipH + 1.1
+                if math.abs(noclipAnchorY - targetY) < 3.0 then
+                    noclipAnchorY = noclipAnchorY + (targetY - noclipAnchorY) * 0.2
+                end
             end
+        end
+
+        root.CFrame = CFrame.new(root.Position.X, noclipAnchorY, root.Position.Z) * (root.CFrame - root.Position)
+
+        local moveDir = hum.MoveDirection
+        local targetSpeed = State.WalkSpeed_Enabled and State.WalkSpeed_Value or 18
+        if moveDir.Magnitude > 0.05 then
+            root.AssemblyLinearVelocity = Vector3.new(moveDir.X * targetSpeed, 0, moveDir.Z * targetSpeed)
+        else
+            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         end
 
         local curRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -3198,21 +3219,27 @@ end)
 Hub.CreateToggle(mainTab, "Anti-Cheat Noclip (Walk Through Walls)", State.Noclip, function(v)
     State.Noclip = v
     local char = getChar()
-    if not v and char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if part.Name == "HumanoidRootPart" then
-                    part.CanCollide = false
-                elseif part.Name == "Collision" or part.Name == "CollisionPart" then
-                    part.CanCollide = true
-                    part.CanTouch = true
-                else
-                    part.CanCollide = true
+    local root = getRoot()
+    if v then
+        noclipAnchorY = root and root.Position.Y or nil
+    else
+        noclipAnchorY = nil
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if part.Name == "HumanoidRootPart" then
+                        part.CanCollide = false
+                    elseif part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
+                        part.CanCollide = true
+                        part.CanTouch = true
+                    else
+                        part.CanCollide = true
+                    end
                 end
             end
-        end
-        if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-            syncServerSlide(false, false)
+            if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+                syncServerSlide(false, false)
+            end
         end
     end
     Hub.Notify("Movement", v and "Anti-Cheat Noclip: ACTIVE (Walk through walls safely)" or "Anti-Cheat Noclip: OFF", 2)
