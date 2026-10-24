@@ -2495,6 +2495,8 @@ end
 -- =========================================================================
 -- Continuous Heartbeat Enforcement (Zero-Shake Speed, Smooth Glide & Crouch Authorization)
 -- =========================================================================
+local disabledNoclipParts = setmetatable({}, {__mode = "k"})
+
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -2645,19 +2647,35 @@ RunService.Stepped:Connect(function()
 
     if State.Noclip then
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
+            if part:IsA("BasePart") then
+                if part.CanCollide then part.CanCollide = false end
+                if part.CanTouch and (part.Name:find("Collision") or part.Name == "HumanoidRootPart") then
+                    part.CanTouch = false
+                end
             end
         end
-        local coll = char:FindFirstChild("Collision")
-        if coll and coll:IsA("BasePart") then
-            coll.CanCollide = false
-            coll.CanTouch = false
-        end
-        local cp = char:FindFirstChild("CollisionPart")
-        if cp and cp:IsA("BasePart") then
-            cp.CanCollide = false
-            cp.CanTouch = false
+
+        local rootPart = getRoot()
+        if rootPart then
+            local overlap = OverlapParams.new()
+            overlap.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            overlap.FilterType = Enum.RaycastFilterType.Exclude
+
+            local nearby = workspace:GetPartBoundsInBox(rootPart.CFrame, Vector3.new(12, 12, 12), overlap)
+            for _, part in ipairs(nearby) do
+                if part.CanCollide then
+                    local n = part.Name:lower()
+                    local isFloor = n:find("floor") or n:find("carpet") or n:find("rug") or n:find("stair") or n:find("step") or n:find("ramp")
+                    local isBelowFeet = (part.Position.Y + part.Size.Y / 2) <= (rootPart.Position.Y - 1.8)
+                    if not isFloor and not isBelowFeet then
+                        part.CanCollide = false
+                        if part.CanTouch and (n:find("collision") or n:find("void") or n:find("barrier")) then
+                            part.CanTouch = false
+                        end
+                        disabledNoclipParts[part] = true
+                    end
+                end
+            end
         end
     end
 end)
@@ -3182,21 +3200,30 @@ end)
 Hub.CreateToggle(mainTab, "Anti-Cheat Noclip (Walk Through Walls)", State.Noclip, function(v)
     State.Noclip = v
     local char = getChar()
-    if not v and char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if part.Name == "HumanoidRootPart" then
-                    part.CanCollide = false
-                elseif part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
-                    part.CanCollide = true
-                    part.CanTouch = true
-                else
-                    part.CanCollide = true
-                end
+    if not v then
+        for part in pairs(disabledNoclipParts) do
+            if part and part.Parent and part:IsA("BasePart") then
+                part.CanCollide = true
+                part.CanTouch = true
             end
         end
-        if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-            syncServerSlide(false, false)
+        table.clear(disabledNoclipParts)
+
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
+                        part.CanCollide = true
+                        part.CanTouch = true
+                    elseif part.Name ~= "HumanoidRootPart" and not part.Parent:IsA("Accessory") then
+                        part.CanCollide = true
+                        part.CanTouch = true
+                    end
+                end
+            end
+            if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+                syncServerSlide(false, false)
+            end
         end
     end
     Hub.Notify("Movement", v and "Anti-Cheat Noclip: ACTIVE (Walk through walls safely)" or "Anti-Cheat Noclip: OFF", 2)
