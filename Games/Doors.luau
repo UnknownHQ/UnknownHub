@@ -457,14 +457,50 @@ end
 local lastKnownPlayerRoom = nil
 
 local function getCurrentRoomNumber()
-    -- 1. LocalPlayer attribute (Authoritative in DOORS!)
+    -- 1. Real-time 3D Spatial Room Check (Room where the player is ACTUALLY physically standing!)
+    local root = getRoot()
+    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
+    if root and currentRooms then
+        local rootPos = root.Position
+        for _, r in ipairs(currentRooms:GetChildren()) do
+            local num = tonumber(r.Name)
+            if num and r:IsA("Model") then
+                local cf, size = r:GetBoundingBox()
+                local rel = cf:PointToObjectSpace(rootPos)
+                if math.abs(rel.X) <= (size.X / 2 + 2) and math.abs(rel.Z) <= (size.Z / 2 + 2) and math.abs(rel.Y) <= (size.Y / 2 + 8) then
+                    lastKnownPlayerRoom = num
+                    return num
+                end
+            end
+        end
+
+        -- Nearest room center check (handles doorways, siderooms, and room boundary seams)
+        local bestRoom = nil
+        local bestDist = math.huge
+        for _, r in ipairs(currentRooms:GetChildren()) do
+            local num = tonumber(r.Name)
+            if num and r:IsA("Model") then
+                local cf = r:GetBoundingBox()
+                local d = (Vector2.new(cf.Position.X, cf.Position.Z) - Vector2.new(rootPos.X, rootPos.Z)).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    bestRoom = num
+                end
+            end
+        end
+        if bestRoom and bestDist < 150 then
+            lastKnownPlayerRoom = bestRoom
+            return bestRoom
+        end
+    end
+
+    -- 2. Fallback to LocalPlayer attribute only when character root is unavailable
     local pAttr = LocalPlayer and LocalPlayer:GetAttribute("CurrentRoom")
     if pAttr ~= nil and tonumber(pAttr) then
         lastKnownPlayerRoom = tonumber(pAttr)
         return tonumber(pAttr)
     end
 
-    -- 2. Character attribute
     local char = getChar()
     if char then
         local cAttr = char:GetAttribute("CurrentRoom")
@@ -472,23 +508,6 @@ local function getCurrentRoomNumber()
             lastKnownPlayerRoom = tonumber(cAttr)
             return tonumber(cAttr)
         end
-    end
-
-    -- 3. Spatial RootPart check
-    local root = getRoot()
-    if root then
-        local _, num = getObjectRoom(root)
-        if num then
-            lastKnownPlayerRoom = num
-            return num
-        end
-    end
-
-    -- 4. Authoritative DOORS internal game state fallback
-    local mgTable = getMainGameTable()
-    if mgTable and type(mgTable.currentrvm) == "number" and mgTable.currentrvm > 0 then
-        lastKnownPlayerRoom = mgTable.currentrvm
-        return mgTable.currentrvm
     end
 
     return lastKnownPlayerRoom or 0
@@ -667,6 +686,13 @@ task.spawn(function()
                                 shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 1)
                             else -- "All Rooms (Full Vision)"
                                 shouldShow = true
+                            end
+                            -- Proximity safety: ALWAYS show closets in the immediate vicinity (<= 55 studs) of the player
+                            if not shouldShow and rootPos and record.Adornee and record.Adornee.Parent then
+                                local dist = (rootPos - record.Adornee.Position).Magnitude
+                                if dist <= 55 then
+                                    shouldShow = true
+                                end
                             end
                         end
 
@@ -2712,42 +2738,6 @@ local function applyPromptModifications(prompt)
     end
 end
 
--- Suppress and dismiss any lingering circular hold progress GUI in PlayerGui on Instant Interact
-pcall(function()
-    local pps = game:GetService("ProximityPromptService")
-    pps.PromptButtonHoldBegan:Connect(function(prompt, player)
-        if player == LocalPlayer and State.Instant_Interact then
-            pcall(function()
-                prompt:InputHoldBegin()
-                prompt:InputHoldEnd()
-            end)
-        end
-    end)
-    pps.PromptTriggered:Connect(function(prompt, player)
-        if player == LocalPlayer and State.Instant_Interact then
-            task.defer(function()
-                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-                if pGui then
-                    for _, g in ipairs(pGui:GetChildren()) do
-                        if g:IsA("ScreenGui") then
-                            for _, obj in ipairs(g:GetDescendants()) do
-                                if obj:IsA("ImageLabel") or obj:IsA("Frame") then
-                                    local n = obj.Name:lower()
-                                    if n:find("hold") or n:find("progress") or n:find("circle") then
-                                        if obj.Visible then
-                                            obj.Visible = false
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end)
-end)
-
 local function refreshAllPrompts()
     for _, desc in ipairs(Workspace:GetDescendants()) do
         if desc:IsA("ProximityPrompt") then
@@ -2855,20 +2845,13 @@ local function isPromptSafeToAutoInteract(prompt)
         end
     end
 
-    -- Drawers & Desks (Unopened containers only):
-    if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") or obj:find("drawer") then
+    -- Drawers & Desks (Containers & Drawer Knobs):
+    if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") or obj:find("drawer") or pName:find("knob") then
         if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Drawers & Desks"] then
             return false
         end
         if not State.AutoInteract_Drawers then return false end
         if act:find("close") then return false end
-        local interactions = prompt:GetAttribute("Interactions")
-        if interactions and tonumber(interactions) and tonumber(interactions) > 0 then return false end
-        local interactionsUser = prompt:GetAttribute("Interactions" .. LocalPlayer.Name)
-        if interactionsUser and tonumber(interactionsUser) and tonumber(interactionsUser) > 0 then return false end
-        if model and (model:GetAttribute("Open") == true or model:GetAttribute("Opened") == true or model:GetAttribute("IsOpen") == true) then
-            return false
-        end
         return true
     end
 
@@ -3014,15 +2997,13 @@ task.spawn(function()
                                     local promptReach = isDrawerOrContainer and math.clamp(maxDist, 9, 12) or maxDist
                                     if dist <= promptReach then
                                         if isPromptSafeToAutoInteract(prompt) then
-                                            promptDebounce[prompt] = now + 0.45
+                                            promptDebounce[prompt] = now + 0.4
                                             batchCount = batchCount + 1
-                                            local stagger = (batchCount - 1) * 0.015
+                                            local stagger = (batchCount - 1) * 0.02
                                             task.spawn(function()
                                                 if stagger > 0 then task.wait(stagger) end
                                                 pcall(function()
-                                                    fireproximityprompt(prompt, 0)
-                                                    prompt:InputHoldBegin()
-                                                    prompt:InputHoldEnd()
+                                                    fireproximityprompt(prompt)
                                                 end)
                                             end)
                                         end
