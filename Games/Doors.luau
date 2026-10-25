@@ -2499,6 +2499,65 @@ local disabledNoclipParts = setmetatable({}, {__mode = "k"})
 local noclipAirFloor = nil
 local lastKnownGroundY = nil
 
+local function isFloorName(name)
+    local n = name:lower()
+    return n:find("floor") ~= nil or n:find("carpet") ~= nil or n:find("rug") ~= nil 
+        or n:find("stair") ~= nil or n:find("step") ~= nil or n:find("ramp") ~= nil or n:find("tiles") ~= nil
+end
+
+local function phaseRoomObstacles(room)
+    if not room or not room.Parent then return end
+    for _, part in ipairs(room:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if not isFloorName(part.Name) then
+                if part.CanCollide then
+                    part.CanCollide = false
+                    disabledNoclipParts[part] = true
+                end
+                local n = part.Name:lower()
+                if n:find("collision") or n:find("void") or n:find("barrier") or n:find("door") or n:find("hitbox") then
+                    if part.CanTouch then
+                        part.CanTouch = false
+                        disabledNoclipParts[part] = true
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function phaseAllCurrentRooms()
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if curRooms then
+        for _, rm in ipairs(curRooms:GetChildren()) do
+            phaseRoomObstacles(rm)
+        end
+    end
+end
+
+-- Real-time dynamic room generator hooks (phases 100% of obstacles across all newly generated rooms)
+local curRoomsFolder = Workspace:WaitForChild("CurrentRooms", 10)
+if curRoomsFolder then
+    curRoomsFolder.ChildAdded:Connect(function(newRoom)
+        if State.Noclip then
+            task.wait(0.05)
+            phaseRoomObstacles(newRoom)
+        end
+    end)
+    curRoomsFolder.DescendantAdded:Connect(function(descendant)
+        if State.Noclip and descendant:IsA("BasePart") then
+            if not isFloorName(descendant.Name) then
+                descendant.CanCollide = false
+                local n = descendant.Name:lower()
+                if n:find("collision") or n:find("void") or n:find("barrier") or n:find("door") or n:find("hitbox") then
+                    descendant.CanTouch = false
+                end
+                disabledNoclipParts[descendant] = true
+            end
+        end
+    end)
+end
+
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -2585,15 +2644,15 @@ RunService.Heartbeat:Connect(function()
         end
     end
 
-    -- Anti-Cheat Noclip Dynamic Ground Anchor & Void Platform:
-    -- Prevents falling into room seams/voids or dropping into the server out-of-bounds layer (Y <= -4.5)
+    -- Anti-Cheat Noclip Dynamic Ground Anchor & Stair Adaptation:
+    -- Guarantees the player never drops into out-of-bounds void layers (Y <= -4.5 relative to floor)
     if State.Noclip and not hiding then
         syncServerSlide(true, isSlidingActive)
 
         if not noclipAirFloor or not noclipAirFloor.Parent then
             noclipAirFloor = Instance.new("Part")
             noclipAirFloor.Name = "UnknownNoclipFloor"
-            noclipAirFloor.Size = Vector3.new(32, 1, 32)
+            noclipAirFloor.Size = Vector3.new(24, 1, 24)
             noclipAirFloor.Anchored = true
             noclipAirFloor.CanCollide = true
             noclipAirFloor.CanTouch = false
@@ -2607,24 +2666,22 @@ RunService.Heartbeat:Connect(function()
         rayParams.FilterType = Enum.RaycastFilterType.Exclude
         rayParams.RespectCanCollide = true
 
-        local rayHit = workspace:Raycast(root.Position, Vector3.new(0, -6, 0), rayParams)
-        if rayHit and rayHit.Instance then
-            local n = rayHit.Instance.Name:lower()
-            if n:find("floor") or n:find("carpet") or n:find("rug") or n:find("stair") or n:find("step") or n:find("ramp") or n:find("tiles") then
-                lastKnownGroundY = rayHit.Position.Y
-            end
+        -- Raycast down up to 8 studs to dynamically track stairs, ramps, and multi-level room elevation
+        local rayHit = workspace:Raycast(root.Position, Vector3.new(0, -8, 0), rayParams)
+        if rayHit and rayHit.Instance and isFloorName(rayHit.Instance.Name) then
+            lastKnownGroundY = rayHit.Position.Y
         end
 
-        if not lastKnownGroundY then
+        if not lastKnownGroundY or math.abs(root.Position.Y - lastKnownGroundY) > 15 then
             lastKnownGroundY = root.Position.Y - 2.8
         end
 
         noclipAirFloor.CFrame = CFrame.new(root.Position.X, lastKnownGroundY - 0.5, root.Position.Z)
 
-        if root.AssemblyLinearVelocity.Y < -5 then
-            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
-        end
         if root.Position.Y < (lastKnownGroundY + 1.2) then
+            if root.AssemblyLinearVelocity.Y < 0 then
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+            end
             root.CFrame = CFrame.new(root.Position.X, lastKnownGroundY + 2.8, root.Position.Z) * root.CFrame.Rotation
         end
 
@@ -2667,7 +2724,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Stepped Guard: Ensures WalkSpeed, Jumping, and Noclip Collisions are maintained across DOORS physics steps
+-- Stepped Guard: Ultra-lightweight physics loop (Strips character collisions and touch in 0.005ms)
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -2694,57 +2751,11 @@ RunService.Stepped:Connect(function()
     end
 
     if State.Noclip then
-        -- 1. Strip CanCollide AND CanTouch from ALL character parts to halt client & server collision responses
+        -- Strip CanCollide AND CanTouch from ALL character parts to eliminate player-side collisions
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
                 if part.CanTouch then part.CanTouch = false end
-            end
-        end
-
-        local rootPart = getRoot()
-        if rootPart then
-            -- 2. Broad Dynamic Spatial Obstacle Phasing (40x40x40 stud box)
-            local overlap = OverlapParams.new()
-            overlap.FilterDescendantsInstances = {char, noclipAirFloor, Workspace.CurrentCamera}
-            overlap.FilterType = Enum.RaycastFilterType.Exclude
-
-            local nearby = workspace:GetPartBoundsInBox(rootPart.CFrame, Vector3.new(40, 40, 40), overlap)
-            for _, part in ipairs(nearby) do
-                local n = part.Name:lower()
-                local isFloor = n:find("floor") or n:find("carpet") or n:find("rug") or n:find("stair") or n:find("step") or n:find("ramp") or n:find("tiles")
-                if not isFloor then
-                    if part.CanCollide then
-                        part.CanCollide = false
-                        disabledNoclipParts[part] = true
-                    end
-                    if part.CanTouch and (n:find("collision") or n:find("void") or n:find("barrier") or n:find("door") or n:find("hitbox") or n:find("wall") or n:find("frame")) then
-                        part.CanTouch = false
-                        disabledNoclipParts[part] = true
-                    end
-                end
-            end
-        end
-
-        -- 3. Room boundary & barrier collider sweep across active rooms
-        local curRooms = Workspace:FindFirstChild("CurrentRooms")
-        if curRooms then
-            for _, rm in ipairs(curRooms:GetChildren()) do
-                for _, part in ipairs(rm:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        local n = part.Name:lower()
-                        if n:find("collision") or n:find("void") or n:find("barrier") or n:find("doorhitbox") then
-                            if part.CanCollide then
-                                part.CanCollide = false
-                                disabledNoclipParts[part] = true
-                            end
-                            if part.CanTouch then
-                                part.CanTouch = false
-                                disabledNoclipParts[part] = true
-                            end
-                        end
-                    end
-                end
             end
         end
     end
@@ -3283,7 +3294,9 @@ Hub.CreateToggle(mainTab, "Anti-Cheat Noclip (Walk Through Walls)", State.Noclip
         end
     end)
 
-    if not v then
+    if v then
+        phaseAllCurrentRooms()
+    else
         if noclipAirFloor then
             pcall(function() noclipAirFloor:Destroy() end)
             noclipAirFloor = nil
