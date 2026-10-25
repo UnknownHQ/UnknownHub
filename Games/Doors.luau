@@ -103,7 +103,7 @@ local State = {
     Enable_Jumping = false,
     Enable_Sliding = false,
     Noclip = false,
-    Noclip_Speed = 14,
+    Noclip_Speed = 11,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
     -- Main / Interactions
@@ -2506,57 +2506,59 @@ RunService.Heartbeat:Connect(function(dt)
     local mgTable = getMainGameTable()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
 
-    -- Omnidirectional Sub-Step Micro-Phase Phasing Engine
-    -- Moves smoothly and stably through any wall, barrier, door, or furniture in any 3D direction
+    -- Omnidirectional Sub-Step Micro-Phase Glide Engine
+    -- Automatically glides towards the camera view direction, with full steering (WASD, Space/Ctrl, diagonals)
     if State.Noclip and not hiding then
         syncServerSlide(true, isSlidingActive)
 
         local cam = Workspace.CurrentCamera
-        local moveDir = Vector3.zero
+        local camLook = cam.CFrame.LookVector
+        local camRight = cam.CFrame.RightVector
+        local camUp = Vector3.new(0, 1, 0)
 
-        -- 3D Omnidirectional Input Resolution:
-        -- Forward / Backward relative to camera
+        local steer = Vector3.zero
+        local hasInput = false
+
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            moveDir = moveDir + cam.CFrame.LookVector
+            steer = steer + camLook
+            hasInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            moveDir = moveDir - cam.CFrame.LookVector
+            steer = steer - camLook
+            hasInput = true
         end
-        -- Left / Right relative to camera
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            moveDir = moveDir + cam.CFrame.RightVector
+            steer = steer + camRight
+            hasInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            moveDir = moveDir - cam.CFrame.RightVector
+            steer = steer - camRight
+            hasInput = true
         end
-        -- Up / Down (Ascend / Descend elevation)
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            moveDir = moveDir + Vector3.new(0, 1, 0)
+            steer = steer + camUp
+            hasInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            moveDir = moveDir - Vector3.new(0, 1, 0)
+            steer = steer - camUp
+            hasInput = true
         end
 
         -- Fallback to Humanoid.MoveDirection for gamepad thumbsticks or mobile touch controls
-        if moveDir.Magnitude < 0.05 and hum.MoveDirection.Magnitude > 0.05 then
-            moveDir = hum.MoveDirection
+        if hum.MoveDirection.Magnitude > 0.05 then
+            steer = steer + hum.MoveDirection
+            hasInput = true
         end
 
-        if moveDir.Magnitude > 0.01 then
-            local speed = State.Noclip_Speed or 14
-            local safeDt = math.clamp(dt or (1/60), 0.001, 0.05)
-            local step = moveDir.Unit * (speed * safeDt)
+        -- If direction keys pressed, steer in that 3D direction; otherwise automatically glide where camera looks
+        local finalDir = if (hasInput and steer.Magnitude > 0.01) then steer.Unit else camLook
 
-            root.CFrame = root.CFrame + step
-            root.AssemblyLinearVelocity = Vector3.zero
-        else
-            -- Hold character steady when no directional keys are pressed
-            local curY = root.AssemblyLinearVelocity.Y
-            if math.abs(curY) > 15 then
-                curY = math.clamp(curY, -8, 8)
-            end
-            root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
-        end
+        local speed = math.clamp(State.Noclip_Speed or 11, 4, 13)
+        local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+        local delta = finalDir * (speed * safeDt)
+
+        char:PivotTo(char:GetPivot() + delta)
+        root.AssemblyLinearVelocity = Vector3.zero
 
         -- Safe Door & Room Transition Crossing:
         -- Automatically prompts doors when passing through to satisfy server room generation
@@ -3240,10 +3242,10 @@ Hub.CreateToggle(mainTab, "Omni-Phase Noclip (Glide Through Walls)", State.Nocli
             syncServerSlide(false, false)
         end
     end
-    Hub.Notify("Movement", v and "Omni-Phase Noclip: ON (WASD + Space/Ctrl to glide through walls)" or "Omni-Phase Noclip: OFF", 2)
+    Hub.Notify("Movement", v and "Phase Noclip: ON (Gliding forward / WASD steer)" or "Phase Noclip: OFF", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Noclip Phase Speed", 6, 25, State.Noclip_Speed, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Phase Glide Speed", 4, 13, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
 end)
 
