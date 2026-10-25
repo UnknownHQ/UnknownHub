@@ -103,6 +103,7 @@ local State = {
     Enable_Jumping = false,
     Enable_Sliding = false,
     Noclip = false,
+    Noclip_Speed = 14,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
     -- Main / Interactions
@@ -2493,72 +2494,9 @@ local function stopSlide()
 end
 
 -- =========================================================================
--- Continuous Heartbeat Enforcement (Zero-Shake Speed, Smooth Glide & Crouch Authorization)
+-- Continuous Heartbeat Enforcement & Omnidirectional Phase Noclip Engine
 -- =========================================================================
-local disabledNoclipParts = setmetatable({}, {__mode = "k"})
-local noclipAirFloor = nil
-local lastKnownGroundY = nil
-
-local function isFloorName(name)
-    local n = name:lower()
-    return n:find("floor") ~= nil or n:find("carpet") ~= nil or n:find("rug") ~= nil 
-        or n:find("stair") ~= nil or n:find("step") ~= nil or n:find("ramp") ~= nil or n:find("tiles") ~= nil
-end
-
-local function phaseRoomObstacles(room)
-    if not room or not room.Parent then return end
-    for _, part in ipairs(room:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if not isFloorName(part.Name) then
-                if part.CanCollide then
-                    part.CanCollide = false
-                    disabledNoclipParts[part] = true
-                end
-                local n = part.Name:lower()
-                if n:find("collision") or n:find("void") or n:find("barrier") or n:find("door") or n:find("hitbox") then
-                    if part.CanTouch then
-                        part.CanTouch = false
-                        disabledNoclipParts[part] = true
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function phaseAllCurrentRooms()
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if curRooms then
-        for _, rm in ipairs(curRooms:GetChildren()) do
-            phaseRoomObstacles(rm)
-        end
-    end
-end
-
--- Real-time dynamic room generator hooks (phases 100% of obstacles across all newly generated rooms)
-local curRoomsFolder = Workspace:WaitForChild("CurrentRooms", 10)
-if curRoomsFolder then
-    curRoomsFolder.ChildAdded:Connect(function(newRoom)
-        if State.Noclip then
-            task.wait(0.05)
-            phaseRoomObstacles(newRoom)
-        end
-    end)
-    curRoomsFolder.DescendantAdded:Connect(function(descendant)
-        if State.Noclip and descendant:IsA("BasePart") then
-            if not isFloorName(descendant.Name) then
-                descendant.CanCollide = false
-                local n = descendant.Name:lower()
-                if n:find("collision") or n:find("void") or n:find("barrier") or n:find("door") or n:find("hitbox") then
-                    descendant.CanTouch = false
-                end
-                disabledNoclipParts[descendant] = true
-            end
-        end
-    end)
-end
-
-RunService.Heartbeat:Connect(function()
+RunService.Heartbeat:Connect(function(dt)
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
     local root = getRoot()
@@ -2568,7 +2506,77 @@ RunService.Heartbeat:Connect(function()
     local mgTable = getMainGameTable()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
 
-    if State.WalkSpeed_Enabled and not hiding then
+    -- Omnidirectional Sub-Step Micro-Phase Phasing Engine
+    -- Moves smoothly and stably through any wall, barrier, door, or furniture in any 3D direction
+    if State.Noclip and not hiding then
+        syncServerSlide(true, isSlidingActive)
+
+        local cam = Workspace.CurrentCamera
+        local moveDir = Vector3.zero
+
+        -- 3D Omnidirectional Input Resolution:
+        -- Forward / Backward relative to camera
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveDir = moveDir + cam.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveDir = moveDir - cam.CFrame.LookVector
+        end
+        -- Left / Right relative to camera
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveDir = moveDir + cam.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveDir = moveDir - cam.CFrame.RightVector
+        end
+        -- Up / Down (Ascend / Descend elevation)
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            moveDir = moveDir + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
+            moveDir = moveDir - Vector3.new(0, 1, 0)
+        end
+
+        -- Fallback to Humanoid.MoveDirection for gamepad thumbsticks or mobile touch controls
+        if moveDir.Magnitude < 0.05 and hum.MoveDirection.Magnitude > 0.05 then
+            moveDir = hum.MoveDirection
+        end
+
+        if moveDir.Magnitude > 0.01 then
+            local speed = State.Noclip_Speed or 14
+            local safeDt = math.clamp(dt or (1/60), 0.001, 0.05)
+            local step = moveDir.Unit * (speed * safeDt)
+
+            root.CFrame = root.CFrame + step
+            root.AssemblyLinearVelocity = Vector3.zero
+        else
+            -- Hold character steady when no directional keys are pressed
+            local curY = root.AssemblyLinearVelocity.Y
+            if math.abs(curY) > 15 then
+                curY = math.clamp(curY, -8, 8)
+            end
+            root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
+        end
+
+        -- Safe Door & Room Transition Crossing:
+        -- Automatically prompts doors when passing through to satisfy server room generation
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, rm in ipairs(curRooms:GetChildren()) do
+                local d = rm:FindFirstChild("Door")
+                if d and d:IsA("Model") and not d:GetAttribute("Opened") and not d:FindFirstChild("ClientOpen") then
+                    local dPart = d:FindFirstChild("Door") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                    if dPart and (root.Position - dPart.Position).Magnitude <= 14 then
+                        d:SetAttribute("Opened", true)
+                        local prompt = d:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if prompt and prompt.Enabled then
+                            pcall(function() fireproximityprompt(prompt) end)
+                        end
+                    end
+                end
+            end
+        end
+    elseif State.WalkSpeed_Enabled and not hiding then
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
@@ -2578,33 +2586,28 @@ RunService.Heartbeat:Connect(function()
         end
 
         -- Instant Responsive Movement (No Slip / Zero Acceleration Drift):
-        -- When walking, horizontal velocity is immediately redirected into the current MoveDirection.
-        -- When changing directions, old momentum is extinguished instantly without ice-skate slipping.
-        -- When keys are released, horizontal motion stops on a dime. Vertical velocity (Y) is preserved for natural jumping/gravity.
-        -- Micro-raycast wall deflection prevents driving capsule into door frames or wall colliders (bypassed when Noclipping).
+        -- Horizontal velocity is immediately redirected into the current MoveDirection without slipping
         if State.Instant_Movement and not isSlidingActive then
             local moveDir = hum.MoveDirection
             local curY = root.AssemblyLinearVelocity.Y
             if moveDir.Magnitude > 0.05 then
-                if not State.Noclip then
-                    local rayParams = RaycastParams.new()
-                    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                    rayParams.RespectCanCollide = true
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.RespectCanCollide = true
 
-                    local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
-                    local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
-                    if hit and hit.Instance and hit.Instance.CanCollide then
-                        local n = hit.Normal
-                        local hNormal = Vector3.new(n.X, 0, n.Z)
-                        if hNormal.Magnitude > 0.1 then
-                            hNormal = hNormal.Unit
-                            local dot = moveDir:Dot(hNormal)
-                            if dot < 0 then
-                                local deflected = (moveDir - hNormal * dot)
-                                if deflected.Magnitude > 0.05 then
-                                    moveDir = deflected.Unit
-                                end
+                local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
+                local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
+                if hit and hit.Instance and hit.Instance.CanCollide then
+                    local n = hit.Normal
+                    local hNormal = Vector3.new(n.X, 0, n.Z)
+                    if hNormal.Magnitude > 0.1 then
+                        hNormal = hNormal.Unit
+                        local dot = moveDir:Dot(hNormal)
+                        if dot < 0 then
+                            local deflected = (moveDir - hNormal * dot)
+                            if deflected.Magnitude > 0.05 then
+                                moveDir = deflected.Unit
                             end
                         end
                     end
@@ -2637,78 +2640,6 @@ RunService.Heartbeat:Connect(function()
         if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled then
             hum.WalkSpeed = 15
         end
-        -- Smooth forward movement assistance when Noclipping without WalkSpeed toggle enabled
-        if State.Noclip and not hiding and hum.MoveDirection.Magnitude > 0.05 then
-            local curY = root.AssemblyLinearVelocity.Y
-            root.AssemblyLinearVelocity = Vector3.new(hum.MoveDirection.X * 16, curY, hum.MoveDirection.Z * 16)
-        end
-    end
-
-    -- Anti-Cheat Noclip Dynamic Ground Anchor & Stair Adaptation:
-    -- Guarantees the player never drops into out-of-bounds void layers (Y <= -4.5 relative to floor)
-    if State.Noclip and not hiding then
-        syncServerSlide(true, isSlidingActive)
-
-        if not noclipAirFloor or not noclipAirFloor.Parent then
-            noclipAirFloor = Instance.new("Part")
-            noclipAirFloor.Name = "UnknownNoclipFloor"
-            noclipAirFloor.Size = Vector3.new(24, 1, 24)
-            noclipAirFloor.Anchored = true
-            noclipAirFloor.CanCollide = true
-            noclipAirFloor.CanTouch = false
-            noclipAirFloor.CanQuery = false
-            noclipAirFloor.Transparency = 1
-            noclipAirFloor.Parent = Workspace
-        end
-
-        local rayParams = RaycastParams.new()
-        rayParams.FilterDescendantsInstances = {char, noclipAirFloor, Workspace.CurrentCamera}
-        rayParams.FilterType = Enum.RaycastFilterType.Exclude
-        rayParams.RespectCanCollide = true
-
-        -- Raycast down up to 8 studs to dynamically track stairs, ramps, and multi-level room elevation
-        local rayHit = workspace:Raycast(root.Position, Vector3.new(0, -8, 0), rayParams)
-        if rayHit and rayHit.Instance and isFloorName(rayHit.Instance.Name) then
-            lastKnownGroundY = rayHit.Position.Y
-        end
-
-        if not lastKnownGroundY or math.abs(root.Position.Y - lastKnownGroundY) > 15 then
-            lastKnownGroundY = root.Position.Y - 2.8
-        end
-
-        noclipAirFloor.CFrame = CFrame.new(root.Position.X, lastKnownGroundY - 0.5, root.Position.Z)
-
-        if root.Position.Y < (lastKnownGroundY + 1.2) then
-            if root.AssemblyLinearVelocity.Y < 0 then
-                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
-            end
-            root.CFrame = CFrame.new(root.Position.X, lastKnownGroundY + 2.8, root.Position.Z) * root.CFrame.Rotation
-        end
-
-        -- Safe Door & Room Transition Crossing:
-        -- Automatically prompts doors when noclipping through to satisfy server room validation
-        local curRooms = Workspace:FindFirstChild("CurrentRooms")
-        if curRooms then
-            for _, rm in ipairs(curRooms:GetChildren()) do
-                local d = rm:FindFirstChild("Door")
-                if d and d:IsA("Model") and not d:GetAttribute("Opened") and not d:FindFirstChild("ClientOpen") then
-                    local dPart = d:FindFirstChild("Door") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                    if dPart and (root.Position - dPart.Position).Magnitude <= 14 then
-                        d:SetAttribute("Opened", true)
-                        local prompt = d:FindFirstChildWhichIsA("ProximityPrompt", true)
-                        if prompt and prompt.Enabled then
-                            pcall(function() fireproximityprompt(prompt) end)
-                        end
-                    end
-                end
-            end
-        end
-    else
-        if noclipAirFloor then
-            pcall(function() noclipAirFloor:Destroy() end)
-            noclipAirFloor = nil
-        end
-        lastKnownGroundY = nil
     end
 
     -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
@@ -2724,7 +2655,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Stepped Guard: Ultra-lightweight physics loop (Strips character collisions and touch in 0.005ms)
+-- Stepped Guard: Strips collisions & touch on character parts during Noclip
 RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
@@ -2734,7 +2665,7 @@ RunService.Stepped:Connect(function()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not hum then return end
 
-    if State.WalkSpeed_Enabled then
+    if State.WalkSpeed_Enabled and not State.Noclip then
         local targetSpeed = State.WalkSpeed_Value
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
@@ -3278,11 +3209,10 @@ Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
     Hub.Notify("Movement", v and "Sliding: ENABLED (C / Ctrl to slide)" or "Sliding: DISABLED", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Anti-Cheat Noclip (Walk Through Walls)", State.Noclip, function(v)
+Hub.CreateToggle(mainTab, "Omni-Phase Noclip (Glide Through Walls)", State.Noclip, function(v)
     State.Noclip = v
     local char = getChar()
 
-    -- Sync RemoteListener ServerTeleported static attribute
     pcall(function()
         local pGui = LocalPlayer:FindFirstChild("PlayerGui")
         local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
@@ -3294,41 +3224,27 @@ Hub.CreateToggle(mainTab, "Anti-Cheat Noclip (Walk Through Walls)", State.Noclip
         end
     end)
 
-    if v then
-        phaseAllCurrentRooms()
-    else
-        if noclipAirFloor then
-            pcall(function() noclipAirFloor:Destroy() end)
-            noclipAirFloor = nil
-        end
-        lastKnownGroundY = nil
-
-        for part in pairs(disabledNoclipParts) do
-            if part and part.Parent and part:IsA("BasePart") then
-                part.CanCollide = true
-                part.CanTouch = true
-            end
-        end
-        table.clear(disabledNoclipParts)
-
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
-                        part.CanCollide = true
-                        part.CanTouch = true
-                    elseif part.Name ~= "HumanoidRootPart" and not part.Parent:IsA("Accessory") then
-                        part.CanCollide = true
-                        part.CanTouch = true
-                    end
+    if not v and char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
+                    part.CanCollide = true
+                    part.CanTouch = true
+                elseif part.Name ~= "HumanoidRootPart" and not part.Parent:IsA("Accessory") then
+                    part.CanCollide = true
+                    part.CanTouch = true
                 end
             end
-            if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-                syncServerSlide(false, false)
-            end
+        end
+        if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+            syncServerSlide(false, false)
         end
     end
-    Hub.Notify("Movement", v and "Anti-Cheat Noclip: ACTIVE (Walk through walls safely)" or "Anti-Cheat Noclip: OFF", 2)
+    Hub.Notify("Movement", v and "Omni-Phase Noclip: ON (WASD + Space/Ctrl to glide through walls)" or "Omni-Phase Noclip: OFF", 2)
+end)
+
+Hub.CreateSlider(mainTab, "Noclip Phase Speed", 6, 25, State.Noclip_Speed, " studs/s", function(v)
+    State.Noclip_Speed = v
 end)
 
 Hub.CreateSection(mainTab, "🖐️ Interaction Power")
