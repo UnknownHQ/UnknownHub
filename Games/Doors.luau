@@ -2496,6 +2496,8 @@ end
 -- Continuous Heartbeat Enforcement (Zero-Shake Speed, Smooth Glide & Crouch Authorization)
 -- =========================================================================
 local disabledNoclipParts = setmetatable({}, {__mode = "k"})
+local noclipAirFloor = nil
+local lastKnownGroundY = nil
 
 RunService.Heartbeat:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
@@ -2583,11 +2585,51 @@ RunService.Heartbeat:Connect(function()
         end
     end
 
-    -- Safe Door & Room Transition Crossing:
-    -- Automatically prompts doors when noclipping through to satisfy server room validation
+    -- Anti-Cheat Noclip Dynamic Ground Anchor & Void Platform:
+    -- Prevents falling into room seams/voids or dropping into the server out-of-bounds layer (Y <= -4.5)
     if State.Noclip and not hiding then
         syncServerSlide(true, isSlidingActive)
 
+        if not noclipAirFloor or not noclipAirFloor.Parent then
+            noclipAirFloor = Instance.new("Part")
+            noclipAirFloor.Name = "UnknownNoclipFloor"
+            noclipAirFloor.Size = Vector3.new(32, 1, 32)
+            noclipAirFloor.Anchored = true
+            noclipAirFloor.CanCollide = true
+            noclipAirFloor.CanTouch = false
+            noclipAirFloor.CanQuery = false
+            noclipAirFloor.Transparency = 1
+            noclipAirFloor.Parent = Workspace
+        end
+
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = {char, noclipAirFloor, Workspace.CurrentCamera}
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        rayParams.RespectCanCollide = true
+
+        local rayHit = workspace:Raycast(root.Position, Vector3.new(0, -6, 0), rayParams)
+        if rayHit and rayHit.Instance then
+            local n = rayHit.Instance.Name:lower()
+            if n:find("floor") or n:find("carpet") or n:find("rug") or n:find("stair") or n:find("step") or n:find("ramp") or n:find("tiles") then
+                lastKnownGroundY = rayHit.Position.Y
+            end
+        end
+
+        if not lastKnownGroundY then
+            lastKnownGroundY = root.Position.Y - 2.8
+        end
+
+        noclipAirFloor.CFrame = CFrame.new(root.Position.X, lastKnownGroundY - 0.5, root.Position.Z)
+
+        if root.AssemblyLinearVelocity.Y < -5 then
+            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+        end
+        if root.Position.Y < (lastKnownGroundY + 1.2) then
+            root.CFrame = CFrame.new(root.Position.X, lastKnownGroundY + 2.8, root.Position.Z) * root.CFrame.Rotation
+        end
+
+        -- Safe Door & Room Transition Crossing:
+        -- Automatically prompts doors when noclipping through to satisfy server room validation
         local curRooms = Workspace:FindFirstChild("CurrentRooms")
         if curRooms then
             for _, rm in ipairs(curRooms:GetChildren()) do
@@ -2604,6 +2646,12 @@ RunService.Heartbeat:Connect(function()
                 end
             end
         end
+    else
+        if noclipAirFloor then
+            pcall(function() noclipAirFloor:Destroy() end)
+            noclipAirFloor = nil
+        end
+        lastKnownGroundY = nil
     end
 
     -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
@@ -2646,33 +2694,55 @@ RunService.Stepped:Connect(function()
     end
 
     if State.Noclip then
+        -- 1. Strip CanCollide AND CanTouch from ALL character parts to halt client & server collision responses
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
-                if part.CanTouch and (part.Name:find("Collision") or part.Name == "HumanoidRootPart") then
-                    part.CanTouch = false
-                end
+                if part.CanTouch then part.CanTouch = false end
             end
         end
 
         local rootPart = getRoot()
         if rootPart then
+            -- 2. Broad Dynamic Spatial Obstacle Phasing (40x40x40 stud box)
             local overlap = OverlapParams.new()
-            overlap.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            overlap.FilterDescendantsInstances = {char, noclipAirFloor, Workspace.CurrentCamera}
             overlap.FilterType = Enum.RaycastFilterType.Exclude
 
-            local nearby = workspace:GetPartBoundsInBox(rootPart.CFrame, Vector3.new(12, 12, 12), overlap)
+            local nearby = workspace:GetPartBoundsInBox(rootPart.CFrame, Vector3.new(40, 40, 40), overlap)
             for _, part in ipairs(nearby) do
-                if part.CanCollide then
-                    local n = part.Name:lower()
-                    local isFloor = n:find("floor") or n:find("carpet") or n:find("rug") or n:find("stair") or n:find("step") or n:find("ramp")
-                    local isBelowFeet = (part.Position.Y + part.Size.Y / 2) <= (rootPart.Position.Y - 1.8)
-                    if not isFloor and not isBelowFeet then
+                local n = part.Name:lower()
+                local isFloor = n:find("floor") or n:find("carpet") or n:find("rug") or n:find("stair") or n:find("step") or n:find("ramp") or n:find("tiles")
+                if not isFloor then
+                    if part.CanCollide then
                         part.CanCollide = false
-                        if part.CanTouch and (n:find("collision") or n:find("void") or n:find("barrier")) then
-                            part.CanTouch = false
-                        end
                         disabledNoclipParts[part] = true
+                    end
+                    if part.CanTouch and (n:find("collision") or n:find("void") or n:find("barrier") or n:find("door") or n:find("hitbox") or n:find("wall") or n:find("frame")) then
+                        part.CanTouch = false
+                        disabledNoclipParts[part] = true
+                    end
+                end
+            end
+        end
+
+        -- 3. Room boundary & barrier collider sweep across active rooms
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, rm in ipairs(curRooms:GetChildren()) do
+                for _, part in ipairs(rm:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        local n = part.Name:lower()
+                        if n:find("collision") or n:find("void") or n:find("barrier") or n:find("doorhitbox") then
+                            if part.CanCollide then
+                                part.CanCollide = false
+                                disabledNoclipParts[part] = true
+                            end
+                            if part.CanTouch then
+                                part.CanTouch = false
+                                disabledNoclipParts[part] = true
+                            end
+                        end
                     end
                 end
             end
@@ -3200,7 +3270,26 @@ end)
 Hub.CreateToggle(mainTab, "Anti-Cheat Noclip (Walk Through Walls)", State.Noclip, function(v)
     State.Noclip = v
     local char = getChar()
+
+    -- Sync RemoteListener ServerTeleported static attribute
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
+        if rl and rl:FindFirstChild("Modules") then
+            local stMod = rl.Modules:FindFirstChild("ServerTeleported", true)
+            if stMod then
+                stMod:SetAttribute("Static", v == true)
+            end
+        end
+    end)
+
     if not v then
+        if noclipAirFloor then
+            pcall(function() noclipAirFloor:Destroy() end)
+            noclipAirFloor = nil
+        end
+        lastKnownGroundY = nil
+
         for part in pairs(disabledNoclipParts) do
             if part and part.Parent and part:IsA("BasePart") then
                 part.CanCollide = true
@@ -3440,6 +3529,39 @@ if hookfunction then
             end
             return rawA90Fire(self, action, ...)
         end))
+    end
+end
+
+-- Intercept server rollback teleports while Noclip is active
+local teleRemote = remotesFolder and remotesFolder:FindFirstChild("Teleport")
+local servTeleRemote = remotesFolder and remotesFolder:FindFirstChild("ServerTeleported")
+
+if getconnections then
+    if teleRemote and teleRemote:IsA("RemoteEvent") then
+        for _, conn in ipairs(getconnections(teleRemote.OnClientEvent)) do
+            local oldTele = conn.Function
+            if oldTele and hookfunction then
+                hookfunction(oldTele, newcclosure(function(...)
+                    if State.Noclip then
+                        return
+                    end
+                    return oldTele(...)
+                end))
+            end
+        end
+    end
+    if servTeleRemote and servTeleRemote:IsA("RemoteEvent") then
+        for _, conn in ipairs(getconnections(servTeleRemote.OnClientEvent)) do
+            local oldServTele = conn.Function
+            if oldServTele and hookfunction then
+                hookfunction(oldServTele, newcclosure(function(...)
+                    if State.Noclip then
+                        return
+                    end
+                    return oldServTele(...)
+                end))
+            end
+        end
     end
 end
 
