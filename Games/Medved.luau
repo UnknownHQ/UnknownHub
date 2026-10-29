@@ -557,28 +557,24 @@ local function applyWeaponMods(tool)
     end
 end
 
--- Get current loaded ammo state from GunClient
-local function getGunAmmoState()
-    local loadedAmmo = 10
+-- Get current live loaded ammo and reload state directly from Game GUI
+local function getLoadedAmmoFromGUI()
+    local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+    local hud = pgui and pgui:FindFirstChild("GameplayInterface") and pgui.GameplayInterface:FindFirstChild("Hud")
+    local gunHud = hud and hud:FindFirstChild("Gun")
+    local ammoLabel = gunHud and gunHud:FindFirstChild("Crosshair") and gunHud.Crosshair:FindFirstChild("AmmoCount")
 
-    if getgc and not isexecutorclosure then
-        pcall(function()
-            for _, f in ipairs(getgc(false)) do
-                if typeof(f) == "function" and not isexecutorclosure(f) then
-                    local info = getinfo(f)
-                    if info.name == "Shoot" and string.find(info.source, "GunClient") then
-                        local ups = getupvalues(f)
-                        -- Upvalue 10 is t2[1] (loaded clip ammo)
-                        if ups[10] and typeof(ups[10]) == "number" then
-                            loadedAmmo = ups[10]
-                        end
-                        break
-                    end
-                end
-            end
-        end)
+    if ammoLabel and ammoLabel.Text ~= "" then
+        local text = ammoLabel.Text
+        if string.find(text, "RELOAD") or string.find(text, "%-%-") then
+            return 0, true
+        end
+        local current = string.match(text, "^(%d+)")
+        if current then
+            return tonumber(current), false
+        end
     end
-    return loadedAmmo
+    return 10, false
 end
 
 -- Server-Authoritative Shooting Dispatcher
@@ -593,11 +589,12 @@ local function shootTargetBear(tool, bear, bearPart)
     local fireRemote = gunScripts and gunScripts:FindFirstChild("FireBullet")
     if not fireRemote then return end
 
-    -- Check if gun has ammo before firing (never fire blanks!)
-    local loadedAmmo = getGunAmmoState()
-    if loadedAmmo <= 0 then
+    -- Check live GUI ammo state: NEVER shoot when empty or reloading!
+    local currentAmmo, isReloading = getLoadedAmmoFromGUI()
+    if isReloading or currentAmmo <= 0 then
+        -- Gun is empty on server, pulse reload and pause fire
         local reloadRemote = gunScripts:FindFirstChild("Reload")
-        if reloadRemote then
+        if reloadRemote and not isReloading then
             reloadRemote:FireServer()
         end
         return
@@ -610,57 +607,43 @@ local function shootTargetBear(tool, bear, bearPart)
     local targetPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bearPart
     local hitPos = targetPart.Position
 
-    -- 1. Check if GunClient Shoot function is available in memory
-    local firedInternally = false
-    if getgc and not isexecutorclosure then
-        pcall(function()
-            for _, f in ipairs(getgc(false)) do
-                if typeof(f) == "function" and not isexecutorclosure(f) then
-                    local info = getinfo(f)
-                    if info.name == "Shoot" and string.find(info.source, "GunClient") then
-                        f(hitPos)
-                        firedInternally = true
-                        break
-                    end
-                end
-            end
-        end)
+    -- Check if target is alive
+    local bearHum = bear:FindFirstChildOfClass("Humanoid")
+    if bearHum and bearHum.Health <= 0 then
+        return
     end
 
-    -- 2. Direct server packet firing fallback (guarantees hit registration and damage on server)
-    if not firedInternally then
-        local hitData = {
-            {
-                hit = targetPart,
-                hitpos = hitPos,
-                normal = Vector3.new(0, 1, 0)
-            }
+    local hitData = {
+        {
+            hit = targetPart,
+            hitpos = hitPos,
+            normal = Vector3.new(0, 1, 0)
         }
-        fireRemote:FireServer(hitData)
+    }
+    fireRemote:FireServer(hitData)
 
-        -- Local auditory & visual feedback
-        pcall(function()
-            if muzzle then
-                local fireSound = muzzle:FindFirstChild("Fire") or muzzle:FindFirstChild("Fire_client")
-                if fireSound and fireSound:IsA("Sound") then
-                    fireSound:Play()
-                end
-                local flash = muzzle:FindFirstChild("Flash")
-                if flash and flash:IsA("ParticleEmitter") then
-                    flash:Emit(1)
-                end
+    -- Local auditory & visual feedback
+    pcall(function()
+        if muzzle then
+            local fireSound = muzzle:FindFirstChild("Fire") or muzzle:FindFirstChild("Fire_client")
+            if fireSound and fireSound:IsA("Sound") then
+                fireSound:Play()
             end
-
-            local sharedEvents = ReplicatedStorage:FindFirstChild("SharedEvents")
-            local combatEvents = sharedEvents and sharedEvents:FindFirstChild("Combat")
-            local clientBulletShot = combatEvents and combatEvents:FindFirstChild("ClientBulletShot")
-            if clientBulletShot and clientBulletShot:IsA("BindableEvent") then
-                clientBulletShot:Fire(muzzlePos, hitPos, Vector3.new(0, 1, 0), targetPart)
+            local flash = muzzle:FindFirstChild("Flash")
+            if flash and flash:IsA("ParticleEmitter") then
+                flash:Emit(1)
             end
-        end)
-    end
+        end
 
-    -- 3. Visual recoil swing
+        local sharedEvents = ReplicatedStorage:FindFirstChild("SharedEvents")
+        local combatEvents = sharedEvents and sharedEvents:FindFirstChild("Combat")
+        local clientBulletShot = combatEvents and combatEvents:FindFirstChild("ClientBulletShot")
+        if clientBulletShot and clientBulletShot:IsA("BindableEvent") then
+            clientBulletShot:Fire(muzzlePos, hitPos, Vector3.new(0, 1, 0), targetPart)
+        end
+    end)
+
+    -- Tool recoil swing
     pcall(function()
         tool:Activate()
     end)
@@ -826,48 +809,48 @@ local function updateBearESP()
 
     for _, b in ipairs(bearsFolder:GetChildren()) do
         if b ~= myChar then
-            local adorneePart = b:FindFirstChild("HumanoidRootPart") or b:FindFirstChild("Head") or b.PrimaryPart or b:FindFirstChildOfClass("BasePart")
-            if adorneePart then
-                local hum = b:FindFirstChildOfClass("Humanoid")
-                local bearName = b:GetAttribute("BearID") or b.Name
-                local isPlayer = false
-                if Players:GetPlayerFromCharacter(b) or b:GetAttribute("IsPlayer") then
-                    isPlayer = true
+            local hum = b:FindFirstChildOfClass("Humanoid")
+            -- Filter out dead bears and corpses (health <= 0 or missing humanoid)
+            if hum and hum.Health > 0 then
+                local adorneePart = b:FindFirstChild("HumanoidRootPart") or b:FindFirstChild("Head") or b.PrimaryPart or b:FindFirstChildOfClass("BasePart")
+                if adorneePart then
+                    local bearName = b:GetAttribute("BearID") or b.Name
+                    local isPlayer = false
+                    if Players:GetPlayerFromCharacter(b) or b:GetAttribute("IsPlayer") then
+                        isPlayer = true
+                    end
+
+                    local distStr = ""
+                    if myRoot then
+                        local d = math.floor((adorneePart.Position - myRoot.Position).Magnitude)
+                        distStr = " [" .. d .. "m]"
+                    end
+
+                    local hpStr = " [" .. math.floor(hum.Health) .. " HP]"
+
+                    local bb = Instance.new("BillboardGui")
+                    bb.Name = "BearESP"
+                    bb.Adornee = adorneePart
+                    bb.Size = UDim2.new(0, 140, 0, 32)
+                    bb.AlwaysOnTop = true
+                    bb.StudsOffset = Vector3.new(0, 3.5, 0)
+
+                    local label = Instance.new("TextLabel")
+                    label.Size = UDim2.new(1, 0, 1, 0)
+                    label.BackgroundTransparency = 1
+                    label.Text = "🐻 " .. bearName .. hpStr .. distStr
+                    if isPlayer then
+                        label.TextColor3 = Color3.fromRGB(255, 60, 180)
+                    else
+                        label.TextColor3 = Color3.fromRGB(255, 75, 75)
+                    end
+                    label.Font = Enum.Font.GothamBold
+                    label.TextSize = 11
+                    label.Parent = bb
+
+                    bb.Parent = CoreGui
+                    table.insert(activeBearESP, bb)
                 end
-
-                local distStr = ""
-                if myRoot then
-                    local d = math.floor((adorneePart.Position - myRoot.Position).Magnitude)
-                    distStr = " [" .. d .. "m]"
-                end
-
-                local hpStr = ""
-                if hum and hum.MaxHealth > 0 then
-                    hpStr = " [" .. math.floor(hum.Health) .. " HP]"
-                end
-
-                local bb = Instance.new("BillboardGui")
-                bb.Name = "BearESP"
-                bb.Adornee = adorneePart
-                bb.Size = UDim2.new(0, 140, 0, 32)
-                bb.AlwaysOnTop = true
-                bb.StudsOffset = Vector3.new(0, 3.5, 0)
-
-                local label = Instance.new("TextLabel")
-                label.Size = UDim2.new(1, 0, 1, 0)
-                label.BackgroundTransparency = 1
-                label.Text = "🐻 " .. bearName .. hpStr .. distStr
-                if isPlayer then
-                    label.TextColor3 = Color3.fromRGB(255, 60, 180)
-                else
-                    label.TextColor3 = Color3.fromRGB(255, 75, 75)
-                end
-                label.Font = Enum.Font.GothamBold
-                label.TextSize = 11
-                label.Parent = bb
-
-                bb.Parent = CoreGui
-                table.insert(activeBearESP, bb)
             end
         end
     end
@@ -953,7 +936,7 @@ Hub.CreateToggle(combatTab, "Melee Hit Aura (Bat / Axe / Melee)", Config.MeleeAu
     Hub.Notify("Combat", val and "Melee Aura: ACTIVE" or "Melee Aura: OFF", 2)
 end)
 
-Hub.CreateSlider(combatTab, "Melee Aura Range (Studs)", 8, 30, Config.MeleeAuraRange, function(val)
+Hub.CreateSlider(combatTab, "Melee Aura Range (Studs)", 8, 30, Config.MeleeAuraRange, " studs", function(val)
     Config.MeleeAuraRange = val
 end)
 
@@ -969,7 +952,7 @@ Hub.CreateToggle(combatTab, "Gun Hit Aura (Auto Shoot Bears)", Config.GunAura, f
     Hub.Notify("Combat", val and "Gun Aura: ACTIVE" or "Gun Aura: OFF", 2)
 end)
 
-Hub.CreateSlider(combatTab, "Gun Aura Range (Studs)", 20, 150, Config.GunAuraRange, function(val)
+Hub.CreateSlider(combatTab, "Gun Aura Range (Studs)", 20, 150, Config.GunAuraRange, " studs", function(val)
     Config.GunAuraRange = val
 end)
 
@@ -980,8 +963,18 @@ Hub.CreateToggle(combatTab, "Infinite Stamina (Never Deplete)", Config.InfiniteS
     Hub.Notify("Movement", val and "Infinite Stamina: ACTIVE" or "Infinite Stamina: OFF", 2)
 end)
 
-Hub.CreateSlider(combatTab, "WalkSpeed Modifier", 14.1, 45, Config.CustomSpeed, function(val)
+Hub.CreateSlider(combatTab, "WalkSpeed Modifier", 14.1, 45, Config.CustomSpeed, " spd", function(val)
     Config.CustomSpeed = val
+    pcall(function()
+        local char = LocalPlayer.Character
+        local speedFolder = char and char:FindFirstChild("SpeedModifiers")
+        if speedFolder then
+            local speedMod = speedFolder:FindFirstChild("UnknownSpeedMod") or Instance.new("NumberValue")
+            speedMod.Name = "UnknownSpeedMod"
+            speedMod.Value = val > 14.1 and ((val / 14.1) - 1) or 0
+            speedMod.Parent = speedFolder
+        end
+    end)
 end)
 
 -- TAB: VISUALS
