@@ -118,48 +118,108 @@ local activeESP = {}
 --------------------------------------------------------------------------------
 -- 4. UTILITY FUNCTIONS: CRATE DETECTION & LOOT COLLECTION
 --------------------------------------------------------------------------------
-local function getUnopenedCrates()
-    local unopened = {}
+-- Helper to inspect any active item prompts on a crate model
+local function getCrateItemPrompts(crateModel)
+    local prompts = {}
+    if not crateModel then return prompts end
+    local cratePart = crateModel:FindFirstChild("Crate")
+    if not cratePart then return prompts end
+
+    for _, spotName in ipairs({"ItemSpot1", "ItemSpot2", "ItemSpot3"}) do
+        local spot = cratePart:FindFirstChild(spotName)
+        local prompt = spot and spot:FindFirstChildOfClass("ProximityPrompt")
+        if prompt and prompt.Enabled then
+            table.insert(prompts, prompt)
+        end
+    end
+    return prompts
+end
+
+-- Collect all items in a crate model with active proximity polling
+local function sweepCrateItems(crateModel, maxWait)
+    if not crateModel or not crateModel:FindFirstChild("Crate") then return false end
+    local cratePart = crateModel.Crate
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    local timeout = maxWait or 2.2
+    local start = tick()
+    local collectedAny = false
+
+    while (tick() - start) < timeout do
+        local activePrompts = getCrateItemPrompts(crateModel)
+        if #activePrompts == 0 then
+            -- If we already collected something or gave sufficient time for prompts to instantiate, break early
+            if collectedAny or (tick() - start) > 0.5 then
+                break
+            end
+        else
+            for _, prompt in ipairs(activePrompts) do
+                if root then
+                    root.CFrame = CFrame.new(cratePart.Position + Vector3.new(0, 3.2, 0))
+                    root.AssemblyLinearVelocity = Vector3.zero
+                end
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                end
+                collectedAny = true
+                task.wait(0.12)
+            end
+        end
+        task.wait(0.06)
+    end
+
+    return collectedAny
+end
+
+-- Get all targets needing attention: crates with uncollected loot FIRST, then unopened crates
+local function getCratesToProcess()
     local interactables = Workspace:FindFirstChild("Interactables")
     local cratesFolder = interactables and interactables:FindFirstChild("Crates")
-    if not cratesFolder then return unopened end
+    if not cratesFolder then return {} end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    local lootTargets = {}
+    local unopenedTargets = {}
 
     for _, c in ipairs(cratesFolder:GetChildren()) do
-        local collected = c:GetAttribute("Collected")
-        local prompt = c:FindFirstChild("Crate") and c.Crate:FindFirstChild("CratePrompt")
-        -- Strict filter: never teleport to crates that are collected or disabled
-        if collected ~= true and prompt and prompt.Enabled then
-            table.insert(unopened, c)
+        local cratePart = c:FindFirstChild("Crate")
+        if cratePart then
+            local itemPrompts = getCrateItemPrompts(c)
+            if #itemPrompts > 0 then
+                table.insert(lootTargets, { crate = c, mode = "loot" })
+            else
+                local collected = c:GetAttribute("Collected")
+                local openPrompt = cratePart:FindFirstChild("CratePrompt")
+                if collected ~= true and openPrompt and openPrompt.Enabled then
+                    table.insert(unopenedTargets, { crate = c, mode = "open" })
+                end
+            end
         end
     end
 
-    -- Sort by distance to LocalPlayer for optimized pathing
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
+    -- Distance sort targets for optimal routing
     if root then
-        table.sort(unopened, function(a, b)
-            local posA = a:GetPivot().Position
-            local posB = b:GetPivot().Position
+        table.sort(unopenedTargets, function(a, b)
+            local posA = a.crate:GetPivot().Position
+            local posB = b.crate:GetPivot().Position
+            return (posA - root.Position).Magnitude < (posB - root.Position).Magnitude
+        end)
+        table.sort(lootTargets, function(a, b)
+            local posA = a.crate:GetPivot().Position
+            local posB = b.crate:GetPivot().Position
             return (posA - root.Position).Magnitude < (posB - root.Position).Magnitude
         end)
     end
 
-    return unopened
-end
+    -- Always process uncollected loot crates FIRST, then unopened crates
+    local targets = {}
+    for _, t in ipairs(lootTargets) do table.insert(targets, t) end
+    for _, t in ipairs(unopenedTargets) do table.insert(targets, t) end
 
-local function collectCrateLoot(crateModel)
-    if not crateModel or not crateModel:FindFirstChild("Crate") then return end
-    local cratePart = crateModel.Crate
-
-    -- Sweep all 3 possible item spots
-    for _, spotName in ipairs({"ItemSpot1", "ItemSpot2", "ItemSpot3"}) do
-        local spot = cratePart:FindFirstChild(spotName)
-        local prompt = spot and spot:FindFirstChildOfClass("ProximityPrompt")
-        if prompt and prompt.Enabled and fireproximityprompt then
-            fireproximityprompt(prompt)
-            task.wait(0.08)
-        end
-    end
+    return targets
 end
 
 --------------------------------------------------------------------------------
@@ -176,37 +236,60 @@ task.spawn(function()
             if root and hum and hum.Health > 0 then
                 silenceTelemetry()
 
-                local unopenedCrates = getUnopenedCrates()
-                if #unopenedCrates > 0 then
-                    for _, crate in ipairs(unopenedCrates) do
+                local targets = getCratesToProcess()
+                if #targets > 0 then
+                    for _, target in ipairs(targets) do
                         if not Config.AutoFarmCrates then break end
 
-                        -- Double check crate is still valid and not opened by another player
-                        local collected = crate:GetAttribute("Collected")
-                        local prompt = crate:FindFirstChild("Crate") and crate.Crate:FindFirstChild("CratePrompt")
-                        if collected ~= true and prompt and prompt.Enabled then
-                            -- 1. Smoothly position above crate (no collision modification)
-                            local targetPos = crate.Crate.Position + Vector3.new(0, 3.2, 0)
-                            root.CFrame = CFrame.new(targetPos)
-                            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                            task.wait(0.15)
+                        local crate = target.crate
+                        local cratePart = crate and crate:FindFirstChild("Crate")
+                        if not cratePart then continue end
 
-                            -- 2. Trigger opening prompt
-                            if prompt and prompt.Enabled and fireproximityprompt then
-                                fireproximityprompt(prompt)
+                        local targetPos = cratePart.Position + Vector3.new(0, 3.2, 0)
+                        root.CFrame = CFrame.new(targetPos)
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        task.wait(0.12)
+
+                        if target.mode == "open" then
+                            local openPrompt = cratePart:FindFirstChild("CratePrompt")
+                            if openPrompt and openPrompt.Enabled and fireproximityprompt then
+                                fireproximityprompt(openPrompt)
                             end
 
-                            -- 3. Wait for loot to pop and collect all items
-                            task.wait(0.25)
-                            collectCrateLoot(crate)
-
-                            task.wait(Config.FarmDelay)
+                            -- Wait for server response and item prompts to instantiate
+                            local waitStart = tick()
+                            while (tick() - waitStart) < 1.6 do
+                                if #getCrateItemPrompts(crate) > 0 then
+                                    break
+                                end
+                                root.CFrame = CFrame.new(targetPos)
+                                root.AssemblyLinearVelocity = Vector3.zero
+                                task.wait(0.05)
+                            end
                         end
+
+                        -- Sweep and collect all loot items (cash, guns, items)
+                        sweepCrateItems(crate, 2.2)
+
+                        -- Secondary confirmation: if any item prompt is STILL enabled, do a final direct sweep
+                        local remainingPrompts = getCrateItemPrompts(crate)
+                        if #remainingPrompts > 0 then
+                            for _, p in ipairs(remainingPrompts) do
+                                root.CFrame = CFrame.new(targetPos)
+                                root.AssemblyLinearVelocity = Vector3.zero
+                                if fireproximityprompt then
+                                    fireproximityprompt(p)
+                                end
+                                task.wait(0.12)
+                            end
+                        end
+
+                        task.wait(Config.FarmDelay)
                     end
                 else
-                    -- No crates left
+                    -- No crates or uncollected loot left
                     if Config.AutoServerhop then
-                        Hub.Notify("Medved", "All crates collected! Serverhopping...", 3)
+                        Hub.Notify("Medved", "All crates & loot collected! Serverhopping...", 3)
                         task.wait(1)
                         if getgenv().serverhop then
                             getgenv().serverhop()
@@ -244,27 +327,39 @@ local function updateCratesESP()
     if not cratesFolder then return end
 
     for _, c in ipairs(cratesFolder:GetChildren()) do
-        local collected = c:GetAttribute("Collected")
         local cratePart = c:FindFirstChild("Crate")
-        if collected ~= true and cratePart then
-            local bb = Instance.new("BillboardGui")
-            bb.Name = "CrateESP"
-            bb.Adornee = cratePart
-            bb.Size = UDim2.new(0, 100, 0, 30)
-            bb.AlwaysOnTop = true
-            bb.StudsOffset = Vector3.new(0, 2, 0)
+        if cratePart then
+            local itemPrompts = getCrateItemPrompts(c)
+            local collected = c:GetAttribute("Collected")
+            local openPrompt = cratePart:FindFirstChild("CratePrompt")
+            local isUnopened = (collected ~= true and openPrompt and openPrompt.Enabled)
+            local hasLoot = (#itemPrompts > 0)
 
-            local label = Instance.new("TextLabel")
-            label.Size = UDim2.new(1, 0, 1, 0)
-            label.BackgroundTransparency = 1
-            label.Text = "📦 " .. c.Name
-            label.TextColor3 = Color3.fromRGB(0, 240, 255)
-            label.Font = Enum.Font.GothamBold
-            label.TextSize = 11
-            label.Parent = bb
+            if isUnopened or hasLoot then
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "CrateESP"
+                bb.Adornee = cratePart
+                bb.Size = UDim2.new(0, 110, 0, 30)
+                bb.AlwaysOnTop = true
+                bb.StudsOffset = Vector3.new(0, 2.2, 0)
 
-            bb.Parent = CoreGui
-            table.insert(activeESP, bb)
+                local label = Instance.new("TextLabel")
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.BackgroundTransparency = 1
+                if hasLoot then
+                    label.Text = "💰 [LOOT] " .. c.Name
+                    label.TextColor3 = Color3.fromRGB(255, 220, 60)
+                else
+                    label.Text = "📦 " .. c.Name
+                    label.TextColor3 = Color3.fromRGB(0, 240, 255)
+                end
+                label.Font = Enum.Font.GothamBold
+                label.TextSize = 11
+                label.Parent = bb
+
+                bb.Parent = CoreGui
+                table.insert(activeESP, bb)
+            end
         end
     end
 end
