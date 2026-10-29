@@ -101,6 +101,7 @@ local Config = {
     -- Auto Farm Bears Suite
     AutoFarmBears = false,
     FarmMethod = "Gun", -- "Gun" or "Melee"
+    SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
     LowHPThreshold = 25,
@@ -110,6 +111,7 @@ local Config = {
     MeleeAuraRange = 18,
     GunAura = false,
     GunAuraRange = 90,
+    TargetPlayerBears = false, -- false: player bears are friendly/ignored; true: targetable in PvP
 
     -- Movement & Stamina
     InfiniteStamina = false,
@@ -489,29 +491,31 @@ local function getBearLevitationTarget(bear)
     local cf, sz = bear:GetBoundingBox()
     local name = bear.Name:lower()
 
-    -- Category 1: Small / Dwarf bears (booboo, LaserBooBoo, cubs, sz.Y < 6.5 or sz.Magnitude < 8)
+    -- Category 1: Small / Dwarf / Spherical bears
+    -- booboo, LaserBooBoo, HypersonicBooBoo, ballbear, small cubs (sz.Y < 6.5, sz.Magnitude < 8, or ball/booboo)
     -- Elevate ABOVE the bear's top bounding box:
     -- Target Y = cf.Position.Y + (sz.Y * 0.5) + 3.2
     -- Dist behind = (sz.Z * 0.5) + 1.6
-    -- Verified: ZERO damage taken, booboo died in seconds!
-    if name:find("booboo") or sz.Y < 6.5 or sz.Magnitude < 8 then
+    -- Verified: ZERO collision with Cube or TouchPart, zero ground bite risk!
+    if name:find("booboo") or name:find("ball") or sz.Y < 6.5 or sz.Magnitude < 8 then
         local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.2
         local distBehind = (sz.Z * 0.5) + 1.6
         return cf.Position, distBehind, targetY
     end
 
-    -- Category 2: Tall / Giant bears (TallBear, WallBear, sz.Y > 14)
-    -- Hover behind upper torso to completely bypass ground slam radius (TallSlam radius 12):
-    -- Target Y = cf.Position.Y + (sz.Y * 0.15)
+    -- Category 2: Tall / Giant / Wall / Worm / Grinder bears
+    -- TallBear, GrizzlyTallBear, WallBear, WormBear, GrinderBear, GhostBear, DemonBear (sz.Y > 14, sz.Z > 14, or wall/tall/worm/grinder)
+    -- Elevate behind upper body:
+    -- Target Y = cf.Position.Y + math.clamp(sz.Y * 0.15, 1.5, 6.0)
     -- Dist behind = (sz.Z * 0.5) + 2.5
-    -- Verified: ZERO damage taken, WallBear took 150 damage in 4s!
-    if name:find("tall") or name:find("wall") or sz.Y > 14 then
-        local targetY = cf.Position.Y + (sz.Y * 0.15)
+    -- Completely above ground slam radius (TallSlam radius 12, WallBear LieDown/BodySlam)
+    if name:find("tall") or name:find("wall") or name:find("worm") or name:find("grinder") or sz.Y > 14 or sz.Z > 14 then
+        local targetY = cf.Position.Y + math.clamp(sz.Y * 0.15, 1.5, 6.0)
         local distBehind = (sz.Z * 0.5) + 2.5
         return cf.Position, distBehind, targetY
     end
 
-    -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, etc.)
+    -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, IceBear, ThinBear, etc.)
     -- Hover behind rear paws / thighs outside torso collision mesh
     local rear = bear:FindFirstChild("Hitbox_RightThigh") or bear:FindFirstChild("Hitbox_RightFoot") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_LeftFoot")
     if rear and rear:IsA("BasePart") then
@@ -555,6 +559,36 @@ local function getBearBottomRearPart(bear)
     return hrp or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
 end
 
+local function isBearTargetable(b)
+    if not b or not b.Parent then return false end
+    local name = b.Name:lower()
+
+    -- 1. Never target CutieBear (CutieBear is friendly)
+    if name:find("cutie") then
+        return false
+    end
+
+    local hum = b:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then
+        return false
+    end
+
+    -- 2. Friendly Player Bears Protection
+    -- When TargetPlayerBears is false, all player bears are strictly protected as friendly!
+    local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
+    if isPlr and not Config.TargetPlayerBears then
+        return false
+    end
+
+    -- 3. Filter out zero-size dead or despawned ghost models
+    local cf, sz = b:GetBoundingBox()
+    if sz.Magnitude <= 3 then
+        return false
+    end
+
+    return true
+end
+
 local function getClosestBear(maxDist)
     local bearsFolder = Workspace:FindFirstChild("Bears")
     if not bearsFolder then return nil end
@@ -567,22 +601,13 @@ local function getClosestBear(maxDist)
     local bestDist = maxDist or math.huge
 
     for _, b in ipairs(bearsFolder:GetChildren()) do
-        if b ~= char then
-            local hum = b:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 then
-                local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
-                if not isPlr then
-                    local cf, sz = b:GetBoundingBox()
-                    if sz.Magnitude > 3 then
-                        local bearRoot = b:FindFirstChild("HumanoidRootPart") or b:FindFirstChild("Head") or b.PrimaryPart or b:FindFirstChildWhichIsA("BasePart")
-                        if bearRoot then
-                            local dist = (bearRoot.Position - root.Position).Magnitude
-                            if dist < bestDist then
-                                bestDist = dist
-                                closest = b
-                            end
-                        end
-                    end
+        if b ~= char and isBearTargetable(b) then
+            local bearRoot = b:FindFirstChild("HumanoidRootPart") or b:FindFirstChild("Head") or b.PrimaryPart or b:FindFirstChildWhichIsA("BasePart")
+            if bearRoot then
+                local dist = (bearRoot.Position - root.Position).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    closest = b
                 end
             end
         end
@@ -918,20 +943,33 @@ local bearTypeDropdown = nil
 local function getAvailableBearTypes()
     local list = {"All"}
     local rs = game:GetService("ReplicatedStorage")
-    local rsBears = rs:FindFirstChild("Bears")
-    if rsBears then
-        for _, b in ipairs(rsBears:GetChildren()) do
-            if not table.find(list, b.Name) then
+
+    -- 1. Read all 22 authoritative bear definitions from ReplicatedStorage.Data.Bears
+    local dataBears = rs:FindFirstChild("Data") and rs.Data:FindFirstChild("Bears")
+    if dataBears then
+        for _, b in ipairs(dataBears:GetChildren()) do
+            if not b.Name:lower():find("cutie") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
     end
 
+    -- 2. Also inspect ReplicatedStorage.Bears folder
+    local rsBears = rs:FindFirstChild("Bears")
+    if rsBears then
+        for _, b in ipairs(rsBears:GetChildren()) do
+            if not b.Name:lower():find("cutie") and not table.find(list, b.Name) then
+                table.insert(list, b.Name)
+            end
+        end
+    end
+
+    -- 3. Also dynamically inspect active workspace bears
     local wsBears = workspace:FindFirstChild("Bears")
     if wsBears then
         for _, b in ipairs(wsBears:GetChildren()) do
             local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
-            if not isPlr and not table.find(list, b.Name) then
+            if not isPlr and not b.Name:lower():find("cutie") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -978,22 +1016,24 @@ local function getFarmBearTarget()
     local bestDist = math.huge
 
     for _, bear in ipairs(wsBears:GetChildren()) do
-        local hum = bear:FindFirstChildOfClass("Humanoid")
-        if hum and hum.Health > 0 then
-            local isPlr = Players:GetPlayerFromCharacter(bear) ~= nil
-            if not isPlr then
-                if Config.SelectedBearTarget == "All" or bear.Name == Config.SelectedBearTarget then
-                    -- Filter out dead or despawned zero-size ghost models
-                    local cf, sz = bear:GetBoundingBox()
-                    if sz.Magnitude > 3 then
-                        local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
-                        if bearRoot then
-                            local dist = (bearRoot.Position - root.Position).Magnitude
-                            if dist < bestDist then
-                                bestDist = dist
-                                bestBear = bear
-                            end
-                        end
+        if isBearTargetable(bear) then
+            -- Multi-Select matching:
+            local isMatch = false
+            if Config.SelectedBears and Config.SelectedBears["All"] then
+                isMatch = true
+            elseif Config.SelectedBears and Config.SelectedBears[bear.Name] then
+                isMatch = true
+            elseif Config.SelectedBearTarget == "All" or bear.Name == Config.SelectedBearTarget then
+                isMatch = true
+            end
+
+            if isMatch then
+                local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
+                if bearRoot then
+                    local dist = (bearRoot.Position - root.Position).Magnitude
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestBear = bear
                     end
                 end
             end
@@ -1434,10 +1474,20 @@ Hub.CreateDropdown(farmTab, "Attack Method", {"Gun", "Melee"}, Config.FarmMethod
     Hub.Notify("Bear Farm", "Method set to: " .. val, 2)
 end)
 
-bearTypeDropdown = Hub.CreateDropdown(farmTab, "Target Bear", getAvailableBearTypes(), Config.SelectedBearTarget, function(val)
-    Config.SelectedBearTarget = val
-    Hub.Notify("Bear Farm", "Targeting: " .. val, 2)
-end)
+local createMulti = Hub.CreateMultiDropdown or Hub.createMultiDropdown
+if createMulti then
+    bearTypeDropdown = createMulti(farmTab, "Target Bears (Multi-Select)", getAvailableBearTypes(), {"All"}, function(dict, arr)
+        Config.SelectedBears = dict
+        local desc = dict["All"] and "All Bears" or (#arr .. " Selected")
+        Hub.Notify("Bear Farm", "Targeting: " .. desc, 2)
+    end)
+else
+    bearTypeDropdown = Hub.CreateDropdown(farmTab, "Target Bear", getAvailableBearTypes(), Config.SelectedBearTarget, function(val)
+        Config.SelectedBearTarget = val
+        Config.SelectedBears = { [val] = true }
+        Hub.Notify("Bear Farm", "Targeting: " .. val, 2)
+    end)
+end
 
 Hub.CreateToggle(farmTab, "Safe Zone Retreat on Low HP", Config.SafeZoneLowHP, function(val)
     Config.SafeZoneLowHP = val
@@ -1465,6 +1515,11 @@ end)
 
 Hub.CreateSlider(combatTab, "Melee Aura Range (Studs)", 8, 30, Config.MeleeAuraRange, " studs", function(val)
     Config.MeleeAuraRange = val
+end)
+
+Hub.CreateToggle(combatTab, "Target Player Bears (PvP)", Config.TargetPlayerBears, function(val)
+    Config.TargetPlayerBears = val
+    Hub.Notify("Combat", val and "Player Bears: TARGETABLE (PvP Active)" or "Player Bears: FRIENDLY (Protected)", 2)
 end)
 
 Hub.CreateSection(combatTab, "🔫 Firearm Automation")
