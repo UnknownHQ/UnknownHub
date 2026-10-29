@@ -535,15 +535,12 @@ local function getBearLevitationTarget(bear)
         return targetPos, distBehind, targetY
     end
 
-    -- Category 1: Small / Dwarf / Spherical bears
-    -- booboo, LaserBooBoo, HypersonicBooBoo, ballbear, small cubs (sz.Y < 6.5, sz.Magnitude < 8, or ball/booboo)
-    -- Elevate ABOVE the bear's top bounding box:
-    -- Target Y = cf.Position.Y + (sz.Y * 0.5) + 3.2
-    -- Dist behind = (sz.Z * 0.5) + 1.6
-    -- Verified: ZERO collision with Cube or TouchPart, zero ground bite risk!
+    -- Category 1: Small / Dwarf / Spherical bears (Booboo, LaserBooBoo, HypersonicBooBoo)
+    -- Booboo has JumpPower: 50 which produces a 6.37-stud vertical jump arc!
+    -- Solution: Elevate +8.2 studs above top bounding box, completely above peak jump reach.
     if name:find("booboo") or name:find("ball") or sz.Y < 6.5 or sz.Magnitude < 8 then
-        local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.2
-        local distBehind = (sz.Z * 0.5) + 1.6
+        local targetY = cf.Position.Y + (sz.Y * 0.5) + 8.2
+        local distBehind = (sz.Z * 0.5) + 2.2
         return cf.Position, distBehind, targetY
     end
 
@@ -560,17 +557,10 @@ local function getBearLevitationTarget(bear)
     end
 
     -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, IceBear, ThinBear, etc.)
-    -- Hover behind rear paws / thighs outside torso collision mesh
-    local rear = bear:FindFirstChild("Hitbox_RightThigh") or bear:FindFirstChild("Hitbox_RightFoot") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_LeftFoot")
-    if rear and rear:IsA("BasePart") then
-        local targetY = rear.Position.Y + 1.8
-        return rear.Position, 2.2, targetY
-    end
-
-    local fallback = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart
-    local targetY = fallback and (fallback.Position.Y + 1.8) or (cf.Position.Y + 1.8)
-    local targetPos = fallback and fallback.Position or cf.Position
-    return targetPos, 2.2, targetY
+    -- Hover above upper spine/pelvis line (+3.4 studs above top bounding box) to prevent ground bite / turn clip
+    local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.4
+    local distBehind = (sz.Z * 0.5) + 2.4
+    return cf.Position, distBehind, targetY
 end
 
 local function getBearBottomRearPart(bear)
@@ -1102,6 +1092,53 @@ local isFleeingLowHP = false
 local activeFlightBear = nil
 local activeFlightEvading = false
 
+-- Sky Sanctuary Safe Zone Baseplate Engine
+local skySanctuaryPart = nil
+local SKY_SANCTUARY_POS = Vector3.new(52, 140, -144)
+local lastSanctuaryNotify = 0
+
+local function ensureSkySanctuary()
+    if skySanctuaryPart and skySanctuaryPart.Parent then
+        return skySanctuaryPart
+    end
+    local existing = Workspace:FindFirstChild("UnknownHub_SkySanctuary")
+    if existing then
+        skySanctuaryPart = existing
+        return existing
+    end
+
+    local plate = Instance.new("Part")
+    plate.Name = "UnknownHub_SkySanctuary"
+    plate.Size = Vector3.new(50, 3, 50)
+    plate.CFrame = CFrame.new(SKY_SANCTUARY_POS.X, SKY_SANCTUARY_POS.Y - 2.5, SKY_SANCTUARY_POS.Z)
+    plate.Anchored = true
+    plate.CanCollide = true
+    plate.Material = Enum.Material.SmoothPlastic
+    plate.Color = Color3.fromRGB(15, 20, 30)
+    plate.CastShadow = false
+    plate.Parent = Workspace
+
+    local border = Instance.new("SelectionBox")
+    border.Adornee = plate
+    border.Color3 = Color3.fromRGB(0, 220, 255)
+    border.LineThickness = 0.08
+    border.Parent = plate
+
+    skySanctuaryPart = plate
+    return plate
+end
+
+local function teleportToSkySanctuary()
+    ensureSkySanctuary()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(SKY_SANCTUARY_POS)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
 -- Pipeline 1: 60+ FPS Butter-Smooth Levitation Flight (RunService.Heartbeat)
 -- Decoupled from combat task.wait pauses; updates every single physics frame without stutter or delay
 RunService.Heartbeat:Connect(function(dt)
@@ -1112,10 +1149,11 @@ RunService.Heartbeat:Connect(function(dt)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return end
 
-    -- Anti-Touch Defense: Continuous touch suppression across character & held tools
+    -- Anti-Touch & Anti-Collision Defense: Suppress touch + disable limb physics collision with bear
     for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and p.CanTouch then
-            pcall(function() p.CanTouch = false end)
+        if p:IsA("BasePart") then
+            if p.CanTouch then pcall(function() p.CanTouch = false end) end
+            if p ~= root and p.CanCollide then pcall(function() p.CanCollide = false end) end
         end
     end
 
@@ -1137,7 +1175,7 @@ RunService.Heartbeat:Connect(function(dt)
         local targetPos = centerPos - (lookVec * distBehind)
         local y = targetY
         if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
-            y = y + (isBoss and 6.0 or 3.0) -- Lift vertically when bear attempts to turn or charge
+            y = y + (isBoss and 7.5 or 4.8) -- High vault when bear attempts to turn or charge
         end
         targetPos = Vector3.new(targetPos.X, y, targetPos.Z)
         root.CFrame = CFrame.lookAt(targetPos, centerPos)
@@ -1185,10 +1223,9 @@ task.spawn(function()
 
             if isFleeingLowHP then
                 activeFlightBear = nil
-                local safeZonePos = (locationRegistry[1] and resolveLocationPosition(locationRegistry[1])) or Vector3.new(52, -137, -144)
-                if (root.Position - safeZonePos).Magnitude > 25 then
-                    safeTeleport(safeZonePos, "Safe Zone")
-                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " HP)! Retreated to Safe Zone...", 2)
+                if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
+                    teleportToSkySanctuary()
+                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " HP)! Retreated to Sky Sanctuary...", 2)
                 end
 
                 -- Stay in safe zone until healed back to 85%+
@@ -1215,7 +1252,15 @@ task.spawn(function()
         local bear, dist = getFarmBearTarget()
         if not bear then
             activeFlightBear = nil
-            task.wait(0.3)
+            ensureSkySanctuary()
+            if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
+                teleportToSkySanctuary()
+                if tick() - lastSanctuaryNotify >= 8 then
+                    lastSanctuaryNotify = tick()
+                    Hub.Notify("Safe Zone", "All target bears cleared! Resting in Sky Sanctuary...", 2.5)
+                end
+            end
+            task.wait(0.4)
             continue
         end
 
