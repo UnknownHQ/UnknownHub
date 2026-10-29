@@ -474,6 +474,45 @@ end)
 --------------------------------------------------------------------------------
 -- 7. COMBAT & MOVEMENT ENGINE (MELEE AURA, GUN AURA, INFINITE STAMINA)
 --------------------------------------------------------------------------------
+local function ensureBearQueryable(bear)
+    if not bear then return end
+    for _, part in ipairs(bear:GetDescendants()) do
+        if part:IsA("BasePart") and not part.CanQuery then
+            pcall(function() part.CanQuery = true end)
+        end
+    end
+end
+
+local function getBearBottomRearPart(bear)
+    if not bear then return nil end
+    ensureBearQueryable(bear)
+    local bottomRearPriority = {
+        "Hitbox_RightFoot", "Hitbox_LeftFoot",
+        "Hitbox_RightThigh", "Hitbox_LeftThigh",
+        "Hitbox_RightShin", "Hitbox_LeftShin",
+        "Hitbox_RightLeg", "Hitbox_LeftLeg",
+        "Hitbox_Pelvis", "Hitbox_Hips",
+        "BodyBottom", "BodyTop", "body", "Body",
+        "Hitbox_Body", "Hitbox_Chest", "Hitbox_Head", "Hitbox"
+    }
+    for _, name in ipairs(bottomRearPriority) do
+        local part = bear:FindFirstChild(name)
+        if part and part:IsA("BasePart") and part.CanQuery then
+            return part
+        end
+    end
+    for _, child in ipairs(bear:GetChildren()) do
+        if child:IsA("BasePart") and (child.Name:find("Foot") or child.Name:find("Leg") or child.Name:find("Shin") or child.Name:find("Thigh")) and child.CanQuery then
+            return child
+        end
+    end
+    local hrp = bear:FindFirstChild("HumanoidRootPart")
+    if hrp and hrp:IsA("BasePart") and hrp.CanQuery then
+        return hrp
+    end
+    return hrp or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
+end
+
 local function getClosestBear(maxDist)
     local bearsFolder = Workspace:FindFirstChild("Bears")
     if not bearsFolder then return nil end
@@ -708,9 +747,11 @@ task.spawn(function()
                     local isMelee = equippedTool and equippedTool:FindFirstChild("MeleeScripts")
                     if isMelee and equippedTool then
                         applyWeaponMods(equippedTool)
+                        local targetPart = getBearBottomRearPart(bear)
                         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
-                        if bearRoot then
-                            root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
+                        local aimTarget = targetPart or bearRoot
+                        if aimTarget then
+                            root.CFrame = CFrame.new(root.Position, Vector3.new(aimTarget.Position.X, root.Position.Y, aimTarget.Position.Z))
                             if tick() - lastMeleeSwing >= 0.35 then
                                 lastMeleeSwing = tick()
                                 equippedTool:Activate()
@@ -883,55 +924,6 @@ pcall(function()
     end
 end)
 
-local function ensureBearQueryable(bear)
-    if not bear then return end
-    for _, part in ipairs(bear:GetDescendants()) do
-        if part:IsA("BasePart") and not part.CanQuery then
-            pcall(function() part.CanQuery = true end)
-        end
-    end
-end
-
-local function getBearMeleeTargetPart(bear)
-    if not bear then return nil end
-    ensureBearQueryable(bear)
-
-    local priorityHitboxes = {
-        "Hitbox_Chest", "Hitbox_Head", "Hitbox_Body", "Hitbox_Hips",
-        "Hitbox_Pelvis", "Hitbox_Torso", "Hitbox_Belly", "Hitbox"
-    }
-    for _, name in ipairs(priorityHitboxes) do
-        local part = bear:FindFirstChild(name)
-        if part and part:IsA("BasePart") and part.CanQuery then
-            return part
-        end
-    end
-    for _, child in ipairs(bear:GetChildren()) do
-        if child:IsA("BasePart") and child.Name:find("Hitbox") and child.CanQuery then
-            return child
-        end
-    end
-    local namedParts = {
-        "BodyTop", "BodyBottom", "body", "Body", "Torso", "Head", "head", "KissyBear", "RootPart"
-    }
-    for _, name in ipairs(namedParts) do
-        local part = bear:FindFirstChild(name)
-        if part and part:IsA("BasePart") and part.CanQuery then
-            return part
-        end
-    end
-    local hrp = bear:FindFirstChild("HumanoidRootPart")
-    if hrp and hrp:IsA("BasePart") and hrp.CanQuery then
-        return hrp
-    end
-    for _, child in ipairs(bear:GetChildren()) do
-        if child:IsA("BasePart") and child.CanQuery then
-            return child
-        end
-    end
-    return hrp or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
-end
-
 local function getFarmBearTarget()
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -988,6 +980,13 @@ task.spawn(function()
             continue
         end
 
+        -- Anti-Touch Defense: Disable CanTouch on player limbs to block bear TouchPart damage
+        for _, p in ipairs(char:GetChildren()) do
+            if p:IsA("BasePart") and p.CanTouch then
+                pcall(function() p.CanTouch = false end)
+            end
+        end
+
         local maxHp = (hum.MaxHealth and hum.MaxHealth > 0) and hum.MaxHealth or 250
 
         -- 1. Low HP Safety Check & Safe Zone Retreat
@@ -1036,52 +1035,47 @@ task.spawn(function()
             continue
         end
 
-        -- 4. Dynamic Adaptive Levitation (Target-Part Anchored, 100% Safe from Swipes & Touch Hitboxes)
+        -- 4. Bottom-Rear Levitation & Anti-Hit Predictive Defense
         local cf, bbSize = bear:GetBoundingBox()
-        local targetPart = getBearMeleeTargetPart(bear) or bearRoot
+        local targetPart = getBearBottomRearPart(bear) or bearRoot
         local lookVec = bearRoot.CFrame.LookVector
 
-        local targetCFrame
         if Config.FarmMethod == "Melee" then
-            local partName = targetPart.Name
-            local distBehind = 2.5
-            local heightAbove = 1.7
-            if partName == "BodyTop" or partName == "BodyBottom" then
-                distBehind = 2.4
-                heightAbove = 1.0
-            elseif partName == "Hitbox_Head" then
-                distBehind = 2.5
-                heightAbove = 1.9
-            elseif partName == "Hitbox_Chest" then
-                distBehind = 2.5
-                heightAbove = 1.6
+            -- Position at bottom-rear outside bear body:
+            local strikePos = targetPart.Position - (lookVec * 2.2) + Vector3.new(0, 1.2, 0)
+            local safeCeiling = strikePos + Vector3.new(0, 3.8, 0)
+
+            -- Anti-Hit Prediction: check if bear is rotating towards player
+            local toPlayer = (root.Position - bearRoot.Position).Unit
+            local isBearFacing = lookVec:Dot(toPlayer) > 0.3
+
+            local isMelee = bestTool:FindFirstChild("MeleeScripts")
+            if isMelee then
+                applyWeaponMods(bestTool)
+
+                if isBearFacing then
+                    -- Bear attempting to turn/face player: evade up to safe ceiling and re-orbit to rear
+                    root.CFrame = CFrame.lookAt(safeCeiling, targetPart.Position)
+                elseif tick() - lastMeleeSwing >= 0.35 then
+                    -- Strobe Strike: flash-snap to strike position, swing, immediately return to ceiling
+                    lastMeleeSwing = tick()
+                    root.CFrame = CFrame.lookAt(strikePos, targetPart.Position)
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    bestTool:Activate()
+                    task.wait(0.05)
+                    root.CFrame = CFrame.lookAt(safeCeiling, targetPart.Position)
+                else
+                    -- Safe levitation ceiling outside reach of any swipes or ground slams
+                    root.CFrame = CFrame.lookAt(safeCeiling, targetPart.Position)
+                end
             end
-            local hoverPos = targetPart.Position - (lookVec * distBehind) + Vector3.new(0, heightAbove, 0)
-            targetCFrame = CFrame.lookAt(hoverPos, targetPart.Position)
-        else
+        elseif Config.FarmMethod == "Gun" then
             -- Gun: safely elevated 12-16 studs away behind the bear with clear line of sight
             local distBehind = math.max(8.5, bbSize.Z * 0.75 + 4.0)
             local heightAbove = math.max(7.5, bbSize.Y * 0.6 + 4.0)
             local hoverPos = targetPart.Position - (lookVec * distBehind) + Vector3.new(0, heightAbove, 0)
-            targetCFrame = CFrame.lookAt(hoverPos, targetPart.Position)
-        end
+            root.CFrame = CFrame.lookAt(hoverPos, targetPart.Position)
 
-        -- Smoothly anchor position and zero out velocity to levitate effortlessly
-        root.CFrame = targetCFrame
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-
-        -- 5. Attack Dispatcher
-        if Config.FarmMethod == "Melee" then
-            local isMelee = bestTool:FindFirstChild("MeleeScripts")
-            if isMelee then
-                applyWeaponMods(bestTool)
-                if tick() - lastMeleeSwing >= 0.35 then
-                    lastMeleeSwing = tick()
-                    bestTool:Activate()
-                end
-            end
-        elseif Config.FarmMethod == "Gun" then
             local isGun = bestTool:FindFirstChild("GunScripts")
             if isGun then
                 applyWeaponMods(bestTool)
@@ -1092,6 +1086,10 @@ task.spawn(function()
                 shootTargetBear(bestTool, bear, targetPart or bearRoot)
             end
         end
+
+        -- Smoothly anchor position and zero out velocity to levitate effortlessly
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
     end
 end)
 
