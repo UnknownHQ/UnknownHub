@@ -73,7 +73,8 @@ if not UnknownLibrary then
     return
 end
 
-local Hub = UnknownLibrary.CreateHub({
+local createHubFn = typeof(UnknownLibrary) == "function" and UnknownLibrary or (UnknownLibrary.CreateHub or UnknownLibrary.createHub)
+local Hub = createHubFn({
     title = "UNKNOWN HUB",
     game = "MEDVED! 🐻",
     theme = Color3.fromRGB(0, 195, 245),
