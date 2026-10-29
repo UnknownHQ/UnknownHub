@@ -910,7 +910,7 @@ local function ensureBestWeaponEquipped(weaponType)
     end
 
     hum:EquipTool(bestTool)
-    return bestTool
+    return nil
 end
 
 local bearTypeDropdown = nil
