@@ -1402,8 +1402,6 @@ return function(opts)
         optLayout.Padding = UDim.new(0, 3)
         optLayout.Parent = optionsContainer
 
-        local optionButtons = {}
-
         local function updatePillText()
             if selected["All"] then
                 selectionPill.Text = "All Bears"
@@ -1425,15 +1423,17 @@ return function(opts)
                 selectionPill.Text = tostring(count) .. " Selected"
             end
         end
-        updatePillText()
 
         local function refreshOptionVisuals()
-            for optStr, optBtn in pairs(optionButtons) do
-                local isChecked = (selected[optStr] == true)
-                optBtn.BackgroundColor3 = isChecked and Color3.fromRGB(34, 40, 54) or Color3.fromRGB(18, 21, 28)
-                optBtn.Text = (isChecked and "  [✓] " or "  [  ] ") .. optStr
-                optBtn.TextColor3 = isChecked and primaryTheme or DEFAULT_THEME.TextSecondary
-                optBtn.Font = isChecked and Enum.Font.GothamBold or Enum.Font.Gotham
+            for _, child in ipairs(optionsContainer:GetChildren()) do
+                if child:IsA("TextButton") and child.Name:sub(1, 4) == "Opt_" then
+                    local optStr = child.Name:sub(5)
+                    local isChecked = (selected[optStr] == true)
+                    child.BackgroundColor3 = isChecked and Color3.fromRGB(34, 40, 54) or Color3.fromRGB(18, 21, 28)
+                    child.Text = (isChecked and "  [✓] " or "  [  ] ") .. optStr
+                    child.TextColor3 = isChecked and primaryTheme or DEFAULT_THEME.TextSecondary
+                    child.Font = isChecked and Enum.Font.GothamBold or Enum.Font.Gotham
+                end
             end
         end
 
@@ -1441,7 +1441,6 @@ return function(opts)
             for _, child in ipairs(optionsContainer:GetChildren()) do
                 if child:IsA("TextButton") then child:Destroy() end
             end
-            optionButtons = {}
 
             for _, opt in ipairs(options) do
                 local optStr = tostring(opt)
@@ -1460,13 +1459,10 @@ return function(opts)
                 optBtn.Parent = optionsContainer
                 applyCorner(optBtn, 6)
 
-                optionButtons[optStr] = optBtn
-
                 optBtn.MouseButton1Click:Connect(function()
                     if optStr == "All" then
-                        local turnOn = not selected["All"]
                         table.clear(selected)
-                        if turnOn then selected["All"] = true end
+                        selected["All"] = true
                     else
                         selected["All"] = nil
                         if selected[optStr] then
@@ -1487,6 +1483,7 @@ return function(opts)
             end
         end
         buildOptions()
+        updatePillText()
 
         headerBtn.MouseButton1Click:Connect(function()
             isExpanded = not isExpanded
@@ -1517,11 +1514,12 @@ return function(opts)
             Refresh = function(newOpts)
                 options = newOpts or {}
                 buildOptions()
+                updatePillText()
             end
         }
     end
 
-    Hub.CreateDropdown = createDropdown
+        Hub.CreateDropdown = createDropdown
     Hub.createDropdown = createDropdown
     Hub.CreateMultiDropdown = createMultiDropdown
     Hub.createMultiDropdown = createMultiDropdown
