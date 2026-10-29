@@ -1,8 +1,8 @@
 --[[
     ========================================================================
-    UNKNOWN LIBRARY — V2.0 ULTRA-CLEAN MODERN MINIMAL DARK UI
+    UNKNOWN LIBRARY — V2.1 REFINED MINIMAL DARK UI (Obsidian-Free, Slop-Free)
     Engineered exclusively for Unknown Hub
-    Aesthetic: Refined Dark Slate & Matte Glass (Obsidian-Free, Slop-Free)
+    Precision Typography & Glass Slate Aesthetic
     ========================================================================
 ]]
 
@@ -13,7 +13,8 @@ local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
-local StatsService = game:GetService("Stats")
+local TeleportService = game:GetService("TeleportService")
+local SoundService = game:GetService("SoundService")
 
 -- =========================================================================
 -- Theme & Styling Constants
@@ -21,19 +22,27 @@ local StatsService = game:GetService("Stats")
 local DEFAULT_THEME = {
     Primary = Color3.fromRGB(245, 142, 32),       -- Vibrant Electric Amber
     Secondary = Color3.fromRGB(0, 195, 245),     -- Cyber Cyan
-    Background = Color3.fromRGB(14, 16, 22),     -- Deep Matte Midnight Slate
-    Sidebar = Color3.fromRGB(18, 21, 28),        -- Elevated Sidebar Panel
-    Card = Color3.fromRGB(23, 27, 36),           -- Control Card Surface
-    CardHover = Color3.fromRGB(29, 34, 46),      -- Control Card Hover Surface
-    Input = Color3.fromRGB(16, 19, 25),          -- Embedded Input Track
-    Stroke = Color3.fromRGB(36, 42, 56),         -- Razor-sharp 1px Border
-    StrokeActive = Color3.fromRGB(245, 142, 32), -- Focus/Active Stroke
-    TextPrimary = Color3.fromRGB(245, 248, 252),  -- High-contrast Off-White
-    TextSecondary = Color3.fromRGB(150, 162, 182),-- Muted Slate Gray
-    TextDim = Color3.fromRGB(105, 115, 135),     -- Subtle Placeholders / Subtext
-    Success = Color3.fromRGB(50, 205, 120),
+    Background = Color3.fromRGB(13, 15, 21),     -- Deep Matte Midnight Slate
+    Sidebar = Color3.fromRGB(17, 20, 27),        -- Elevated Sidebar Panel
+    Card = Color3.fromRGB(22, 26, 35),           -- Control Card Surface
+    CardHover = Color3.fromRGB(28, 33, 44),      -- Control Card Hover Surface
+    Input = Color3.fromRGB(15, 18, 24),          -- Embedded Input Track
+    Stroke = Color3.fromRGB(34, 40, 53),         -- Razor-sharp 1px Border
+    TextPrimary = Color3.fromRGB(240, 244, 252),  -- Clean Crisp Off-White
+    TextSecondary = Color3.fromRGB(140, 152, 172),-- Muted Slate Gray
+    TextDim = Color3.fromRGB(95, 105, 122),      -- Subtle Placeholders / Subtext
+    Success = Color3.fromRGB(45, 205, 115),
     Warning = Color3.fromRGB(245, 165, 35),
     Danger = Color3.fromRGB(240, 65, 75)
+}
+
+local THEME_PRESETS = {
+    ["Electric Amber"] = Color3.fromRGB(245, 142, 32),
+    ["Cyber Cyan"] = Color3.fromRGB(0, 195, 245),
+    ["Neon Violet"] = Color3.fromRGB(165, 95, 255),
+    ["Emerald Mint"] = Color3.fromRGB(45, 215, 135),
+    ["Crimson Rose"] = Color3.fromRGB(245, 65, 95),
+    ["Ice White"] = Color3.fromRGB(230, 240, 255)
 }
 
 -- =========================================================================
@@ -84,6 +93,38 @@ return function(opts)
     local HUB_TITLE = opts.title or "UNKNOWN HUB"
     local HUB_SUBTITLE = opts.subTitle or "UNIVERSAL"
 
+    -- Audio settings
+    local sfxEnabled = true
+    local sfxVolume = 0.35
+
+    local function playUiSound(soundId)
+        if not sfxEnabled then return end
+        pcall(function()
+            local s = Instance.new("Sound")
+            s.SoundId = soundId or "rbxassetid://4590662766"
+            s.Volume = sfxVolume
+            s.Parent = SoundService
+            s:Play()
+            game:GetService("Debris"):AddItem(s, 1.5)
+        end)
+    end
+
+    -- Theme Updater Registry (Live color switching)
+    local themeUpdaters = {}
+    local function registerThemeUpdater(fn)
+        if type(fn) == "function" then
+            table.insert(themeUpdaters, fn)
+            pcall(fn, primaryTheme)
+        end
+    end
+
+    local function setAccentColor(newColor)
+        primaryTheme = newColor
+        for _, fn in ipairs(themeUpdaters) do
+            pcall(fn, primaryTheme)
+        end
+    end
+
     -- Target Parent Determination (Safe Context)
     local targetParent = opts.parent
     if not targetParent then
@@ -120,10 +161,12 @@ return function(opts)
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     pcall(function() screenGui.Parent = targetParent end)
 
-    -- Mobile Adaptation
+    -- Window Dimensions
     local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-    local winWidth = isMobile and 580 or 660
-    local winHeight = isMobile and 400 or 450
+    local winWidth = isMobile and 600 or 700
+    local winHeight = isMobile and 410 or 460
+    local SIDEBAR_WIDTH = 195
+    local HEADER_HEIGHT = 46
 
     -- =========================================================================
     -- Main Window Shell
@@ -143,8 +186,8 @@ return function(opts)
     -- Soft Depth Glow Shadow
     local shadow = Instance.new("ImageLabel")
     shadow.Name = "DropShadow"
-    shadow.Size = UDim2.new(1, 40, 1, 40)
-    shadow.Position = UDim2.new(0, -20, 0, -20)
+    shadow.Size = UDim2.new(1, 44, 1, 44)
+    shadow.Position = UDim2.new(0, -22, 0, -22)
     shadow.BackgroundTransparency = 1
     shadow.Image = "rbxassetid://6015897843"
     shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
@@ -166,7 +209,6 @@ return function(opts)
     -- =========================================================================
     -- Sidebar (Left Navigation)
     -- =========================================================================
-    local SIDEBAR_WIDTH = 180
     local sidebar = Instance.new("Frame")
     sidebar.Name = "Sidebar"
     sidebar.Size = UDim2.new(0, SIDEBAR_WIDTH, 1, 0)
@@ -199,13 +241,14 @@ return function(opts)
     brandLogo.Font = Enum.Font.GothamBold
     brandLogo.Text = "⚡"
     brandLogo.TextColor3 = primaryTheme
-    brandLogo.TextSize = 18
+    brandLogo.TextSize = 17
     brandLogo.Parent = brandFrame
+    registerThemeUpdater(function(c) brandLogo.TextColor3 = c end)
 
     local brandTitle = Instance.new("TextLabel")
     brandTitle.Name = "Title"
-    brandTitle.Size = UDim2.new(1, -44, 0, 18)
-    brandTitle.Position = UDim2.new(0, 42, 0, 12)
+    brandTitle.Size = UDim2.new(1, -46, 0, 18)
+    brandTitle.Position = UDim2.new(0, 42, 0, 13)
     brandTitle.BackgroundTransparency = 1
     brandTitle.Font = Enum.Font.GothamBold
     brandTitle.Text = HUB_TITLE
@@ -217,10 +260,10 @@ return function(opts)
 
     local brandSubtitle = Instance.new("TextLabel")
     brandSubtitle.Name = "Subtitle"
-    brandSubtitle.Size = UDim2.new(1, -44, 0, 14)
-    brandSubtitle.Position = UDim2.new(0, 42, 0, 30)
+    brandSubtitle.Size = UDim2.new(1, -46, 0, 14)
+    brandSubtitle.Position = UDim2.new(0, 42, 0, 29)
     brandSubtitle.BackgroundTransparency = 1
-    brandSubtitle.Font = Enum.Font.GothamMedium
+    brandSubtitle.Font = Enum.Font.Gotham
     brandSubtitle.Text = HUB_SUBTITLE
     brandSubtitle.TextColor3 = DEFAULT_THEME.TextSecondary
     brandSubtitle.TextSize = 10
@@ -246,8 +289,8 @@ return function(opts)
     tabLayout.Parent = tabScroll
 
     local tabPadding = Instance.new("UIPadding")
-    tabPadding.PaddingLeft = UDim.new(0, 10)
-    tabPadding.PaddingRight = UDim.new(0, 10)
+    tabPadding.PaddingLeft = UDim.new(0, 8)
+    tabPadding.PaddingRight = UDim.new(0, 8)
     tabPadding.PaddingTop = UDim.new(0, 4)
     tabPadding.PaddingBottom = UDim.new(0, 4)
     tabPadding.Parent = tabScroll
@@ -255,8 +298,8 @@ return function(opts)
     -- Sidebar Footer Info (Status / FPS)
     local sidebarFooter = Instance.new("Frame")
     sidebarFooter.Name = "SidebarFooter"
-    sidebarFooter.Size = UDim2.new(1, -20, 0, 32)
-    sidebarFooter.Position = UDim2.new(0, 10, 1, -38)
+    sidebarFooter.Size = UDim2.new(1, -16, 0, 32)
+    sidebarFooter.Position = UDim2.new(0, 8, 1, -38)
     sidebarFooter.BackgroundColor3 = Color3.fromRGB(14, 16, 22)
     sidebarFooter.BorderSizePixel = 0
     sidebarFooter.Parent = sidebar
@@ -277,14 +320,14 @@ return function(opts)
     statusText.Size = UDim2.new(1, -24, 1, 0)
     statusText.Position = UDim2.new(0, 22, 0, 0)
     statusText.BackgroundTransparency = 1
-    statusText.Font = Enum.Font.GothamMedium
+    statusText.Font = Enum.Font.Gotham
     statusText.Text = "Connected • 60 FPS"
     statusText.TextColor3 = DEFAULT_THEME.TextSecondary
     statusText.TextSize = 10
     statusText.TextXAlignment = Enum.TextXAlignment.Left
     statusText.Parent = sidebarFooter
 
-    -- FPS updater
+    -- FPS Counter
     task.spawn(function()
         local lastTime = tick()
         local frameCount = 0
@@ -307,7 +350,6 @@ return function(opts)
     -- =========================================================================
     -- Top Header Bar (Right of Sidebar)
     -- =========================================================================
-    local HEADER_HEIGHT = 46
     local header = Instance.new("Frame")
     header.Name = "HeaderBar"
     header.Size = UDim2.new(1, -SIDEBAR_WIDTH, 0, HEADER_HEIGHT)
@@ -343,7 +385,7 @@ return function(opts)
     keybindPill.Position = UDim2.new(1, -140, 0.5, -12)
     keybindPill.BackgroundColor3 = DEFAULT_THEME.Card
     keybindPill.BorderSizePixel = 0
-    keybindPill.Font = Enum.Font.GothamMedium
+    keybindPill.Font = Enum.Font.Gotham
     keybindPill.Text = "[" .. toggleKeyCode.Name .. "]"
     keybindPill.TextColor3 = DEFAULT_THEME.TextSecondary
     keybindPill.TextSize = 10
@@ -410,7 +452,7 @@ return function(opts)
     contentArea.Parent = innerClip
 
     -- =========================================================================
-    -- Dragging Mechanics (Silky Smooth)
+    -- Dragging Mechanics
     -- =========================================================================
     local isDragging = false
     local dragInput = nil
@@ -450,6 +492,7 @@ return function(opts)
     local isGuiVisible = true
 
     minimizeBtn.MouseButton1Click:Connect(function()
+        playUiSound()
         isMinimized = not isMinimized
         if isMinimized then
             minimizeBtn.Text = "□"
@@ -470,13 +513,13 @@ return function(opts)
         isGuiVisible = visible
         if visible then
             mainFrame.Visible = true
-            mainFrame.Size = UDim2.new(0, math.floor(winWidth * 0.95), 0, math.floor(winHeight * 0.95))
+            mainFrame.Size = UDim2.new(0, math.floor(winWidth * 0.96), 0, math.floor(winHeight * 0.96))
             tween(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                 Size = UDim2.new(0, winWidth, 0, isMinimized and HEADER_HEIGHT or winHeight)
             })
         else
             local tw = tween(mainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                Size = UDim2.new(0, math.floor(winWidth * 0.95), 0, math.floor(winHeight * 0.95))
+                Size = UDim2.new(0, math.floor(winWidth * 0.96), 0, math.floor(winHeight * 0.96))
             })
             tw.Completed:Connect(function()
                 if not isGuiVisible then mainFrame.Visible = false end
@@ -485,12 +528,14 @@ return function(opts)
     end
 
     closeBtn.MouseButton1Click:Connect(function()
+        playUiSound()
         setGuiVisible(false)
     end)
 
     -- Keybind rebinding
     local listeningForRebind = false
     keybindPill.MouseButton1Click:Connect(function()
+        playUiSound()
         if listeningForRebind then return end
         listeningForRebind = true
         keybindPill.Text = "[...]"
@@ -644,11 +689,15 @@ return function(opts)
             if isCurrent then
                 t.Page.Position = UDim2.new(0, 0, 0, 4)
                 tween(t.Page, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)})
-                tween(t.Button, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card, TextColor3 = DEFAULT_THEME.TextPrimary})
+                tween(t.Button, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card, BackgroundTransparency = 0})
+                tween(t.Title, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {TextColor3 = DEFAULT_THEME.TextPrimary})
+                tween(t.Icon, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {TextColor3 = primaryTheme})
                 t.Indicator.Visible = true
                 tween(t.Indicator, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundTransparency = 0})
             else
-                tween(t.Button, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 1, TextColor3 = DEFAULT_THEME.TextSecondary})
+                tween(t.Button, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 1})
+                tween(t.Title, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {TextColor3 = DEFAULT_THEME.TextSecondary})
+                tween(t.Icon, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {TextColor3 = DEFAULT_THEME.TextDim})
                 t.Indicator.Visible = false
             end
         end
@@ -657,38 +706,51 @@ return function(opts)
     -- Forward declarations of component builders
     local createToggle, createSlider, createDropdown, createButton, createTextBox, createSection, createList
 
-    -- Tab Builder
+    -- Tab Builder (Completely Glitch-Free)
     local function createTab(tabName, tabOpts)
         tabOpts = tabOpts or {}
         local tabIcon = tabOpts.Icon or "✦"
 
-        -- Sidebar Tab Button
+        -- Sidebar Tab Button (Interactive container)
         local tabBtn = Instance.new("TextButton")
         tabBtn.Name = "Tab_" .. tostring(tabName)
         tabBtn.Size = UDim2.new(1, 0, 0, 36)
         tabBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         tabBtn.BackgroundTransparency = 1
         tabBtn.BorderSizePixel = 0
-        tabBtn.Font = Enum.Font.GothamMedium
-        tabBtn.Text = "     " .. tostring(tabName)
-        tabBtn.TextColor3 = DEFAULT_THEME.TextSecondary
-        tabBtn.TextSize = 12
-        tabBtn.TextXAlignment = Enum.TextXAlignment.Left
+        tabBtn.Text = ""
         tabBtn.AutoButtonColor = false
         tabBtn.Parent = tabScroll
         applyCorner(tabBtn, 8)
 
+        -- Icon Label
         local iconLbl = Instance.new("TextLabel")
         iconLbl.Name = "Icon"
-        iconLbl.Size = UDim2.new(0, 20, 1, 0)
+        iconLbl.Size = UDim2.new(0, 22, 1, 0)
         iconLbl.Position = UDim2.new(0, 10, 0, 0)
         iconLbl.BackgroundTransparency = 1
         iconLbl.Font = Enum.Font.GothamBold
         iconLbl.Text = tabIcon
-        iconLbl.TextColor3 = primaryTheme
+        iconLbl.TextColor3 = DEFAULT_THEME.TextDim
         iconLbl.TextSize = 13
+        iconLbl.TextXAlignment = Enum.TextXAlignment.Center
         iconLbl.Parent = tabBtn
 
+        -- Title Label (Dedicated, no hacky space offsets!)
+        local tabTitle = Instance.new("TextLabel")
+        tabTitle.Name = "Title"
+        tabTitle.Size = UDim2.new(1, -40, 1, 0)
+        tabTitle.Position = UDim2.new(0, 36, 0, 0)
+        tabTitle.BackgroundTransparency = 1
+        tabTitle.Font = Enum.Font.Gotham
+        tabTitle.Text = tostring(tabName)
+        tabTitle.TextColor3 = DEFAULT_THEME.TextSecondary
+        tabTitle.TextSize = 12
+        tabTitle.TextXAlignment = Enum.TextXAlignment.Left
+        tabTitle.TextTruncate = Enum.TextTruncate.AtEnd
+        tabTitle.Parent = tabBtn
+
+        -- Active Indicator Pill
         local activeIndicator = Instance.new("Frame")
         activeIndicator.Name = "Indicator"
         activeIndicator.Size = UDim2.new(0, 3, 0, 18)
@@ -698,6 +760,13 @@ return function(opts)
         activeIndicator.Visible = false
         activeIndicator.Parent = tabBtn
         applyCorner(activeIndicator, 2)
+
+        registerThemeUpdater(function(c)
+            activeIndicator.BackgroundColor3 = c
+            if activeTab and activeTab.Button == tabBtn then
+                iconLbl.TextColor3 = c
+            end
+        end)
 
         -- Page Scrolling Container
         local pageScroll = Instance.new("ScrollingFrame")
@@ -728,6 +797,8 @@ return function(opts)
         local tabRecord = {
             Name = tabName,
             Button = tabBtn,
+            Icon = iconLbl,
+            Title = tabTitle,
             Indicator = activeIndicator,
             Page = pageScroll
         }
@@ -735,15 +806,18 @@ return function(opts)
 
         tabBtn.MouseEnter:Connect(function()
             if activeTab ~= tabRecord then
-                tween(tabBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover, BackgroundTransparency = 0.5, TextColor3 = DEFAULT_THEME.TextPrimary})
+                tween(tabBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover, BackgroundTransparency = 0.5})
+                tween(tabTitle, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {TextColor3 = DEFAULT_THEME.TextPrimary})
             end
         end)
         tabBtn.MouseLeave:Connect(function()
             if activeTab ~= tabRecord then
-                tween(tabBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundTransparency = 1, TextColor3 = DEFAULT_THEME.TextSecondary})
+                tween(tabBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundTransparency = 1})
+                tween(tabTitle, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {TextColor3 = DEFAULT_THEME.TextSecondary})
             end
         end)
         tabBtn.MouseButton1Click:Connect(function()
+            playUiSound()
             selectTab(tabRecord)
         end)
 
@@ -766,12 +840,12 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 1: Section Header
+    -- Component 1: Section Header (Clean & Subtle)
     -- =========================================================================
     createSection = function(parent, titleText)
         local container = Instance.new("Frame")
         container.Name = "Section_" .. tostring(titleText)
-        container.Size = UDim2.new(1, 0, 0, 24)
+        container.Size = UDim2.new(1, 0, 0, 22)
         container.BackgroundTransparency = 1
         container.Parent = parent
 
@@ -786,6 +860,8 @@ return function(opts)
         titleLabel.TextSize = 10
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
         titleLabel.Parent = container
+
+        registerThemeUpdater(function(c) titleLabel.TextColor3 = c end)
 
         local rule = Instance.new("Frame")
         rule.Name = "Divider"
@@ -805,7 +881,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 2: Toggle Switch
+    -- Component 2: Modern Toggle Switch (Clean Font Hierarchy)
     -- =========================================================================
     createToggle = function(parent, titleText, defaultState, callback)
         local state = defaultState == true
@@ -825,7 +901,7 @@ return function(opts)
         titleLabel.Size = UDim2.new(1, -64, 1, 0)
         titleLabel.Position = UDim2.new(0, 14, 0, 0)
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Font = Enum.Font.GothamMedium
+        titleLabel.Font = Enum.Font.Gotham
         titleLabel.Text = tostring(titleText)
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
@@ -833,7 +909,7 @@ return function(opts)
         titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
         titleLabel.Parent = card
 
-        -- Switch Pill
+        -- Switch Track
         local switchTrack = Instance.new("TextButton")
         switchTrack.Name = "SwitchTrack"
         switchTrack.Size = UDim2.new(0, 38, 0, 20)
@@ -853,6 +929,10 @@ return function(opts)
         switchKnob.BorderSizePixel = 0
         switchKnob.Parent = switchTrack
         applyCorner(switchKnob, 7)
+
+        registerThemeUpdater(function(c)
+            if state then switchTrack.BackgroundColor3 = c end
+        end)
 
         local function updateVisuals()
             if state then
@@ -878,7 +958,7 @@ return function(opts)
             pcall(cb, state)
         end
 
-        -- Trigger on track or whole card click
+        -- Trigger on whole card click
         local hitTrigger = Instance.new("TextButton")
         hitTrigger.Name = "Hitbox"
         hitTrigger.Size = UDim2.new(1, 0, 1, 0)
@@ -893,6 +973,7 @@ return function(opts)
             tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card})
         end)
         hitTrigger.MouseButton1Click:Connect(function()
+            playUiSound()
             setToggle(not state)
         end)
 
@@ -932,7 +1013,7 @@ return function(opts)
         titleLabel.Size = UDim2.new(0.65, 0, 0, 20)
         titleLabel.Position = UDim2.new(0, 14, 0, 8)
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Font = Enum.Font.GothamMedium
+        titleLabel.Font = Enum.Font.Gotham
         titleLabel.Text = tostring(titleText)
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
@@ -946,7 +1027,7 @@ return function(opts)
         valBadge.Size = UDim2.new(0.35, -28, 0, 20)
         valBadge.Position = UDim2.new(0.65, 0, 0, 8)
         valBadge.BackgroundTransparency = 1
-        valBadge.Font = Enum.Font.GothamBold
+        valBadge.Font = Enum.Font.GothamMedium
         valBadge.Text = tostring(currentValue) .. suffix
         valBadge.TextColor3 = primaryTheme
         valBadge.TextSize = 11
@@ -982,12 +1063,16 @@ return function(opts)
         thumb.Parent = fill
         applyCorner(thumb, 6)
 
+        registerThemeUpdater(function(c)
+            fill.BackgroundColor3 = c
+            valBadge.TextColor3 = c
+        end)
+
         local function updateSlider(alpha, skipCallback)
             alpha = math.clamp(alpha, 0, 1)
             local range = maxVal - minVal
             local rawVal = minVal + (alpha * range)
 
-            -- Format depending on range
             if range <= 20 and range ~= math.floor(range) then
                 currentValue = math.floor(rawVal * 10 + 0.5) / 10
             else
@@ -1004,7 +1089,6 @@ return function(opts)
             end
         end
 
-        -- Initial layout
         local initialAlpha = (defaultVal - minVal) / (maxVal - minVal)
         updateSlider(initialAlpha, true)
 
@@ -1013,6 +1097,7 @@ return function(opts)
         track.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
+                playUiSound()
                 local trackX = track.AbsolutePosition.X
                 local trackW = track.AbsoluteSize.X
                 local alpha = (input.Position.X - trackX) / trackW
@@ -1057,7 +1142,7 @@ return function(opts)
         card.Size = UDim2.new(1, 0, 0, 38)
         card.BackgroundColor3 = DEFAULT_THEME.Card
         card.BorderSizePixel = 0
-        card.Font = Enum.Font.GothamMedium
+        card.Font = Enum.Font.Gotham
         card.Text = tostring(titleText)
         card.TextColor3 = DEFAULT_THEME.TextPrimary
         card.TextSize = 12
@@ -1079,6 +1164,7 @@ return function(opts)
             tween(card, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(1, 0, 0, 38)})
         end)
         card.MouseButton1Click:Connect(function()
+            playUiSound()
             pcall(cb)
         end)
 
@@ -1116,7 +1202,7 @@ return function(opts)
         titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
         titleLabel.Position = UDim2.new(0, 14, 0, 0)
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Font = Enum.Font.GothamMedium
+        titleLabel.Font = Enum.Font.Gotham
         titleLabel.Text = tostring(titleText)
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
@@ -1129,7 +1215,7 @@ return function(opts)
         selectionPill.Position = UDim2.new(0.5, 0, 0.5, -12)
         selectionPill.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
         selectionPill.BorderSizePixel = 0
-        selectionPill.Font = Enum.Font.GothamMedium
+        selectionPill.Font = Enum.Font.Gotham
         selectionPill.Text = tostring(currentSelection)
         selectionPill.TextColor3 = DEFAULT_THEME.TextSecondary
         selectionPill.TextSize = 11
@@ -1171,7 +1257,7 @@ return function(opts)
                 optBtn.Size = UDim2.new(1, 0, 0, 28)
                 optBtn.BackgroundColor3 = (opt == currentSelection) and Color3.fromRGB(34, 40, 54) or Color3.fromRGB(18, 21, 28)
                 optBtn.BorderSizePixel = 0
-                optBtn.Font = Enum.Font.GothamMedium
+                optBtn.Font = Enum.Font.Gotham
                 optBtn.Text = "   " .. tostring(opt)
                 optBtn.TextColor3 = (opt == currentSelection) and primaryTheme or DEFAULT_THEME.TextSecondary
                 optBtn.TextSize = 11
@@ -1190,6 +1276,7 @@ return function(opts)
                     })
                 end)
                 optBtn.MouseButton1Click:Connect(function()
+                    playUiSound()
                     currentSelection = opt
                     selectionPill.Text = tostring(opt)
                     pcall(cb, opt)
@@ -1202,6 +1289,7 @@ return function(opts)
         rebuildOptions()
 
         headerBtn.MouseButton1Click:Connect(function()
+            playUiSound()
             isExpanded = not isExpanded
             chevron.Text = isExpanded and "▴" or "▾"
             local targetH = isExpanded and (48 + (#options * 31)) or 42
@@ -1245,7 +1333,7 @@ return function(opts)
         titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
         titleLabel.Position = UDim2.new(0, 14, 0, 0)
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Font = Enum.Font.GothamMedium
+        titleLabel.Font = Enum.Font.Gotham
         titleLabel.Text = tostring(titleText)
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
@@ -1322,7 +1410,7 @@ return function(opts)
         titleLabel.Size = UDim2.new(1, -70, 1, 0)
         titleLabel.Position = UDim2.new(0, 14, 0, 0)
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Font = Enum.Font.GothamMedium
+        titleLabel.Font = Enum.Font.Gotham
         titleLabel.Text = tostring(titleText or "List")
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
@@ -1335,7 +1423,7 @@ return function(opts)
         countBadge.Position = UDim2.new(1, -64, 0.5, -9)
         countBadge.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
         countBadge.BorderSizePixel = 0
-        countBadge.Font = Enum.Font.GothamBold
+        countBadge.Font = Enum.Font.GothamMedium
         countBadge.Text = tostring(#items)
         countBadge.TextColor3 = primaryTheme
         countBadge.TextSize = 10
@@ -1385,6 +1473,7 @@ return function(opts)
         end
 
         headerBtn.MouseButton1Click:Connect(function()
+            playUiSound()
             isExpanded = not isExpanded
             updateListVisuals()
         end)
@@ -1395,7 +1484,7 @@ return function(opts)
             itmBtn.Size = UDim2.new(1, 0, 0, 28)
             itmBtn.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
             itmBtn.BorderSizePixel = 0
-            itmBtn.Font = Enum.Font.GothamMedium
+            itmBtn.Font = Enum.Font.Gotham
             itmBtn.Text = "   " .. tostring(text)
             itmBtn.TextColor3 = DEFAULT_THEME.TextSecondary
             itmBtn.TextSize = 11
@@ -1416,6 +1505,7 @@ return function(opts)
                 end
             end)
             itmBtn.MouseButton1Click:Connect(function()
+                playUiSound()
                 listObj.SelectedItem = text
                 pcall(cb, text)
                 if type(itemCallback) == "function" then pcall(itemCallback, text) end
@@ -1423,7 +1513,6 @@ return function(opts)
             return itmBtn
         end
 
-        -- Populate initial items
         for _, itm in ipairs(items) do
             listObj.AddItem(itm)
         end
@@ -1515,7 +1604,7 @@ return function(opts)
         b1.Position = UDim2.new(0, 14, 1, -44)
         b1.BackgroundColor3 = primaryTheme
         b1.BorderSizePixel = 0
-        b1.Font = Enum.Font.GothamMedium
+        b1.Font = Enum.Font.Gotham
         b1.Text = tostring(btn1 or "Confirm")
         b1.TextColor3 = Color3.fromRGB(255, 255, 255)
         b1.TextSize = 12
@@ -1527,7 +1616,7 @@ return function(opts)
         b2.Position = UDim2.new(0.5, 4, 1, -44)
         b2.BackgroundColor3 = DEFAULT_THEME.Card
         b2.BorderSizePixel = 0
-        b2.Font = Enum.Font.GothamMedium
+        b2.Font = Enum.Font.Gotham
         b2.Text = tostring(btn2 or "Cancel")
         b2.TextColor3 = DEFAULT_THEME.TextSecondary
         b2.TextSize = 12
@@ -1535,10 +1624,12 @@ return function(opts)
         applyCorner(b2, 6)
 
         b1.MouseButton1Click:Connect(function()
+            playUiSound()
             pcall(onBtn1 or function() end)
             modalOverlay:Destroy()
         end)
         b2.MouseButton1Click:Connect(function()
+            playUiSound()
             pcall(onBtn2 or function() end)
             modalOverlay:Destroy()
         end)
@@ -1633,11 +1724,6 @@ return function(opts)
     Hub.setBlackScreen = setBlackScreen
 
     -- Lifecycle & Teardown
-    Hub.finishLoading = function(msg)
-        if msg then sendNotification("Unknown Hub", tostring(msg), 3) end
-    end
-    Hub.FinishLoading = Hub.finishLoading
-
     Hub.registerFeatureStopper = function(stopper)
         if type(stopper) == "function" then table.insert(featureStoppers, stopper) end
     end
@@ -1655,6 +1741,112 @@ return function(opts)
             screenGui:Destroy()
         end
     end
+
+    -- =========================================================================
+    -- Built-in Hub Settings Tab (Exclusive System Controls, NO Universal Cheats)
+    -- =========================================================================
+    local settingsPage = nil
+    local function ensureSettingsTab()
+        if settingsPage then return end
+        settingsPage = createTab("Settings", { Icon = "⚙", Size = 16 })
+
+        -- Section 1: Appearance & UI
+        createSection(settingsPage, "🎨 UI & Theme Customization")
+
+        local themeNames = {"Electric Amber", "Cyber Cyan", "Neon Violet", "Emerald Mint", "Crimson Rose", "Ice White"}
+        createDropdown(settingsPage, "Accent Theme", themeNames, "Electric Amber", function(selectedTheme)
+            local col = THEME_PRESETS[selectedTheme]
+            if col then setAccentColor(col) end
+        end)
+
+        createButton(settingsPage, "Reset Window Position", function()
+            mainFrame.Position = UDim2.new(0.5, -math.floor(winWidth / 2), 0.5, -math.floor(winHeight / 2))
+            sendNotification("Settings", "Window position centered.", 2)
+        end)
+
+        createSlider(settingsPage, "Background Transparency", 0, 50, 0, "%", function(pct)
+            local trans = pct / 100
+            mainFrame.BackgroundTransparency = trans
+            sidebar.BackgroundTransparency = trans
+        end)
+
+        -- Section 2: Audio & Feedback
+        createSection(settingsPage, "🔊 Audio & Sensory Feedback")
+
+        createToggle(settingsPage, "UI Click Sound Effects", sfxEnabled, function(enabled)
+            sfxEnabled = enabled
+        end)
+
+        createSlider(settingsPage, "SFX Volume", 5, 100, math.floor(sfxVolume * 100), "%", function(val)
+            sfxVolume = val / 100
+        end)
+
+        -- Section 3: Session & Connectivity
+        createSection(settingsPage, "🌐 Session Management")
+
+        createButton(settingsPage, "Rejoin Current Server", function()
+            pcall(function()
+                if #Players:GetPlayers() <= 1 then
+                    LocalPlayer:Kick("\n[Unknown Hub] Rejoining server...")
+                    task.wait()
+                    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                else
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+                end
+            end)
+        end)
+
+        createButton(settingsPage, "Server Hop (Next Public Server)", function()
+            sendNotification("Server Hop", "Searching for an active server...", 2.5)
+            task.spawn(function()
+                local placeId = game.PlaceId
+                local ok, res = pcall(function()
+                    return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"))
+                end)
+                if ok and res and res.data then
+                    for _, srv in ipairs(res.data) do
+                        if srv.playing and srv.maxPlayers and srv.playing < srv.maxPlayers and srv.id ~= game.JobId then
+                            pcall(function()
+                                TeleportService:TeleportToPlaceInstance(placeId, srv.id, LocalPlayer)
+                            end)
+                            return
+                        end
+                    end
+                end
+                pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
+            end)
+        end)
+
+        createButton(settingsPage, "Copy Community Invite Link", function()
+            local link = "https://discord.gg/unknownhub"
+            local copier = type(setclipboard) == "function" and setclipboard or (type(toclipboard) == "function" and toclipboard or nil)
+            if copier then
+                pcall(copier, link)
+                sendNotification("Copied", "Discord invite copied to clipboard!", 2)
+            else
+                sendNotification("Notice", link, 4)
+            end
+        end)
+
+        createButton(settingsPage, "Safe Unload & Teardown Hub", function()
+            showWarning("Unload Unknown Hub", "Are you sure you want to unload the hub and stop all active features?", "Unload", "Cancel", function()
+                Hub.destroy()
+            end)
+        end)
+    end
+
+    -- Automatically attach Settings tab when loading completes or on deferral
+    Hub.finishLoading = function(msg)
+        ensureSettingsTab()
+        if msg then sendNotification("Unknown Hub", tostring(msg), 3) end
+    end
+    Hub.FinishLoading = Hub.finishLoading
+
+    -- Fallback deferral to ensure Settings is always present
+    task.defer(function()
+        task.wait(0.2)
+        ensureSettingsTab()
+    end)
 
     return Hub
 end
