@@ -175,36 +175,35 @@ local function processCrateComplete(crate, mode)
     root.CFrame = targetCFrame
     root.AssemblyLinearVelocity = Vector3.zero
     -- Position settle for server replication
-    task.wait(0.22)
+    task.wait(0.25)
 
-    -- If unopened, trigger opening prompt
+    -- If unopened, pulse opening prompt until server confirms opening via Collected attribute
     if mode == "open" then
         local openPrompt = cratePart:FindFirstChild("CratePrompt")
-        if openPrompt and openPrompt.Enabled then
-            triggerPrompt(openPrompt)
-        end
-
-        -- Fast wait for lid acknowledgment or item prompts to appear
-        local openDeadline = tick() + 0.8
-        while tick() < openDeadline do
-            if #getCrateItemPrompts(crate) > 0 or not openPrompt.Enabled or crate:GetAttribute("Collected") == true then
-                break
+        local openDeadline = tick() + 1.8
+        while crate:GetAttribute("Collected") ~= true and tick() < openDeadline do
+            if openPrompt and openPrompt.Enabled then
+                triggerPrompt(openPrompt)
             end
             root.CFrame = targetCFrame
             root.AssemblyLinearVelocity = Vector3.zero
-            task.wait(0.05)
+            task.wait(0.2)
         end
     end
 
-    -- Thorough in-place loot sweep: stay at the crate until ALL items are collected
-    local sweepDeadline = tick() + 2.0
+    local isOpened = (crate:GetAttribute("Collected") == true) or (mode == "loot")
+    if not isOpened then
+        return false
+    end
+
+    -- Thorough in-place loot sweep: wait for items to appear and sweep until all prompts are cleared
+    local sweepDeadline = tick() + 2.2
     local collectedAny = false
-    local idleCount = 0
+    local sweepStart = tick()
 
     while tick() < sweepDeadline do
         local activePrompts = getCrateItemPrompts(crate)
         if #activePrompts > 0 then
-            idleCount = 0
             for _, prompt in ipairs(activePrompts) do
                 root.CFrame = targetCFrame
                 root.AssemblyLinearVelocity = Vector3.zero
@@ -213,9 +212,8 @@ local function processCrateComplete(crate, mode)
                 task.wait(0.08)
             end
         else
-            idleCount = idleCount + 1
-            -- If crate is clear of prompts for 0.25s, it is completely done
-            if (collectedAny and idleCount >= 3) or (idleCount >= 5) then
+            -- If items were collected, or we waited at least 0.85s for items to spawn and none appeared, crate is done
+            if collectedAny or (tick() - sweepStart) > 0.85 then
                 break
             end
         end
@@ -312,11 +310,13 @@ task.spawn(function()
                     crateAttempts[name] = (crateAttempts[name] or 0) + 1
 
                     -- Complete the crate 100% in this single visit
-                    processCrateComplete(crate, target.mode)
+                    local success = processCrateComplete(crate, target.mode)
 
-                    -- Immediately mark completed and blacklisted so it is NEVER targeted again!
-                    openedCrates[name] = true
-                    blacklistedCrates[name] = true
+                    -- Mark completed and blacklisted if successfully swept, or if attempt limit reached
+                    if success or crateAttempts[name] >= 2 then
+                        openedCrates[name] = true
+                        blacklistedCrates[name] = true
+                    end
 
                     task.wait(Config.FarmDelay)
                 else
