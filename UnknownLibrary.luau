@@ -994,6 +994,10 @@ return function(opts)
     -- Component 3: Precision Slider
     -- =========================================================================
     createSlider = function(parent, titleText, minVal, maxVal, defaultVal, suffixText, callback)
+        if type(suffixText) == "function" and callback == nil then
+            callback = suffixText
+            suffixText = ""
+        end
         minVal = tonumber(minVal) or 0
         maxVal = tonumber(maxVal) or 100
         defaultVal = tonumber(defaultVal) or minVal
