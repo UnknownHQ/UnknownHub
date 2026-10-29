@@ -1519,7 +1519,37 @@ return function(opts)
         }
     end
 
-        Hub.CreateDropdown = createDropdown
+    -- =========================================================================
+    -- Public API Hub Interface
+    -- =========================================================================
+    local Hub = {}
+
+    -- Core GUI Elements
+    Hub.screenGui = screenGui
+    Hub.gui = screenGui
+    Hub.mainFrame = mainFrame
+    Hub.frame = mainFrame
+    Hub.content = contentArea
+
+    -- Tab & Component Factories
+    Hub.CreateTab = createTab
+    Hub.createTab = createTab
+    Hub.CreatePage = createTab
+    Hub.createPage = createTab
+
+    Hub.CreateSection = createSection
+    Hub.createSection = createSection
+    Hub.addSection = createSection
+
+    Hub.CreateToggle = createToggle
+    Hub.createToggle = createToggle
+    Hub.CreateLoopToggle = createLoopToggle
+    Hub.createLoopToggle = createLoopToggle
+
+    Hub.CreateSlider = createSlider
+    Hub.createSlider = createSlider
+
+    Hub.CreateDropdown = createDropdown
     Hub.createDropdown = createDropdown
     Hub.CreateMultiDropdown = createMultiDropdown
     Hub.createMultiDropdown = createMultiDropdown
