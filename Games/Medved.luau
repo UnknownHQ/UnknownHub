@@ -550,20 +550,35 @@ local function applyWeaponMods(tool)
         if windup and windup:IsA("ValueBase") then windup.Value = 0 end
 
         local cooldown = config:FindFirstChild("CooldownTime")
-        if cooldown and cooldown:IsA("ValueBase") then cooldown.Value = 0.08 end
+        if cooldown and cooldown:IsA("ValueBase") then cooldown.Value = 0.35 end
 
         local hitboxTime = config:FindFirstChild("HitboxTime")
-        if hitboxTime and hitboxTime:IsA("ValueBase") then hitboxTime.Value = 1.0 end
+        if hitboxTime and hitboxTime:IsA("ValueBase") then hitboxTime.Value = 0.8 end
     end
 end
 
--- Get current live loaded ammo and reload state directly from Game GUI
+-- Server-Synchronized Gun Reload & Live Ammo State Machine
+local isReloading = false
+local reloadEndTime = 0
+
 local function getLoadedAmmoFromGUI()
+    if tick() < reloadEndTime then
+        return 0, true
+    end
+
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local hud = pgui and pgui:FindFirstChild("GameplayInterface") and pgui.GameplayInterface:FindFirstChild("Hud")
     local gunHud = hud and hud:FindFirstChild("Gun")
-    local ammoLabel = gunHud and gunHud:FindFirstChild("Crosshair") and gunHud.Crosshair:FindFirstChild("AmmoCount")
 
+    -- 1. Check MobileButtons reload cooldown indicator
+    local reloadBtn = gunHud and gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Reload")
+    local reloadCooldown = reloadBtn and reloadBtn:FindFirstChild("Cooldown")
+    if reloadCooldown and reloadCooldown.Visible then
+        return 0, true
+    end
+
+    -- 2. Inspect active crosshair ammo label
+    local ammoLabel = gunHud and gunHud:FindFirstChild("Crosshair") and gunHud.Crosshair:FindFirstChild("AmmoCount")
     if ammoLabel and ammoLabel.Text ~= "" then
         local text = ammoLabel.Text
         if string.find(text, "RELOAD") or string.find(text, "%-%-") then
@@ -575,6 +590,29 @@ local function getLoadedAmmoFromGUI()
         end
     end
     return 10, false
+end
+
+-- Atomic Single-Pulse Gun Reload Trigger (Prevents Server Reload Abort / Desync)
+local function triggerGunReload(tool)
+    if not tool or tick() < reloadEndTime then return end
+    local gunScripts = tool:FindFirstChild("GunScripts")
+    local reloadRemote = gunScripts and gunScripts:FindFirstChild("Reload")
+    if not reloadRemote then return end
+
+    local config = tool:FindFirstChild("Config")
+    local reloadTimeVal = config and config:FindFirstChild("ReloadTime")
+    local reloadDuration = (reloadTimeVal and reloadTimeVal:IsA("ValueBase") and reloadTimeVal.Value) or 2.0
+
+    -- Lock reload state until server completes reload cycle
+    reloadEndTime = tick() + reloadDuration + 0.15
+    isReloading = true
+
+    reloadRemote:FireServer()
+    task.delay(reloadDuration + 0.15, function()
+        if tick() >= reloadEndTime then
+            isReloading = false
+        end
+    end)
 end
 
 -- Server-Authoritative Shooting Dispatcher
@@ -590,13 +628,13 @@ local function shootTargetBear(tool, bear, bearPart)
     if not fireRemote then return end
 
     -- Check live GUI ammo state: NEVER shoot when empty or reloading!
-    local currentAmmo, isReloading = getLoadedAmmoFromGUI()
-    if isReloading or currentAmmo <= 0 then
-        -- Gun is empty on server, pulse reload and pause fire
-        local reloadRemote = gunScripts:FindFirstChild("Reload")
-        if reloadRemote and not isReloading then
-            reloadRemote:FireServer()
-        end
+    local currentAmmo, reloading = getLoadedAmmoFromGUI()
+    if reloading or tick() < reloadEndTime then
+        return
+    end
+
+    if currentAmmo <= 0 then
+        triggerGunReload(tool)
         return
     end
 
@@ -650,6 +688,8 @@ local function shootTargetBear(tool, bear, bearPart)
 end
 
 -- Active Combat Loop: Melee Aura, Gun Aura & Weapon Enhancements
+local lastMeleeSwing = 0
+
 task.spawn(function()
     while true do
         task.wait(0.08)
@@ -660,7 +700,7 @@ task.spawn(function()
         if root and hum and hum.Health > 0 then
             local equippedTool = char:FindFirstChildOfClass("Tool")
 
-            -- 1. Melee Aura Execution
+            -- 1. Melee Aura Execution (Smooth 0.35s swing throttle to eliminate visual spam)
             if Config.MeleeAura then
                 local bear, dist = getClosestBear(Config.MeleeAuraRange)
                 if bear and dist then
@@ -670,7 +710,10 @@ task.spawn(function()
                         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
                         if bearRoot then
                             root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
-                            equippedTool:Activate()
+                            if tick() - lastMeleeSwing >= 0.35 then
+                                lastMeleeSwing = tick()
+                                equippedTool:Activate()
+                            end
                         end
                     end
                 end
@@ -693,15 +736,53 @@ task.spawn(function()
                 end
             end
 
-            -- 3. Always apply weapon mods if a gun is held
+            -- 3. Always apply weapon mods & auto-cycle empty clips if a gun is held
             if Config.InfiniteAmmo and equippedTool and equippedTool:FindFirstChild("GunScripts") then
                 applyWeaponMods(equippedTool)
+                local currentAmmo, reloading = getLoadedAmmoFromGUI()
+                if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
+                    triggerGunReload(equippedTool)
+                end
             end
         end
     end
 end)
 
 -- Native Undetectable Speed Modifier Engine (Using Game's SpeedModifiers Framework)
+local SpeedModifiersModule = ReplicatedStorage:FindFirstChild("SpeedModifiers")
+local SpeedModifiers = SpeedModifiersModule and require(SpeedModifiersModule)
+
+local function ensureSpeedModifier(char)
+    if not char then return end
+    local targetMod = (Config.CustomSpeed and Config.CustomSpeed > 14.1) and ((Config.CustomSpeed / 14.1) - 1) or 0
+    if SpeedModifiers then
+        pcall(function()
+            SpeedModifiers.Set(char, "UnknownSpeedMod", targetMod)
+        end)
+    else
+        local speedFolder = char:FindFirstChild("SpeedModifiers")
+        if not speedFolder then
+            speedFolder = Instance.new("Folder")
+            speedFolder.Name = "SpeedModifiers"
+            speedFolder.Parent = char
+        end
+        local speedMod = speedFolder:FindFirstChild("UnknownSpeedMod")
+        if not speedMod then
+            speedMod = Instance.new("NumberValue")
+            speedMod.Name = "UnknownSpeedMod"
+            speedMod.Parent = speedFolder
+        end
+        if math.abs(speedMod.Value - targetMod) > 0.005 then
+            speedMod.Value = targetMod
+        end
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    task.wait(0.1)
+    ensureSpeedModifier(newChar)
+end)
+
 RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
@@ -713,21 +794,7 @@ RunService.Heartbeat:Connect(function()
     end
 
     -- 2. WalkSpeed & SprintingSpeed Multiplier via Game's SpeedModifiers
-    local speedFolder = char:FindFirstChild("SpeedModifiers")
-    if speedFolder then
-        local speedMod = speedFolder:FindFirstChild("UnknownSpeedMod")
-        if not speedMod then
-            speedMod = Instance.new("NumberValue")
-            speedMod.Name = "UnknownSpeedMod"
-            speedMod.Parent = speedFolder
-        end
-
-        if Config.CustomSpeed and Config.CustomSpeed > 14.1 then
-            speedMod.Value = (Config.CustomSpeed / 14.1) - 1
-        else
-            speedMod.Value = 0
-        end
-    end
+    ensureSpeedModifier(char)
 end)
 
 --------------------------------------------------------------------------------
@@ -965,16 +1032,7 @@ end)
 
 Hub.CreateSlider(combatTab, "WalkSpeed Modifier", 14.1, 45, Config.CustomSpeed, " spd", function(val)
     Config.CustomSpeed = val
-    pcall(function()
-        local char = LocalPlayer.Character
-        local speedFolder = char and char:FindFirstChild("SpeedModifiers")
-        if speedFolder then
-            local speedMod = speedFolder:FindFirstChild("UnknownSpeedMod") or Instance.new("NumberValue")
-            speedMod.Name = "UnknownSpeedMod"
-            speedMod.Value = val > 14.1 and ((val / 14.1) - 1) or 0
-            speedMod.Parent = speedFolder
-        end
-    end)
+    ensureSpeedModifier(LocalPlayer.Character)
 end)
 
 -- TAB: VISUALS
@@ -1022,32 +1080,6 @@ for _, locItem in ipairs(locationRegistry) do
     end)
 end
 
--- TAB: MISC
-local miscTab = Hub.CreateTab("Misc", {
-    Icon = "⚙️",
-    Size = 18,
-    Color = Color3.fromRGB(200, 210, 230),
-    ActiveColor = Color3.fromRGB(240, 245, 255)
-})
 
-Hub.CreateSection(miscTab, "Navigation & Server")
-
-Hub.CreateButton(miscTab, "Serverhop (New Server)", function()
-    Hub.Notify("Teleport", "Finding new server...", 2)
-    if getgenv().serverhop then
-        getgenv().serverhop()
-    else
-        TeleportService:Teleport(game.PlaceId, LocalPlayer)
-    end
-end)
-
-Hub.CreateButton(miscTab, "Rejoin Current Server", function()
-    Hub.Notify("Teleport", "Rejoining...", 2)
-    if getgenv().rejoin then
-        getgenv().rejoin()
-    else
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-    end
-end)
 
 Hub.Notify("Medved Hub", "Medved! V4 Loaded — Combat Suite & Dynamic Teleports 🐻", 3)
