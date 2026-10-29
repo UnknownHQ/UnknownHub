@@ -96,8 +96,8 @@ local SupportedGames = {
     {
         name = "Medved!",
         icon = "🐻",
-        placeIds = { 0 },
-        gameIds = { 0 },
+        placeIds = { 132273534230449 },
+        gameIds = { 7144947546 },
         scriptUrl = BASE_URL .. "/Games/Medved.luau",
         desc = "Dedicated automation & farming suite for Medved!"
     }
