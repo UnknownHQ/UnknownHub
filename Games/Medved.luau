@@ -38,10 +38,6 @@ end)
 --------------------------------------------------------------------------------
 -- 1. SILENT TELEMETRY NEUTRALIZER (ZERO CHARACTER INJECTIONS)
 --------------------------------------------------------------------------------
--- Trap 1 & 2 in Animate.luau listen for DescendantAdded (BodyVelocity) and CanCollide.
--- We DO NOT inject any BodyMovers or touch CanCollide!
--- Instead, we silence telemetry at the source:
-
 local function silenceTelemetry()
     pcall(function()
         local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
@@ -51,15 +47,14 @@ local function silenceTelemetry()
 
         -- 1. Hook Packet.Write to wipe any violation reports before serialization
         local Packet = require(packetModule)
-        if Packet and not Packet.__UNK_HOOKED then
-            local oldWrite = Packet.Write
+        if Packet and not Packet.__ORIGINAL_WRITE then
+            Packet.__ORIGINAL_WRITE = Packet.Write
             Packet.Write = function(p16, p17, p18, p19)
                 if type(p17) == "table" and p17.Reports and #p17.Reports > 0 then
                     table.clear(p17.Reports) -- Strip all violation reports (Code 1, 3, 4, 6, 8)
                 end
-                return oldWrite(p16, p17, p18, p19)
+                return Packet.__ORIGINAL_WRITE(p16, p17, p18, p19)
             end
-            Packet.__UNK_HOOKED = true
         end
 
         -- 2. Disconnect the BindableEvent listener in ClientInterface
@@ -294,12 +289,7 @@ local farmTab = Hub.CreateTab("Auto Farm", {
     ActiveColor = Color3.fromRGB(0, 230, 255)
 })
 
-Hub.CreateSection(farmTab, "🛡️ Telemetry Shield Status")
-
-Hub.CreateParagraph(farmTab, {
-    Title = "Silent Filter Active",
-    Content = "Packet report stripper & event listener disabler active. Zero character modifications."
-})
+Hub.CreateSection(farmTab, "🛡️ Telemetry Shield: Active & Silent")
 
 Hub.CreateSection(farmTab, "📦 Crates Automation")
 
