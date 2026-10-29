@@ -544,16 +544,24 @@ local function getBearLevitationTarget(bear)
         return cf.Position, distBehind, targetY
     end
 
-    -- Category 2: Tall / Giant / Wall / Worm / Grinder bears
-    -- TallBear, GrizzlyTallBear, WallBear, WormBear, GrinderBear, GhostBear, DemonBear (sz.Y > 14, sz.Z > 14, or wall/tall/worm/grinder)
-    -- Elevate behind upper body:
-    -- Target Y = cf.Position.Y + math.clamp(sz.Y * 0.15, 1.5, 6.0)
-    -- Dist behind = (sz.Z * 0.5) + 2.5
-    -- Completely above ground slam radius (TallSlam radius 12, WallBear LieDown/BodySlam)
-    if name:find("tall") or name:find("wall") or name:find("worm") or name:find("grinder") or sz.Y > 14 or sz.Z > 14 then
-        local targetY = cf.Position.Y + math.clamp(sz.Y * 0.15, 1.5, 6.0)
-        local distBehind = (sz.Z * 0.5) + 2.5
-        return cf.Position, distBehind, targetY
+    -- Category 0.5: WallBear & Giant Wall Entities (Apex Stance above top edge)
+    -- WallBear is 17-20 studs wide and 20 studs tall. Topples forward and spins with width 17 studs.
+    -- Solution: Hover directly above upper edge (BodyTop / Ears) to stay clear of topple & ground spin.
+    if name:find("wall") then
+        local topPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head")
+        local targetPos = topPart and topPart.Position or cf.Position
+        local targetY = cf.Position.Y + (sz.Y * 0.5) + 4.2
+        local distBehind = (sz.X * 0.5) + 3.2
+        return targetPos, distBehind, targetY
+    end
+
+    -- Category 2: Tall / Giant / Worm bears (TallBear, GrizzlyTallBear, WormBear)
+    if name:find("tall") or name:find("worm") or sz.Y > 14 or sz.Z > 14 then
+        local head = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head")
+        local targetPos = head and head.Position or cf.Position
+        local targetY = cf.Position.Y + (sz.Y * 0.5) + 4.0
+        local distBehind = (sz.Z * 0.5) + 3.0
+        return targetPos, distBehind, targetY
     end
 
     -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, IceBear, ThinBear, etc.)
@@ -807,7 +815,7 @@ local function shootTargetBear(tool, bear, bearPart)
     local muzzlePos = muzzle and muzzle.WorldCFrame.Position or (root.Position + Vector3.new(0, 1.5, 0))
 
     -- Target verified hitbox part (head or chest/torso) for 100% damage registration
-    local targetPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearPart
+    local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearPart
     local hitPos = targetPart.Position
 
     -- Check if target is alive
@@ -1062,29 +1070,58 @@ pcall(function()
     end
 end)
 
+local lockedFarmTarget = nil
+
 local function getFarmBearTarget()
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil, nil end
+    if not root then
+        lockedFarmTarget = nil
+        return nil, nil
+    end
 
     local wsBears = workspace:FindFirstChild("Bears")
-    if not wsBears then return nil, nil end
+    if not wsBears then
+        lockedFarmTarget = nil
+        return nil, nil
+    end
+
+    -- 1. Sticky Target Lock: Stay locked onto the current bear until it is completely dead!
+    if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
+        local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
+        local lockedRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart or lockedFarmTarget:FindFirstChildWhichIsA("BasePart")
+        if lockedHum and lockedHum.Health > 0 and lockedRoot and lockedRoot.Parent then
+            local dist = (lockedRoot.Position - root.Position).Magnitude
+            return lockedFarmTarget, dist
+        end
+    end
+
+    -- 2. Target died, despawned, or unselected: unlock and acquire next closest selected bear
+    lockedFarmTarget = nil
 
     local bestBear = nil
     local bestDist = math.huge
 
     for _, bear in ipairs(wsBears:GetChildren()) do
         if isBearTargetSelected(bear) then
-            local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
-            if bearRoot then
-                local dist = (bearRoot.Position - root.Position).Magnitude
-                if dist < bestDist then
-                    bestDist = dist
-                    bestBear = bear
+            local bearHum = bear:FindFirstChildOfClass("Humanoid")
+            if bearHum and bearHum.Health > 0 then
+                local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
+                if bearRoot then
+                    local dist = (bearRoot.Position - root.Position).Magnitude
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestBear = bear
+                    end
                 end
             end
         end
     end
+
+    if bestBear then
+        lockedFarmTarget = bestBear
+    end
+
     return bestBear, bestDist
 end
 
@@ -1139,6 +1176,35 @@ local function teleportToSkySanctuary()
     end
 end
 
+-- Dynamic Proximity Threat Ceiling Engine
+-- Detects nearby tall/giant entities (WallBear, TallBear, Grinder) and dynamically elevates hover height
+local function getNearbyThreatCeiling(playerPos, currentTarget)
+    local highestThreatY = 0
+    local wsBears = workspace:FindFirstChild("Bears")
+    if not wsBears then return 0 end
+
+    for _, otherBear in ipairs(wsBears:GetChildren()) do
+        if otherBear ~= currentTarget and otherBear.Parent then
+            local otherHum = otherBear:FindFirstChildOfClass("Humanoid")
+            if otherHum and otherHum.Health > 0 then
+                local otherRoot = otherBear:FindFirstChild("HumanoidRootPart") or otherBear.PrimaryPart or otherBear:FindFirstChildWhichIsA("BasePart")
+                if otherRoot then
+                    local xzDist = Vector2.new(otherRoot.Position.X - playerPos.X, otherRoot.Position.Z - playerPos.Z).Magnitude
+                    if xzDist < 26 then
+                        local oCf, oSz = otherBear:GetBoundingBox()
+                        local realHeight = math.clamp(oSz.Y, 2, 42)
+                        local otherTopY = oCf.Position.Y + (realHeight * 0.5)
+                        if otherTopY > highestThreatY then
+                            highestThreatY = otherTopY
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return highestThreatY
+end
+
 -- Pipeline 1: 60+ FPS Butter-Smooth Levitation Flight (RunService.Heartbeat)
 -- Decoupled from combat task.wait pauses; updates every single physics frame without stutter or delay
 RunService.Heartbeat:Connect(function(dt)
@@ -1170,13 +1236,20 @@ RunService.Heartbeat:Connect(function(dt)
     local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
     if not centerPos then return end
 
-    local isBoss = bear.Name:lower():find("grinder") or bear.Name:lower():find("boss")
+    local isBoss = bear.Name:lower():find("grinder") or bear.Name:lower():find("boss") or bear.Name:lower():find("wall")
     if Config.FarmMethod == "Melee" then
         local targetPos = centerPos - (lookVec * distBehind)
         local y = targetY
         if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
             y = y + (isBoss and 7.5 or 4.8) -- High vault when bear attempts to turn or charge
         end
+
+        -- Dynamic Threat Ceiling: elevate above any nearby giant/tall bears walking close
+        local threatCeiling = getNearbyThreatCeiling(root.Position, bear)
+        if threatCeiling > 0 and (threatCeiling + 2.8) > y then
+            y = threatCeiling + 2.8
+        end
+
         targetPos = Vector3.new(targetPos.X, y, targetPos.Z)
         root.CFrame = CFrame.lookAt(targetPos, centerPos)
     elseif Config.FarmMethod == "Gun" then
@@ -1184,6 +1257,13 @@ RunService.Heartbeat:Connect(function(dt)
         local distBehindGun = isBoss and 32.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0)
         local heightAboveGun = isBoss and (bbSize.Y * 0.5 + 16.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0)
         local hoverPos = centerPos - (lookVec * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
+
+        -- Dynamic Threat Ceiling in Gun mode
+        local threatCeiling = getNearbyThreatCeiling(root.Position, bear)
+        if threatCeiling > 0 and (threatCeiling + 3.0) > hoverPos.Y then
+            hoverPos = Vector3.new(hoverPos.X, threatCeiling + 3.0, hoverPos.Z)
+        end
+
         root.CFrame = CFrame.lookAt(hoverPos, centerPos)
     end
 
@@ -1291,7 +1371,7 @@ task.spawn(function()
 
                     -- Direct authoritative network hit dispatch (Crown/Head priority)
                     local meleeRemote = isMelee:FindFirstChild("MeleeRemote")
-                    local targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
+                    local targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
                     if meleeRemote and targetHitPart then
                         pcall(function()
                             meleeRemote:FireServer("Hit", targetHitPart)
@@ -1307,7 +1387,7 @@ task.spawn(function()
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
                     triggerGunReload(bestTool)
                 end
-                local targetPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
+                local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
                 shootTargetBear(bestTool, bear, targetPart)
             end
         end
