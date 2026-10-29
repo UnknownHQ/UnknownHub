@@ -1,102 +1,87 @@
---[[
-    ========================================================================
-    Unknown Hub - Medved! (Hunt & Become Bears) Game Module
-    Game ID: 7144947546 | Place ID: 132273534230449
-    Security Architecture:
-      - Silent Telemetry Neutralizer (Zero character tampering / zero body movers)
-      - Packet.Write Report Stripper (Prevents Code 3, 4, 6 from ever reaching server)
-      - BindableEvent Listener Disabler (Mutes Animate & Sprinting trap callers)
-      - Safe Crates Auto Farm (Strict unopened filtering & instant proximity looting)
-      - Unopened Crates ESP
-    ========================================================================
-]]
-
-local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
+--------------------------------------------------------------------------------
+-- UNKNOWN HUB: MEDVED! (Hunt & Become Bears)
+-- PlaceId: 132273534230449 | GameId: 7144947546
+-- Complete Suite: Auto Farm Crates, Auto Collect Pages, Crates ESP, Bears ESP, Teleports
+-- Security: Full Packet.Write hook & zero-mover stealth architecture
+--------------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser")
 local Workspace = game:GetService("Workspace")
-local TeleportService = game:GetService("TeleportService")
-local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
+local TeleportService = game:GetService("TeleportService")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Anti-AFK Safeguard
-pcall(function()
-    LocalPlayer.Idled:Connect(function()
-        pcall(function()
-            if VirtualUser then
-                VirtualUser:CaptureController()
-                VirtualUser:ClickButton2(Vector2.new(0, 0))
-            end
-        end)
-    end)
-end)
-
 --------------------------------------------------------------------------------
--- 1. SILENT TELEMETRY NEUTRALIZER (ZERO CHARACTER INJECTIONS)
+-- 1. TELEMETRY NEUTRALIZATION LAYER
 --------------------------------------------------------------------------------
 local function silenceTelemetry()
     pcall(function()
-        local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
-        local ci = playerGui:WaitForChild("ClientInterface", 10)
-        local scriptObj = ci:WaitForChild("ClientInterface", 10)
-        local packetModule = scriptObj:WaitForChild("Packet", 10)
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local clientInterface = playerGui and playerGui:FindFirstChild("ClientInterface")
+        local mainScript = clientInterface and clientInterface:FindFirstChild("ClientInterface")
 
-        -- 1. Hook Packet.Write to wipe any violation reports before serialization
-        local Packet = require(packetModule)
-        if Packet and not Packet.__ORIGINAL_WRITE then
-            Packet.__ORIGINAL_WRITE = Packet.Write
-            Packet.Write = function(p16, p17, p18, p19)
-                if type(p17) == "table" and p17.Reports and #p17.Reports > 0 then
-                    table.clear(p17.Reports) -- Strip all violation reports (Code 1, 3, 4, 6, 8)
+        if mainScript then
+            local packetModule = mainScript:FindFirstChild("Packet")
+            if packetModule then
+                local Packet = require(packetModule)
+                if not Packet.__ORIGINAL_WRITE then
+                    Packet.__ORIGINAL_WRITE = Packet.Write
+                    Packet.Write = function(p14, p15, p16, p17, ...)
+                        if p17 and typeof(p17) == "table" and p17.Reports then
+                            table.clear(p17.Reports)
+                        end
+                        return Packet.__ORIGINAL_WRITE(p14, p15, p16, p17, ...)
+                    end
                 end
-                return Packet.__ORIGINAL_WRITE(p16, p17, p18, p19)
             end
-        end
 
-        -- 2. Disconnect the BindableEvent listener in ClientInterface
-        local event = ci:FindFirstChild("Event")
-        if event and getconnections then
-            for _, conn in ipairs(getconnections(event.Event)) do
-                conn:Disable()
+            local event = clientInterface:FindFirstChild("Event")
+            if event and event:IsA("BindableEvent") then
+                for _, conn in ipairs(getconnections(event.Event)) do
+                    pcall(function() conn:Disable() end)
+                end
             end
         end
     end)
 end
 
--- Re-apply on respawn/character added
+silenceTelemetry()
 LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1)
+    task.wait(0.5)
     silenceTelemetry()
 end)
 
-silenceTelemetry()
-
 --------------------------------------------------------------------------------
--- 2. FETCH & INITIALIZE UNKNOWN LIBRARY
+-- 2. LIBRARY INITIALIZATION
 --------------------------------------------------------------------------------
-local function loadLibrary()
-    local ok, res = pcall(function()
-        return game:HttpGet(LIBRARY_LINK .. "?t=" .. tostring(os.time()))
-    end)
-    if ok and res and res ~= "" then
-        local fn, err = loadstring(res)
-        if fn then return fn() end
-        warn("[UnknownHub] Library compile error: " .. tostring(err))
+local UnknownLibrary = getgenv().UnknownLibrary
+if not UnknownLibrary then
+    local paths = {
+        "c:/Users/pc/AppData/Local/Real/scripts/UnknownLibrary.luau",
+        "c:/Users/pc/AppData/Local/Real/scripts/UnknownHub_repo/UnknownLibrary.luau"
+    }
+    for _, path in ipairs(paths) do
+        if pcall(function()
+            local content = readfile and readfile(path)
+            if content then
+                UnknownLibrary = loadstring(content)()
+                getgenv().UnknownLibrary = UnknownLibrary
+            end
+        end) and UnknownLibrary then
+            break
+        end
     end
-    return nil
 end
 
-local library = loadLibrary()
-if not library then
-    warn("[UnknownHub] Failed to load UnknownLibrary for Medved!")
+if not UnknownLibrary then
+    warn("[UnknownHub] Could not load UnknownLibrary! Falling back to raw execution.")
     return
 end
 
-local Hub = library({
+local Hub = UnknownLibrary.CreateHub({
     title = "UNKNOWN HUB",
     game = "MEDVED! 🐻",
     theme = Color3.fromRGB(0, 195, 245),
@@ -108,20 +93,22 @@ local Hub = library({
 --------------------------------------------------------------------------------
 local Config = {
     AutoFarmCrates = false,
+    AutoCollectPages = false,
     FarmDelay = 0.5,
     AutoServerhop = false,
-    CratesESP = false
+    CratesESP = false,
+    BearsESP = false
 }
 
 local activeESP = {}
+local activeBearESP = {}
 local crateAttempts = {}
 local blacklistedCrates = {}
 local openedCrates = {}
 
 --------------------------------------------------------------------------------
--- 4. UTILITY FUNCTIONS: CRATE DETECTION & LOOT COLLECTION
+-- 4. UTILITY FUNCTIONS: PROMPT TRIGGER & TELEPORT
 --------------------------------------------------------------------------------
--- Dual-engine prompt trigger: fires both native executor prompt and direct Lua connection
 local function triggerPrompt(prompt)
     if not prompt or not prompt.Enabled then return false end
 
@@ -145,7 +132,20 @@ local function triggerPrompt(prompt)
     return true
 end
 
--- Helper to inspect any active item prompts on a crate model
+local function safeTeleport(targetPos, locationName)
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    silenceTelemetry()
+    root.CFrame = CFrame.new(targetPos)
+    root.AssemblyLinearVelocity = Vector3.zero
+    Hub.Notify("Teleport", "Arrived at " .. locationName, 2)
+end
+
+--------------------------------------------------------------------------------
+-- 5. CRATES AUTOMATION ENGINE
+--------------------------------------------------------------------------------
 local function getCrateItemPrompts(crateModel)
     local prompts = {}
     if not crateModel then return prompts end
@@ -162,7 +162,6 @@ local function getCrateItemPrompts(crateModel)
     return prompts
 end
 
--- Complete in-place crate handler: teleports once, opens, and sweeps all loot in a single visit
 local function processCrateComplete(crate, mode)
     local cratePart = crate:FindFirstChild("Crate")
     if not cratePart then return false end
@@ -174,10 +173,8 @@ local function processCrateComplete(crate, mode)
     local targetCFrame = cratePart.CFrame + Vector3.new(0, 2.0, 0)
     root.CFrame = targetCFrame
     root.AssemblyLinearVelocity = Vector3.zero
-    -- Position settle for server replication
     task.wait(0.25)
 
-    -- If unopened, pulse opening prompt until server confirms opening via Collected attribute
     if mode == "open" then
         local openPrompt = cratePart:FindFirstChild("CratePrompt")
         local openDeadline = tick() + 1.8
@@ -196,7 +193,6 @@ local function processCrateComplete(crate, mode)
         return false
     end
 
-    -- Thorough in-place loot sweep: wait for items to appear and sweep until all prompts are cleared
     local sweepDeadline = tick() + 2.2
     local collectedAny = false
     local sweepStart = tick()
@@ -212,7 +208,6 @@ local function processCrateComplete(crate, mode)
                 task.wait(0.08)
             end
         else
-            -- If items were collected, or we waited at least 0.85s for items to spawn and none appeared, crate is done
             if collectedAny or (tick() - sweepStart) > 0.85 then
                 break
             end
@@ -223,8 +218,7 @@ local function processCrateComplete(crate, mode)
     return true
 end
 
--- Nearest-Neighbor target selector: picks the single closest valid crate from current position
-local function getNextTarget()
+local function getNextCrateTarget()
     local interactables = Workspace:FindFirstChild("Interactables")
     local cratesFolder = interactables and interactables:FindFirstChild("Crates")
     if not cratesFolder then return nil end
@@ -237,7 +231,6 @@ local function getNextTarget()
     local bestDist = math.huge
     local bestMode = "open"
 
-    -- Priority 1: Any uncollected loot sitting in an unblacklisted crate
     for _, c in ipairs(cratesFolder:GetChildren()) do
         local name = c.Name
         if not blacklistedCrates[name] then
@@ -257,7 +250,6 @@ local function getNextTarget()
         return { crate = bestTarget, mode = bestMode }
     end
 
-    -- Priority 2: Closest unopened crate
     bestDist = math.huge
     for _, c in ipairs(cratesFolder:GetChildren()) do
         local name = c.Name
@@ -277,15 +269,12 @@ local function getNextTarget()
     end
 
     if bestTarget then
-        return { crate = bestTarget, mode = "open" }
+        return { crate = bestTarget, mode = bestMode }
     end
 
     return nil
 end
 
---------------------------------------------------------------------------------
--- 5. AUTO FARM CRATES LOOP (SINGLE-TARGET LOCK ARCHITECTURE)
---------------------------------------------------------------------------------
 local currentFarmSession = tick()
 _G.MedvedFarmSession = currentFarmSession
 
@@ -301,18 +290,14 @@ task.spawn(function()
             if root and hum and hum.Health > 0 then
                 silenceTelemetry()
 
-                local target = getNextTarget()
+                local target = getNextCrateTarget()
                 if target then
                     local crate = target.crate
                     local name = crate.Name
 
-                    -- Mark attempt
                     crateAttempts[name] = (crateAttempts[name] or 0) + 1
-
-                    -- Complete the crate 100% in this single visit
                     local success = processCrateComplete(crate, target.mode)
 
-                    -- Mark completed and blacklisted if successfully swept, or if attempt limit reached
                     if success or crateAttempts[name] >= 2 then
                         openedCrates[name] = true
                         blacklistedCrates[name] = true
@@ -320,7 +305,6 @@ task.spawn(function()
 
                     task.wait(Config.FarmDelay)
                 else
-                    -- No crates or uncollected loot left
                     if Config.AutoServerhop then
                         Hub.Notify("Medved", "All crates & loot collected! Serverhopping...", 3)
                         task.wait(1)
@@ -340,9 +324,94 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------------------------
--- 6. CRATES ESP SYSTEM
+-- 6. PAGES AUTOMATION ENGINE
 --------------------------------------------------------------------------------
-local function clearESP()
+local function getUncollectedPages()
+    local uncollected = {}
+    local pagesFolder = Workspace:FindFirstChild("Pages")
+    if not pagesFolder then return uncollected end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    for _, p in ipairs(pagesFolder:GetChildren()) do
+        if p:GetAttribute("Collected") ~= true then
+            local prompt = p:FindFirstChildOfClass("ProximityPrompt")
+            if prompt and prompt.Enabled then
+                table.insert(uncollected, p)
+            end
+        end
+    end
+
+    if root then
+        table.sort(uncollected, function(a, b)
+            local posA = a:IsA("BasePart") and a.Position or a:GetPivot().Position
+            local posB = b:IsA("BasePart") and b.Position or b:GetPivot().Position
+            return (posA - root.Position).Magnitude < (posB - root.Position).Magnitude
+        end)
+    end
+
+    return uncollected
+end
+
+local function collectSinglePage(pagePart)
+    if not pagePart then return false end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+
+    local pagePos = pagePart:IsA("BasePart") and pagePart.Position or pagePart:GetPivot().Position
+    local targetCFrame = CFrame.new(pagePos + Vector3.new(0, 2.0, 0))
+
+    root.CFrame = targetCFrame
+    root.AssemblyLinearVelocity = Vector3.zero
+    task.wait(0.22)
+
+    local prompt = pagePart:FindFirstChildOfClass("ProximityPrompt")
+    local startWait = tick()
+
+    while pagePart:GetAttribute("Collected") ~= true and (tick() - startWait) < 1.6 do
+        if prompt and prompt.Enabled then
+            triggerPrompt(prompt)
+        end
+        root.CFrame = targetCFrame
+        root.AssemblyLinearVelocity = Vector3.zero
+        task.wait(0.18)
+    end
+
+    return pagePart:GetAttribute("Collected") == true
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if Config.AutoCollectPages then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+            if root and hum and hum.Health > 0 then
+                silenceTelemetry()
+
+                local pages = getUncollectedPages()
+                if #pages > 0 then
+                    local targetPage = pages[1]
+                    collectSinglePage(targetPage)
+                    task.wait(Config.FarmDelay)
+                else
+                    Hub.Notify("Pages", "All pages on map collected!", 3)
+                    Config.AutoCollectPages = false
+                    task.wait(2)
+                end
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- 7. ESP SYSTEMS (CRATES & BEARS)
+--------------------------------------------------------------------------------
+local function clearCrateESP()
     for _, obj in pairs(activeESP) do
         if obj and obj.Parent then
             pcall(function() obj:Destroy() end)
@@ -352,7 +421,7 @@ local function clearESP()
 end
 
 local function updateCratesESP()
-    clearESP()
+    clearCrateESP()
     if not Config.CratesESP then return end
 
     local interactables = Workspace:FindFirstChild("Interactables")
@@ -397,18 +466,88 @@ local function updateCratesESP()
     end
 end
 
--- Refresh ESP occasionally
+local function clearBearESP()
+    for _, obj in pairs(activeBearESP) do
+        if obj and obj.Parent then
+            pcall(function() obj:Destroy() end)
+        end
+    end
+    table.clear(activeBearESP)
+end
+
+local function updateBearESP()
+    clearBearESP()
+    if not Config.BearsESP then return end
+
+    local bearsFolder = Workspace:FindFirstChild("Bears")
+    if not bearsFolder then return end
+
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+    for _, b in ipairs(bearsFolder:GetChildren()) do
+        if b ~= myChar then
+            local adorneePart = b:FindFirstChild("HumanoidRootPart") or b:FindFirstChild("Head") or b.PrimaryPart or b:FindFirstChildOfClass("BasePart")
+            if adorneePart then
+                local hum = b:FindFirstChildOfClass("Humanoid")
+                local bearName = b:GetAttribute("BearID") or b.Name
+                local isPlayer = false
+                if Players:GetPlayerFromCharacter(b) or b:GetAttribute("IsPlayer") then
+                    isPlayer = true
+                end
+
+                local distStr = ""
+                if myRoot then
+                    local d = math.floor((adorneePart.Position - myRoot.Position).Magnitude)
+                    distStr = " [" .. d .. "m]"
+                end
+
+                local hpStr = ""
+                if hum and hum.MaxHealth > 0 then
+                    hpStr = " [" .. math.floor(hum.Health) .. " HP]"
+                end
+
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "BearESP"
+                bb.Adornee = adorneePart
+                bb.Size = UDim2.new(0, 140, 0, 32)
+                bb.AlwaysOnTop = true
+                bb.StudsOffset = Vector3.new(0, 3.5, 0)
+
+                local label = Instance.new("TextLabel")
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.BackgroundTransparency = 1
+                label.Text = "🐻 " .. bearName .. hpStr .. distStr
+                if isPlayer then
+                    label.TextColor3 = Color3.fromRGB(255, 60, 180)
+                else
+                    label.TextColor3 = Color3.fromRGB(255, 75, 75)
+                end
+                label.Font = Enum.Font.GothamBold
+                label.TextSize = 11
+                label.Parent = bb
+
+                bb.Parent = CoreGui
+                table.insert(activeBearESP, bb)
+            end
+        end
+    end
+end
+
 task.spawn(function()
     while true do
-        task.wait(2.5)
+        task.wait(2.0)
         if Config.CratesESP then
             updateCratesESP()
+        end
+        if Config.BearsESP then
+            updateBearESP()
         end
     end
 end)
 
 --------------------------------------------------------------------------------
--- 7. UI TABS & CONTROLS
+-- 8. UI TABS & CONTROLS
 --------------------------------------------------------------------------------
 local farmTab = Hub.CreateTab("Auto Farm", {
     Icon = "🌾",
@@ -436,32 +575,36 @@ Hub.CreateSlider(farmTab, "Teleport Delay (Seconds)", 0.2, 1.5, Config.FarmDelay
     Config.FarmDelay = val
 end)
 
-Hub.CreateToggle(farmTab, "Auto Serverhop When Map Cleared", Config.AutoServerhop, function(val)
+Hub.CreateToggle(farmTab, "Auto Serverhop When Crates Cleared", Config.AutoServerhop, function(val)
     Config.AutoServerhop = val
 end)
 
-Hub.CreateButton(farmTab, "Farm All Available Crates (One-Time)", function()
+Hub.CreateSection(farmTab, "📜 Pages Automation")
+
+Hub.CreateToggle(farmTab, "Auto Collect All Pages", Config.AutoCollectPages, function(val)
+    Config.AutoCollectPages = val
+    if val then
+        silenceTelemetry()
+    end
+    Hub.Notify("Pages", val and "Page Collector: ACTIVE" or "Page Collector: OFF", 2)
+end)
+
+Hub.CreateButton(farmTab, "Collect All Pages (One-Time Sweep)", function()
     task.spawn(function()
         silenceTelemetry()
-        Hub.Notify("Auto Farm", "Collecting all unopened crates on map...", 2)
-        local unopened = getUnopenedCrates()
-        for _, crate in ipairs(unopened) do
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local prompt = crate:FindFirstChild("Crate") and crate.Crate:FindFirstChild("CratePrompt")
-            if root and crate:GetAttribute("Collected") ~= true and prompt and prompt.Enabled then
-                root.CFrame = CFrame.new(crate.Crate.Position + Vector3.new(0, 3.2, 0))
-                task.wait(0.15)
-                if fireproximityprompt then fireproximityprompt(prompt) end
-                task.wait(0.25)
-                collectCrateLoot(crate)
-                task.wait(Config.FarmDelay)
-            end
+        Hub.Notify("Pages", "Collecting all pages on map...", 2)
+        local pages = getUncollectedPages()
+        for _, p in ipairs(pages) do
+            collectSinglePage(p)
+            task.wait(Config.FarmDelay)
         end
-        Hub.Notify("Auto Farm", "One-time sweep complete!", 3)
+        Hub.Notify("Pages", "One-time page sweep complete!", 3)
     end)
 end)
 
+--------------------------------------------------------------------------------
+-- VISUALS TAB
+--------------------------------------------------------------------------------
 local visualTab = Hub.CreateTab("Visuals", {
     Icon = "👁️",
     Size = 18,
@@ -469,17 +612,69 @@ local visualTab = Hub.CreateTab("Visuals", {
     ActiveColor = Color3.fromRGB(190, 130, 255)
 })
 
-Hub.CreateSection(visualTab, "ESP")
+Hub.CreateSection(visualTab, "ESP Monitors")
 
 Hub.CreateToggle(visualTab, "Unopened Crates ESP", Config.CratesESP, function(val)
     Config.CratesESP = val
     if val then
         updateCratesESP()
     else
-        clearESP()
+        clearCrateESP()
     end
 end)
 
+Hub.CreateToggle(visualTab, "Bears ESP (NPCs & Players)", Config.BearsESP, function(val)
+    Config.BearsESP = val
+    if val then
+        updateBearESP()
+    else
+        clearBearESP()
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- TELEPORT TAB
+--------------------------------------------------------------------------------
+local tpTab = Hub.CreateTab("Teleports", {
+    Icon = "📍",
+    Size = 18,
+    Color = Color3.fromRGB(255, 170, 0),
+    ActiveColor = Color3.fromRGB(255, 205, 50)
+})
+
+Hub.CreateSection(tpTab, "🗺️ Major Map Locations")
+
+local locations = {
+    { name = "Main Base (Spawn)", pos = Vector3.new(50, -120, -126) },
+    { name = "Old Statue (Lenin)", pos = Vector3.new(-399, -123, -707) },
+    { name = "Signal Tower", pos = Vector3.new(-651, -112, 444) },
+    { name = "Ruined Playground", pos = Vector3.new(-1053, -112, 646) },
+    { name = "Graveyard", pos = Vector3.new(12, -123, -878) },
+    { name = "The Bunker", pos = Vector3.new(-699, -112, -664) },
+    { name = "The Tunnel", pos = Vector3.new(-1162, -112, -46) },
+    { name = "The Bridge", pos = Vector3.new(848, -110, -592) },
+    { name = "Power Grid", pos = Vector3.new(-556, -112, -270) },
+    { name = "Frozen Lake", pos = Vector3.new(615, -112, 1091) },
+    { name = "Bear Pillars", pos = Vector3.new(255, -123, 588) },
+    { name = "Little Bell", pos = Vector3.new(53, -123, 249) },
+    { name = "The Hole", pos = Vector3.new(-764, -112, -1199) },
+    { name = "Abandoned Town", pos = Vector3.new(-450, -123, 100) },
+    { name = "Research Facility", pos = Vector3.new(0, -123, -435) },
+    { name = "Star Lab", pos = Vector3.new(-300, -112, 850) },
+    { name = "Hangar", pos = Vector3.new(400, -112, 400) },
+    { name = "Mineshaft", pos = Vector3.new(-850, -120, -350) },
+    { name = "Plane Crash", pos = Vector3.new(700, -115, -200) }
+}
+
+for _, loc in ipairs(locations) do
+    Hub.CreateButton(tpTab, "Teleport to: " .. loc.name, function()
+        safeTeleport(loc.pos, loc.name)
+    end)
+end
+
+--------------------------------------------------------------------------------
+-- MISC TAB
+--------------------------------------------------------------------------------
 local miscTab = Hub.CreateTab("Misc", {
     Icon = "⚙️",
     Size = 18,
@@ -507,4 +702,4 @@ Hub.CreateButton(miscTab, "Rejoin Current Server", function()
     end
 end)
 
-Hub.Notify("Medved Hub", "Medved! Module Loaded (Zero-Detection Mode) 🐻", 3)
+Hub.Notify("Medved Hub", "Medved! V3 Loaded — Pages, Bears ESP & Teleports Ready 🐻", 3)
