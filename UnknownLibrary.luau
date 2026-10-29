@@ -1520,6 +1520,617 @@ return function(opts)
     end
 
     -- =========================================================================
+    -- Component 6: Full Custom RGB Palette & ColorPicker
+    -- =========================================================================
+    createColorPicker = function(parent, titleText, defaultColor, callback)
+        local curColor = defaultColor or primaryTheme
+        local cb = type(callback) == "function" and callback or function() end
+        local isExpanded = false
+
+        local rVal = math.clamp(math.floor(curColor.R * 255), 0, 255)
+        local gVal = math.clamp(math.floor(curColor.G * 255), 0, 255)
+        local bVal = math.clamp(math.floor(curColor.B * 255), 0, 255)
+
+        local card = Instance.new("Frame")
+        card.Name = "ColorPickerCard_" .. tostring(titleText)
+        card.Size = UDim2.new(1, 0, 0, 44)
+        card.BackgroundColor3 = DEFAULT_THEME.Card
+        card.BorderSizePixel = 0
+        card.ClipsDescendants = true
+        card.Parent = parent
+        applyCorner(card, 8)
+        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local headerBtn = Instance.new("TextButton")
+        headerBtn.Name = "Header"
+        headerBtn.Size = UDim2.new(1, 0, 0, 44)
+        headerBtn.BackgroundTransparency = 1
+        headerBtn.Text = ""
+        headerBtn.Parent = card
+
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "Label"
+        titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
+        titleLabel.Position = UDim2.new(0, 14, 0, 0)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.Gotham
+        titleLabel.Text = tostring(titleText)
+        titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        titleLabel.TextSize = 12
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.Parent = headerBtn
+
+        local hexBadge = Instance.new("TextLabel")
+        hexBadge.Name = "HexBadge"
+        hexBadge.Size = UDim2.new(0, 70, 0, 24)
+        hexBadge.Position = UDim2.new(1, -112, 0.5, -12)
+        hexBadge.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        hexBadge.BorderSizePixel = 0
+        hexBadge.Font = Enum.Font.GothamMedium
+        hexBadge.Text = colorToHex(curColor)
+        hexBadge.TextColor3 = DEFAULT_THEME.TextSecondary
+        hexBadge.TextSize = 11
+        hexBadge.Parent = headerBtn
+        applyCorner(hexBadge, 6)
+        applyStroke(hexBadge, DEFAULT_THEME.Stroke, 1, 0.4)
+
+        local swatch = Instance.new("Frame")
+        swatch.Name = "ColorSwatch"
+        swatch.Size = UDim2.new(0, 26, 0, 24)
+        swatch.Position = UDim2.new(1, -38, 0.5, -12)
+        swatch.BackgroundColor3 = curColor
+        swatch.BorderSizePixel = 0
+        swatch.Parent = headerBtn
+        applyCorner(swatch, 6)
+        local swatchStroke = applyStroke(swatch, Color3.fromRGB(255, 255, 255), 1, 0.6)
+
+        -- Expanded Color Suite Body
+        local colorBody = Instance.new("Frame")
+        colorBody.Name = "ColorPickerBody"
+        colorBody.Size = UDim2.new(1, -24, 0, 142)
+        colorBody.Position = UDim2.new(0, 12, 0, 48)
+        colorBody.BackgroundTransparency = 1
+        colorBody.Parent = card
+
+        -- Preset quick pills
+        local presetRow = Instance.new("Frame")
+        presetRow.Name = "PresetRow"
+        presetRow.Size = UDim2.new(1, 0, 0, 22)
+        presetRow.Position = UDim2.new(0, 0, 0, 0)
+        presetRow.BackgroundTransparency = 1
+        presetRow.Parent = colorBody
+
+        local presetLayout = Instance.new("UIListLayout")
+        presetLayout.FillDirection = Enum.FillDirection.Horizontal
+        presetLayout.Padding = UDim.new(0, 6)
+        presetLayout.Parent = presetRow
+
+        local quickColors = {
+            Color3.fromRGB(245, 142, 32), -- Amber
+            Color3.fromRGB(0, 195, 245),  -- Cyan
+            Color3.fromRGB(165, 95, 255), -- Violet
+            Color3.fromRGB(45, 215, 135), -- Mint
+            Color3.fromRGB(245, 65, 95),  -- Rose
+            Color3.fromRGB(235, 240, 255),-- White
+            Color3.fromRGB(255, 205, 50), -- Gold
+            Color3.fromRGB(230, 45, 45)   -- Crimson
+        }
+
+        local updateAllRgbSliders
+
+        for _, pc in ipairs(quickColors) do
+            local pBtn = Instance.new("TextButton")
+            pBtn.Name = "Preset"
+            pBtn.Size = UDim2.new(0, 22, 0, 22)
+            pBtn.BackgroundColor3 = pc
+            pBtn.BorderSizePixel = 0
+            pBtn.Text = ""
+            pBtn.AutoButtonColor = false
+            pBtn.Parent = presetRow
+            applyCorner(pBtn, 5)
+            applyStroke(pBtn, Color3.fromRGB(0, 0, 0), 1, 0.5)
+
+            pBtn.MouseButton1Click:Connect(function()
+                curColor = pc
+                rVal = math.floor(pc.R * 255)
+                gVal = math.floor(pc.G * 255)
+                bVal = math.floor(pc.B * 255)
+                swatch.BackgroundColor3 = curColor
+                hexBadge.Text = colorToHex(curColor)
+                if updateAllRgbSliders then updateAllRgbSliders() end
+                pcall(cb, curColor)
+            end)
+        end
+
+        -- RGB Slider Builder Helper
+        local function makeChannelSlider(labelStr, initVal, yPos, accentColor, onUpdate)
+            local sRow = Instance.new("Frame")
+            sRow.Name = "Row_" .. labelStr
+            sRow.Size = UDim2.new(1, 0, 0, 32)
+            sRow.Position = UDim2.new(0, 0, 0, yPos)
+            sRow.BackgroundTransparency = 1
+            sRow.Parent = colorBody
+
+            local sLbl = Instance.new("TextLabel")
+            sLbl.Name = "Channel"
+            sLbl.Size = UDim2.new(0, 20, 1, 0)
+            sLbl.Position = UDim2.new(0, 2, 0, 0)
+            sLbl.BackgroundTransparency = 1
+            sLbl.Font = Enum.Font.GothamBold
+            sLbl.Text = labelStr
+            sLbl.TextColor3 = accentColor
+            sLbl.TextSize = 11
+            sLbl.Parent = sRow
+
+            local numBadge = Instance.new("TextLabel")
+            numBadge.Name = "Num"
+            numBadge.Size = UDim2.new(0, 32, 1, 0)
+            numBadge.Position = UDim2.new(1, -34, 0, 0)
+            numBadge.BackgroundTransparency = 1
+            numBadge.Font = Enum.Font.Gotham
+            numBadge.Text = tostring(initVal)
+            numBadge.TextColor3 = DEFAULT_THEME.TextSecondary
+            numBadge.TextSize = 11
+            numBadge.TextXAlignment = Enum.TextXAlignment.Right
+            numBadge.Parent = sRow
+
+            local track = Instance.new("TextButton")
+            track.Name = "Track"
+            track.Size = UDim2.new(1, -68, 0, 6)
+            track.Position = UDim2.new(0, 26, 0.5, -3)
+            track.BackgroundColor3 = Color3.fromRGB(34, 40, 52)
+            track.BorderSizePixel = 0
+            track.Text = ""
+            track.AutoButtonColor = false
+            track.Parent = sRow
+            applyCorner(track, 3)
+
+            local fill = Instance.new("Frame")
+            fill.Name = "Fill"
+            fill.Size = UDim2.new(initVal / 255, 0, 1, 0)
+            fill.BackgroundColor3 = accentColor
+            fill.BorderSizePixel = 0
+            fill.Parent = track
+            applyCorner(fill, 3)
+
+            local thumb = Instance.new("Frame")
+            thumb.Name = "Thumb"
+            thumb.Size = UDim2.new(0, 12, 0, 12)
+            thumb.Position = UDim2.new(1, -6, 0.5, -6)
+            thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            thumb.BorderSizePixel = 0
+            thumb.Parent = fill
+            applyCorner(thumb, 6)
+
+            local function setVal(v, skipCallback)
+                v = math.clamp(math.floor(v + 0.5), 0, 255)
+                numBadge.Text = tostring(v)
+                fill.Size = UDim2.new(v / 255, 0, 1, 0)
+                if not skipCallback then onUpdate(v) end
+            end
+
+            local isDragging = false
+            track.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    isDragging = true
+                    local alpha = (input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X
+                    setVal(alpha * 255, false)
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    isDragging = false
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local alpha = (input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X
+                    setVal(alpha * 255, false)
+                end
+            end)
+
+            return { Set = setVal }
+        end
+
+        local rSlider = makeChannelSlider("R", rVal, 28, Color3.fromRGB(245, 75, 75), function(v)
+            rVal = v
+            curColor = Color3.fromRGB(rVal, gVal, bVal)
+            swatch.BackgroundColor3 = curColor
+            hexBadge.Text = colorToHex(curColor)
+            pcall(cb, curColor)
+        end)
+
+        local gSlider = makeChannelSlider("G", gVal, 64, Color3.fromRGB(60, 220, 120), function(v)
+            gVal = v
+            curColor = Color3.fromRGB(rVal, gVal, bVal)
+            swatch.BackgroundColor3 = curColor
+            hexBadge.Text = colorToHex(curColor)
+            pcall(cb, curColor)
+        end)
+
+        local bSlider = makeChannelSlider("B", bVal, 100, Color3.fromRGB(65, 150, 255), function(v)
+            bVal = v
+            curColor = Color3.fromRGB(rVal, gVal, bVal)
+            swatch.BackgroundColor3 = curColor
+            hexBadge.Text = colorToHex(curColor)
+            pcall(cb, curColor)
+        end)
+
+        updateAllRgbSliders = function()
+            rSlider.Set(rVal, true)
+            gSlider.Set(gVal, true)
+            bSlider.Set(bVal, true)
+        end
+
+        headerBtn.MouseButton1Click:Connect(function()
+            isExpanded = not isExpanded
+            local targetH = isExpanded and 196 or 44
+            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+        end)
+
+        local pickerObj = {
+            Instance = card,
+            Value = curColor,
+            Set = function(c)
+                curColor = c or curColor
+                rVal = math.floor(curColor.R * 255)
+                gVal = math.floor(curColor.G * 255)
+                bVal = math.floor(curColor.B * 255)
+                swatch.BackgroundColor3 = curColor
+                hexBadge.Text = colorToHex(curColor)
+                updateAllRgbSliders()
+                pcall(cb, curColor)
+            end
+        }
+        return pickerObj
+    end
+
+    -- =========================================================================
+    -- Component 7: TextBox / Input Card
+    -- =========================================================================
+    createTextBox = function(parent, titleText, placeholderText, callback)
+        local cb = type(callback) == "function" and callback or function() end
+
+        local card = Instance.new("Frame")
+        card.Name = "InputCard_" .. tostring(titleText)
+        card.Size = UDim2.new(1, 0, 0, 42)
+        card.BackgroundColor3 = DEFAULT_THEME.Card
+        card.BorderSizePixel = 0
+        card.Parent = parent
+        applyCorner(card, 8)
+        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "Label"
+        titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
+        titleLabel.Position = UDim2.new(0, 14, 0, 0)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.Gotham
+        titleLabel.Text = tostring(titleText)
+        titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        titleLabel.TextSize = 12
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.Parent = card
+
+        local boxFrame = Instance.new("Frame")
+        boxFrame.Name = "BoxFrame"
+        boxFrame.Size = UDim2.new(0.5, -28, 0, 26)
+        boxFrame.Position = UDim2.new(0.5, 0, 0.5, -13)
+        boxFrame.BackgroundColor3 = Color3.fromRGB(16, 19, 26)
+        boxFrame.BorderSizePixel = 0
+        boxFrame.Parent = card
+        applyCorner(boxFrame, 6)
+        local boxStroke = applyStroke(boxFrame, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local box = Instance.new("TextBox")
+        box.Name = "Input"
+        box.Size = UDim2.new(1, -12, 1, 0)
+        box.Position = UDim2.new(0, 6, 0, 0)
+        box.BackgroundTransparency = 1
+        box.Font = Enum.Font.Gotham
+        box.PlaceholderText = tostring(placeholderText or "Type here...")
+        box.PlaceholderColor3 = DEFAULT_THEME.TextDim
+        box.Text = ""
+        box.TextColor3 = DEFAULT_THEME.TextPrimary
+        box.TextSize = 11
+        box.TextXAlignment = Enum.TextXAlignment.Left
+        box.ClearTextOnFocus = false
+        box.Parent = boxFrame
+
+        box.Focused:Connect(function()
+            tween(boxStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Color = primaryTheme})
+        end)
+        box.FocusLost:Connect(function(enterPressed)
+            tween(boxStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Color = DEFAULT_THEME.Stroke})
+            pcall(cb, box.Text, enterPressed)
+        end)
+
+        return {
+            Instance = card,
+            GetText = function() return box.Text end,
+            Set = function(t) box.Text = tostring(t or "") end
+        }
+    end
+
+    -- =========================================================================
+    -- Component 8: List & Nested Lists (BeeSwarm & BloxFruits Compatible)
+    -- =========================================================================
+    createList = function(parent, titleText, itemsList, maxHeight, expandedState, selectionOptions, extraCallback)
+        local items = itemsList or {}
+        local isExpanded = (expandedState == true)
+        local cb = type(extraCallback) == "function" and extraCallback or (type(selectionOptions) == "function" and selectionOptions or function() end)
+
+        local card = Instance.new("Frame")
+        card.Name = "ListCard_" .. tostring(titleText)
+        card.Size = UDim2.new(1, 0, 0, 40)
+        card.BackgroundColor3 = DEFAULT_THEME.Card
+        card.BorderSizePixel = 0
+        card.ClipsDescendants = true
+        card.Parent = parent
+        applyCorner(card, 8)
+        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local headerBtn = Instance.new("TextButton")
+        headerBtn.Name = "Header"
+        headerBtn.Size = UDim2.new(1, 0, 0, 40)
+        headerBtn.BackgroundTransparency = 1
+        headerBtn.Text = ""
+        headerBtn.Parent = card
+
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "Title"
+        titleLabel.Size = UDim2.new(1, -70, 1, 0)
+        titleLabel.Position = UDim2.new(0, 14, 0, 0)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.Gotham
+        titleLabel.Text = tostring(titleText or "List")
+        titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        titleLabel.TextSize = 12
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.Parent = headerBtn
+
+        local countBadge = Instance.new("TextLabel")
+        countBadge.Name = "CountBadge"
+        countBadge.Size = UDim2.new(0, 24, 0, 18)
+        countBadge.Position = UDim2.new(1, -64, 0.5, -9)
+        countBadge.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        countBadge.BorderSizePixel = 0
+        countBadge.Font = Enum.Font.GothamMedium
+        countBadge.Text = tostring(#items)
+        countBadge.TextColor3 = primaryTheme
+        countBadge.TextSize = 10
+        countBadge.Parent = headerBtn
+        applyCorner(countBadge, 4)
+
+        local chevron = Instance.new("TextLabel")
+        chevron.Name = "Chevron"
+        chevron.Size = UDim2.new(0, 24, 0, 24)
+        chevron.Position = UDim2.new(1, -34, 0.5, -12)
+        chevron.BackgroundTransparency = 1
+        chevron.Font = Enum.Font.GothamBold
+        chevron.Text = "▾"
+        chevron.TextColor3 = DEFAULT_THEME.TextSecondary
+        chevron.TextSize = 14
+        chevron.Parent = headerBtn
+
+        local listScroll = Instance.new("ScrollingFrame")
+        listScroll.Name = "ScrollItems"
+        listScroll.Size = UDim2.new(1, -20, 0, tonumber(maxHeight) or 160)
+        listScroll.Position = UDim2.new(0, 10, 0, 42)
+        listScroll.BackgroundTransparency = 1
+        listScroll.BorderSizePixel = 0
+        listScroll.ScrollBarThickness = 3
+        listScroll.ScrollBarImageColor3 = Color3.fromRGB(50, 60, 78)
+        listScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        listScroll.Parent = card
+
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.FillDirection = Enum.FillDirection.Vertical
+        listLayout.Padding = UDim.new(0, 4)
+        listLayout.Parent = listScroll
+
+        local listObj = {
+            Instance = card,
+            List = listScroll,
+            Items = {},
+            SelectedItem = nil
+        }
+
+        local function updateListVisuals()
+            local contentHeight = listLayout.AbsoluteContentSize.Y
+            local targetH = isExpanded and math.min(contentHeight + 52, tonumber(maxHeight) or 220) or 40
+            chevron.Text = isExpanded and "▴" or "▾"
+            countBadge.Text = tostring(#listObj.Items)
+            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+        end
+
+        headerBtn.MouseButton1Click:Connect(function()
+            isExpanded = not isExpanded
+            updateListVisuals()
+        end)
+
+        function listObj.AddItem(text, subtext, itemCallback)
+            local itmBtn = Instance.new("TextButton")
+            itmBtn.Name = "Item_" .. tostring(text)
+            itmBtn.Size = UDim2.new(1, 0, 0, 28)
+            itmBtn.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+            itmBtn.BorderSizePixel = 0
+            itmBtn.Font = Enum.Font.Gotham
+            itmBtn.Text = "   " .. tostring(text)
+            itmBtn.TextColor3 = DEFAULT_THEME.TextSecondary
+            itmBtn.TextSize = 11
+            itmBtn.TextXAlignment = Enum.TextXAlignment.Left
+            itmBtn.AutoButtonColor = false
+            itmBtn.Parent = listScroll
+            applyCorner(itmBtn, 5)
+
+            table.insert(listObj.Items, text)
+            countBadge.Text = tostring(#listObj.Items)
+
+            itmBtn.MouseEnter:Connect(function()
+                tween(itmBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover, TextColor3 = DEFAULT_THEME.TextPrimary})
+            end)
+            itmBtn.MouseLeave:Connect(function()
+                if listObj.SelectedItem ~= text then
+                    tween(itmBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(18, 21, 28), TextColor3 = DEFAULT_THEME.TextSecondary})
+                end
+            end)
+            itmBtn.MouseButton1Click:Connect(function()
+                listObj.SelectedItem = text
+                pcall(cb, text)
+                if type(itemCallback) == "function" then pcall(itemCallback, text) end
+            end)
+            return itmBtn
+        end
+
+        for _, itm in ipairs(items) do
+            listObj.AddItem(itm)
+        end
+
+        return listObj
+    end
+
+    -- =========================================================================
+    -- Component 9: Loop Toggle (Game Automation Helper)
+    -- =========================================================================
+    local function createLoopToggle(parent, titleText, defaultState, loopFunc, loopInterval)
+        local interval = loopInterval or 0.1
+        local running = false
+        local loopThread = nil
+
+        local t = createToggle(parent, titleText, defaultState, function(enabled)
+            running = enabled
+            if running then
+                loopThread = task.spawn(function()
+                    while running do
+                        pcall(loopFunc)
+                        task.wait(interval)
+                    end
+                end)
+            else
+                if loopThread then
+                    pcall(function() task.cancel(loopThread) end)
+                    loopThread = nil
+                end
+            end
+        end)
+
+        table.insert(featureStoppers, function()
+            running = false
+            if loopThread then pcall(function() task.cancel(loopThread) end) end
+        end)
+
+        return t
+    end
+
+    -- =========================================================================
+    -- Component 10: Modal Warning Dialog
+    -- =========================================================================
+    local function showWarning(title, desc, btn1, btn2, onBtn1, onBtn2)
+        local modalOverlay = Instance.new("Frame")
+        modalOverlay.Name = "ModalOverlay"
+        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
+        modalOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        modalOverlay.BackgroundTransparency = 0.5
+        modalOverlay.BorderSizePixel = 0
+        modalOverlay.ZIndex = 100
+        modalOverlay.Parent = screenGui
+
+        local modalBox = Instance.new("Frame")
+        modalBox.Name = "ModalBox"
+        modalBox.Size = UDim2.new(0, 360, 0, 180)
+        modalBox.Position = UDim2.new(0.5, -180, 0.5, -90)
+        modalBox.BackgroundColor3 = DEFAULT_THEME.Background
+        modalBox.BorderSizePixel = 0
+        modalBox.Parent = modalOverlay
+        applyCorner(modalBox, 10)
+        applyStroke(modalBox, DEFAULT_THEME.Stroke, 1, 0.2)
+
+        local mTitle = Instance.new("TextLabel")
+        mTitle.Size = UDim2.new(1, -28, 0, 24)
+        mTitle.Position = UDim2.new(0, 14, 0, 14)
+        mTitle.BackgroundTransparency = 1
+        mTitle.Font = Enum.Font.GothamBold
+        mTitle.Text = tostring(title or "Notice")
+        mTitle.TextColor3 = primaryTheme
+        mTitle.TextSize = 14
+        mTitle.TextXAlignment = Enum.TextXAlignment.Left
+        mTitle.Parent = modalBox
+
+        local mDesc = Instance.new("TextLabel")
+        mDesc.Size = UDim2.new(1, -28, 0, 60)
+        mDesc.Position = UDim2.new(0, 14, 0, 42)
+        mDesc.BackgroundTransparency = 1
+        mDesc.Font = Enum.Font.Gotham
+        mDesc.Text = tostring(desc or "")
+        mDesc.TextColor3 = DEFAULT_THEME.TextSecondary
+        mDesc.TextSize = 12
+        mDesc.TextWrapped = true
+        mDesc.TextXAlignment = Enum.TextXAlignment.Left
+        mDesc.Parent = modalBox
+
+        local b1 = Instance.new("TextButton")
+        b1.Size = UDim2.new(0.5, -18, 0, 32)
+        b1.Position = UDim2.new(0, 14, 1, -44)
+        b1.BackgroundColor3 = primaryTheme
+        b1.BorderSizePixel = 0
+        b1.Font = Enum.Font.Gotham
+        b1.Text = tostring(btn1 or "Confirm")
+        b1.TextColor3 = Color3.fromRGB(255, 255, 255)
+        b1.TextSize = 12
+        b1.Parent = modalBox
+        applyCorner(b1, 6)
+
+        local b2 = Instance.new("TextButton")
+        b2.Size = UDim2.new(0.5, -18, 0, 32)
+        b2.Position = UDim2.new(0.5, 4, 1, -44)
+        b2.BackgroundColor3 = DEFAULT_THEME.Card
+        b2.BorderSizePixel = 0
+        b2.Font = Enum.Font.Gotham
+        b2.Text = tostring(btn2 or "Cancel")
+        b2.TextColor3 = DEFAULT_THEME.TextSecondary
+        b2.TextSize = 12
+        b2.Parent = modalBox
+        applyCorner(b2, 6)
+
+        b1.MouseButton1Click:Connect(function()
+            pcall(onBtn1 or function() end)
+            modalOverlay:Destroy()
+        end)
+        b2.MouseButton1Click:Connect(function()
+            pcall(onBtn2 or function() end)
+            modalOverlay:Destroy()
+        end)
+    end
+
+    -- =========================================================================
+    -- Black Screen Performance Mode
+    -- =========================================================================
+    local blackScreenOverlay = nil
+    local function setBlackScreen(enabled)
+        pcall(function()
+            RunService:Set3dRenderingEnabled(not enabled)
+        end)
+        if enabled then
+            if not blackScreenOverlay or not blackScreenOverlay.Parent then
+                blackScreenOverlay = Instance.new("Frame")
+                blackScreenOverlay.Name = "Unknown_BlackScreenOverlay"
+                blackScreenOverlay.Size = UDim2.new(1, 0, 1, 0)
+                blackScreenOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                blackScreenOverlay.BorderSizePixel = 0
+                blackScreenOverlay.ZIndex = 999999
+                blackScreenOverlay.Parent = screenGui
+            end
+            blackScreenOverlay.Visible = true
+        else
+            if blackScreenOverlay and blackScreenOverlay.Parent then
+                blackScreenOverlay.Visible = false
+            end
+        end
+    end
+
+
+    -- =========================================================================
     -- Public API Hub Interface
     -- =========================================================================
     local Hub = {}
