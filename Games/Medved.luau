@@ -118,6 +118,30 @@ local activeESP = {}
 --------------------------------------------------------------------------------
 -- 4. UTILITY FUNCTIONS: CRATE DETECTION & LOOT COLLECTION
 --------------------------------------------------------------------------------
+-- Dual-engine prompt trigger: fires both native executor prompt and direct Lua connection
+local function triggerPrompt(prompt)
+    if not prompt or not prompt.Enabled then return false end
+
+    pcall(function()
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        end
+    end)
+
+    pcall(function()
+        if getconnections then
+            for _, con in ipairs(getconnections(prompt.Triggered)) do
+                if con and con.Fire then
+                    con:Fire()
+                elseif con and con.Function then
+                    con.Function()
+                end
+            end
+        end
+    end)
+    return true
+end
+
 -- Helper to inspect any active item prompts on a crate model
 local function getCrateItemPrompts(crateModel)
     local prompts = {}
@@ -142,7 +166,7 @@ local function sweepCrateItems(crateModel, maxWait)
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
 
-    local timeout = maxWait or 2.2
+    local timeout = maxWait or 2.5
     local start = tick()
     local collectedAny = false
 
@@ -150,20 +174,18 @@ local function sweepCrateItems(crateModel, maxWait)
         local activePrompts = getCrateItemPrompts(crateModel)
         if #activePrompts == 0 then
             -- If we already collected something or gave sufficient time for prompts to instantiate, break early
-            if collectedAny or (tick() - start) > 0.5 then
+            if collectedAny or (tick() - start) > 0.6 then
                 break
             end
         else
             for _, prompt in ipairs(activePrompts) do
                 if root then
-                    root.CFrame = CFrame.new(cratePart.Position + Vector3.new(0, 3.2, 0))
+                    root.CFrame = cratePart.CFrame + Vector3.new(0, 2.5, 0)
                     root.AssemblyLinearVelocity = Vector3.zero
                 end
-                if fireproximityprompt then
-                    fireproximityprompt(prompt)
-                end
+                triggerPrompt(prompt)
                 collectedAny = true
-                task.wait(0.12)
+                task.wait(0.15)
             end
         end
         task.wait(0.06)
@@ -245,42 +267,45 @@ task.spawn(function()
                         local cratePart = crate and crate:FindFirstChild("Crate")
                         if not cratePart then continue end
 
-                        local targetPos = cratePart.Position + Vector3.new(0, 3.2, 0)
-                        root.CFrame = CFrame.new(targetPos)
+                        local targetCFrame = cratePart.CFrame + Vector3.new(0, 2.5, 0)
+                        root.CFrame = targetCFrame
                         root.AssemblyLinearVelocity = Vector3.zero
                         task.wait(0.12)
 
                         if target.mode == "open" then
                             local openPrompt = cratePart:FindFirstChild("CratePrompt")
-                            if openPrompt and openPrompt.Enabled and fireproximityprompt then
-                                fireproximityprompt(openPrompt)
+                            local openStart = tick()
+                            -- Pulse open until crate prompt is acknowledged and disabled
+                            while openPrompt and openPrompt.Enabled and (tick() - openStart) < 2.0 do
+                                root.CFrame = targetCFrame
+                                root.AssemblyLinearVelocity = Vector3.zero
+                                triggerPrompt(openPrompt)
+                                task.wait(0.15)
                             end
 
                             -- Wait for server response and item prompts to instantiate
                             local waitStart = tick()
-                            while (tick() - waitStart) < 1.6 do
+                            while (tick() - waitStart) < 1.8 do
                                 if #getCrateItemPrompts(crate) > 0 then
                                     break
                                 end
-                                root.CFrame = CFrame.new(targetPos)
+                                root.CFrame = targetCFrame
                                 root.AssemblyLinearVelocity = Vector3.zero
                                 task.wait(0.05)
                             end
                         end
 
                         -- Sweep and collect all loot items (cash, guns, items)
-                        sweepCrateItems(crate, 2.2)
+                        sweepCrateItems(crate, 2.5)
 
                         -- Secondary confirmation: if any item prompt is STILL enabled, do a final direct sweep
                         local remainingPrompts = getCrateItemPrompts(crate)
                         if #remainingPrompts > 0 then
                             for _, p in ipairs(remainingPrompts) do
-                                root.CFrame = CFrame.new(targetPos)
+                                root.CFrame = targetCFrame
                                 root.AssemblyLinearVelocity = Vector3.zero
-                                if fireproximityprompt then
-                                    fireproximityprompt(p)
-                                end
-                                task.wait(0.12)
+                                triggerPrompt(p)
+                                task.wait(0.15)
                             end
                         end
 
