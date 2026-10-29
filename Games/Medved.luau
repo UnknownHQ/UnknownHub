@@ -4,7 +4,7 @@
     Game ID: 7144947546 | Place ID: 132273534230449
     Features:
       - 100% Anti-Cheat Teleport Bypass (Neutralizes ClientInterface telemetry)
-      - Smart Auto Farm Crates (Filters out already opened/collected crates)
+      - Smart Auto Farm Crates (Strictly unopened crates only)
       - Instant Prompt Loot Collector
       - Unopened Crates ESP
       - Auto Serverhop when all crates are cleared
@@ -95,8 +95,9 @@ if not library then
     return
 end
 
-local window = library({
-    title = "UNKNOWN HUB • MEDVED! 🐻",
+local Hub = library({
+    title = "UNKNOWN HUB",
+    game = "MEDVED! 🐻",
     theme = Color3.fromRGB(0, 195, 245),
     secondaryTheme = Color3.fromRGB(165, 95, 255)
 })
@@ -221,6 +222,8 @@ task.spawn(function()
                 else
                     -- No crates left
                     if Config.AutoServerhop then
+                        Hub.Notify("Medved", "All crates collected! Serverhopping...", 3)
+                        task.wait(1)
                         if getgenv().serverhop then
                             getgenv().serverhop()
                         else
@@ -295,113 +298,109 @@ end)
 --------------------------------------------------------------------------------
 -- 8. UI TABS & CONTROLS
 --------------------------------------------------------------------------------
-local farmTab = window:CreateTab("Auto Farm", "🌾")
-
-farmTab:CreateSection("Anti-Cheat Bypass Status")
-farmTab:CreateParagraph({
-    Title = "🛡️ Teleport Shield Active",
-    Content = "ClientInterface speed/teleport monitor is neutralized. Zero rubberbands and zero slowdowns."
+local farmTab = Hub.CreateTab("Auto Farm", {
+    Icon = "🌾",
+    Size = 18,
+    Color = Color3.fromRGB(0, 195, 245),
+    ActiveColor = Color3.fromRGB(0, 230, 255)
 })
 
-farmTab:CreateSection("Crates Automation")
+Hub.CreateSection(farmTab, "🛡️ Anti-Cheat Bypass")
 
-farmTab:CreateToggle({
-    Name = "Auto Farm Crates (Teleport & Loot)",
-    Default = false,
-    Callback = function(val)
-        Config.AutoFarmCrates = val
-        if val then
-            applyAntiCheatBypass()
-        end
+Hub.CreateToggle(farmTab, "Teleport Anti-Cheat Shield", true, function(v)
+    if v then
+        applyAntiCheatBypass()
+        Hub.Notify("Shield", "Anti-Cheat bypass engaged (Covered state active)", 2)
     end
-})
+end)
 
-farmTab:CreateSlider({
-    Name = "Teleport Delay (Seconds)",
-    Min = 0.2,
-    Max = 1.5,
-    Default = 0.4,
-    Precision = 1,
-    Callback = function(val)
-        Config.FarmDelay = val
+Hub.CreateSection(farmTab, "📦 Crates Automation")
+
+Hub.CreateToggle(farmTab, "Auto Farm Crates (Teleport & Loot)", Config.AutoFarmCrates, function(val)
+    Config.AutoFarmCrates = val
+    if val then
+        applyAntiCheatBypass()
     end
-})
+    Hub.Notify("Auto Farm", val and "Crate Farm: ACTIVE" or "Crate Farm: OFF", 2)
+end)
 
-farmTab:CreateToggle({
-    Name = "Auto Serverhop When Map Cleared",
-    Default = false,
-    Callback = function(val)
-        Config.AutoServerhop = val
-    end
-})
+Hub.CreateSlider(farmTab, "Teleport Delay (Seconds)", 0.2, 1.5, Config.FarmDelay, function(val)
+    Config.FarmDelay = val
+end)
 
-farmTab:CreateButton({
-    Name = "Farm All Available Crates (One-Time)",
-    Callback = function()
-        task.spawn(function()
-            local unopened = getUnopenedCrates()
-            for _, crate in ipairs(unopened) do
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                local prompt = crate:FindFirstChild("Crate") and crate.Crate:FindFirstChild("CratePrompt")
-                if root and crate:GetAttribute("Collected") ~= true and prompt and prompt.Enabled then
-                    root.CFrame = CFrame.new(crate.Crate.Position + Vector3.new(0, 3.2, 0))
-                    task.wait(0.15)
-                    if fireproximityprompt then fireproximityprompt(prompt) end
-                    task.wait(0.25)
-                    collectCrateLoot(crate)
-                    task.wait(Config.FarmDelay)
-                end
+Hub.CreateToggle(farmTab, "Auto Serverhop When Map Cleared", Config.AutoServerhop, function(val)
+    Config.AutoServerhop = val
+end)
+
+Hub.CreateButton(farmTab, "Farm All Available Crates (One-Time)", function()
+    task.spawn(function()
+        Hub.Notify("Auto Farm", "Collecting all unopened crates on map...", 2)
+        local unopened = getUnopenedCrates()
+        for _, crate in ipairs(unopened) do
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local prompt = crate:FindFirstChild("Crate") and crate.Crate:FindFirstChild("CratePrompt")
+            if root and crate:GetAttribute("Collected") ~= true and prompt and prompt.Enabled then
+                root.CFrame = CFrame.new(crate.Crate.Position + Vector3.new(0, 3.2, 0))
+                task.wait(0.15)
+                if fireproximityprompt then fireproximityprompt(prompt) end
+                task.wait(0.25)
+                collectCrateLoot(crate)
+                task.wait(Config.FarmDelay)
             end
-        end)
-    end
-})
-
-local visualTab = window:CreateTab("Visuals", "👁️")
-visualTab:CreateSection("ESP")
-
-visualTab:CreateToggle({
-    Name = "Unopened Crates ESP",
-    Default = false,
-    Callback = function(val)
-        Config.CratesESP = val
-        if val then
-            updateCratesESP()
-        else
-            clearESP()
         end
-    end
+        Hub.Notify("Auto Farm", "One-time sweep complete!", 3)
+    end)
+end)
+
+local visualTab = Hub.CreateTab("Visuals", {
+    Icon = "👁️",
+    Size = 18,
+    Color = Color3.fromRGB(165, 95, 255),
+    ActiveColor = Color3.fromRGB(190, 130, 255)
 })
 
-local miscTab = window:CreateTab("Misc", "⚙️")
-miscTab:CreateSection("Player & World")
+Hub.CreateSection(visualTab, "ESP")
 
-miscTab:CreateToggle({
-    Name = "NoClip",
-    Default = false,
-    Callback = function(val)
-        Config.NoClip = val
+Hub.CreateToggle(visualTab, "Unopened Crates ESP", Config.CratesESP, function(val)
+    Config.CratesESP = val
+    if val then
+        updateCratesESP()
+    else
+        clearESP()
     end
+end)
+
+local miscTab = Hub.CreateTab("Misc", {
+    Icon = "⚙️",
+    Size = 18,
+    Color = Color3.fromRGB(200, 210, 230),
+    ActiveColor = Color3.fromRGB(240, 245, 255)
 })
 
-miscTab:CreateButton({
-    Name = "Serverhop (New Server)",
-    Callback = function()
-        if getgenv().serverhop then
-            getgenv().serverhop()
-        else
-            TeleportService:Teleport(game.PlaceId, LocalPlayer)
-        end
-    end
-})
+Hub.CreateSection(miscTab, "Movement & World")
 
-miscTab:CreateButton({
-    Name = "Rejoin Current Server",
-    Callback = function()
-        if getgenv().rejoin then
-            getgenv().rejoin()
-        else
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-        end
+Hub.CreateToggle(miscTab, "NoClip", Config.NoClip, function(val)
+    Config.NoClip = val
+    Hub.Notify("NoClip", val and "Enabled" or "Disabled", 2)
+end)
+
+Hub.CreateButton(miscTab, "Serverhop (New Server)", function()
+    Hub.Notify("Teleport", "Finding new server...", 2)
+    if getgenv().serverhop then
+        getgenv().serverhop()
+    else
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
     end
-})
+end)
+
+Hub.CreateButton(miscTab, "Rejoin Current Server", function()
+    Hub.Notify("Teleport", "Rejoining...", 2)
+    if getgenv().rejoin then
+        getgenv().rejoin()
+    else
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end
+end)
+
+Hub.Notify("Medved Hub", "Medved! Module Loaded Successfully 🐻", 3)
