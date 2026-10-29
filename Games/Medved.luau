@@ -114,6 +114,9 @@ local Config = {
 }
 
 local activeESP = {}
+local crateAttempts = {}
+local blacklistedCrates = {}
+local openedCrates = {}
 
 --------------------------------------------------------------------------------
 -- 4. UTILITY FUNCTIONS: CRATE DETECTION & LOOT COLLECTION
@@ -159,36 +162,35 @@ local function getCrateItemPrompts(crateModel)
     return prompts
 end
 
--- Collect all items in a crate model with active proximity polling
+-- Collect all items in a crate model with fast active proximity polling
 local function sweepCrateItems(crateModel, maxWait)
     if not crateModel or not crateModel:FindFirstChild("Crate") then return false end
     local cratePart = crateModel.Crate
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
 
-    local timeout = maxWait or 2.5
+    local timeout = maxWait or 1.2
     local start = tick()
     local collectedAny = false
 
     while (tick() - start) < timeout do
         local activePrompts = getCrateItemPrompts(crateModel)
         if #activePrompts == 0 then
-            -- If we already collected something or gave sufficient time for prompts to instantiate, break early
-            if collectedAny or (tick() - start) > 0.6 then
+            if collectedAny or (tick() - start) > 0.35 then
                 break
             end
         else
             for _, prompt in ipairs(activePrompts) do
                 if root then
-                    root.CFrame = cratePart.CFrame + Vector3.new(0, 2.5, 0)
+                    root.CFrame = cratePart.CFrame + Vector3.new(0, 2.0, 0)
                     root.AssemblyLinearVelocity = Vector3.zero
                 end
                 triggerPrompt(prompt)
                 collectedAny = true
-                task.wait(0.15)
+                task.wait(0.09)
             end
         end
-        task.wait(0.06)
+        task.wait(0.04)
     end
 
     return collectedAny
@@ -207,16 +209,20 @@ local function getCratesToProcess()
     local unopenedTargets = {}
 
     for _, c in ipairs(cratesFolder:GetChildren()) do
-        local cratePart = c:FindFirstChild("Crate")
-        if cratePart then
-            local itemPrompts = getCrateItemPrompts(c)
-            if #itemPrompts > 0 then
-                table.insert(lootTargets, { crate = c, mode = "loot" })
-            else
-                local collected = c:GetAttribute("Collected")
-                local openPrompt = cratePart:FindFirstChild("CratePrompt")
-                if collected ~= true and openPrompt and openPrompt.Enabled then
-                    table.insert(unopenedTargets, { crate = c, mode = "open" })
+        local name = c.Name
+        -- Skip crates that reached attempt limit (max 2 attempts)
+        if not blacklistedCrates[name] then
+            local cratePart = c:FindFirstChild("Crate")
+            if cratePart then
+                local itemPrompts = getCrateItemPrompts(c)
+                if #itemPrompts > 0 then
+                    table.insert(lootTargets, { crate = c, mode = "loot" })
+                elseif not openedCrates[name] then
+                    local collected = c:GetAttribute("Collected")
+                    local openPrompt = cratePart:FindFirstChild("CratePrompt")
+                    if collected ~= true and openPrompt and openPrompt.Enabled then
+                        table.insert(unopenedTargets, { crate = c, mode = "open" })
+                    end
                 end
             end
         end
@@ -245,11 +251,15 @@ local function getCratesToProcess()
 end
 
 --------------------------------------------------------------------------------
--- 5. AUTO FARM CRATES LOOP
+-- 5. AUTO FARM CRATES LOOP (SINGLETON TOKEN ENFORCED)
 --------------------------------------------------------------------------------
+local currentFarmSession = tick()
+_G.MedvedFarmSession = currentFarmSession
+
 task.spawn(function()
-    while true do
-        task.wait(0.2)
+    local mySession = currentFarmSession
+    while _G.MedvedFarmSession == mySession do
+        task.wait(0.12)
         if Config.AutoFarmCrates then
             local char = LocalPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -261,32 +271,36 @@ task.spawn(function()
                 local targets = getCratesToProcess()
                 if #targets > 0 then
                     for _, target in ipairs(targets) do
-                        if not Config.AutoFarmCrates then break end
+                        if _G.MedvedFarmSession ~= mySession or not Config.AutoFarmCrates then break end
 
                         local crate = target.crate
+                        local name = crate.Name
                         local cratePart = crate and crate:FindFirstChild("Crate")
                         if not cratePart then continue end
 
-                        local targetCFrame = cratePart.CFrame + Vector3.new(0, 2.5, 0)
+                        -- Strict attempt cap: max 2 attempts per crate to eliminate infinite retry loops
+                        crateAttempts[name] = (crateAttempts[name] or 0) + 1
+                        if crateAttempts[name] > 2 then
+                            blacklistedCrates[name] = true
+                            continue
+                        end
+
+                        local targetCFrame = cratePart.CFrame + Vector3.new(0, 2.0, 0)
                         root.CFrame = targetCFrame
                         root.AssemblyLinearVelocity = Vector3.zero
-                        task.wait(0.12)
+                        -- Settle window: ensures client position replicates to Roblox server before invoking remote
+                        task.wait(0.22)
 
                         if target.mode == "open" then
                             local openPrompt = cratePart:FindFirstChild("CratePrompt")
-                            local openStart = tick()
-                            -- Pulse open until crate prompt is acknowledged and disabled
-                            while openPrompt and openPrompt.Enabled and (tick() - openStart) < 2.0 do
-                                root.CFrame = targetCFrame
-                                root.AssemblyLinearVelocity = Vector3.zero
+                            if openPrompt and openPrompt.Enabled then
                                 triggerPrompt(openPrompt)
-                                task.wait(0.15)
                             end
 
-                            -- Wait for server response and item prompts to instantiate
+                            -- Quick wait for loot prompts or opening acknowledgment (max 0.75s)
                             local waitStart = tick()
-                            while (tick() - waitStart) < 1.8 do
-                                if #getCrateItemPrompts(crate) > 0 then
+                            while (tick() - waitStart) < 0.75 do
+                                if #getCrateItemPrompts(crate) > 0 or not openPrompt.Enabled then
                                     break
                                 end
                                 root.CFrame = targetCFrame
@@ -295,18 +309,15 @@ task.spawn(function()
                             end
                         end
 
-                        -- Sweep and collect all loot items (cash, guns, items)
-                        sweepCrateItems(crate, 2.5)
+                        -- Fast sweep of all loot items
+                        local swept = sweepCrateItems(crate, 1.2)
+                        if swept or crate:GetAttribute("Collected") == true then
+                            openedCrates[name] = true
+                        end
 
-                        -- Secondary confirmation: if any item prompt is STILL enabled, do a final direct sweep
-                        local remainingPrompts = getCrateItemPrompts(crate)
-                        if #remainingPrompts > 0 then
-                            for _, p in ipairs(remainingPrompts) do
-                                root.CFrame = targetCFrame
-                                root.AssemblyLinearVelocity = Vector3.zero
-                                triggerPrompt(p)
-                                task.wait(0.15)
-                            end
+                        -- If crate remains unopened or unlootable after 2 tries, blacklist it permanently
+                        if crateAttempts[name] >= 2 and crate:GetAttribute("Collected") ~= true and #getCrateItemPrompts(crate) == 0 then
+                            blacklistedCrates[name] = true
                         end
 
                         task.wait(Config.FarmDelay)
@@ -417,6 +428,9 @@ Hub.CreateToggle(farmTab, "Auto Farm Crates (Teleport & Loot)", Config.AutoFarmC
     Config.AutoFarmCrates = val
     if val then
         silenceTelemetry()
+        table.clear(crateAttempts)
+        table.clear(blacklistedCrates)
+        table.clear(openedCrates)
     end
     Hub.Notify("Auto Farm", val and "Crate Farm: ACTIVE" or "Crate Farm: OFF", 2)
 end)
