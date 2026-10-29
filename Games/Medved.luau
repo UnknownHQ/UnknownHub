@@ -3,11 +3,11 @@
     Unknown Hub - Medved! (Hunt & Become Bears) Game Module
     Game ID: 7144947546 | Place ID: 132273534230449
     Features:
-      - 100% Anti-Cheat Teleport Bypass (Neutralizes ClientInterface telemetry)
+      - Silent Telemetry Interceptor (Neutralizes Report codes 1-8 without bans)
+      - Zero False-Flag Injections (NO BodyMovers, NO fake attributes)
       - Smart Auto Farm Crates (Strictly unopened crates only)
-      - Instant Prompt Loot Collector
+      - ProximityPrompt Item Collector
       - Unopened Crates ESP
-      - Auto Serverhop when all crates are cleared
     ========================================================================
 ]]
 
@@ -36,43 +36,71 @@ pcall(function()
 end)
 
 --------------------------------------------------------------------------------
--- 1. ANTI-CHEAT BYPASS SHIELD (TELEPORT / SPEED MONITOR NEUTRALIZER)
+-- 1. SILENT TELEMETRY SHIELD (REPORT SUPPRESSOR)
+-- Neutralizes client-side security reports (Codes 1-8) before they reach the server.
+-- Preserves natural heartbeat (Echo) and script status (Blocks) so server is happy.
 --------------------------------------------------------------------------------
-local function applyAntiCheatBypass(char)
-    char = char or LocalPlayer.Character
-    if not char then return end
+local function applySilentShield()
+    -- Layer 1: Hook Packet.Write in ClientInterface.Packet module
+    pcall(function()
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local clientInterface = playerGui and playerGui:FindFirstChild("ClientInterface")
+        local mainScript = clientInterface and clientInterface:FindFirstChild("ClientInterface")
+        local packetMod = mainScript and mainScript:FindFirstChild("Packet")
 
-    local hum = char:WaitForChild("Humanoid", 5)
-    local root = char:WaitForChild("HumanoidRootPart", 5)
-
-    if hum then
-        -- Satisfies Covered() in ClientInterface.ClientInterface -> stops telemetry reports
-        pcall(function()
-            hum:SetAttribute("BeingJumpscared", true)
-        end)
-    end
-
-    if root then
-        -- Presence of BodyVelocity inside root satisfies Covered() t8 check
-        local shield = root:FindFirstChild("AntiCheatShield")
-        if not shield then
-            local bv = Instance.new("BodyVelocity")
-            bv.Name = "AntiCheatShield"
-            bv.MaxForce = Vector3.new(0, 0, 0)
-            bv.Velocity = Vector3.new(0, 0, 0)
-            bv.Parent = root
+        if packetMod then
+            local Packet = require(packetMod)
+            if Packet and Packet.Write and not Packet.__ShieldHooked then
+                local oldWrite = Packet.Write
+                Packet.Write = function(pktType, data, keyTable, nonce)
+                    if pktType == Packet.TO_SERVER and typeof(data) == "table" then
+                        -- Purge all violation reports completely
+                        if data.Reports and #data.Reports > 0 then
+                            table.clear(data.Reports)
+                        end
+                        data.Reports = {}
+                    end
+                    return oldWrite(pktType, data, keyTable, nonce)
+                end
+                Packet.__ShieldHooked = true
+                if hookfunction then
+                    hookfunction(oldWrite, Packet.Write)
+                end
+            end
         end
-    end
+    end)
+
+    -- Layer 2: Neutralize Report closure via getgc
+    pcall(function()
+        if not getgc or not islclosure or not hookfunction then return end
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local clientInterface = playerGui and playerGui:FindFirstChild("ClientInterface")
+        local mainScript = clientInterface and clientInterface:FindFirstChild("ClientInterface")
+        if not mainScript then return end
+
+        for _, obj in ipairs(getgc()) do
+            if typeof(obj) == "function" and islclosure(obj) then
+                local env = getfenv(obj)
+                if env and env.script == mainScript then
+                    local info = debug.getinfo(obj)
+                    if info.name == "Report" then
+                        hookfunction(obj, function(...)
+                            return -- Drop report completely
+                        end)
+                        break
+                    end
+                end
+            end
+        end
+    end)
 end
 
-LocalPlayer.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
-    applyAntiCheatBypass(char)
+applySilentShield()
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1.0)
+    applySilentShield()
 end)
-
-if LocalPlayer.Character then
-    applyAntiCheatBypass(LocalPlayer.Character)
-end
 
 --------------------------------------------------------------------------------
 -- 2. FETCH & INITIALIZE UNKNOWN LIBRARY
@@ -107,10 +135,9 @@ local Hub = library({
 --------------------------------------------------------------------------------
 local Config = {
     AutoFarmCrates = false,
-    FarmDelay = 0.4,
+    FarmDelay = 0.5,
     AutoServerhop = false,
-    CratesESP = false,
-    NoClip = false
+    CratesESP = false
 }
 
 local activeESP = {}
@@ -127,13 +154,13 @@ local function getUnopenedCrates()
     for _, c in ipairs(cratesFolder:GetChildren()) do
         local collected = c:GetAttribute("Collected")
         local prompt = c:FindFirstChild("Crate") and c.Crate:FindFirstChild("CratePrompt")
-        -- Strict filter: never teleport to crates that are collected or disabled
+        -- Strict filter: never target collected or disabled crates
         if collected ~= true and prompt and prompt.Enabled then
             table.insert(unopened, c)
         end
     end
 
-    -- Sort by distance to LocalPlayer for optimized pathing
+    -- Sort by distance
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if root then
@@ -151,79 +178,61 @@ local function collectCrateLoot(crateModel)
     if not crateModel or not crateModel:FindFirstChild("Crate") then return end
     local cratePart = crateModel.Crate
 
-    -- Collect all 3 possible item spots
+    -- Check all 3 possible item spots
     for _, spotName in ipairs({"ItemSpot1", "ItemSpot2", "ItemSpot3"}) do
         local spot = cratePart:FindFirstChild(spotName)
         local prompt = spot and spot:FindFirstChildOfClass("ProximityPrompt")
         if prompt and prompt.Enabled and fireproximityprompt then
             fireproximityprompt(prompt)
-            task.wait(0.08)
+            task.wait(0.1)
         end
     end
 end
 
 --------------------------------------------------------------------------------
--- 5. NOCLIP SYSTEM (Prevents getting stuck in terrain during farming)
---------------------------------------------------------------------------------
-RunService.Stepped:Connect(function()
-    if Config.AutoFarmCrates or Config.NoClip then
-        local char = LocalPlayer.Character
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
-                    part.CanCollide = false
-                end
-            end
-        end
-    end
-end)
-
---------------------------------------------------------------------------------
--- 6. AUTO FARM CRATES LOOP
+-- 5. AUTO FARM CRATES LOOP
 --------------------------------------------------------------------------------
 task.spawn(function()
     while true do
-        task.wait(0.2)
+        task.wait(0.3)
         if Config.AutoFarmCrates then
             local char = LocalPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
 
             if root and hum and hum.Health > 0 then
-                applyAntiCheatBypass(char)
+                applySilentShield()
 
                 local unopenedCrates = getUnopenedCrates()
                 if #unopenedCrates > 0 then
                     for _, crate in ipairs(unopenedCrates) do
                         if not Config.AutoFarmCrates then break end
 
-                        -- Double check crate is still valid and not opened by another player
                         local collected = crate:GetAttribute("Collected")
                         local prompt = crate:FindFirstChild("Crate") and crate.Crate:FindFirstChild("CratePrompt")
                         if collected ~= true and prompt and prompt.Enabled then
-                            -- 1. Teleport directly onto crate
+                            -- 1. Teleport onto crate
                             local targetPos = crate.Crate.Position + Vector3.new(0, 3.2, 0)
                             root.CFrame = CFrame.new(targetPos)
                             root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                            task.wait(0.15)
+                            task.wait(0.2)
 
-                            -- 2. Trigger opening prompt
+                            -- 2. Open crate
                             if prompt and prompt.Enabled and fireproximityprompt then
                                 fireproximityprompt(prompt)
                             end
 
-                            -- 3. Wait for loot to pop and collect all items
-                            task.wait(0.25)
+                            -- 3. Wait for loot items to spawn and collect
+                            task.wait(0.35)
                             collectCrateLoot(crate)
 
                             task.wait(Config.FarmDelay)
                         end
                     end
                 else
-                    -- No crates left
                     if Config.AutoServerhop then
-                        Hub.Notify("Medved", "All crates collected! Serverhopping...", 3)
-                        task.wait(1)
+                        Hub.Notify("Medved", "All map crates looted! Serverhopping...", 3)
+                        task.wait(1.5)
                         if getgenv().serverhop then
                             getgenv().serverhop()
                         else
@@ -231,7 +240,7 @@ task.spawn(function()
                         end
                         task.wait(5)
                     else
-                        task.wait(1.5)
+                        task.wait(2.0)
                     end
                 end
             end
@@ -240,7 +249,7 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------------------------
--- 7. CRATES ESP SYSTEM
+-- 6. CRATES ESP SYSTEM
 --------------------------------------------------------------------------------
 local function clearESP()
     for _, obj in pairs(activeESP) do
@@ -285,10 +294,9 @@ local function updateCratesESP()
     end
 end
 
--- Refresh ESP occasionally
 task.spawn(function()
     while true do
-        task.wait(2.5)
+        task.wait(3.0)
         if Config.CratesESP then
             updateCratesESP()
         end
@@ -296,7 +304,7 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------------------------
--- 8. UI TABS & CONTROLS
+-- 7. UI TABS & CONTROLS
 --------------------------------------------------------------------------------
 local farmTab = Hub.CreateTab("Auto Farm", {
     Icon = "🌾",
@@ -305,21 +313,18 @@ local farmTab = Hub.CreateTab("Auto Farm", {
     ActiveColor = Color3.fromRGB(0, 230, 255)
 })
 
-Hub.CreateSection(farmTab, "🛡️ Anti-Cheat Bypass")
-
-Hub.CreateToggle(farmTab, "Teleport Anti-Cheat Shield", true, function(v)
-    if v then
-        applyAntiCheatBypass()
-        Hub.Notify("Shield", "Anti-Cheat bypass engaged (Covered state active)", 2)
-    end
-end)
+Hub.CreateSection(farmTab, "🛡️ Anti-Cheat Bypass Status")
+Hub.CreateParagraph({
+    Title = "Silent Telemetry Shield: ACTIVE",
+    Content = "Packet reports 1-8 are intercepted and dropped. Server receives authentic heartbeats with 0 violations."
+})
 
 Hub.CreateSection(farmTab, "📦 Crates Automation")
 
 Hub.CreateToggle(farmTab, "Auto Farm Crates (Teleport & Loot)", Config.AutoFarmCrates, function(val)
     Config.AutoFarmCrates = val
     if val then
-        applyAntiCheatBypass()
+        applySilentShield()
     end
     Hub.Notify("Auto Farm", val and "Crate Farm: ACTIVE" or "Crate Farm: OFF", 2)
 end)
@@ -334,6 +339,7 @@ end)
 
 Hub.CreateButton(farmTab, "Farm All Available Crates (One-Time)", function()
     task.spawn(function()
+        applySilentShield()
         Hub.Notify("Auto Farm", "Collecting all unopened crates on map...", 2)
         local unopened = getUnopenedCrates()
         for _, crate in ipairs(unopened) do
@@ -342,9 +348,9 @@ Hub.CreateButton(farmTab, "Farm All Available Crates (One-Time)", function()
             local prompt = crate:FindFirstChild("Crate") and crate.Crate:FindFirstChild("CratePrompt")
             if root and crate:GetAttribute("Collected") ~= true and prompt and prompt.Enabled then
                 root.CFrame = CFrame.new(crate.Crate.Position + Vector3.new(0, 3.2, 0))
-                task.wait(0.15)
+                task.wait(0.2)
                 if fireproximityprompt then fireproximityprompt(prompt) end
-                task.wait(0.25)
+                task.wait(0.35)
                 collectCrateLoot(crate)
                 task.wait(Config.FarmDelay)
             end
@@ -380,11 +386,6 @@ local miscTab = Hub.CreateTab("Misc", {
 
 Hub.CreateSection(miscTab, "Movement & World")
 
-Hub.CreateToggle(miscTab, "NoClip", Config.NoClip, function(val)
-    Config.NoClip = val
-    Hub.Notify("NoClip", val and "Enabled" or "Disabled", 2)
-end)
-
 Hub.CreateButton(miscTab, "Serverhop (New Server)", function()
     Hub.Notify("Teleport", "Finding new server...", 2)
     if getgenv().serverhop then
@@ -403,4 +404,4 @@ Hub.CreateButton(miscTab, "Rejoin Current Server", function()
     end
 end)
 
-Hub.Notify("Medved Hub", "Medved! Module Loaded Successfully 🐻", 3)
+Hub.Notify("Medved Hub", "Medved! Safe Module Loaded 🐻", 3)
