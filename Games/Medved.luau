@@ -98,12 +98,18 @@ local Config = {
     FarmDelay = 0.5,
     AutoServerhop = false,
 
+    -- Auto Farm Bears Suite
+    AutoFarmBears = false,
+    FarmMethod = "Gun", -- "Gun" or "Melee"
+    SelectedBearTarget = "All",
+    SafeZoneLowHP = true,
+    LowHPThreshold = 25,
+
     -- Combat
     MeleeAura = false,
     MeleeAuraRange = 18,
     GunAura = false,
     GunAuraRange = 90,
-    InfiniteAmmo = false,
 
     -- Movement & Stamina
     InfiniteStamina = false,
@@ -528,22 +534,6 @@ local function applyWeaponMods(tool)
         reload.Value = orig.ReloadTime
     end
 
-    if Config.InfiniteAmmo then
-        local auto = config:FindFirstChild("Auto")
-        if auto and auto:IsA("ValueBase") then
-            auto.Value = true -- Full auto firing
-        end
-
-        local inacc = config:FindFirstChild("Inaccuracy")
-        if inacc and inacc:IsA("ValueBase") then
-            inacc.Value = 0 -- Perfect zero-spread laser precision
-        end
-
-        local fireRate = config:FindFirstChild("FireRate")
-        if fireRate and fireRate:IsA("ValueBase") and fireRate.Value > 0.12 then
-            fireRate.Value = 0.12 -- Rapid fire rate
-        end
-    end
 
     if Config.MeleeAura then
         local windup = config:FindFirstChild("WindupTime")
@@ -736,13 +726,283 @@ task.spawn(function()
                 end
             end
 
-            -- 3. Always apply weapon mods & auto-cycle empty clips if a gun is held
-            if Config.InfiniteAmmo and equippedTool and equippedTool:FindFirstChild("GunScripts") then
-                applyWeaponMods(equippedTool)
+            -- 3. Auto-cycle empty clips if a gun is held during Gun Aura
+            if Config.GunAura and equippedTool and equippedTool:FindFirstChild("GunScripts") then
                 local currentAmmo, reloading = getLoadedAmmoFromGUI()
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
                     triggerGunReload(equippedTool)
                 end
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- 7.5. AUTO FARM BEARS ENGINE (LEVITATION IMMUNITY, AUTO-EQUIP, AUTO-RELOAD)
+--------------------------------------------------------------------------------
+local WEAPON_TIERS = {
+    -- Melee hierarchy
+    Chainsaw = 100,
+    Sledgehammer = 80,
+    FireAxe = 60,
+    Crowbar = 40,
+    Axe = 35,
+    BaseballBat = 20,
+    Knife = 15,
+
+    -- Gun hierarchy
+    Minigun = 200,
+    RPG = 180,
+    Sniper = 150,
+    HuntingRifle = 120,
+    Rifle = 100,
+    Shotgun = 85,
+    SMG = 65,
+    Revolver = 50,
+    Pistol = 30
+}
+
+local function getBestTool(weaponType)
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local candidates = {}
+
+    local function checkTool(tool)
+        if not tool or not tool:IsA("Tool") then return end
+        local isMelee = tool:FindFirstChild("MeleeScripts") ~= nil
+        local isGun = tool:FindFirstChild("GunScripts") ~= nil
+
+        if weaponType == "Melee" and isMelee then
+            table.insert(candidates, tool)
+        elseif weaponType == "Gun" and isGun then
+            table.insert(candidates, tool)
+        end
+    end
+
+    if char then
+        for _, c in ipairs(char:GetChildren()) do
+            checkTool(c)
+        end
+    end
+    if backpack then
+        for _, c in ipairs(backpack:GetChildren()) do
+            checkTool(c)
+        end
+    end
+
+    if #candidates == 0 then return nil end
+
+    table.sort(candidates, function(a, b)
+        local cfgA = a:FindFirstChild("Config")
+        local cfgB = b:FindFirstChild("Config")
+        local dmgA = (cfgA and cfgA:FindFirstChild("Damage") and cfgA.Damage:IsA("ValueBase") and cfgA.Damage.Value) or WEAPON_TIERS[a.Name] or 10
+        local dmgB = (cfgB and cfgB:FindFirstChild("Damage") and cfgB.Damage:IsA("ValueBase") and cfgB.Damage.Value) or WEAPON_TIERS[b.Name] or 10
+        return dmgA > dmgB
+    end)
+
+    return candidates[1]
+end
+
+local function ensureBestWeaponEquipped(weaponType)
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not char or not hum or hum.Health <= 0 then return nil end
+
+    local bestTool = getBestTool(weaponType)
+    if not bestTool then return nil end
+
+    if bestTool.Parent == char then
+        return bestTool
+    end
+
+    hum:EquipTool(bestTool)
+    return bestTool
+end
+
+local bearTypeDropdown = nil
+
+local function getAvailableBearTypes()
+    local list = {"All"}
+    local rs = game:GetService("ReplicatedStorage")
+    local rsBears = rs:FindFirstChild("Bears")
+    if rsBears then
+        for _, b in ipairs(rsBears:GetChildren()) do
+            if not table.find(list, b.Name) then
+                table.insert(list, b.Name)
+            end
+        end
+    end
+
+    local wsBears = workspace:FindFirstChild("Bears")
+    if wsBears then
+        for _, b in ipairs(wsBears:GetChildren()) do
+            local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
+            if not isPlr and not table.find(list, b.Name) then
+                table.insert(list, b.Name)
+            end
+        end
+    end
+
+    table.sort(list, function(a, b)
+        if a == "All" then return true end
+        if b == "All" then return false end
+        return a < b
+    end)
+    return list
+end
+
+local function onBearAdded(child)
+    if not child or Players:GetPlayerFromCharacter(child) then return end
+    task.delay(0.5, function()
+        if bearTypeDropdown and bearTypeDropdown.Refresh then
+            bearTypeDropdown.Refresh(getAvailableBearTypes())
+        end
+    end)
+end
+
+pcall(function()
+    local wsBears = workspace:FindFirstChild("Bears")
+    if wsBears then
+        wsBears.ChildAdded:Connect(onBearAdded)
+    end
+
+    local rsBears = ReplicatedStorage:FindFirstChild("Bears")
+    if rsBears then
+        rsBears.ChildAdded:Connect(onBearAdded)
+    end
+end)
+
+local function getFarmBearTarget()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil, nil end
+
+    local wsBears = workspace:FindFirstChild("Bears")
+    if not wsBears then return nil, nil end
+
+    local bestBear = nil
+    local bestDist = math.huge
+
+    for _, bear in ipairs(wsBears:GetChildren()) do
+        local hum = bear:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then
+            local isPlr = Players:GetPlayerFromCharacter(bear) ~= nil
+            if not isPlr then
+                if Config.SelectedBearTarget == "All" or bear.Name == Config.SelectedBearTarget then
+                    local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
+                    if bearRoot then
+                        local dist = (bearRoot.Position - root.Position).Magnitude
+                        if dist < bestDist then
+                            bestDist = dist
+                            bestBear = bear
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestBear, bestDist
+end
+
+local isFleeingLowHP = false
+
+task.spawn(function()
+    while true do
+        task.wait(0.08)
+        if not Config.AutoFarmBears then
+            isFleeingLowHP = false
+            task.wait(0.4)
+            continue
+        end
+
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if not char or not root or not hum or hum.Health <= 0 then
+            task.wait(0.5)
+            continue
+        end
+
+        local maxHp = (hum.MaxHealth and hum.MaxHealth > 0) and hum.MaxHealth or 250
+
+        -- 1. Low HP Safety Check & Safe Zone Retreat
+        if Config.SafeZoneLowHP then
+            if hum.Health <= Config.LowHPThreshold then
+                isFleeingLowHP = true
+            end
+
+            if isFleeingLowHP then
+                local safeZonePos = (locationRegistry[1] and resolveLocationPosition(locationRegistry[1])) or Vector3.new(52, -137, -144)
+                if (root.Position - safeZonePos).Magnitude > 25 then
+                    safeTeleport(safeZonePos, "Safe Zone")
+                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " HP)! Retreated to Safe Zone...", 2)
+                end
+
+                -- Stay in safe zone until healed back to 85%+
+                if hum.Health >= math.floor(maxHp * 0.85) then
+                    isFleeingLowHP = false
+                    Hub.Notify("Bear Farm", "HP Restored (" .. math.floor(hum.Health) .. " HP)! Resuming Bear Farm...", 2)
+                else
+                    task.wait(0.5)
+                    continue
+                end
+            end
+        end
+
+        -- 2. Equip Best Weapon for chosen FarmMethod
+        local bestTool = ensureBestWeaponEquipped(Config.FarmMethod)
+        if not bestTool then
+            Hub.Notify("Bear Farm", "No " .. Config.FarmMethod .. " weapon found in inventory!", 2)
+            task.wait(2)
+            continue
+        end
+
+        -- 3. Acquire Target Bear
+        local bear, dist = getFarmBearTarget()
+        if not bear then
+            task.wait(0.5)
+            continue
+        end
+
+        local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
+        local bearHum = bear:FindFirstChildOfClass("Humanoid")
+        if not bearRoot or not bearHum or bearHum.Health <= 0 then
+            task.wait(0.1)
+            continue
+        end
+
+        -- 4. Levitation Behind Bear (Out of Reach of Bear Swings/Attacks)
+        -- Melee: 4.5 studs behind & 4.5 studs above bear
+        -- Gun: 8.0 studs behind & 8.0 studs above bear
+        local offset = (Config.FarmMethod == "Melee") and CFrame.new(0, 4.5, 4.5) or CFrame.new(0, 8.0, 8.0)
+        local hoverPos = (bearRoot.CFrame * offset).Position
+        local targetCFrame = CFrame.lookAt(hoverPos, bearRoot.Position)
+
+        -- Smoothly anchor position and zero out velocity to levitate effortlessly
+        root.CFrame = targetCFrame
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+
+        -- 5. Attack Dispatcher
+        if Config.FarmMethod == "Melee" then
+            local isMelee = bestTool:FindFirstChild("MeleeScripts")
+            if isMelee then
+                applyWeaponMods(bestTool)
+                if tick() - lastMeleeSwing >= 0.35 then
+                    lastMeleeSwing = tick()
+                    bestTool:Activate()
+                end
+            end
+        elseif Config.FarmMethod == "Gun" then
+            local isGun = bestTool:FindFirstChild("GunScripts")
+            if isGun then
+                applyWeaponMods(bestTool)
+                local currentAmmo, reloading = getLoadedAmmoFromGUI()
+                if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
+                    triggerGunReload(bestTool)
+                end
+                shootTargetBear(bestTool, bear, bearRoot)
             end
         end
     end
@@ -781,6 +1041,13 @@ end
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     task.wait(0.1)
     ensureSpeedModifier(newChar)
+    local hum = newChar:WaitForChild("Humanoid", 3)
+    if hum then
+        local maxHp = hum.MaxHealth > 0 and hum.MaxHealth or 250
+        local minAllowed = math.max(1, math.floor(maxHp * 0.10))
+        local maxAllowed = math.max(2, math.floor(maxHp * 0.50))
+        Config.LowHPThreshold = math.clamp(Config.LowHPThreshold, minAllowed, maxAllowed)
+    end
 end)
 
 RunService.Heartbeat:Connect(function()
@@ -988,6 +1255,44 @@ Hub.CreateButton(farmTab, "Collect All Pages (One-Time Sweep)", function()
     end)
 end)
 
+-- Auto Farm Bears UI Controls & Dynamic Low HP Bounds
+local initialChar = LocalPlayer.Character
+local initialHum = initialChar and initialChar:FindFirstChildOfClass("Humanoid")
+local initialMaxHp = (initialHum and initialHum.MaxHealth and initialHum.MaxHealth > 0) and initialHum.MaxHealth or 250
+local minHpVal = math.max(1, math.floor(initialMaxHp * 0.10))
+local maxHpVal = math.max(2, math.floor(initialMaxHp * 0.50))
+local defaultHpVal = math.clamp(math.floor(initialMaxHp * 0.25), minHpVal, maxHpVal)
+Config.LowHPThreshold = defaultHpVal
+
+Hub.CreateSection(farmTab, "🐻 Auto Farm Bears Suite")
+
+Hub.CreateToggle(farmTab, "Auto Farm Bears (Levitate Behind)", Config.AutoFarmBears, function(val)
+    Config.AutoFarmBears = val
+    if val then
+        silenceTelemetry()
+    end
+    Hub.Notify("Bear Farm", val and "Auto Farm Bears: ACTIVE" or "Auto Farm Bears: OFF", 2)
+end)
+
+Hub.CreateDropdown(farmTab, "Attack Method", {"Gun", "Melee"}, Config.FarmMethod, function(val)
+    Config.FarmMethod = val
+    Hub.Notify("Bear Farm", "Method set to: " .. val, 2)
+end)
+
+bearTypeDropdown = Hub.CreateDropdown(farmTab, "Target Bear", getAvailableBearTypes(), Config.SelectedBearTarget, function(val)
+    Config.SelectedBearTarget = val
+    Hub.Notify("Bear Farm", "Targeting: " .. val, 2)
+end)
+
+Hub.CreateToggle(farmTab, "Safe Zone Retreat on Low HP", Config.SafeZoneLowHP, function(val)
+    Config.SafeZoneLowHP = val
+    Hub.Notify("Bear Farm", val and "Safe Zone Retreat: ON" or "Safe Zone Retreat: OFF", 2)
+end)
+
+Hub.CreateSlider(farmTab, "Low HP Retreat Threshold", minHpVal, maxHpVal, Config.LowHPThreshold, " HP", function(val)
+    Config.LowHPThreshold = val
+end)
+
 -- TAB: COMBAT
 local combatTab = Hub.CreateTab("Combat", {
     Icon = "⚔️",
@@ -1009,12 +1314,7 @@ end)
 
 Hub.CreateSection(combatTab, "🔫 Firearm Automation")
 
-Hub.CreateToggle(combatTab, "Infinite Ammo & Full Auto", Config.InfiniteAmmo, function(val)
-    Config.InfiniteAmmo = val
-    Hub.Notify("Combat", val and "Infinite Ammo & Rapid Fire: ACTIVE" or "Infinite Ammo: OFF", 2)
-end)
-
-Hub.CreateToggle(combatTab, "Gun Hit Aura (Auto Shoot Bears)", Config.GunAura, function(val)
+Hub.CreateToggle(combatTab, "Gun Hit Aura (Auto Shoot & Auto Reload)", Config.GunAura, function(val)
     Config.GunAura = val
     Hub.Notify("Combat", val and "Gun Aura: ACTIVE" or "Gun Aura: OFF", 2)
 end)
