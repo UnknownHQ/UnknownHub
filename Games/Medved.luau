@@ -64,16 +64,48 @@ end)
 --------------------------------------------------------------------------------
 -- 2. LIBRARY INITIALIZATION
 --------------------------------------------------------------------------------
-local UnknownLibrary = getgenv().UnknownLibrary
-if not UnknownLibrary then
+local function getValidatedLibrary()
+    local lib = getgenv().UnknownLibrary
+    local isValid = false
+    if lib and typeof(lib) == "function" then
+        pcall(function()
+            local test = lib({ title = "_T", game = "_T" })
+            if test and test.CreateMultiDropdown then
+                isValid = true
+            end
+            if test and test.destroy then test.destroy() end
+            if test and test.screenGui then test.screenGui:Destroy() end
+        end)
+    end
+    if isValid then return lib end
+
+    -- Try local file in Bunni/scripts
     pcall(function()
-        local src = game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau?t=" .. tick())
-        if src and src ~= "" then
-            UnknownLibrary = loadstring(src)()
-            getgenv().UnknownLibrary = UnknownLibrary
+        if readfile then
+            local localSrc = readfile("UnknownLibrary.luau") or readfile("scripts/UnknownLibrary.luau")
+            if localSrc and localSrc ~= "" then
+                local fn = loadstring(localSrc)
+                if fn then lib = fn() end
+            end
         end
     end)
+
+    -- If still not valid, fetch fresh from GitHub
+    if not lib or typeof(lib) ~= "function" then
+        pcall(function()
+            local webSrc = game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau?t=" .. tick())
+            if webSrc and webSrc ~= "" then
+                local fn = loadstring(webSrc)
+                if fn then lib = fn() end
+            end
+        end)
+    end
+
+    getgenv().UnknownLibrary = lib
+    return lib
 end
+
+local UnknownLibrary = getValidatedLibrary()
 
 if not UnknownLibrary then
     warn("[UnknownHub] Could not load UnknownLibrary! Falling back to raw execution.")
@@ -1474,20 +1506,11 @@ Hub.CreateDropdown(farmTab, "Attack Method", {"Gun", "Melee"}, Config.FarmMethod
     Hub.Notify("Bear Farm", "Method set to: " .. val, 2)
 end)
 
-local createMulti = Hub.CreateMultiDropdown or Hub.createMultiDropdown
-if createMulti then
-    bearTypeDropdown = createMulti(farmTab, "Target Bears (Multi-Select)", getAvailableBearTypes(), {"All"}, function(dict, arr)
-        Config.SelectedBears = dict
-        local desc = dict["All"] and "All Bears" or (#arr .. " Selected")
-        Hub.Notify("Bear Farm", "Targeting: " .. desc, 2)
-    end)
-else
-    bearTypeDropdown = Hub.CreateDropdown(farmTab, "Target Bear", getAvailableBearTypes(), Config.SelectedBearTarget, function(val)
-        Config.SelectedBearTarget = val
-        Config.SelectedBears = { [val] = true }
-        Hub.Notify("Bear Farm", "Targeting: " .. val, 2)
-    end)
-end
+bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears (Multi-Select)", getAvailableBearTypes(), {"All"}, function(dict, arr)
+    Config.SelectedBears = dict
+    local desc = dict["All"] and "All Bears" or (#arr .. " Selected")
+    Hub.Notify("Bear Farm", "Targeting: " .. desc, 2)
+end)
 
 Hub.CreateToggle(farmTab, "Safe Zone Retreat on Low HP", Config.SafeZoneLowHP, function(val)
     Config.SafeZoneLowHP = val
