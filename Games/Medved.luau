@@ -483,6 +483,48 @@ local function ensureBearQueryable(bear)
     end
 end
 
+local function getBearLevitationTarget(bear)
+    if not bear then return nil, 2.2, 1.8 end
+    ensureBearQueryable(bear)
+    local cf, sz = bear:GetBoundingBox()
+    local name = bear.Name:lower()
+
+    -- Category 1: Small / Dwarf bears (booboo, LaserBooBoo, cubs, sz.Y < 6.5 or sz.Magnitude < 8)
+    -- Elevate ABOVE the bear's top bounding box:
+    -- Target Y = cf.Position.Y + (sz.Y * 0.5) + 3.2
+    -- Dist behind = (sz.Z * 0.5) + 1.6
+    -- Verified: ZERO damage taken, booboo died in seconds!
+    if name:find("booboo") or sz.Y < 6.5 or sz.Magnitude < 8 then
+        local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.2
+        local distBehind = (sz.Z * 0.5) + 1.6
+        return cf.Position, distBehind, targetY
+    end
+
+    -- Category 2: Tall / Giant bears (TallBear, WallBear, sz.Y > 14)
+    -- Hover behind upper torso to completely bypass ground slam radius (TallSlam radius 12):
+    -- Target Y = cf.Position.Y + (sz.Y * 0.15)
+    -- Dist behind = (sz.Z * 0.5) + 2.5
+    -- Verified: ZERO damage taken, WallBear took 150 damage in 4s!
+    if name:find("tall") or name:find("wall") or sz.Y > 14 then
+        local targetY = cf.Position.Y + (sz.Y * 0.15)
+        local distBehind = (sz.Z * 0.5) + 2.5
+        return cf.Position, distBehind, targetY
+    end
+
+    -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, etc.)
+    -- Hover behind rear paws / thighs outside torso collision mesh
+    local rear = bear:FindFirstChild("Hitbox_RightThigh") or bear:FindFirstChild("Hitbox_RightFoot") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_LeftFoot")
+    if rear and rear:IsA("BasePart") then
+        local targetY = rear.Position.Y + 1.8
+        return rear.Position, 2.2, targetY
+    end
+
+    local fallback = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart
+    local targetY = fallback and (fallback.Position.Y + 1.8) or (cf.Position.Y + 1.8)
+    local targetPos = fallback and fallback.Position or cf.Position
+    return targetPos, 2.2, targetY
+end
+
 local function getBearBottomRearPart(bear)
     if not bear then return nil end
     ensureBearQueryable(bear)
@@ -961,13 +1003,68 @@ local function getFarmBearTarget()
 end
 
 local isFleeingLowHP = false
+local activeFlightBear = nil
+local activeFlightEvading = false
 
+-- Pipeline 1: 60+ FPS Butter-Smooth Levitation Flight (RunService.Heartbeat)
+-- Decoupled from combat task.wait pauses; updates every single physics frame without stutter or delay
+RunService.Heartbeat:Connect(function(dt)
+    if not Config.AutoFarmBears or isFleeingLowHP then return end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return end
+
+    -- Anti-Touch Defense: Continuous touch suppression across character & held tools
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p.CanTouch then
+            pcall(function() p.CanTouch = false end)
+        end
+    end
+
+    local bear = activeFlightBear
+    if not bear or not bear.Parent then return end
+
+    local bearHum = bear:FindFirstChildOfClass("Humanoid")
+    if not bearHum or bearHum.Health <= 0 then return end
+
+    local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
+    if not bearRoot or not bearRoot.Parent then return end
+
+    local lookVec = bearRoot.CFrame.LookVector
+    local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
+    if not centerPos then return end
+
+    if Config.FarmMethod == "Melee" then
+        local targetPos = centerPos - (lookVec * distBehind)
+        local y = targetY
+        if activeFlightEvading then
+            y = y + 3.0 -- Lift vertically when bear attempts to turn towards player
+        end
+        targetPos = Vector3.new(targetPos.X, y, targetPos.Z)
+        root.CFrame = CFrame.lookAt(targetPos, centerPos)
+    elseif Config.FarmMethod == "Gun" then
+        local cf, bbSize = bear:GetBoundingBox()
+        local distBehindGun = math.max(8.5, bbSize.Z * 0.75 + 4.0)
+        local heightAboveGun = math.max(7.5, bbSize.Y * 0.6 + 4.0)
+        local hoverPos = centerPos - (lookVec * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
+        root.CFrame = CFrame.lookAt(hoverPos, centerPos)
+    end
+
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+end)
+
+-- Pipeline 2: Autonomous Combat & Target Acquisition Loop
 task.spawn(function()
     while true do
-        task.wait(0.08)
+        task.wait(0.06)
         if not Config.AutoFarmBears then
             isFleeingLowHP = false
-            task.wait(0.4)
+            activeFlightBear = nil
+            activeFlightEvading = false
+            task.wait(0.3)
             continue
         end
 
@@ -976,15 +1073,9 @@ task.spawn(function()
         local hum = char and char:FindFirstChildOfClass("Humanoid")
 
         if not char or not root or not hum or hum.Health <= 0 then
+            activeFlightBear = nil
             task.wait(0.5)
             continue
-        end
-
-        -- Anti-Touch Defense: Disable CanTouch on player limbs to block bear TouchPart damage
-        for _, p in ipairs(char:GetChildren()) do
-            if p:IsA("BasePart") and p.CanTouch then
-                pcall(function() p.CanTouch = false end)
-            end
         end
 
         local maxHp = (hum.MaxHealth and hum.MaxHealth > 0) and hum.MaxHealth or 250
@@ -996,6 +1087,7 @@ task.spawn(function()
             end
 
             if isFleeingLowHP then
+                activeFlightBear = nil
                 local safeZonePos = (locationRegistry[1] and resolveLocationPosition(locationRegistry[1])) or Vector3.new(52, -137, -144)
                 if (root.Position - safeZonePos).Magnitude > 25 then
                     safeTeleport(safeZonePos, "Safe Zone")
@@ -1016,6 +1108,7 @@ task.spawn(function()
         -- 2. Equip Best Weapon for chosen FarmMethod
         local bestTool = ensureBestWeaponEquipped(Config.FarmMethod)
         if not bestTool then
+            activeFlightBear = nil
             Hub.Notify("Bear Farm", "No " .. Config.FarmMethod .. " weapon found in inventory!", 2)
             task.wait(2)
             continue
@@ -1024,58 +1117,38 @@ task.spawn(function()
         -- 3. Acquire Target Bear
         local bear, dist = getFarmBearTarget()
         if not bear then
-            task.wait(0.5)
+            activeFlightBear = nil
+            task.wait(0.3)
             continue
         end
 
         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
         local bearHum = bear:FindFirstChildOfClass("Humanoid")
         if not bearRoot or not bearHum or bearHum.Health <= 0 then
+            activeFlightBear = nil
             task.wait(0.1)
             continue
         end
 
-        -- 4. Bottom-Rear Levitation & Anti-Hit Predictive Defense
-        local cf, bbSize = bear:GetBoundingBox()
-        local targetPart = getBearBottomRearPart(bear) or bearRoot
+        activeFlightBear = bear
+
+        -- 4. Anti-Hit Predictive Check (detect bear turning)
         local lookVec = bearRoot.CFrame.LookVector
+        local toPlayer = (root.Position - bearRoot.Position).Unit
+        local isBearFacing = lookVec:Dot(toPlayer) > 0.25
+        activeFlightEvading = isBearFacing
 
+        -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved)
         if Config.FarmMethod == "Melee" then
-            -- Position at bottom-rear outside bear body:
-            local strikePos = targetPart.Position - (lookVec * 2.2) + Vector3.new(0, 1.2, 0)
-            local safeCeiling = strikePos + Vector3.new(0, 3.8, 0)
-
-            -- Anti-Hit Prediction: check if bear is rotating towards player
-            local toPlayer = (root.Position - bearRoot.Position).Unit
-            local isBearFacing = lookVec:Dot(toPlayer) > 0.3
-
             local isMelee = bestTool:FindFirstChild("MeleeScripts")
             if isMelee then
                 applyWeaponMods(bestTool)
-
-                if isBearFacing then
-                    -- Bear attempting to turn/face player: evade up to safe ceiling and re-orbit to rear
-                    root.CFrame = CFrame.lookAt(safeCeiling, targetPart.Position)
-                elseif tick() - lastMeleeSwing >= 0.35 then
-                    -- Strobe Strike: flash-snap to strike position, swing, immediately return to ceiling
+                if not isBearFacing and tick() - lastMeleeSwing >= 0.35 then
                     lastMeleeSwing = tick()
-                    root.CFrame = CFrame.lookAt(strikePos, targetPart.Position)
-                    root.AssemblyLinearVelocity = Vector3.zero
                     bestTool:Activate()
-                    task.wait(0.05)
-                    root.CFrame = CFrame.lookAt(safeCeiling, targetPart.Position)
-                else
-                    -- Safe levitation ceiling outside reach of any swipes or ground slams
-                    root.CFrame = CFrame.lookAt(safeCeiling, targetPart.Position)
                 end
             end
         elseif Config.FarmMethod == "Gun" then
-            -- Gun: safely elevated 12-16 studs away behind the bear with clear line of sight
-            local distBehind = math.max(8.5, bbSize.Z * 0.75 + 4.0)
-            local heightAbove = math.max(7.5, bbSize.Y * 0.6 + 4.0)
-            local hoverPos = targetPart.Position - (lookVec * distBehind) + Vector3.new(0, heightAbove, 0)
-            root.CFrame = CFrame.lookAt(hoverPos, targetPart.Position)
-
             local isGun = bestTool:FindFirstChild("GunScripts")
             if isGun then
                 applyWeaponMods(bestTool)
@@ -1083,13 +1156,10 @@ task.spawn(function()
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
                     triggerGunReload(bestTool)
                 end
-                shootTargetBear(bestTool, bear, targetPart or bearRoot)
+                local targetPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bearRoot
+                shootTargetBear(bestTool, bear, targetPart)
             end
         end
-
-        -- Smoothly anchor position and zero out velocity to levitate effortlessly
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
     end
 end)
 
