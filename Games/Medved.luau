@@ -162,96 +162,131 @@ local function getCrateItemPrompts(crateModel)
     return prompts
 end
 
--- Collect all items in a crate model with fast active proximity polling
-local function sweepCrateItems(crateModel, maxWait)
-    if not crateModel or not crateModel:FindFirstChild("Crate") then return false end
-    local cratePart = crateModel.Crate
+-- Complete in-place crate handler: teleports once, opens, and sweeps all loot in a single visit
+local function processCrateComplete(crate, mode)
+    local cratePart = crate:FindFirstChild("Crate")
+    if not cratePart then return false end
+
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
 
-    local timeout = maxWait or 1.2
-    local start = tick()
-    local collectedAny = false
+    local targetCFrame = cratePart.CFrame + Vector3.new(0, 2.0, 0)
+    root.CFrame = targetCFrame
+    root.AssemblyLinearVelocity = Vector3.zero
+    -- Position settle for server replication
+    task.wait(0.22)
 
-    while (tick() - start) < timeout do
-        local activePrompts = getCrateItemPrompts(crateModel)
-        if #activePrompts == 0 then
-            if collectedAny or (tick() - start) > 0.35 then
+    -- If unopened, trigger opening prompt
+    if mode == "open" then
+        local openPrompt = cratePart:FindFirstChild("CratePrompt")
+        if openPrompt and openPrompt.Enabled then
+            triggerPrompt(openPrompt)
+        end
+
+        -- Fast wait for lid acknowledgment or item prompts to appear
+        local openDeadline = tick() + 0.8
+        while tick() < openDeadline do
+            if #getCrateItemPrompts(crate) > 0 or not openPrompt.Enabled or crate:GetAttribute("Collected") == true then
                 break
             end
-        else
-            for _, prompt in ipairs(activePrompts) do
-                if root then
-                    root.CFrame = cratePart.CFrame + Vector3.new(0, 2.0, 0)
-                    root.AssemblyLinearVelocity = Vector3.zero
-                end
-                triggerPrompt(prompt)
-                collectedAny = true
-                task.wait(0.09)
-            end
+            root.CFrame = targetCFrame
+            root.AssemblyLinearVelocity = Vector3.zero
+            task.wait(0.05)
         end
-        task.wait(0.04)
     end
 
-    return collectedAny
+    -- Thorough in-place loot sweep: stay at the crate until ALL items are collected
+    local sweepDeadline = tick() + 2.0
+    local collectedAny = false
+    local idleCount = 0
+
+    while tick() < sweepDeadline do
+        local activePrompts = getCrateItemPrompts(crate)
+        if #activePrompts > 0 then
+            idleCount = 0
+            for _, prompt in ipairs(activePrompts) do
+                root.CFrame = targetCFrame
+                root.AssemblyLinearVelocity = Vector3.zero
+                triggerPrompt(prompt)
+                collectedAny = true
+                task.wait(0.08)
+            end
+        else
+            idleCount = idleCount + 1
+            -- If crate is clear of prompts for 0.25s, it is completely done
+            if (collectedAny and idleCount >= 3) or (idleCount >= 5) then
+                break
+            end
+        end
+        task.wait(0.05)
+    end
+
+    return true
 end
 
--- Get all targets needing attention: crates with uncollected loot FIRST, then unopened crates
-local function getCratesToProcess()
+-- Nearest-Neighbor target selector: picks the single closest valid crate from current position
+local function getNextTarget()
     local interactables = Workspace:FindFirstChild("Interactables")
     local cratesFolder = interactables and interactables:FindFirstChild("Crates")
-    if not cratesFolder then return {} end
+    if not cratesFolder then return nil end
 
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
 
-    local lootTargets = {}
-    local unopenedTargets = {}
+    local bestTarget = nil
+    local bestDist = math.huge
+    local bestMode = "open"
 
+    -- Priority 1: Any uncollected loot sitting in an unblacklisted crate
     for _, c in ipairs(cratesFolder:GetChildren()) do
         local name = c.Name
-        -- Skip crates that reached attempt limit (max 2 attempts)
         if not blacklistedCrates[name] then
-            local cratePart = c:FindFirstChild("Crate")
-            if cratePart then
-                local itemPrompts = getCrateItemPrompts(c)
-                if #itemPrompts > 0 then
-                    table.insert(lootTargets, { crate = c, mode = "loot" })
-                elseif not openedCrates[name] then
-                    local collected = c:GetAttribute("Collected")
-                    local openPrompt = cratePart:FindFirstChild("CratePrompt")
-                    if collected ~= true and openPrompt and openPrompt.Enabled then
-                        table.insert(unopenedTargets, { crate = c, mode = "open" })
-                    end
+            local itemPrompts = getCrateItemPrompts(c)
+            if #itemPrompts > 0 then
+                local dist = (c:GetPivot().Position - root.Position).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    bestTarget = c
+                    bestMode = "loot"
                 end
             end
         end
     end
 
-    -- Distance sort targets for optimal routing
-    if root then
-        table.sort(unopenedTargets, function(a, b)
-            local posA = a.crate:GetPivot().Position
-            local posB = b.crate:GetPivot().Position
-            return (posA - root.Position).Magnitude < (posB - root.Position).Magnitude
-        end)
-        table.sort(lootTargets, function(a, b)
-            local posA = a.crate:GetPivot().Position
-            local posB = b.crate:GetPivot().Position
-            return (posA - root.Position).Magnitude < (posB - root.Position).Magnitude
-        end)
+    if bestTarget then
+        return { crate = bestTarget, mode = bestMode }
     end
 
-    -- Always process uncollected loot crates FIRST, then unopened crates
-    local targets = {}
-    for _, t in ipairs(lootTargets) do table.insert(targets, t) end
-    for _, t in ipairs(unopenedTargets) do table.insert(targets, t) end
+    -- Priority 2: Closest unopened crate
+    bestDist = math.huge
+    for _, c in ipairs(cratesFolder:GetChildren()) do
+        local name = c.Name
+        if not blacklistedCrates[name] and not openedCrates[name] then
+            local cratePart = c:FindFirstChild("Crate")
+            local openPrompt = cratePart and cratePart:FindFirstChild("CratePrompt")
+            local collected = c:GetAttribute("Collected")
+            if collected ~= true and openPrompt and openPrompt.Enabled then
+                local dist = (c:GetPivot().Position - root.Position).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    bestTarget = c
+                    bestMode = "open"
+                end
+            end
+        end
+    end
 
-    return targets
+    if bestTarget then
+        return { crate = bestTarget, mode = "open" }
+    end
+
+    return nil
 end
 
 --------------------------------------------------------------------------------
--- 5. AUTO FARM CRATES LOOP (SINGLETON TOKEN ENFORCED)
+-- 5. AUTO FARM CRATES LOOP (SINGLE-TARGET LOCK ARCHITECTURE)
 --------------------------------------------------------------------------------
 local currentFarmSession = tick()
 _G.MedvedFarmSession = currentFarmSession
@@ -259,7 +294,7 @@ _G.MedvedFarmSession = currentFarmSession
 task.spawn(function()
     local mySession = currentFarmSession
     while _G.MedvedFarmSession == mySession do
-        task.wait(0.12)
+        task.wait(0.1)
         if Config.AutoFarmCrates then
             local char = LocalPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -268,60 +303,22 @@ task.spawn(function()
             if root and hum and hum.Health > 0 then
                 silenceTelemetry()
 
-                local targets = getCratesToProcess()
-                if #targets > 0 then
-                    for _, target in ipairs(targets) do
-                        if _G.MedvedFarmSession ~= mySession or not Config.AutoFarmCrates then break end
+                local target = getNextTarget()
+                if target then
+                    local crate = target.crate
+                    local name = crate.Name
 
-                        local crate = target.crate
-                        local name = crate.Name
-                        local cratePart = crate and crate:FindFirstChild("Crate")
-                        if not cratePart then continue end
+                    -- Mark attempt
+                    crateAttempts[name] = (crateAttempts[name] or 0) + 1
 
-                        -- Strict attempt cap: max 2 attempts per crate to eliminate infinite retry loops
-                        crateAttempts[name] = (crateAttempts[name] or 0) + 1
-                        if crateAttempts[name] > 2 then
-                            blacklistedCrates[name] = true
-                            continue
-                        end
+                    -- Complete the crate 100% in this single visit
+                    processCrateComplete(crate, target.mode)
 
-                        local targetCFrame = cratePart.CFrame + Vector3.new(0, 2.0, 0)
-                        root.CFrame = targetCFrame
-                        root.AssemblyLinearVelocity = Vector3.zero
-                        -- Settle window: ensures client position replicates to Roblox server before invoking remote
-                        task.wait(0.22)
+                    -- Immediately mark completed and blacklisted so it is NEVER targeted again!
+                    openedCrates[name] = true
+                    blacklistedCrates[name] = true
 
-                        if target.mode == "open" then
-                            local openPrompt = cratePart:FindFirstChild("CratePrompt")
-                            if openPrompt and openPrompt.Enabled then
-                                triggerPrompt(openPrompt)
-                            end
-
-                            -- Quick wait for loot prompts or opening acknowledgment (max 0.75s)
-                            local waitStart = tick()
-                            while (tick() - waitStart) < 0.75 do
-                                if #getCrateItemPrompts(crate) > 0 or not openPrompt.Enabled then
-                                    break
-                                end
-                                root.CFrame = targetCFrame
-                                root.AssemblyLinearVelocity = Vector3.zero
-                                task.wait(0.05)
-                            end
-                        end
-
-                        -- Fast sweep of all loot items
-                        local swept = sweepCrateItems(crate, 1.2)
-                        if swept or crate:GetAttribute("Collected") == true then
-                            openedCrates[name] = true
-                        end
-
-                        -- If crate remains unopened or unlootable after 2 tries, blacklist it permanently
-                        if crateAttempts[name] >= 2 and crate:GetAttribute("Collected") ~= true and #getCrateItemPrompts(crate) == 0 then
-                            blacklistedCrates[name] = true
-                        end
-
-                        task.wait(Config.FarmDelay)
-                    end
+                    task.wait(Config.FarmDelay)
                 else
                     -- No crates or uncollected loot left
                     if Config.AutoServerhop then
