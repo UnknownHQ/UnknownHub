@@ -1,7 +1,13 @@
 --------------------------------------------------------------------------------
 -- UNKNOWN HUB: MEDVED! (Hunt & Become Bears)
 -- PlaceId: 132273534230449 | GameId: 7144947546
--- Complete Suite: Auto Farm Crates, Auto Collect Pages, Crates ESP, Bears ESP, Teleports
+-- Complete Suite V4:
+--   • Auto Farm Crates (Single-Target Lock, Atomic In-Place Loot Sweep)
+--   • Auto Collect All Pages (32 Map Pages)
+--   • Combat: Melee Hit Aura, Gun Hit Aura, Infinite Ammo, No Spread, Full Auto
+--   • Movement: Infinite Stamina, Undetectable WalkSpeed Modifier
+--   • Visuals: Crates ESP, Bears ESP (NPCs & Player Bears with HP & Distance)
+--   • Teleports: Dynamic Physical Landmark Resolver (Zero Random Landings)
 -- Security: Full Packet.Write hook & zero-mover stealth architecture
 --------------------------------------------------------------------------------
 
@@ -11,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -85,10 +92,24 @@ local Hub = createHubFn({
 -- 3. STATE & CONFIGURATION
 --------------------------------------------------------------------------------
 local Config = {
+    -- Auto Farm
     AutoFarmCrates = false,
     AutoCollectPages = false,
     FarmDelay = 0.5,
     AutoServerhop = false,
+
+    -- Combat
+    MeleeAura = false,
+    MeleeAuraRange = 18,
+    GunAura = false,
+    GunAuraRange = 90,
+    InfiniteAmmo = false,
+
+    -- Movement & Stamina
+    InfiniteStamina = false,
+    CustomSpeed = 14.1,
+
+    -- Visuals
     CratesESP = false,
     BearsESP = false
 }
@@ -100,7 +121,7 @@ local blacklistedCrates = {}
 local openedCrates = {}
 
 --------------------------------------------------------------------------------
--- 4. UTILITY FUNCTIONS: PROMPT TRIGGER & TELEPORT
+-- 4. UTILITIES & TELEPORT RESOLVER
 --------------------------------------------------------------------------------
 local function triggerPrompt(prompt)
     if not prompt or not prompt.Enabled then return false end
@@ -123,6 +144,49 @@ local function triggerPrompt(prompt)
         end
     end)
     return true
+end
+
+-- Dynamic Landmark Resolver: finds the real physical ground parts of every location
+local locationRegistry = {
+    { name = "Main Base (Spawn)", target = "TheBase", fallback = Vector3.new(52, -137, -144) },
+    { name = "Old Statue (Lenin)", target = "Lenin Statue", fallback = Vector3.new(-399, -123, -707) },
+    { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-626, -114, 443) },
+    { name = "Ruined Playground", target = "BrutalPlayground", fallback = Vector3.new(-1053, -112, 646) },
+    { name = "Graveyard", target = "Graveyard", fallback = Vector3.new(12, -123, -878) },
+    { name = "The Bunker", target = "Bunker", fallback = Vector3.new(-699, -112, -664) },
+    { name = "The Tunnel", target = "Tunnel", fallback = Vector3.new(-1162, -112, -46) },
+    { name = "The Bridge", target = "TheBridge", fallback = Vector3.new(848, -110, -592) },
+    { name = "Power Grid", target = "Power Grid", fallback = Vector3.new(-556, -112, -270) },
+    { name = "Main Cave Entrance", target = "Caves", fallback = Vector3.new(-28, -122, 397) },
+    { name = "Bear Pillars", target = "Pillar Obby", fallback = Vector3.new(255, -123, 588) },
+    { name = "Abandoned Town", target = "AbandonedTown", fallback = Vector3.new(-9, -135, 175) },
+    { name = "Research Facility", target = "OutsideResearchFacility", fallback = Vector3.new(-17, -136, -396) },
+    { name = "Star Lab", target = "Star Lab", fallback = Vector3.new(-300, -112, 850) },
+    { name = "Hangar", target = "Hangar", fallback = Vector3.new(400, -112, 400) },
+    { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850, -120, -350) },
+    { name = "Plane Crash", target = "Plane", fallback = Vector3.new(325, -143, -63) },
+    { name = "The Maze", target = "ScaryMaze", fallback = Vector3.new(20, -130, -185) }
+}
+
+local function resolveLocationPosition(item)
+    local map = Workspace:FindFirstChild("Map")
+    if map and item.target then
+        local folder = map:FindFirstChild(item.target)
+        if folder then
+            if item.target == "TheBase" then
+                local spawnLoc = folder:FindFirstChild("SpawnLocation", true)
+                if spawnLoc then return spawnLoc.Position + Vector3.new(0, 3.5, 0) end
+            end
+            for _, d in ipairs(folder:GetDescendants()) do
+                if d:IsA("BasePart") and d.CanCollide and d.Size.Magnitude > 3 and not d.Name:lower():find("leaves") and not d.Name:lower():find("roof") and not d.Name:lower():find("wall") then
+                    return d.Position + Vector3.new(0, 3.5, 0)
+                end
+            end
+            local anyPart = folder:FindFirstChildWhichIsA("BasePart", true)
+            if anyPart then return anyPart.Position + Vector3.new(0, 3.5, 0) end
+        end
+    end
+    return item.fallback + Vector3.new(0, 3.5, 0)
 end
 
 local function safeTeleport(targetPos, locationName)
@@ -402,7 +466,165 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------------------------
--- 7. ESP SYSTEMS (CRATES & BEARS)
+-- 7. COMBAT & MOVEMENT ENGINE (MELEE AURA, GUN AURA, INFINITE STAMINA)
+--------------------------------------------------------------------------------
+local function getClosestBear(maxDist)
+    local bearsFolder = Workspace:FindFirstChild("Bears")
+    if not bearsFolder then return nil end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+
+    local closest = nil
+    local bestDist = maxDist or math.huge
+
+    for _, b in ipairs(bearsFolder:GetChildren()) do
+        if b ~= char then
+            local bearRoot = b:FindFirstChild("HumanoidRootPart") or b:FindFirstChild("Head") or b.PrimaryPart or b:FindFirstChildOfClass("BasePart")
+            local hum = b:FindFirstChildOfClass("Humanoid")
+            if bearRoot and (not hum or hum.Health > 0) then
+                local dist = (bearRoot.Position - root.Position).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    closest = b
+                end
+            end
+        end
+    end
+    return closest, bestDist
+end
+
+local function applyWeaponMods(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    local config = tool:FindFirstChild("Config")
+    if not config then return end
+
+    if Config.InfiniteAmmo then
+        local clip = config:FindFirstChild("ClipSize")
+        if clip and clip:IsA("ValueBase") then clip.Value = 999999 end
+
+        local auto = config:FindFirstChild("Auto")
+        if auto and auto:IsA("ValueBase") then auto.Value = true end
+
+        local inacc = config:FindFirstChild("Inaccuracy")
+        if inacc and inacc:IsA("ValueBase") then inacc.Value = 0 end
+
+        local fireRate = config:FindFirstChild("FireRate")
+        if fireRate and fireRate:IsA("ValueBase") and fireRate.Value > 0.15 then
+            fireRate.Value = 0.15
+        end
+    end
+
+    if Config.MeleeAura then
+        local windup = config:FindFirstChild("WindupTime")
+        if windup and windup:IsA("ValueBase") then windup.Value = 0 end
+
+        local cooldown = config:FindFirstChild("CooldownTime")
+        if cooldown and cooldown:IsA("ValueBase") then cooldown.Value = 0.08 end
+
+        local hitboxTime = config:FindFirstChild("HitboxTime")
+        if hitboxTime and hitboxTime:IsA("ValueBase") then hitboxTime.Value = 1.0 end
+    end
+end
+
+-- Active Combat Loop: Melee Aura & Gun Aura
+task.spawn(function()
+    while true do
+        task.wait(0.08)
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if root and hum and hum.Health > 0 then
+            -- 1. Melee Aura Execution
+            if Config.MeleeAura then
+                local bear, dist = getClosestBear(Config.MeleeAuraRange)
+                if bear and dist then
+                    local equippedTool = char:FindFirstChildOfClass("Tool")
+                    local isMelee = equippedTool and equippedTool:FindFirstChild("MeleeScripts")
+
+                    -- Auto equip melee weapon if unequipped
+                    if not isMelee then
+                        for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+                            if t:IsA("Tool") and t:FindFirstChild("MeleeScripts") then
+                                hum:EquipTool(t)
+                                equippedTool = t
+                                isMelee = true
+                                break
+                            end
+                        end
+                    end
+
+                    if isMelee and equippedTool then
+                        applyWeaponMods(equippedTool)
+                        local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
+                        if bearRoot then
+                            root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
+                            equippedTool:Activate()
+                        end
+                    end
+                end
+            end
+
+            -- 2. Gun Aura Execution (Auto Shoot Bears)
+            if Config.GunAura then
+                local bear, dist = getClosestBear(Config.GunAuraRange)
+                if bear and dist then
+                    local equippedTool = char:FindFirstChildOfClass("Tool")
+                    local isGun = equippedTool and equippedTool:FindFirstChild("GunScripts")
+
+                    -- Auto equip gun if unequipped
+                    if not isGun then
+                        for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+                            if t:IsA("Tool") and t:FindFirstChild("GunScripts") then
+                                hum:EquipTool(t)
+                                equippedTool = t
+                                isGun = true
+                                break
+                            end
+                        end
+                    end
+
+                    if isGun and equippedTool then
+                        applyWeaponMods(equippedTool)
+                        local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
+                        if bearRoot then
+                            root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
+                            equippedTool:Activate()
+                        end
+                    end
+                end
+            end
+
+            -- 3. Always apply weapon mods if held
+            if Config.InfiniteAmmo then
+                local equipped = char:FindFirstChildOfClass("Tool")
+                if equipped and equipped:FindFirstChild("GunScripts") then
+                    applyWeaponMods(equipped)
+                end
+            end
+        end
+    end
+end)
+
+-- Undetectable Movement & Infinite Stamina Loop (Modifies official game script attributes)
+RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    local sprintScript = char and char:FindFirstChild("Sprinting")
+    if sprintScript then
+        if Config.InfiniteStamina then
+            sprintScript:SetAttribute("Stamina", 1)
+        end
+        if Config.CustomSpeed and Config.CustomSpeed > 14.1 then
+            sprintScript:SetAttribute("WalkSpeed", Config.CustomSpeed)
+            sprintScript:SetAttribute("SprintingSpeed", Config.CustomSpeed * 1.5)
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- 8. ESP SYSTEMS (CRATES & BEARS)
 --------------------------------------------------------------------------------
 local function clearCrateESP()
     for _, obj in pairs(activeESP) do
@@ -530,18 +752,16 @@ end
 task.spawn(function()
     while true do
         task.wait(2.0)
-        if Config.CratesESP then
-            updateCratesESP()
-        end
-        if Config.BearsESP then
-            updateBearESP()
-        end
+        if Config.CratesESP then updateCratesESP() end
+        if Config.BearsESP then updateBearESP() end
     end
 end)
 
 --------------------------------------------------------------------------------
--- 8. UI TABS & CONTROLS
+-- 9. UI TABS & CONTROLS
 --------------------------------------------------------------------------------
+
+-- TAB: AUTO FARM
 local farmTab = Hub.CreateTab("Auto Farm", {
     Icon = "🌾",
     Size = 18,
@@ -550,7 +770,6 @@ local farmTab = Hub.CreateTab("Auto Farm", {
 })
 
 Hub.CreateSection(farmTab, "🛡️ Telemetry Shield: Active & Silent")
-
 Hub.CreateSection(farmTab, "📦 Crates Automation")
 
 Hub.CreateToggle(farmTab, "Auto Farm Crates (Teleport & Loot)", Config.AutoFarmCrates, function(val)
@@ -595,9 +814,53 @@ Hub.CreateButton(farmTab, "Collect All Pages (One-Time Sweep)", function()
     end)
 end)
 
---------------------------------------------------------------------------------
--- VISUALS TAB
---------------------------------------------------------------------------------
+-- TAB: COMBAT
+local combatTab = Hub.CreateTab("Combat", {
+    Icon = "⚔️",
+    Size = 18,
+    Color = Color3.fromRGB(255, 75, 75),
+    ActiveColor = Color3.fromRGB(255, 110, 110)
+})
+
+Hub.CreateSection(combatTab, "🗡️ Melee Automation")
+
+Hub.CreateToggle(combatTab, "Melee Hit Aura (Bat / Axe / Melee)", Config.MeleeAura, function(val)
+    Config.MeleeAura = val
+    Hub.Notify("Combat", val and "Melee Aura: ACTIVE" or "Melee Aura: OFF", 2)
+end)
+
+Hub.CreateSlider(combatTab, "Melee Aura Range (Studs)", 8, 30, Config.MeleeAuraRange, function(val)
+    Config.MeleeAuraRange = val
+end)
+
+Hub.CreateSection(combatTab, "🔫 Firearm Automation")
+
+Hub.CreateToggle(combatTab, "Infinite Ammo & Full Auto", Config.InfiniteAmmo, function(val)
+    Config.InfiniteAmmo = val
+    Hub.Notify("Combat", val and "Infinite Ammo & Rapid Fire: ACTIVE" or "Infinite Ammo: OFF", 2)
+end)
+
+Hub.CreateToggle(combatTab, "Gun Hit Aura (Auto Shoot Bears)", Config.GunAura, function(val)
+    Config.GunAura = val
+    Hub.Notify("Combat", val and "Gun Aura: ACTIVE" or "Gun Aura: OFF", 2)
+end)
+
+Hub.CreateSlider(combatTab, "Gun Aura Range (Studs)", 20, 150, Config.GunAuraRange, function(val)
+    Config.GunAuraRange = val
+end)
+
+Hub.CreateSection(combatTab, "⚡ Movement & Undetectable Stamina")
+
+Hub.CreateToggle(combatTab, "Infinite Stamina (Never Deplete)", Config.InfiniteStamina, function(val)
+    Config.InfiniteStamina = val
+    Hub.Notify("Movement", val and "Infinite Stamina: ACTIVE" or "Infinite Stamina: OFF", 2)
+end)
+
+Hub.CreateSlider(combatTab, "WalkSpeed Modifier", 14.1, 45, Config.CustomSpeed, function(val)
+    Config.CustomSpeed = val
+end)
+
+-- TAB: VISUALS
 local visualTab = Hub.CreateTab("Visuals", {
     Icon = "👁️",
     Size = 18,
@@ -625,9 +888,7 @@ Hub.CreateToggle(visualTab, "Bears ESP (NPCs & Players)", Config.BearsESP, funct
     end
 end)
 
---------------------------------------------------------------------------------
--- TELEPORT TAB
---------------------------------------------------------------------------------
+-- TAB: TELEPORTS
 local tpTab = Hub.CreateTab("Teleports", {
     Icon = "📍",
     Size = 18,
@@ -635,39 +896,16 @@ local tpTab = Hub.CreateTab("Teleports", {
     ActiveColor = Color3.fromRGB(255, 205, 50)
 })
 
-Hub.CreateSection(tpTab, "🗺️ Major Map Locations")
+Hub.CreateSection(tpTab, "🗺️ Verified Geographic Locations")
 
-local locations = {
-    { name = "Main Base (Spawn)", pos = Vector3.new(50, -120, -126) },
-    { name = "Old Statue (Lenin)", pos = Vector3.new(-399, -123, -707) },
-    { name = "Signal Tower", pos = Vector3.new(-651, -112, 444) },
-    { name = "Ruined Playground", pos = Vector3.new(-1053, -112, 646) },
-    { name = "Graveyard", pos = Vector3.new(12, -123, -878) },
-    { name = "The Bunker", pos = Vector3.new(-699, -112, -664) },
-    { name = "The Tunnel", pos = Vector3.new(-1162, -112, -46) },
-    { name = "The Bridge", pos = Vector3.new(848, -110, -592) },
-    { name = "Power Grid", pos = Vector3.new(-556, -112, -270) },
-    { name = "Frozen Lake", pos = Vector3.new(615, -112, 1091) },
-    { name = "Bear Pillars", pos = Vector3.new(255, -123, 588) },
-    { name = "Little Bell", pos = Vector3.new(53, -123, 249) },
-    { name = "The Hole", pos = Vector3.new(-764, -112, -1199) },
-    { name = "Abandoned Town", pos = Vector3.new(-450, -123, 100) },
-    { name = "Research Facility", pos = Vector3.new(0, -123, -435) },
-    { name = "Star Lab", pos = Vector3.new(-300, -112, 850) },
-    { name = "Hangar", pos = Vector3.new(400, -112, 400) },
-    { name = "Mineshaft", pos = Vector3.new(-850, -120, -350) },
-    { name = "Plane Crash", pos = Vector3.new(700, -115, -200) }
-}
-
-for _, loc in ipairs(locations) do
-    Hub.CreateButton(tpTab, "Teleport to: " .. loc.name, function()
-        safeTeleport(loc.pos, loc.name)
+for _, locItem in ipairs(locationRegistry) do
+    Hub.CreateButton(tpTab, "Teleport to: " .. locItem.name, function()
+        local pos = resolveLocationPosition(locItem)
+        safeTeleport(pos, locItem.name)
     end)
 end
 
---------------------------------------------------------------------------------
--- MISC TAB
---------------------------------------------------------------------------------
+-- TAB: MISC
 local miscTab = Hub.CreateTab("Misc", {
     Icon = "⚙️",
     Size = 18,
@@ -695,4 +933,4 @@ Hub.CreateButton(miscTab, "Rejoin Current Server", function()
     end
 end)
 
-Hub.Notify("Medved Hub", "Medved! V3 Loaded — Pages, Bears ESP & Teleports Ready 🐻", 3)
+Hub.Notify("Medved Hub", "Medved! V4 Loaded — Combat Suite & Dynamic Teleports 🐻", 3)
