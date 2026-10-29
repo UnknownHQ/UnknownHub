@@ -92,6 +92,14 @@ local SupportedGames = {
         gameIds = { 1016936714 },
         scriptUrl = BASE_URL .. "/Games/YBA.luau",
         desc = "Auto item farm & sniper (Arrows/Rokas/Lucky), auto quest farm, Stand roll bot, SBR automator & ESP"
+    },
+    {
+        name = "Medved!",
+        icon = "🐻",
+        placeIds = { 0 },
+        gameIds = { 0 },
+        scriptUrl = BASE_URL .. "/Games/Medved.luau",
+        desc = "Dedicated automation & farming suite for Medved!"
     }
 }
 
