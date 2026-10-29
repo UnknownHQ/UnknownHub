@@ -229,15 +229,52 @@ local function resolveLocationPosition(item)
     return item.fallback + Vector3.new(0, 3.5, 0)
 end
 
+local isTeleporting = false
+
 local function safeTeleport(targetPos, locationName)
+    if isTeleporting then return end
+    isTeleporting = true
+
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+    if not char or not root then
+        isTeleporting = false
+        return
+    end
 
     silenceTelemetry()
-    root.CFrame = CFrame.new(targetPos)
+
+    local spawnOffset = Vector3.new(0, 2.5, 0)
+    local destCFrame = CFrame.new(targetPos + spawnOffset)
+
+    -- Anchor-Flash Protocol: Prevents 50/50 physics packet rubberband when walking or sprinting
     root.AssemblyLinearVelocity = Vector3.zero
-    Hub.Notify("Teleport", "Arrived at " .. locationName, 2)
+    root.AssemblyAngularVelocity = Vector3.zero
+    root.Anchored = true
+    char:PivotTo(destCFrame)
+
+    task.spawn(function()
+        -- Hold anchored across 3 physics frames to force authoritative server position sync
+        for _ = 1, 3 do
+            RunService.Heartbeat:Wait()
+            if root and root.Parent then
+                char:PivotTo(destCFrame)
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+
+        if root and root.Parent then
+            root.Anchored = false
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+
+        isTeleporting = false
+        if locationName then
+            Hub.Notify("Teleport", "Arrived at " .. locationName, 2)
+        end
+    end)
 end
 
 --------------------------------------------------------------------------------
@@ -735,7 +772,7 @@ local isReloading = false
 local reloadEndTime = 0
 
 local function getLoadedAmmoFromGUI()
-    if tick() < reloadEndTime then
+    if tick() < reloadEndTime or isReloading then
         return 0, true
     end
 
@@ -743,15 +780,16 @@ local function getLoadedAmmoFromGUI()
     local hud = pgui and pgui:FindFirstChild("GameplayInterface") and pgui.GameplayInterface:FindFirstChild("Hud")
     local gunHud = hud and hud:FindFirstChild("Gun")
 
-    -- 1. Check MobileButtons reload cooldown indicator
-    local reloadBtn = gunHud and gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Reload")
-    local reloadCooldown = reloadBtn and reloadBtn:FindFirstChild("Cooldown")
+    -- 1. Check Reload cooldown indicator in MobileButtons
+    local reloadCooldown = gunHud and gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Reload") and gunHud.MobileButtons.Reload:FindFirstChild("Cooldown")
     if reloadCooldown and reloadCooldown.Visible then
         return 0, true
     end
 
-    -- 2. Inspect active crosshair ammo label
-    local ammoLabel = gunHud and gunHud:FindFirstChild("Crosshair") and gunHud.Crosshair:FindFirstChild("AmmoCount")
+    -- 2. Inspect active ammo labels: either MobileButtons.Ammo or Crosshair.AmmoCount
+    local ammoLabel = (gunHud and gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Ammo"))
+        or (gunHud and gunHud:FindFirstChild("Crosshair") and gunHud.Crosshair:FindFirstChild("AmmoCount"))
+
     if ammoLabel and ammoLabel.Text ~= "" then
         local text = ammoLabel.Text
         if string.find(text, "RELOAD") or string.find(text, "%-%-") then
@@ -759,29 +797,62 @@ local function getLoadedAmmoFromGUI()
         end
         local current = string.match(text, "^(%d+)")
         if current then
-            return tonumber(current), false
+            local currentNum = tonumber(current) or 0
+            return currentNum, (currentNum <= 0)
         end
     end
-    return 10, false
+
+    -- Fallback: inspect equipped tool config
+    local char = LocalPlayer.Character
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    local config = tool and tool:FindFirstChild("Config")
+    local clipSize = config and config:FindFirstChild("ClipSize") and config.ClipSize.Value or 30
+    return clipSize, false
 end
 
--- Atomic Single-Pulse Gun Reload Trigger (Prevents Server Reload Abort / Desync)
+-- Comprehensive Dual-Vector Gun Reload Trigger (Simulated Key + Server Remote + UI Trigger)
 local function triggerGunReload(tool)
-    if not tool or tick() < reloadEndTime then return end
+    if not tool or tick() < reloadEndTime or isReloading then return end
     local gunScripts = tool:FindFirstChild("GunScripts")
     local reloadRemote = gunScripts and gunScripts:FindFirstChild("Reload")
-    if not reloadRemote then return end
 
     local config = tool:FindFirstChild("Config")
     local reloadTimeVal = config and config:FindFirstChild("ReloadTime")
-    local reloadDuration = (reloadTimeVal and reloadTimeVal:IsA("ValueBase") and reloadTimeVal.Value) or 2.0
+    local reloadDuration = (reloadTimeVal and reloadTimeVal:IsA("ValueBase") and reloadTimeVal.Value) or 2.2
 
-    -- Lock reload state until server completes reload cycle
-    reloadEndTime = tick() + reloadDuration + 0.15
+    reloadEndTime = tick() + reloadDuration + 0.25
     isReloading = true
 
-    reloadRemote:FireServer()
-    task.delay(reloadDuration + 0.15, function()
+    -- 1. Native Virtual Input KeyPress simulation (invokes GunClient local reload animation & client clip reset)
+    pcall(function()
+        local vim = game:GetService("VirtualInputManager")
+        if vim then
+            vim:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+            task.wait(0.04)
+            vim:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+        end
+    end)
+
+    -- 2. Direct Network Remote Dispatch as server-side authoritative backup
+    if reloadRemote then
+        pcall(function()
+            reloadRemote:FireServer()
+        end)
+    end
+
+    -- 3. Click MobileButtons Reload button if visible
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        local hud = pgui and pgui:FindFirstChild("GameplayInterface") and pgui.GameplayInterface:FindFirstChild("Hud")
+        local reloadBtn = hud and hud:FindFirstChild("Gun") and hud.Gun:FindFirstChild("MobileButtons") and hud.Gun.MobileButtons:FindFirstChild("Reload")
+        if reloadBtn and reloadBtn:IsA("GuiButton") then
+            for _, conn in ipairs(getconnections(reloadBtn.MouseButton1Click)) do
+                conn:Fire()
+            end
+        end
+    end)
+
+    task.delay(reloadDuration + 0.25, function()
         if tick() >= reloadEndTime then
             isReloading = false
         end
