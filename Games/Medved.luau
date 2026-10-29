@@ -495,24 +495,56 @@ local function getClosestBear(maxDist)
     return closest, bestDist
 end
 
+-- Cache original weapon defaults to avoid corrupting game state
+local originalGunConfigs = {}
+
 local function applyWeaponMods(tool)
     if not tool or not tool:IsA("Tool") then return end
     local config = tool:FindFirstChild("Config")
     if not config then return end
 
-    if Config.InfiniteAmmo then
+    local toolId = tool.Name
+    if not originalGunConfigs[toolId] then
         local clip = config:FindFirstChild("ClipSize")
-        if clip and clip:IsA("ValueBase") then clip.Value = 999999 end
+        local reload = config:FindFirstChild("ReloadTime")
+        local fireRate = config:FindFirstChild("FireRate")
+        originalGunConfigs[toolId] = {
+            ClipSize = (clip and clip:IsA("ValueBase")) and clip.Value or 10,
+            ReloadTime = (reload and reload:IsA("ValueBase")) and reload.Value or 2.5,
+            FireRate = (fireRate and fireRate:IsA("ValueBase")) and fireRate.Value or 0.3
+        }
+    end
+
+    if Config.InfiniteAmmo then
+        -- DO NOT set ClipSize to 999999 (that desyncs from server and causes 0 damage!)
+        -- Keep authentic clip size, but make reload time near-instant (0.05s)
+        local orig = originalGunConfigs[toolId]
+        local clip = config:FindFirstChild("ClipSize")
+        if clip and clip:IsA("ValueBase") then
+            -- Restore true clip size if previously set to 999999
+            if clip.Value >= 99999 then
+                clip.Value = orig.ClipSize
+            end
+        end
+
+        local reload = config:FindFirstChild("ReloadTime")
+        if reload and reload:IsA("ValueBase") then
+            reload.Value = 0.05 -- Near-instant magazine swap
+        end
 
         local auto = config:FindFirstChild("Auto")
-        if auto and auto:IsA("ValueBase") then auto.Value = true end
+        if auto and auto:IsA("ValueBase") then
+            auto.Value = true -- Full auto firing
+        end
 
         local inacc = config:FindFirstChild("Inaccuracy")
-        if inacc and inacc:IsA("ValueBase") then inacc.Value = 0 end
+        if inacc and inacc:IsA("ValueBase") then
+            inacc.Value = 0 -- Perfect zero-spread accuracy
+        end
 
         local fireRate = config:FindFirstChild("FireRate")
-        if fireRate and fireRate:IsA("ValueBase") and fireRate.Value > 0.15 then
-            fireRate.Value = 0.15
+        if fireRate and fireRate:IsA("ValueBase") and fireRate.Value > 0.12 then
+            fireRate.Value = 0.12 -- Rapid fire rate
         end
     end
 
@@ -528,7 +560,79 @@ local function applyWeaponMods(tool)
     end
 end
 
--- Active Combat Loop: Melee Aura & Gun Aura
+-- Server-Authoritative Shooting Dispatcher
+local function shootTargetBear(tool, bear, bearPart)
+    if not tool or not bear or not bearPart then return end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local gunScripts = tool:FindFirstChild("GunScripts")
+    local fireRemote = gunScripts and gunScripts:FindFirstChild("FireBullet")
+    if not fireRemote then return end
+
+    local muzzle = tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("Muzzle")
+    local muzzlePos = muzzle and muzzle.WorldCFrame.Position or (root.Position + Vector3.new(0, 1.5, 0))
+    local hitPos = bearPart.Position
+
+    -- 1. Check if GunClient Shoot function is available in memory
+    local firedInternally = false
+    if getgc and not isexecutorclosure then
+        pcall(function()
+            for _, f in ipairs(getgc(false)) do
+                if typeof(f) == "function" and not isexecutorclosure(f) then
+                    local info = getinfo(f)
+                    if info.name == "Shoot" and string.find(info.source, "GunClient") then
+                        f(hitPos)
+                        firedInternally = true
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    -- 2. Direct server packet firing (guarantees hit registration and damage on server)
+    if not firedInternally then
+        local hitData = {
+            {
+                hit = bearPart,
+                hitpos = hitPos,
+                normal = Vector3.new(0, 1, 0)
+            }
+        }
+        fireRemote:FireServer(hitData)
+
+        -- Local auditory & visual feedback
+        pcall(function()
+            if muzzle then
+                local fireSound = muzzle:FindFirstChild("Fire") or muzzle:FindFirstChild("Fire_client")
+                if fireSound and fireSound:IsA("Sound") then
+                    fireSound:Play()
+                end
+                local flash = muzzle:FindFirstChild("Flash")
+                if flash and flash:IsA("ParticleEmitter") then
+                    flash:Emit(1)
+                end
+            end
+
+            local sharedEvents = ReplicatedStorage:FindFirstChild("SharedEvents")
+            local combatEvents = sharedEvents and sharedEvents:FindFirstChild("Combat")
+            local clientBulletShot = combatEvents and combatEvents:FindFirstChild("ClientBulletShot")
+            if clientBulletShot and clientBulletShot:IsA("BindableEvent") then
+                clientBulletShot:Fire(muzzlePos, hitPos, Vector3.new(0, 1, 0), bearPart)
+            end
+        end)
+    end
+
+    -- 3. Visual recoil swing
+    pcall(function()
+        tool:Activate()
+    end)
+end
+
+-- Active Combat Loop: Melee Aura, Gun Aura & Server-Synced Infinite Ammo
 task.spawn(function()
     while true do
         task.wait(0.08)
@@ -537,25 +641,13 @@ task.spawn(function()
         local hum = char and char:FindFirstChildOfClass("Humanoid")
 
         if root and hum and hum.Health > 0 then
+            local equippedTool = char:FindFirstChildOfClass("Tool")
+
             -- 1. Melee Aura Execution
             if Config.MeleeAura then
                 local bear, dist = getClosestBear(Config.MeleeAuraRange)
                 if bear and dist then
-                    local equippedTool = char:FindFirstChildOfClass("Tool")
                     local isMelee = equippedTool and equippedTool:FindFirstChild("MeleeScripts")
-
-                    -- Auto equip melee weapon if unequipped
-                    if not isMelee then
-                        for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
-                            if t:IsA("Tool") and t:FindFirstChild("MeleeScripts") then
-                                hum:EquipTool(t)
-                                equippedTool = t
-                                isMelee = true
-                                break
-                            end
-                        end
-                    end
-
                     if isMelee and equippedTool then
                         applyWeaponMods(equippedTool)
                         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
@@ -567,42 +659,51 @@ task.spawn(function()
                 end
             end
 
-            -- 2. Gun Aura Execution (Auto Shoot Bears)
+            -- 2. Gun Aura Execution (ONLY when gun is ALREADY equipped! Zero annoying auto-equipping!)
             if Config.GunAura then
-                local bear, dist = getClosestBear(Config.GunAuraRange)
-                if bear and dist then
-                    local equippedTool = char:FindFirstChildOfClass("Tool")
-                    local isGun = equippedTool and equippedTool:FindFirstChild("GunScripts")
-
-                    -- Auto equip gun if unequipped
-                    if not isGun then
-                        for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
-                            if t:IsA("Tool") and t:FindFirstChild("GunScripts") then
-                                hum:EquipTool(t)
-                                equippedTool = t
-                                isGun = true
-                                break
-                            end
-                        end
-                    end
-
-                    if isGun and equippedTool then
+                local isGun = equippedTool and equippedTool:FindFirstChild("GunScripts")
+                if isGun and equippedTool then
+                    local bear, dist = getClosestBear(Config.GunAuraRange)
+                    if bear and dist then
                         applyWeaponMods(equippedTool)
                         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
                         if bearRoot then
+                            -- Aim character at target bear
                             root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
-                            equippedTool:Activate()
+                            shootTargetBear(equippedTool, bear, bearRoot)
                         end
                     end
                 end
             end
 
-            -- 3. Always apply weapon mods if held
-            if Config.InfiniteAmmo then
-                local equipped = char:FindFirstChildOfClass("Tool")
-                if equipped and equipped:FindFirstChild("GunScripts") then
-                    applyWeaponMods(equipped)
-                end
+            -- 3. Infinite Loaded Ammo & Auto-Replenishment Engine
+            if Config.InfiniteAmmo and equippedTool and equippedTool:FindFirstChild("GunScripts") then
+                applyWeaponMods(equippedTool)
+
+                -- Keep loaded ammo topped up and pulse reload to server before magazine depletes
+                pcall(function()
+                    local reloadRemote = equippedTool.GunScripts:FindFirstChild("Reload")
+                    local config = equippedTool:FindFirstChild("Config")
+                    local origClip = (originalGunConfigs[equippedTool.Name] and originalGunConfigs[equippedTool.Name].ClipSize) or 10
+
+                    if getgc and setupvalue and not isexecutorclosure then
+                        for _, f in ipairs(getgc(false)) do
+                            if typeof(f) == "function" and not isexecutorclosure(f) then
+                                local info = getinfo(f)
+                                if info.name == "Shoot" and string.find(info.source, "GunClient") then
+                                    local ups = getupvalues(f)
+                                    -- Upvalue 10 is t2[1] (loaded clip ammo)
+                                    if ups[10] and typeof(ups[10]) == "number" and ups[10] <= 2 then
+                                        if reloadRemote then
+                                            reloadRemote:FireServer()
+                                        end
+                                        setupvalue(f, 10, origClip)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end)
             end
         end
     end
