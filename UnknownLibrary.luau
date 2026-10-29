@@ -1,8 +1,8 @@
 --[[
     ========================================================================
-    UNKNOWN LIBRARY — V2.1 REFINED MINIMAL DARK UI (Obsidian-Free, Slop-Free)
+    UNKNOWN LIBRARY — V2.2 REFINED MINIMAL DARK UI (Obsidian-Free, Slop-Free)
     Engineered exclusively for Unknown Hub
-    Precision Typography & Glass Slate Aesthetic
+    Precision Glass CanvasGroup, Custom RGB Selector & Silky Animations
     ========================================================================
 ]]
 
@@ -14,7 +14,6 @@ local Lighting = game:GetService("Lighting")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local TeleportService = game:GetService("TeleportService")
-local SoundService = game:GetService("SoundService")
 
 -- =========================================================================
 -- Theme & Styling Constants
@@ -34,15 +33,6 @@ local DEFAULT_THEME = {
     Success = Color3.fromRGB(45, 205, 115),
     Warning = Color3.fromRGB(245, 165, 35),
     Danger = Color3.fromRGB(240, 65, 75)
-}
-
-local THEME_PRESETS = {
-    ["Electric Amber"] = Color3.fromRGB(245, 142, 32),
-    ["Cyber Cyan"] = Color3.fromRGB(0, 195, 245),
-    ["Neon Violet"] = Color3.fromRGB(165, 95, 255),
-    ["Emerald Mint"] = Color3.fromRGB(45, 215, 135),
-    ["Crimson Rose"] = Color3.fromRGB(245, 65, 95),
-    ["Ice White"] = Color3.fromRGB(230, 240, 255)
 }
 
 -- =========================================================================
@@ -74,6 +64,13 @@ local function tween(obj, info, props)
     return tw
 end
 
+local function colorToHex(color)
+    local r = math.clamp(math.floor(color.R * 255), 0, 255)
+    local g = math.clamp(math.floor(color.G * 255), 0, 255)
+    local b = math.clamp(math.floor(color.B * 255), 0, 255)
+    return string.format("#%02X%02X%02X", r, g, b)
+end
+
 -- =========================================================================
 -- UnknownLibrary Entry Constructor
 -- =========================================================================
@@ -92,22 +89,6 @@ return function(opts)
     local LIBRARY_GUI_NAME = opts.name or "Unknown_TabbedHub_UI"
     local HUB_TITLE = opts.title or "UNKNOWN HUB"
     local HUB_SUBTITLE = opts.subTitle or "UNIVERSAL"
-
-    -- Audio settings
-    local sfxEnabled = true
-    local sfxVolume = 0.35
-
-    local function playUiSound(soundId)
-        if not sfxEnabled then return end
-        pcall(function()
-            local s = Instance.new("Sound")
-            s.SoundId = soundId or "rbxassetid://4590662766"
-            s.Volume = sfxVolume
-            s.Parent = SoundService
-            s:Play()
-            game:GetService("Debris"):AddItem(s, 1.5)
-        end)
-    end
 
     -- Theme Updater Registry (Live color switching)
     local themeUpdaters = {}
@@ -169,25 +150,25 @@ return function(opts)
     local HEADER_HEIGHT = 46
 
     -- =========================================================================
-    -- Main Window Shell
+    -- Main Window Shell (CanvasGroup for 100% Flawless Rounded Corner Clipping)
     -- =========================================================================
-    local mainFrame = Instance.new("Frame")
+    local mainFrame = Instance.new("CanvasGroup")
     mainFrame.Name = "MainWindow"
     mainFrame.Size = UDim2.new(0, winWidth, 0, winHeight)
     mainFrame.Position = UDim2.new(0.5, -math.floor(winWidth / 2), 0.5, -math.floor(winHeight / 2))
     mainFrame.BackgroundColor3 = DEFAULT_THEME.Background
     mainFrame.BorderSizePixel = 0
-    mainFrame.ClipsDescendants = false
+    mainFrame.GroupTransparency = 0
     mainFrame.Active = true
     mainFrame.Parent = screenGui
     applyCorner(mainFrame, 12)
     local mainStroke = applyStroke(mainFrame, DEFAULT_THEME.Stroke, 1, 0.25)
 
-    -- Soft Depth Glow Shadow
+    -- Soft Depth Glow Shadow (Behind MainWindow)
     local shadow = Instance.new("ImageLabel")
     shadow.Name = "DropShadow"
-    shadow.Size = UDim2.new(1, 44, 1, 44)
-    shadow.Position = UDim2.new(0, -22, 0, -22)
+    shadow.Size = UDim2.new(0, winWidth + 44, 0, winHeight + 44)
+    shadow.Position = UDim2.new(0.5, -math.floor(winWidth / 2) - 22, 0.5, -math.floor(winHeight / 2) - 22)
     shadow.BackgroundTransparency = 1
     shadow.Image = "rbxassetid://6015897843"
     shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
@@ -195,16 +176,18 @@ return function(opts)
     shadow.ScaleType = Enum.ScaleType.Slice
     shadow.SliceCenter = Rect.new(49, 49, 450, 450)
     shadow.ZIndex = -1
-    shadow.Parent = mainFrame
+    shadow.Parent = screenGui
 
-    -- Inner Container for Clean Clipping
-    local innerClip = Instance.new("Frame")
-    innerClip.Name = "InnerClip"
-    innerClip.Size = UDim2.new(1, 0, 1, 0)
-    innerClip.BackgroundTransparency = 1
-    innerClip.ClipsDescendants = true
-    innerClip.Parent = mainFrame
-    applyCorner(innerClip, 12)
+    -- Keep shadow in sync with mainFrame movement
+    mainFrame:GetPropertyChangedSignal("Position"):Connect(function()
+        shadow.Position = UDim2.new(mainFrame.Position.X.Scale, mainFrame.Position.X.Offset - 22, mainFrame.Position.Y.Scale, mainFrame.Position.Y.Offset - 22)
+    end)
+    mainFrame:GetPropertyChangedSignal("Size"):Connect(function()
+        shadow.Size = UDim2.new(0, mainFrame.AbsoluteSize.X + 44, 0, mainFrame.AbsoluteSize.Y + 44)
+    end)
+    mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+        shadow.Visible = mainFrame.Visible
+    end)
 
     -- =========================================================================
     -- Sidebar (Left Navigation)
@@ -215,7 +198,8 @@ return function(opts)
     sidebar.Position = UDim2.new(0, 0, 0, 0)
     sidebar.BackgroundColor3 = DEFAULT_THEME.Sidebar
     sidebar.BorderSizePixel = 0
-    sidebar.Parent = innerClip
+    sidebar.Parent = mainFrame
+    applyCorner(sidebar, 12)
 
     -- Sidebar Right Border Divider
     local sidebarBorder = Instance.new("Frame")
@@ -355,7 +339,7 @@ return function(opts)
     header.Size = UDim2.new(1, -SIDEBAR_WIDTH, 0, HEADER_HEIGHT)
     header.Position = UDim2.new(0, SIDEBAR_WIDTH, 0, 0)
     header.BackgroundTransparency = 1
-    header.Parent = innerClip
+    header.Parent = mainFrame
 
     local headerDivider = Instance.new("Frame")
     headerDivider.Name = "HeaderDivider"
@@ -449,7 +433,7 @@ return function(opts)
     contentArea.Position = UDim2.new(0, SIDEBAR_WIDTH, 0, HEADER_HEIGHT)
     contentArea.BackgroundTransparency = 1
     contentArea.ClipsDescendants = true
-    contentArea.Parent = innerClip
+    contentArea.Parent = mainFrame
 
     -- =========================================================================
     -- Dragging Mechanics
@@ -486,13 +470,13 @@ return function(opts)
     end)
 
     -- =========================================================================
-    -- Minimize / Collapse & GUI Toggle Actions
+    -- Silky-Smooth UI Hide / Reveal Animation Engine (Zero Glitch)
     -- =========================================================================
     local isMinimized = false
     local isGuiVisible = true
+    local animToken = 0
 
     minimizeBtn.MouseButton1Click:Connect(function()
-        playUiSound()
         isMinimized = not isMinimized
         if isMinimized then
             minimizeBtn.Text = "□"
@@ -510,32 +494,50 @@ return function(opts)
     end)
 
     local function setGuiVisible(visible)
+        if isGuiVisible == visible then return end
         isGuiVisible = visible
+        animToken = animToken + 1
+        local myToken = animToken
+
+        local targetH = isMinimized and HEADER_HEIGHT or winHeight
+
         if visible then
             mainFrame.Visible = true
-            mainFrame.Size = UDim2.new(0, math.floor(winWidth * 0.96), 0, math.floor(winHeight * 0.96))
-            tween(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, winWidth, 0, isMinimized and HEADER_HEIGHT or winHeight)
+            shadow.Visible = true
+            mainFrame.GroupTransparency = 1
+            mainFrame.Size = UDim2.new(0, winWidth - 18, 0, targetH - 14)
+
+            tween(mainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                GroupTransparency = 0,
+                Size = UDim2.new(0, winWidth, 0, targetH)
+            })
+            tween(shadow, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                ImageTransparency = 0.45
             })
         else
-            local tw = tween(mainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                Size = UDim2.new(0, math.floor(winWidth * 0.96), 0, math.floor(winHeight * 0.96))
+            local tw = tween(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                GroupTransparency = 1,
+                Size = UDim2.new(0, winWidth - 18, 0, targetH - 14)
+            })
+            tween(shadow, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                ImageTransparency = 1
             })
             tw.Completed:Connect(function()
-                if not isGuiVisible then mainFrame.Visible = false end
+                if myToken == animToken and not isGuiVisible then
+                    mainFrame.Visible = false
+                    shadow.Visible = false
+                end
             end)
         end
     end
 
     closeBtn.MouseButton1Click:Connect(function()
-        playUiSound()
         setGuiVisible(false)
     end)
 
     -- Keybind rebinding
     local listeningForRebind = false
     keybindPill.MouseButton1Click:Connect(function()
-        playUiSound()
         if listeningForRebind then return end
         listeningForRebind = true
         keybindPill.Text = "[...]"
@@ -604,6 +606,7 @@ return function(opts)
         accentBar.BackgroundColor3 = primaryTheme
         accentBar.BorderSizePixel = 0
         accentBar.Parent = card
+        applyCorner(accentBar, 2)
 
         local tLabel = Instance.new("TextLabel")
         tLabel.Name = "Title"
@@ -704,14 +707,14 @@ return function(opts)
     end
 
     -- Forward declarations of component builders
-    local createToggle, createSlider, createDropdown, createButton, createTextBox, createSection, createList
+    local createToggle, createSlider, createDropdown, createButton, createTextBox, createSection, createList, createColorPicker
 
-    -- Tab Builder (Completely Glitch-Free)
+    -- Tab Builder (Completely Rounded & Glitch-Free)
     local function createTab(tabName, tabOpts)
         tabOpts = tabOpts or {}
         local tabIcon = tabOpts.Icon or "✦"
 
-        -- Sidebar Tab Button (Interactive container)
+        -- Sidebar Tab Button
         local tabBtn = Instance.new("TextButton")
         tabBtn.Name = "Tab_" .. tostring(tabName)
         tabBtn.Size = UDim2.new(1, 0, 0, 36)
@@ -736,7 +739,7 @@ return function(opts)
         iconLbl.TextXAlignment = Enum.TextXAlignment.Center
         iconLbl.Parent = tabBtn
 
-        -- Title Label (Dedicated, no hacky space offsets!)
+        -- Title Label
         local tabTitle = Instance.new("TextLabel")
         tabTitle.Name = "Title"
         tabTitle.Size = UDim2.new(1, -40, 1, 0)
@@ -817,7 +820,6 @@ return function(opts)
             end
         end)
         tabBtn.MouseButton1Click:Connect(function()
-            playUiSound()
             selectTab(tabRecord)
         end)
 
@@ -834,6 +836,8 @@ return function(opts)
         tabRecord.CreateButton = function(name, callback) return createButton(pageScroll, name, callback) end
         tabRecord.CreateTextBox = function(name, placeholder, callback) return createTextBox(pageScroll, name, placeholder, callback) end
         tabRecord.CreateInput = tabRecord.CreateTextBox
+        tabRecord.CreateColorpicker = function(name, defaultColor, callback) return createColorPicker(pageScroll, name, defaultColor, callback) end
+        tabRecord.CreateColorPicker = tabRecord.CreateColorpicker
         tabRecord.CreateList = function(name, items, height, expanded, selectionOptions, callback) return createList(pageScroll, name, items, height, expanded, selectionOptions, callback) end
 
         return pageScroll
@@ -881,7 +885,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 2: Modern Toggle Switch (Clean Font Hierarchy)
+    -- Component 2: Modern Toggle Switch (Clean Rounded Surfaces)
     -- =========================================================================
     createToggle = function(parent, titleText, defaultState, callback)
         local state = defaultState == true
@@ -973,7 +977,6 @@ return function(opts)
             tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card})
         end)
         hitTrigger.MouseButton1Click:Connect(function()
-            playUiSound()
             setToggle(not state)
         end)
 
@@ -1097,7 +1100,6 @@ return function(opts)
         track.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
-                playUiSound()
                 local trackX = track.AbsolutePosition.X
                 local trackW = track.AbsoluteSize.X
                 local alpha = (input.Position.X - trackX) / trackW
@@ -1164,7 +1166,6 @@ return function(opts)
             tween(card, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(1, 0, 0, 38)})
         end)
         card.MouseButton1Click:Connect(function()
-            playUiSound()
             pcall(cb)
         end)
 
@@ -1264,7 +1265,7 @@ return function(opts)
                 optBtn.TextXAlignment = Enum.TextXAlignment.Left
                 optBtn.AutoButtonColor = false
                 optBtn.Parent = optionsContainer
-                applyCorner(optBtn, 5)
+                applyCorner(optBtn, 6)
 
                 optBtn.MouseEnter:Connect(function()
                     tween(optBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover, TextColor3 = DEFAULT_THEME.TextPrimary})
@@ -1276,7 +1277,6 @@ return function(opts)
                     })
                 end)
                 optBtn.MouseButton1Click:Connect(function()
-                    playUiSound()
                     currentSelection = opt
                     selectionPill.Text = tostring(opt)
                     pcall(cb, opt)
@@ -1289,7 +1289,6 @@ return function(opts)
         rebuildOptions()
 
         headerBtn.MouseButton1Click:Connect(function()
-            playUiSound()
             isExpanded = not isExpanded
             chevron.Text = isExpanded and "▴" or "▾"
             local targetH = isExpanded and (48 + (#options * 31)) or 42
@@ -1314,7 +1313,273 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 6: TextBox / Input Card
+    -- Component 6: Full Custom RGB Palette & ColorPicker
+    -- =========================================================================
+    createColorPicker = function(parent, titleText, defaultColor, callback)
+        local curColor = defaultColor or primaryTheme
+        local cb = type(callback) == "function" and callback or function() end
+        local isExpanded = false
+
+        local rVal = math.clamp(math.floor(curColor.R * 255), 0, 255)
+        local gVal = math.clamp(math.floor(curColor.G * 255), 0, 255)
+        local bVal = math.clamp(math.floor(curColor.B * 255), 0, 255)
+
+        local card = Instance.new("Frame")
+        card.Name = "ColorPickerCard_" .. tostring(titleText)
+        card.Size = UDim2.new(1, 0, 0, 44)
+        card.BackgroundColor3 = DEFAULT_THEME.Card
+        card.BorderSizePixel = 0
+        card.ClipsDescendants = true
+        card.Parent = parent
+        applyCorner(card, 8)
+        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local headerBtn = Instance.new("TextButton")
+        headerBtn.Name = "Header"
+        headerBtn.Size = UDim2.new(1, 0, 0, 44)
+        headerBtn.BackgroundTransparency = 1
+        headerBtn.Text = ""
+        headerBtn.Parent = card
+
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "Label"
+        titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
+        titleLabel.Position = UDim2.new(0, 14, 0, 0)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.Gotham
+        titleLabel.Text = tostring(titleText)
+        titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        titleLabel.TextSize = 12
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.Parent = headerBtn
+
+        local hexBadge = Instance.new("TextLabel")
+        hexBadge.Name = "HexBadge"
+        hexBadge.Size = UDim2.new(0, 70, 0, 24)
+        hexBadge.Position = UDim2.new(1, -112, 0.5, -12)
+        hexBadge.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        hexBadge.BorderSizePixel = 0
+        hexBadge.Font = Enum.Font.GothamMedium
+        hexBadge.Text = colorToHex(curColor)
+        hexBadge.TextColor3 = DEFAULT_THEME.TextSecondary
+        hexBadge.TextSize = 11
+        hexBadge.Parent = headerBtn
+        applyCorner(hexBadge, 6)
+        applyStroke(hexBadge, DEFAULT_THEME.Stroke, 1, 0.4)
+
+        local swatch = Instance.new("Frame")
+        swatch.Name = "ColorSwatch"
+        swatch.Size = UDim2.new(0, 26, 0, 24)
+        swatch.Position = UDim2.new(1, -38, 0.5, -12)
+        swatch.BackgroundColor3 = curColor
+        swatch.BorderSizePixel = 0
+        swatch.Parent = headerBtn
+        applyCorner(swatch, 6)
+        local swatchStroke = applyStroke(swatch, Color3.fromRGB(255, 255, 255), 1, 0.6)
+
+        -- Expanded Color Suite Body
+        local colorBody = Instance.new("Frame")
+        colorBody.Name = "ColorPickerBody"
+        colorBody.Size = UDim2.new(1, -24, 0, 142)
+        colorBody.Position = UDim2.new(0, 12, 0, 48)
+        colorBody.BackgroundTransparency = 1
+        colorBody.Parent = card
+
+        -- Preset quick pills
+        local presetRow = Instance.new("Frame")
+        presetRow.Name = "PresetRow"
+        presetRow.Size = UDim2.new(1, 0, 0, 22)
+        presetRow.Position = UDim2.new(0, 0, 0, 0)
+        presetRow.BackgroundTransparency = 1
+        presetRow.Parent = colorBody
+
+        local presetLayout = Instance.new("UIListLayout")
+        presetLayout.FillDirection = Enum.FillDirection.Horizontal
+        presetLayout.Padding = UDim.new(0, 6)
+        presetLayout.Parent = presetRow
+
+        local quickColors = {
+            Color3.fromRGB(245, 142, 32), -- Amber
+            Color3.fromRGB(0, 195, 245),  -- Cyan
+            Color3.fromRGB(165, 95, 255), -- Violet
+            Color3.fromRGB(45, 215, 135), -- Mint
+            Color3.fromRGB(245, 65, 95),  -- Rose
+            Color3.fromRGB(235, 240, 255),-- White
+            Color3.fromRGB(255, 205, 50), -- Gold
+            Color3.fromRGB(230, 45, 45)   -- Crimson
+        }
+
+        local updateAllRgbSliders
+
+        for _, pc in ipairs(quickColors) do
+            local pBtn = Instance.new("TextButton")
+            pBtn.Name = "Preset"
+            pBtn.Size = UDim2.new(0, 22, 0, 22)
+            pBtn.BackgroundColor3 = pc
+            pBtn.BorderSizePixel = 0
+            pBtn.Text = ""
+            pBtn.AutoButtonColor = false
+            pBtn.Parent = presetRow
+            applyCorner(pBtn, 5)
+            applyStroke(pBtn, Color3.fromRGB(0, 0, 0), 1, 0.5)
+
+            pBtn.MouseButton1Click:Connect(function()
+                curColor = pc
+                rVal = math.floor(pc.R * 255)
+                gVal = math.floor(pc.G * 255)
+                bVal = math.floor(pc.B * 255)
+                swatch.BackgroundColor3 = curColor
+                hexBadge.Text = colorToHex(curColor)
+                if updateAllRgbSliders then updateAllRgbSliders() end
+                pcall(cb, curColor)
+            end)
+        end
+
+        -- RGB Slider Builder Helper
+        local function makeChannelSlider(labelStr, initVal, yPos, accentColor, onUpdate)
+            local sRow = Instance.new("Frame")
+            sRow.Name = "Row_" .. labelStr
+            sRow.Size = UDim2.new(1, 0, 0, 32)
+            sRow.Position = UDim2.new(0, 0, 0, yPos)
+            sRow.BackgroundTransparency = 1
+            sRow.Parent = colorBody
+
+            local sLbl = Instance.new("TextLabel")
+            sLbl.Name = "Channel"
+            sLbl.Size = UDim2.new(0, 20, 1, 0)
+            sLbl.Position = UDim2.new(0, 2, 0, 0)
+            sLbl.BackgroundTransparency = 1
+            sLbl.Font = Enum.Font.GothamBold
+            sLbl.Text = labelStr
+            sLbl.TextColor3 = accentColor
+            sLbl.TextSize = 11
+            sLbl.Parent = sRow
+
+            local numBadge = Instance.new("TextLabel")
+            numBadge.Name = "Num"
+            numBadge.Size = UDim2.new(0, 32, 1, 0)
+            numBadge.Position = UDim2.new(1, -34, 0, 0)
+            numBadge.BackgroundTransparency = 1
+            numBadge.Font = Enum.Font.Gotham
+            numBadge.Text = tostring(initVal)
+            numBadge.TextColor3 = DEFAULT_THEME.TextSecondary
+            numBadge.TextSize = 11
+            numBadge.TextXAlignment = Enum.TextXAlignment.Right
+            numBadge.Parent = sRow
+
+            local track = Instance.new("TextButton")
+            track.Name = "Track"
+            track.Size = UDim2.new(1, -68, 0, 6)
+            track.Position = UDim2.new(0, 26, 0.5, -3)
+            track.BackgroundColor3 = Color3.fromRGB(34, 40, 52)
+            track.BorderSizePixel = 0
+            track.Text = ""
+            track.AutoButtonColor = false
+            track.Parent = sRow
+            applyCorner(track, 3)
+
+            local fill = Instance.new("Frame")
+            fill.Name = "Fill"
+            fill.Size = UDim2.new(initVal / 255, 0, 1, 0)
+            fill.BackgroundColor3 = accentColor
+            fill.BorderSizePixel = 0
+            fill.Parent = track
+            applyCorner(fill, 3)
+
+            local thumb = Instance.new("Frame")
+            thumb.Name = "Thumb"
+            thumb.Size = UDim2.new(0, 12, 0, 12)
+            thumb.Position = UDim2.new(1, -6, 0.5, -6)
+            thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            thumb.BorderSizePixel = 0
+            thumb.Parent = fill
+            applyCorner(thumb, 6)
+
+            local function setVal(v, skipCallback)
+                v = math.clamp(math.floor(v + 0.5), 0, 255)
+                numBadge.Text = tostring(v)
+                fill.Size = UDim2.new(v / 255, 0, 1, 0)
+                if not skipCallback then onUpdate(v) end
+            end
+
+            local isDragging = false
+            track.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    isDragging = true
+                    local alpha = (input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X
+                    setVal(alpha * 255, false)
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    isDragging = false
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local alpha = (input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X
+                    setVal(alpha * 255, false)
+                end
+            end)
+
+            return { Set = setVal }
+        end
+
+        local rSlider = makeChannelSlider("R", rVal, 28, Color3.fromRGB(245, 75, 75), function(v)
+            rVal = v
+            curColor = Color3.fromRGB(rVal, gVal, bVal)
+            swatch.BackgroundColor3 = curColor
+            hexBadge.Text = colorToHex(curColor)
+            pcall(cb, curColor)
+        end)
+
+        local gSlider = makeChannelSlider("G", gVal, 64, Color3.fromRGB(60, 220, 120), function(v)
+            gVal = v
+            curColor = Color3.fromRGB(rVal, gVal, bVal)
+            swatch.BackgroundColor3 = curColor
+            hexBadge.Text = colorToHex(curColor)
+            pcall(cb, curColor)
+        end)
+
+        local bSlider = makeChannelSlider("B", bVal, 100, Color3.fromRGB(65, 150, 255), function(v)
+            bVal = v
+            curColor = Color3.fromRGB(rVal, gVal, bVal)
+            swatch.BackgroundColor3 = curColor
+            hexBadge.Text = colorToHex(curColor)
+            pcall(cb, curColor)
+        end)
+
+        updateAllRgbSliders = function()
+            rSlider.Set(rVal, true)
+            gSlider.Set(gVal, true)
+            bSlider.Set(bVal, true)
+        end
+
+        headerBtn.MouseButton1Click:Connect(function()
+            isExpanded = not isExpanded
+            local targetH = isExpanded and 196 or 44
+            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+        end)
+
+        local pickerObj = {
+            Instance = card,
+            Value = curColor,
+            Set = function(c)
+                curColor = c or curColor
+                rVal = math.floor(curColor.R * 255)
+                gVal = math.floor(curColor.G * 255)
+                bVal = math.floor(curColor.B * 255)
+                swatch.BackgroundColor3 = curColor
+                hexBadge.Text = colorToHex(curColor)
+                updateAllRgbSliders()
+                pcall(cb, curColor)
+            end
+        }
+        return pickerObj
+    end
+
+    -- =========================================================================
+    -- Component 7: TextBox / Input Card
     -- =========================================================================
     createTextBox = function(parent, titleText, placeholderText, callback)
         local cb = type(callback) == "function" and callback or function() end
@@ -1381,7 +1646,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 7: List & Nested Lists (BeeSwarm & BloxFruits Compatible)
+    -- Component 8: List & Nested Lists (BeeSwarm & BloxFruits Compatible)
     -- =========================================================================
     createList = function(parent, titleText, itemsList, maxHeight, expandedState, selectionOptions, extraCallback)
         local items = itemsList or {}
@@ -1473,7 +1738,6 @@ return function(opts)
         end
 
         headerBtn.MouseButton1Click:Connect(function()
-            playUiSound()
             isExpanded = not isExpanded
             updateListVisuals()
         end)
@@ -1505,7 +1769,6 @@ return function(opts)
                 end
             end)
             itmBtn.MouseButton1Click:Connect(function()
-                playUiSound()
                 listObj.SelectedItem = text
                 pcall(cb, text)
                 if type(itemCallback) == "function" then pcall(itemCallback, text) end
@@ -1521,7 +1784,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 8: Loop Toggle (Game Automation Helper)
+    -- Component 9: Loop Toggle (Game Automation Helper)
     -- =========================================================================
     local function createLoopToggle(parent, titleText, defaultState, loopFunc, loopInterval)
         local interval = loopInterval or 0.1
@@ -1554,7 +1817,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 9: Modal Warning Dialog
+    -- Component 10: Modal Warning Dialog
     -- =========================================================================
     local function showWarning(title, desc, btn1, btn2, onBtn1, onBtn2)
         local modalOverlay = Instance.new("Frame")
@@ -1624,12 +1887,10 @@ return function(opts)
         applyCorner(b2, 6)
 
         b1.MouseButton1Click:Connect(function()
-            playUiSound()
             pcall(onBtn1 or function() end)
             modalOverlay:Destroy()
         end)
         b2.MouseButton1Click:Connect(function()
-            playUiSound()
             pcall(onBtn2 or function() end)
             modalOverlay:Destroy()
         end)
@@ -1702,6 +1963,11 @@ return function(opts)
     Hub.CreateInput = createTextBox
     Hub.createInput = createTextBox
 
+    Hub.CreateColorpicker = createColorPicker
+    Hub.createColorpicker = createColorPicker
+    Hub.CreateColorPicker = createColorPicker
+    Hub.createColorPicker = createColorPicker
+
     Hub.CreateList = createList
     Hub.createList = createList
     Hub.addItem = function(titleText, subtitleText, callback)
@@ -1753,10 +2019,9 @@ return function(opts)
         -- Section 1: Appearance & UI
         createSection(settingsPage, "🎨 UI & Theme Customization")
 
-        local themeNames = {"Electric Amber", "Cyber Cyan", "Neon Violet", "Emerald Mint", "Crimson Rose", "Ice White"}
-        createDropdown(settingsPage, "Accent Theme", themeNames, "Electric Amber", function(selectedTheme)
-            local col = THEME_PRESETS[selectedTheme]
-            if col then setAccentColor(col) end
+        -- Fully Customizable RGB Palette & ColorPicker
+        createColorPicker(settingsPage, "Custom Theme Color (RGB Palette)", primaryTheme, function(chosenColor)
+            setAccentColor(chosenColor)
         end)
 
         createButton(settingsPage, "Reset Window Position", function()
@@ -1770,18 +2035,7 @@ return function(opts)
             sidebar.BackgroundTransparency = trans
         end)
 
-        -- Section 2: Audio & Feedback
-        createSection(settingsPage, "🔊 Audio & Sensory Feedback")
-
-        createToggle(settingsPage, "UI Click Sound Effects", sfxEnabled, function(enabled)
-            sfxEnabled = enabled
-        end)
-
-        createSlider(settingsPage, "SFX Volume", 5, 100, math.floor(sfxVolume * 100), "%", function(val)
-            sfxVolume = val / 100
-        end)
-
-        -- Section 3: Session & Connectivity
+        -- Section 2: Session & Connectivity
         createSection(settingsPage, "🌐 Session Management")
 
         createButton(settingsPage, "Rejoin Current Server", function()
