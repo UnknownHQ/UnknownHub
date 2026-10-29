@@ -523,6 +523,18 @@ local function getBearLevitationTarget(bear)
     local cf, sz = bear:GetBoundingBox()
     local name = bear.Name:lower()
 
+    -- Category 0: GrinderBear & Mechanical Bosses (Crown Vault Apex Stance)
+    -- Grinder is 36 studs tall, 36 studs wide, equipped with ground wheel, 31-stud claws, and forward arm cannons.
+    -- Torso/ground level is a lethal contact zone. We hover directly over Hitbox_Head crown (Y ~34.5+).
+    if name:find("grinder") then
+        local head = bear:FindFirstChild("Hitbox_Head")
+        local targetPos = head and head.Position or cf.Position
+        local headH = head and (head.Size.Y * 0.5) or (sz.Y * 0.5)
+        local targetY = targetPos.Y + headH + 1.8
+        local distBehind = (head and (head.Size.Z * 0.5) or (sz.Z * 0.3)) + 1.8
+        return targetPos, distBehind, targetY
+    end
+
     -- Category 1: Small / Dwarf / Spherical bears
     -- booboo, LaserBooBoo, HypersonicBooBoo, ballbear, small cubs (sz.Y < 6.5, sz.Magnitude < 8, or ball/booboo)
     -- Elevate ABOVE the bear's top bounding box:
@@ -621,7 +633,30 @@ local function isBearTargetable(b)
     return true
 end
 
-local function getClosestBear(maxDist)
+-- Authoritative Bear Multi-Selection Validator
+local function isBearTargetSelected(b)
+    if not b or not isBearTargetable(b) then return false end
+
+    -- Check Multi-Select state dict
+    if Config.SelectedBears and type(Config.SelectedBears) == "table" then
+        if Config.SelectedBears["All"] then
+            return true
+        end
+        return Config.SelectedBears[b.Name] == true
+    end
+
+    -- Legacy single dropdown fallback
+    if Config.SelectedBearTarget then
+        if Config.SelectedBearTarget == "All" then
+            return true
+        end
+        return Config.SelectedBearTarget == b.Name
+    end
+
+    return true
+end
+
+local function getClosestBear(maxDist, filterSelected)
     local bearsFolder = Workspace:FindFirstChild("Bears")
     if not bearsFolder then return nil end
 
@@ -633,7 +668,8 @@ local function getClosestBear(maxDist)
     local bestDist = maxDist or math.huge
 
     for _, b in ipairs(bearsFolder:GetChildren()) do
-        if b ~= char and isBearTargetable(b) then
+        local eligible = filterSelected and isBearTargetSelected(b) or isBearTargetable(b)
+        if b ~= char and eligible then
             local bearRoot = b:FindFirstChild("HumanoidRootPart") or b:FindFirstChild("Head") or b.PrimaryPart or b:FindFirstChildWhichIsA("BasePart")
             if bearRoot then
                 local dist = (bearRoot.Position - root.Position).Magnitude
@@ -780,8 +816,8 @@ local function shootTargetBear(tool, bear, bearPart)
     local muzzle = tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("Muzzle")
     local muzzlePos = muzzle and muzzle.WorldCFrame.Position or (root.Position + Vector3.new(0, 1.5, 0))
 
-    -- Target verified hitbox part (chest or head) for 100% damage registration
-    local targetPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bearPart
+    -- Target verified hitbox part (head or chest/torso) for 100% damage registration
+    local targetPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearPart
     local hitPos = targetPart.Position
 
     -- Check if target is alive
@@ -841,7 +877,7 @@ task.spawn(function()
 
             -- 1. Melee Aura Execution (Smooth 0.35s swing throttle to eliminate visual spam)
             if Config.MeleeAura then
-                local bear, dist = getClosestBear(Config.MeleeAuraRange)
+                local bear, dist = getClosestBear(Config.MeleeAuraRange, true)
                 if bear and dist then
                     local isMelee = equippedTool and equippedTool:FindFirstChild("MeleeScripts")
                     if isMelee and equippedTool then
@@ -864,7 +900,7 @@ task.spawn(function()
             if Config.GunAura then
                 local isGun = equippedTool and equippedTool:FindFirstChild("GunScripts")
                 if isGun and equippedTool then
-                    local bear, dist = getClosestBear(Config.GunAuraRange)
+                    local bear, dist = getClosestBear(Config.GunAuraRange, true)
                     if bear and dist then
                         applyWeaponMods(equippedTool)
                         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
@@ -1048,25 +1084,13 @@ local function getFarmBearTarget()
     local bestDist = math.huge
 
     for _, bear in ipairs(wsBears:GetChildren()) do
-        if isBearTargetable(bear) then
-            -- Multi-Select matching:
-            local isMatch = false
-            if Config.SelectedBears and Config.SelectedBears["All"] then
-                isMatch = true
-            elseif Config.SelectedBears and Config.SelectedBears[bear.Name] then
-                isMatch = true
-            elseif Config.SelectedBearTarget == "All" or bear.Name == Config.SelectedBearTarget then
-                isMatch = true
-            end
-
-            if isMatch then
-                local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
-                if bearRoot then
-                    local dist = (bearRoot.Position - root.Position).Magnitude
-                    if dist < bestDist then
-                        bestDist = dist
-                        bestBear = bear
-                    end
+        if isBearTargetSelected(bear) then
+            local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
+            if bearRoot then
+                local dist = (bearRoot.Position - root.Position).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    bestBear = bear
                 end
             end
         end
@@ -1108,18 +1132,19 @@ RunService.Heartbeat:Connect(function(dt)
     local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
     if not centerPos then return end
 
+    local isBoss = bear.Name:lower():find("grinder") or bear.Name:lower():find("boss")
     if Config.FarmMethod == "Melee" then
         local targetPos = centerPos - (lookVec * distBehind)
         local y = targetY
-        if activeFlightEvading then
-            y = y + 3.0 -- Lift vertically when bear attempts to turn towards player
+        if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
+            y = y + (isBoss and 6.0 or 3.0) -- Lift vertically when bear attempts to turn or charge
         end
         targetPos = Vector3.new(targetPos.X, y, targetPos.Z)
         root.CFrame = CFrame.lookAt(targetPos, centerPos)
     elseif Config.FarmMethod == "Gun" then
         local cf, bbSize = bear:GetBoundingBox()
-        local distBehindGun = math.max(8.5, bbSize.Z * 0.75 + 4.0)
-        local heightAboveGun = math.max(7.5, bbSize.Y * 0.6 + 4.0)
+        local distBehindGun = isBoss and 32.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0)
+        local heightAboveGun = isBoss and (bbSize.Y * 0.5 + 16.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0)
         local hoverPos = centerPos - (lookVec * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
         root.CFrame = CFrame.lookAt(hoverPos, centerPos)
     end
@@ -1218,6 +1243,15 @@ task.spawn(function()
                 if not isBearFacing and tick() - lastMeleeSwing >= 0.35 then
                     lastMeleeSwing = tick()
                     bestTool:Activate()
+
+                    -- Direct authoritative network hit dispatch (Crown/Head priority)
+                    local meleeRemote = isMelee:FindFirstChild("MeleeRemote")
+                    local targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
+                    if meleeRemote and targetHitPart then
+                        pcall(function()
+                            meleeRemote:FireServer("Hit", targetHitPart)
+                        end)
+                    end
                 end
             end
         elseif Config.FarmMethod == "Gun" then
@@ -1228,7 +1262,7 @@ task.spawn(function()
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
                     triggerGunReload(bestTool)
                 end
-                local targetPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bearRoot
+                local targetPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
                 shootTargetBear(bestTool, bear, targetPart)
             end
         end
@@ -1508,6 +1542,7 @@ end)
 
 bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears (Multi-Select)", getAvailableBearTypes(), {"All"}, function(dict, arr)
     Config.SelectedBears = dict
+    Config.SelectedBearTarget = dict["All"] and "All" or (arr[1] or "None")
     local desc = dict["All"] and "All Bears" or (#arr .. " Selected")
     Hub.Notify("Bear Farm", "Targeting: " .. desc, 2)
 end)
