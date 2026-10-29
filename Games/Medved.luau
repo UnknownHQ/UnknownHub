@@ -515,23 +515,20 @@ local function applyWeaponMods(tool)
         }
     end
 
+    local orig = originalGunConfigs[toolId]
+
+    -- Always guarantee clean clip and reload sync with server (no desync!)
+    local clip = config:FindFirstChild("ClipSize")
+    if clip and clip:IsA("ValueBase") and clip.Value >= 99999 then
+        clip.Value = orig.ClipSize
+    end
+
+    local reload = config:FindFirstChild("ReloadTime")
+    if reload and reload:IsA("ValueBase") and reload.Value < 0.5 then
+        reload.Value = orig.ReloadTime
+    end
+
     if Config.InfiniteAmmo then
-        -- DO NOT set ClipSize to 999999 (that desyncs from server and causes 0 damage!)
-        -- Keep authentic clip size, but make reload time near-instant (0.05s)
-        local orig = originalGunConfigs[toolId]
-        local clip = config:FindFirstChild("ClipSize")
-        if clip and clip:IsA("ValueBase") then
-            -- Restore true clip size if previously set to 999999
-            if clip.Value >= 99999 then
-                clip.Value = orig.ClipSize
-            end
-        end
-
-        local reload = config:FindFirstChild("ReloadTime")
-        if reload and reload:IsA("ValueBase") then
-            reload.Value = 0.05 -- Near-instant magazine swap
-        end
-
         local auto = config:FindFirstChild("Auto")
         if auto and auto:IsA("ValueBase") then
             auto.Value = true -- Full auto firing
@@ -539,7 +536,7 @@ local function applyWeaponMods(tool)
 
         local inacc = config:FindFirstChild("Inaccuracy")
         if inacc and inacc:IsA("ValueBase") then
-            inacc.Value = 0 -- Perfect zero-spread accuracy
+            inacc.Value = 0 -- Perfect zero-spread laser precision
         end
 
         local fireRate = config:FindFirstChild("FireRate")
@@ -560,6 +557,30 @@ local function applyWeaponMods(tool)
     end
 end
 
+-- Get current loaded ammo state from GunClient
+local function getGunAmmoState()
+    local loadedAmmo = 10
+
+    if getgc and not isexecutorclosure then
+        pcall(function()
+            for _, f in ipairs(getgc(false)) do
+                if typeof(f) == "function" and not isexecutorclosure(f) then
+                    local info = getinfo(f)
+                    if info.name == "Shoot" and string.find(info.source, "GunClient") then
+                        local ups = getupvalues(f)
+                        -- Upvalue 10 is t2[1] (loaded clip ammo)
+                        if ups[10] and typeof(ups[10]) == "number" then
+                            loadedAmmo = ups[10]
+                        end
+                        break
+                    end
+                end
+            end
+        end)
+    end
+    return loadedAmmo
+end
+
 -- Server-Authoritative Shooting Dispatcher
 local function shootTargetBear(tool, bear, bearPart)
     if not tool or not bear or not bearPart then return end
@@ -572,9 +593,22 @@ local function shootTargetBear(tool, bear, bearPart)
     local fireRemote = gunScripts and gunScripts:FindFirstChild("FireBullet")
     if not fireRemote then return end
 
+    -- Check if gun has ammo before firing (never fire blanks!)
+    local loadedAmmo = getGunAmmoState()
+    if loadedAmmo <= 0 then
+        local reloadRemote = gunScripts:FindFirstChild("Reload")
+        if reloadRemote then
+            reloadRemote:FireServer()
+        end
+        return
+    end
+
     local muzzle = tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("Muzzle")
     local muzzlePos = muzzle and muzzle.WorldCFrame.Position or (root.Position + Vector3.new(0, 1.5, 0))
-    local hitPos = bearPart.Position
+
+    -- Target verified hitbox part (chest or head) for 100% damage registration
+    local targetPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bearPart
+    local hitPos = targetPart.Position
 
     -- 1. Check if GunClient Shoot function is available in memory
     local firedInternally = false
@@ -593,11 +627,11 @@ local function shootTargetBear(tool, bear, bearPart)
         end)
     end
 
-    -- 2. Direct server packet firing (guarantees hit registration and damage on server)
+    -- 2. Direct server packet firing fallback (guarantees hit registration and damage on server)
     if not firedInternally then
         local hitData = {
             {
-                hit = bearPart,
+                hit = targetPart,
                 hitpos = hitPos,
                 normal = Vector3.new(0, 1, 0)
             }
@@ -621,7 +655,7 @@ local function shootTargetBear(tool, bear, bearPart)
             local combatEvents = sharedEvents and sharedEvents:FindFirstChild("Combat")
             local clientBulletShot = combatEvents and combatEvents:FindFirstChild("ClientBulletShot")
             if clientBulletShot and clientBulletShot:IsA("BindableEvent") then
-                clientBulletShot:Fire(muzzlePos, hitPos, Vector3.new(0, 1, 0), bearPart)
+                clientBulletShot:Fire(muzzlePos, hitPos, Vector3.new(0, 1, 0), targetPart)
             end
         end)
     end
@@ -632,7 +666,7 @@ local function shootTargetBear(tool, bear, bearPart)
     end)
 end
 
--- Active Combat Loop: Melee Aura, Gun Aura & Server-Synced Infinite Ammo
+-- Active Combat Loop: Melee Aura, Gun Aura & Weapon Enhancements
 task.spawn(function()
     while true do
         task.wait(0.08)
@@ -676,50 +710,39 @@ task.spawn(function()
                 end
             end
 
-            -- 3. Infinite Loaded Ammo & Auto-Replenishment Engine
+            -- 3. Always apply weapon mods if a gun is held
             if Config.InfiniteAmmo and equippedTool and equippedTool:FindFirstChild("GunScripts") then
                 applyWeaponMods(equippedTool)
-
-                -- Keep loaded ammo topped up and pulse reload to server before magazine depletes
-                pcall(function()
-                    local reloadRemote = equippedTool.GunScripts:FindFirstChild("Reload")
-                    local config = equippedTool:FindFirstChild("Config")
-                    local origClip = (originalGunConfigs[equippedTool.Name] and originalGunConfigs[equippedTool.Name].ClipSize) or 10
-
-                    if getgc and setupvalue and not isexecutorclosure then
-                        for _, f in ipairs(getgc(false)) do
-                            if typeof(f) == "function" and not isexecutorclosure(f) then
-                                local info = getinfo(f)
-                                if info.name == "Shoot" and string.find(info.source, "GunClient") then
-                                    local ups = getupvalues(f)
-                                    -- Upvalue 10 is t2[1] (loaded clip ammo)
-                                    if ups[10] and typeof(ups[10]) == "number" and ups[10] <= 2 then
-                                        if reloadRemote then
-                                            reloadRemote:FireServer()
-                                        end
-                                        setupvalue(f, 10, origClip)
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end)
             end
         end
     end
 end)
 
--- Undetectable Movement & Infinite Stamina Loop (Modifies official game script attributes)
+-- Native Undetectable Speed Modifier Engine (Using Game's SpeedModifiers Framework)
 RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
-    local sprintScript = char and char:FindFirstChild("Sprinting")
-    if sprintScript then
-        if Config.InfiniteStamina then
-            sprintScript:SetAttribute("Stamina", 1)
+    if not char then return end
+
+    -- 1. Infinite Stamina
+    local sprintScript = char:FindFirstChild("Sprinting")
+    if sprintScript and Config.InfiniteStamina then
+        sprintScript:SetAttribute("Stamina", 1)
+    end
+
+    -- 2. WalkSpeed & SprintingSpeed Multiplier via Game's SpeedModifiers
+    local speedFolder = char:FindFirstChild("SpeedModifiers")
+    if speedFolder then
+        local speedMod = speedFolder:FindFirstChild("UnknownSpeedMod")
+        if not speedMod then
+            speedMod = Instance.new("NumberValue")
+            speedMod.Name = "UnknownSpeedMod"
+            speedMod.Parent = speedFolder
         end
+
         if Config.CustomSpeed and Config.CustomSpeed > 14.1 then
-            sprintScript:SetAttribute("WalkSpeed", Config.CustomSpeed)
-            sprintScript:SetAttribute("SprintingSpeed", Config.CustomSpeed * 1.5)
+            speedMod.Value = (Config.CustomSpeed / 14.1) - 1
+        else
+            speedMod.Value = 0
         end
     end
 end)
