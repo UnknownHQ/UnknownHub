@@ -59,21 +59,13 @@ end)
 --------------------------------------------------------------------------------
 local UnknownLibrary = getgenv().UnknownLibrary
 if not UnknownLibrary then
-    local paths = {
-        "c:/Users/pc/AppData/Local/Real/scripts/UnknownLibrary.luau",
-        "c:/Users/pc/AppData/Local/Real/scripts/UnknownHub_repo/UnknownLibrary.luau"
-    }
-    for _, path in ipairs(paths) do
-        if pcall(function()
-            local content = readfile and readfile(path)
-            if content then
-                UnknownLibrary = loadstring(content)()
-                getgenv().UnknownLibrary = UnknownLibrary
-            end
-        end) and UnknownLibrary then
-            break
+    pcall(function()
+        local src = game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau?t=" .. tick())
+        if src and src ~= "" then
+            UnknownLibrary = loadstring(src)()
+            getgenv().UnknownLibrary = UnknownLibrary
         end
-    end
+    end)
 end
 
 if not UnknownLibrary then
