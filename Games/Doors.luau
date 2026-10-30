@@ -2354,15 +2354,18 @@ local wasHidingState = false
 
 local syncServerSlide
 
--- Pre-hook ProximityPrompts for hiding spots to instantly prime grace window
+-- Pre-hook ProximityPrompts for hiding spots to instantly prime grace window on hold and trigger
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
-    pps.PromptTriggered:Connect(function(prompt, playerWhoTriggered)
-        if playerWhoTriggered == LocalPlayer then
-            local action = (prompt.ActionText or ""):lower()
-            local name = (prompt.Name or ""):lower()
-            if action:find("hide") or name:find("hide") or action:find("closet") or action:find("wardrobe") then
-                unhideGraceUntil = os.clock() + 1.2
+    local function primeHidingGrace(prompt, player)
+        if player == LocalPlayer and prompt then
+            local act = (prompt.ActionText or ""):lower()
+            local obj = (prompt.ObjectText or ""):lower()
+            local pName = prompt.Parent and prompt.Parent.Name:lower() or ""
+            if act:find("hide") or act:find("enter") or act:find("closet") or act:find("wardrobe")
+               or obj:find("closet") or obj:find("wardrobe") or obj:find("locker") or obj:find("bed")
+               or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or pName:find("bed") then
+                unhideGraceUntil = os.clock() + 3.0
                 lastForwardPos = nil
                 lastForwardCFrame = nil
                 table.clear(trailHistory)
@@ -2370,7 +2373,9 @@ pcall(function()
                 if syncServerSlide then syncServerSlide(false) end
             end
         end
-    end)
+    end
+    pps.PromptButtonHoldBegan:Connect(primeHidingGrace)
+    pps.PromptTriggered:Connect(primeHidingGrace)
 end)
 
 local isSlidingActive = false
@@ -3939,13 +3944,18 @@ RunService.Heartbeat:Connect(function(dt)
             task.spawn(pulseSlideKeepAlive)
         end
 
-        -- Only translate position when movement keys are actively held; completely still when standing
+        -- Rotate character body horizontally with camera so head is ALWAYS directly under the camera
+        local hLook = Vector3.new(camLook.X, 0, camLook.Z)
+        local targetRot = if hLook.Magnitude > 0.01 then CFrame.new(Vector3.zero, hLook) else root.CFrame.Rotation
+
+        local targetPos = root.Position
         if hasInput and steer.Magnitude > 0.01 then
             local speed = math.clamp(State.Noclip_Speed or 15, 4, 35)
             local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-            local delta = steer.Unit * (speed * safeDt)
-            char:PivotTo(char:GetPivot() + delta)
+            targetPos = targetPos + steer.Unit * (speed * safeDt)
         end
+
+        char:PivotTo(CFrame.new(targetPos) * targetRot)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
 
@@ -4058,36 +4068,9 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Smooth first-person visibility: Hide head, hair & torso so they never clip into camera; keep held items visible
-    if State.Noclip and char and root then
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then
-                local pName = p.Name
-                local isAccessory = p:FindFirstAncestorOfClass("Accessory") ~= nil
-                local isHeadOrTorso = (pName == "Head" or pName == "UpperTorso" or pName == "LowerTorso" or pName == "Torso")
-                local isHiddenPart = (pName == "HumanoidRootPart" or pName:find("Collision") ~= nil)
-
-                if isAccessory or isHeadOrTorso or isHiddenPart then
-                    p.LocalTransparencyModifier = 1 -- Hair, hats, head & torso never obstruct camera or view looking down
-                else
-                    -- Arms, legs, hands, feet, and held tools remain 100% visible
-                    if p.LocalTransparencyModifier > 0 then
-                        p.LocalTransparencyModifier = 0
-                    end
-                end
-            end
-        end
-
-        local cam = Workspace.CurrentCamera
-        if cam then
-            for _, desc in ipairs(cam:GetDescendants()) do
-                if desc:IsA("BasePart") and desc:FindFirstAncestorOfClass("Tool") then
-                    if desc.LocalTransparencyModifier > 0 then
-                        desc.LocalTransparencyModifier = 0
-                    end
-                end
-            end
-        end
+    -- Ensure DOORS never hides the local viewmodel or held tools during flight
+    if State.Noclip and mgTable and mgTable.hideplayers ~= 0 then
+        mgTable.hideplayers = 0
     end
 
     -- Continuous FOV synchronization
@@ -4516,6 +4499,12 @@ task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.Auto_Interact then
+            -- Pause Auto Interact if daddy is pressing E (manual interact) or entering a wardrobe so manual interaction is never stolen
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) or (os.clock() < unhideGraceUntil) then
+                task.wait(0.1)
+                continue
+            end
+
             local root = getRoot()
             if root then
                 local rootPos = root.Position
@@ -4607,7 +4596,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.03) -- Ultra-fast 33Hz loop: rapid multi-prompt interaction, zero stutter
+        task.wait(0.15) -- Smooth 6.6Hz loop: instant looting without choking manual ProximityPromptService
     end
 end)
 
