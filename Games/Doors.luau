@@ -4050,8 +4050,32 @@ RunService.Heartbeat:Connect(function(dt)
         end
         if State.Noclip then
             mgTable.noclip = true
+            if mgTable.hideplayers ~= 0 then
+                mgTable.hideplayers = 0
+            end
         elseif not State.Noclip and mgTable.noclip then
             mgTable.noclip = false
+        end
+    end
+
+    -- Keep character body, limbs & held items 100% visible at all times during flight
+    if State.Noclip and char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.Name ~= "Collision" and p.Name ~= "CollisionPart" and p.Name ~= "CollisionCrouch" and p.Name ~= "RagdollCollision" and p.Name ~= "Head" then
+                if p.LocalTransparencyModifier > 0 then
+                    p.LocalTransparencyModifier = 0
+                end
+            end
+        end
+        local cam = Workspace.CurrentCamera
+        if cam then
+            for _, desc in ipairs(cam:GetDescendants()) do
+                if desc:IsA("BasePart") and desc:FindFirstAncestorOfClass("Tool") then
+                    if desc.LocalTransparencyModifier > 0 then
+                        desc.LocalTransparencyModifier = 0
+                    end
+                end
+            end
         end
     end
 end)
@@ -4224,13 +4248,8 @@ local function applyPromptModifications(prompt)
         if orig ~= nil then prompt.HoldDuration = orig end
     end
 
-    -- Wardrobes and doors NEVER require LineOfSight, eliminating angle occlusion and geometry blocks!
-    if isHidingSpot or isDoorPrompt or State.Noclip_Interact then
-        prompt.RequiresLineOfSight = false
-    else
-        local orig = prompt:GetAttribute("OrigLOS")
-        if orig ~= nil then prompt.RequiresLineOfSight = orig end
-    end
+    -- Frame-0 Prompt Visibility: Strip line-of-sight check unconditionally so prompts appear instantly
+    prompt.RequiresLineOfSight = false
 
     if isHidingSpot or isDoorPrompt or State.Range_Interact then
         local baseDist = isHidingSpot and 12 or (isDoorPrompt and 12 or (isDrawerOrContainer and 10 or State.Interact_MaxRange))
@@ -4584,75 +4603,14 @@ local mainTab = Hub.CreateTab("Main", {
     ActiveColor = Color3.fromRGB(255, 185, 30) 
 })
 
-Hub.CreateSection(mainTab, "🏃 Movement & Speed")
+Hub.CreateSection(mainTab, "Movement")
 
-Hub.CreateToggle(mainTab, "Change Walkspeed", State.WalkSpeed_Enabled, function(v)
-    State.WalkSpeed_Enabled = v
-    local char = getChar()
-    if not v then
-        syncServerSlide(false)
-        restoreDefaultFriction(char)
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then hum.WalkSpeed = 15 end
-        Hub.Notify("WalkSpeed", "Speed reset to default (15)", 2)
-    else
-        syncServerSlide(true)
-        applyTeflonGlide(char)
-        Hub.Notify("WalkSpeed", string.format("Speed active: %d studs/s (Teflon + Anti-Rollback Active)", State.WalkSpeed_Value), 2)
-    end
-end)
-
-Hub.CreateToggle(mainTab, "No Acceleration", State.Instant_Movement, function(v)
-    State.Instant_Movement = v
-    Hub.Notify("Movement", v and "No Acceleration: ON (Instant turning & stopping)" or "No Acceleration: OFF", 2)
-end)
-
-Hub.CreateSlider(mainTab, "Speed Value", 15, 75, State.WalkSpeed_Value, " studs/s", function(v)
-    State.WalkSpeed_Value = v
-    if State.WalkSpeed_Enabled then
-        local char = getChar()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then hum.WalkSpeed = v end
-    end
-end)
-
-Hub.CreateToggle(mainTab, "Enable Jumping", State.Enable_Jumping, function(v)
-    State.Enable_Jumping = v
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then
-        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, v)
-        hum.UseJumpPower = true
-        hum.JumpPower = v and 52 or 0
-        hum.JumpHeight = v and 7.5 or 0
-    end
-    Hub.Notify("Movement", v and "Jumping: ENABLED (Space to jump)" or "Jumping: DISABLED", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
-    State.Enable_Sliding = v
-    if not v and isSlidingActive then
-        stopSlide()
-    end
-    local char = getChar()
-    if v then
-        applyTeflonGlide(char)
-        syncServerSlide(true, false)
-    else
-        if not State.WalkSpeed_Enabled and not State.Noclip then
-            restoreDefaultFriction(char)
-            syncServerSlide(false, false)
-        end
-    end
-    Hub.Notify("Movement", v and "Sliding: ENABLED (C / Ctrl to slide)" or "Sliding: DISABLED", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip, function(v)
+Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     if v and not State.Bypass_AntiCheat then
         State.Bypass_AntiCheat = true
         neutralizeServerTeleported()
         initAntiGlitchShield()
-        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly-Noclip!", 2)
+        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly Noclip!", 2)
     end
     State.Noclip = v
     local char = getChar()
@@ -4663,7 +4621,7 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         if rl and rl:FindFirstChild("Modules") then
             local stMod = rl.Modules:FindFirstChild("ServerTeleported", true)
             if stMod then
-                stMod:SetAttribute("Static", true) -- Permanently locked Static so server rollback teleports can never fire
+                stMod:SetAttribute("Static", true)
             end
         end
     end)
@@ -4685,7 +4643,6 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         end
         local r = getRoot()
         if r then
-            -- Ensure all ceiling and roof parts are solid so falling onto the roof lands safely
             local curRooms = Workspace:FindFirstChild("CurrentRooms")
             if curRooms then
                 for _, rm in ipairs(curRooms:GetChildren()) do
@@ -4700,7 +4657,6 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
                 end
             end
 
-            -- Depenetration Safeguard: If player is sitting right on/in the ceiling, elevate cleanly above it
             pcall(function()
                 local rayParams = RaycastParams.new()
                 rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
@@ -4714,21 +4670,81 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
                 end
             end)
 
-            -- Gentle downward momentum so gravity immediately pulls player to land naturally on the roof/floor!
             r.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
             r.AssemblyAngularVelocity = Vector3.zero
         end
     end
-    Hub.Notify("Movement", v and "Fly-Noclip: ON (Gliding forward / WASD steer)" or "Fly-Noclip: OFF", 2)
+    Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Phase Fly-Noclip Speed", 4, 35, State.Noclip_Speed, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Fly Speed", 4, 35, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
 end)
 
--- [Teleport & Roof Buttons Removed for Clean Fly-Noclip Focus]
+Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
+    State.WalkSpeed_Enabled = v
+    local char = getChar()
+    if not v then
+        syncServerSlide(false)
+        restoreDefaultFriction(char)
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.WalkSpeed = 15 end
+        Hub.Notify("WalkSpeed", "WalkSpeed: Reset (15)", 2)
+    else
+        syncServerSlide(true)
+        applyTeflonGlide(char)
+        Hub.Notify("WalkSpeed", string.format("WalkSpeed: %d studs/s", State.WalkSpeed_Value), 2)
+    end
+end)
 
-Hub.CreateToggle(mainTab, "Bypass Anti-Cheat Core", State.Bypass_AntiCheat, function(v)
+Hub.CreateSlider(mainTab, "Speed", 15, 75, State.WalkSpeed_Value, " studs/s", function(v)
+    State.WalkSpeed_Value = v
+    if State.WalkSpeed_Enabled then
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.WalkSpeed = v end
+    end
+end)
+
+Hub.CreateToggle(mainTab, "Instant Acceleration", State.Instant_Movement, function(v)
+    State.Instant_Movement = v
+    Hub.Notify("Movement", v and "Instant Acceleration: Enabled" or "Instant Acceleration: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Enable Jump", State.Enable_Jumping, function(v)
+    State.Enable_Jumping = v
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, v)
+        hum.UseJumpPower = true
+        hum.JumpPower = v and 52 or 0
+        hum.JumpHeight = v and 7.5 or 0
+    end
+    Hub.Notify("Movement", v and "Jump: Enabled" or "Jump: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Enable Slide", State.Enable_Sliding, function(v)
+    State.Enable_Sliding = v
+    if not v and isSlidingActive then
+        stopSlide()
+    end
+    local char = getChar()
+    if v then
+        applyTeflonGlide(char)
+        syncServerSlide(true, false)
+    else
+        if not State.WalkSpeed_Enabled and not State.Noclip then
+            restoreDefaultFriction(char)
+            syncServerSlide(false, false)
+        end
+    end
+    Hub.Notify("Movement", v and "Slide: Enabled" or "Slide: Disabled", 2)
+end)
+
+Hub.CreateSection(mainTab, "Protections")
+
+Hub.CreateToggle(mainTab, "Anti-Cheat Bypass", State.Bypass_AntiCheat, function(v)
     State.Bypass_AntiCheat = v
     if not v then
         if State.Noclip then
@@ -4738,53 +4754,79 @@ Hub.CreateToggle(mainTab, "Bypass Anti-Cheat Core", State.Bypass_AntiCheat, func
             local r = getRoot()
             if r then r.AssemblyLinearVelocity = Vector3.zero end
             syncServerSlide(false, false)
-            Hub.Notify("Movement", "Fly-Noclip disabled: Bypass Anti-Cheat Core is required!", 2)
+            Hub.Notify("Anti-Cheat", "Fly disabled (Anti-Cheat required)", 2)
         end
     else
         neutralizeServerTeleported()
         if syncServerSlide then syncServerSlide(true, true) end
     end
-    Hub.Notify("Anti-Cheat", v and "Anti-Cheat Bypass: ACTIVE (Slide Token Spoofer & Rollback Nullifier)" or "Anti-Cheat Bypass: OFF", 2)
+    Hub.Notify("Anti-Cheat", v and "Anti-Cheat: Enabled" or "Anti-Cheat: Disabled", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Deflect Glitch & Void Shield", State.Deflect_Glitch, function(v)
+Hub.CreateToggle(mainTab, "Anti-Glitch", State.Deflect_Glitch, function(v)
     State.Deflect_Glitch = v
     if v then initAntiGlitchShield() end
-    Hub.Notify("Shield", v and "Glitch Shield: ACTIVE (Rejects freeze, blindness & screen glitched)" or "Glitch Shield: OFF", 2)
+    Hub.Notify("Protection", v and "Anti-Glitch: Enabled" or "Anti-Glitch: Disabled", 2)
 end)
 
-Hub.CreateSection(mainTab, "🖐️ Interaction Power")
+Hub.CreateSection(mainTab, "Interaction")
 
-Hub.CreateToggle(mainTab, "Instant Interact (0s Hold)", State.Instant_Interact, function(v)
+Hub.CreateToggle(mainTab, "Instant Interact", State.Instant_Interact, function(v)
     State.Instant_Interact = v
     refreshAllPrompts()
-    Hub.Notify("Interaction", v and "Instant Interact: ON (Hold duration = 0s)" or "Instant Interact: OFF", 2)
+    Hub.Notify("Interaction", v and "Instant Interact: Enabled" or "Instant Interact: Disabled", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Noclip Interact (Through Walls)", State.Noclip_Interact, function(v)
+Hub.CreateToggle(mainTab, "Wall Interact", State.Noclip_Interact, function(v)
     State.Noclip_Interact = v
     refreshAllPrompts()
-    Hub.Notify("Interaction", v and "Noclip Interact: ON (No line of sight needed)" or "Noclip Interact: OFF", 2)
+    Hub.Notify("Interaction", v and "Wall Interact: Enabled" or "Wall Interact: Disabled", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Range Interact (Extended Reach)", State.Range_Interact, function(v)
+Hub.CreateToggle(mainTab, "Interact Reach", State.Range_Interact, function(v)
     State.Range_Interact = v
     refreshAllPrompts()
-    Hub.Notify("Interaction", v and string.format("Range Interact: ON (%d studs safe max)", State.Interact_MaxRange) or "Range Interact: OFF", 2)
+    Hub.Notify("Interaction", v and string.format("Interact Reach: %d studs", State.Interact_MaxRange) or "Interact Reach: Disabled", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Max Interact Range", 6, 14, State.Interact_MaxRange, " studs", function(v)
+Hub.CreateSlider(mainTab, "Reach Distance", 6, 14, State.Interact_MaxRange, " studs", function(v)
     State.Interact_MaxRange = v
     if State.Range_Interact then
         refreshAllPrompts()
     end
 end)
 
-Hub.CreateSection(mainTab, "🤖 Auto Interact (Safe Exclude List)")
-
-Hub.CreateToggle(mainTab, "Auto Interact Master", State.Auto_Interact, function(v)
+Hub.CreateToggle(mainTab, "Auto Interact", State.Auto_Interact, function(v)
     State.Auto_Interact = v
-    Hub.Notify("Auto Interact", v and "Auto Interact: ACTIVE" or "Auto Interact: OFF", 2)
+    Hub.Notify("Auto Interact", v and "Auto Interact: Enabled" or "Auto Interact: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Auto Doors", State.AutoInteract_Doors, function(v)
+    State.AutoInteract_Doors = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Keys", State.AutoInteract_Keys, function(v)
+    State.AutoInteract_Keys = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Items", State.AutoInteract_Items, function(v)
+    State.AutoInteract_Items = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Gold", State.AutoInteract_Gold, function(v)
+    State.AutoInteract_Gold = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Drawers", State.AutoInteract_Drawers, function(v)
+    State.AutoInteract_Drawers = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Levers", State.AutoInteract_Levers, function(v)
+    State.AutoInteract_Levers = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Books / Breakers", State.AutoInteract_Books, function(v)
+    State.AutoInteract_Books = v
 end)
 
 local excludeCategories = {
@@ -4806,9 +4848,8 @@ local excludeCategories = {
     { Name = "Glitch Fragments", Desc = "Glitch cubes & rift fragments" },
 }
 
-local excludeList = Hub.CreateList(mainTab, "Auto Interact Exclude List", excludeCategories, 180, false, { MultiSelect = true })
+local excludeList = Hub.CreateList(mainTab, "Auto Interact Filter", excludeCategories, 180, false, { MultiSelect = true })
 
--- Set initially excluded items
 local defaultExcluded = {}
 for name, isExcluded in pairs(State.AutoInteract_Excludes) do
     if isExcluded then
@@ -4829,11 +4870,11 @@ if excludeList then
             end
         end
         State.AutoInteract_Excludes[name] = isSelected
-        Hub.Notify("Exclude Filter", (isSelected and "❌ Excluded: " or "✅ Allowed: ") .. tostring(name), 2)
+        Hub.Notify("Filter", (isSelected and "Excluded: " or "Allowed: ") .. tostring(name), 2)
     end
 end
 
-Hub.CreateInput(mainTab, "Add Custom Exclude Keyword", "", "Type keyword to exclude...", function(text)
+Hub.CreateInput(mainTab, "Exclude Keyword", "", "Type keyword to exclude...", function(text)
     if text and #text > 0 then
         local trimmed = text:match("^%s*(.-)%s*$")
         if #trimmed > 0 then
@@ -4844,42 +4885,10 @@ Hub.CreateInput(mainTab, "Add Custom Exclude Keyword", "", "Type keyword to excl
                     excludeList.ToggleSelected(entryData)
                 end
             end
-            Hub.Notify("Custom Exclude", "Added keyword: " .. trimmed, 3)
+            Hub.Notify("Filter", "Excluded: " .. trimmed, 2)
         end
     end
 end)
-
-Hub.CreateToggle(mainTab, "Auto Loot Gold & Coins", State.AutoInteract_Gold, function(v)
-    State.AutoInteract_Gold = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Grab Items", State.AutoInteract_Items, function(v)
-    State.AutoInteract_Items = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Grab Keys", State.AutoInteract_Keys, function(v)
-    State.AutoInteract_Keys = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Books & Breakers", State.AutoInteract_Books, function(v)
-    State.AutoInteract_Books = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Open Drawers & Desks", State.AutoInteract_Drawers, function(v)
-    State.AutoInteract_Drawers = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Open Normal Doors", State.AutoInteract_Doors, function(v)
-    State.AutoInteract_Doors = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Pull Levers", State.AutoInteract_Levers, function(v)
-    State.AutoInteract_Levers = v
-end)
-
--- =========================================================================
--- Floor Mechanics & Hazard Defenses (Floor 1: Hotel & Floor 2: Mines)
--- =========================================================================
 
 local function updateFloorNativeToggles()
     local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
@@ -5288,84 +5297,78 @@ if not isHotel and not isMines and not isRooms and not isBackdoor and not isRetr
     isHotel = true
 end
 
-Hub.CreateSection(floorTab, "🦇 Entity Defenses")
+Hub.CreateSection(floorTab, "Defenses")
 
--- Common defenses (Hotel & Mines)
 if isHotel or isMines or isRetro then
-    Hub.CreateToggle(floorTab, "Anti-Screech (Auto-Catch & Banish)", State.Anti_Screech, function(v)
+    Hub.CreateToggle(floorTab, "Anti Screech", State.Anti_Screech, function(v)
         State.Anti_Screech = v
         updateFloorNativeToggles()
-        Hub.Notify("Anti-Screech", v and "Anti-Screech: ACTIVE (Zero bite & jumpscare)" or "Anti-Screech: OFF", 2)
+        Hub.Notify("Defense", v and "Anti Screech: Enabled" or "Anti Screech: Disabled", 2)
     end)
 
-    Hub.CreateToggle(floorTab, "Anti-Eyes (Look Immunity)", State.Anti_Eyes, function(v)
+    Hub.CreateToggle(floorTab, "Anti Eyes", State.Anti_Eyes, function(v)
         State.Anti_Eyes = v
         updateFloorNativeToggles()
-        Hub.Notify("Anti-Eyes", v and "Anti-Eyes: ACTIVE (Look-damage immune)" or "Anti-Eyes: OFF", 2)
+        Hub.Notify("Defense", v and "Anti Eyes: Enabled" or "Anti Eyes: Disabled", 2)
     end)
 
-    Hub.CreateToggle(floorTab, "Anti-Dupe (Fake Door Protection)", State.Anti_Dupe, function(v)
+    Hub.CreateToggle(floorTab, "Anti Dupe", State.Anti_Dupe, function(v)
         State.Anti_Dupe = v
         updateFloorNativeToggles()
-        Hub.Notify("Anti-Dupe", v and "Anti-Dupe: ACTIVE" or "Anti-Dupe: OFF", 2)
+        Hub.Notify("Defense", v and "Anti Dupe: Enabled" or "Anti Dupe: Disabled", 2)
     end)
 
-    Hub.CreateToggle(floorTab, "Anti-Snare Traps (Greenhouse & Mines)", State.Anti_Snare, function(v)
+    Hub.CreateToggle(floorTab, "Anti Snare", State.Anti_Snare, function(v)
         State.Anti_Snare = v
         defuseAllSnares()
-        Hub.Notify("Anti-Snare", v and "Anti-Snare: ACTIVE (Walk through snares safely)" or "Anti-Snare: OFF", 2)
+        Hub.Notify("Defense", v and "Anti Snare: Enabled" or "Anti Snare: Disabled", 2)
     end)
 
-    Hub.CreateToggle(floorTab, "Anti-Timothy (Spider Jumpscare Mute)", State.Anti_Timothy, function(v)
+    Hub.CreateToggle(floorTab, "Anti Timothy", State.Anti_Timothy, function(v)
         State.Anti_Timothy = v
-        Hub.Notify("Anti-Timothy", v and "Anti-Timothy: ACTIVE (Drawer spiders silenced & hidden)" or "Anti-Timothy: OFF", 2)
+        Hub.Notify("Defense", v and "Anti Timothy: Enabled" or "Anti Timothy: Disabled", 2)
     end)
 end
 
--- Rooms / Backdoor / Retro only defenses
 if isRooms or isBackdoor or isRetro then
-    Hub.CreateToggle(floorTab, "Anti-A-90 (Instant Attack Immunity)", State.Anti_A90, function(v)
+    Hub.CreateToggle(floorTab, "Anti A-90", State.Anti_A90, function(v)
         State.Anti_A90 = v
-        Hub.Notify("Anti-A-90", v and "Anti-A-90: ACTIVE (A-90 attacks neutralized)" or "Anti-A-90: OFF", 2)
+        Hub.Notify("Defense", v and "Anti A-90: Enabled" or "Anti A-90: Disabled", 2)
     end)
 end
 
--- Mines (Floor 2) only defenses
 if isMines then
-    Hub.CreateToggle(floorTab, "Anti-Giggle (Ceiling Snatcher Defusal)", State.Anti_Giggle, function(v)
+    Hub.CreateToggle(floorTab, "Anti Giggle", State.Anti_Giggle, function(v)
         State.Anti_Giggle = v
-        Hub.Notify("Anti-Giggle", v and "Anti-Giggle: ACTIVE (Mines giggles disarmed)" or "Anti-Giggle: OFF", 2)
+        Hub.Notify("Defense", v and "Anti Giggle: Enabled" or "Anti Giggle: Disabled", 2)
     end)
 end
 
--- Shared Minigames (Hotel & Mines)
 if isHotel or isMines then
-    Hub.CreateSection(floorTab, "🎮 Minigames & Puzzles")
+    Hub.CreateSection(floorTab, "Puzzles")
 
-    Hub.CreateToggle(floorTab, "Auto Heartbeat Minigame (Auto-Win)", State.Auto_Heartbeat, function(v)
+    Hub.CreateToggle(floorTab, "Auto Heartbeat", State.Auto_Heartbeat, function(v)
         State.Auto_Heartbeat = v
-        Hub.Notify("Heartbeat Minigame", v and "Auto Heartbeat: ACTIVE (100% win rate)" or "Auto Heartbeat: OFF", 2)
+        Hub.Notify("Puzzle", v and "Auto Heartbeat: Enabled" or "Auto Heartbeat: Disabled", 2)
     end)
 end
 
--- Hotel (Floor 1) specific Puzzles
 if isHotel then
-    Hub.CreateButton(floorTab, "🔍 Solve Library Code (Room 50 Padlock)", function()
+    Hub.CreateButton(floorTab, "Solve Library Code", function()
         local code, status = solveLibraryCode()
         if code then
-            Hub.Notify("Room 50 Code", "Padlock Code: " .. code, 6)
+            Hub.Notify("Room 50", "Padlock Code: " .. code, 6)
         else
-            Hub.Notify("Room 50 Code", status or "Need Books & Hint Paper!", 4)
+            Hub.Notify("Room 50", status or "Need Books & Hint Paper!", 4)
         end
     end)
 
-    Hub.CreateToggle(floorTab, "Auto Solve Circuit Breaker (Room 100)", State.Auto_Breakers, function(v)
+    Hub.CreateToggle(floorTab, "Auto Circuit Breaker", State.Auto_Breakers, function(v)
         State.Auto_Breakers = v
-        Hub.Notify("Room 100 Breaker", v and "Auto Breaker: ACTIVE" or "Auto Breaker: OFF", 2)
+        Hub.Notify("Puzzle", v and "Auto Circuit Breaker: Enabled" or "Auto Circuit Breaker: Disabled", 2)
     end)
 end
 
--- Tab 3: ESP TAB
 local espTab = Hub.CreateTab("ESP", { 
     Icon = "👁️", 
     Size = 18, 
@@ -5373,9 +5376,9 @@ local espTab = Hub.CreateTab("ESP", {
     ActiveColor = Color3.fromRGB(0, 215, 255) 
 })
 
-Hub.CreateSection(espTab, "👁️ Master Control & Display Mode")
+Hub.CreateSection(espTab, "Master")
 
-Hub.CreateToggle(espTab, "Master ESP Switch", State.Master_ESP, function(v)
+Hub.CreateToggle(espTab, "Master ESP", State.Master_ESP, function(v)
     State.Master_ESP = v
     if not v then
         clearAllEsp()
@@ -5384,7 +5387,7 @@ Hub.CreateToggle(espTab, "Master ESP Switch", State.Master_ESP, function(v)
     end
 end)
 
-Hub.CreateToggle(espTab, "Show Distance Labels", State.Show_Distance, function(v)
+Hub.CreateToggle(espTab, "Show Distance", State.Show_Distance, function(v)
     State.Show_Distance = v
     if not v then
         for _, rec in pairs(activeEspRecords) do
@@ -5393,24 +5396,22 @@ Hub.CreateToggle(espTab, "Show Distance Labels", State.Show_Distance, function(v
     end
 end)
 
-Hub.CreateDropdown(espTab, "Doors & Closets Vision Mode", { "Current & Next Room", "Current Room Only", "All Rooms (Full Vision)" }, State.ESP_RoomFilterMode, function(mode)
+Hub.CreateDropdown(espTab, "Render Range", { "Current & Next Room", "Current Room Only", "All Rooms" }, State.ESP_RoomFilterMode, function(mode)
     State.ESP_RoomFilterMode = mode
-    Hub.Notify("ESP Display Mode", "Set to: " .. mode, 2)
+    Hub.Notify("ESP", "Range: " .. mode, 2)
 end)
 
-Hub.CreateSlider(espTab, "ESP Text Font Size", 11, 24, State.ESP_TextSize, " px", function(v)
+Hub.CreateSlider(espTab, "Font Size", 11, 24, State.ESP_TextSize, " px", function(v)
     State.ESP_TextSize = v
     refreshEspVisualSettings()
 end)
 
-Hub.CreateSlider(espTab, "Highlight Fill Opacity", 10, 90, math.floor((1 - State.ESP_FillTransparency) * 100), "%", function(v)
+Hub.CreateSlider(espTab, "Fill Transparency", 10, 90, math.floor((1 - State.ESP_FillTransparency) * 100), "%", function(v)
     State.ESP_FillTransparency = 1 - (v / 100)
     refreshEspVisualSettings()
 end)
 
-Hub.CreateSection(espTab, "🎨 Color Themes & Customization")
-
-Hub.CreateDropdown(espTab, "ESP Color Palette", { "Default Vibrant", "Neon Cyber", "Monochrome Glow", "Pastel Soft" }, State.ESP_ColorTheme, function(theme)
+Hub.CreateDropdown(espTab, "Color Theme", { "Default Vibrant", "Neon Cyber", "Monochrome Glow", "Pastel Soft" }, State.ESP_ColorTheme, function(theme)
     State.ESP_ColorTheme = theme
     if theme == "Default Vibrant" then
         State.ESP_Color_Doors = Color3.fromRGB(0, 215, 255)
@@ -5443,12 +5444,12 @@ Hub.CreateDropdown(espTab, "ESP Color Palette", { "Default Vibrant", "Neon Cyber
     end
     clearAllEsp()
     scanAllRooms()
-    Hub.Notify("Color Theme", "Applied: " .. theme, 2)
+    Hub.Notify("ESP", "Theme: " .. theme, 2)
 end)
 
-Hub.CreateSection(espTab, "🚪 Doors & Navigation")
+Hub.CreateSection(espTab, "Doors & Objectives")
 
-Hub.CreateToggle(espTab, "Doors ESP (Real & Fake)", State.Doors_ESP, function(v)
+Hub.CreateToggle(espTab, "Door ESP", State.Doors_ESP, function(v)
     State.Doors_ESP = v
     if not v then
         clearCategoryEsp("Doors")
@@ -5457,7 +5458,7 @@ Hub.CreateToggle(espTab, "Doors ESP (Real & Fake)", State.Doors_ESP, function(v)
     end
 end)
 
-Hub.CreateToggle(espTab, "Keys ESP", State.Keys_ESP, function(v)
+Hub.CreateToggle(espTab, "Key ESP", State.Keys_ESP, function(v)
     State.Keys_ESP = v
     if not v then
         clearCategoryEsp("Keys")
@@ -5466,9 +5467,7 @@ Hub.CreateToggle(espTab, "Keys ESP", State.Keys_ESP, function(v)
     end
 end)
 
-Hub.CreateSection(espTab, "📦 Items & Objectives")
-
-Hub.CreateToggle(espTab, "Glitch Fragment ESP (GlitchCube)", State.GlitchFragment_ESP, function(v)
+Hub.CreateToggle(espTab, "Glitch ESP", State.GlitchFragment_ESP, function(v)
     State.GlitchFragment_ESP = v
     if not v then
         clearCategoryEsp("GlitchFragment")
@@ -5477,7 +5476,7 @@ Hub.CreateToggle(espTab, "Glitch Fragment ESP (GlitchCube)", State.GlitchFragmen
     end
 end)
 
-Hub.CreateToggle(espTab, "Items ESP (Crucifix, Lighter, etc.)", State.Items_ESP, function(v)
+Hub.CreateToggle(espTab, "Item ESP", State.Items_ESP, function(v)
     State.Items_ESP = v
     if not v then
         clearCategoryEsp("Items")
@@ -5486,7 +5485,7 @@ Hub.CreateToggle(espTab, "Items ESP (Crucifix, Lighter, etc.)", State.Items_ESP,
     end
 end)
 
-Hub.CreateToggle(espTab, "Books ESP (Room 50 Library Only)", State.Books_ESP, function(v)
+Hub.CreateToggle(espTab, "Book ESP", State.Books_ESP, function(v)
     State.Books_ESP = v
     if not v then
         clearCategoryEsp("Books")
@@ -5495,7 +5494,7 @@ Hub.CreateToggle(espTab, "Books ESP (Room 50 Library Only)", State.Books_ESP, fu
     end
 end)
 
-Hub.CreateToggle(espTab, "Breakers ESP (Room 100 Only)", State.Breakers_ESP, function(v)
+Hub.CreateToggle(espTab, "Breaker ESP", State.Breakers_ESP, function(v)
     State.Breakers_ESP = v
     if not v then
         clearCategoryEsp("Breakers")
@@ -5504,7 +5503,7 @@ Hub.CreateToggle(espTab, "Breakers ESP (Room 100 Only)", State.Breakers_ESP, fun
     end
 end)
 
-Hub.CreateToggle(espTab, "Gold Coins ESP", State.Gold_ESP, function(v)
+Hub.CreateToggle(espTab, "Gold ESP", State.Gold_ESP, function(v)
     State.Gold_ESP = v
     if not v then
         clearCategoryEsp("Gold")
@@ -5513,9 +5512,9 @@ Hub.CreateToggle(espTab, "Gold Coins ESP", State.Gold_ESP, function(v)
     end
 end)
 
-Hub.CreateSection(espTab, "💀 Entities & Safety")
+Hub.CreateSection(espTab, "Entities")
 
-Hub.CreateToggle(espTab, "Entities ESP (Monsters Master)", State.Entities_ESP, function(v)
+Hub.CreateToggle(espTab, "Entity ESP", State.Entities_ESP, function(v)
     State.Entities_ESP = v
     if not v then
         clearCategoryEsp("Entities")
@@ -5524,7 +5523,7 @@ Hub.CreateToggle(espTab, "Entities ESP (Monsters Master)", State.Entities_ESP, f
     end
 end)
 
-Hub.CreateToggle(espTab, "Hiding Spots ESP (Closets & Beds)", State.HidingSpots_ESP, function(v)
+Hub.CreateToggle(espTab, "Closet ESP", State.HidingSpots_ESP, function(v)
     State.HidingSpots_ESP = v
     if not v then
         clearCategoryEsp("HidingSpots")
@@ -5532,8 +5531,6 @@ Hub.CreateToggle(espTab, "Hiding Spots ESP (Closets & Beds)", State.HidingSpots_
         scanAllRooms()
     end
 end)
-
-Hub.CreateSection(espTab, "👾 Entity Filter (Multi-Choice)")
 
 local allMonsterOptions = {
     "Rush", "Ambush", "Figure", "Seek", "Eyes", "Halt",
@@ -5554,17 +5551,17 @@ Hub.CreateMultiDropdown(espTab, "Monsters Filter List", allMonsterOptions, allMo
     scanAllRooms()
 end)
 
-Hub.CreateSection(espTab, "💡 Visual Enhancements")
+Hub.CreateSection(espTab, "World")
 
-Hub.CreateToggle(espTab, "Fullbright / Night Vision", State.Fullbright, function(v)
+Hub.CreateToggle(espTab, "Fullbright", State.Fullbright, function(v)
     State.Fullbright = v
     applyFullbright(v)
 end)
 
-Hub.CreateButton(espTab, "🔄 Refresh All ESP Now", function()
+Hub.CreateButton(espTab, "Refresh ESP", function()
     clearAllEsp()
     scanAllRooms()
-    Hub.Notify("DOORS ESP", "Refreshed all active room ESPs!", 3)
+    Hub.Notify("ESP", "Refreshed all active room ESPs!", 2)
 end)
 
 -- Initial Startup Scan
@@ -5579,4 +5576,4 @@ pcall(function()
     end
 end)
 scanAllRooms()
-Hub.Notify("UNKNOWN HUB", "DOORS Precision ESP Loaded! 👁️", 4)
+Hub.Notify("Unknown Hub", "DOORS Precision ESP Loaded", 3)
