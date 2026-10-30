@@ -2658,10 +2658,26 @@ local function initAntiGlitchShield()
     end)
 end
 
+local function pulseSlideKeepAlive()
+    if not crouchRemote then
+        pcall(function()
+            local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+            crouchRemote = rf and rf:FindFirstChild("Crouch")
+        end)
+    end
+    if crouchRemote then
+        pcall(function()
+            crouchRemote:FireServer(false, false)
+            task.wait(0.02)
+            crouchRemote:FireServer(false, true)
+        end)
+    end
+end
+
 local function neutralizeServerTeleported()
     if not State.Bypass_AntiCheat then return end
 
-    -- 1. Neutralize Client RemoteListener Module
+    -- 1. Neutralize Client RemoteListener Module (one-time hook to eliminate stack overflow)
     pcall(function()
         local pGui = LocalPlayer:FindFirstChild("PlayerGui")
         local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
@@ -2671,20 +2687,29 @@ local function neutralizeServerTeleported()
                 if not stMod:GetAttribute("Static") then
                     stMod:SetAttribute("Static", true)
                 end
-                local fn = require(stMod)
-                if type(fn) == "function" and hookfunction then
-                    hookfunction(fn, function(...) end)
+                if not _G.ST_FN_HOOKED then
+                    _G.ST_FN_HOOKED = true
+                    local fn = require(stMod)
+                    if type(fn) == "function" and hookfunction then
+                        hookfunction(fn, function(...) end)
+                    end
                 end
             end
         end
     end)
 
-    -- 2. Disable all direct listeners on RemotesFolder.ServerTeleported
+    -- 2. Disable all direct listeners on RemotesFolder.ServerTeleported & Teleport
     pcall(function()
         local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
         local st = rf and rf:FindFirstChild("ServerTeleported")
         if st and getconnections then
             for _, c in ipairs(getconnections(st.OnClientEvent)) do
+                pcall(function() c:Disable() end)
+            end
+        end
+        local tp = rf and rf:FindFirstChild("Teleport")
+        if tp and getconnections then
+            for _, c in ipairs(getconnections(tp.OnClientEvent)) do
                 pcall(function() c:Disable() end)
             end
         end
@@ -2739,7 +2764,7 @@ local function getExactFloorPos(pos, fallbackOffset)
     return Vector3.new(pos.X, pos.Y + (fallbackOffset or 0), pos.Z)
 end
 
--- Corridor Waypoint Router: Detects wall collisions and calculates L-corner hallway waypoints around obstacles
+-- Corridor Waypoint Router: Detects wall collisions, calculates L-corner routes, and subdivides long stretches (> 38 studs)
 local function getNavigationWaypoints(startPos, endPos)
     local char = getChar()
     local rayParams = RaycastParams.new()
@@ -2749,38 +2774,57 @@ local function getNavigationWaypoints(startPos, endPos)
     -- Check direct line-of-sight at torso height (+1.5 studs)
     local s = startPos + Vector3.new(0, 1.5, 0)
     local e = endPos + Vector3.new(0, 1.5, 0)
-    local directDist = (e - s).Magnitude
-    if directDist < 5 then
-        return { endPos }
-    end
 
+    local rawWaypoints = {}
     local hit = workspace:Raycast(s, e - s, rayParams)
+
     if not hit then
-        -- Direct path is completely unobstructed!
-        return { endPos }
+        table.insert(rawWaypoints, endPos)
+    else
+        -- Direct path hits a wall/obstacle. Test Manhattan L-corner hallway routes
+        -- Corner 1: traverse X axis first, then Z axis
+        local c1 = Vector3.new(endPos.X, startPos.Y, startPos.Z)
+        local c1_ray = c1 + Vector3.new(0, 1.5, 0)
+        local hit1_a = workspace:Raycast(s, c1_ray - s, rayParams)
+        local hit1_b = workspace:Raycast(c1_ray, e - c1_ray, rayParams)
+
+        if not hit1_a and not hit1_b then
+            table.insert(rawWaypoints, getExactFloorPos(c1))
+            table.insert(rawWaypoints, endPos)
+        else
+            -- Corner 2: traverse Z axis first, then X axis
+            local c2 = Vector3.new(startPos.X, startPos.Y, endPos.Z)
+            local c2_ray = c2 + Vector3.new(0, 1.5, 0)
+            local hit2_a = workspace:Raycast(s, c2_ray - s, rayParams)
+            local hit2_b = workspace:Raycast(c2_ray, e - c2_ray, rayParams)
+
+            if not hit2_a and not hit2_b then
+                table.insert(rawWaypoints, getExactFloorPos(c2))
+                table.insert(rawWaypoints, endPos)
+            else
+                table.insert(rawWaypoints, endPos)
+            end
+        end
     end
 
-    -- Direct path hits a wall/obstacle. Test Manhattan L-corner hallway routes
-    -- Corner 1: traverse X axis first, then Z axis
-    local c1 = Vector3.new(endPos.X, startPos.Y, startPos.Z)
-    local c1_ray = c1 + Vector3.new(0, 1.5, 0)
-    local hit1_a = workspace:Raycast(s, c1_ray - s, rayParams)
-    local hit1_b = workspace:Raycast(c1_ray, e - c1_ray, rayParams)
-    if not hit1_a and not hit1_b then
-        return { getExactFloorPos(c1), endPos }
+    -- Subdivide any segments longer than 38 studs into micro-bursts to keep server slide timers fresh (< 1.4s per burst)
+    local finalWaypoints = {}
+    local prev = startPos
+    for _, wp in ipairs(rawWaypoints) do
+        local segDist = (wp - prev).Magnitude
+        if segDist > 38 then
+            local steps = math.ceil(segDist / 34)
+            for step = 1, steps do
+                local subPos = prev:Lerp(wp, step / steps)
+                table.insert(finalWaypoints, getExactFloorPos(subPos))
+            end
+        else
+            table.insert(finalWaypoints, wp)
+        end
+        prev = wp
     end
 
-    -- Corner 2: traverse Z axis first, then X axis
-    local c2 = Vector3.new(startPos.X, startPos.Y, endPos.Z)
-    local c2_ray = c2 + Vector3.new(0, 1.5, 0)
-    local hit2_a = workspace:Raycast(s, c2_ray - s, rayParams)
-    local hit2_b = workspace:Raycast(c2_ray, e - c2_ray, rayParams)
-    if not hit2_a and not hit2_b then
-        return { getExactFloorPos(c2), endPos }
-    end
-
-    -- Fallback: return destination directly (safeTweenTeleport handles noclip & settle phase)
-    return { endPos }
+    return finalWaypoints
 end
 
 local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
@@ -2800,7 +2844,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
         return true
     end
 
-    local speed = math.clamp(speedVal or State.Teleport_Speed or 26, 18, 35)
+    local speed = math.clamp(speedVal or State.Teleport_Speed or 28, 18, 35)
     local duration = totalDist / speed
     local moveDir = (totalDist > 0.01) and (moveVec / totalDist) or Vector3.zero
     local token = tick() + math.random()
@@ -2810,6 +2854,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     if syncServerSlide then syncServerSlide(true, true) end
 
     local t0 = os.clock()
+    local lastSlidePulse = t0
     local settleStartTime = nil
 
     local conn
@@ -2820,10 +2865,11 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
             return
         end
 
-        local elapsed = os.clock() - t0
+        local now = os.clock()
+        local elapsed = now - t0
         local alpha = math.clamp(elapsed / duration, 0, 1)
 
-        -- Strip physics collisions for smooth pass-through
+        -- Strip physics collisions for smooth penetration through walls/doors
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
                 p.CanCollide = false
@@ -2844,6 +2890,12 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
             root.AssemblyLinearVelocity = moveDir * speed
             root.AssemblyAngularVelocity = Vector3.zero
 
+            -- Continuous slide timer refresh every 1.1s to prevent server-side slide expiration on long flights
+            if (now - lastSlidePulse >= 1.1) then
+                lastSlidePulse = now
+                task.spawn(pulseSlideKeepAlive)
+            end
+
             -- Auto-open doors encountered along flight path
             if autoDoorOpen ~= false then
                 processNearbyDoors(currentSubPos, 22)
@@ -2853,7 +2905,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
             -- Continuously clamps CFrame and maintains zero velocity so the server network buffer
             -- flushes any wall-collision discrepancies and accepts the final resting coordinate!
             if not settleStartTime then
-                settleStartTime = os.clock()
+                settleStartTime = now
             end
 
             root.CFrame = CFrame.new(targetPos) * targetRot
@@ -2861,7 +2913,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
             root.AssemblyAngularVelocity = Vector3.zero
             if syncServerSlide then syncServerSlide(true, true) end
 
-            if os.clock() - settleStartTime >= 0.35 then
+            if now - settleStartTime >= 0.35 then
                 if conn then conn:Disconnect() end
                 if activeTweenToken == token then isTeleportTweening = false end
                 if callback then callback() end
@@ -2872,7 +2924,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     return true
 end
 
--- Multi-Segment Waypoint Traverser: Follows clear hallway waypoints around walls
+-- Multi-Segment Waypoint Traverser: Follows clear hallway waypoints and pulses slide state on each segment
 local function safeMultiSegmentTeleport(targetCF, speedVal, autoDoorOpen, callback)
     local char = getChar()
     local root = getRoot()
@@ -2893,6 +2945,13 @@ local function safeMultiSegmentTeleport(targetCF, speedVal, autoDoorOpen, callba
         local wp = waypoints[idx]
         local isLast = (idx == #waypoints)
         local cf = isLast and (CFrame.new(wp) * targetRot) or CFrame.new(wp, isLast and targetPos or (waypoints[idx+1] or targetPos))
+        
+        -- Pulse slide refresh before each micro-burst segment
+        if idx > 1 then
+            pulseSlideKeepAlive()
+            task.wait(0.04)
+        end
+
         safeTweenTeleport(cf, speedVal, autoDoorOpen, function()
             runSegment(idx + 1)
         end)
@@ -4237,30 +4296,33 @@ end
 local teleRemote = remotesFolder and remotesFolder:FindFirstChild("Teleport")
 local servTeleRemote = remotesFolder and remotesFolder:FindFirstChild("ServerTeleported")
 
-if getconnections then
-    if teleRemote and teleRemote:IsA("RemoteEvent") then
-        for _, conn in ipairs(getconnections(teleRemote.OnClientEvent)) do
-            local oldTele = conn.Function
-            if oldTele and hookfunction then
-                hookfunction(oldTele, newcclosure(function(...)
-                    if State.Noclip then
-                        return
-                    end
-                    return oldTele(...)
-                end))
+if not _G.DOORS_REMOTES_HOOKED then
+    _G.DOORS_REMOTES_HOOKED = true
+    if getconnections then
+        if teleRemote and teleRemote:IsA("RemoteEvent") then
+            for _, conn in ipairs(getconnections(teleRemote.OnClientEvent)) do
+                local oldTele = conn.Function
+                if oldTele and hookfunction then
+                    hookfunction(oldTele, newcclosure(function(...)
+                        if State.Noclip or State.Fly_Enabled or isTeleportTweening or State.Bypass_AntiCheat then
+                            return
+                        end
+                        return oldTele(...)
+                    end))
+                end
             end
         end
-    end
-    if servTeleRemote and servTeleRemote:IsA("RemoteEvent") then
-        for _, conn in ipairs(getconnections(servTeleRemote.OnClientEvent)) do
-            local oldServTele = conn.Function
-            if oldServTele and hookfunction then
-                hookfunction(oldServTele, newcclosure(function(...)
-                    if State.Noclip then
-                        return
-                    end
-                    return oldServTele(...)
-                end))
+        if servTeleRemote and servTeleRemote:IsA("RemoteEvent") then
+            for _, conn in ipairs(getconnections(servTeleRemote.OnClientEvent)) do
+                local oldServTele = conn.Function
+                if oldServTele and hookfunction then
+                    hookfunction(oldServTele, newcclosure(function(...)
+                        if State.Noclip or State.Fly_Enabled or isTeleportTweening or State.Bypass_AntiCheat then
+                            return
+                        end
+                        return oldServTele(...)
+                    end))
+                end
             end
         end
     end
