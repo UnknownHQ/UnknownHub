@@ -3879,33 +3879,93 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- True DOORS Native 3D Flight & Noclip Engine (100% Butter-Smooth, Zero-Jitter, Zero-Lag)
+    -- Silky-Smooth Butter Horizontal Phase-Glide Flight Engine (Zero Up/Down Drift, Zero Lag, Zero Physics Stutter)
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
-        _G.__BLOCK_EQ_NOCLIP = true
-
         -- Cloak player on server as 'Hiding' so Rush, Ambush, and entities out-of-bounds treat player as protected in closet
         if not char:GetAttribute("Hiding") then
             char:SetAttribute("Hiding", true)
         end
 
         local mg = getMainGameTable()
-        if mg then
-            if not mg.noclip then
-                mg.noclip = true
-            end
-            if mg.crouching then
-                mg.crouching = false
+        if mg and mg.noclip then
+            mg.noclip = false
+        end
+
+        -- Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.CanCollide then
+                p.CanCollide = false
             end
         end
 
-        -- Synchronize root CFrame to CollisionPart for pixel-perfect physics and camera alignment
-        local cp = char:FindFirstChild("CollisionPart")
-        if cp and root then
-            root.CFrame = cp.CFrame
+        local cam = Workspace.CurrentCamera
+        local camCF = cam.CFrame
+        -- Strictly horizontal directional vectors (Up/Down completely eliminated!)
+        local lookH = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
+        local rightH = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
+        local camLook = if lookH.Magnitude > 0.001 then lookH.Unit else Vector3.new(0, 0, -1)
+        local camRight = if rightH.Magnitude > 0.001 then rightH.Unit else Vector3.new(1, 0, 0)
+
+        local steer = Vector3.zero
+        local hasInput = false
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            steer = steer + camLook
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            steer = steer - camLook
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            steer = steer + camRight
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            steer = steer - camRight
+            hasInput = true
         end
 
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
+        -- Gamepad / Mobile Touch fallback (horizontal MoveDirection)
+        if not hasInput and hum and hum.MoveDirection.Magnitude > 0.05 then
+            local md = hum.MoveDirection
+            local mdH = Vector3.new(md.X, 0, md.Z)
+            if mdH.Magnitude > 0.01 then
+                steer = steer + mdH.Unit
+                hasInput = true
+            end
+        end
+
+        -- Continuous slide authorization keep-alive (every 0.55s)
+        local now = os.clock()
+        if (now - lastFlySlidePulse >= 0.55) then
+            lastFlySlidePulse = now
+            task.spawn(pulseSlideKeepAlive)
+        end
+
+        if hasInput and steer.Magnitude > 0.01 then
+            local moveDir = steer.Unit
+            local speed = math.clamp(State.Noclip_Speed or 22, 5, 85)
+            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+            local delta = moveDir * (speed * safeDt)
+
+            local curPivot = char:GetPivot()
+            -- Lock exact Y altitude: Strictly horizontal glide without any vertical drift
+            local targetPos = Vector3.new(curPivot.Position.X + delta.X, curPivot.Position.Y, curPivot.Position.Z + delta.Z)
+            local targetCF = CFrame.new(targetPos) * curPivot.Rotation
+
+            char:PivotTo(targetCF)
+            root.CFrame = targetCF
+            local cp = char:FindFirstChild("CollisionPart")
+            if cp then cp.CFrame = targetCF end
+            if mg then mg.SETNEWCF = targetCF end
+
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        else
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
 
         -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor (ONLY when not hiding!)
         if not hiding and root.Position.Y < -5 then
@@ -3914,16 +3974,13 @@ RunService.Heartbeat:Connect(function(dt)
                 local safeCF = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
                 char:PivotTo(safeCF)
                 root.CFrame = safeCF
-                if mg then mg.clipPos = safeLanding end
             else
                 local safeCF = CFrame.new(root.Position.X, 3.5, root.Position.Z) * root.CFrame.Rotation
                 char:PivotTo(safeCF)
                 root.CFrame = safeCF
-                if mg then mg.clipPos = Vector3.new(root.Position.X, 3.5, root.Position.Z) end
             end
         end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
-        _G.__BLOCK_EQ_NOCLIP = false
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
@@ -4014,9 +4071,7 @@ RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        if State.Noclip then
-            mgTable.noclip = true
-        elseif mgTable.noclip then
+        if mgTable.noclip then
             mgTable.noclip = false
         end
     end
@@ -4606,7 +4661,7 @@ Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
     Hub.Notify("Movement", v and "Sliding: ENABLED (C / Ctrl to slide)" or "Sliding: DISABLED", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip, function(v)
+Hub.CreateToggle(mainTab, "Fly-Noclip (Horizontal Phase Glide)", State.Noclip, function(v)
     if v and not State.Bypass_AntiCheat then
         State.Bypass_AntiCheat = true
         neutralizeServerTeleported()
@@ -4629,20 +4684,18 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         end
     end)
 
+    local mg = getMainGameTable()
+    if mg and mg.noclip then
+        mg.noclip = false
+    end
+
     if v then
-        _G.__BLOCK_EQ_NOCLIP = true
-        local mg = getMainGameTable()
-        if mg then
-            mg.noclip = true
-            mg.crouching = false
-            if r then mg.clipPos = r.Position end
+        if r then
+            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyAngularVelocity = Vector3.zero
         end
+        if syncServerSlide then syncServerSlide(true, true) end
     else
-        _G.__BLOCK_EQ_NOCLIP = false
-        local mg = getMainGameTable()
-        if mg then
-            mg.noclip = false
-        end
 
         if char and char:GetAttribute("Hiding") then
             char:SetAttribute("Hiding", nil)
@@ -4930,6 +4983,13 @@ if hookmetamethod then
                     if isLocalChar then
                         return -- Block anticheat rollback PivotTo dead in its tracks; allow wardrobe hiding and door entry!
                     end
+                end
+            end
+            if method == "GetPartsInPart" or method == "getPartsInPart" then
+                local args = {...}
+                local part = args[1]
+                if part and (part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch") then
+                    return {}
                 end
             end
             if method == "FireServer" then
