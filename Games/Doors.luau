@@ -100,6 +100,7 @@ assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub instance")
 -- State Configuration (Main & ESP)
 -- =========================================================================
 local State = {
+    FieldOfView = 70,
     -- Main / Movement
     WalkSpeed_Enabled = false,
     WalkSpeed_Value = 45,
@@ -4058,15 +4059,32 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Keep character body, limbs & held items 100% visible at all times during flight
-    if State.Noclip and char then
+    -- Keep character camera in perfect alignment and hide hair/torso in 1st person
+    if State.Noclip and char and root then
+        if mgTable then
+            mgTable.clipPos = root.Position
+            local cp = char:FindFirstChild("CollisionPart") or char:FindFirstChild("Collision")
+            if cp then cp.CFrame = CFrame.lookAlong(root.Position, Workspace.CurrentCamera.CFrame.LookVector) end
+        end
+
         for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.Name ~= "Collision" and p.Name ~= "CollisionPart" and p.Name ~= "CollisionCrouch" and p.Name ~= "RagdollCollision" and p.Name ~= "Head" then
-                if p.LocalTransparencyModifier > 0 then
-                    p.LocalTransparencyModifier = 0
+            if p:IsA("BasePart") then
+                local pName = p.Name
+                local isAccessory = p:FindFirstAncestorOfClass("Accessory") ~= nil
+                local isHeadOrTorso = (pName == "Head" or pName == "UpperTorso" or pName == "LowerTorso" or pName == "Torso")
+                local isHiddenPart = (pName == "HumanoidRootPart" or pName:find("Collision") ~= nil)
+
+                if isAccessory or isHeadOrTorso or isHiddenPart then
+                    p.LocalTransparencyModifier = 1 -- Hair, hats, head & torso never obstruct camera or view looking down
+                else
+                    -- Arms, legs, hands, feet, and held tools remain 100% visible
+                    if p.LocalTransparencyModifier > 0 then
+                        p.LocalTransparencyModifier = 0
+                    end
                 end
             end
         end
+
         local cam = Workspace.CurrentCamera
         if cam then
             for _, desc in ipairs(cam:GetDescendants()) do
@@ -4076,6 +4094,15 @@ RunService.Heartbeat:Connect(function(dt)
                     end
                 end
             end
+        end
+    end
+
+    -- Continuous FOV synchronization
+    if State.FieldOfView and State.FieldOfView ~= 70 then
+        if mgTable then mgTable.fovtarget = State.FieldOfView end
+        local cam = Workspace.CurrentCamera
+        if cam and cam.FieldOfView ~= State.FieldOfView then
+            cam.FieldOfView = State.FieldOfView
         end
     end
 end)
@@ -5331,9 +5358,9 @@ if isHotel or isMines or isRetro then
 end
 
 if isRooms or isBackdoor or isRetro then
-    Hub.CreateToggle(floorTab, "Anti A-90", State.Anti_A90, function(v)
+    Hub.CreateToggle(floorTab, "Anti Ransom", State.Anti_A90, function(v)
         State.Anti_A90 = v
-        Hub.Notify("Defense", v and "Anti A-90: Enabled" or "Anti A-90: Disabled", 2)
+        Hub.Notify("Defense", v and "Anti Ransom: Enabled" or "Anti Ransom: Disabled", 2)
     end)
 end
 
@@ -5369,7 +5396,7 @@ if isHotel then
     end)
 end
 
-local espTab = Hub.CreateTab("ESP", { 
+local espTab = Hub.CreateTab("Visuals", { 
     Icon = "👁️", 
     Size = 18, 
     Color = Color3.fromRGB(170, 185, 210), 
@@ -5377,6 +5404,14 @@ local espTab = Hub.CreateTab("ESP", {
 })
 
 Hub.CreateSection(espTab, "Master")
+
+Hub.CreateSlider(espTab, "Field of View", 70, 120, State.FieldOfView or 70, "°", function(v)
+    State.FieldOfView = v
+    local mg = getMainGameTable()
+    if mg then mg.fovtarget = v end
+    local cam = Workspace.CurrentCamera
+    if cam then cam.FieldOfView = v end
+end)
 
 Hub.CreateToggle(espTab, "Master ESP", State.Master_ESP, function(v)
     State.Master_ESP = v
