@@ -4902,6 +4902,20 @@ if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED the
     end))
 end
 
+-- Pre-hook workspace.GetPartsInPart so DOORS collision checks never trigger 'Cannot un-crouch' lockouts
+if hookfunction and typeof(workspace.GetPartsInPart) == "function" and not _G.__GETPARTSINPART_HOOKED then
+    _G.__GETPARTSINPART_HOOKED = true
+    local rawGetParts
+    rawGetParts = hookfunction(workspace.GetPartsInPart, newcclosure(function(self, part, ...)
+        if not checkcaller() and State.Noclip then
+            if part and (part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch") then
+                return {}
+            end
+        end
+        return rawGetParts(self, part, ...)
+    end))
+end
+
 if hookmetamethod then
     local rawNamecall
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
