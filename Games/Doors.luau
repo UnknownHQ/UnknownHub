@@ -2374,6 +2374,16 @@ pcall(function()
                 table.clear(trailHistory)
                 wasMoving = false
                 if syncServerSlide then syncServerSlide(false, false) end
+
+                -- Force instant server position reconciliation to wardrobe prompt part
+                task.spawn(function()
+                    local r = getRoot()
+                    local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart") or (prompt.Parent:IsA("Model") and prompt.Parent.PrimaryPart)
+                    if r and pPart then
+                        local toPart = (pPart.Position - r.Position)
+                        r.AssemblyLinearVelocity = if toPart.Magnitude > 0.1 then toPart.Unit * 1.5 else Vector3.new(0, 0.1, 0)
+                    end
+                end)
             end
         end
     end
@@ -2523,7 +2533,7 @@ local lastDoorKeyEquip = 0
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     if not curRooms then return end
-    local reach = math.min(maxReach or 12, 14)
+    local reach = math.clamp(maxReach or 18, 8, 48)
     local r = getRoot()
     local char = getChar()
 
@@ -2931,6 +2941,23 @@ local function neutralizeServerTeleported()
                             return rawFn(p1, p2, p3, p4)
                         end
                         if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
+                            -- Instant Server Re-Synchronization Handshake:
+                            -- Pulses slide token and sends a directional replication impulse from the rollback point
+                            -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
+                            task.spawn(function()
+                                local r = getRoot()
+                                if r and crouchRemote then
+                                    pcall(function() crouchRemote:FireServer(false, true) end)
+                                    local p2Pos = (typeof(p2) == "Vector3" and p2) or (typeof(p2) == "CFrame" and p2.Position) or r.Position
+                                    local toClient = (r.Position - p2Pos)
+                                    local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
+                                    r.AssemblyLinearVelocity = impulseVel
+                                    task.wait(0.03)
+                                    if State.Noclip and r and r.Parent then
+                                        r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+                                    end
+                                end
+                            end)
                             return
                         end
                         return rawFn(p1, p2, p3, p4)
@@ -2963,6 +2990,24 @@ local function neutralizeServerTeleported()
                                     return fn(...)
                                 end
                                 if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
+                                    -- Instant Server Re-Synchronization Handshake:
+                                    -- Pulses slide token and sends a directional replication impulse from the rollback point
+                                    -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
+                                    task.spawn(function()
+                                        local r = getRoot()
+                                        if r and crouchRemote then
+                                            pcall(function() crouchRemote:FireServer(false, true) end)
+                                            local arg1 = (typeof(args) == "table" and args[1])
+                                            local p2Pos = (typeof(arg1) == "Vector3" and arg1) or (typeof(arg1) == "CFrame" and arg1.Position) or r.Position
+                                            local toClient = (r.Position - p2Pos)
+                                            local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
+                                            r.AssemblyLinearVelocity = impulseVel
+                                            task.wait(0.03)
+                                            if State.Noclip and r and r.Parent then
+                                                r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+                                            end
+                                        end
+                                    end)
                                     return
                                 end
                                 return fn(...)
@@ -2991,6 +3036,24 @@ local function neutralizeServerTeleported()
                                     return fn(...)
                                 end
                                 if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
+                                    -- Instant Server Re-Synchronization Handshake:
+                                    -- Pulses slide token and sends a directional replication impulse from the rollback point
+                                    -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
+                                    task.spawn(function()
+                                        local r = getRoot()
+                                        if r and crouchRemote then
+                                            pcall(function() crouchRemote:FireServer(false, true) end)
+                                            local arg1 = (typeof(args) == "table" and args[1])
+                                            local p2Pos = (typeof(arg1) == "Vector3" and arg1) or (typeof(arg1) == "CFrame" and arg1.Position) or r.Position
+                                            local toClient = (r.Position - p2Pos)
+                                            local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
+                                            r.AssemblyLinearVelocity = impulseVel
+                                            task.wait(0.03)
+                                            if State.Noclip and r and r.Parent then
+                                                r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+                                            end
+                                        end
+                                    end)
                                     return
                                 end
                                 return fn(...)
@@ -3906,7 +3969,8 @@ RunService.Heartbeat:Connect(function(dt)
 
     -- Continuous Door Sentry: Always opens doors and removes collisions smoothly on approach (natural 12 stud reach)
     if root and not hiding then
-        processNearbyDoors(root.Position, 12)
+        local doorReach = State.Noclip and 45 or 18
+        processNearbyDoors(root.Position, doorReach)
     end
 
     -- Continuous Glitch / Void Shield Deflector: Eradicates all screen freezes, camera locks & fog spikes
@@ -4167,12 +4231,18 @@ RunService.Stepped:Connect(function()
     end
 
     if State.Noclip or State.Fly_Enabled or isTeleportTweening then
-        -- Strip CanCollide only during active movement, preserving CanTouch and CanQuery so doors & proximity prompts work flawlessly!
+        -- Strip CanCollide and set CollisionGroup="None" so server physics solver treats walls as non-collidable
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
                 if not part.CanTouch then part.CanTouch = true end
                 if not part.CanQuery then part.CanQuery = true end
+                if part.CollisionGroup ~= "None" and (part.Name == "CollisionPart" or part.Name == "Collision" or part.Name == "HumanoidRootPart") then
+                    if not part:GetAttribute("OrigCollisionGroup") then
+                        part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
+                    end
+                    part.CollisionGroup = "None"
+                end
             end
         end
     end
@@ -4730,9 +4800,11 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     local char = getChar()
 
     if not v and char then
-        -- 1. Synchronously restore collision across all character parts
+        -- 1. Synchronously restore collision and CollisionGroup across all character parts
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
+                local origGroup = part:GetAttribute("OrigCollisionGroup") or "Player"
+                part.CollisionGroup = origGroup
                 if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
                     part.CanCollide = true
                     part.CanTouch = true
