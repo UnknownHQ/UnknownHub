@@ -278,8 +278,61 @@ local function safeTeleport(targetPos, locationName)
 end
 
 --------------------------------------------------------------------------------
--- 5. CRATES AUTOMATION ENGINE
+-- 5. CRATES AUTOMATION ENGINE & GHOSTBEAR DEFENSE
 --------------------------------------------------------------------------------
+local isCratesActivelyFarming = false
+
+-- GhostBear Spatial Detection Radar
+local function isGhostBearNearPosition(pos, radius)
+    radius = radius or 34
+    local wsBears = Workspace:FindFirstChild("Bears")
+    if not wsBears then return false, math.huge end
+
+    for _, b in ipairs(wsBears:GetChildren()) do
+        if b.Name:lower():find("ghost") then
+            local bPos = b:GetPivot().Position
+            local hrp = b:FindFirstChild("HumanoidRootPart") or b.PrimaryPart
+            if hrp then bPos = hrp.Position end
+            local d = (bPos - pos).Magnitude
+            if d < radius then
+                return true, d
+            end
+        end
+    end
+    return false, math.huge
+end
+
+-- Active GhostBear Neutralization & Visualizer Protocol
+task.spawn(function()
+    while true do
+        task.wait(0.12)
+        local wsBears = Workspace:FindFirstChild("Bears")
+        if wsBears then
+            for _, b in ipairs(wsBears:GetChildren()) do
+                if b.Name:lower():find("ghost") then
+                    for _, p in ipairs(b:GetDescendants()) do
+                        if p:IsA("BasePart") then
+                            if p.CanTouch then pcall(function() p.CanTouch = false end) end
+                            if p.CanCollide then pcall(function() p.CanCollide = false end) end
+                            if p.CanQuery then pcall(function() p.CanQuery = false end) end
+                        elseif p:IsA("TouchTransmitter") then
+                            pcall(function() p:Destroy() end)
+                        end
+                    end
+                    local sphere = b:FindFirstChild("Sphere") or b:FindFirstChildWhichIsA("BasePart")
+                    if sphere and sphere.Transparency >= 0.95 then
+                        pcall(function()
+                            sphere.Transparency = 0.5
+                            sphere.Material = Enum.Material.Neon
+                            sphere.Color = Color3.fromRGB(0, 255, 255)
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end)
+
 local function getCrateItemPrompts(crateModel)
     local prompts = {}
     if not crateModel then return prompts end
@@ -304,21 +357,38 @@ local function processCrateComplete(crate, mode)
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
 
-    local targetCFrame = cratePart.CFrame + Vector3.new(0, 2.0, 0)
+    -- GhostBear Pre-Flight Safety Radar: abort if GhostBear is guarding this crate!
+    local ghostNear, gDist = isGhostBearNearPosition(cratePart.Position, 32)
+    if ghostNear then
+        return false
+    end
+
+    -- Elevated Hover Stance (+4.0 studs above cratePart) to prevent any lethal ground touch triggers
+    local targetCFrame = cratePart.CFrame + Vector3.new(0, 4.0, 0)
     root.CFrame = targetCFrame
     root.AssemblyLinearVelocity = Vector3.zero
-    task.wait(0.25)
+    task.wait(0.2)
+
+    -- Dynamic GhostBear evasion check
+    if isGhostBearNearPosition(root.Position, 28) then
+        root.CFrame = root.CFrame + Vector3.new(0, 18, 0)
+        return false
+    end
 
     if mode == "open" then
         local openPrompt = cratePart:FindFirstChild("CratePrompt")
         local openDeadline = tick() + 1.8
         while crate:GetAttribute("Collected") ~= true and tick() < openDeadline do
+            if isGhostBearNearPosition(root.Position, 28) then
+                root.CFrame = root.CFrame + Vector3.new(0, 18, 0)
+                return false
+            end
             if openPrompt and openPrompt.Enabled then
                 triggerPrompt(openPrompt)
             end
             root.CFrame = targetCFrame
             root.AssemblyLinearVelocity = Vector3.zero
-            task.wait(0.2)
+            task.wait(0.18)
         end
     end
 
@@ -332,6 +402,10 @@ local function processCrateComplete(crate, mode)
     local sweepStart = tick()
 
     while tick() < sweepDeadline do
+        if isGhostBearNearPosition(root.Position, 28) then
+            root.CFrame = root.CFrame + Vector3.new(0, 18, 0)
+            return false
+        end
         local activePrompts = getCrateItemPrompts(crate)
         if #activePrompts > 0 then
             for _, prompt in ipairs(activePrompts) do
@@ -365,16 +439,20 @@ local function getNextCrateTarget()
     local bestDist = math.huge
     local bestMode = "open"
 
+    -- Pass 1: Loot already-opened crates (item pickups), skipping crates near GhostBear
     for _, c in ipairs(cratesFolder:GetChildren()) do
         local name = c.Name
         if not blacklistedCrates[name] then
-            local itemPrompts = getCrateItemPrompts(c)
-            if #itemPrompts > 0 then
-                local dist = (c:GetPivot().Position - root.Position).Magnitude
-                if dist < bestDist then
-                    bestDist = dist
-                    bestTarget = c
-                    bestMode = "loot"
+            local cPos = c:GetPivot().Position
+            if not isGhostBearNearPosition(cPos, 32) then
+                local itemPrompts = getCrateItemPrompts(c)
+                if #itemPrompts > 0 then
+                    local dist = (cPos - root.Position).Magnitude
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestTarget = c
+                        bestMode = "loot"
+                    end
                 end
             end
         end
@@ -384,19 +462,23 @@ local function getNextCrateTarget()
         return { crate = bestTarget, mode = bestMode }
     end
 
+    -- Pass 2: Open unopened crates, skipping crates near GhostBear
     bestDist = math.huge
     for _, c in ipairs(cratesFolder:GetChildren()) do
         local name = c.Name
         if not blacklistedCrates[name] and not openedCrates[name] then
-            local cratePart = c:FindFirstChild("Crate")
-            local openPrompt = cratePart and cratePart:FindFirstChild("CratePrompt")
-            local collected = c:GetAttribute("Collected")
-            if collected ~= true and openPrompt and openPrompt.Enabled then
-                local dist = (c:GetPivot().Position - root.Position).Magnitude
-                if dist < bestDist then
-                    bestDist = dist
-                    bestTarget = c
-                    bestMode = "open"
+            local cPos = c:GetPivot().Position
+            if not isGhostBearNearPosition(cPos, 32) then
+                local cratePart = c:FindFirstChild("Crate")
+                local openPrompt = cratePart and cratePart:FindFirstChild("CratePrompt")
+                local collected = c:GetAttribute("Collected")
+                if collected ~= true and openPrompt and openPrompt.Enabled then
+                    local dist = (cPos - root.Position).Magnitude
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestTarget = c
+                        bestMode = "open"
+                    end
                 end
             end
         end
@@ -415,7 +497,7 @@ _G.MedvedFarmSession = currentFarmSession
 task.spawn(function()
     local mySession = currentFarmSession
     while _G.MedvedFarmSession == mySession do
-        task.wait(0.1)
+        task.wait(0.08)
         if Config.AutoFarmCrates then
             local char = LocalPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -426,6 +508,7 @@ task.spawn(function()
 
                 local target = getNextCrateTarget()
                 if target then
+                    isCratesActivelyFarming = true
                     local crate = target.crate
                     local name = crate.Name
 
@@ -439,6 +522,7 @@ task.spawn(function()
 
                     task.wait(Config.FarmDelay)
                 else
+                    isCratesActivelyFarming = false
                     if Config.AutoServerhop then
                         Hub.Notify("Medved", "All crates & loot collected! Serverhopping...", 3)
                         task.wait(1)
@@ -449,10 +533,14 @@ task.spawn(function()
                         end
                         task.wait(5)
                     else
-                        task.wait(1.5)
+                        task.wait(0.35)
                     end
                 end
+            else
+                isCratesActivelyFarming = false
             end
+        else
+            isCratesActivelyFarming = false
         end
     end
 end)
@@ -642,8 +730,8 @@ local function isBearTargetable(b)
     if not b or not b.Parent then return false end
     local name = b.Name:lower()
 
-    -- 1. Never target CutieBear (CutieBear is friendly)
-    if name:find("cutie") then
+    -- 1. Never target CutieBear or GhostBear (GhostBear is invincible & deals lethal touch)
+    if name:find("cutie") or name:find("ghost") then
         return false
     end
 
@@ -1137,7 +1225,8 @@ local function getAvailableBearTypes()
     local dataBears = rs:FindFirstChild("Data") and rs.Data:FindFirstChild("Bears")
     if dataBears then
         for _, b in ipairs(dataBears:GetChildren()) do
-            if not b.Name:lower():find("cutie") and not table.find(list, b.Name) then
+            local bn = b.Name:lower()
+            if not bn:find("cutie") and not bn:find("ghost") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1147,7 +1236,8 @@ local function getAvailableBearTypes()
     local rsBears = rs:FindFirstChild("Bears")
     if rsBears then
         for _, b in ipairs(rsBears:GetChildren()) do
-            if not b.Name:lower():find("cutie") and not table.find(list, b.Name) then
+            local bn = b.Name:lower()
+            if not bn:find("cutie") and not bn:find("ghost") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1158,7 +1248,8 @@ local function getAvailableBearTypes()
     if wsBears then
         for _, b in ipairs(wsBears:GetChildren()) do
             local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
-            if not isPlr and not b.Name:lower():find("cutie") and not table.find(list, b.Name) then
+            local bn = b.Name:lower()
+            if not isPlr and not bn:find("cutie") and not bn:find("ghost") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1300,7 +1391,7 @@ local function teleportToSkySanctuary()
 end
 
 -- Dynamic Proximity Threat Ceiling Engine
--- Detects nearby tall/giant entities (WallBear, TallBear, Grinder) and dynamically elevates hover height
+-- Detects nearby tall/giant entities (WallBear, TallBear, Grinder) AND lethal phantoms (GhostBear)
 local function getNearbyThreatCeiling(playerPos, currentTarget)
     local highestThreatY = 0
     local wsBears = workspace:FindFirstChild("Bears")
@@ -1308,12 +1399,21 @@ local function getNearbyThreatCeiling(playerPos, currentTarget)
 
     for _, otherBear in ipairs(wsBears:GetChildren()) do
         if otherBear ~= currentTarget and otherBear.Parent then
+            local isGhost = otherBear.Name:lower():find("ghost") ~= nil
             local otherHum = otherBear:FindFirstChildOfClass("Humanoid")
-            if otherHum and otherHum.Health > 0 then
+            -- GhostBear has no Humanoid, but is the highest priority lethal touch threat!
+            if isGhost or (otherHum and otherHum.Health > 0) then
                 local otherRoot = otherBear:FindFirstChild("HumanoidRootPart") or otherBear.PrimaryPart or otherBear:FindFirstChildWhichIsA("BasePart")
                 if otherRoot then
                     local xzDist = Vector2.new(otherRoot.Position.X - playerPos.X, otherRoot.Position.Z - playerPos.Z).Magnitude
-                    if xzDist < 26 then
+                    if isGhost and xzDist < 35 then
+                        -- High vault stance: hoist +18 studs over GhostBear
+                        local oCf, oSz = otherBear:GetBoundingBox()
+                        local ghostTopY = oCf.Position.Y + (oSz.Y * 0.5) + 18.0
+                        if ghostTopY > highestThreatY then
+                            highestThreatY = ghostTopY
+                        end
+                    elseif not isGhost and xzDist < 26 then
                         local oCf, oSz = otherBear:GetBoundingBox()
                         local realHeight = math.clamp(oSz.Y, 2, 42)
                         local otherTopY = oCf.Position.Y + (realHeight * 0.5)
@@ -1331,20 +1431,20 @@ end
 -- Pipeline 1: 60+ FPS Butter-Smooth Levitation Flight (RunService.Heartbeat)
 -- Decoupled from combat task.wait pauses; updates every single physics frame without stutter or delay
 RunService.Heartbeat:Connect(function(dt)
-    if not Config.AutoFarmBears or isFleeingLowHP then return end
-
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return end
 
-    -- Anti-Touch & Anti-Collision Defense: Suppress touch + disable limb physics collision with bear
+    -- Anti-Touch & Anti-Collision Defense: Suppress touch + disable limb physics collision across all activities
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
             if p.CanTouch then pcall(function() p.CanTouch = false end) end
             if p ~= root and p.CanCollide then pcall(function() p.CanCollide = false end) end
         end
     end
+
+    if not Config.AutoFarmBears or isFleeingLowHP then return end
 
     local bear = activeFlightBear
     if not bear or not bear.Parent then return end
@@ -1414,6 +1514,34 @@ task.spawn(function()
             activeFlightBear = nil
             task.wait(0.5)
             continue
+        end
+
+        -- =========================================================================
+        -- CRATE PRIORITY PIPELINE SCHEDULER:
+        -- If AutoFarmCrates is enabled and there are crates to collect:
+        -- - If currently fighting a locked target bear: finish killing it first!
+        -- - As soon as that bear dies (or if no bear is currently engaged):
+        --   immediately yield bear farm, clear active flight target, and let crate farm run!
+        -- =========================================================================
+        if Config.AutoFarmCrates then
+            local crateTarget = getNextCrateTarget()
+            if crateTarget ~= nil or isCratesActivelyFarming then
+                local canFinishCurrentLocked = false
+                if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
+                    local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
+                    if lockedHum and lockedHum.Health > 0 then
+                        canFinishCurrentLocked = true
+                    end
+                end
+
+                if not canFinishCurrentLocked then
+                    lockedFarmTarget = nil
+                    activeFlightBear = nil
+                    activeFlightEvading = false
+                    task.wait(0.25)
+                    continue
+                end
+            end
         end
 
         local maxHp = (hum.MaxHealth and hum.MaxHealth > 0) and hum.MaxHealth or 250
