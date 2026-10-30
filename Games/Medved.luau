@@ -144,10 +144,13 @@ local Config = {
     GunAura = false,
     GunAuraRange = 90,
     TargetPlayerBears = false, -- false: player bears are friendly/ignored; true: targetable in PvP
+    InstantReload = true,
 
     -- Movement & Stamina
     InfiniteStamina = false,
     CustomSpeed = 14.1,
+    FlyNoclip = false,
+    FlySpeed = 45,
 
     -- Visuals
     CratesESP = false,
@@ -189,7 +192,7 @@ end
 -- Dynamic Landmark Resolver: finds the real physical ground parts of every location
 local locationRegistry = {
     { name = "Main Base (Spawn)", target = "TheBase", fallback = Vector3.new(52, -137, -144) },
-    { name = "Old Statue (Lenin)", target = "Lenin Statue", fallback = Vector3.new(-399, -123, -707) },
+    { name = "Old Statue (Lenin)", target = "LeninStatue", fallback = Vector3.new(-398.5, -124.0, -685.0) },
     { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-626, -114, 443) },
     { name = "Ruined Playground", target = "BrutalPlayground", fallback = Vector3.new(-1053, -112, 646) },
     { name = "Graveyard", target = "Graveyard", fallback = Vector3.new(12, -123, -878) },
@@ -205,6 +208,7 @@ local locationRegistry = {
     { name = "Hangar", target = "Hangar", fallback = Vector3.new(400, -112, 400) },
     { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850, -120, -350) },
     { name = "Plane Crash", target = "Plane", fallback = Vector3.new(325, -143, -63) },
+    { name = "The Maze (Entrance)", target = "ScaryMaze", fallback = Vector3.new(20, -130, -185) },
     { name = "The Maze (End)", target = "TheMaze", fallback = Vector3.new(1140.9, -144.9, 73.1) }
 }
 
@@ -212,13 +216,20 @@ local function resolveLocationPosition(item)
     if item.target == "TheMaze" then
         local mazePage = Workspace:FindFirstChild("Pages") and Workspace.Pages:FindFirstChild("TheMaze")
         if mazePage then
-            return (mazePage:IsA("BasePart") and mazePage.Position or mazePage:GetPivot().Position) + Vector3.new(0, 3.0, 0)
+            return (mazePage:IsA("BasePart") and mazePage.Position or mazePage:GetPivot().Position) + Vector3.new(0, 2.0, 0)
         end
         local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("TheMaze")
         if poi then
-            return poi:GetPivot().Position + Vector3.new(0, 3.0, 0)
+            return poi:GetPivot().Position + Vector3.new(0, 2.0, 0)
         end
-        return item.fallback + Vector3.new(0, 3.0, 0)
+        return item.fallback + Vector3.new(0, 2.0, 0)
+    elseif item.target == "LeninStatue" then
+        local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("LeninStatue")
+        if poi then
+            -- Position safely in open courtyard in front of statue
+            return poi.Position + Vector3.new(0, 2.0, 21.5)
+        end
+        return item.fallback + Vector3.new(0, 2.0, 0)
     end
 
     local map = Workspace:FindFirstChild("Map")
@@ -729,28 +740,35 @@ local function getBearLevitationTarget(bear)
         end
     end
 
-    -- Category 1: Small / Dwarf / Spherical bears (Booboo, LaserBooBoo, HypersonicBooBoo)
-    -- Booboo has JumpPower: 50 which produces a 6.37-stud vertical jump arc!
-    -- Solution: Elevate +8.2 studs above top bounding box, completely above peak jump reach.
+    -- Category 1: Ball Bear (ballbear, BooBoo, LaserBooBoo, HypersonicBooBoo)
+    -- BallBear performs BallLunge and SpinCharge (high velocity spherical body catapult).
+    -- Solution: Maintain high apex ceiling in Melee, elevated far above jump/roll hitbox.
     if name:find("booboo") or name:find("ball") or sz.Y < 6.5 or sz.Magnitude < 8 then
-        local targetY = cf.Position.Y + (sz.Y * 0.5) + 8.2
-        local distBehind = (sz.Z * 0.5) + 2.2
-        return cf.Position, distBehind, targetY
+        local targetPos = cf.Position
+        if Config.FarmMethod == "Melee" then
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 12.0
+            local distBehind = 7.5
+            return targetPos, distBehind, targetY
+        else
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 32.0
+            local distBehind = 42.0
+            return targetPos, distBehind, targetY
+        end
     end
 
     -- Category 0.5: WallBear & Giant Wall Entities (Apex Stance above top edge)
     -- WallBear topples forward and falls flat on its front face during attack.
-    -- Solution: Anchor directly behind its horizontal heading at safe apex elevation.
+    -- Solution: Anchor directly behind its horizontal heading at safe apex elevation (+7.2 above top edge in Melee, +34.0 in Gun).
     if name:find("wall") then
         local topPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head")
         local targetPos = topPart and topPart.Position or cf.Position
         if Config.FarmMethod == "Melee" then
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 5.2
-            local distBehind = 7.2
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 7.2
+            local distBehind = 8.5
             return targetPos, distBehind, targetY
         else
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 18.0
-            local distBehind = 28.0
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 34.0
+            local distBehind = 44.0
             return targetPos, distBehind, targetY
         end
     end
@@ -805,9 +823,18 @@ local function isBearTargetable(b)
     if not b or not b.Parent then return false end
     local name = b.Name:lower()
 
-    -- 1. Never target CutieBear or GhostBear (GhostBear is invincible & deals lethal touch)
-    if name:find("cutie") or name:find("ghost") then
+    -- 1. Never target CutieBear, GhostBear, DemonBear, WormBear, or ClassicBear
+    if name:find("cutie") or name:find("ghost") or name:find("demon") or name:find("worm") or name:find("classic") then
         return false
+    end
+
+    -- 1.5. ThinBear Sitting Phase Protection (invulnerable while sitting/dormant until enraged)
+    if name:find("thin") then
+        local brainMode = b:GetAttribute("BrainMode")
+        local brainAnger = b:GetAttribute("BrainAnger")
+        if brainMode == "Sit" or (brainAnger and brainAnger <= 0) then
+            return false
+        end
     end
 
     local hum = b:FindFirstChildOfClass("Humanoid")
@@ -910,10 +937,20 @@ local function applyWeaponMods(tool)
     end
 
     local reload = config:FindFirstChild("ReloadTime")
-    if reload and reload:IsA("ValueBase") and reload.Value < 0.5 then
-        reload.Value = orig.ReloadTime
+    if Config.InstantReload then
+        if reload and reload:IsA("ValueBase") then reload.Value = 0.05 end
+        if not config:FindFirstChild("NoReload") then
+            local nr = Instance.new("Folder")
+            nr.Name = "NoReload"
+            nr.Parent = config
+        end
+    else
+        if reload and reload:IsA("ValueBase") and reload.Value < 0.5 then
+            reload.Value = orig.ReloadTime
+        end
+        local nr = config:FindFirstChild("NoReload")
+        if nr then nr:Destroy() end
     end
-
 
     if Config.MeleeAura or (Config.AutoFarmBears and Config.FarmMethod == "Melee") then
         local equipDelay = config:FindFirstChild("EquipDelay")
@@ -1017,9 +1054,22 @@ end
 
 -- Comprehensive Dual-Vector Gun Reload Trigger (Simulated Key + Server Remote + UI Trigger)
 local function triggerGunReload(tool)
-    if not tool or tick() < reloadEndTime or isReloading then return end
+    if not tool then return end
     local gunScripts = tool:FindFirstChild("GunScripts")
     local reloadRemote = gunScripts and gunScripts:FindFirstChild("Reload")
+
+    if Config.InstantReload then
+        isReloading = false
+        reloadEndTime = 0
+        currentGunAmmo[tool] = getToolMaxClip(tool)
+        syncAmmoToGUI(tool)
+        if reloadRemote then
+            pcall(function() reloadRemote:FireServer() end)
+        end
+        return
+    end
+
+    if tick() < reloadEndTime or isReloading then return end
 
     local config = tool:FindFirstChild("Config")
     local reloadTimeVal = config and config:FindFirstChild("ReloadTime")
@@ -1080,14 +1130,17 @@ local function shootTargetBear(tool, bear, bearPart)
     if not fireRemote then return end
 
     -- Check live ammo state
-    local currentAmmo, reloading = getLoadedAmmoFromGUI(tool)
-    if reloading or tick() < reloadEndTime or isReloading then
-        return
-    end
-
-    if currentAmmo <= 0 then
-        triggerGunReload(tool)
-        return
+    if Config.InstantReload then
+        currentGunAmmo[tool] = getToolMaxClip(tool)
+    else
+        local currentAmmo, reloading = getLoadedAmmoFromGUI(tool)
+        if reloading or tick() < reloadEndTime or isReloading then
+            return
+        end
+        if currentAmmo <= 0 then
+            triggerGunReload(tool)
+            return
+        end
     end
 
     local muzzle = tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("Muzzle")
@@ -1301,7 +1354,7 @@ local function getAvailableBearTypes()
     if dataBears then
         for _, b in ipairs(dataBears:GetChildren()) do
             local bn = b.Name:lower()
-            if not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not table.find(list, b.Name) then
+            if not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not bn:find("demon") and not bn:find("worm") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1312,7 +1365,7 @@ local function getAvailableBearTypes()
     if rsBears then
         for _, b in ipairs(rsBears:GetChildren()) do
             local bn = b.Name:lower()
-            if not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not table.find(list, b.Name) then
+            if not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not bn:find("demon") and not bn:find("worm") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1340,7 +1393,8 @@ end
 
 local function onBearAdded(child)
     if not child or Players:GetPlayerFromCharacter(child) then return end
-    if child.Name:lower():find("classic") then return end
+    local cName = child.Name:lower()
+    if cName:find("classic") or cName:find("demon") or cName:find("worm") or cName:find("ghost") or cName:find("cutie") then return end
     task.delay(0.5, function()
         if bearTypeDropdown and bearTypeDropdown.Refresh then
             bearTypeDropdown.Refresh(getAvailableBearTypes())
@@ -1470,38 +1524,50 @@ end
 -- Detects nearby tall/giant entities (WallBear, TallBear, Grinder) AND lethal phantoms (GhostBear)
 local function getNearbyThreatCeiling(playerPos, currentTarget)
     local highestThreatY = 0
+    local pushRepelVector = Vector3.zero
     local wsBears = workspace:FindFirstChild("Bears")
-    if not wsBears then return 0 end
+    if not wsBears then return highestThreatY, pushRepelVector end
 
     for _, otherBear in ipairs(wsBears:GetChildren()) do
         if otherBear ~= currentTarget and otherBear.Parent then
             local isGhost = otherBear.Name:lower():find("ghost") ~= nil
             local otherHum = otherBear:FindFirstChildOfClass("Humanoid")
-            -- GhostBear has no Humanoid, but is the highest priority lethal touch threat!
             if isGhost or (otherHum and otherHum.Health > 0) then
                 local otherRoot = otherBear:FindFirstChild("HumanoidRootPart") or otherBear.PrimaryPart or otherBear:FindFirstChildWhichIsA("BasePart")
                 if otherRoot then
                     local xzDist = Vector2.new(otherRoot.Position.X - playerPos.X, otherRoot.Position.Z - playerPos.Z).Magnitude
-                    if isGhost and xzDist < 35 then
-                        -- High vault stance: hoist +18 studs over GhostBear
+                    if isGhost and xzDist < 42 then
                         local oCf, oSz = otherBear:GetBoundingBox()
-                        local ghostTopY = oCf.Position.Y + (oSz.Y * 0.5) + 18.0
+                        local ghostTopY = oCf.Position.Y + (oSz.Y * 0.5) + 24.0
                         if ghostTopY > highestThreatY then
                             highestThreatY = ghostTopY
                         end
-                    elseif not isGhost and xzDist < 26 then
+                        local fromThreat = Vector3.new(playerPos.X - otherRoot.Position.X, 0, playerPos.Z - otherRoot.Position.Z)
+                        if fromThreat.Magnitude > 0.1 then
+                            pushRepelVector = pushRepelVector + (fromThreat.Unit * 12.0)
+                        end
+                    elseif not isGhost and xzDist < 48 then
+                        -- Broad danger zone for hostile third-party bears (AOE slams, spikes, rockets, lunges)
                         local oCf, oSz = otherBear:GetBoundingBox()
                         local realHeight = math.clamp(oSz.Y, 2, 42)
-                        local otherTopY = oCf.Position.Y + (realHeight * 0.5)
+                        -- Hoist at least 14 studs above other bear to be completely clear of all AOE radius
+                        local otherTopY = oCf.Position.Y + (realHeight * 0.5) + 14.0
                         if otherTopY > highestThreatY then
                             highestThreatY = otherTopY
+                        end
+                        -- If dangerously close (within 24 studs), push horizontally away to evade point-blank AOE
+                        if xzDist < 24 then
+                            local fromThreat = Vector3.new(playerPos.X - otherRoot.Position.X, 0, playerPos.Z - otherRoot.Position.Z)
+                            if fromThreat.Magnitude > 0.1 then
+                                pushRepelVector = pushRepelVector + (fromThreat.Unit * 8.0)
+                            end
                         end
                     end
                 end
             end
         end
     end
-    return highestThreatY
+    return highestThreatY, pushRepelVector
 end
 
 -- Pipeline 1: 60+ FPS Butter-Smooth Levitation Flight (RunService.Heartbeat)
@@ -1567,10 +1633,13 @@ RunService.Heartbeat:Connect(function(dt)
             y = y + (isBoss and 12.0 or 4.8)
         end
 
-        -- Dynamic Threat Ceiling: elevate above any nearby giant/tall bears walking close
-        local threatCeiling = getNearbyThreatCeiling(root.Position, bear)
+        -- Dynamic Threat Ceiling & Third-Party AOE Deflector
+        local threatCeiling, repelVec = getNearbyThreatCeiling(root.Position, bear)
         if threatCeiling > 0 and (threatCeiling + 2.8) > y then
             y = threatCeiling + 2.8
+        end
+        if repelVec.Magnitude > 0 then
+            targetPos = targetPos + repelVec
         end
 
         targetPos = Vector3.new(targetPos.X, y, targetPos.Z)
@@ -1585,10 +1654,13 @@ RunService.Heartbeat:Connect(function(dt)
             hoverPos = hoverPos + Vector3.new(0, 14.0, 0)
         end
 
-        -- Dynamic Threat Ceiling in Gun mode
-        local threatCeiling = getNearbyThreatCeiling(root.Position, bear)
+        -- Dynamic Threat Ceiling & Third-Party AOE Deflector in Gun mode
+        local threatCeiling, repelVec = getNearbyThreatCeiling(root.Position, bear)
         if threatCeiling > 0 and (threatCeiling + 3.0) > hoverPos.Y then
             hoverPos = Vector3.new(hoverPos.X, threatCeiling + 3.0, hoverPos.Z)
+        end
+        if repelVec.Magnitude > 0 then
+            hoverPos = hoverPos + repelVec
         end
 
         root.CFrame = CFrame.lookAt(hoverPos, centerPos)
@@ -1757,6 +1829,66 @@ task.spawn(function()
         end
     end
 end)
+
+-- =========================================================================
+-- Native Fly-Noclip Engine (Bypass Physics Collisions & Anti-Cheat Safe)
+-- =========================================================================
+local flyConnection = nil
+
+local function startFlyNoclip()
+    if flyConnection then return end
+    local UserInputService = game:GetService("UserInputService")
+
+    flyConnection = RunService.RenderStepped:Connect(function(dt)
+        if not Config.FlyNoclip then return end
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not char or not root or not hum or hum.Health <= 0 then return end
+
+        -- Phase noclip across all character parts smoothly
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.CanCollide then
+                pcall(function() p.CanCollide = false end)
+            end
+        end
+
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        local moveDir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            moveDir = moveDir - Vector3.new(0, 1, 0)
+        end
+
+        if moveDir.Magnitude > 0 then
+            local speed = Config.FlySpeed or 45
+            root.CFrame = root.CFrame + (moveDir.Unit * speed * dt)
+        end
+
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
+local function stopFlyNoclip()
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CanCollide = true
+    end
+end
 
 -- Native Undetectable Speed Modifier Engine (Using Game's SpeedModifiers Framework)
 local SpeedModifiersModule = ReplicatedStorage:FindFirstChild("SpeedModifiers")
@@ -1960,10 +2092,9 @@ local farmTab = Hub.CreateTab("Auto Farm", {
     ActiveColor = Color3.fromRGB(0, 230, 255)
 })
 
-Hub.CreateSection(farmTab, "🛡️ Telemetry Shield: Active & Silent")
-Hub.CreateSection(farmTab, "📦 Crates Automation")
+Hub.CreateSection(farmTab, "Crates")
 
-Hub.CreateToggle(farmTab, "Auto Farm Crates (Teleport & Loot)", Config.AutoFarmCrates, function(val)
+Hub.CreateToggle(farmTab, "Auto Farm Crates", Config.AutoFarmCrates, function(val)
     Config.AutoFarmCrates = val
     if val then
         silenceTelemetry()
@@ -1974,17 +2105,17 @@ Hub.CreateToggle(farmTab, "Auto Farm Crates (Teleport & Loot)", Config.AutoFarmC
     Hub.Notify("Auto Farm", val and "Crate Farm: ACTIVE" or "Crate Farm: OFF", 2)
 end)
 
-Hub.CreateSlider(farmTab, "Teleport Delay (Seconds)", 0.2, 1.5, Config.FarmDelay, "s", function(val)
+Hub.CreateSlider(farmTab, "Farm Delay", 0.2, 1.5, Config.FarmDelay, "s", function(val)
     Config.FarmDelay = val
 end)
 
-Hub.CreateToggle(farmTab, "Auto Serverhop When Crates Cleared", Config.AutoServerhop, function(val)
+Hub.CreateToggle(farmTab, "Auto Serverhop", Config.AutoServerhop, function(val)
     Config.AutoServerhop = val
 end)
 
-Hub.CreateSection(farmTab, "📜 Pages Automation")
+Hub.CreateSection(farmTab, "Pages")
 
-Hub.CreateToggle(farmTab, "Auto Collect All Pages", Config.AutoCollectPages, function(val)
+Hub.CreateToggle(farmTab, "Auto Collect Pages", Config.AutoCollectPages, function(val)
     Config.AutoCollectPages = val
     if val then
         silenceTelemetry()
@@ -1992,14 +2123,14 @@ Hub.CreateToggle(farmTab, "Auto Collect All Pages", Config.AutoCollectPages, fun
     Hub.Notify("Pages", val and "Page Collector: ACTIVE" or "Page Collector: OFF", 2)
 end)
 
-Hub.CreateButton(farmTab, "Collect All Pages (One-Time Sweep)", function()
+Hub.CreateButton(farmTab, "Sweep All Pages", function()
     task.spawn(function()
         silenceTelemetry()
         Hub.Notify("Pages", "Collecting all pages on map...", 2)
         local pages = getUncollectedPages()
         for _, p in ipairs(pages) do
             collectSinglePage(p)
-            task.wait(Config.FarmDelay)
+            task.wait(math.max(Config.FarmDelay, 0.35))
         end
         Hub.Notify("Pages", "One-time page sweep complete!", 3)
     end)
@@ -2014,9 +2145,9 @@ local maxHpVal = math.max(2, math.floor(initialMaxHp * 0.50))
 local defaultHpVal = math.clamp(math.floor(initialMaxHp * 0.25), minHpVal, maxHpVal)
 Config.LowHPThreshold = defaultHpVal
 
-Hub.CreateSection(farmTab, "🐻 Auto Farm Bears Suite")
+Hub.CreateSection(farmTab, "Bears")
 
-Hub.CreateToggle(farmTab, "Auto Farm Bears (Levitate Behind)", Config.AutoFarmBears, function(val)
+Hub.CreateToggle(farmTab, "Auto Farm Bears", Config.AutoFarmBears, function(val)
     Config.AutoFarmBears = val
     if val then
         silenceTelemetry()
@@ -2029,19 +2160,19 @@ Hub.CreateDropdown(farmTab, "Attack Method", {"Gun", "Melee"}, Config.FarmMethod
     Hub.Notify("Bear Farm", "Method set to: " .. val, 2)
 end)
 
-bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears (Multi-Select)", getAvailableBearTypes(), {"All"}, function(dict, arr)
+bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears", getAvailableBearTypes(), {"All"}, function(dict, arr)
     Config.SelectedBears = dict
     Config.SelectedBearTarget = dict["All"] and "All" or (arr[1] or "None")
     local desc = dict["All"] and "All Bears" or (#arr .. " Selected")
     Hub.Notify("Bear Farm", "Targeting: " .. desc, 2)
 end)
 
-Hub.CreateToggle(farmTab, "Safe Zone Retreat on Low HP", Config.SafeZoneLowHP, function(val)
+Hub.CreateToggle(farmTab, "Safe Zone Retreat", Config.SafeZoneLowHP, function(val)
     Config.SafeZoneLowHP = val
     Hub.Notify("Bear Farm", val and "Safe Zone Retreat: ON" or "Safe Zone Retreat: OFF", 2)
 end)
 
-Hub.CreateSlider(farmTab, "Low HP Retreat Threshold", minHpVal, maxHpVal, Config.LowHPThreshold, " HP", function(val)
+Hub.CreateSlider(farmTab, "Low HP Threshold", minHpVal, maxHpVal, Config.LowHPThreshold, " HP", function(val)
     Config.LowHPThreshold = val
 end)
 
@@ -2053,41 +2184,61 @@ local combatTab = Hub.CreateTab("Combat", {
     ActiveColor = Color3.fromRGB(255, 110, 110)
 })
 
-Hub.CreateSection(combatTab, "🗡️ Melee Automation")
+Hub.CreateSection(combatTab, "Melee")
 
-Hub.CreateToggle(combatTab, "Melee Hit Aura (Bat / Axe / Melee)", Config.MeleeAura, function(val)
+Hub.CreateToggle(combatTab, "Melee Aura", Config.MeleeAura, function(val)
     Config.MeleeAura = val
     Hub.Notify("Combat", val and "Melee Aura: ACTIVE" or "Melee Aura: OFF", 2)
 end)
 
-Hub.CreateSlider(combatTab, "Melee Aura Range (Studs)", 8, 30, Config.MeleeAuraRange, " studs", function(val)
+Hub.CreateSlider(combatTab, "Melee Range", 8, 30, Config.MeleeAuraRange, " studs", function(val)
     Config.MeleeAuraRange = val
 end)
 
-Hub.CreateToggle(combatTab, "Target Player Bears (PvP)", Config.TargetPlayerBears, function(val)
+Hub.CreateToggle(combatTab, "Target Player Bears", Config.TargetPlayerBears, function(val)
     Config.TargetPlayerBears = val
     Hub.Notify("Combat", val and "Player Bears: TARGETABLE (PvP Active)" or "Player Bears: FRIENDLY (Protected)", 2)
 end)
 
-Hub.CreateSection(combatTab, "🔫 Firearm Automation")
+Hub.CreateSection(combatTab, "Firearms")
 
-Hub.CreateToggle(combatTab, "Gun Hit Aura (Auto Shoot & Auto Reload)", Config.GunAura, function(val)
+Hub.CreateToggle(combatTab, "Gun Aura", Config.GunAura, function(val)
     Config.GunAura = val
     Hub.Notify("Combat", val and "Gun Aura: ACTIVE" or "Gun Aura: OFF", 2)
 end)
 
-Hub.CreateSlider(combatTab, "Gun Aura Range (Studs)", 20, 150, Config.GunAuraRange, " studs", function(val)
+Hub.CreateSlider(combatTab, "Gun Range", 20, 150, Config.GunAuraRange, " studs", function(val)
     Config.GunAuraRange = val
 end)
 
-Hub.CreateSection(combatTab, "⚡ Movement & Undetectable Stamina")
+Hub.CreateToggle(combatTab, "Instant Reload", Config.InstantReload, function(val)
+    Config.InstantReload = val
+    Hub.Notify("Combat", val and "Instant Reload: ACTIVE" or "Instant Reload: OFF", 2)
+end)
 
-Hub.CreateToggle(combatTab, "Infinite Stamina (Never Deplete)", Config.InfiniteStamina, function(val)
+Hub.CreateSection(combatTab, "Movement")
+
+Hub.CreateToggle(combatTab, "Fly Noclip", Config.FlyNoclip, function(val)
+    Config.FlyNoclip = val
+    if val then
+        startFlyNoclip()
+        Hub.Notify("Movement", "Fly Noclip: ACTIVE (WASD + Space/Shift)", 2.5)
+    else
+        stopFlyNoclip()
+        Hub.Notify("Movement", "Fly Noclip: OFF", 2)
+    end
+end)
+
+Hub.CreateSlider(combatTab, "Fly Speed", 15, 120, Config.FlySpeed, " spd", function(val)
+    Config.FlySpeed = val
+end)
+
+Hub.CreateToggle(combatTab, "Infinite Stamina", Config.InfiniteStamina, function(val)
     Config.InfiniteStamina = val
     Hub.Notify("Movement", val and "Infinite Stamina: ACTIVE" or "Infinite Stamina: OFF", 2)
 end)
 
-Hub.CreateSlider(combatTab, "WalkSpeed Modifier", 14.1, 45, Config.CustomSpeed, " spd", function(val)
+Hub.CreateSlider(combatTab, "Speed Modifier", 14.1, 45, Config.CustomSpeed, " spd", function(val)
     Config.CustomSpeed = val
     ensureSpeedModifier(LocalPlayer.Character)
 end)
@@ -2100,9 +2251,9 @@ local visualTab = Hub.CreateTab("Visuals", {
     ActiveColor = Color3.fromRGB(190, 130, 255)
 })
 
-Hub.CreateSection(visualTab, "ESP Monitors")
+Hub.CreateSection(visualTab, "ESP")
 
-Hub.CreateToggle(visualTab, "Unopened Crates ESP", Config.CratesESP, function(val)
+Hub.CreateToggle(visualTab, "Crates ESP", Config.CratesESP, function(val)
     Config.CratesESP = val
     if val then
         updateCratesESP()
@@ -2111,7 +2262,7 @@ Hub.CreateToggle(visualTab, "Unopened Crates ESP", Config.CratesESP, function(va
     end
 end)
 
-Hub.CreateToggle(visualTab, "Bears ESP (NPCs & Players)", Config.BearsESP, function(val)
+Hub.CreateToggle(visualTab, "Bears ESP", Config.BearsESP, function(val)
     Config.BearsESP = val
     if val then
         updateBearESP()
@@ -2128,10 +2279,11 @@ local tpTab = Hub.CreateTab("Teleports", {
     ActiveColor = Color3.fromRGB(255, 205, 50)
 })
 
-Hub.CreateSection(tpTab, "🗺️ Verified Geographic Locations")
+
+Hub.CreateSection(tpTab, "Landmarks")
 
 for _, locItem in ipairs(locationRegistry) do
-    Hub.CreateButton(tpTab, "Teleport to: " .. locItem.name, function()
+    Hub.CreateButton(tpTab, locItem.name, function()
         local pos = resolveLocationPosition(locItem)
         safeTeleport(pos, locItem.name)
     end)
