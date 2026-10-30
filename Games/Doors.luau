@@ -2842,6 +2842,7 @@ local function initAntiGlitchShield()
 end
 
 local lastFlySlidePulse = 0
+local flyPos = nil
 
 local function pulseSlideKeepAlive()
     if not crouchRemote then
@@ -3878,36 +3879,23 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- True 3D Flight & Wall-Penetrating Noclip Engine (Zero-Gravity BodyVelocity + CFrame Micro-Glide)
+    -- True 3D Flight & Wall-Penetrating Noclip Engine (Pure CFrame Vector Accumulator - Zero Jitter, Zero Shake)
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
         -- Cloak player on server as 'Hiding' so Rush, Ambush, and entities out-of-bounds treat player as protected in closet
         if not char:GetAttribute("Hiding") then
             char:SetAttribute("Hiding", true)
         end
 
-        -- Disable Humanoid ground-clamping and walking physics so player is completely airborne
-        if hum and not hum.PlatformStand then
-            hum.PlatformStand = true
+        -- Stop DOORS crouch locks and camera shaker completely
+        local mg = getMainGameTable()
+        if mg then
+            if mg.crouching then mg.crouching = false end
+            if mg.camShaker then pcall(function() mg.camShaker:Stop() end) end
         end
 
-        -- Anti-Gravity BodyVelocity & BodyGyro Suspension in RootPart
-        local bv = root:FindFirstChild("Unknown_FlyVelocity")
-        if not bv then
-            bv = Instance.new("BodyVelocity")
-            bv.Name = "Unknown_FlyVelocity"
-            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            bv.Velocity = Vector3.zero
-            bv.Parent = root
-        end
-
-        local bg = root:FindFirstChild("Unknown_FlyGyro")
-        if not bg then
-            bg = Instance.new("BodyGyro")
-            bg.Name = "Unknown_FlyGyro"
-            bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-            bg.P = 10000
-            bg.CFrame = root.CFrame
-            bg.Parent = root
+        -- Initialize 3D flight anchor position on first frame of flight
+        if not flyPos then
+            flyPos = root.Position
         end
 
         local cam = Workspace.CurrentCamera
@@ -3956,51 +3944,42 @@ RunService.Heartbeat:Connect(function(dt)
             hasFlyInput = true
         end
 
-        -- Continuous slide authorization keep-alive (every 0.55s)
-        local now = os.clock()
-        if (now - lastFlySlidePulse >= 0.55) then
-            lastFlySlidePulse = now
-            task.spawn(pulseSlideKeepAlive)
-        end
-
         local speed = math.clamp(State.Noclip_Speed or 28, 5, 85)
 
         if hasFlyInput and flyDir.Magnitude > 0.01 then
-            local moveUnit = flyDir.Unit
-            local finalVelocity = moveUnit * speed
-            bv.Velocity = finalVelocity
-            root.AssemblyLinearVelocity = finalVelocity
-
-            -- Dual Micro-CFrame displacement so walls, ceilings, and barriers are bypassed instantly
             local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-            local delta = finalVelocity * safeDt
-            char:PivotTo(char:GetPivot() + delta)
-            root.CFrame = char:GetPivot()
-            local cp = char:FindFirstChild("CollisionPart")
-            if cp then cp.CFrame = root.CFrame end
-            local mgTable = getMainGameTable()
-            if mgTable then mgTable.SETNEWCF = root.CFrame end
-        else
-            -- Perfectly stationary hover in mid-air: Zero drift, zero fall
-            bv.Velocity = Vector3.zero
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
+            flyPos = flyPos + (flyDir.Unit * speed * safeDt)
         end
 
-        bg.CFrame = CFrame.new(root.Position, root.Position + Vector3.new(camLook.X, 0, camLook.Z))
+        -- Apply absolute 3D position & face camera horizontally with zero physics interference
+        local targetCF = CFrame.new(flyPos, flyPos + Vector3.new(camLook.X, 0, camLook.Z))
+        char:PivotTo(targetCF)
+        root.CFrame = targetCF
+
+        local cp = char:FindFirstChild("CollisionPart")
+        if cp then cp.CFrame = targetCF end
+
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
 
         -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor (ONLY when not hiding!)
         if not hiding and root.Position.Y < -5 then
             local safeLanding = getSafeLandingPosition()
             if safeLanding then
-                char:PivotTo(CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector))
-                root.CFrame = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
+                flyPos = safeLanding
+                local safeCF = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
+                char:PivotTo(safeCF)
+                root.CFrame = safeCF
             else
-                local safeCF = CFrame.new(root.Position.X, 3.5, root.Position.Z) * root.CFrame.Rotation
+                flyPos = Vector3.new(root.Position.X, 3.5, root.Position.Z)
+                local safeCF = CFrame.new(flyPos) * root.CFrame.Rotation
                 char:PivotTo(safeCF)
                 root.CFrame = safeCF
             end
         end
+    else
+        flyPos = nil
+    end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
@@ -4706,46 +4685,16 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
     end)
 
     if v then
-        if hum then
-            hum.PlatformStand = true
-        end
+        flyPos = r and r.Position
         if r then
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
-            local bv = r:FindFirstChild("Unknown_FlyVelocity")
-            if not bv then
-                bv = Instance.new("BodyVelocity")
-                bv.Name = "Unknown_FlyVelocity"
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                bv.Velocity = Vector3.zero
-                bv.Parent = r
-            end
-            local bg = r:FindFirstChild("Unknown_FlyGyro")
-            if not bg then
-                bg = Instance.new("BodyGyro")
-                bg.Name = "Unknown_FlyGyro"
-                bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-                bg.P = 10000
-                bg.CFrame = r.CFrame
-                bg.Parent = r
-            end
         end
-        if syncServerSlide then syncServerSlide(true, true) end
     else
-        -- Clean up body movers
+        flyPos = nil
         if r then
-            local bv = r:FindFirstChild("Unknown_FlyVelocity")
-            if bv then bv:Destroy() end
-            local bg = r:FindFirstChild("Unknown_FlyGyro")
-            if bg then bg:Destroy() end
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
-        end
-
-        -- Restore Humanoid ground physics
-        if hum then
-            hum.PlatformStand = false
-            pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
         end
 
         if char and char:GetAttribute("Hiding") then
