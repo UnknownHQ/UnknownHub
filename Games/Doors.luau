@@ -2529,6 +2529,7 @@ end
 -- Active Proximity Sentry: Automatically solves locks & opens doors on approach (Zero Yield / Full Descendants)
 local openedDoors = {}
 local lastDoorKeyEquip = 0
+local lastDoorSentryCheck = 0
 
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -3968,7 +3969,9 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Continuous Door Sentry: Always opens doors and removes collisions smoothly on approach (natural 12 stud reach)
-    if root and not hiding then
+    local nowTime = os.clock()
+    if root and not hiding and (nowTime - (lastDoorSentryCheck or 0) >= 0.10) then
+        lastDoorSentryCheck = nowTime
         local doorReach = State.Noclip and 45 or 18
         processNearbyDoors(root.Position, doorReach)
     end
@@ -4064,7 +4067,28 @@ RunService.Heartbeat:Connect(function(dt)
         if hasInput and steer.Magnitude > 0.01 then
             local speed = math.clamp(State.Noclip_Speed or 22, 4, 35)
             targetVel = steer.Unit * speed
-            targetPos = targetPos + targetVel * safeDt
+            local stepVec = targetVel * safeDt
+
+            -- Quantum Wall Tunneling: Micro-phase across thin obstacles in a single step
+            -- so character coordinates are NEVER embedded inside solid geometry for multiple frames!
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            rayParams.RespectCanCollide = true
+
+            local forwardHit = workspace:Raycast(root.Position, steer.Unit * 3.0, rayParams)
+            if forwardHit and forwardHit.Instance and not forwardHit.Instance:IsDescendantOf(char) then
+                local probeStart = forwardHit.Position + steer.Unit * 3.2
+                local backHit = workspace:Raycast(probeStart, -steer.Unit * 3.2, rayParams)
+                if backHit and backHit.Instance == forwardHit.Instance then
+                    local thickness = (backHit.Position - forwardHit.Position).Magnitude
+                    if thickness <= 2.8 then
+                        stepVec = steer.Unit * (thickness + 1.0)
+                    end
+                end
+            end
+
+            targetPos = targetPos + stepVec
         end
 
         local newCF = CFrame.new(targetPos) * targetRot
@@ -4237,7 +4261,7 @@ RunService.Stepped:Connect(function()
                 if part.CanCollide then part.CanCollide = false end
                 if not part.CanTouch then part.CanTouch = true end
                 if not part.CanQuery then part.CanQuery = true end
-                if part.CollisionGroup ~= "None" and (part.Name == "CollisionPart" or part.Name == "Collision" or part.Name == "HumanoidRootPart") then
+                if part.CollisionGroup ~= "None" then
                     if not part:GetAttribute("OrigCollisionGroup") then
                         part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
                     end
@@ -5106,7 +5130,8 @@ if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED the
     local rawIsKeyDown
     rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
         if not checkcaller() and State.Noclip then
-            if kc == Enum.KeyCode.E or kc == Enum.KeyCode.Q then
+            -- Only block Q elevation if desired; NEVER block KeyCode.E so interactions always register instantly!
+            if kc == Enum.KeyCode.Q then
                 return false
             end
         end
@@ -5123,7 +5148,8 @@ if hookmetamethod then
             if (method == "IsKeyDown" or method == "isKeyDown") and State.Noclip then
                 local args = {...}
                 local kc = args[1]
-                if kc == Enum.KeyCode.E or kc == Enum.KeyCode.Q then
+                -- Only block Q elevation; NEVER block KeyCode.E so manual interact is 100% responsive!
+                if kc == Enum.KeyCode.Q then
                     return false
                 end
             end
@@ -5753,3 +5779,47 @@ pcall(function()
 end)
 scanAllRooms()
 Hub.Notify("Unknown Hub", "DOORS Precision ESP Loaded", 3)
+
+-- Frame-0 ProximityPrompt Fast Trigger: Bypasses native engine input polling delays on KeyCode.E
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.E and not gameProcessed then
+        local r = getRoot()
+        local cam = Workspace.CurrentCamera
+        if r and cam then
+            local rPos = r.Position
+            local lookVec = cam.CFrame.LookVector
+            local bestPrompt = nil
+            local bestScore = math.huge
+
+            local curRooms = Workspace:FindFirstChild("CurrentRooms")
+            if curRooms then
+                for _, p in ipairs(curRooms:GetDescendants()) do
+                    if p:IsA("ProximityPrompt") and p.Enabled then
+                        local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and p.Parent.PrimaryPart)
+                        if pPart then
+                            local toPart = (pPart.Position - rPos)
+                            local dist = toPart.Magnitude
+                            if dist <= (p.MaxActivationDistance + 1.5) and dist <= 14 then
+                                local dir = toPart.Unit
+                                local dot = lookVec:Dot(dir)
+                                if dot > 0.25 or dist <= 4.5 then
+                                    local score = dist - dot * 3.5
+                                    if score < bestScore then
+                                        bestScore = score
+                                        bestPrompt = p
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            if bestPrompt then
+                pcall(function()
+                    fireproximityprompt(bestPrompt)
+                end)
+            end
+        end
+    end
+end)
