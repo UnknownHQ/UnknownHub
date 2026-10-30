@@ -2704,28 +2704,29 @@ end
 local function neutralizeServerTeleported()
     if not State.Bypass_AntiCheat then return end
 
-    -- 1. Neutralize Client RemoteListener Module (one-time hook to eliminate stack overflow)
+    -- 1. Detour Client RemoteListener ServerTeleported Module ONLY while actively tweening
     pcall(function()
         local pGui = LocalPlayer:FindFirstChild("PlayerGui")
         local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
         if rl and rl:FindFirstChild("Modules") then
             local stMod = rl.Modules:FindFirstChild("ServerTeleported", true)
-            if stMod then
-                if not stMod:GetAttribute("Static") then
-                    stMod:SetAttribute("Static", true)
-                end
-                if not _G.ST_FN_HOOKED then
-                    _G.ST_FN_HOOKED = true
-                    local fn = require(stMod)
-                    if type(fn) == "function" and hookfunction then
-                        hookfunction(fn, function(...) end)
-                    end
+            if stMod and not _G.ST_FN_HOOKED then
+                _G.ST_FN_HOOKED = true
+                local rawFn = require(stMod)
+                if type(rawFn) == "function" and hookfunction then
+                    hookfunction(rawFn, newcclosure(function(p1, p2, p3, p4)
+                        -- Only block server teleports during active tween flight; allow wardrobes, closets, and door cutscenes to function normally!
+                        if isTeleportTweening then
+                            return
+                        end
+                        return rawFn(p1, p2, p3, p4)
+                    end))
                 end
             end
         end
     end)
 
-    -- 2. Suppress and detour all direct listeners on RemotesFolder.ServerTeleported & Teleport
+    -- 2. Detour listeners on RemotesFolder.ServerTeleported & Teleport ONLY while actively tweening
     pcall(function()
         local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
         if not rf or not getconnections then return end
@@ -2740,7 +2741,7 @@ local function neutralizeServerTeleported()
                         _G["TP_DETOURED_" .. tostring(fn)] = true
                         if hookfunction then
                             hookfunction(fn, newcclosure(function(...)
-                                if isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat then
+                                if isTeleportTweening then
                                     return
                                 end
                                 return fn(...)
@@ -2761,7 +2762,7 @@ local function neutralizeServerTeleported()
                         _G["ST_DETOURED_" .. tostring(fn)] = true
                         if hookfunction then
                             hookfunction(fn, newcclosure(function(...)
-                                if isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat then
+                                if isTeleportTweening then
                                     return
                                 end
                                 return fn(...)
@@ -2773,10 +2774,12 @@ local function neutralizeServerTeleported()
         end
     end)
 
-    -- 3. Clear pending Main_Game forced CFrame
-    local mgTable = getMainGameTable()
-    if mgTable and mgTable.SETNEWCF then
-        mgTable.SETNEWCF = nil
+    -- 3. Only clear pending Main_Game SETNEWCF if actively tweening between waypoints
+    if isTeleportTweening then
+        local mgTable = getMainGameTable()
+        if mgTable and mgTable.SETNEWCF then
+            mgTable.SETNEWCF = nil
+        end
     end
 end
 
@@ -3837,20 +3840,18 @@ RunService.Heartbeat:Connect(function(dt)
         roofPlatform.CFrame = CFrame.new(root.Position.X, roofPlatform.Position.Y, root.Position.Z)
     end
 
-    -- Wipes pending client rollback CFrame and synchronizes DOORS native noclip flag
+    -- Synchronizes DOORS native noclip flag without corrupting wardrobe or door transitions
     local mgTable = getMainGameTable()
     if mgTable then
-        if isTeleportImmune() or State.Fly_Enabled or State.Noclip or State.Bypass_AntiCheat then
+        if isTeleportTweening then
             if mgTable.SETNEWCF then
                 mgTable.SETNEWCF = nil
             end
-            if State.Noclip or isTeleportImmune() then
-                mgTable.noclip = true
-            end
-        else
-            if mgTable.noclip then
-                mgTable.noclip = false
-            end
+        end
+        if State.Noclip then
+            mgTable.noclip = true
+        elseif not State.Noclip and mgTable.noclip then
+            mgTable.noclip = false
         end
     end
 end)
@@ -4010,28 +4011,30 @@ local function applyPromptModifications(prompt)
     end
 
     local pObj = (prompt.ObjectText or ""):lower()
-    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
+    local pAct = (prompt.ActionText or ""):lower()
+    local parentName = prompt.Parent and prompt.Parent.Name:lower() or ""
+    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or parentName:find("knob")
+    local isHidingSpot = pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed") or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("locker") or parentName:find("bed") or pAct:find("hide")
+    local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock")
 
-    if State.Instant_Interact then
+    if State.Instant_Interact or isHidingSpot then
         prompt.HoldDuration = 0
     else
         local orig = prompt:GetAttribute("OrigHold")
         if orig ~= nil then prompt.HoldDuration = orig end
     end
 
-    if State.Noclip_Interact then
+    -- Wardrobes and doors NEVER require LineOfSight, eliminating angle occlusion and geometry blocks!
+    if isHidingSpot or isDoorPrompt or State.Noclip_Interact then
         prompt.RequiresLineOfSight = false
     else
         local orig = prompt:GetAttribute("OrigLOS")
         if orig ~= nil then prompt.RequiresLineOfSight = orig end
     end
 
-    if State.Range_Interact then
-        if isDrawerOrContainer then
-            prompt.MaxActivationDistance = math.clamp(State.Interact_MaxRange, 8, 12)
-        else
-            prompt.MaxActivationDistance = math.clamp(State.Interact_MaxRange, 6, 14)
-        end
+    if isHidingSpot or isDoorPrompt or State.Range_Interact then
+        local baseDist = isHidingSpot and 12 or (isDoorPrompt and 12 or (isDrawerOrContainer and 10 or State.Interact_MaxRange))
+        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, baseDist)
     else
         local orig = prompt:GetAttribute("OrigMaxDist")
         if orig ~= nil then prompt.MaxActivationDistance = orig end
@@ -4458,6 +4461,25 @@ Hub.CreateSlider(mainTab, "Phase Glide Speed", 4, 13, State.Noclip_Speed, " stud
     State.Noclip_Speed = v
 end)
 
+Hub.CreateToggle(mainTab, "Fly / VFly (WASD + Space/Ctrl)", State.Fly_Enabled, function(v)
+    State.Fly_Enabled = v
+    if v then
+        local r = getRoot()
+        if r then r.AssemblyLinearVelocity = Vector3.zero end
+        syncServerSlide(true, true)
+        Hub.Notify("Flight", "3D Flight: ACTIVE (WASD + Space/Ctrl)", 2)
+    else
+        local r = getRoot()
+        if r then r.AssemblyLinearVelocity = Vector3.zero end
+        syncServerSlide(false, false)
+        Hub.Notify("Flight", "Flight: OFF", 2)
+    end
+end)
+
+Hub.CreateSlider(mainTab, "Fly Speed", 15, 85, State.Fly_Speed, " studs/s", function(v)
+    State.Fly_Speed = v
+end)
+
 Hub.CreateSection(mainTab, "🖐️ Interaction Power")
 
 Hub.CreateToggle(mainTab, "Instant Interact (0s Hold)", State.Instant_Interact, function(v)
@@ -4633,11 +4655,11 @@ if hookmetamethod then
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if not checkcaller() then
-            if (method == "PivotTo" or method == "pivotTo") and (isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat) then
+            if (method == "PivotTo" or method == "pivotTo") and isTeleportTweening then
                 local char = getChar()
                 local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
                 if isLocalChar then
-                    return -- Block anticheat rollback PivotTo dead in its tracks!
+                    return -- Only block PivotTo while actively tweening between waypoints; allow wardrobe hiding and door entry!
                 end
             end
             if method == "FireServer" then
