@@ -2514,7 +2514,7 @@ local lastDoorKeyEquip = 0
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     if not curRooms then return end
-    local reach = maxReach or 30
+    local reach = math.min(maxReach or 12, 14)
     local r = getRoot()
     local char = getChar()
 
@@ -2532,21 +2532,23 @@ local function processNearbyDoors(currentPos, maxReach)
 
                     -- 2. Check for Lock and auto-unlock if Key available (0s hold, no line of sight needed)
                     local lock = d:FindFirstChild("Lock")
-                    if lock then
+                    local isLocked = false
+                    if lock and lock.Parent then
                         local up = lock:FindFirstChild("UnlockPrompt", true) or lock:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if up and up.Enabled then
+                            isLocked = true
                             up.HoldDuration = 0
                             up.RequiresLineOfSight = false
-                            up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 15)
+                            up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 14)
                             local now = os.clock()
-                            if (now - lastDoorKeyEquip >= 0.25) then
+                            if (now - lastDoorKeyEquip >= 0.15) then
                                 lastDoorKeyEquip = now
                                 task.spawn(function()
                                     local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (char and char:FindFirstChild("Key"))
                                     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
                                     if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
                                         hum:EquipTool(keyTool)
-                                        task.wait(0.04)
+                                        task.wait(0.02)
                                     end
                                     pcall(function() fireproximityprompt(up) end)
                                 end)
@@ -2554,50 +2556,52 @@ local function processNearbyDoors(currentPos, maxReach)
                         end
                     end
 
-                    -- 3. Instant Door Opening (Debounced per door instance to eliminate network flood & delay)
-                    local lastOpened = openedDoors[d]
-                    local now = os.clock()
-                    if not lastOpened or (now - lastOpened >= 1.2) then
-                        openedDoors[d] = now
+                    -- 3. Instant Door Opening (ONLY when not locked)
+                    if not isLocked then
+                        local lastOpened = openedDoors[d]
+                        local now = os.clock()
+                        if not lastOpened or (now - lastOpened >= 0.5) then
+                            openedDoors[d] = now
 
-                        -- Trigger client network remote
-                        local co = d:FindFirstChild("ClientOpen")
-                        if co and co:IsA("RemoteEvent") then
-                            pcall(function() co:FireServer() end)
-                        end
+                            -- Trigger client network remote
+                            local co = d:FindFirstChild("ClientOpen")
+                            if co and co:IsA("RemoteEvent") then
+                                pcall(function() co:FireServer() end)
+                            end
 
-                        -- Trigger local bindable open events
-                        local fo = d:FindFirstChild("Func_ForceOpen") or d:FindFirstChild("Func_Open")
-                        if fo and fo:IsA("BindableEvent") then
-                            pcall(function() fo:Fire() end)
-                        end
+                            -- Trigger local bindable open events
+                            local fo = d:FindFirstChild("Func_ForceOpen") or d:FindFirstChild("Func_Open")
+                            if fo and fo:IsA("BindableEvent") then
+                                pcall(function() fo:Fire() end)
+                            end
 
-                        -- Touch-based swing open for DoorNormal / Hidden
-                        local hiddenPart = d:FindFirstChild("Hidden")
-                        if hiddenPart and hiddenPart:IsA("BasePart") then
-                            pcall(function()
-                                hiddenPart.CanTouch = true
-                                if r then
-                                    firetouchinterest(r, hiddenPart, 0)
-                                    task.spawn(function()
-                                        task.wait(0.03)
-                                        if r and hiddenPart and hiddenPart.Parent then
-                                            firetouchinterest(r, hiddenPart, 1)
-                                        end
+                            -- Touch-based swing open for DoorNormal / Hidden
+                            local hiddenPart = d:FindFirstChild("Hidden")
+                            if hiddenPart and hiddenPart:IsA("BasePart") then
+                                pcall(function()
+                                    hiddenPart.CanTouch = true
+                                    if r then
+                                        firetouchinterest(r, hiddenPart, 0)
+                                        task.spawn(function()
+                                            task.wait(0.02)
+                                            if r and hiddenPart and hiddenPart.Parent then
+                                                firetouchinterest(r, hiddenPart, 1)
+                                            end
+                                        end)
+                                    end
+                                end)
+                            end
+
+                            -- Trigger ManualOpenPrompt or any door proximity prompt
+                            for _, prompt in ipairs(d:GetDescendants()) do
+                                if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Name ~= "UnlockPrompt" then
+                                    pcall(function()
+                                        prompt.HoldDuration = 0
+                                        prompt.RequiresLineOfSight = false
+                                        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 14)
+                                        fireproximityprompt(prompt)
                                     end)
                                 end
-                            end)
-                        end
-
-                        -- Trigger ManualOpenPrompt or any door proximity prompt
-                        for _, prompt in ipairs(d:GetDescendants()) do
-                            if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Name ~= "UnlockPrompt" then
-                                pcall(function()
-                                    prompt.HoldDuration = 0
-                                    prompt.RequiresLineOfSight = false
-                                    prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 15)
-                                    fireproximityprompt(prompt)
-                                end)
                             end
                         end
                     end
@@ -3849,9 +3853,9 @@ RunService.Heartbeat:Connect(function(dt)
         Hub.Notify("Movement", "Fly-Noclip disabled: Bypass Anti-Cheat Core is required!", 2)
     end
 
-    -- Continuous Door Sentry: Always opens doors and removes collisions smoothly on approach
+    -- Continuous Door Sentry: Always opens doors and removes collisions smoothly on approach (natural 12 stud reach)
     if root and not hiding then
-        processNearbyDoors(root.Position, 30)
+        processNearbyDoors(root.Position, 12)
     end
 
     -- Continuous Glitch / Void Shield Deflector: Eradicates all screen freezes, camera locks & fog spikes
@@ -3945,11 +3949,13 @@ RunService.Heartbeat:Connect(function(dt)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
 
-        -- Anti-Void Floor Safeguard: If out of bounds or falling in void, clamp altitude to safe baseline
-        if root.Position.Y < -5 then
-            local safeCF = CFrame.new(root.Position.X, 3.5, root.Position.Z) * root.CFrame.Rotation
-            char:PivotTo(safeCF)
-            root.CFrame = safeCF
+        -- Anti-Void Floor Safeguard: Only clamp if truly plummeting deep into the void (Y < -150)
+        if root.Position.Y < -150 then
+            local safeLanding = getSafeLandingPosition()
+            if safeLanding then
+                char:PivotTo(CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector))
+                root.CFrame = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
+            end
         end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         applyTeflonGlide(char)
@@ -4246,9 +4252,16 @@ end
 -- Hook new prompts dynamically and ensure immediate optimization on load & room transition
 Workspace.DescendantAdded:Connect(function(desc)
     if desc:IsA("ProximityPrompt") then
-        task.wait(0.05)
         pcall(function() applyPromptModifications(desc) end)
     end
+end)
+
+-- Hook ProximityPromptService for frame-0 prompt display
+pcall(function()
+    local pps = game:GetService("ProximityPromptService")
+    pps.PromptShown:Connect(function(prompt)
+        pcall(function() applyPromptModifications(prompt) end)
+    end)
 end)
 
 -- Initial prompt optimization across all loaded rooms
@@ -4876,6 +4889,24 @@ end
 local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
 local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
 local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
+
+-- Hook UserInputService.IsKeyDown: strictly intercept Q and E when called by DOORS Movement script during noclip flight
+if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED then
+    _G.__ISKEYDOWN_HOOKED = true
+    local rawIsKeyDown
+    rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
+        if not checkcaller() and State.Noclip then
+            if kc == Enum.KeyCode.E or kc == Enum.KeyCode.Q then
+                local caller = (getcallingscript and getcallingscript()) or rawget(getfenv(2), "script")
+                local src = debug.info(2, "s") or ""
+                if (caller and caller.Name == "Movement") or src:find("Movement") then
+                    return false
+                end
+            end
+        end
+        return rawIsKeyDown(self, kc)
+    end))
+end
 
 if hookmetamethod then
     local rawNamecall
