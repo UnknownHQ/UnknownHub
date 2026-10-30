@@ -103,7 +103,7 @@ local State = {
     Enable_Jumping = false,
     Enable_Sliding = false,
     Noclip = false,
-    Noclip_Speed = 11,
+    Noclip_Speed = 22,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
     -- Anti-Cheat Bypass, Safe Teleports & Flight Subsystem
@@ -2997,6 +2997,49 @@ task.spawn(function()
     end
 end)
 
+-- Safe Room Landing Calculator: Determines valid floor coordinates inside active rooms
+local function getSafeLandingPosition()
+    local char = getChar()
+    local root = getRoot()
+    if not root then return nil end
+
+    -- 1. Check if there is already a solid walkable floor directly below root
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local floorHit = workspace:Raycast(root.Position + Vector3.new(0, 2, 0), Vector3.new(0, -12, 0), rayParams)
+    if floorHit and floorHit.Instance and floorHit.Instance.CanCollide then
+        local hum = char:FindFirstChildWhichIsA("Humanoid")
+        local rootOffset = (hum and hum.HipHeight or 2.0) + 1.0
+        return Vector3.new(root.Position.X, floorHit.Position.Y + rootOffset, root.Position.Z)
+    end
+
+    -- 2. If out of bounds or in mid-air/void, snap to nearest room entrance floor
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if curRooms then
+        local targetRoom = nil
+        local bestDist = math.huge
+        for _, rm in ipairs(curRooms:GetChildren()) do
+            local cf, sz = rm:GetBoundingBox()
+            local d = (root.Position - cf.Position).Magnitude
+            if d < bestDist then
+                bestDist = d
+                targetRoom = rm
+            end
+        end
+
+        if targetRoom then
+            local roomEnt = targetRoom:FindFirstChild("RoomEntrance") or targetRoom:FindFirstChild("RoomExit") or targetRoom:FindFirstChildWhichIsA("BasePart")
+            if roomEnt then
+                return getExactFloorPos(roomEnt.Position + Vector3.new(0, 1, 0))
+            end
+        end
+    end
+
+    return nil
+end
+
 -- Floor Raycast Snapping: Guaranteed placement on walkable floor surface (eliminates mid-air drops & gravity physics spikes)
 local function getExactFloorPos(pos, fallbackOffset)
     local char = getChar()
@@ -3916,22 +3959,33 @@ RunService.Heartbeat:Connect(function(dt)
             task.spawn(pulseSlideKeepAlive)
         end
 
-        -- If direction keys pressed, steer in that 3D direction; otherwise automatically glide where camera looks
-        local finalDir = if (hasInput and steer.Magnitude > 0.01) then steer.Unit else camLook
+        -- Hovering & Movement Dispatch: Move strictly on intentional input; hover stationary with zero drift
+        if hasInput and steer.Magnitude > 0.01 then
+            local moveDir = steer.Unit
+            local speed = math.clamp(State.Noclip_Speed or 22, 5, 85)
+            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+            local delta = moveDir * (speed * safeDt)
 
-        local speed = math.clamp(State.Noclip_Speed or 12, 4, 35)
-        local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-        local delta = finalDir * (speed * safeDt)
+            char:PivotTo(char:GetPivot() + delta)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        else
+            -- Perfectly stationary hover in mid-air: Zero drift, E and Q never affect vertical altitude
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
 
-        char:PivotTo(char:GetPivot() + delta)
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-
-        -- Anti-Void Floor Safeguard: If out of bounds or falling in void, clamp altitude to safe baseline
+        -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor
         if root.Position.Y < -5 then
-            local safeCF = CFrame.new(root.Position.X, 3.5, root.Position.Z) * root.CFrame.Rotation
-            char:PivotTo(safeCF)
-            root.CFrame = safeCF
+            local safeLanding = getSafeLandingPosition()
+            if safeLanding then
+                char:PivotTo(CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector))
+                root.CFrame = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
+            else
+                local safeCF = CFrame.new(root.Position.X, 3.5, root.Position.Z) * root.CFrame.Rotation
+                char:PivotTo(safeCF)
+                root.CFrame = safeCF
+            end
         end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         applyTeflonGlide(char)
@@ -4638,6 +4692,24 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
     end)
 
     if not v and char then
+        -- Out-of-bounds Safe Landing: If disabled while outside the map/void, safely ground player onto room floor
+        local safePos = getSafeLandingPosition()
+        local r = getRoot()
+        if safePos and r then
+            if (r.Position - safePos).Magnitude > 3 or (safePos.Y - r.Position.Y) > 2 or (r.Position.Y - safePos.Y) > 4 then
+                char:PivotTo(CFrame.new(safePos, safePos + r.CFrame.LookVector))
+                r.CFrame = CFrame.new(safePos, safePos + r.CFrame.LookVector)
+                r.AssemblyLinearVelocity = Vector3.zero
+                teleportImmunityUntil = os.clock() + 1.5
+                task.spawn(function()
+                    syncServerSlide(true, true)
+                    task.wait(0.5)
+                    syncServerSlide(false, false)
+                end)
+                Hub.Notify("Safe Landing", "Safely returned to room floor!", 2)
+            end
+        end
+
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
@@ -4652,13 +4724,12 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
             syncServerSlide(false, false)
         end
-        local r = getRoot()
         if r then r.AssemblyLinearVelocity = Vector3.zero end
     end
-    Hub.Notify("Movement", v and "Fly-Noclip: ON (Gliding forward / WASD steer)" or "Fly-Noclip: OFF", 2)
+    Hub.Notify("Movement", v and "Fly-Noclip: ON (WASD + Space/Ctrl to Fly)" or "Fly-Noclip: OFF", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Phase Fly-Noclip Speed", 4, 35, State.Noclip_Speed, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Fly-Noclip Speed", 5, 75, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
 end)
 
