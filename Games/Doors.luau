@@ -5475,22 +5475,6 @@ Hub.CreateToggle(espTab, "Entities ESP (Monsters Master)", State.Entities_ESP, f
     end
 end)
 
-local entityFilterList = {
-    "Rush", "Ambush", "Figure", "Seek", "Eyes", "Halt",
-    "Screech", "Giggle", "Grumble", "Snare", "Dupe", "Dread",
-    "A-60", "A-90", "A-120", "Timothy"
-}
-
-Hub.CreateMultiDropdown(espTab, "Entity ESP Filter (Monsters)", entityFilterList, entityFilterList, function(selectedList)
-    local filterMap = {}
-    for _, name in ipairs(selectedList) do
-        filterMap[name] = true
-    end
-    State.Entity_ESP_Filters = filterMap
-    clearCategoryEsp("Entities")
-    scanAllRooms()
-end)
-
 Hub.CreateToggle(espTab, "Hiding Spots ESP (Closets & Beds)", State.HidingSpots_ESP, function(v)
     State.HidingSpots_ESP = v
     if not v then

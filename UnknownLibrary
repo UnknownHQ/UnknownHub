@@ -707,7 +707,7 @@ return function(opts)
     end
 
     -- Forward declarations of component builders
-    local createToggle, createSlider, createDropdown, createButton, createTextBox, createSection, createList, createColorPicker
+    local createToggle, createSlider, createDropdown, createMultiDropdown, createButton, createTextBox, createSection, createList, createColorPicker
 
     -- Tab Builder (Completely Rounded & Glitch-Free)
     local function createTab(tabName, tabOpts)
@@ -726,7 +726,8 @@ return function(opts)
         tabBtn.Parent = tabScroll
         applyCorner(tabBtn, 8)
 
-        -- Icon Label
+        -- Set LayoutOrder so Settings can be pinned to the bottom
+        tabBtn.LayoutOrder = (tabName == "Settings") and 9999 or #tabs
         local iconLbl = Instance.new("TextLabel")
         iconLbl.Name = "Icon"
         iconLbl.Size = UDim2.new(0, 22, 1, 0)
@@ -833,6 +834,7 @@ return function(opts)
         tabRecord.CreateToggle = function(name, default, callback) return createToggle(pageScroll, name, default, callback) end
         tabRecord.CreateSlider = function(name, min, max, default, suffix, callback) return createSlider(pageScroll, name, min, max, default, suffix, callback) end
         tabRecord.CreateDropdown = function(name, options, default, callback) return createDropdown(pageScroll, name, options, default, callback) end
+        tabRecord.CreateMultiDropdown = function(name, options, default, callback) return createMultiDropdown(pageScroll, name, options, default, callback) end
         tabRecord.CreateButton = function(name, callback) return createButton(pageScroll, name, callback) end
         tabRecord.CreateTextBox = function(name, placeholder, callback) return createTextBox(pageScroll, name, placeholder, callback) end
         tabRecord.CreateInput = tabRecord.CreateTextBox
@@ -993,6 +995,10 @@ return function(opts)
     -- Component 3: Precision Slider
     -- =========================================================================
     createSlider = function(parent, titleText, minVal, maxVal, defaultVal, suffixText, callback)
+        if type(suffixText) == "function" and callback == nil then
+            callback = suffixText
+            suffixText = ""
+        end
         minVal = tonumber(minVal) or 0
         maxVal = tonumber(maxVal) or 100
         defaultVal = tonumber(defaultVal) or minVal
@@ -1310,6 +1316,212 @@ return function(opts)
             end
         }
         return dropdownObj
+    end
+
+    createMultiDropdown = function(parent, titleText, optionsList, defaultSelected, callback)
+        local options = optionsList or {}
+        local selected = {}
+        if type(defaultSelected) == "table" then
+            for k, v in pairs(defaultSelected) do
+                if type(k) == "number" then selected[tostring(v)] = true
+                elseif v == true then selected[tostring(k)] = true end
+            end
+        elseif defaultSelected then
+            selected[tostring(defaultSelected)] = true
+        end
+        if next(selected) == nil and #options > 0 then
+            selected["All"] = true
+        end
+
+        local cb = type(callback) == "function" and callback or function() end
+        local isExpanded = false
+
+        local card = Instance.new("Frame")
+        card.Name = "MultiDropdownCard_" .. tostring(titleText)
+        card.Size = UDim2.new(1, 0, 0, 42)
+        card.BackgroundColor3 = DEFAULT_THEME.Card
+        card.BorderSizePixel = 0
+        card.ClipsDescendants = true
+        card.Parent = parent
+        applyCorner(card, 8)
+        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local headerBtn = Instance.new("TextButton")
+        headerBtn.Name = "HeaderButton"
+        headerBtn.Size = UDim2.new(1, 0, 0, 42)
+        headerBtn.BackgroundTransparency = 1
+        headerBtn.Text = ""
+        headerBtn.Parent = card
+
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "Label"
+        titleLabel.Size = UDim2.new(0.48, 0, 1, 0)
+        titleLabel.Position = UDim2.new(0, 14, 0, 0)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.Gotham
+        titleLabel.Text = tostring(titleText)
+        titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        titleLabel.TextSize = 12
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.Parent = headerBtn
+
+        local selectionPill = Instance.new("TextLabel")
+        selectionPill.Name = "Pill"
+        selectionPill.Size = UDim2.new(0.52, -42, 0, 24)
+        selectionPill.Position = UDim2.new(0.48, 0, 0.5, -12)
+        selectionPill.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        selectionPill.BorderSizePixel = 0
+        selectionPill.Font = Enum.Font.Gotham
+        selectionPill.Text = "All Bears"
+        selectionPill.TextColor3 = DEFAULT_THEME.TextSecondary
+        selectionPill.TextSize = 11
+        selectionPill.TextTruncate = Enum.TextTruncate.AtEnd
+        selectionPill.Parent = headerBtn
+        applyCorner(selectionPill, 6)
+
+        local chevron = Instance.new("TextLabel")
+        chevron.Name = "Chevron"
+        chevron.Size = UDim2.new(0, 24, 0, 24)
+        chevron.Position = UDim2.new(1, -34, 0.5, -12)
+        chevron.BackgroundTransparency = 1
+        chevron.Font = Enum.Font.GothamBold
+        chevron.Text = "▾"
+        chevron.TextColor3 = DEFAULT_THEME.TextSecondary
+        chevron.TextSize = 14
+        chevron.Parent = headerBtn
+
+        local optionsContainer = Instance.new("ScrollingFrame")
+        optionsContainer.Name = "OptionsList"
+        optionsContainer.Size = UDim2.new(1, -20, 0, 0)
+        optionsContainer.Position = UDim2.new(0, 10, 0, 44)
+        optionsContainer.BackgroundTransparency = 1
+        optionsContainer.BorderSizePixel = 0
+        optionsContainer.ScrollBarThickness = 3
+        optionsContainer.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 105)
+        optionsContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        optionsContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+        optionsContainer.Parent = card
+
+        local optLayout = Instance.new("UIListLayout")
+        optLayout.FillDirection = Enum.FillDirection.Vertical
+        optLayout.Padding = UDim.new(0, 3)
+        optLayout.Parent = optionsContainer
+
+        local function updatePillText()
+            if selected["All"] then
+                selectionPill.Text = "All Bears"
+                return
+            end
+            local count = 0
+            local first = nil
+            for k, v in pairs(selected) do
+                if v then
+                    count = count + 1
+                    if not first then first = k end
+                end
+            end
+            if count == 0 then
+                selectionPill.Text = "None Selected"
+            elseif count == 1 then
+                selectionPill.Text = tostring(first)
+            else
+                selectionPill.Text = tostring(count) .. " Selected"
+            end
+        end
+
+        local function refreshOptionVisuals()
+            for _, child in ipairs(optionsContainer:GetChildren()) do
+                if child:IsA("TextButton") and child.Name:sub(1, 4) == "Opt_" then
+                    local optStr = child.Name:sub(5)
+                    local isChecked = (selected[optStr] == true)
+                    child.BackgroundColor3 = isChecked and Color3.fromRGB(34, 40, 54) or Color3.fromRGB(18, 21, 28)
+                    child.Text = (isChecked and "  [✓] " or "  [  ] ") .. optStr
+                    child.TextColor3 = isChecked and primaryTheme or DEFAULT_THEME.TextSecondary
+                    child.Font = isChecked and Enum.Font.GothamBold or Enum.Font.Gotham
+                end
+            end
+        end
+
+        local function buildOptions()
+            for _, child in ipairs(optionsContainer:GetChildren()) do
+                if child:IsA("TextButton") then child:Destroy() end
+            end
+
+            for _, opt in ipairs(options) do
+                local optStr = tostring(opt)
+                local isChecked = (selected[optStr] == true)
+                local optBtn = Instance.new("TextButton")
+                optBtn.Name = "Opt_" .. optStr
+                optBtn.Size = UDim2.new(1, -6, 0, 28)
+                optBtn.BackgroundColor3 = isChecked and Color3.fromRGB(34, 40, 54) or Color3.fromRGB(18, 21, 28)
+                optBtn.BorderSizePixel = 0
+                optBtn.Font = isChecked and Enum.Font.GothamBold or Enum.Font.Gotham
+                optBtn.Text = (isChecked and "  [✓] " or "  [  ] ") .. optStr
+                optBtn.TextColor3 = isChecked and primaryTheme or DEFAULT_THEME.TextSecondary
+                optBtn.TextSize = 11
+                optBtn.TextXAlignment = Enum.TextXAlignment.Left
+                optBtn.AutoButtonColor = false
+                optBtn.Parent = optionsContainer
+                applyCorner(optBtn, 6)
+
+                optBtn.MouseButton1Click:Connect(function()
+                    if optStr == "All" then
+                        table.clear(selected)
+                        selected["All"] = true
+                    else
+                        selected["All"] = nil
+                        if selected[optStr] then
+                            selected[optStr] = nil
+                        else
+                            selected[optStr] = true
+                        end
+                        local any = false
+                        for _, v in pairs(selected) do if v then any = true break end end
+                        if not any then selected["All"] = true end
+                    end
+                    updatePillText()
+                    refreshOptionVisuals()
+                    local arr = {}
+                    for k, v in pairs(selected) do if v then table.insert(arr, k) end end
+                    pcall(cb, selected, arr)
+                end)
+            end
+        end
+        buildOptions()
+        updatePillText()
+
+        headerBtn.MouseButton1Click:Connect(function()
+            isExpanded = not isExpanded
+            chevron.Text = isExpanded and "▴" or "▾"
+            local maxScrollHeight = math.clamp(#options * 31, 30, 210)
+            local targetH = isExpanded and (54 + maxScrollHeight) or 42
+            optionsContainer.Size = UDim2.new(1, -20, 0, isExpanded and maxScrollHeight or 0)
+            refreshOptionVisuals()
+            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+        end)
+
+        return {
+            Instance = card,
+            Value = selected,
+            Set = function(list)
+                table.clear(selected)
+                if type(list) == "table" then
+                    for k, v in pairs(list) do
+                        if type(k) == "number" then selected[tostring(v)] = true
+                        elseif v == true then selected[tostring(k)] = true end
+                    end
+                elseif list then
+                    selected[tostring(list)] = true
+                end
+                updatePillText()
+                refreshOptionVisuals()
+            end,
+            Refresh = function(newOpts)
+                options = newOpts or {}
+                buildOptions()
+                updatePillText()
+            end
+        }
     end
 
     -- =========================================================================
@@ -1743,13 +1955,14 @@ return function(opts)
         end)
 
         function listObj.AddItem(text, subtext, itemCallback)
+            local label = (type(text) == "table" and (text.Name or text.Title or text.text or text[1])) or tostring(text)
             local itmBtn = Instance.new("TextButton")
-            itmBtn.Name = "Item_" .. tostring(text)
+            itmBtn.Name = "Item_" .. label
             itmBtn.Size = UDim2.new(1, 0, 0, 28)
             itmBtn.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
             itmBtn.BorderSizePixel = 0
             itmBtn.Font = Enum.Font.Gotham
-            itmBtn.Text = "   " .. tostring(text)
+            itmBtn.Text = "   " .. label
             itmBtn.TextColor3 = DEFAULT_THEME.TextSecondary
             itmBtn.TextSize = 11
             itmBtn.TextXAlignment = Enum.TextXAlignment.Left
@@ -1922,6 +2135,7 @@ return function(opts)
         end
     end
 
+
     -- =========================================================================
     -- Public API Hub Interface
     -- =========================================================================
@@ -1954,6 +2168,8 @@ return function(opts)
 
     Hub.CreateDropdown = createDropdown
     Hub.createDropdown = createDropdown
+    Hub.CreateMultiDropdown = createMultiDropdown
+    Hub.createMultiDropdown = createMultiDropdown
 
     Hub.CreateButton = createButton
     Hub.createButton = createButton
