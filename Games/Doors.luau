@@ -2945,10 +2945,10 @@ local function neutralizeServerTeleported()
         end
     end)
 
-    -- 3. Only clear pending Main_Game SETNEWCF if actively tweening between waypoints
-    if isTeleportTweening then
-        local mgTable = getMainGameTable()
-        if mgTable and mgTable.SETNEWCF then
+    -- 3. Permanently clear pending Main_Game SETNEWCF to nullify anticheat server rollbacks
+    local mgTable = getMainGameTable()
+    if mgTable and not isPlayerHiding(getChar(), mgTable) and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or isAtRoof) then
+        if mgTable.SETNEWCF then
             mgTable.SETNEWCF = nil
         end
     end
@@ -4043,7 +4043,7 @@ RunService.Heartbeat:Connect(function(dt)
     -- Synchronizes DOORS native noclip flag without corrupting wardrobe or door transitions
     local mgTable = getMainGameTable()
     if mgTable then
-        if isTeleportTweening then
+        if not hiding and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or isAtRoof) then
             if mgTable.SETNEWCF then
                 mgTable.SETNEWCF = nil
             end
@@ -4685,6 +4685,35 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         end
         local r = getRoot()
         if r then
+            -- Ensure all ceiling and roof parts are solid so falling onto the roof lands safely
+            local curRooms = Workspace:FindFirstChild("CurrentRooms")
+            if curRooms then
+                for _, rm in ipairs(curRooms:GetChildren()) do
+                    for _, p in ipairs(rm:GetDescendants()) do
+                        if p:IsA("BasePart") then
+                            local nl = p.Name:lower()
+                            if nl:find("ceiling") or nl:find("roof") then
+                                p.CanCollide = true
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Depenetration Safeguard: If player is sitting right on/in the ceiling, elevate cleanly above it
+            pcall(function()
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                local downHit = workspace:Raycast(r.Position, Vector3.new(0, -6, 0), rayParams)
+                if downHit and downHit.Position and (r.Position.Y - downHit.Position.Y) < 3.0 then
+                    local safeY = downHit.Position.Y + 3.2
+                    if r.Position.Y < safeY then
+                        char:PivotTo(CFrame.new(r.Position.X, safeY, r.Position.Z) * r.CFrame.Rotation)
+                    end
+                end
+            end)
+
             -- Gentle downward momentum so gravity immediately pulls player to land naturally on the roof/floor!
             r.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
             r.AssemblyAngularVelocity = Vector3.zero
@@ -5042,6 +5071,15 @@ if cam then
                     desc.Transparency = 1
                 end
             end
+
+            task.delay(0.1, function()
+                pcall(function()
+                    for i = 1, 100 do
+                        RunService:UnbindFromRenderStep("screechStuff" .. tostring(i))
+                    end
+                end)
+                pcall(function() child:Destroy() end)
+            end)
 
             -- 4. Clean up any active screech state in DOORS Main_Game table
             pcall(function()
