@@ -4493,23 +4493,6 @@ if hookfunction then
     end
 end
 
--- Direct PivotTo Method Hook: Intercepts game.PivotTo / char.PivotTo even when called without __namecall
-if hookfunction and typeof(game.PivotTo) == "function" then
-    local rawPivotTo
-    rawPivotTo = hookfunction(game.PivotTo, newcclosure(function(self, ...)
-        if not checkcaller() then
-            if isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat then
-                local char = LocalPlayer.Character
-                local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
-                if isLocalChar then
-                    return -- Block direct PivotTo rollback dead in its tracks!
-                end
-            end
-        end
-        return rawPivotTo(self, ...)
-    end))
-end
-
 -- Intercept server rollback teleports while Noclip is active
 local teleRemote = remotesFolder and remotesFolder:FindFirstChild("Teleport")
 local servTeleRemote = remotesFolder and remotesFolder:FindFirstChild("ServerTeleported")
