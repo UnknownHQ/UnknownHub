@@ -106,6 +106,15 @@ local State = {
     Noclip_Speed = 11,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
+    -- Anti-Cheat Bypass, Safe Teleports & Flight Subsystem
+    Bypass_AntiCheat = true,
+    Fly_Enabled = false,
+    Fly_Speed = 45,
+    Fly_VerticalSpeed = 35,
+    Teleport_Speed = 65,
+    ClickTP_Enabled = false,
+    Target_Room_Number = 10,
+
     -- Main / Interactions
     Instant_Interact = false,
     Noclip_Interact = false,
@@ -2494,6 +2503,334 @@ local function stopSlide()
 end
 
 -- =========================================================================
+-- DOORS Anti-Cheat Bypass Core & Safe Sub-Step Teleport/Flight Engine
+-- =========================================================================
+local isTeleportTweening = false
+local activeTweenToken = 0
+
+local function neutralizeServerTeleported()
+    if not State.Bypass_AntiCheat then return end
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
+        if rl and rl:FindFirstChild("Modules") then
+            local stMod = rl.Modules:FindFirstChild("ServerTeleported", true)
+            if stMod and not stMod:GetAttribute("Static") then
+                stMod:SetAttribute("Static", true)
+            end
+        end
+    end)
+    local mgTable = getMainGameTable()
+    if mgTable and mgTable.SETNEWCF then
+        mgTable.SETNEWCF = nil
+    end
+end
+
+-- Continuous Anti-Cheat Neutralization & Slide Token Refresh Loop
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Bypass_AntiCheat then
+            neutralizeServerTeleported()
+            if State.Fly_Enabled or State.Noclip or isTeleportTweening or State.WalkSpeed_Enabled then
+                if syncServerSlide then
+                    syncServerSlide(true, true)
+                end
+            end
+        end
+        task.wait(0.28)
+    end
+end)
+
+local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return false end
+
+    local targetCFrame = (typeof(targetCF) == "Vector3") and CFrame.new(targetCF) or targetCF
+    local targetPos = targetCFrame.Position
+    local targetRot = targetCFrame - targetPos
+    local startPos = char:GetPivot().Position
+    local totalDist = (targetPos - startPos).Magnitude
+    if totalDist < 0.5 then
+        if callback then callback() end
+        return true
+    end
+
+    local speed = math.clamp(speedVal or State.Teleport_Speed or 65, 30, 120)
+    local duration = totalDist / speed
+    local token = tick() + math.random()
+    activeTweenToken = token
+    isTeleportTweening = true
+
+    if syncServerSlide then syncServerSlide(true, true) end
+
+    local t0 = os.clock()
+    local finished = false
+
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        if activeTweenToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
+            if conn then conn:Disconnect() end
+            if activeTweenToken == token then isTeleportTweening = false end
+            return
+        end
+
+        local elapsed = os.clock() - t0
+        local alpha = math.clamp(elapsed / duration, 0, 1)
+
+        -- Strip all physics collisions for smooth penetration through walls/doors
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanCollide = false
+                p.CanTouch = false
+                p.CanQuery = false
+            end
+        end
+
+        local currentSubPos = startPos:Lerp(targetPos, alpha)
+        char:PivotTo(CFrame.new(currentSubPos) * targetRot)
+        root.AssemblyLinearVelocity = Vector3.zero
+
+        -- Auto-open doors encountered along the flight path
+        if autoDoorOpen ~= false then
+            local curRooms = Workspace:FindFirstChild("CurrentRooms")
+            if curRooms then
+                for _, rm in ipairs(curRooms:GetChildren()) do
+                    local d = rm:FindFirstChild("Door")
+                    if d and d:IsA("Model") and not d:GetAttribute("Opened") and not d:FindFirstChild("ClientOpen") then
+                        local dPart = d:FindFirstChild("Door") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                        if dPart and (currentSubPos - dPart.Position).Magnitude <= 14 then
+                            d:SetAttribute("Opened", true)
+                            local prompt = d:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            if prompt and prompt.Enabled then
+                                pcall(function() fireproximityprompt(prompt) end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if alpha >= 1 then
+            finished = true
+            if conn then conn:Disconnect() end
+            if activeTweenToken == token then isTeleportTweening = false end
+            if callback then callback() end
+        end
+    end)
+
+    return true
+end
+
+local function teleportToNextDoor()
+    local char = getChar()
+    local root = getRoot()
+    if not char or not root then
+        Hub.Notify("Teleport", "Character not found!", 2)
+        return false
+    end
+
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+    local lrVal = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
+    local curRoom = curRooms and curRooms:FindFirstChild(tostring(lrVal))
+    if not curRoom then
+        Hub.Notify("Teleport", "Current room model (" .. tostring(lrVal) .. ") not loaded!", 2)
+        return false
+    end
+
+    local exitDoor = curRoom:FindFirstChild("Door")
+    if not exitDoor then
+        Hub.Notify("Teleport", "Exit Door for Room " .. tostring(lrVal) .. " not found!", 2)
+        return false
+    end
+
+    local doorPart = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("Hidden") or exitDoor.PrimaryPart or exitDoor:FindFirstChildWhichIsA("BasePart")
+    if not doorPart then
+        Hub.Notify("Teleport", "Door part not resolved!", 2)
+        return false
+    end
+
+    -- Stand 3.5 studs in front of door frame
+    local doorCF = doorPart.CFrame
+    local targetPos = doorCF.Position + doorCF.LookVector * 3.5 + Vector3.new(0, 0.5, 0)
+    Hub.Notify("Teleport", "Teleporting to Door " .. tostring(lrVal) .. "...", 2)
+
+    safeTweenTeleport(CFrame.new(targetPos, doorCF.Position), State.Teleport_Speed, true, function()
+        task.wait(0.1)
+        -- Auto-unlock if lock exists and key held
+        local lock = exitDoor:FindFirstChild("Lock")
+        if lock then
+            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+            if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                hum:EquipTool(keyTool)
+                task.wait(0.15)
+            end
+            local up = lock:FindFirstChild("UnlockPrompt", true)
+            if up and up.Enabled then
+                pcall(function()
+                    up.HoldDuration = 0
+                    fireproximityprompt(up)
+                end)
+            end
+        end
+        local mop = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if mop and mop.Enabled then
+            pcall(function()
+                mop.HoldDuration = 0
+                fireproximityprompt(mop)
+            end)
+        end
+        Hub.Notify("Teleport", "Arrived at Door " .. tostring(lrVal) .. "!", 2)
+    end)
+    return true
+end
+
+local function teleportToRoomKey()
+    local char = getChar()
+    local root = getRoot()
+    if not char or not root then return false end
+
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return false end
+
+    local targetKey = nil
+    local targetPart = nil
+    local minDist = math.huge
+
+    for _, desc in ipairs(curRooms:GetDescendants()) do
+        if desc.Name == "KeyObtain" or (desc.Name:lower():find("key") and desc:IsA("Model") and desc:FindFirstChildWhichIsA("ProximityPrompt", true)) then
+            local part = desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)) or (desc:IsA("BasePart") and desc)
+            if part then
+                local d = (root.Position - part.Position).Magnitude
+                if d < minDist then
+                    minDist = d
+                    targetKey = desc
+                    targetPart = part
+                end
+            end
+        end
+    end
+
+    if not targetKey or not targetPart then
+        Hub.Notify("Teleport", "No Key / Objective found in active rooms!", 2)
+        return false
+    end
+
+    Hub.Notify("Teleport", "Teleporting to " .. targetKey.Name .. "...", 2)
+    local targetPos = targetPart.Position + Vector3.new(0, 1.2, 0)
+    safeTweenTeleport(CFrame.new(targetPos), State.Teleport_Speed, true, function()
+        task.wait(0.1)
+        local prompt = targetKey:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.Enabled then
+            pcall(function()
+                prompt.HoldDuration = 0
+                fireproximityprompt(prompt)
+            end)
+        end
+        local hum = char:FindFirstChildWhichIsA("Humanoid")
+        task.wait(0.3)
+        local keyTool = LocalPlayer.Backpack:FindFirstChild("Key")
+        if keyTool and hum then hum:EquipTool(keyTool) end
+        Hub.Notify("Teleport", "Collected " .. targetKey.Name .. "!", 2)
+    end)
+    return true
+end
+
+local function teleportToNearestHidingSpot()
+    local char = getChar()
+    local root = getRoot()
+    if not char or not root then return false end
+
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return false end
+
+    local nearestSpot = nil
+    local minDist = math.huge
+
+    for _, desc in ipairs(curRooms:GetDescendants()) do
+        local n = desc.Name:lower()
+        if (n:find("wardrobe") or n:find("closet") or n:find("bed") or n:find("locker")) and desc:IsA("Model") then
+            local part = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)
+            if part then
+                local d = (root.Position - part.Position).Magnitude
+                if d < minDist then
+                    minDist = d
+                    nearestSpot = desc
+                end
+            end
+        end
+    end
+
+    if not nearestSpot then
+        Hub.Notify("Teleport", "No closet/wardrobe found nearby!", 2)
+        return false
+    end
+
+    local part = nearestSpot.PrimaryPart or nearestSpot:FindFirstChildWhichIsA("BasePart", true)
+    local standPos = part.Position + part.CFrame.LookVector * 2.5 + Vector3.new(0, 0.5, 0)
+    Hub.Notify("Teleport", "Evacuating to " .. nearestSpot.Name .. "...", 2)
+    safeTweenTeleport(CFrame.new(standPos, part.Position), State.Teleport_Speed, true, function()
+        Hub.Notify("Teleport", "Arrived at safe spot!", 2)
+    end)
+    return true
+end
+
+local isAutoNavigatingRooms = false
+local function autoNavigateToRoom(targetRoom)
+    if isAutoNavigatingRooms then
+        isAutoNavigatingRooms = false
+        Hub.Notify("Room Navigator", "Navigation cancelled.", 2)
+        return
+    end
+
+    isAutoNavigatingRooms = true
+    Hub.Notify("Room Navigator", "Auto-advancing to Room " .. tostring(targetRoom) .. "...", 3)
+
+    task.spawn(function()
+        while isAutoNavigatingRooms do
+            if _G.DOORS_SESSION ~= currentSession then break end
+            local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+            local lr = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
+            if lr >= targetRoom then
+                Hub.Notify("Room Navigator", "Target Room " .. tostring(targetRoom) .. " Reached!", 4)
+                break
+            end
+
+            -- 1. Grab Key if door locked
+            local curRooms = Workspace:FindFirstChild("CurrentRooms")
+            local cRoom = curRooms and curRooms:FindFirstChild(tostring(lr))
+            local door = cRoom and cRoom:FindFirstChild("Door")
+            local lock = door and door:FindFirstChild("Lock")
+            if lock and lock:FindFirstChild("UnlockPrompt", true) then
+                local hasKey = LocalPlayer.Backpack:FindFirstChild("Key") ~= nil or (getChar() and getChar():FindFirstChild("Key") ~= nil)
+                if not hasKey then
+                    teleportToRoomKey()
+                    task.wait(1.5)
+                end
+            end
+
+            -- 2. Teleport to Exit Door
+            teleportToNextDoor()
+            task.wait(1.2)
+
+            -- Wait for next room to spawn
+            local attempts = 0
+            while isAutoNavigatingRooms and attempts < 15 do
+                local curLr = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
+                if curLr > lr then break end
+                task.wait(0.2)
+                attempts = attempts + 1
+            end
+        end
+        isAutoNavigatingRooms = false
+    end)
+end
+
+-- =========================================================================
 -- Continuous Heartbeat Enforcement & Omnidirectional Phase Noclip Engine
 -- =========================================================================
 RunService.Heartbeat:Connect(function(dt)
@@ -2506,9 +2843,57 @@ RunService.Heartbeat:Connect(function(dt)
     local mgTable = getMainGameTable()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
 
+    -- 3D Flight Engine (Smooth VFly - 100% Anti-Cheat Immune)
+    if State.Fly_Enabled and not hiding and not isTeleportTweening then
+        syncServerSlide(true, true)
+        root.AssemblyLinearVelocity = Vector3.zero
+
+        local cam = Workspace.CurrentCamera
+        local camLook = cam.CFrame.LookVector
+        local camRight = cam.CFrame.RightVector
+        local camUp = Vector3.new(0, 1, 0)
+        local flyDir = Vector3.zero
+        local hasFlyInput = false
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            flyDir = flyDir + camLook
+            hasFlyInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            flyDir = flyDir - camLook
+            hasFlyInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            flyDir = flyDir + camRight
+            hasFlyInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            flyDir = flyDir - camRight
+            hasFlyInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            flyDir = flyDir + camUp
+            hasFlyInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
+            flyDir = flyDir - camUp
+            hasFlyInput = true
+        end
+
+        -- Mobile touch thumbstick fallback
+        if hum.MoveDirection.Magnitude > 0.05 then
+            flyDir = flyDir + hum.MoveDirection
+            hasFlyInput = true
+        end
+
+        if hasFlyInput and flyDir.Magnitude > 0.01 then
+            local spd = math.clamp(State.Fly_Speed or 45, 15, 85)
+            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+            char:PivotTo(char:GetPivot() + (flyDir.Unit * (spd * safeDt)))
+        end
     -- Omnidirectional Sub-Step Micro-Phase Glide Engine
     -- Automatically glides towards the camera view direction, with full steering (WASD, Space/Ctrl, diagonals)
-    if State.Noclip and not hiding then
+    elseif State.Noclip and not hiding then
         syncServerSlide(true, isSlidingActive)
 
         local cam = Workspace.CurrentCamera
@@ -2683,12 +3068,13 @@ RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip then
-        -- Strip CanCollide AND CanTouch from ALL character parts to eliminate player-side collisions
+    if State.Noclip or State.Fly_Enabled or isTeleportTweening then
+        -- Strip CanCollide, CanTouch & CanQuery from ALL character parts to eliminate physics collisions
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
                 if part.CanTouch then part.CanTouch = false end
+                if part.CanQuery then part.CanQuery = false end
             end
         end
     end
@@ -2743,6 +3129,16 @@ UserInputService.JumpRequest:Connect(function()
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- Click to Teleport (Ctrl + Left Click)
+    if State.ClickTP_Enabled and input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessed then
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
+            local mouse = LocalPlayer:GetMouse()
+            if mouse and mouse.Hit then
+                safeTweenTeleport(CFrame.new(mouse.Hit.Position + Vector3.new(0, 2.5, 0)), State.Teleport_Speed, true)
+            end
+        end
+    end
+
     if input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftControl then
         if State.Enable_Sliding then
             local char = getChar()
@@ -3703,6 +4099,87 @@ task.spawn(function()
         task.wait(1)
     end
 end)
+
+-- =========================================================================
+-- Tab 2: TELEPORT & MOVEMENT TAB (Anti-Cheat Safe Teleports & 3D Flight)
+-- =========================================================================
+local teleportTab = Hub.CreateTab("Teleports", {
+    Icon = "🚀",
+    Size = 18,
+    Color = Color3.fromRGB(0, 210, 255),
+    ActiveColor = Color3.fromRGB(50, 235, 255)
+})
+
+Hub.CreateSection(teleportTab, "🚀 Anti-Cheat Safe Teleports")
+
+Hub.CreateButton(teleportTab, "Teleport to Next Door (Room Exit)", function()
+    teleportToNextDoor()
+end)
+
+Hub.CreateButton(teleportTab, "Teleport to Current Room Key", function()
+    teleportToRoomKey()
+end)
+
+Hub.CreateButton(teleportTab, "Teleport to Nearest Safe Closet", function()
+    teleportToNearestHidingSpot()
+end)
+
+Hub.CreateToggle(teleportTab, "Click to Teleport (Ctrl + Click)", State.ClickTP_Enabled, function(v)
+    State.ClickTP_Enabled = v
+    Hub.Notify("Teleport", v and "Click TP: ACTIVE (Hold Ctrl + Left Click)" or "Click TP: OFF", 2)
+end)
+
+Hub.CreateSlider(teleportTab, "Teleport Speed", 35, 110, State.Teleport_Speed, " studs/s", function(v)
+    State.Teleport_Speed = v
+end)
+
+Hub.CreateSection(teleportTab, "🗺️ Room Navigator (Multi-Room)")
+
+Hub.CreateSlider(teleportTab, "Target Room Number", 1, 100, State.Target_Room_Number, "", function(v)
+    State.Target_Room_Number = v
+end)
+
+Hub.CreateButton(teleportTab, "Auto-Advance to Selected Room", function()
+    autoNavigateToRoom(State.Target_Room_Number)
+end)
+
+Hub.CreateSection(teleportTab, "🕊️ 3D Flight Engine (Smooth VFly)")
+
+Hub.CreateToggle(teleportTab, "Fly / VFly (WASD + Space/Ctrl)", State.Fly_Enabled, function(v)
+    State.Fly_Enabled = v
+    local char = getChar()
+    local root = getRoot()
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+    end
+    if v then
+        neutralizeServerTeleported()
+        if syncServerSlide then syncServerSlide(true, true) end
+    end
+    Hub.Notify("Flight", v and "VFly: ACTIVE (Fly with WASD, Space to rise, Ctrl to descend)" or "VFly: OFF", 2)
+end)
+
+Hub.CreateSlider(teleportTab, "Fly Speed", 15, 85, State.Fly_Speed, " studs/s", function(v)
+    State.Fly_Speed = v
+end)
+
+Hub.CreateSection(teleportTab, "🛡️ Anti-Cheat Bypass Diagnostics")
+
+Hub.CreateToggle(teleportTab, "Bypass Anti-Cheat Core", State.Bypass_AntiCheat, function(v)
+    State.Bypass_AntiCheat = v
+    if v then
+        neutralizeServerTeleported()
+        if syncServerSlide then syncServerSlide(true, true) end
+    end
+    Hub.Notify("Anti-Cheat", v and "Anti-Cheat Bypass: ACTIVE (Slide Token Spoofer & Rollback Nullifier)" or "Anti-Cheat Bypass: OFF", 2)
+end)
+
+Hub.CreateButton(teleportTab, "Force Resync Slide Authorization", function()
+    neutralizeServerTeleported()
+    if syncServerSlide then syncServerSlide(true, true) end
+    Hub.Notify("Anti-Cheat", "Slide authorization tokens resynchronized with server!", 2)
+end)
+
 
 -- =========================================================================
 -- Tab 2: FLOOR SPECIFIC TAB (Floor 1: Hotel / Floor 2: Mines)
