@@ -2599,10 +2599,13 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
             if curRooms then
                 for _, rm in ipairs(curRooms:GetChildren()) do
                     local d = rm:FindFirstChild("Door")
-                    if d and d:IsA("Model") and not d:GetAttribute("Opened") and not d:FindFirstChild("ClientOpen") then
+                    if d and d:IsA("Model") and not d:GetAttribute("Opened") then
                         local dPart = d:FindFirstChild("Door") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                         if dPart and (currentSubPos - dPart.Position).Magnitude <= 14 then
-                            d:SetAttribute("Opened", true)
+                            local co = d:FindFirstChild("ClientOpen")
+                            if co then
+                                pcall(function() co:FireServer() end)
+                            end
                             local prompt = d:FindFirstChildWhichIsA("ProximityPrompt", true)
                             if prompt and prompt.Enabled then
                                 pcall(function() fireproximityprompt(prompt) end)
@@ -2675,8 +2678,16 @@ local function teleportToNextDoor()
                     up.HoldDuration = 0
                     fireproximityprompt(up)
                 end)
+                task.wait(0.2)
             end
         end
+
+        -- Open normal door via ClientOpen remote
+        local co = exitDoor:FindFirstChild("ClientOpen")
+        if co then
+            pcall(function() co:FireServer() end)
+        end
+
         local mop = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
         if mop and mop.Enabled then
             pcall(function()
@@ -2684,7 +2695,13 @@ local function teleportToNextDoor()
                 fireproximityprompt(mop)
             end)
         end
-        Hub.Notify("Teleport", "Arrived at Door " .. tostring(lrVal) .. "!", 2)
+        task.wait(0.2)
+
+        -- Smoothly step through doorway into next room
+        local throughPos = doorCF.Position + doorCF.LookVector * -3.5 + Vector3.new(0, 0.5, 0)
+        safeTweenTeleport(CFrame.new(throughPos, throughPos + doorCF.LookVector * -1), State.Teleport_Speed, false, function()
+            Hub.Notify("Teleport", "Entered Room " .. tostring(lrVal + 1) .. "!", 2)
+        end)
     end)
     return true
 end
