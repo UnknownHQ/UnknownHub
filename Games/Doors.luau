@@ -2719,6 +2719,70 @@ task.spawn(function()
     end
 end)
 
+-- Floor Raycast Snapping: Guaranteed placement on walkable floor surface (eliminates mid-air drops & gravity physics spikes)
+local function getExactFloorPos(pos, fallbackOffset)
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    local hipHeight = hum and hum.HipHeight or 2.0
+    local rootOffset = hipHeight + 1.0
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    -- Raycast downward from 8 studs above pos
+    local origin = Vector3.new(pos.X, pos.Y + 8.0, pos.Z)
+    local hit = workspace:Raycast(origin, Vector3.new(0, -35, 0), rayParams)
+    if hit then
+        return Vector3.new(pos.X, hit.Position.Y + rootOffset, pos.Z)
+    end
+    return Vector3.new(pos.X, pos.Y + (fallbackOffset or 0), pos.Z)
+end
+
+-- Corridor Waypoint Router: Detects wall collisions and calculates L-corner hallway waypoints around obstacles
+local function getNavigationWaypoints(startPos, endPos)
+    local char = getChar()
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    -- Check direct line-of-sight at torso height (+1.5 studs)
+    local s = startPos + Vector3.new(0, 1.5, 0)
+    local e = endPos + Vector3.new(0, 1.5, 0)
+    local directDist = (e - s).Magnitude
+    if directDist < 5 then
+        return { endPos }
+    end
+
+    local hit = workspace:Raycast(s, e - s, rayParams)
+    if not hit then
+        -- Direct path is completely unobstructed!
+        return { endPos }
+    end
+
+    -- Direct path hits a wall/obstacle. Test Manhattan L-corner hallway routes
+    -- Corner 1: traverse X axis first, then Z axis
+    local c1 = Vector3.new(endPos.X, startPos.Y, startPos.Z)
+    local c1_ray = c1 + Vector3.new(0, 1.5, 0)
+    local hit1_a = workspace:Raycast(s, c1_ray - s, rayParams)
+    local hit1_b = workspace:Raycast(c1_ray, e - c1_ray, rayParams)
+    if not hit1_a and not hit1_b then
+        return { getExactFloorPos(c1), endPos }
+    end
+
+    -- Corner 2: traverse Z axis first, then X axis
+    local c2 = Vector3.new(startPos.X, startPos.Y, endPos.Z)
+    local c2_ray = c2 + Vector3.new(0, 1.5, 0)
+    local hit2_a = workspace:Raycast(s, c2_ray - s, rayParams)
+    local hit2_b = workspace:Raycast(c2_ray, e - c2_ray, rayParams)
+    if not hit2_a and not hit2_b then
+        return { getExactFloorPos(c2), endPos }
+    end
+
+    -- Fallback: return destination directly (safeTweenTeleport handles noclip & settle phase)
+    return { endPos }
+end
+
 local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     local char = getChar()
     local root = getRoot()
@@ -2746,6 +2810,8 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     if syncServerSlide then syncServerSlide(true, true) end
 
     local t0 = os.clock()
+    local settleStartTime = nil
+
     local conn
     conn = RunService.Heartbeat:Connect(function()
         if activeTweenToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
@@ -2766,31 +2832,73 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
             end
         end
 
-        local currentSubPos = startPos:Lerp(targetPos, alpha)
-        if State.Fly_SafeBounds then
-            local safeY = getSafeFlightY(currentSubPos)
-            currentSubPos = Vector3.new(currentSubPos.X, safeY, currentSubPos.Z)
-        end
+        if alpha < 1 then
+            -- Active Flight Phase: interpolate sub-positions with velocity packet alignment
+            local currentSubPos = startPos:Lerp(targetPos, alpha)
+            if State.Fly_SafeBounds then
+                local safeY = getSafeFlightY(currentSubPos)
+                currentSubPos = Vector3.new(currentSubPos.X, safeY, currentSubPos.Z)
+            end
 
-        root.CFrame = CFrame.new(currentSubPos) * targetRot
-        root.AssemblyLinearVelocity = moveDir * speed
-        root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = CFrame.new(currentSubPos) * targetRot
+            root.AssemblyLinearVelocity = moveDir * speed
+            root.AssemblyAngularVelocity = Vector3.zero
 
-        -- Auto-open doors encountered along flight path
-        if autoDoorOpen ~= false then
-            processNearbyDoors(currentSubPos, 18)
-        end
+            -- Auto-open doors encountered along flight path
+            if autoDoorOpen ~= false then
+                processNearbyDoors(currentSubPos, 22)
+            end
+        else
+            -- Server Acceptance Phase (0.35s Settle Window):
+            -- Continuously clamps CFrame and maintains zero velocity so the server network buffer
+            -- flushes any wall-collision discrepancies and accepts the final resting coordinate!
+            if not settleStartTime then
+                settleStartTime = os.clock()
+            end
 
-        if alpha >= 1 then
-            if conn then conn:Disconnect() end
-            if activeTweenToken == token then isTeleportTweening = false end
             root.CFrame = CFrame.new(targetPos) * targetRot
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
-            if callback then callback() end
+            if syncServerSlide then syncServerSlide(true, true) end
+
+            if os.clock() - settleStartTime >= 0.35 then
+                if conn then conn:Disconnect() end
+                if activeTweenToken == token then isTeleportTweening = false end
+                if callback then callback() end
+            end
         end
     end)
 
+    return true
+end
+
+-- Multi-Segment Waypoint Traverser: Follows clear hallway waypoints around walls
+local function safeMultiSegmentTeleport(targetCF, speedVal, autoDoorOpen, callback)
+    local char = getChar()
+    local root = getRoot()
+    if not char or not root then return false end
+
+    local targetCFrame = (typeof(targetCF) == "Vector3") and CFrame.new(targetCF) or targetCF
+    local targetPos = targetCFrame.Position
+    local targetRot = targetCFrame - targetPos
+    local startPos = root.Position
+
+    local waypoints = getNavigationWaypoints(startPos, targetPos)
+
+    local function runSegment(idx)
+        if idx > #waypoints then
+            if callback then callback() end
+            return
+        end
+        local wp = waypoints[idx]
+        local isLast = (idx == #waypoints)
+        local cf = isLast and (CFrame.new(wp) * targetRot) or CFrame.new(wp, isLast and targetPos or (waypoints[idx+1] or targetPos))
+        safeTweenTeleport(cf, speedVal, autoDoorOpen, function()
+            runSegment(idx + 1)
+        end)
+    end
+
+    runSegment(1)
     return true
 end
 
@@ -2832,13 +2940,15 @@ local function teleportToRoomKey(callback)
         return false
     end
 
-    Hub.Notify("Teleport", "Teleporting to " .. targetKey.Name .. "...", 2)
+    Hub.Notify("Teleport", "Navigating to " .. targetKey.Name .. "...", 2)
     local toPlayer = (root.Position - targetPart.Position)
     local hDir = Vector3.new(toPlayer.X, 0, toPlayer.Z)
     local standDir = (hDir.Magnitude > 0.1) and hDir.Unit or Vector3.new(0, 0, 1)
-    local targetPos = targetPart.Position + standDir * 3.2 + Vector3.new(0, 1.0, 0)
+    local rawTargetPos = targetPart.Position + standDir * 3.2
+    local targetPos = getExactFloorPos(rawTargetPos)
     local lookTarget = Vector3.new(targetPart.Position.X, targetPos.Y, targetPart.Position.Z)
-    safeTweenTeleport(CFrame.new(targetPos, lookTarget), State.Teleport_Speed, true, function()
+
+    safeMultiSegmentTeleport(CFrame.new(targetPos, lookTarget), State.Teleport_Speed, true, function()
         task.wait(0.1)
         -- Container check: If key is inside a drawer/container, unlock/open the container first
         local parentModel = targetKey.Parent
@@ -2934,13 +3044,14 @@ local function teleportToNextDoor(callback)
     local hToPlayer = Vector3.new(toPlayer.X, 0, toPlayer.Z)
     local approachDir = (hToPlayer.Magnitude > 0.1) and hToPlayer.Unit or -doorCF.LookVector
 
-    -- Target: 3.5 studs in front of door strictly inside CURRENT room
-    local targetPos = Vector3.new(doorPos.X + approachDir.X * 3.5, doorPos.Y + 2.0, doorPos.Z + approachDir.Z * 3.5)
+    -- Target: 3.5 studs in front of door strictly inside CURRENT room at exact floor height
+    local rawTargetPos = Vector3.new(doorPos.X + approachDir.X * 3.5, doorPos.Y, doorPos.Z + approachDir.Z * 3.5)
+    local targetPos = getExactFloorPos(rawTargetPos)
     local lookTarget = Vector3.new(doorPos.X, targetPos.Y, doorPos.Z)
 
-    Hub.Notify("Teleport", "Teleporting to Door " .. tostring(lrVal) .. "...", 2)
+    Hub.Notify("Teleport", "Navigating to Door " .. tostring(lrVal) .. "...", 2)
 
-    safeTweenTeleport(CFrame.new(targetPos, lookTarget), State.Teleport_Speed, true, function()
+    safeMultiSegmentTeleport(CFrame.new(targetPos, lookTarget), State.Teleport_Speed, true, function()
         task.wait(0.1)
 
         -- 1. Auto-unlock if lock exists and key held
@@ -2988,7 +3099,8 @@ local function teleportToNextDoor(callback)
 
         -- 4. Step through door into next room ONLY if opened/confirmed
         if confirmed then
-            local throughPos = Vector3.new(doorPos.X - approachDir.X * 3.5, doorPos.Y + 2.0, doorPos.Z - approachDir.Z * 3.5)
+            local rawThroughPos = Vector3.new(doorPos.X - approachDir.X * 3.5, doorPos.Y, doorPos.Z - approachDir.Z * 3.5)
+            local throughPos = getExactFloorPos(rawThroughPos)
             local throughLook = throughPos - approachDir * 5
             safeTweenTeleport(CFrame.new(throughPos, throughLook), State.Teleport_Speed, false, function()
                 local nextVal = gd and gd.LatestRoom and gd.LatestRoom.Value or (lrVal + 1)
