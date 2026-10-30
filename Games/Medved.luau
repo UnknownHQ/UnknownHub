@@ -771,22 +771,66 @@ end
 local isReloading = false
 local reloadEndTime = 0
 
-local function getLoadedAmmoFromGUI()
+-- Authoritative Ammo State Tracker & Synchronizer
+local currentGunAmmo = {} -- [tool] = currentLoadedAmmo
+
+local function getToolMaxClip(tool)
+    if not tool then return 30 end
+    local config = tool:FindFirstChild("Config")
+    local clipVal = config and config:FindFirstChild("ClipSize")
+    return (clipVal and clipVal:IsA("ValueBase") and clipVal.Value) or 30
+end
+
+local function syncAmmoToGUI(tool)
+    if not tool then return end
+    local maxClip = getToolMaxClip(tool)
+    local curAmmo = currentGunAmmo[tool] or maxClip
+    local str = isReloading and "RELOAD" or (curAmmo .. " / " .. maxClip)
+
+    pcall(function()
+        local pgui = LocalPlayer:FindFirstChild("PlayerGui")
+        local hud = pgui and pgui:FindFirstChild("GameplayInterface") and pgui.GameplayInterface:FindFirstChild("Hud")
+        local gunHud = hud and hud:FindFirstChild("Gun")
+        if gunHud then
+            if gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Ammo") then
+                gunHud.MobileButtons.Ammo.Text = str
+            end
+            if gunHud:FindFirstChild("Crosshair") and gunHud.Crosshair:FindFirstChild("AmmoCount") then
+                gunHud.Crosshair.AmmoCount.Text = str
+            end
+        end
+    end)
+end
+
+local function getLoadedAmmoFromGUI(tool)
     if tick() < reloadEndTime or isReloading then
         return 0, true
     end
 
+    if not tool then
+        local char = LocalPlayer.Character
+        tool = char and char:FindFirstChildOfClass("Tool")
+    end
+    if not tool or not tool:FindFirstChild("GunScripts") then
+        return 0, false
+    end
+
+    local maxClip = getToolMaxClip(tool)
+    if currentGunAmmo[tool] == nil then
+        currentGunAmmo[tool] = maxClip
+    end
+
+    -- 1. Check Reload cooldown indicator in MobileButtons
     local pgui = LocalPlayer:FindFirstChild("PlayerGui")
     local hud = pgui and pgui:FindFirstChild("GameplayInterface") and pgui.GameplayInterface:FindFirstChild("Hud")
     local gunHud = hud and hud:FindFirstChild("Gun")
 
-    -- 1. Check Reload cooldown indicator in MobileButtons
     local reloadCooldown = gunHud and gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Reload") and gunHud.MobileButtons.Reload:FindFirstChild("Cooldown")
     if reloadCooldown and reloadCooldown.Visible then
         return 0, true
     end
 
-    -- 2. Inspect active ammo labels: either MobileButtons.Ammo or Crosshair.AmmoCount
+    -- 2. If player shot manually, sync down to the GUI's lower value
     local ammoLabel = (gunHud and gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Ammo"))
         or (gunHud and gunHud:FindFirstChild("Crosshair") and gunHud.Crosshair:FindFirstChild("AmmoCount"))
 
@@ -797,17 +841,15 @@ local function getLoadedAmmoFromGUI()
         end
         local current = string.match(text, "^(%d+)")
         if current then
-            local currentNum = tonumber(current) or 0
-            return currentNum, (currentNum <= 0)
+            local guiAmmo = tonumber(current) or 0
+            if guiAmmo < currentGunAmmo[tool] then
+                currentGunAmmo[tool] = guiAmmo
+            end
         end
     end
 
-    -- Fallback: inspect equipped tool config
-    local char = LocalPlayer.Character
-    local tool = char and char:FindFirstChildOfClass("Tool")
-    local config = tool and tool:FindFirstChild("Config")
-    local clipSize = config and config:FindFirstChild("ClipSize") and config.ClipSize.Value or 30
-    return clipSize, false
+    local ammo = currentGunAmmo[tool]
+    return ammo, (ammo <= 0)
 end
 
 -- Comprehensive Dual-Vector Gun Reload Trigger (Simulated Key + Server Remote + UI Trigger)
@@ -822,6 +864,7 @@ local function triggerGunReload(tool)
 
     reloadEndTime = tick() + reloadDuration + 0.25
     isReloading = true
+    syncAmmoToGUI(tool)
 
     -- 1. Native Virtual Input KeyPress simulation (invokes GunClient local reload animation & client clip reset)
     pcall(function()
@@ -855,6 +898,8 @@ local function triggerGunReload(tool)
     task.delay(reloadDuration + 0.25, function()
         if tick() >= reloadEndTime then
             isReloading = false
+            currentGunAmmo[tool] = getToolMaxClip(tool)
+            syncAmmoToGUI(tool)
         end
     end)
 end
@@ -871,9 +916,9 @@ local function shootTargetBear(tool, bear, bearPart)
     local fireRemote = gunScripts and gunScripts:FindFirstChild("FireBullet")
     if not fireRemote then return end
 
-    -- Check live GUI ammo state: NEVER shoot when empty or reloading!
-    local currentAmmo, reloading = getLoadedAmmoFromGUI()
-    if reloading or tick() < reloadEndTime then
+    -- Check live ammo state
+    local currentAmmo, reloading = getLoadedAmmoFromGUI(tool)
+    if reloading or tick() < reloadEndTime or isReloading then
         return
     end
 
@@ -902,7 +947,17 @@ local function shootTargetBear(tool, bear, bearPart)
             normal = Vector3.new(0, 1, 0)
         }
     }
+
+    -- Decrement authoritative clip ammo for this shot & update GUI counter in real-time
+    currentGunAmmo[tool] = math.max(0, currentAmmo - 1)
+    syncAmmoToGUI(tool)
+
     fireRemote:FireServer(hitData)
+
+    -- If clip is now empty, immediately trigger reload
+    if currentGunAmmo[tool] <= 0 then
+        triggerGunReload(tool)
+    end
 
     -- Local auditory & visual feedback
     pcall(function()
@@ -969,24 +1024,21 @@ task.spawn(function()
             if Config.GunAura then
                 local isGun = equippedTool and equippedTool:FindFirstChild("GunScripts")
                 if isGun and equippedTool then
-                    local bear, dist = getClosestBear(Config.GunAuraRange, true)
-                    if bear and dist then
-                        applyWeaponMods(equippedTool)
-                        local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
-                        if bearRoot then
-                            -- Aim character at target bear
-                            root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
-                            shootTargetBear(equippedTool, bear, bearRoot)
+                    local currentAmmo, reloading = getLoadedAmmoFromGUI(equippedTool)
+                    if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
+                        triggerGunReload(equippedTool)
+                    else
+                        local bear, dist = getClosestBear(Config.GunAuraRange, true)
+                        if bear and dist then
+                            applyWeaponMods(equippedTool)
+                            local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
+                            if bearRoot then
+                                -- Aim character at target bear
+                                root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
+                                shootTargetBear(equippedTool, bear, bearRoot)
+                            end
                         end
                     end
-                end
-            end
-
-            -- 3. Auto-cycle empty clips if a gun is held during Gun Aura
-            if Config.GunAura and equippedTool and equippedTool:FindFirstChild("GunScripts") then
-                local currentAmmo, reloading = getLoadedAmmoFromGUI()
-                if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
-                    triggerGunReload(equippedTool)
                 end
             end
         end
