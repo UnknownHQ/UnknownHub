@@ -4663,7 +4663,7 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         if rl and rl:FindFirstChild("Modules") then
             local stMod = rl.Modules:FindFirstChild("ServerTeleported", true)
             if stMod then
-                stMod:SetAttribute("Static", v == true)
+                stMod:SetAttribute("Static", true) -- Permanently locked Static so server rollback teleports can never fire
             end
         end
     end)
@@ -4684,7 +4684,11 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
             syncServerSlide(false, false)
         end
         local r = getRoot()
-        if r then r.AssemblyLinearVelocity = Vector3.zero end
+        if r then
+            -- Gentle downward momentum so gravity immediately pulls player to land naturally on the roof/floor!
+            r.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
+            r.AssemblyAngularVelocity = Vector3.zero
+        end
     end
     Hub.Notify("Movement", v and "Fly-Noclip: ON (Gliding forward / WASD steer)" or "Fly-Noclip: OFF", 2)
 end)
@@ -4890,18 +4894,14 @@ local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Remotes
 local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
 local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
 
--- Hook UserInputService.IsKeyDown: strictly intercept Q and E when called by DOORS Movement script during noclip flight
+-- Hook UserInputService.IsKeyDown: strictly intercept Q and E during noclip flight so holding E/Q never moves elevation
 if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED then
     _G.__ISKEYDOWN_HOOKED = true
     local rawIsKeyDown
     rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
         if not checkcaller() and State.Noclip then
             if kc == Enum.KeyCode.E or kc == Enum.KeyCode.Q then
-                local caller = (getcallingscript and getcallingscript()) or rawget(getfenv(2), "script")
-                local src = debug.info(2, "s") or ""
-                if (caller and caller.Name == "Movement") or src:find("Movement") then
-                    return false
-                end
+                return false
             end
         end
         return rawIsKeyDown(self, kc)
@@ -4913,11 +4913,19 @@ if hookmetamethod then
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if not checkcaller() then
+            -- Intercept IsKeyDown call via namecall to permanently kill Q/E elevation in DOORS Movement
+            if (method == "IsKeyDown" or method == "isKeyDown") and State.Noclip then
+                local args = {...}
+                local kc = args[1]
+                if kc == Enum.KeyCode.E or kc == Enum.KeyCode.Q then
+                    return false
+                end
+            end
             if (method == "PivotTo" or method == "pivotTo") then
                 local char = getChar()
                 local mgTable = getMainGameTable()
                 local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                if not hiding and (isTeleportTweening or State.Noclip or isAtRoof) then
+                if not hiding and (isTeleportTweening or State.Noclip or State.Bypass_AntiCheat or isAtRoof) then
                     local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
                     if isLocalChar then
                         return -- Block anticheat rollback PivotTo dead in its tracks; allow wardrobe hiding and door entry!
@@ -5026,9 +5034,14 @@ if cam then
                 end
             end)
 
-            -- 3. Instantly unparent and destroy Screech from Camera so DOORS Main_Game cannot swivel camera or play jumpscare
-            child.Parent = nil
-            pcall(function() child:Destroy() end)
+            -- 3. Make all Screech parts invisible so DOORS Screech module loop completes cleanly without nil indexing
+            for _, desc in ipairs(child:GetDescendants()) do
+                if desc:IsA("BasePart") then
+                    desc.Transparency = 1
+                elseif desc:IsA("Decal") or desc:IsA("ImageLabel") then
+                    desc.Transparency = 1
+                end
+            end
 
             -- 4. Clean up any active screech state in DOORS Main_Game table
             pcall(function()
