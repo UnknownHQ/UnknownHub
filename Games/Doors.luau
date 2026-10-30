@@ -115,6 +115,7 @@ local State = {
     Fly_VerticalSpeed = 35,
     Teleport_Speed = 38,
     Safe_Roof_Station = false,
+    Auto_Evacuate_Entities = true,
     ClickTP_Enabled = false,
     Target_Room_Number = 10,
 
@@ -1597,6 +1598,19 @@ local function processEntity(entity)
 
     if not cfg then
         return
+    end
+
+    -- Auto-Evacuate: If Rush or Ambush spawns and player is not hiding, retreat to nearest closet immediately!
+    if (cfg.Category == "Rush" or cfg.Category == "Ambush") and State.Auto_Evacuate_Entities then
+        local mg = getMainGameTable()
+        if not isPlayerHiding(getChar(), mg) then
+            task.spawn(function()
+                Hub.Notify("Entity Alert", "⚠️ " .. cfg.Name .. " spawned! Auto-evacuating to nearest safe closet...", 3)
+                if _G.TeleportToNearestSafeSpot then
+                    _G.TeleportToNearestSafeSpot()
+                end
+            end)
+        end
     end
 
     -- 8. Check Entity Filter / Exclude List
@@ -3385,12 +3399,75 @@ local function returnFromRoof(callback)
     return true
 end
 
+-- Teleport to Nearest Safe Closet / Wardrobe / Bed with Auto-Hide Prompt (100% Server Validated & Rush Immune)
+local function teleportToNearestSafeSpot(callback)
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return false end
+
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return false end
+
+    local nearestSpot = nil
+    local nearestPrompt = nil
+    local nearestPart = nil
+    local minDist = math.huge
+
+    for _, desc in ipairs(curRooms:GetDescendants()) do
+        if desc:IsA("Model") then
+            local n = desc.Name:lower()
+            if n:find("wardrobe") or n:find("closet") or n:find("bed") or n:find("locker") then
+                local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                local part = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)
+                if part and prompt and prompt.Enabled then
+                    local d = (root.Position - part.Position).Magnitude
+                    if d < minDist then
+                        minDist = d
+                        nearestSpot = desc
+                        nearestPrompt = prompt
+                        nearestPart = part
+                    end
+                end
+            end
+        end
+    end
+
+    if not nearestSpot or not nearestPart then
+        Hub.Notify("Safe Spot", "No accessible closet/wardrobe found nearby!", 3)
+        if callback then callback(false) end
+        return false
+    end
+
+    Hub.Notify("Safe Spot", "Evacuating to " .. nearestSpot.Name .. "...", 2)
+
+    local forward = nearestPart.CFrame.LookVector
+    local rawStandPos = nearestPart.Position + forward * 2.8
+    local standPos = getExactFloorPos(rawStandPos)
+    local lookTarget = Vector3.new(nearestPart.Position.X, standPos.Y, nearestPart.Position.Z)
+
+    safeMultiSegmentTeleport(CFrame.new(standPos, lookTarget), State.Teleport_Speed, true, function()
+        task.wait(0.08)
+        if nearestPrompt and nearestPrompt.Enabled then
+            pcall(function()
+                nearestPrompt.HoldDuration = 0
+                fireproximityprompt(nearestPrompt)
+            end)
+        end
+        Hub.Notify("Safe Spot", "Secure inside " .. nearestSpot.Name .. "! Rush & entities cannot harm you.", 3)
+        if callback then callback(true) end
+    end)
+    return true
+end
+
 _G.TeleportToRoof = teleportToRoof
 _G.ReturnFromRoof = returnFromRoof
+_G.TeleportToNearestSafeSpot = teleportToNearestSafeSpot
 if getgenv then
     getgenv().TeleportToRoof = teleportToRoof
     getgenv().ReturnFromRoof = returnFromRoof
-    getgenv().TeleportToNearestHidingSpot = teleportToRoof
+    getgenv().TeleportToNearestSafeSpot = teleportToNearestSafeSpot
+    getgenv().TeleportToNearestHidingSpot = teleportToNearestSafeSpot
 end
 
 local isAutoNavigatingRooms = false
@@ -4757,21 +4834,21 @@ Hub.CreateButton(teleportTab, "Teleport to Current Room Key", function()
     teleportToRoomKey()
 end)
 
-Hub.CreateButton(teleportTab, "Teleport to Roof (Safe Spot +35 Studs)", function()
+Hub.CreateButton(teleportTab, "Teleport to Safe Closet (Auto-Hide)", function()
+    teleportToNearestSafeSpot()
+end)
+
+Hub.CreateToggle(teleportTab, "Auto-Evacuate on Rush / Ambush", State.Auto_Evacuate_Entities, function(v)
+    State.Auto_Evacuate_Entities = v
+    Hub.Notify("Entity Sentry", v and "Auto-Evacuate: ACTIVE (Instantly retreats to closet on Rush)" or "Auto-Evacuate: OFF", 2)
+end)
+
+Hub.CreateButton(teleportTab, "Teleport to Roof (+35 Studs Altitude)", function()
     teleportToRoof()
 end)
 
-Hub.CreateButton(teleportTab, "Return from Roof (Safe Landing)", function()
+Hub.CreateButton(teleportTab, "Return from Roof (Floor Landing)", function()
     returnFromRoof()
-end)
-
-Hub.CreateToggle(teleportTab, "Safe Roof Station (Platform)", State.Safe_Roof_Station, function(v)
-    State.Safe_Roof_Station = v
-    if v then
-        teleportToRoof()
-    else
-        returnFromRoof()
-    end
 end)
 
 Hub.CreateToggle(teleportTab, "Click to Teleport (Ctrl + Click)", State.ClickTP_Enabled, function(v)
