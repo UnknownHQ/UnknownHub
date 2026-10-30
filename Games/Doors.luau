@@ -2362,15 +2362,18 @@ pcall(function()
             local act = (prompt.ActionText or ""):lower()
             local obj = (prompt.ObjectText or ""):lower()
             local pName = prompt.Parent and prompt.Parent.Name:lower() or ""
-            if act:find("hide") or act:find("enter") or act:find("closet") or act:find("wardrobe")
+            local mName = prompt.Parent and prompt.Parent.Parent and prompt.Parent.Parent.Name:lower() or ""
+            local prName = prompt.Name:lower()
+            if prName:find("hide") or act:find("hide") or act:find("enter") or act:find("closet") or act:find("wardrobe")
                or obj:find("closet") or obj:find("wardrobe") or obj:find("locker") or obj:find("bed")
-               or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or pName:find("bed") then
-                unhideGraceUntil = os.clock() + 3.0
+               or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or pName:find("bed")
+               or mName:find("closet") or mName:find("wardrobe") or mName:find("locker") or mName:find("bed") then
+                unhideGraceUntil = os.clock() + 4.0
                 lastForwardPos = nil
                 lastForwardCFrame = nil
                 table.clear(trailHistory)
                 wasMoving = false
-                if syncServerSlide then syncServerSlide(false) end
+                if syncServerSlide then syncServerSlide(false, false) end
             end
         end
     end
@@ -2651,6 +2654,47 @@ local function getSafeFlightY(desiredPos)
     return desiredPos.Y
 end
 
+-- High-Precision Environment & Hiding Spot Introspectors
+local function isPlayerOutOfMap()
+    if State.Noclip then return true end
+    local root = getRoot()
+    if not root then return false end
+    local pos = root.Position
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return true end
+    for _, rm in ipairs(curRooms:GetChildren()) do
+        local cf, sz = rm:GetBoundingBox()
+        local minBound = cf.Position - sz * 0.5 - Vector3.new(4, 4, 4)
+        local maxBound = cf.Position + sz * 0.5 + Vector3.new(4, 4, 4)
+        if pos.X >= minBound.X and pos.X <= maxBound.X and
+           pos.Z >= minBound.Z and pos.Z <= maxBound.Z and
+           pos.Y >= minBound.Y and pos.Y <= maxBound.Y then
+            return false
+        end
+    end
+    return true
+end
+
+local function isHidingSpotNearPos(pos)
+    if not pos then return false end
+    local p = (typeof(pos) == "CFrame") and pos.Position or pos
+    if typeof(p) ~= "Vector3" then return false end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return false end
+    for _, rm in ipairs(curRooms:GetChildren()) do
+        for _, desc in ipairs(rm:GetChildren()) do
+            local nl = desc.Name:lower()
+            if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
+                local pivot = desc:GetPivot().Position
+                if (pivot - p).Magnitude < 12 then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 -- Absolute Glitch & Void Deflection Shield (Zero Glitch Invariant: Map & Noclip Immune)
 local function initAntiGlitchShield()
     if not State.Deflect_Glitch then return end
@@ -2686,7 +2730,7 @@ local function initAntiGlitchShield()
             end
         end
 
-        -- 2. Intercept Jumpscare and JumpscareBindable events for Glitch & Void
+        -- 2. Intercept Jumpscare and JumpscareBindable events for Glitch, Void, Rush & Ambush
         local jmp = rf and rf:FindFirstChild("Jumpscare")
         if jmp and getconnections then
             for _, c in ipairs(getconnections(jmp.OnClientEvent)) do
@@ -2696,6 +2740,9 @@ local function initAntiGlitchShield()
                     if hookfunction then
                         hookfunction(fn, newcclosure(function(jName, ...)
                             if jName == "Glitch" or jName == "Void" then
+                                return
+                            end
+                            if (jName == "Rush" or jName == "Ambush") and (State.Noclip or isPlayerOutOfMap()) then
                                 return
                             end
                             return fn(jName, ...)
@@ -2714,6 +2761,9 @@ local function initAntiGlitchShield()
                     if hookfunction then
                         hookfunction(fn, newcclosure(function(jName, ...)
                             if jName == "Glitch" or jName == "Void" then
+                                return
+                            end
+                            if (jName == "Rush" or jName == "Ambush") and (State.Noclip or isPlayerOutOfMap()) then
                                 return
                             end
                             return fn(jName, ...)
@@ -2855,18 +2905,8 @@ local lastFlySlidePulse = 0
 local flyPos = nil
 
 local function pulseSlideKeepAlive()
-    if not crouchRemote then
-        pcall(function()
-            local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-            crouchRemote = rf and rf:FindFirstChild("Crouch")
-        end)
-    end
-    if crouchRemote then
-        pcall(function()
-            crouchRemote:FireServer(false, false)
-            task.wait(0.02)
-            crouchRemote:FireServer(false, true)
-        end)
+    if syncServerSlide then
+        syncServerSlide(true, true)
     end
 end
 
@@ -2887,7 +2927,10 @@ local function neutralizeServerTeleported()
                         local char = getChar()
                         local mgTable = getMainGameTable()
                         local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                        if not hiding and (isTeleportTweening or State.Noclip or isAtRoof or State.Bypass_AntiCheat) then
+                        if hiding or isHidingSpotNearPos(p2) then
+                            return rawFn(p1, p2, p3, p4)
+                        end
+                        if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
                             return
                         end
                         return rawFn(p1, p2, p3, p4)
@@ -2915,7 +2958,11 @@ local function neutralizeServerTeleported()
                                 local char = getChar()
                                 local mgTable = getMainGameTable()
                                 local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                                if not hiding and (isTeleportTweening or State.Noclip or isAtRoof or State.Bypass_AntiCheat) then
+                                local args = {...}
+                                if hiding or isHidingSpotNearPos(args[1]) then
+                                    return fn(...)
+                                end
+                                if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
                                     return
                                 end
                                 return fn(...)
@@ -2939,7 +2986,11 @@ local function neutralizeServerTeleported()
                                 local char = getChar()
                                 local mgTable = getMainGameTable()
                                 local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                                if not hiding and (isTeleportTweening or State.Noclip or isAtRoof or State.Bypass_AntiCheat) then
+                                local args = {...}
+                                if hiding or isHidingSpotNearPos(args[1]) then
+                                    return fn(...)
+                                end
+                                if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
                                     return
                                 end
                                 return fn(...)
@@ -2951,9 +3002,9 @@ local function neutralizeServerTeleported()
         end
     end)
 
-    -- 3. Permanently clear pending Main_Game SETNEWCF to nullify anticheat server rollbacks
+    -- 3. Clear SETNEWCF only during active Noclip or Tweening, NEVER during hiding or normal play
     local mgTable = getMainGameTable()
-    if mgTable and not isPlayerHiding(getChar(), mgTable) and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or isAtRoof) then
+    if mgTable and not isPlayerHiding(getChar(), mgTable) and (os.clock() >= unhideGraceUntil) and (State.Noclip or isTeleportTweening) then
         if mgTable.SETNEWCF then
             mgTable.SETNEWCF = nil
         end
@@ -3315,15 +3366,9 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
                     end
                 end)
 
-                -- Server State Slide Handshake: cycles Crouch remote to force server to register position at new coordinates!
-                if crouchRemote then
-                    pcall(function()
-                        crouchRemote:FireServer(false, false)
-                        task.wait(0.02)
-                        crouchRemote:FireServer(false, true)
-                        task.wait(0.02)
-                        crouchRemote:FireServer(false, false)
-                    end)
+                -- Server State Slide Handshake: cleanly update server slide authorization without dropping physics
+                if syncServerSlide then
+                    syncServerSlide(false, false)
                 end
 
                 if callback then callback() end
@@ -3937,11 +3982,11 @@ RunService.Heartbeat:Connect(function(dt)
             hasInput = true
         end
 
-        -- Continuous slide authorization keep-alive (every 0.55s)
+        -- Continuous slide authorization keep-alive (clean heartbeat every 1.5s, no toggling)
         local now = os.clock()
-        if (now - lastFlySlidePulse >= 0.55) then
+        if (now - lastFlySlidePulse >= 1.5) then
             lastFlySlidePulse = now
-            task.spawn(pulseSlideKeepAlive)
+            if syncServerSlide then syncServerSlide(true, true) end
         end
 
         -- Rotate character body horizontally with camera so head is ALWAYS directly under the camera
@@ -3949,24 +3994,24 @@ RunService.Heartbeat:Connect(function(dt)
         local targetRot = if hLook.Magnitude > 0.01 then CFrame.new(Vector3.zero, hLook) else root.CFrame.Rotation
 
         local targetPos = root.Position
+        local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+        local targetVel = Vector3.zero
+
         if hasInput and steer.Magnitude > 0.01 then
-            local speed = math.clamp(State.Noclip_Speed or 15, 4, 35)
-            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-            targetPos = targetPos + steer.Unit * (speed * safeDt)
+            local speed = math.clamp(State.Noclip_Speed or 22, 4, 35)
+            targetVel = steer.Unit * speed
+            targetPos = targetPos + targetVel * safeDt
         end
 
-        char:PivotTo(CFrame.new(targetPos) * targetRot)
-        root.AssemblyLinearVelocity = Vector3.zero
+        local newCF = CFrame.new(targetPos) * targetRot
+        char:PivotTo(newCF)
+        root.CFrame = newCF
+        local cp = char:FindFirstChild("CollisionPart")
+        if cp then cp.CFrame = newCF end
+
+        -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
+        root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
         root.AssemblyAngularVelocity = Vector3.zero
-
-        -- Anti-Void Floor Safeguard: Only clamp if truly plummeting deep into the void (Y < -150)
-        if root.Position.Y < -150 then
-            local safeLanding = getSafeLandingPosition()
-            if safeLanding then
-                char:PivotTo(CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector))
-                root.CFrame = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
-            end
-        end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
@@ -4079,6 +4124,18 @@ RunService.Heartbeat:Connect(function(dt)
         local cam = Workspace.CurrentCamera
         if cam and cam.FieldOfView ~= State.FieldOfView then
             cam.FieldOfView = State.FieldOfView
+        end
+    end
+
+    -- Immortality & Lethality Shield against Rush / Ambush when flying or out of the map
+    if State.Noclip or isPlayerOutOfMap() then
+        if mgTable then
+            if mgTable.deathtick then mgTable.deathtick = tick() + 999999 end
+            if mgTable.dead then mgTable.dead = false end
+        end
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum and hum.Health < 100 and hum.Health > 0 then
+            hum.Health = 100
         end
     end
 end)
@@ -4240,26 +4297,39 @@ local function applyPromptModifications(prompt)
     local pObj = (prompt.ObjectText or ""):lower()
     local pAct = (prompt.ActionText or ""):lower()
     local parentName = prompt.Parent and prompt.Parent.Name:lower() or ""
+    local prName = prompt.Name:lower()
     local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or parentName:find("knob")
-    local isHidingSpot = pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed") or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("locker") or parentName:find("bed") or pAct:find("hide")
+    local isHidingSpot = prName:find("hide") or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed")
+        or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("locker") or parentName:find("bed")
+        or pAct:find("hide") or pAct:find("enter")
     local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock")
 
-    if State.Instant_Interact or isHidingSpot then
-        prompt.HoldDuration = 0
-    else
-        local orig = prompt:GetAttribute("OrigHold")
-        if orig ~= nil then prompt.HoldDuration = orig end
-    end
-
-    -- Frame-0 Prompt Visibility: Strip line-of-sight check unconditionally so prompts appear instantly
+    -- Strip line-of-sight check unconditionally so prompts appear instantly
     prompt.RequiresLineOfSight = false
 
-    if isHidingSpot or isDoorPrompt or State.Range_Interact then
-        local baseDist = isHidingSpot and 12 or (isDoorPrompt and 12 or (isDrawerOrContainer and 10 or State.Interact_MaxRange))
-        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, baseDist)
+    if isHidingSpot then
+        -- CRITICAL WARDROBE COMPLIANCE FIX:
+        -- DOORS server enforces strict ~9 stud distance check. If client extends MaxActivationDistance to 12,
+        -- player triggers prompt from too far away and server silently drops the interaction FOREVER!
+        -- Clamping strictly to native 9.0 studs guarantees 100% server acceptance!
+        local origDist = prompt:GetAttribute("OrigMaxDist") or 9
+        prompt.MaxActivationDistance = math.clamp(origDist, 5, 9.0)
+        prompt.HoldDuration = 0
+    elseif isDoorPrompt then
+        prompt.HoldDuration = 0
+        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 12)
+    elseif State.Instant_Interact then
+        prompt.HoldDuration = 0
+        if State.Range_Interact then
+            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, isDrawerOrContainer and 10 or State.Interact_MaxRange)
+        end
     else
-        local orig = prompt:GetAttribute("OrigMaxDist")
-        if orig ~= nil then prompt.MaxActivationDistance = orig end
+        local origHold = prompt:GetAttribute("OrigHold")
+        if origHold ~= nil then prompt.HoldDuration = origHold end
+        local origLOS = prompt:GetAttribute("OrigLOS")
+        if origLOS ~= nil then prompt.RequiresLineOfSight = origLOS end
+        local origDist = prompt:GetAttribute("OrigMaxDist")
+        if origDist ~= nil then prompt.MaxActivationDistance = origDist end
     end
 end
 
@@ -4312,6 +4382,15 @@ local function isPromptSafeToAutoInteract(prompt)
     local pName = parent.Name:lower()
     local act = (prompt.ActionText or ""):lower()
     local obj = (prompt.ObjectText or ""):lower()
+    local prName = prompt.Name:lower()
+
+    -- STRICT INVARIANT: All hiding spots (Wardrobes, Closets, Beds, Lockers) MUST NEVER be auto-interacted!
+    if prName:find("hide") or act:find("hide") or act:find("enter")
+       or obj:find("wardrobe") or obj:find("closet") or obj:find("bed") or obj:find("locker")
+       or pName:find("wardrobe") or pName:find("closet") or pName:find("bed") or pName:find("locker")
+       or mName:find("wardrobe") or mName:find("closet") or mName:find("bed") or mName:find("locker") then
+        return false
+    end
 
     -- 0. USER CUSTOM KEYWORD EXCLUSIONS
     if State.AutoInteract_CustomKeywords then
@@ -4499,13 +4578,39 @@ task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.Auto_Interact then
-            -- Pause Auto Interact if daddy is pressing E (manual interact) or entering a wardrobe so manual interaction is never stolen
-            if UserInputService:IsKeyDown(Enum.KeyCode.E) or (os.clock() < unhideGraceUntil) then
+            -- Pause Auto Interact if daddy is pressing E (manual interact), or entering a wardrobe, or near a hiding spot
+            local now = os.clock()
+            local root = getRoot()
+            local rootPos = root and root.Position
+
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) or (now < unhideGraceUntil) then
                 task.wait(0.1)
                 continue
             end
 
-            local root = getRoot()
+            -- Pause Auto Interact if daddy is near ANY wardrobe/closet/bed (< 10 studs) so manual interaction focus is NEVER stolen
+            if rootPos then
+                local nearHidingSpot = false
+                local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                if curRooms then
+                    for _, rm in ipairs(curRooms:GetChildren()) do
+                        for _, desc in ipairs(rm:GetChildren()) do
+                            local nl = desc.Name:lower()
+                            if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
+                                if (desc:GetPivot().Position - rootPos).Magnitude < 10 then
+                                    nearHidingSpot = true
+                                    break
+                                end
+                            end
+                        end
+                        if nearHidingSpot then break end
+                    end
+                end
+                if nearHidingSpot then
+                    task.wait(0.1)
+                    continue
+                end
+            end
             if root then
                 local rootPos = root.Position
                 local maxDist = State.Range_Interact and math.clamp(State.Interact_MaxRange, 6, 14) or 12
@@ -4624,18 +4729,8 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     State.Noclip = v
     local char = getChar()
 
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
-        if rl and rl:FindFirstChild("Modules") then
-            local stMod = rl.Modules:FindFirstChild("ServerTeleported", true)
-            if stMod then
-                stMod:SetAttribute("Static", true)
-            end
-        end
-    end)
-
     if not v and char then
+        -- 1. Synchronously restore collision across all character parts
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
@@ -4647,39 +4742,31 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
                 end
             end
         end
-        if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-            syncServerSlide(false, false)
-        end
-        local r = getRoot()
-        if r then
-            local curRooms = Workspace:FindFirstChild("CurrentRooms")
-            if curRooms then
-                for _, rm in ipairs(curRooms:GetChildren()) do
-                    for _, p in ipairs(rm:GetDescendants()) do
-                        if p:IsA("BasePart") then
-                            local nl = p.Name:lower()
-                            if nl:find("ceiling") or nl:find("roof") then
-                                p.CanCollide = true
-                            end
+
+        -- 2. Make all ceilings, roofs, and walls in CurrentRooms 100% solid so daddy lands and walks on them smoothly
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, rm in ipairs(curRooms:GetChildren()) do
+                for _, p in ipairs(rm:GetDescendants()) do
+                    if p:IsA("BasePart") then
+                        local nl = p.Name:lower()
+                        if nl:find("roof") or nl:find("ceiling") or nl:find("top") or nl:find("wall") or nl:find("structure") then
+                            p.CanCollide = true
                         end
                     end
                 end
             end
+        end
 
-            pcall(function()
-                local rayParams = RaycastParams.new()
-                rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                local downHit = workspace:Raycast(r.Position, Vector3.new(0, -6, 0), rayParams)
-                if downHit and downHit.Position and (r.Position.Y - downHit.Position.Y) < 3.0 then
-                    local safeY = downHit.Position.Y + 3.2
-                    if r.Position.Y < safeY then
-                        char:PivotTo(CFrame.new(r.Position.X, safeY, r.Position.Z) * r.CFrame.Rotation)
-                    end
-                end
-            end)
+        if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+            syncServerSlide(false, false)
+        end
 
-            r.AssemblyLinearVelocity = Vector3.new(0, -6, 0)
+        local r = getRoot()
+        if r then
+            -- NATURAL ROOF FALL: Gentle downward impulse so gravity takes over and daddy falls onto the roof.
+            -- NO TELEPORTATION, NO PIVOTTO, NO SNAPPING INTO MAP!
+            r.AssemblyLinearVelocity = Vector3.new(0, -1.0, 0)
             r.AssemblyAngularVelocity = Vector3.zero
         end
     end
