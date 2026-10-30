@@ -3880,12 +3880,7 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Silky-Smooth Butter Horizontal Phase-Glide Flight Engine (Zero Up/Down Drift, Zero Lag, Zero Physics Stutter)
-    if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
-        -- Cloak player on server as 'Hiding' so Rush, Ambush, and entities out-of-bounds treat player as protected in closet
-        if not char:GetAttribute("Hiding") then
-            char:SetAttribute("Hiding", true)
-        end
-
+    if State.Noclip and State.Bypass_AntiCheat and not isTeleportTweening then
         local mg = getMainGameTable()
         if mg and mg.noclip then
             mg.noclip = false
@@ -3900,11 +3895,12 @@ RunService.Heartbeat:Connect(function(dt)
 
         local cam = Workspace.CurrentCamera
         local camCF = cam.CFrame
-        -- Strictly horizontal directional vectors (Up/Down completely eliminated!)
+        -- Horizontal directional vectors (WASD moves strictly on XZ plane, zero camera pitch diving!)
         local lookH = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
         local rightH = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
         local camLook = if lookH.Magnitude > 0.001 then lookH.Unit else Vector3.new(0, 0, -1)
         local camRight = if rightH.Magnitude > 0.001 then rightH.Unit else Vector3.new(1, 0, 0)
+        local camUp = Vector3.new(0, 1, 0)
 
         local steer = Vector3.zero
         local hasInput = false
@@ -3925,15 +3921,19 @@ RunService.Heartbeat:Connect(function(dt)
             steer = steer - camRight
             hasInput = true
         end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            steer = steer + camUp
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
+            steer = steer - camUp
+            hasInput = true
+        end
 
-        -- Gamepad / Mobile Touch fallback (horizontal MoveDirection)
+        -- Gamepad / Mobile Touch fallback
         if not hasInput and hum and hum.MoveDirection.Magnitude > 0.05 then
-            local md = hum.MoveDirection
-            local mdH = Vector3.new(md.X, 0, md.Z)
-            if mdH.Magnitude > 0.01 then
-                steer = steer + mdH.Unit
-                hasInput = true
-            end
+            steer = steer + hum.MoveDirection
+            hasInput = true
         end
 
         -- Continuous slide authorization keep-alive (every 0.55s)
@@ -3950,8 +3950,7 @@ RunService.Heartbeat:Connect(function(dt)
             local delta = moveDir * (speed * safeDt)
 
             local curPivot = char:GetPivot()
-            -- Lock exact Y altitude: Strictly horizontal glide without any vertical drift
-            local targetPos = Vector3.new(curPivot.Position.X + delta.X, curPivot.Position.Y, curPivot.Position.Z + delta.Z)
+            local targetPos = curPivot.Position + delta
             local targetCF = CFrame.new(targetPos) * curPivot.Rotation
 
             char:PivotTo(targetCF)
@@ -3967,8 +3966,8 @@ RunService.Heartbeat:Connect(function(dt)
             root.AssemblyAngularVelocity = Vector3.zero
         end
 
-        -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor (ONLY when not hiding!)
-        if not hiding and root.Position.Y < -5 then
+        -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor
+        if root.Position.Y < -5 then
             local safeLanding = getSafeLandingPosition()
             if safeLanding then
                 local safeCF = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
@@ -4696,46 +4695,27 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Horizontal Phase Glide)", State.Noclip, f
         end
         if syncServerSlide then syncServerSlide(true, true) end
     else
-
-        if char and char:GetAttribute("Hiding") then
-            char:SetAttribute("Hiding", nil)
-        end
-
-        -- Exact Vertical Floor Landing: Drops player straight down to floor at current (X, Z) coordinates
-        if r and char then
-            local rayParams = RaycastParams.new()
-            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-            -- Vertical raycast directly downwards from above current position
-            local floorRay = workspace:Raycast(Vector3.new(r.Position.X, math.max(r.Position.Y, 20), r.Position.Z), Vector3.new(0, -350, 0), rayParams)
-            if floorRay and floorRay.Instance and floorRay.Instance.CanCollide then
-                local rootOffset = (hum and hum.HipHeight or 2.0) + 1.0
-                local targetY = floorRay.Position.Y + rootOffset
-                local landedCF = CFrame.new(r.Position.X, targetY, r.Position.Z) * r.CFrame.Rotation
-                char:PivotTo(landedCF)
-                r.CFrame = landedCF
-                r.AssemblyLinearVelocity = Vector3.zero
-                teleportImmunityUntil = os.clock() + 1.5
-                Hub.Notify("Safe Landing", "Safely dropped to floor directly below!", 2)
-            end
-        end
-
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
-                    part.CanCollide = true
-                    part.CanTouch = true
-                elseif part.Name ~= "HumanoidRootPart" and not part.Parent:IsA("Accessory") then
-                    part.CanCollide = true
-                    part.CanTouch = true
+        -- Clean disable: NO TELEPORT TO ROOF! Keeps player right where they are!
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
+                        part.CanCollide = true
+                        part.CanTouch = true
+                    elseif part.Name ~= "HumanoidRootPart" and not part.Parent:IsA("Accessory") then
+                        part.CanCollide = true
+                        part.CanTouch = true
+                    end
                 end
             end
         end
         if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
             syncServerSlide(false, false)
         end
-        if r then r.AssemblyLinearVelocity = Vector3.zero end
+        if r then
+            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyAngularVelocity = Vector3.zero
+        end
     end
     Hub.Notify("Movement", v and "Fly-Noclip: ON (Smooth 3D Flight)" or "Fly-Noclip: OFF", 2)
 end)
