@@ -726,7 +726,8 @@ return function(opts)
         tabBtn.Parent = tabScroll
         applyCorner(tabBtn, 8)
 
-        -- Icon Label
+        -- Set LayoutOrder so Settings can be pinned to the bottom
+        tabBtn.LayoutOrder = (tabName == "Settings") and 9999 or #tabs
         local iconLbl = Instance.new("TextLabel")
         iconLbl.Name = "Icon"
         iconLbl.Size = UDim2.new(0, 22, 1, 0)
@@ -1954,13 +1955,14 @@ return function(opts)
         end)
 
         function listObj.AddItem(text, subtext, itemCallback)
+            local label = (type(text) == "table" and (text.Name or text.Title or text.text or text[1])) or tostring(text)
             local itmBtn = Instance.new("TextButton")
-            itmBtn.Name = "Item_" .. tostring(text)
+            itmBtn.Name = "Item_" .. label
             itmBtn.Size = UDim2.new(1, 0, 0, 28)
             itmBtn.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
             itmBtn.BorderSizePixel = 0
             itmBtn.Font = Enum.Font.Gotham
-            itmBtn.Text = "   " .. tostring(text)
+            itmBtn.Text = "   " .. label
             itmBtn.TextColor3 = DEFAULT_THEME.TextSecondary
             itmBtn.TextSize = 11
             itmBtn.TextXAlignment = Enum.TextXAlignment.Left

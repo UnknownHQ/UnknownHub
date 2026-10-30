@@ -115,7 +115,7 @@ local State = {
     Fly_VerticalSpeed = 35,
     Teleport_Speed = 38,
     Safe_Roof_Station = false,
-    Auto_Evacuate_Entities = true,
+    Auto_Evacuate_Entities = false,
     ClickTP_Enabled = false,
     Target_Room_Number = 10,
 
@@ -1611,39 +1611,10 @@ local function processEntity(entity)
         return
     end
 
-    -- Auto-Evacuate: If Rush or Ambush spawns and player is not hiding, retreat to nearest closet immediately!
-    if (cfg.Category == "Rush" or cfg.Category == "Ambush") and State.Auto_Evacuate_Entities then
-        local mg = getMainGameTable()
-        if not isPlayerHiding(getChar(), mg) then
-            task.spawn(function()
-                Hub.Notify("Entity Alert", "⚠️ " .. cfg.Name .. " spawned! Auto-evacuating to nearest safe closet...", 3)
-                if _G.TeleportToNearestSafeSpot then
-                    _G.TeleportToNearestSafeSpot()
-                end
-            end)
-        end
-    end
+    -- [Auto-Evacuate / Auto-Hide Completely Eradicated per Daddy's Orders]
 
-    -- 8. Check Entity Filter / Exclude List
-    local isAllowed = true
-    if cfg.Category == "Rush" and not State.Entity_Show_Rush then isAllowed = false
-    elseif cfg.Category == "Ambush" and not State.Entity_Show_Ambush then isAllowed = false
-    elseif cfg.Category == "Figure" and not State.Entity_Show_Figure then isAllowed = false
-    elseif cfg.Category == "Seek" and not State.Entity_Show_Seek then isAllowed = false
-    elseif cfg.Category == "Eyes" and not State.Entity_Show_Eyes then isAllowed = false
-    elseif cfg.Category == "Halt" and not State.Entity_Show_Halt then isAllowed = false
-    elseif cfg.Category == "Screech" and not State.Entity_Show_Screech then isAllowed = false
-    elseif cfg.Category == "Giggle" and not State.Entity_Show_Giggle then isAllowed = false
-    elseif cfg.Category == "Grumble" and not State.Entity_Show_Grumble then isAllowed = false
-    elseif cfg.Category == "Gloombats" and not State.Entity_Show_Gloombats then isAllowed = false
-    elseif cfg.Category == "Snare" and not State.Entity_Show_Snare then isAllowed = false
-    elseif cfg.Category == "Timothy" and not State.Entity_Show_Timothy then isAllowed = false
-    elseif cfg.Category == "Dread" and not State.Entity_Show_Dread then isAllowed = false
-    elseif cfg.Category == "Rooms" and not State.Entity_Show_Rooms then isAllowed = false
-    elseif cfg.Category == "Other" and not State.Entity_Show_Other then isAllowed = false
-    end
-
-    if not isAllowed then
+    -- 8. Check Entity Filter / Exclude List (Multi-Choice Dynamic Filter)
+    if State.Entity_ESP_Filters and cfg.Category and State.Entity_ESP_Filters[cfg.Category] == false then
         removeEspFor(entity)
         return
     end
@@ -3906,6 +3877,10 @@ RunService.Heartbeat:Connect(function(dt)
 
     -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
+        -- Cloak player on server as 'Hiding' so Rush, Ambush, and entities out-of-bounds treat player as protected in closet
+        if not char:GetAttribute("Hiding") then
+            char:SetAttribute("Hiding", true)
+        end
         -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") and p.CanCollide then
@@ -3975,8 +3950,8 @@ RunService.Heartbeat:Connect(function(dt)
             root.AssemblyAngularVelocity = Vector3.zero
         end
 
-        -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor
-        if root.Position.Y < -5 then
+        -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor (ONLY when not hiding!)
+        if not hiding and root.Position.Y < -5 then
             local safeLanding = getSafeLandingPosition()
             if safeLanding then
                 char:PivotTo(CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector))
@@ -4078,10 +4053,8 @@ RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        if State.Noclip then
-            mgTable.noclip = true
-        elseif not State.Noclip and mgTable.noclip then
-            mgTable.noclip = false
+        if mgTable.noclip then
+            mgTable.noclip = false -- DOORS dev noclip strictly disabled; prevents Q/E from altering altitude!
         end
     end
 end)
@@ -4692,21 +4665,28 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
     end)
 
     if not v and char then
-        -- Out-of-bounds Safe Landing: If disabled while outside the map/void, safely ground player onto room floor
-        local safePos = getSafeLandingPosition()
+        if char:GetAttribute("Hiding") then
+            char:SetAttribute("Hiding", nil)
+        end
+        -- Exact Vertical Floor Landing: Drops player straight down to floor at current (X, Z) coordinates
         local r = getRoot()
-        if safePos and r then
-            if (r.Position - safePos).Magnitude > 3 or (safePos.Y - r.Position.Y) > 2 or (r.Position.Y - safePos.Y) > 4 then
-                char:PivotTo(CFrame.new(safePos, safePos + r.CFrame.LookVector))
-                r.CFrame = CFrame.new(safePos, safePos + r.CFrame.LookVector)
+        if r and char then
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+            -- Vertical raycast directly downwards from above current position
+            local floorRay = workspace:Raycast(Vector3.new(r.Position.X, math.max(r.Position.Y, 20), r.Position.Z), Vector3.new(0, -350, 0), rayParams)
+            if floorRay and floorRay.Instance and floorRay.Instance.CanCollide then
+                local hum = char:FindFirstChildWhichIsA("Humanoid")
+                local rootOffset = (hum and hum.HipHeight or 2.0) + 1.0
+                local targetY = floorRay.Position.Y + rootOffset
+                local landedCF = CFrame.new(r.Position.X, targetY, r.Position.Z) * r.CFrame.Rotation
+                char:PivotTo(landedCF)
+                r.CFrame = landedCF
                 r.AssemblyLinearVelocity = Vector3.zero
                 teleportImmunityUntil = os.clock() + 1.5
-                task.spawn(function()
-                    syncServerSlide(true, true)
-                    task.wait(0.5)
-                    syncServerSlide(false, false)
-                end)
-                Hub.Notify("Safe Landing", "Safely returned to room floor!", 2)
+                Hub.Notify("Safe Landing", "Safely dropped to floor directly below!", 2)
             end
         end
 
@@ -4733,22 +4713,7 @@ Hub.CreateSlider(mainTab, "Fly-Noclip Speed", 5, 75, State.Noclip_Speed, " studs
     State.Noclip_Speed = v
 end)
 
-Hub.CreateButton(mainTab, "Teleport to Safe Zone (+35 Studs Altitude)", function()
-    teleportToRoof()
-end)
-
-Hub.CreateButton(mainTab, "Return from Safe Zone (Floor Landing)", function()
-    returnFromRoof()
-end)
-
-Hub.CreateToggle(mainTab, "Safe Zone Station (Platform)", State.Safe_Roof_Station, function(v)
-    State.Safe_Roof_Station = v
-    if v then
-        teleportToRoof()
-    else
-        returnFromRoof()
-    end
-end)
+-- [Teleport & Roof Buttons Removed for Clean Fly-Noclip Focus]
 
 Hub.CreateToggle(mainTab, "Bypass Anti-Cheat Core", State.Bypass_AntiCheat, function(v)
     State.Bypass_AntiCheat = v
@@ -5510,6 +5475,22 @@ Hub.CreateToggle(espTab, "Entities ESP (Monsters Master)", State.Entities_ESP, f
     end
 end)
 
+local entityFilterList = {
+    "Rush", "Ambush", "Figure", "Seek", "Eyes", "Halt",
+    "Screech", "Giggle", "Grumble", "Snare", "Dupe", "Dread",
+    "A-60", "A-90", "A-120", "Timothy"
+}
+
+Hub.CreateMultiDropdown(espTab, "Entity ESP Filter (Monsters)", entityFilterList, entityFilterList, function(selectedList)
+    local filterMap = {}
+    for _, name in ipairs(selectedList) do
+        filterMap[name] = true
+    end
+    State.Entity_ESP_Filters = filterMap
+    clearCategoryEsp("Entities")
+    scanAllRooms()
+end)
+
 Hub.CreateToggle(espTab, "Hiding Spots ESP (Closets & Beds)", State.HidingSpots_ESP, function(v)
     State.HidingSpots_ESP = v
     if not v then
@@ -5519,141 +5500,25 @@ Hub.CreateToggle(espTab, "Hiding Spots ESP (Closets & Beds)", State.HidingSpots_
     end
 end)
 
-Hub.CreateSection(espTab, "👾 Entity Filter / Exclude List")
+Hub.CreateSection(espTab, "👾 Entity Filter (Multi-Choice)")
 
-Hub.CreateToggle(espTab, "Show Rush", State.Entity_Show_Rush, function(v)
-    State.Entity_Show_Rush = v
-    if not v then
-        clearEntitySubcategory("Rush")
-    else
-        scanAllRooms()
-    end
-end)
+local allMonsterOptions = {
+    "Rush", "Ambush", "Figure", "Seek", "Eyes", "Halt",
+    "Screech", "Giggle", "Grumble", "Gloombats", "Snare",
+    "Timothy", "Rooms", "Dread", "Other"
+}
 
-Hub.CreateToggle(espTab, "Show Ambush", State.Entity_Show_Ambush, function(v)
-    State.Entity_Show_Ambush = v
-    if not v then
-        clearEntitySubcategory("Ambush")
-    else
-        scanAllRooms()
+Hub.CreateMultiDropdown(espTab, "Monsters Filter List", allMonsterOptions, allMonsterOptions, function(selectedMonsters)
+    local filterMap = {}
+    for _, opt in ipairs(allMonsterOptions) do
+        filterMap[opt] = false
     end
-end)
-
-Hub.CreateToggle(espTab, "Show Figure (Library / Electrical)", State.Entity_Show_Figure, function(v)
-    State.Entity_Show_Figure = v
-    if not v then
-        clearEntitySubcategory("Figure")
-    else
-        scanAllRooms()
+    for _, name in ipairs(selectedMonsters) do
+        filterMap[name] = true
     end
-end)
-
-Hub.CreateToggle(espTab, "Show Seek", State.Entity_Show_Seek, function(v)
-    State.Entity_Show_Seek = v
-    if not v then
-        clearEntitySubcategory("Seek")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Eyes / Lookman", State.Entity_Show_Eyes, function(v)
-    State.Entity_Show_Eyes = v
-    if not v then
-        clearEntitySubcategory("Eyes")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Halt", State.Entity_Show_Halt, function(v)
-    State.Entity_Show_Halt = v
-    if not v then
-        clearEntitySubcategory("Halt")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Screech", State.Entity_Show_Screech, function(v)
-    State.Entity_Show_Screech = v
-    if not v then
-        clearEntitySubcategory("Screech")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Giggle (Mines Ceilings)", State.Entity_Show_Giggle, function(v)
-    State.Entity_Show_Giggle = v
-    if not v then
-        clearEntitySubcategory("Giggle")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Grumble (Mines Tunnels)", State.Entity_Show_Grumble, function(v)
-    State.Entity_Show_Grumble = v
-    if not v then
-        clearEntitySubcategory("Grumble")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Gloombats", State.Entity_Show_Gloombats, function(v)
-    State.Entity_Show_Gloombats = v
-    if not v then
-        clearEntitySubcategory("Gloombats")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Snare Traps", State.Entity_Show_Snare, function(v)
-    State.Entity_Show_Snare = v
-    if not v then
-        clearEntitySubcategory("Snare")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Timothy (Drawer Spiders)", State.Entity_Show_Timothy, function(v)
-    State.Entity_Show_Timothy = v
-    if not v then
-        clearEntitySubcategory("Timothy")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show The Rooms Monsters (A-60, A-90, A-120)", State.Entity_Show_Rooms, function(v)
-    State.Entity_Show_Rooms = v
-    if not v then
-        clearEntitySubcategory("Rooms")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Dread", State.Entity_Show_Dread, function(v)
-    State.Entity_Show_Dread = v
-    if not v then
-        clearEntitySubcategory("Dread")
-    else
-        scanAllRooms()
-    end
-end)
-
-Hub.CreateToggle(espTab, "Show Special & Rare Entities (Glitch, Void, Sally, Jack, etc.)", State.Entity_Show_Other, function(v)
-    State.Entity_Show_Other = v
-    if not v then
-        clearEntitySubcategory("Other")
-    else
-        scanAllRooms()
-    end
+    State.Entity_ESP_Filters = filterMap
+    clearCategoryEsp("Entities")
+    scanAllRooms()
 end)
 
 Hub.CreateSection(espTab, "💡 Visual Enhancements")
