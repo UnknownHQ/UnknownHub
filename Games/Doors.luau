@@ -3428,32 +3428,6 @@ local function removeRoofPlatform()
     end
 end
 
--- Safe Zone Calculator: Computes ceiling altitude strictly INSIDE the room envelope (100% Rush Immune & Zero Glitch)
-local function calculateSafeZoneAltitude(pos)
-    local char = getChar()
-    local rayParams = RaycastParams.new()
-    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-    local ceilHit = workspace:Raycast(pos + Vector3.new(0, 1.5, 0), Vector3.new(0, 30, 0), rayParams)
-    local floorPos = getExactFloorPos(pos)
-    local floorY = floorPos.Y
-
-    local safeY
-    if ceilHit then
-        local ceilingY = ceilHit.Position.Y
-        if (ceilingY - floorY) > 9.5 then
-            safeY = math.clamp(ceilingY - 1.6, floorY + 8.2, floorY + 11.0)
-        else
-            safeY = math.max(floorY + 4.5, ceilingY - 1.2)
-        end
-    else
-        safeY = floorY + 8.5
-    end
-
-    return safeY, floorPos
-end
-
 local function teleportToRoof(callback)
     local char = getChar()
     local root = getRoot()
@@ -3461,28 +3435,38 @@ local function teleportToRoof(callback)
     if not char or not root or not hum or hum.Health <= 0 then return false end
 
     if isAtRoof then
-        Hub.Notify("Safe Zone", "Already stationed in Safe Zone!", 2)
+        Hub.Notify("Safe Zone", "Already stationed on Safe Roof!", 2)
         if callback then callback(true) end
         return true
     end
 
-    local safeY, floorPos = calculateSafeZoneAltitude(root.Position)
-    lastPreRoofFloorPos = floorPos
-    local safeTargetPos = Vector3.new(root.Position.X, safeY, root.Position.Z)
-    local altitudeStuds = safeY - floorPos.Y
-
-    getOrCreateRoofPlatform(safeTargetPos)
-    Hub.Notify("Safe Zone", string.format("Ascending to Safe Zone (+%.1f studs - Rush Immune)...", altitudeStuds), 2)
+    lastPreRoofFloorPos = root.Position
+    local roofTargetPos = root.Position + Vector3.new(0, 35, 0)
+    
+    getOrCreateRoofPlatform(roofTargetPos)
+    Hub.Notify("Safe Zone", "Ascending to Safe Roof (+35 Studs)...", 2)
     isAtRoof = true
     State.Safe_Roof_Station = true
 
-    processNearbyDoors(root.Position, 30)
+    -- Pre-open all nearby doors and strip ceiling collision above character
+    processNearbyDoors(root.Position, 40)
+    pcall(function()
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        local upHit = workspace:Raycast(root.Position, Vector3.new(0, 45, 0), rayParams)
+        if upHit and upHit.Instance then
+            upHit.Instance.CanCollide = false
+        end
+    end)
 
-    safeTweenTeleport(CFrame.new(safeTargetPos, safeTargetPos + root.CFrame.LookVector), 55, true, true, function()
-        char:PivotTo(CFrame.new(safeTargetPos, safeTargetPos + root.CFrame.LookVector))
-        root.CFrame = CFrame.new(safeTargetPos, safeTargetPos + root.CFrame.LookVector)
+    safeTweenTeleport(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector), 65, true, true, function()
+        char:PivotTo(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector))
+        root.CFrame = CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector)
+        local cp = char:FindFirstChild("CollisionPart")
+        if cp then cp.CFrame = CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector) end
         root.AssemblyLinearVelocity = Vector3.zero
-        Hub.Notify("Safe Zone", "Secure in Safe Zone! Rush & entities cannot reach you.", 3)
+        Hub.Notify("Safe Zone", "Secure on Safe Roof! Rush & entities deflected.", 3)
         if callback then callback(true) end
     end)
     return true
@@ -3494,23 +3478,23 @@ local function returnFromRoof(callback)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return false end
 
-    if not isAtRoof then
-        Hub.Notify("Safe Zone", "Not currently in Safe Zone!", 2)
+    if not isAtRoof and root.Position.Y < 25 then
+        Hub.Notify("Safe Zone", "Not currently on roof!", 2)
         if callback then callback(false) end
         return false
     end
 
-    Hub.Notify("Safe Zone", "Safely descending to room floor...", 2)
+    Hub.Notify("Safe Zone", "Safely descending from roof...", 2)
 
-    local targetFloorPos = (lastPreRoofFloorPos and lastPreRoofFloorPos) or getExactFloorPos(root.Position)
+    local targetFloorPos = getExactFloorPos(Vector3.new(root.Position.X, (lastPreRoofFloorPos and lastPreRoofFloorPos.Y) or (root.Position.Y - 35), root.Position.Z))
 
-    safeTweenTeleport(CFrame.new(targetFloorPos, targetFloorPos + root.CFrame.LookVector), 50, false, function()
+    safeTweenTeleport(CFrame.new(targetFloorPos, targetFloorPos + root.CFrame.LookVector), 55, false, function()
         removeRoofPlatform()
         isAtRoof = false
         State.Safe_Roof_Station = false
         lastPreRoofFloorPos = nil
         restoreCharacterInteractivity(char)
-        Hub.Notify("Safe Zone", "Landed safely on room floor! Prompts active.", 2)
+        Hub.Notify("Safe Zone", "Landed safely on room floor!", 2)
         if callback then callback(true) end
     end)
     return true
@@ -4519,6 +4503,23 @@ end)
 
 Hub.CreateSlider(mainTab, "Phase Glide Speed", 4, 13, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
+end)
+
+Hub.CreateButton(mainTab, "Teleport to Safe Zone (+35 Studs Altitude)", function()
+    teleportToRoof()
+end)
+
+Hub.CreateButton(mainTab, "Return from Safe Zone (Floor Landing)", function()
+    returnFromRoof()
+end)
+
+Hub.CreateToggle(mainTab, "Safe Zone Station (Platform)", State.Safe_Roof_Station, function(v)
+    State.Safe_Roof_Station = v
+    if v then
+        teleportToRoof()
+    else
+        returnFromRoof()
+    end
 end)
 
 Hub.CreateToggle(mainTab, "Fly / VFly (WASD + Space/Ctrl)", State.Fly_Enabled, function(v)
