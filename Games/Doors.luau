@@ -2510,6 +2510,11 @@ end
 -- =========================================================================
 local isTeleportTweening = false
 local activeTweenToken = 0
+local teleportImmunityUntil = 0
+
+local function isTeleportImmune()
+    return isTeleportTweening or isAtRoof or (os.clock() < teleportImmunityUntil)
+end
 
 -- Active Proximity Sentry: Automatically solves locks & opens doors on approach
 local function processNearbyDoors(currentPos, maxReach)
@@ -2847,7 +2852,14 @@ local function getNavigationWaypoints(startPos, endPos)
     return finalWaypoints
 end
 
-local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
+local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestination, callback)
+    if type(isFinalDestination) == "function" then
+        callback = isFinalDestination
+        isFinalDestination = true
+    elseif isFinalDestination == nil then
+        isFinalDestination = true
+    end
+
     local char = getChar()
     local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -2860,6 +2872,9 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     local moveVec = (targetPos - startPos)
     local totalDist = moveVec.Magnitude
     if totalDist < 0.5 then
+        if isFinalDestination then
+            teleportImmunityUntil = os.clock() + 2.0
+        end
         if callback then callback() end
         return true
     end
@@ -2870,6 +2885,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     local token = tick() + math.random()
     activeTweenToken = token
     isTeleportTweening = true
+    teleportImmunityUntil = os.clock() + duration + 2.5
 
     if syncServerSlide then syncServerSlide(true, true) end
 
@@ -2881,7 +2897,10 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     conn = RunService.Heartbeat:Connect(function()
         if activeTweenToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
             if conn then conn:Disconnect() end
-            if activeTweenToken == token then isTeleportTweening = false end
+            if activeTweenToken == token then
+                isTeleportTweening = false
+                if isFinalDestination then teleportImmunityUntil = os.clock() + 2.0 end
+            end
             return
         end
 
@@ -2917,9 +2936,17 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
                 processNearbyDoors(currentSubPos, 22)
             end
         else
-            -- Server Acceptance Phase (0.35s Settle Window):
-            -- Continuously clamps CFrame and maintains zero velocity so the server network buffer
-            -- flushes any wall-collision discrepancies and accepts the final resting coordinate!
+            -- Intermediate waypoints advance immediately without stopping in mid-air
+            if not isFinalDestination then
+                if conn then conn:Disconnect() end
+                if activeTweenToken == token then isTeleportTweening = false end
+                root.CFrame = CFrame.new(targetPos) * targetRot
+                if callback then callback() end
+                return
+            end
+
+            -- Server Acceptance Phase (0.55s Settle Window on Landing):
+            -- Clamps CFrame, nullifies velocity, and maintains slide authorization so server validates rest state
             if not settleStartTime then
                 settleStartTime = now
             end
@@ -2929,9 +2956,12 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
             root.AssemblyAngularVelocity = Vector3.zero
             if syncServerSlide then syncServerSlide(true, true) end
 
-            if now - settleStartTime >= 0.35 then
+            if now - settleStartTime >= 0.55 then
                 if conn then conn:Disconnect() end
-                if activeTweenToken == token then isTeleportTweening = false end
+                if activeTweenToken == token then
+                    isTeleportTweening = false
+                    teleportImmunityUntil = os.clock() + 2.0 -- 2.0s post-arrival rollback immunity shield!
+                end
                 if callback then callback() end
             end
         end
@@ -2968,7 +2998,7 @@ local function safeMultiSegmentTeleport(targetCF, speedVal, autoDoorOpen, callba
             task.wait(0.04)
         end
 
-        safeTweenTeleport(cf, speedVal, autoDoorOpen, function()
+        safeTweenTeleport(cf, speedVal, autoDoorOpen, isLast, function()
             runSegment(idx + 1)
         end)
     end
@@ -3148,10 +3178,22 @@ local function teleportToNextDoor(callback)
             end
         end
 
-        -- 2. Open door via ClientOpen and ProximityPrompt
+        -- 2. Open door via ClientOpen, Touch interest & ProximityPrompt
         local co = exitDoor:FindFirstChild("ClientOpen")
         if co then
             pcall(function() co:FireServer() end)
+        end
+
+        local hiddenPart = exitDoor:FindFirstChild("Hidden")
+        if hiddenPart and hiddenPart:IsA("BasePart") then
+            pcall(function()
+                hiddenPart.CanTouch = true
+                if root then
+                    firetouchinterest(root, hiddenPart, 0)
+                    task.wait()
+                    firetouchinterest(root, hiddenPart, 1)
+                end
+            end)
         end
 
         local mop = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -3162,9 +3204,16 @@ local function teleportToNextDoor(callback)
             end)
         end
 
+        -- Strip collisions on all door parts so threshold crossing never trips geometry
+        for _, dp in ipairs(exitDoor:GetDescendants()) do
+            if dp:IsA("BasePart") and not dp.Name:lower():find("frame") then
+                dp.CanCollide = false
+            end
+        end
+
         -- 3. Await server room confirmation before stepping across threshold
         local confirmed = false
-        for _ = 1, 15 do
+        for _ = 1, 25 do
             if gd and gd.LatestRoom and gd.LatestRoom.Value > lrVal then
                 confirmed = true
                 break
@@ -3174,10 +3223,12 @@ local function teleportToNextDoor(callback)
 
         -- 4. Step through door into next room ONLY if opened/confirmed
         if confirmed then
+            task.wait(0.12)
             local rawThroughPos = Vector3.new(doorPos.X - approachDir.X * 3.5, doorPos.Y, doorPos.Z - approachDir.Z * 3.5)
             local throughPos = getExactFloorPos(rawThroughPos)
             local throughLook = throughPos - approachDir * 5
-            safeTweenTeleport(CFrame.new(throughPos, throughLook), State.Teleport_Speed, false, function()
+            safeTweenTeleport(CFrame.new(throughPos, throughLook), State.Teleport_Speed, false, true, function()
+                teleportImmunityUntil = os.clock() + 2.0
                 local nextVal = gd and gd.LatestRoom and gd.LatestRoom.Value or (lrVal + 1)
                 Hub.Notify("Teleport", "Entered Room " .. tostring(nextVal) .. "!", 2)
                 if callback then callback(true) end
@@ -3525,7 +3576,7 @@ RunService.Heartbeat:Connect(function(dt)
             end
         end
     else
-        if not State.Noclip and not State.Enable_Sliding then
+        if not State.Noclip and not State.Enable_Sliding and not isTeleportImmune() then
             syncServerSlide(false, false)
         end
         if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled then
@@ -3550,8 +3601,8 @@ RunService.Heartbeat:Connect(function(dt)
         roofPlatform.CFrame = CFrame.new(root.Position.X, roofPlatform.Position.Y, root.Position.Z)
     end
 
-    -- Wipes pending client rollback CFrame every frame during teleport/flight/roof
-    if isTeleportTweening or isAtRoof or State.Fly_Enabled or State.Noclip or State.Bypass_AntiCheat then
+    -- Wipes pending client rollback CFrame every frame during teleport, roof, or post-teleport grace
+    if isTeleportImmune() or State.Fly_Enabled or State.Noclip or State.Bypass_AntiCheat then
         local mgTable = getMainGameTable()
         if mgTable and mgTable.SETNEWCF then
             mgTable.SETNEWCF = nil
@@ -3585,7 +3636,7 @@ RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Fly_Enabled or isTeleportTweening or isAtRoof then
+    if State.Noclip or State.Fly_Enabled or isTeleportImmune() then
         -- Strip CanCollide, CanTouch & CanQuery from ALL character parts to eliminate physics collisions
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
@@ -4337,9 +4388,10 @@ if hookmetamethod then
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if not checkcaller() then
-            if (method == "PivotTo" or method == "pivotTo") and (isTeleportTweening or isAtRoof or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat) then
+            if (method == "PivotTo" or method == "pivotTo") and (isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat) then
                 local char = getChar()
-                if self == char or (char and self == char.PrimaryPart) then
+                local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
+                if isLocalChar then
                     return -- Block anticheat rollback PivotTo dead in its tracks!
                 end
             end
