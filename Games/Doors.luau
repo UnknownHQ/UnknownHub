@@ -3878,56 +3878,82 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
+    -- True 3D Flight & Wall-Penetrating Noclip Engine (Zero-Gravity BodyVelocity + CFrame Micro-Glide)
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
         -- Cloak player on server as 'Hiding' so Rush, Ambush, and entities out-of-bounds treat player as protected in closet
         if not char:GetAttribute("Hiding") then
             char:SetAttribute("Hiding", true)
         end
-        -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") and p.CanCollide then
-                p.CanCollide = false
-            end
+
+        -- Disable Humanoid ground-clamping and walking physics so player is completely airborne
+        if hum and not hum.PlatformStand then
+            hum.PlatformStand = true
+        end
+
+        -- Anti-Gravity BodyVelocity & BodyGyro Suspension in RootPart
+        local bv = root:FindFirstChild("Unknown_FlyVelocity")
+        if not bv then
+            bv = Instance.new("BodyVelocity")
+            bv.Name = "Unknown_FlyVelocity"
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            bv.Velocity = Vector3.zero
+            bv.Parent = root
+        end
+
+        local bg = root:FindFirstChild("Unknown_FlyGyro")
+        if not bg then
+            bg = Instance.new("BodyGyro")
+            bg.Name = "Unknown_FlyGyro"
+            bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+            bg.P = 10000
+            bg.CFrame = root.CFrame
+            bg.Parent = root
         end
 
         local cam = Workspace.CurrentCamera
-        local camLook = cam.CFrame.LookVector
-        local camRight = cam.CFrame.RightVector
+        local camCF = cam.CFrame
+        local camLook = camCF.LookVector
+        local camRight = camCF.RightVector
         local camUp = Vector3.new(0, 1, 0)
 
-        local steer = Vector3.zero
-        local hasInput = false
+        local flyDir = Vector3.zero
+        local hasFlyInput = false
 
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            steer = steer + camLook
-            hasInput = true
+            flyDir = flyDir + camLook
+            hasFlyInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            steer = steer - camLook
-            hasInput = true
+            flyDir = flyDir - camLook
+            hasFlyInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            steer = steer + camRight
-            hasInput = true
+            flyDir = flyDir + camRight
+            hasFlyInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            steer = steer - camRight
-            hasInput = true
+            flyDir = flyDir - camRight
+            hasFlyInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            steer = steer + camUp
-            hasInput = true
+            flyDir = flyDir + camUp
+            hasFlyInput = true
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            steer = steer - camUp
-            hasInput = true
+            flyDir = flyDir - camUp
+            hasFlyInput = true
         end
 
-        -- Fallback to Humanoid.MoveDirection for gamepad thumbsticks or mobile touch controls
-        if hum.MoveDirection.Magnitude > 0.05 then
-            steer = steer + hum.MoveDirection
-            hasInput = true
+        -- Gamepad / Mobile Touch:
+        if not hasFlyInput and hum and hum.MoveDirection.Magnitude > 0.05 then
+            local stick = hum.MoveDirection
+            local forwardDot = stick:Dot(Vector3.new(camLook.X, 0, camLook.Z).Unit)
+            if forwardDot > 0.4 then
+                flyDir = camLook
+            else
+                flyDir = stick
+            end
+            hasFlyInput = true
         end
 
         -- Continuous slide authorization keep-alive (every 0.55s)
@@ -3937,21 +3963,31 @@ RunService.Heartbeat:Connect(function(dt)
             task.spawn(pulseSlideKeepAlive)
         end
 
-        -- Hovering & Movement Dispatch: Move strictly on intentional input; hover stationary with zero drift
-        if hasInput and steer.Magnitude > 0.01 then
-            local moveDir = steer.Unit
-            local speed = math.clamp(State.Noclip_Speed or 22, 5, 85)
-            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-            local delta = moveDir * (speed * safeDt)
+        local speed = math.clamp(State.Noclip_Speed or 28, 5, 85)
 
+        if hasFlyInput and flyDir.Magnitude > 0.01 then
+            local moveUnit = flyDir.Unit
+            local finalVelocity = moveUnit * speed
+            bv.Velocity = finalVelocity
+            root.AssemblyLinearVelocity = finalVelocity
+
+            -- Dual Micro-CFrame displacement so walls, ceilings, and barriers are bypassed instantly
+            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+            local delta = finalVelocity * safeDt
             char:PivotTo(char:GetPivot() + delta)
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = char:GetPivot()
+            local cp = char:FindFirstChild("CollisionPart")
+            if cp then cp.CFrame = root.CFrame end
+            local mgTable = getMainGameTable()
+            if mgTable then mgTable.SETNEWCF = root.CFrame end
         else
-            -- Perfectly stationary hover in mid-air: Zero drift, E and Q never affect vertical altitude
+            -- Perfectly stationary hover in mid-air: Zero drift, zero fall
+            bv.Velocity = Vector3.zero
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
         end
+
+        bg.CFrame = CFrame.new(root.Position, root.Position + Vector3.new(camLook.X, 0, camLook.Z))
 
         -- Anti-Void Floor Safeguard: If falling into void, smoothly restore to safe room floor (ONLY when not hiding!)
         if not hiding and root.Position.Y < -5 then
@@ -4655,6 +4691,8 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
     end
     State.Noclip = v
     local char = getChar()
+    local r = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
 
     pcall(function()
         local pGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -4667,12 +4705,54 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         end
     end)
 
-    if not v and char then
-        if char:GetAttribute("Hiding") then
+    if v then
+        if hum then
+            hum.PlatformStand = true
+        end
+        if r then
+            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyAngularVelocity = Vector3.zero
+            local bv = r:FindFirstChild("Unknown_FlyVelocity")
+            if not bv then
+                bv = Instance.new("BodyVelocity")
+                bv.Name = "Unknown_FlyVelocity"
+                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                bv.Velocity = Vector3.zero
+                bv.Parent = r
+            end
+            local bg = r:FindFirstChild("Unknown_FlyGyro")
+            if not bg then
+                bg = Instance.new("BodyGyro")
+                bg.Name = "Unknown_FlyGyro"
+                bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+                bg.P = 10000
+                bg.CFrame = r.CFrame
+                bg.Parent = r
+            end
+        end
+        if syncServerSlide then syncServerSlide(true, true) end
+    else
+        -- Clean up body movers
+        if r then
+            local bv = r:FindFirstChild("Unknown_FlyVelocity")
+            if bv then bv:Destroy() end
+            local bg = r:FindFirstChild("Unknown_FlyGyro")
+            if bg then bg:Destroy() end
+            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyAngularVelocity = Vector3.zero
+        end
+
+        -- Restore Humanoid ground physics
+        if hum then
+            hum.PlatformStand = false
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+        end
+
+        if char and char:GetAttribute("Hiding") then
             char:SetAttribute("Hiding", nil)
         end
+
         -- Exact Vertical Floor Landing: Drops player straight down to floor at current (X, Z) coordinates
-        local r = getRoot()
         if r and char then
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
@@ -4681,7 +4761,6 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
             -- Vertical raycast directly downwards from above current position
             local floorRay = workspace:Raycast(Vector3.new(r.Position.X, math.max(r.Position.Y, 20), r.Position.Z), Vector3.new(0, -350, 0), rayParams)
             if floorRay and floorRay.Instance and floorRay.Instance.CanCollide then
-                local hum = char:FindFirstChildWhichIsA("Humanoid")
                 local rootOffset = (hum and hum.HipHeight or 2.0) + 1.0
                 local targetY = floorRay.Position.Y + rootOffset
                 local landedCF = CFrame.new(r.Position.X, targetY, r.Position.Z) * r.CFrame.Rotation
@@ -4709,7 +4788,7 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         end
         if r then r.AssemblyLinearVelocity = Vector3.zero end
     end
-    Hub.Notify("Movement", v and "Fly-Noclip: ON (WASD + Space/Ctrl to Fly)" or "Fly-Noclip: OFF", 2)
+    Hub.Notify("Movement", v and "Fly-Noclip: ON (WASD to Fly, Space/Ctrl Altitude)" or "Fly-Noclip: OFF", 2)
 end)
 
 Hub.CreateSlider(mainTab, "Fly-Noclip Speed", 5, 75, State.Noclip_Speed, " studs/s", function(v)
