@@ -2688,6 +2688,8 @@ local function initAntiGlitchShield()
     end)
 end
 
+local lastFlySlidePulse = 0
+
 local function pulseSlideKeepAlive()
     if not crouchRemote then
         pcall(function()
@@ -3649,10 +3651,23 @@ RunService.Heartbeat:Connect(function(dt)
     local mgTable = getMainGameTable()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
 
-    -- 3D Flight Engine (Smooth VFly - 100% Anti-Cheat Immune)
-    if State.Fly_Enabled and not hiding and not isTeleportTweening then
-        syncServerSlide(true, true)
-        root.AssemblyLinearVelocity = Vector3.zero
+    -- Auto-disable flight if Bypass Anti-Cheat Core is disabled
+    if State.Fly_Enabled and not State.Bypass_AntiCheat then
+        State.Fly_Enabled = false
+        restoreCharacterInteractivity(char)
+        if root then root.AssemblyLinearVelocity = Vector3.zero end
+        syncServerSlide(false, false)
+        Hub.Notify("Flight", "Flight disabled: Bypass Anti-Cheat Core is required!", 2)
+    end
+
+    -- Teleport-Grade Smooth Noclip Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
+    if State.Fly_Enabled and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
+        -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and p.CanCollide then
+                p.CanCollide = false
+            end
+        end
 
         local cam = Workspace.CurrentCamera
         local camLook = cam.CFrame.LookVector
@@ -3692,17 +3707,42 @@ RunService.Heartbeat:Connect(function(dt)
             hasFlyInput = true
         end
 
+        -- Continuous slide authorization keep-alive (every 0.60s like teleport engine)
+        local now = os.clock()
+        if (now - lastFlySlidePulse >= 0.60) then
+            lastFlySlidePulse = now
+            task.spawn(pulseSlideKeepAlive)
+        end
+
         if hasFlyInput and flyDir.Magnitude > 0.01 then
+            local moveDir = flyDir.Unit
             local spd = math.clamp(State.Fly_Speed or 45, 15, 85)
             local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-            local curPivot = char:GetPivot()
-            local targetPos = curPivot.Position + (flyDir.Unit * (spd * safeDt))
+            local curPos = root.Position
+            local targetPos = curPos + (moveDir * (spd * safeDt))
+
             if State.Fly_SafeBounds then
                 local safeY = getSafeFlightY(targetPos)
                 targetPos = Vector3.new(targetPos.X, safeY, targetPos.Z)
             end
-            char:PivotTo(CFrame.new(targetPos) * curPivot.Rotation)
+
+            local targetCF = CFrame.new(targetPos, targetPos + camLook)
+            char:PivotTo(targetCF)
+            root.CFrame = targetCF
+            local cp = char:FindFirstChild("CollisionPart")
+            if cp then cp.CFrame = targetCF end
+            local mgTable = getMainGameTable()
+            if mgTable then mgTable.SETNEWCF = targetCF end
+
+            -- Synchronized velocity vector (exact teleport engine mechanics)
+            root.AssemblyLinearVelocity = moveDir * spd
+            root.AssemblyAngularVelocity = Vector3.zero
+
             processNearbyDoors(targetPos, 22)
+        else
+            -- Hovering steadily at exact coordinates with zero drift
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
         end
     -- Omnidirectional Sub-Step Micro-Phase Glide Engine
     -- Automatically glides towards the camera view direction, with full steering (WASD, Space/Ctrl, diagonals)
@@ -4482,15 +4522,24 @@ Hub.CreateSlider(mainTab, "Phase Glide Speed", 4, 13, State.Noclip_Speed, " stud
 end)
 
 Hub.CreateToggle(mainTab, "Fly / VFly (WASD + Space/Ctrl)", State.Fly_Enabled, function(v)
+    if v and not State.Bypass_AntiCheat then
+        State.Bypass_AntiCheat = true
+        neutralizeServerTeleported()
+        initAntiGlitchShield()
+        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Flight!", 2)
+    end
     State.Fly_Enabled = v
+    local char = getChar()
+    local r = getRoot()
     if v then
-        local r = getRoot()
         if r then r.AssemblyLinearVelocity = Vector3.zero end
-        syncServerSlide(true, true)
-        Hub.Notify("Flight", "3D Flight: ACTIVE (WASD + Space/Ctrl)", 2)
+        neutralizeServerTeleported()
+        initAntiGlitchShield()
+        if syncServerSlide then syncServerSlide(true, true) end
+        Hub.Notify("Flight", "Smooth Noclip Flight: ACTIVE (WASD + Space/Ctrl)", 2)
     else
-        local r = getRoot()
         if r then r.AssemblyLinearVelocity = Vector3.zero end
+        if char then restoreCharacterInteractivity(char) end
         syncServerSlide(false, false)
         Hub.Notify("Flight", "Flight: OFF", 2)
     end
@@ -4498,6 +4547,36 @@ end)
 
 Hub.CreateSlider(mainTab, "Fly Speed", 15, 85, State.Fly_Speed, " studs/s", function(v)
     State.Fly_Speed = v
+end)
+
+Hub.CreateToggle(mainTab, "Bypass Anti-Cheat Core", State.Bypass_AntiCheat, function(v)
+    State.Bypass_AntiCheat = v
+    if not v then
+        if State.Fly_Enabled then
+            State.Fly_Enabled = false
+            local char = getChar()
+            if char then restoreCharacterInteractivity(char) end
+            local r = getRoot()
+            if r then r.AssemblyLinearVelocity = Vector3.zero end
+            syncServerSlide(false, false)
+            Hub.Notify("Flight", "Flight disabled: Bypass Anti-Cheat Core is required!", 2)
+        end
+    else
+        neutralizeServerTeleported()
+        if syncServerSlide then syncServerSlide(true, true) end
+    end
+    Hub.Notify("Anti-Cheat", v and "Anti-Cheat Bypass: ACTIVE (Slide Token Spoofer & Rollback Nullifier)" or "Anti-Cheat Bypass: OFF", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Anti-Void Altitude Safety (No Glitch)", State.Fly_SafeBounds, function(v)
+    State.Fly_SafeBounds = v
+    Hub.Notify("Safety", v and "Altitude Safety: ACTIVE (Clamps flight inside room bounds)" or "Altitude Safety: OFF", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Deflect Glitch & Void Shield", State.Deflect_Glitch, function(v)
+    State.Deflect_Glitch = v
+    if v then initAntiGlitchShield() end
+    Hub.Notify("Shield", v and "Glitch Shield: ACTIVE (Rejects freeze, blindness & screen glitched)" or "Glitch Shield: OFF", 2)
 end)
 
 Hub.CreateSection(mainTab, "🖐️ Interaction Power")
@@ -4967,110 +5046,6 @@ end)
 
 -- =========================================================================
 -- Tab 2: TELEPORT & MOVEMENT TAB (Anti-Cheat Safe Teleports & 3D Flight)
--- =========================================================================
-local teleportTab = Hub.CreateTab("Teleports", {
-    Icon = "🚀",
-    Size = 18,
-    Color = Color3.fromRGB(0, 210, 255),
-    ActiveColor = Color3.fromRGB(50, 235, 255)
-})
-
-Hub.CreateSection(teleportTab, "🚀 Anti-Cheat Safe Teleports")
-
-Hub.CreateButton(teleportTab, "Teleport to Next Door (Room Exit)", function()
-    teleportToNextDoor()
-end)
-
-Hub.CreateButton(teleportTab, "Teleport to Current Room Key", function()
-    teleportToRoomKey()
-end)
-
-Hub.CreateButton(teleportTab, "Teleport to Safe Closet (Auto-Hide)", function()
-    teleportToNearestSafeSpot()
-end)
-
-Hub.CreateToggle(teleportTab, "Auto-Evacuate on Rush / Ambush", State.Auto_Evacuate_Entities, function(v)
-    State.Auto_Evacuate_Entities = v
-    Hub.Notify("Entity Sentry", v and "Auto-Evacuate: ACTIVE (Instantly retreats to closet on Rush)" or "Auto-Evacuate: OFF", 2)
-end)
-
-Hub.CreateButton(teleportTab, "Teleport to Safe Zone (Ceiling Elevation - Rush Immune)", function()
-    teleportToRoof()
-end)
-
-Hub.CreateButton(teleportTab, "Return from Safe Zone (Floor Landing)", function()
-    returnFromRoof()
-end)
-
-Hub.CreateToggle(teleportTab, "Click to Teleport (Ctrl + Click)", State.ClickTP_Enabled, function(v)
-    State.ClickTP_Enabled = v
-    Hub.Notify("Teleport", v and "Click TP: ACTIVE (Hold Ctrl + Left Click)" or "Click TP: OFF", 2)
-end)
-
-Hub.CreateSlider(teleportTab, "Teleport Speed", 20, 65, State.Teleport_Speed, " studs/s", function(v)
-    State.Teleport_Speed = v
-end)
-
-Hub.CreateSection(teleportTab, "🗺️ Room Navigator (Multi-Room)")
-
-Hub.CreateSlider(teleportTab, "Target Room Number", 1, 100, State.Target_Room_Number, "", function(v)
-    State.Target_Room_Number = v
-end)
-
-Hub.CreateButton(teleportTab, "Auto-Advance to Selected Room", function()
-    autoNavigateToRoom(State.Target_Room_Number)
-end)
-
-Hub.CreateSection(teleportTab, "🕊️ 3D Flight Engine (Smooth VFly)")
-
-Hub.CreateToggle(teleportTab, "Fly / VFly (WASD + Space/Ctrl)", State.Fly_Enabled, function(v)
-    State.Fly_Enabled = v
-    local char = getChar()
-    local root = getRoot()
-    if root then
-        root.AssemblyLinearVelocity = Vector3.zero
-    end
-    if v then
-        neutralizeServerTeleported()
-        initAntiGlitchShield()
-        if syncServerSlide then syncServerSlide(true, true) end
-    end
-    Hub.Notify("Flight", v and "VFly: ACTIVE (Fly with WASD, Space to rise, Ctrl to descend)" or "VFly: OFF", 2)
-end)
-
-Hub.CreateToggle(teleportTab, "Anti-Void Altitude Safety (No Glitch)", State.Fly_SafeBounds, function(v)
-    State.Fly_SafeBounds = v
-    Hub.Notify("Safety", v and "Altitude Safety: ACTIVE (Clamps flight inside room bounds)" or "Altitude Safety: OFF", 2)
-end)
-
-Hub.CreateToggle(teleportTab, "Deflect Glitch & Void Shield", State.Deflect_Glitch, function(v)
-    State.Deflect_Glitch = v
-    if v then initAntiGlitchShield() end
-    Hub.Notify("Shield", v and "Glitch Shield: ACTIVE (Rejects freeze, blindness & screen glitched)" or "Glitch Shield: OFF", 2)
-end)
-
-Hub.CreateSlider(teleportTab, "Fly Speed", 15, 85, State.Fly_Speed, " studs/s", function(v)
-    State.Fly_Speed = v
-end)
-
-Hub.CreateSection(teleportTab, "🛡️ Anti-Cheat Bypass Diagnostics")
-
-Hub.CreateToggle(teleportTab, "Bypass Anti-Cheat Core", State.Bypass_AntiCheat, function(v)
-    State.Bypass_AntiCheat = v
-    if v then
-        neutralizeServerTeleported()
-        if syncServerSlide then syncServerSlide(true, true) end
-    end
-    Hub.Notify("Anti-Cheat", v and "Anti-Cheat Bypass: ACTIVE (Slide Token Spoofer & Rollback Nullifier)" or "Anti-Cheat Bypass: OFF", 2)
-end)
-
-Hub.CreateButton(teleportTab, "Force Resync Slide Authorization", function()
-    neutralizeServerTeleported()
-    if syncServerSlide then syncServerSlide(true, true) end
-    Hub.Notify("Anti-Cheat", "Slide authorization tokens resynchronized with server!", 2)
-end)
-
-
 -- =========================================================================
 -- Tab 2: FLOOR SPECIFIC TAB (Floor 1: Hotel / Floor 2: Mines)
 -- =========================================================================
