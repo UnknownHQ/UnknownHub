@@ -3939,14 +3939,13 @@ RunService.Heartbeat:Connect(function(dt)
             task.spawn(pulseSlideKeepAlive)
         end
 
-        -- If direction keys pressed, steer in that 3D direction; otherwise automatically glide where camera looks
-        local finalDir = if (hasInput and steer.Magnitude > 0.01) then steer.Unit else camLook
-
-        local speed = math.clamp(State.Noclip_Speed or 12, 4, 35)
-        local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-        local delta = finalDir * (speed * safeDt)
-
-        char:PivotTo(char:GetPivot() + delta)
+        -- Only translate position when movement keys are actively held; completely still when standing
+        if hasInput and steer.Magnitude > 0.01 then
+            local speed = math.clamp(State.Noclip_Speed or 15, 4, 35)
+            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+            local delta = steer.Unit * (speed * safeDt)
+            char:PivotTo(char:GetPivot() + delta)
+        end
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
 
@@ -4059,14 +4058,8 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Keep character camera in perfect alignment and hide hair/torso in 1st person
+    -- Smooth first-person visibility: Hide head, hair & torso so they never clip into camera; keep held items visible
     if State.Noclip and char and root then
-        if mgTable then
-            mgTable.clipPos = root.Position
-            local cp = char:FindFirstChild("CollisionPart") or char:FindFirstChild("Collision")
-            if cp then cp.CFrame = CFrame.lookAlong(root.Position, Workspace.CurrentCamera.CFrame.LookVector) end
-        end
-
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
                 local pName = p.Name
