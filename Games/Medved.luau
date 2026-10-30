@@ -333,11 +333,11 @@ task.spawn(function()
     end
 end)
 
--- Direct Network Remote Invocations for Instant Crate Looting
-local netClientModule = ReplicatedStorage:FindFirstChild("Shared") and ReplicatedStorage.Shared:FindFirstChild("Util") and ReplicatedStorage.Shared.Util:FindFirstChild("NetworkClient")
-local NetworkClient = netClientModule and require(netClientModule)
-local openCrateRemote = NetworkClient and NetworkClient:GetRemoteFunction(NetworkClient.Shared:WaitForChild("World"):WaitForChild("OpenCrate"))
-local collectItemRemote = NetworkClient and NetworkClient:GetRemoteFunction(NetworkClient.Shared:WaitForChild("World"):WaitForChild("CollectItem"))
+-- Direct Network Remote Invocations for Instant Crate Looting (Zero Identity Demotion)
+local sharedEvents = ReplicatedStorage:FindFirstChild("SharedEvents")
+local worldEvents = sharedEvents and sharedEvents:FindFirstChild("World")
+local openCrateRemote = worldEvents and worldEvents:FindFirstChild("OpenCrate")
+local collectItemRemote = worldEvents and worldEvents:FindFirstChild("CollectItem")
 
 local function getCrateItemPrompts(crateModel)
     local prompts = {}
