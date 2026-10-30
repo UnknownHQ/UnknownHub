@@ -333,6 +333,12 @@ task.spawn(function()
     end
 end)
 
+-- Direct Network Remote Invocations for Instant Crate Looting
+local netClientModule = ReplicatedStorage:FindFirstChild("Shared") and ReplicatedStorage.Shared:FindFirstChild("Util") and ReplicatedStorage.Shared.Util:FindFirstChild("NetworkClient")
+local NetworkClient = netClientModule and require(netClientModule)
+local openCrateRemote = NetworkClient and NetworkClient:GetRemoteFunction(NetworkClient.Shared:WaitForChild("World"):WaitForChild("OpenCrate"))
+local collectItemRemote = NetworkClient and NetworkClient:GetRemoteFunction(NetworkClient.Shared:WaitForChild("World"):WaitForChild("CollectItem"))
+
 local function getCrateItemPrompts(crateModel)
     local prompts = {}
     if not crateModel then return prompts end
@@ -367,7 +373,7 @@ local function processCrateComplete(crate, mode)
     local targetCFrame = cratePart.CFrame + Vector3.new(0, 4.0, 0)
     root.CFrame = targetCFrame
     root.AssemblyLinearVelocity = Vector3.zero
-    task.wait(0.2)
+    task.wait(0.12)
 
     -- Dynamic GhostBear evasion check
     if isGhostBearNearPosition(root.Position, 28) then
@@ -375,52 +381,43 @@ local function processCrateComplete(crate, mode)
         return false
     end
 
-    if mode == "open" then
+    -- 1. Direct Network Fast-Open Invocation
+    if mode == "open" and crate:GetAttribute("Collected") ~= true then
+        if openCrateRemote then
+            pcall(function()
+                openCrateRemote:InvokeServer(crate.Name)
+            end)
+        end
+
         local openPrompt = cratePart:FindFirstChild("CratePrompt")
-        local openDeadline = tick() + 1.8
-        while crate:GetAttribute("Collected") ~= true and tick() < openDeadline do
+        if openPrompt and openPrompt.Enabled then
+            triggerPrompt(openPrompt)
+        end
+        task.wait(0.08)
+    end
+
+    -- 2. Direct Network Fast-Loot Invocations for Slots 1, 2, 3
+    if collectItemRemote then
+        for slot = 1, 3 do
+            pcall(function()
+                collectItemRemote:InvokeServer(crate.Name, slot)
+            end)
+        end
+    end
+
+    -- 3. Prompt Fallback Sweep for any stubborn items
+    local activePrompts = getCrateItemPrompts(crate)
+    if #activePrompts > 0 then
+        for _, prompt in ipairs(activePrompts) do
             if isGhostBearNearPosition(root.Position, 28) then
                 root.CFrame = root.CFrame + Vector3.new(0, 18, 0)
                 return false
             end
-            if openPrompt and openPrompt.Enabled then
-                triggerPrompt(openPrompt)
-            end
             root.CFrame = targetCFrame
             root.AssemblyLinearVelocity = Vector3.zero
-            task.wait(0.18)
+            triggerPrompt(prompt)
+            task.wait(0.04)
         end
-    end
-
-    local isOpened = (crate:GetAttribute("Collected") == true) or (mode == "loot")
-    if not isOpened then
-        return false
-    end
-
-    local sweepDeadline = tick() + 2.2
-    local collectedAny = false
-    local sweepStart = tick()
-
-    while tick() < sweepDeadline do
-        if isGhostBearNearPosition(root.Position, 28) then
-            root.CFrame = root.CFrame + Vector3.new(0, 18, 0)
-            return false
-        end
-        local activePrompts = getCrateItemPrompts(crate)
-        if #activePrompts > 0 then
-            for _, prompt in ipairs(activePrompts) do
-                root.CFrame = targetCFrame
-                root.AssemblyLinearVelocity = Vector3.zero
-                triggerPrompt(prompt)
-                collectedAny = true
-                task.wait(0.08)
-            end
-        else
-            if collectedAny or (tick() - sweepStart) > 0.85 then
-                break
-            end
-        end
-        task.wait(0.05)
     end
 
     return true
@@ -648,15 +645,26 @@ local function getBearLevitationTarget(bear)
     local cf, sz = bear:GetBoundingBox()
     local name = bear.Name:lower()
 
-    -- Category 0: GrinderBear & Mechanical Bosses (Crown Vault Apex Stance)
-    -- Grinder is 36 studs tall, 36 studs wide, equipped with ground wheel, 31-stud claws, and forward arm cannons.
-    -- Torso/ground level is a lethal contact zone. We hover directly over Hitbox_Head crown (Y ~34.5+).
-    if name:find("grinder") then
+    -- Category 0: GrinderBear (Robo Bear) & Heavy Mechanical Titans (Crown Apex Blindspot)
+    -- Grinder is 36 studs tall, equipped with shoulder cannons (Minigun, Rockets, Shotgun, Flamethrower).
+    -- Shoulder cannons are mounted at Y ~18-24 with limited upward elevation pitch (cannot aim behind/straight up).
+    -- Solution: True Apex Blindspot (+14.5 studs above head, -8.5 studs behind). Completely avoids all bullet/rocket trajectories!
+    if name:find("grinder") or name:find("robo") then
         local head = bear:FindFirstChild("Hitbox_Head")
         local targetPos = head and head.Position or cf.Position
-        local headH = head and (head.Size.Y * 0.5) or (sz.Y * 0.5)
-        local targetY = targetPos.Y + headH + 1.8
-        local distBehind = (head and (head.Size.Z * 0.5) or (sz.Z * 0.3)) + 1.8
+        local targetY = cf.Position.Y + (sz.Y * 0.5) + 14.5
+        local distBehind = (sz.Z * 0.5) + 8.5
+        return targetPos, distBehind, targetY
+    end
+
+    -- Category 0.2: RangedBear & GrizzlyRangedBear (Spike Bear Blindspot)
+    -- RangedBear shoots horizontal spike projectiles and performs ground slam shockwaves.
+    -- Solution: Elevate +10.5 studs above head and -6.0 studs behind, well clear of spike trajectory and ground slams.
+    if name:find("ranged") or name:find("spike") then
+        local head = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head")
+        local targetPos = head and head.Position or cf.Position
+        local targetY = cf.Position.Y + (sz.Y * 0.5) + 10.5
+        local distBehind = (sz.Z * 0.5) + 6.0
         return targetPos, distBehind, targetY
     end
 
@@ -1459,12 +1467,12 @@ RunService.Heartbeat:Connect(function(dt)
     local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
     if not centerPos then return end
 
-    local isBoss = bear.Name:lower():find("grinder") or bear.Name:lower():find("boss") or bear.Name:lower():find("wall")
+    local isBoss = bear.Name:lower():find("grinder") or bear.Name:lower():find("robo") or bear.Name:lower():find("boss") or bear.Name:lower():find("wall") or bear.Name:lower():find("ranged")
     if Config.FarmMethod == "Melee" then
         local targetPos = centerPos - (lookVec * distBehind)
         local y = targetY
         if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
-            y = y + (isBoss and 7.5 or 4.8) -- High vault when bear attempts to turn or charge
+            y = y + (isBoss and 12.0 or 4.8) -- Anti-bullet high vault when boss turns, spins, or charges
         end
 
         -- Dynamic Threat Ceiling: elevate above any nearby giant/tall bears walking close
@@ -1477,9 +1485,13 @@ RunService.Heartbeat:Connect(function(dt)
         root.CFrame = CFrame.lookAt(targetPos, centerPos)
     elseif Config.FarmMethod == "Gun" then
         local cf, bbSize = bear:GetBoundingBox()
-        local distBehindGun = isBoss and 32.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0)
-        local heightAboveGun = isBoss and (bbSize.Y * 0.5 + 16.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0)
+        local distBehindGun = isBoss and 38.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0)
+        local heightAboveGun = isBoss and (bbSize.Y * 0.5 + 28.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0)
         local hoverPos = centerPos - (lookVec * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
+
+        if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
+            hoverPos = hoverPos + Vector3.new(0, 14.0, 0)
+        end
 
         -- Dynamic Threat Ceiling in Gun mode
         local threatCeiling = getNearbyThreatCeiling(root.Position, bear)
