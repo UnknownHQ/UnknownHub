@@ -2516,32 +2516,41 @@ local function isTeleportImmune()
     return isTeleportTweening or isAtRoof or (os.clock() < teleportImmunityUntil)
 end
 
--- Active Proximity Sentry: Automatically solves locks & opens doors on approach
+-- Active Proximity Sentry: Automatically solves locks & opens doors on approach (Zero Yield / Full Descendants)
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     if not curRooms then return end
-    local reach = maxReach or 22
+    local reach = maxReach or 35
+    local r = getRoot()
+
     for _, rm in ipairs(curRooms:GetChildren()) do
-        for _, d in ipairs(rm:GetChildren()) do
-            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name:find("Door")) then
+        for _, d in ipairs(rm:GetDescendants()) do
+            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name:find("Door")) then
                 local dPart = d:FindFirstChild("Door") or d:FindFirstChild("Hidden") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                 if dPart and (currentPos - dPart.Position).Magnitude <= reach then
+                    -- Strip CanCollide locally on all door parts so character never trips physics
+                    for _, dp in ipairs(d:GetDescendants()) do
+                        if dp:IsA("BasePart") and not dp.Name:lower():find("frame") then
+                            dp.CanCollide = false
+                        end
+                    end
+
                     -- 1. Check for Lock and auto-unlock if Key available
                     local lock = d:FindFirstChild("Lock")
                     if lock then
                         local up = lock:FindFirstChild("UnlockPrompt", true)
                         if up and up.Enabled then
-                            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (getChar() and getChar():FindFirstChild("Key"))
-                            local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
-                            if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
-                                hum:EquipTool(keyTool)
-                                task.wait(0.1)
-                            end
-                            pcall(function()
-                                up.HoldDuration = 0
-                                fireproximityprompt(up)
+                            task.spawn(function()
+                                local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (getChar() and getChar():FindFirstChild("Key"))
+                                local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
+                                if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                                    hum:EquipTool(keyTool)
+                                end
+                                pcall(function()
+                                    up.HoldDuration = 0
+                                    fireproximityprompt(up)
+                                end)
                             end)
-                            task.wait(0.15)
                         end
                     end
 
@@ -2556,10 +2565,8 @@ local function processNearbyDoors(currentPos, maxReach)
                     if hiddenPart and hiddenPart:IsA("BasePart") then
                         pcall(function()
                             hiddenPart.CanTouch = true
-                            local r = getRoot()
                             if r then
                                 firetouchinterest(r, hiddenPart, 0)
-                                task.wait()
                                 firetouchinterest(r, hiddenPart, 1)
                             end
                         end)
@@ -2704,19 +2711,50 @@ local function neutralizeServerTeleported()
         end
     end)
 
-    -- 2. Disable all direct listeners on RemotesFolder.ServerTeleported & Teleport
+    -- 2. Suppress and detour all direct listeners on RemotesFolder.ServerTeleported & Teleport
     pcall(function()
         local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-        local st = rf and rf:FindFirstChild("ServerTeleported")
-        if st and getconnections then
-            for _, c in ipairs(getconnections(st.OnClientEvent)) do
-                pcall(function() c:Disable() end)
+        if not rf or not getconnections then return end
+
+        local tp = rf:FindFirstChild("Teleport")
+        if tp and tp:IsA("RemoteEvent") then
+            for _, c in ipairs(getconnections(tp.OnClientEvent)) do
+                pcall(function()
+                    c:Disable()
+                    local fn = c.Function
+                    if fn and not _G["TP_DETOURED_" .. tostring(fn)] then
+                        _G["TP_DETOURED_" .. tostring(fn)] = true
+                        if hookfunction then
+                            hookfunction(fn, newcclosure(function(...)
+                                if isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat then
+                                    return
+                                end
+                                return fn(...)
+                            end))
+                        end
+                    end
+                end)
             end
         end
-        local tp = rf and rf:FindFirstChild("Teleport")
-        if tp and getconnections then
-            for _, c in ipairs(getconnections(tp.OnClientEvent)) do
-                pcall(function() c:Disable() end)
+
+        local st = rf:FindFirstChild("ServerTeleported")
+        if st and st:IsA("RemoteEvent") then
+            for _, c in ipairs(getconnections(st.OnClientEvent)) do
+                pcall(function()
+                    c:Disable()
+                    local fn = c.Function
+                    if fn and not _G["ST_DETOURED_" .. tostring(fn)] then
+                        _G["ST_DETOURED_" .. tostring(fn)] = true
+                        if hookfunction then
+                            hookfunction(fn, newcclosure(function(...)
+                                if isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat then
+                                    return
+                                end
+                                return fn(...)
+                            end))
+                        end
+                    end
+                end)
             end
         end
     end)
@@ -3299,7 +3337,19 @@ local function teleportToRoof(callback)
     isAtRoof = true
     State.Safe_Roof_Station = true
 
-    safeTweenTeleport(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector), 65, false, function()
+    -- Pre-open all nearby doors and strip ceiling collision above character
+    processNearbyDoors(root.Position, 40)
+    pcall(function()
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        local upHit = workspace:Raycast(root.Position, Vector3.new(0, 45, 0), rayParams)
+        if upHit and upHit.Instance then
+            upHit.Instance.CanCollide = false
+        end
+    end)
+
+    safeTweenTeleport(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector), 65, true, true, function()
         root.CFrame = CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector)
         root.AssemblyLinearVelocity = Vector3.zero
         Hub.Notify("Safe Spot", "Secure on Safe Roof! Rush & entities deflected.", 3)
@@ -3601,11 +3651,20 @@ RunService.Heartbeat:Connect(function(dt)
         roofPlatform.CFrame = CFrame.new(root.Position.X, roofPlatform.Position.Y, root.Position.Z)
     end
 
-    -- Wipes pending client rollback CFrame every frame during teleport, roof, or post-teleport grace
-    if isTeleportImmune() or State.Fly_Enabled or State.Noclip or State.Bypass_AntiCheat then
-        local mgTable = getMainGameTable()
-        if mgTable and mgTable.SETNEWCF then
-            mgTable.SETNEWCF = nil
+    -- Wipes pending client rollback CFrame and synchronizes DOORS native noclip flag
+    local mgTable = getMainGameTable()
+    if mgTable then
+        if isTeleportImmune() or State.Fly_Enabled or State.Noclip or State.Bypass_AntiCheat then
+            if mgTable.SETNEWCF then
+                mgTable.SETNEWCF = nil
+            end
+            if State.Noclip or isTeleportImmune() then
+                mgTable.noclip = true
+            end
+        else
+            if mgTable.noclip then
+                mgTable.noclip = false
+            end
         end
     end
 end)
@@ -4432,6 +4491,23 @@ if hookfunction then
             return rawA90Fire(self, action, ...)
         end))
     end
+end
+
+-- Direct PivotTo Method Hook: Intercepts game.PivotTo / char.PivotTo even when called without __namecall
+if hookfunction and typeof(game.PivotTo) == "function" then
+    local rawPivotTo
+    rawPivotTo = hookfunction(game.PivotTo, newcclosure(function(self, ...)
+        if not checkcaller() then
+            if isTeleportImmune() or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat then
+                local char = LocalPlayer.Character
+                local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
+                if isLocalChar then
+                    return -- Block direct PivotTo rollback dead in its tracks!
+                end
+            end
+        end
+        return rawPivotTo(self, ...)
+    end))
 end
 
 -- Intercept server rollback teleports while Noclip is active
