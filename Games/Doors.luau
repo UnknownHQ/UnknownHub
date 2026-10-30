@@ -2822,10 +2822,50 @@ local function getExactFloorPos(pos, fallbackOffset)
     return Vector3.new(pos.X, pos.Y + (fallbackOffset or 0), pos.Z)
 end
 
--- Safe Overhead Clearance Calculator: Determines clear upper air altitude above interior walls, door headers and clutter
+-- Character Interactivity & Collision Re-enabler: Restores full ProximityPrompt raycasting and room triggers
+local function restoreCharacterInteractivity(char)
+    if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.CanTouch = true
+            p.CanQuery = true
+        end
+    end
+    local coll = char:FindFirstChild("Collision")
+    local cp = char:FindFirstChild("CollisionPart")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if coll and coll:IsA("BasePart") then
+        coll.CanCollide = true
+        coll.CanTouch = true
+        coll.CanQuery = true
+    end
+    if cp and cp:IsA("BasePart") then
+        cp.CanCollide = false
+        cp.CanTouch = true
+        cp.CanQuery = true
+    end
+    if root and root:IsA("BasePart") then
+        root.CanCollide = false
+        root.CanTouch = true
+        root.CanQuery = true
+    end
+end
+
+-- Safe Overhead Clearance Calculator: Stays strictly BELOW the room ceiling to prevent out-of-bounds void Glitch!
 local function getOverheadClearanceY(posA, posB)
+    local char = getChar()
     local startY = math.max(posA.Y, posB.Y)
-    return startY + 11.5
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local ceilA = workspace:Raycast(posA + Vector3.new(0, 1.5, 0), Vector3.new(0, 25, 0), rayParams)
+    local ceilB = workspace:Raycast(posB + Vector3.new(0, 1.5, 0), Vector3.new(0, 25, 0), rayParams)
+    local minCeilY = math.min(ceilA and ceilA.Position.Y or (startY + 12), ceilB and ceilB.Position.Y or (startY + 12))
+
+    -- Safe clearance: at least 1.5 studs BELOW ceiling, clearing tables/beds at ~5.5-8.5 studs
+    local safeY = math.clamp(minCeilY - 1.5, startY + 5.0, startY + 8.5)
+    return safeY
 end
 
 -- Upgraded Waypoint Router: Detects wall collisions, tests hallway routes, and activates overhead sky-corridor bypass to eliminate wall rollbacks!
@@ -2925,7 +2965,8 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
     local totalDist = moveVec.Magnitude
     if totalDist < 0.5 then
         if isFinalDestination then
-            teleportImmunityUntil = os.clock() + 2.0
+            teleportImmunityUntil = os.clock() + 1.2
+            restoreCharacterInteractivity(char)
         end
         if callback then callback() end
         return true
@@ -2937,7 +2978,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
     local token = tick() + math.random()
     activeTweenToken = token
     isTeleportTweening = true
-    teleportImmunityUntil = os.clock() + duration + 2.5
+    teleportImmunityUntil = os.clock() + duration + 1.8
 
     if syncServerSlide then syncServerSlide(true, true) end
 
@@ -2951,7 +2992,8 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
             if conn then conn:Disconnect() end
             if activeTweenToken == token then
                 isTeleportTweening = false
-                if isFinalDestination then teleportImmunityUntil = os.clock() + 2.0 end
+                restoreCharacterInteractivity(char)
+                if isFinalDestination then teleportImmunityUntil = os.clock() + 1.2 end
             end
             return
         end
@@ -2960,25 +3002,30 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
         local elapsed = now - t0
         local alpha = math.clamp(elapsed / duration, 0, 1)
 
-        -- Strip physics collisions for smooth penetration through walls/doors
+        -- Only strip CanCollide during active penetration; preserve CanTouch & CanQuery so prompts and doors work
         for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then
+            if p:IsA("BasePart") and p.CanCollide then
                 p.CanCollide = false
-                p.CanTouch = false
-                p.CanQuery = false
             end
         end
 
         if alpha < 1 then
-            -- Active Flight Phase: interpolate sub-positions with velocity packet alignment
+            -- Active Flight Phase: interpolate sub-positions with synchronized root, collision part, and Main_Game SETNEWCF
             local currentSubPos = startPos:Lerp(targetPos, alpha)
+            local currentCF = CFrame.new(currentSubPos) * targetRot
 
-            root.CFrame = CFrame.new(currentSubPos) * targetRot
+            char:PivotTo(currentCF)
+            root.CFrame = currentCF
+            local cp = char:FindFirstChild("CollisionPart")
+            if cp then cp.CFrame = currentCF end
+            local mgTable = getMainGameTable()
+            if mgTable then mgTable.SETNEWCF = currentCF end
+
             root.AssemblyLinearVelocity = moveDir * speed
             root.AssemblyAngularVelocity = Vector3.zero
 
-            -- Continuous slide timer refresh every 0.85s to keep server-side slide authorizer perpetually active
-            if (now - lastSlidePulse >= 0.85) then
+            -- Continuous slide timer refresh every 0.60s to keep server-side slide authorizer perpetually active
+            if (now - lastSlidePulse >= 0.60) then
                 lastSlidePulse = now
                 task.spawn(pulseSlideKeepAlive)
             end
@@ -2992,28 +3039,70 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
             if not isFinalDestination then
                 if conn then conn:Disconnect() end
                 if activeTweenToken == token then isTeleportTweening = false end
-                root.CFrame = CFrame.new(targetPos) * targetRot
+                local nextCF = CFrame.new(targetPos) * targetRot
+                char:PivotTo(nextCF)
+                root.CFrame = nextCF
+                local cp = char:FindFirstChild("CollisionPart")
+                if cp then cp.CFrame = nextCF end
+                local mgTable = getMainGameTable()
+                if mgTable then mgTable.SETNEWCF = nextCF end
                 if callback then callback() end
                 return
             end
 
-            -- Server Acceptance Phase (0.55s Settle Window on Landing):
-            -- Clamps CFrame, nullifies velocity, and maintains slide authorization so server validates rest state
+            -- Server Acceptance Phase (Arrival Landing Handshake):
+            -- Clamps all character master parts, restores interactivity, and triggers physics wake packet
             if not settleStartTime then
                 settleStartTime = now
+                local finalCF = CFrame.new(targetPos) * targetRot
+                char:PivotTo(finalCF)
+                root.CFrame = finalCF
+                local cp = char:FindFirstChild("CollisionPart")
+                if cp then cp.CFrame = finalCF end
+                local mgTable = getMainGameTable()
+                if mgTable then mgTable.SETNEWCF = finalCF end
+                restoreCharacterInteractivity(char)
             end
 
-            root.CFrame = CFrame.new(targetPos) * targetRot
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-            if syncServerSlide then syncServerSlide(true, true) end
+            local finalCF = CFrame.new(targetPos) * targetRot
+            char:PivotTo(finalCF)
+            root.CFrame = finalCF
+            local cp = char:FindFirstChild("CollisionPart")
+            if cp then cp.CFrame = finalCF end
+            local mgTable = getMainGameTable()
+            if mgTable then mgTable.SETNEWCF = finalCF end
 
-            if now - settleStartTime >= 0.55 then
+            if now - settleStartTime >= 0.15 then
                 if conn then conn:Disconnect() end
                 if activeTweenToken == token then
                     isTeleportTweening = false
-                    teleportImmunityUntil = os.clock() + 2.0 -- 2.0s post-arrival rollback immunity shield!
+                    teleportImmunityUntil = os.clock() + 1.2
                 end
+
+                restoreCharacterInteractivity(char)
+
+                -- Physics Replication Wake Pulse: micro velocity impulse forces Roblox network pipeline to transmit position packet!
+                root.AssemblyLinearVelocity = Vector3.new(0, 0.12, 0)
+                task.defer(function()
+                    if root and root.Parent then
+                        root.AssemblyLinearVelocity = Vector3.new(0, -0.12, 0)
+                        task.wait(0.02)
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                    end
+                end)
+
+                -- Server State Slide Handshake: cycles Crouch remote to force server to register position at new coordinates!
+                if crouchRemote then
+                    pcall(function()
+                        crouchRemote:FireServer(false, false)
+                        task.wait(0.02)
+                        crouchRemote:FireServer(false, true)
+                        task.wait(0.02)
+                        crouchRemote:FireServer(false, false)
+                    end)
+                end
+
                 if callback then callback() end
             end
         end
@@ -3331,6 +3420,32 @@ local function removeRoofPlatform()
     end
 end
 
+-- Safe Zone Calculator: Computes ceiling altitude strictly INSIDE the room envelope (100% Rush Immune & Zero Glitch)
+local function calculateSafeZoneAltitude(pos)
+    local char = getChar()
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local ceilHit = workspace:Raycast(pos + Vector3.new(0, 1.5, 0), Vector3.new(0, 30, 0), rayParams)
+    local floorPos = getExactFloorPos(pos)
+    local floorY = floorPos.Y
+
+    local safeY
+    if ceilHit then
+        local ceilingY = ceilHit.Position.Y
+        if (ceilingY - floorY) > 9.5 then
+            safeY = math.clamp(ceilingY - 1.6, floorY + 8.2, floorY + 11.0)
+        else
+            safeY = math.max(floorY + 4.5, ceilingY - 1.2)
+        end
+    else
+        safeY = floorY + 8.5
+    end
+
+    return safeY, floorPos
+end
+
 local function teleportToRoof(callback)
     local char = getChar()
     local root = getRoot()
@@ -3338,35 +3453,28 @@ local function teleportToRoof(callback)
     if not char or not root or not hum or hum.Health <= 0 then return false end
 
     if isAtRoof then
-        Hub.Notify("Safe Spot", "Already stationed on Safe Roof!", 2)
+        Hub.Notify("Safe Zone", "Already stationed in Safe Zone!", 2)
         if callback then callback(true) end
         return true
     end
 
-    lastPreRoofFloorPos = root.Position
-    local roofTargetPos = root.Position + Vector3.new(0, 35, 0)
-    
-    getOrCreateRoofPlatform(roofTargetPos)
-    Hub.Notify("Safe Spot", "Ascending to Safe Roof (+35 Studs)...", 2)
+    local safeY, floorPos = calculateSafeZoneAltitude(root.Position)
+    lastPreRoofFloorPos = floorPos
+    local safeTargetPos = Vector3.new(root.Position.X, safeY, root.Position.Z)
+    local altitudeStuds = safeY - floorPos.Y
+
+    getOrCreateRoofPlatform(safeTargetPos)
+    Hub.Notify("Safe Zone", string.format("Ascending to Safe Zone (+%.1f studs - Rush Immune)...", altitudeStuds), 2)
     isAtRoof = true
     State.Safe_Roof_Station = true
 
-    -- Pre-open all nearby doors and strip ceiling collision above character
-    processNearbyDoors(root.Position, 40)
-    pcall(function()
-        local rayParams = RaycastParams.new()
-        rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-        rayParams.FilterType = Enum.RaycastFilterType.Exclude
-        local upHit = workspace:Raycast(root.Position, Vector3.new(0, 45, 0), rayParams)
-        if upHit and upHit.Instance then
-            upHit.Instance.CanCollide = false
-        end
-    end)
+    processNearbyDoors(root.Position, 30)
 
-    safeTweenTeleport(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector), 65, true, true, function()
-        root.CFrame = CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector)
+    safeTweenTeleport(CFrame.new(safeTargetPos, safeTargetPos + root.CFrame.LookVector), 55, true, true, function()
+        char:PivotTo(CFrame.new(safeTargetPos, safeTargetPos + root.CFrame.LookVector))
+        root.CFrame = CFrame.new(safeTargetPos, safeTargetPos + root.CFrame.LookVector)
         root.AssemblyLinearVelocity = Vector3.zero
-        Hub.Notify("Safe Spot", "Secure on Safe Roof! Rush & entities deflected.", 3)
+        Hub.Notify("Safe Zone", "Secure in Safe Zone! Rush & entities cannot reach you.", 3)
         if callback then callback(true) end
     end)
     return true
@@ -3378,22 +3486,23 @@ local function returnFromRoof(callback)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return false end
 
-    if not isAtRoof and root.Position.Y < 25 then
-        Hub.Notify("Safe Spot", "Not currently on roof!", 2)
+    if not isAtRoof then
+        Hub.Notify("Safe Zone", "Not currently in Safe Zone!", 2)
         if callback then callback(false) end
         return false
     end
 
-    Hub.Notify("Safe Spot", "Safely descending from roof...", 2)
+    Hub.Notify("Safe Zone", "Safely descending to room floor...", 2)
 
-    local targetFloorPos = getExactFloorPos(Vector3.new(root.Position.X, (lastPreRoofFloorPos and lastPreRoofFloorPos.Y) or (root.Position.Y - 35), root.Position.Z))
+    local targetFloorPos = (lastPreRoofFloorPos and lastPreRoofFloorPos) or getExactFloorPos(root.Position)
 
-    safeTweenTeleport(CFrame.new(targetFloorPos, targetFloorPos + root.CFrame.LookVector), 55, false, function()
+    safeTweenTeleport(CFrame.new(targetFloorPos, targetFloorPos + root.CFrame.LookVector), 50, false, function()
         removeRoofPlatform()
         isAtRoof = false
         State.Safe_Roof_Station = false
         lastPreRoofFloorPos = nil
-        Hub.Notify("Safe Spot", "Landed safely on room floor!", 2)
+        restoreCharacterInteractivity(char)
+        Hub.Notify("Safe Zone", "Landed safely on room floor! Prompts active.", 2)
         if callback then callback(true) end
     end)
     return true
@@ -3772,13 +3881,13 @@ RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Fly_Enabled or isTeleportImmune() then
-        -- Strip CanCollide, CanTouch & CanQuery from ALL character parts to eliminate physics collisions
+    if State.Noclip or State.Fly_Enabled or isTeleportTweening then
+        -- Strip CanCollide only during active movement, preserving CanTouch and CanQuery so doors & proximity prompts work flawlessly!
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
-                if part.CanTouch then part.CanTouch = false end
-                if part.CanQuery then part.CanQuery = false end
+                if not part.CanTouch then part.CanTouch = true end
+                if not part.CanQuery then part.CanQuery = true end
             end
         end
     end
@@ -4843,11 +4952,11 @@ Hub.CreateToggle(teleportTab, "Auto-Evacuate on Rush / Ambush", State.Auto_Evacu
     Hub.Notify("Entity Sentry", v and "Auto-Evacuate: ACTIVE (Instantly retreats to closet on Rush)" or "Auto-Evacuate: OFF", 2)
 end)
 
-Hub.CreateButton(teleportTab, "Teleport to Roof (+35 Studs Altitude)", function()
+Hub.CreateButton(teleportTab, "Teleport to Safe Zone (Ceiling Elevation - Rush Immune)", function()
     teleportToRoof()
 end)
 
-Hub.CreateButton(teleportTab, "Return from Roof (Floor Landing)", function()
+Hub.CreateButton(teleportTab, "Return from Safe Zone (Floor Landing)", function()
     returnFromRoof()
 end)
 
