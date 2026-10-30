@@ -194,22 +194,15 @@ local locationRegistry = {
     { name = "Main Base (Spawn)", target = "TheBase", fallback = Vector3.new(52, -137, -144) },
     { name = "Old Statue (Lenin)", target = "LeninStatue", fallback = Vector3.new(-398.5, -124.0, -685.0) },
     { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-626, -114, 443) },
-    { name = "Ruined Playground", target = "BrutalPlayground", fallback = Vector3.new(-1053, -112, 646) },
-    { name = "Graveyard", target = "Graveyard", fallback = Vector3.new(12, -123, -878) },
-    { name = "The Bunker", target = "Bunker", fallback = Vector3.new(-699, -112, -664) },
-    { name = "The Tunnel", target = "Tunnel", fallback = Vector3.new(-1162, -112, -46) },
-    { name = "The Bridge", target = "TheBridge", fallback = Vector3.new(848, -110, -592) },
-    { name = "Power Grid", target = "Power Grid", fallback = Vector3.new(-556, -112, -270) },
-    { name = "Main Cave Entrance", target = "Caves", fallback = Vector3.new(-28, -122, 397) },
-    { name = "Bear Pillars", target = "Pillar Obby", fallback = Vector3.new(255, -123, 588) },
-    { name = "Abandoned Town", target = "AbandonedTown", fallback = Vector3.new(-9, -135, 175) },
+    { name = "The Maze (Entrance)", target = "ScaryMaze", fallback = Vector3.new(20, -130, -185) },
+    { name = "The Maze (End)", target = "TheMaze", fallback = Vector3.new(1140.9, -144.9, 73.1) },
     { name = "Research Facility", target = "OutsideResearchFacility", fallback = Vector3.new(-17, -136, -396) },
     { name = "Star Lab", target = "Star Lab", fallback = Vector3.new(-300, -112, 850) },
-    { name = "Hangar", target = "Hangar", fallback = Vector3.new(400, -112, 400) },
-    { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850, -120, -350) },
     { name = "Plane Crash", target = "Plane", fallback = Vector3.new(325, -143, -63) },
-    { name = "The Maze (Entrance)", target = "ScaryMaze", fallback = Vector3.new(20, -130, -185) },
-    { name = "The Maze (End)", target = "TheMaze", fallback = Vector3.new(1140.9, -144.9, 73.1) }
+    { name = "The Bunker", target = "Bunker", fallback = Vector3.new(-699, -112, -664) },
+    { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850, -120, -350) },
+    { name = "Main Cave Entrance", target = "Caves", fallback = Vector3.new(-28, -122, 397) },
+    { name = "Graveyard", target = "Graveyard", fallback = Vector3.new(12, -123, -878) }
 }
 
 local function resolveLocationPosition(item)
@@ -267,6 +260,21 @@ local function safeTeleport(targetPos, locationName)
 
     silenceTelemetry()
 
+    -- 1. Explicit Chunk Streaming Request (Crucial for remote chunks like The Maze End 1,100 studs away)
+    pcall(function()
+        LocalPlayer:RequestStreamAroundAsync(targetPos)
+    end)
+
+    -- 2. Spawn temporary invisible anchored safety landing pad to prevent falling into void during chunk streaming
+    local pad = Instance.new("Part")
+    pad.Name = "SafeLandingPad"
+    pad.Size = Vector3.new(24, 2, 24)
+    pad.CFrame = CFrame.new(targetPos - Vector3.new(0, 1.0, 0))
+    pad.Anchored = true
+    pad.Transparency = 1
+    pad.CanCollide = true
+    pad.Parent = Workspace
+
     local spawnOffset = Vector3.new(0, 2.5, 0)
     local destCFrame = CFrame.new(targetPos + spawnOffset)
 
@@ -277,8 +285,9 @@ local function safeTeleport(targetPos, locationName)
     char:PivotTo(destCFrame)
 
     task.spawn(function()
-        -- Hold anchored across 3 physics frames to force authoritative server position sync
-        for _ = 1, 3 do
+        -- Hold anchored across 0.75s to allow terrain and mesh streaming before unanchoring
+        local startTime = tick()
+        while tick() - startTime < 0.75 do
             RunService.Heartbeat:Wait()
             if root and root.Parent then
                 char:PivotTo(destCFrame)
@@ -292,6 +301,13 @@ local function safeTeleport(targetPos, locationName)
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
         end
+
+        -- Clean up safety landing pad after 3 seconds
+        task.delay(3, function()
+            if pad and pad.Parent then
+                pad:Destroy()
+            end
+        end)
 
         isTeleporting = false
         if locationName then
@@ -783,9 +799,9 @@ local function getBearLevitationTarget(bear)
     end
 
     -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, IceBear, ThinBear, etc.)
-    -- Hover above upper spine/pelvis line (+3.4 studs above top bounding box) to prevent ground bite / turn clip
-    local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.4
-    local distBehind = (sz.Z * 0.5) + 2.4
+    -- In Melee mode: hover closely above spine (+1.3 studs) and tight behind (-2.2 studs) so melee reach is always 100% satisfied
+    local targetY = (Config.FarmMethod == "Melee") and (cf.Position.Y + (sz.Y * 0.5) + 1.3) or (cf.Position.Y + (sz.Y * 0.5) + 3.4)
+    local distBehind = (Config.FarmMethod == "Melee") and math.min((sz.Z * 0.5) + 1.8, 3.4) or ((sz.Z * 0.5) + 2.4)
     return cf.Position, distBehind, targetY
 end
 
@@ -936,20 +952,26 @@ local function applyWeaponMods(tool)
         clip.Value = orig.ClipSize
     end
 
-    local reload = config:FindFirstChild("ReloadTime")
-    if Config.InstantReload then
-        if reload and reload:IsA("ValueBase") then reload.Value = 0.05 end
-        if not config:FindFirstChild("NoReload") then
-            local nr = Instance.new("Folder")
-            nr.Name = "NoReload"
-            nr.Parent = config
-        end
-    else
-        if reload and reload:IsA("ValueBase") and reload.Value < 0.5 then
-            reload.Value = orig.ReloadTime
-        end
-        local nr = config:FindFirstChild("NoReload")
-        if nr then nr:Destroy() end
+    -- Clean up any desyncing client-only NoReload folders
+    local nr = config:FindFirstChild("NoReload")
+    if nr then nr:Destroy() end
+
+    -- Flamethrower Configuration Enhancements
+    if tool.Name == "Flamethrower" or tool:FindFirstChild("FlameRemote") then
+        local range = config:FindFirstChild("Range")
+        if range and range:IsA("ValueBase") and range.Value < 80 then range.Value = 85 end
+
+        local cone = config:FindFirstChild("ConeAngle")
+        if cone and cone:IsA("ValueBase") and cone.Value < 35 then cone.Value = 40 end
+
+        local refuelDelay = config:FindFirstChild("RefuelDelay")
+        if refuelDelay and refuelDelay:IsA("ValueBase") then refuelDelay.Value = 0 end
+
+        local refuelTime = config:FindFirstChild("RefuelTime")
+        if refuelTime and refuelTime:IsA("ValueBase") then refuelTime.Value = 0.5 end
+
+        local equipDelay = config:FindFirstChild("EquipDelay")
+        if equipDelay and equipDelay:IsA("ValueBase") then equipDelay.Value = 0 end
     end
 
     if Config.MeleeAura or (Config.AutoFarmBears and Config.FarmMethod == "Melee") then
@@ -1052,34 +1074,30 @@ local function getLoadedAmmoFromGUI(tool)
     return ammo, (ammo <= 0)
 end
 
--- Comprehensive Dual-Vector Gun Reload Trigger (Simulated Key + Server Remote + UI Trigger)
+-- Comprehensive Authoritative Gun Reload Trigger (Simulated Key + Server Remote + UI Trigger)
 local function triggerGunReload(tool)
     if not tool then return end
+    if tick() < reloadEndTime or isReloading then return end
+
     local gunScripts = tool:FindFirstChild("GunScripts")
     local reloadRemote = gunScripts and gunScripts:FindFirstChild("Reload")
-
-    if Config.InstantReload then
-        isReloading = false
-        reloadEndTime = 0
-        currentGunAmmo[tool] = getToolMaxClip(tool)
-        syncAmmoToGUI(tool)
-        if reloadRemote then
-            pcall(function() reloadRemote:FireServer() end)
-        end
-        return
-    end
-
-    if tick() < reloadEndTime or isReloading then return end
 
     local config = tool:FindFirstChild("Config")
     local reloadTimeVal = config and config:FindFirstChild("ReloadTime")
     local reloadDuration = (reloadTimeVal and reloadTimeVal:IsA("ValueBase") and reloadTimeVal.Value) or 2.2
 
-    reloadEndTime = tick() + reloadDuration + 0.25
+    reloadEndTime = tick() + reloadDuration + 0.15
     isReloading = true
     syncAmmoToGUI(tool)
 
-    -- 1. Native Virtual Input KeyPress simulation (invokes GunClient local reload animation & client clip reset)
+    -- 1. Direct Network Remote Dispatch to server
+    if reloadRemote then
+        pcall(function()
+            reloadRemote:FireServer()
+        end)
+    end
+
+    -- 2. Native Virtual Input KeyPress simulation (invokes GunClient local reload animation & client clip reset)
     pcall(function()
         local vim = game:GetService("VirtualInputManager")
         if vim then
@@ -1088,13 +1106,6 @@ local function triggerGunReload(tool)
             vim:SendKeyEvent(false, Enum.KeyCode.R, false, game)
         end
     end)
-
-    -- 2. Direct Network Remote Dispatch as server-side authoritative backup
-    if reloadRemote then
-        pcall(function()
-            reloadRemote:FireServer()
-        end)
-    end
 
     -- 3. Click MobileButtons Reload button if visible
     pcall(function()
@@ -1108,7 +1119,7 @@ local function triggerGunReload(tool)
         end
     end)
 
-    task.delay(reloadDuration + 0.25, function()
+    task.delay(reloadDuration + 0.15, function()
         if tick() >= reloadEndTime then
             isReloading = false
             currentGunAmmo[tool] = getToolMaxClip(tool)
@@ -1117,7 +1128,7 @@ local function triggerGunReload(tool)
     end)
 end
 
--- Server-Authoritative Shooting Dispatcher
+-- Server-Authoritative Shooting Dispatcher (Prevents 0-Damage Soft-Locks & Ghost Shots)
 local function shootTargetBear(tool, bear, bearPart)
     if not tool or not bear or not bearPart then return end
 
@@ -1129,18 +1140,14 @@ local function shootTargetBear(tool, bear, bearPart)
     local fireRemote = gunScripts and gunScripts:FindFirstChild("FireBullet")
     if not fireRemote then return end
 
-    -- Check live ammo state
-    if Config.InstantReload then
-        currentGunAmmo[tool] = getToolMaxClip(tool)
-    else
-        local currentAmmo, reloading = getLoadedAmmoFromGUI(tool)
-        if reloading or tick() < reloadEndTime or isReloading then
-            return
-        end
-        if currentAmmo <= 0 then
-            triggerGunReload(tool)
-            return
-        end
+    -- Authoritative Ammo & Reload Gate: NEVER shoot while reloading or with 0 ammo!
+    local currentAmmo, reloading = getLoadedAmmoFromGUI(tool)
+    if reloading or tick() < reloadEndTime or isReloading then
+        return
+    end
+    if currentAmmo <= 0 then
+        triggerGunReload(tool)
+        return
     end
 
     local muzzle = tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("Muzzle")
@@ -1215,35 +1222,65 @@ task.spawn(function()
         if root and hum and hum.Health > 0 then
             local equippedTool = char:FindFirstChildOfClass("Tool")
 
-            -- 1. Melee Aura Execution (Smooth 0.35s swing throttle to eliminate visual spam)
+            -- 1. Melee Aura Execution (Smooth 0.35s swing throttle + Authoritative Hit Remote Dispatch)
             if Config.MeleeAura then
                 local bear, dist = getClosestBear(Config.MeleeAuraRange, true)
                 if bear and dist then
                     local isMelee = equippedTool and equippedTool:FindFirstChild("MeleeScripts")
                     if isMelee and equippedTool then
                         applyWeaponMods(equippedTool)
-                        local targetPart = getBearBottomRearPart(bear)
-                        local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear:FindFirstChild("Head") or bear.PrimaryPart or bear:FindFirstChildOfClass("BasePart")
-                        local aimTarget = targetPart or bearRoot
-                        if aimTarget then
-                            root.CFrame = CFrame.new(root.Position, Vector3.new(aimTarget.Position.X, root.Position.Y, aimTarget.Position.Z))
+                        local targetHitPart = bear:FindFirstChild("Hitbox_Crown")
+                            or bear:FindFirstChild("Hitbox_Head")
+                            or bear:FindFirstChild("Head")
+                            or bear:FindFirstChild("BodyTop")
+                            or bear:FindFirstChild("Hitbox_Chest")
+                            or bear:FindFirstChild("Hitbox_Torso")
+                            or getBearBottomRearPart(bear)
+                            or bear.PrimaryPart
+                            or bear:FindFirstChild("HumanoidRootPart")
+                        if targetHitPart then
+                            root.CFrame = CFrame.new(root.Position, Vector3.new(targetHitPart.Position.X, root.Position.Y, targetHitPart.Position.Z))
                             if tick() - lastMeleeSwing >= 0.35 then
                                 lastMeleeSwing = tick()
                                 equippedTool:Activate()
+
+                                -- Direct authoritative network hit dispatch (Crown/Head priority)
+                                local meleeRemote = isMelee:FindFirstChild("MeleeRemote")
+                                if meleeRemote then
+                                    pcall(function()
+                                        meleeRemote:FireServer("Hit", targetHitPart)
+                                    end)
+                                end
                             end
                         end
                     end
                 end
             end
 
-            -- 2. Gun Aura Execution (ONLY when gun is ALREADY equipped! Zero annoying auto-equipping!)
+            -- 2. Gun Aura Execution (Supports standard firearms & Flamethrower!)
             if Config.GunAura then
+                local isFlame = equippedTool and (equippedTool:FindFirstChild("FlameRemote") or equippedTool.Name == "Flamethrower")
                 local isGun = equippedTool and equippedTool:FindFirstChild("GunScripts")
-                if isGun and equippedTool then
+                if isFlame and equippedTool then
+                    applyWeaponMods(equippedTool)
+                    local flameRemote = equippedTool:FindFirstChild("FlameRemote")
+                    local fuel = equippedTool:GetAttribute("Fuel") or 1
+                    local bear, dist = getClosestBear(Config.GunAuraRange, true)
+                    if bear and dist and fuel > 0.05 and flameRemote then
+                        local bearRoot = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head") or bear:FindFirstChild("BodyTop") or bear.PrimaryPart or bear:FindFirstChild("HumanoidRootPart")
+                        if bearRoot then
+                            root.CFrame = CFrame.new(root.Position, Vector3.new(bearRoot.Position.X, root.Position.Y, bearRoot.Position.Z))
+                            flameRemote:FireServer("Aim", bearRoot.Position)
+                            flameRemote:FireServer("Start")
+                        end
+                    elseif flameRemote then
+                        flameRemote:FireServer("Stop")
+                    end
+                elseif isGun and equippedTool then
                     local currentAmmo, reloading = getLoadedAmmoFromGUI(equippedTool)
                     if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
                         triggerGunReload(equippedTool)
-                    else
+                    elseif not reloading and currentAmmo > 0 then
                         local bear, dist = getClosestBear(Config.GunAuraRange, true)
                         if bear and dist then
                             applyWeaponMods(equippedTool)
@@ -1275,6 +1312,8 @@ local WEAPON_TIERS = {
     Knife = 15,
 
     -- Gun hierarchy
+    GoldenMinigun = 220,
+    Flamethrower = 210,
     Minigun = 200,
     RPG = 180,
     Sniper = 150,
@@ -1294,7 +1333,7 @@ local function getBestTool(weaponType)
     local function checkTool(tool)
         if not tool or not tool:IsA("Tool") then return end
         local isMelee = tool:FindFirstChild("MeleeScripts") ~= nil
-        local isGun = tool:FindFirstChild("GunScripts") ~= nil
+        local isGun = (tool:FindFirstChild("GunScripts") ~= nil) or (tool:FindFirstChild("FlameRemote") ~= nil) or (tool.Name == "Flamethrower")
 
         if weaponType == "Melee" and isMelee then
             table.insert(candidates, tool)
@@ -1319,8 +1358,8 @@ local function getBestTool(weaponType)
     table.sort(candidates, function(a, b)
         local cfgA = a:FindFirstChild("Config")
         local cfgB = b:FindFirstChild("Config")
-        local dmgA = (cfgA and cfgA:FindFirstChild("Damage") and cfgA.Damage:IsA("ValueBase") and cfgA.Damage.Value) or WEAPON_TIERS[a.Name] or 10
-        local dmgB = (cfgB and cfgB:FindFirstChild("Damage") and cfgB.Damage:IsA("ValueBase") and cfgB.Damage.Value) or WEAPON_TIERS[b.Name] or 10
+        local dmgA = (cfgA and (cfgA:FindFirstChild("Damage") or cfgA:FindFirstChild("DPS")) and cfgA:FindFirstChildWhichIsA("ValueBase").Value) or WEAPON_TIERS[a.Name] or 10
+        local dmgB = (cfgB and (cfgB:FindFirstChild("Damage") or cfgB:FindFirstChild("DPS")) and cfgB:FindFirstChildWhichIsA("ValueBase").Value) or WEAPON_TIERS[b.Name] or 10
         return dmgA > dmgB
     end)
 
@@ -1627,19 +1666,26 @@ RunService.Heartbeat:Connect(function(dt)
         elseif isRanged then
             -- Spike Bear in melee mode: stay locked within 5.2 studs reach of head without sky-vaulting
             if activeFlightEvading then
-                y = y + 1.2
+                y = y + 0.8
             end
-        elseif activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
-            y = y + (isBoss and 12.0 or 4.8)
+        elseif isBoss then
+            if activeFlightEvading or bearRoot.AssemblyLinearVelocity.Magnitude > 18 then
+                y = y + 10.0
+            end
+        else
+            -- Standard bears in Melee: remain locked tightly within 4.5 studs of hit parts! Do NOT vault into sky on evasion!
+            if activeFlightEvading then
+                y = y + 0.5
+            end
         end
 
-        -- Dynamic Threat Ceiling & Third-Party AOE Deflector
+        -- Dynamic Threat Ceiling & Third-Party AOE Deflector (clamped in Melee to prevent range drop)
         local threatCeiling, repelVec = getNearbyThreatCeiling(root.Position, bear)
-        if threatCeiling > 0 and (threatCeiling + 2.8) > y then
-            y = threatCeiling + 2.8
+        if threatCeiling > 0 and (threatCeiling + 2.0) > y then
+            y = math.min(threatCeiling + 2.0, targetY + 2.5)
         end
         if repelVec.Magnitude > 0 then
-            targetPos = targetPos + repelVec
+            targetPos = targetPos + (repelVec.Unit * math.min(repelVec.Magnitude, 2.5))
         end
 
         targetPos = Vector3.new(targetPos.X, y, targetPos.Z)
@@ -1787,7 +1833,7 @@ task.spawn(function()
         local isBearFacing = lookVec:Dot(toPlayer) > 0.25
         activeFlightEvading = isBearFacing
 
-        -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved)
+        -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved, Melee Reach Guaranteed & Flamethrower)
         if Config.FarmMethod == "Melee" then
             local isMelee = bestTool:FindFirstChild("MeleeScripts")
             if isMelee then
@@ -1802,11 +1848,13 @@ task.spawn(function()
                     local bName = bear.Name:lower()
                     local isRangedBear = bName:find("ranged") or bName:find("spike")
                     local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
-                        or bear:FindFirstChild("BodyTop") 
-                        or bear:FindFirstChild("Ears") 
-                        or bear:FindFirstChild("Hitbox_Head") 
-                        or bear:FindFirstChild("Hitbox_Chest") 
-                        or bear:FindFirstChild("Hitbox_Torso") 
+                        or bear:FindFirstChild("Hitbox_Crown")
+                        or bear:FindFirstChild("Hitbox_Head")
+                        or bear:FindFirstChild("Head")
+                        or bear:FindFirstChild("BodyTop")
+                        or bear:FindFirstChild("Ears")
+                        or bear:FindFirstChild("Hitbox_Chest")
+                        or bear:FindFirstChild("Hitbox_Torso")
                         or bearRoot
                     if meleeRemote and targetHitPart then
                         pcall(function()
@@ -1816,15 +1864,28 @@ task.spawn(function()
                 end
             end
         elseif Config.FarmMethod == "Gun" then
+            local isFlame = bestTool:FindFirstChild("FlameRemote") or bestTool.Name == "Flamethrower"
             local isGun = bestTool:FindFirstChild("GunScripts")
-            if isGun then
+            if isFlame and bestTool then
                 applyWeaponMods(bestTool)
-                local currentAmmo, reloading = getLoadedAmmoFromGUI()
+                local flameRemote = bestTool:FindFirstChild("FlameRemote")
+                local fuel = bestTool:GetAttribute("Fuel") or 1
+                local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bearRoot
+                if fuel > 0.05 and targetPart and flameRemote then
+                    flameRemote:FireServer("Aim", targetPart.Position)
+                    flameRemote:FireServer("Start")
+                elseif flameRemote then
+                    flameRemote:FireServer("Stop")
+                end
+            elseif isGun and bestTool then
+                applyWeaponMods(bestTool)
+                local currentAmmo, reloading = getLoadedAmmoFromGUI(bestTool)
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
                     triggerGunReload(bestTool)
+                elseif not reloading and currentAmmo > 0 then
+                    local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
+                    shootTargetBear(bestTool, bear, targetPart)
                 end
-                local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
-                shootTargetBear(bestTool, bear, targetPart)
             end
         end
     end
@@ -1834,11 +1895,27 @@ end)
 -- Native Fly-Noclip Engine (Bypass Physics Collisions & Anti-Cheat Safe)
 -- =========================================================================
 local flyConnection = nil
+local noclipConnection = nil
 
 local function startFlyNoclip()
     if flyConnection then return end
     local UserInputService = game:GetService("UserInputService")
 
+    -- 1. Continuous Pre-Physics Collision Neutralization on Stepped (Eliminates wall pushback & collision bounce)
+    if not noclipConnection then
+        noclipConnection = RunService.Stepped:Connect(function()
+            if not Config.FlyNoclip then return end
+            local char = LocalPlayer.Character
+            if not char then return end
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide then
+                    p.CanCollide = false
+                end
+            end
+        end)
+    end
+
+    -- 2. Butter-Smooth Flight Engine with Network-Synchronized Linear Velocity (Eliminates physics rubberbands)
     flyConnection = RunService.RenderStepped:Connect(function(dt)
         if not Config.FlyNoclip then return end
         local char = LocalPlayer.Character
@@ -1846,11 +1923,9 @@ local function startFlyNoclip()
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if not char or not root or not hum or hum.Health <= 0 then return end
 
-        -- Phase noclip across all character parts smoothly
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") and p.CanCollide then
-                pcall(function() p.CanCollide = false end)
-            end
+        -- Lock Humanoid state to Freefall so Roblox's internal ground raycast doesn't fight our flight vector
+        if hum:GetState() ~= Enum.HumanoidStateType.Freefall and hum:GetState() ~= Enum.HumanoidStateType.Physics then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
         end
 
         local camera = Workspace.CurrentCamera
@@ -1866,12 +1941,16 @@ local function startFlyNoclip()
             moveDir = moveDir - Vector3.new(0, 1, 0)
         end
 
+        local speed = Config.FlySpeed or 45
         if moveDir.Magnitude > 0 then
-            local speed = Config.FlySpeed or 45
-            root.CFrame = root.CFrame + (moveDir.Unit * speed * dt)
+            local unitDir = moveDir.Unit
+            root.CFrame = root.CFrame + (unitDir * speed * dt)
+            -- Synchronize assembly velocity to match displacement: server reconciler sees consistent physics!
+            root.AssemblyLinearVelocity = unitDir * speed
+        else
+            root.AssemblyLinearVelocity = Vector3.zero
         end
 
-        root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
     end)
 end
@@ -1881,12 +1960,20 @@ local function stopFlyNoclip()
         flyConnection:Disconnect()
         flyConnection = nil
     end
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
     if root then
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
         root.CanCollide = true
+    end
+    if hum and hum.Health > 0 then
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
     end
 end
 
