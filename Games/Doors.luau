@@ -57,16 +57,19 @@ end
 -- =========================================================================
 local ok, result = pcall(function()
     local source
-    local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
-    local fetchSuccess, fetchedSource = pcall(function()
-        return game:HttpGet(LIBRARY_LINK .. cacheBuster)
-    end)
-    if fetchSuccess and fetchedSource and #fetchedSource > 100 then
-        source = fetchedSource
-    else
-        if readfile then
-            pcall(function() source = readfile("UnknownLibrary.luau") end)
-            if not source then pcall(function() source = readfile("UnknownLibrary") end) end
+    if readfile then
+        pcall(function() source = readfile("UnknownLibrary.luau") end)
+        if not source or #source < 100 then
+            pcall(function() source = readfile("UnknownLibrary") end)
+        end
+    end
+    if not source or #source < 100 then
+        local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
+        local fetchSuccess, fetchedSource = pcall(function()
+            return game:HttpGet(LIBRARY_LINK .. cacheBuster)
+        end)
+        if fetchSuccess and fetchedSource and #fetchedSource > 100 then
+            source = fetchedSource
         end
     end
     assert(source and #source > 100, "Could not load UnknownLibrary")
