@@ -4052,11 +4052,28 @@ local function refreshAllPrompts()
     end
 end
 
--- Hook new prompts dynamically
+-- Hook new prompts dynamically and ensure immediate optimization on load & room transition
 Workspace.DescendantAdded:Connect(function(desc)
     if desc:IsA("ProximityPrompt") then
         task.wait(0.05)
         pcall(function() applyPromptModifications(desc) end)
+    end
+end)
+
+-- Initial prompt optimization across all loaded rooms
+task.spawn(function()
+    task.wait(0.25)
+    refreshAllPrompts()
+end)
+
+-- Auto-refresh prompts whenever new rooms stream in
+task.spawn(function()
+    local curRooms = Workspace:WaitForChild("CurrentRooms", 5)
+    if curRooms then
+        curRooms.ChildAdded:Connect(function()
+            task.wait(0.2)
+            refreshAllPrompts()
+        end)
     end
 end)
 
