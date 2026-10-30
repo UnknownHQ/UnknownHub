@@ -3879,85 +3879,30 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- True 3D Flight & Wall-Penetrating Noclip Engine (Pure CFrame Vector Accumulator - Zero Jitter, Zero Shake)
+    -- True DOORS Native 3D Flight & Noclip Engine (100% Butter-Smooth, Zero-Jitter, Zero-Lag)
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
+        _G.__BLOCK_EQ_NOCLIP = true
+
         -- Cloak player on server as 'Hiding' so Rush, Ambush, and entities out-of-bounds treat player as protected in closet
         if not char:GetAttribute("Hiding") then
             char:SetAttribute("Hiding", true)
         end
 
-        -- Stop DOORS crouch locks and camera shaker completely
         local mg = getMainGameTable()
         if mg then
-            if mg.crouching then mg.crouching = false end
-            if mg.camShaker then pcall(function() mg.camShaker:Stop() end) end
-        end
-
-        -- Initialize 3D flight anchor position on first frame of flight
-        if not flyPos then
-            flyPos = root.Position
-        end
-
-        local cam = Workspace.CurrentCamera
-        local camCF = cam.CFrame
-        local camLook = camCF.LookVector
-        local camRight = camCF.RightVector
-        local camUp = Vector3.new(0, 1, 0)
-
-        local flyDir = Vector3.zero
-        local hasFlyInput = false
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            flyDir = flyDir + camLook
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            flyDir = flyDir - camLook
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            flyDir = flyDir + camRight
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            flyDir = flyDir - camRight
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            flyDir = flyDir + camUp
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            flyDir = flyDir - camUp
-            hasFlyInput = true
-        end
-
-        -- Gamepad / Mobile Touch:
-        if not hasFlyInput and hum and hum.MoveDirection.Magnitude > 0.05 then
-            local stick = hum.MoveDirection
-            local forwardDot = stick:Dot(Vector3.new(camLook.X, 0, camLook.Z).Unit)
-            if forwardDot > 0.4 then
-                flyDir = camLook
-            else
-                flyDir = stick
+            if not mg.noclip then
+                mg.noclip = true
             end
-            hasFlyInput = true
+            if mg.crouching then
+                mg.crouching = false
+            end
         end
 
-        local speed = math.clamp(State.Noclip_Speed or 28, 5, 85)
-
-        if hasFlyInput and flyDir.Magnitude > 0.01 then
-            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-            flyPos = flyPos + (flyDir.Unit * speed * safeDt)
-        end
-
-        -- Apply absolute 3D position & face camera horizontally with zero physics interference
-        local targetCF = CFrame.new(flyPos, flyPos + Vector3.new(camLook.X, 0, camLook.Z))
-        char:PivotTo(targetCF)
-        root.CFrame = targetCF
-
+        -- Synchronize root CFrame to CollisionPart for pixel-perfect physics and camera alignment
         local cp = char:FindFirstChild("CollisionPart")
-        if cp then cp.CFrame = targetCF end
+        if cp and root then
+            root.CFrame = cp.CFrame
+        end
 
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
@@ -3966,19 +3911,19 @@ RunService.Heartbeat:Connect(function(dt)
         if not hiding and root.Position.Y < -5 then
             local safeLanding = getSafeLandingPosition()
             if safeLanding then
-                flyPos = safeLanding
                 local safeCF = CFrame.new(safeLanding, safeLanding + root.CFrame.LookVector)
                 char:PivotTo(safeCF)
                 root.CFrame = safeCF
+                if mg then mg.clipPos = safeLanding end
             else
-                flyPos = Vector3.new(root.Position.X, 3.5, root.Position.Z)
-                local safeCF = CFrame.new(flyPos) * root.CFrame.Rotation
+                local safeCF = CFrame.new(root.Position.X, 3.5, root.Position.Z) * root.CFrame.Rotation
                 char:PivotTo(safeCF)
                 root.CFrame = safeCF
+                if mg then mg.clipPos = Vector3.new(root.Position.X, 3.5, root.Position.Z) end
             end
         end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
-        flyPos = nil
+        _G.__BLOCK_EQ_NOCLIP = false
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
@@ -4069,8 +4014,10 @@ RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        if mgTable.noclip then
-            mgTable.noclip = false -- DOORS dev noclip strictly disabled; prevents Q/E from altering altitude!
+        if State.Noclip then
+            mgTable.noclip = true
+        elseif mgTable.noclip then
+            mgTable.noclip = false
         end
     end
 end)
@@ -4683,16 +4630,18 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
     end)
 
     if v then
-        flyPos = r and r.Position
-        if r then
-            r.AssemblyLinearVelocity = Vector3.zero
-            r.AssemblyAngularVelocity = Vector3.zero
+        _G.__BLOCK_EQ_NOCLIP = true
+        local mg = getMainGameTable()
+        if mg then
+            mg.noclip = true
+            mg.crouching = false
+            if r then mg.clipPos = r.Position end
         end
     else
-        flyPos = nil
-        if r then
-            r.AssemblyLinearVelocity = Vector3.zero
-            r.AssemblyAngularVelocity = Vector3.zero
+        _G.__BLOCK_EQ_NOCLIP = false
+        local mg = getMainGameTable()
+        if mg then
+            mg.noclip = false
         end
 
         if char and char:GetAttribute("Hiding") then
@@ -4735,7 +4684,7 @@ Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip
         end
         if r then r.AssemblyLinearVelocity = Vector3.zero end
     end
-    Hub.Notify("Movement", v and "Fly-Noclip: ON (WASD to Fly, Space/Ctrl Altitude)" or "Fly-Noclip: OFF", 2)
+    Hub.Notify("Movement", v and "Fly-Noclip: ON (Smooth 3D Flight)" or "Fly-Noclip: OFF", 2)
 end)
 
 Hub.CreateSlider(mainTab, "Fly-Noclip Speed", 5, 75, State.Noclip_Speed, " studs/s", function(v)
@@ -4938,6 +4887,20 @@ end
 local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
 local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
 local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
+
+-- Pre-hook UserInputService.IsKeyDown to prevent DOORS native dev noclip from capturing KeyCode.E & Q
+if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED then
+    _G.__ISKEYDOWN_HOOKED = true
+    local rawIsKeyDown
+    rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
+        if not checkcaller() and _G.__BLOCK_EQ_NOCLIP then
+            if kc == Enum.KeyCode.E or kc == Enum.KeyCode.Q then
+                return false
+            end
+        end
+        return rawIsKeyDown(self, kc)
+    end))
+end
 
 if hookmetamethod then
     local rawNamecall
