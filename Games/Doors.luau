@@ -3977,10 +3977,8 @@ RunService.Heartbeat:Connect(function(dt)
                 root.CFrame = safeCF
             end
         end
-    else
-        flyPos = nil
-    end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
+        flyPos = nil
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
