@@ -2534,68 +2534,97 @@ local function isTeleportImmune()
 end
 
 -- Active Proximity Sentry: Automatically solves locks & opens doors on approach (Zero Yield / Full Descendants)
+local openedDoors = {}
+local lastDoorKeyEquip = 0
+
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     if not curRooms then return end
-    local reach = maxReach or 35
+    local reach = maxReach or 30
     local r = getRoot()
+    local char = getChar()
 
     for _, rm in ipairs(curRooms:GetChildren()) do
         for _, d in ipairs(rm:GetDescendants()) do
             if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name:find("Door")) then
                 local dPart = d:FindFirstChild("Door") or d:FindFirstChild("Hidden") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                 if dPart and (currentPos - dPart.Position).Magnitude <= reach then
-                    -- Strip CanCollide locally on all door parts so character never trips physics
+                    -- 1. Strip CanCollide locally on all door parts so character never hits physical barrier
                     for _, dp in ipairs(d:GetDescendants()) do
-                        if dp:IsA("BasePart") and not dp.Name:lower():find("frame") then
+                        if dp:IsA("BasePart") and not dp.Name:lower():find("frame") and dp.CanCollide then
                             dp.CanCollide = false
                         end
                     end
 
-                    -- 1. Check for Lock and auto-unlock if Key available
+                    -- 2. Check for Lock and auto-unlock if Key available (0s hold, no line of sight needed)
                     local lock = d:FindFirstChild("Lock")
                     if lock then
-                        local up = lock:FindFirstChild("UnlockPrompt", true)
+                        local up = lock:FindFirstChild("UnlockPrompt", true) or lock:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if up and up.Enabled then
-                            task.spawn(function()
-                                local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (getChar() and getChar():FindFirstChild("Key"))
-                                local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
-                                if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
-                                    hum:EquipTool(keyTool)
-                                end
-                                pcall(function()
-                                    up.HoldDuration = 0
-                                    fireproximityprompt(up)
+                            up.HoldDuration = 0
+                            up.RequiresLineOfSight = false
+                            up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 15)
+                            local now = os.clock()
+                            if (now - lastDoorKeyEquip >= 0.25) then
+                                lastDoorKeyEquip = now
+                                task.spawn(function()
+                                    local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (char and char:FindFirstChild("Key"))
+                                    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                                    if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                                        hum:EquipTool(keyTool)
+                                        task.wait(0.04)
+                                    end
+                                    pcall(function() fireproximityprompt(up) end)
                                 end)
-                            end)
+                            end
                         end
                     end
 
-                    -- 2. Open door via ClientOpen network event
-                    local co = d:FindFirstChild("ClientOpen")
-                    if co then
-                        pcall(function() co:FireServer() end)
-                    end
+                    -- 3. Instant Door Opening (Debounced per door instance to eliminate network flood & delay)
+                    local lastOpened = openedDoors[d]
+                    local now = os.clock()
+                    if not lastOpened or (now - lastOpened >= 1.2) then
+                        openedDoors[d] = now
 
-                    -- Touch-based swing open for DoorNormal / Hidden
-                    local hiddenPart = d:FindFirstChild("Hidden")
-                    if hiddenPart and hiddenPart:IsA("BasePart") then
-                        pcall(function()
-                            hiddenPart.CanTouch = true
-                            if r then
-                                firetouchinterest(r, hiddenPart, 0)
-                                firetouchinterest(r, hiddenPart, 1)
-                            end
-                        end)
-                    end
+                        -- Trigger client network remote
+                        local co = d:FindFirstChild("ClientOpen")
+                        if co and co:IsA("RemoteEvent") then
+                            pcall(function() co:FireServer() end)
+                        end
 
-                    -- 3. Open door via ManualOpenPrompt or any door proximity prompt
-                    for _, prompt in ipairs(d:GetDescendants()) do
-                        if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Name ~= "UnlockPrompt" then
+                        -- Trigger local bindable open events
+                        local fo = d:FindFirstChild("Func_ForceOpen") or d:FindFirstChild("Func_Open")
+                        if fo and fo:IsA("BindableEvent") then
+                            pcall(function() fo:Fire() end)
+                        end
+
+                        -- Touch-based swing open for DoorNormal / Hidden
+                        local hiddenPart = d:FindFirstChild("Hidden")
+                        if hiddenPart and hiddenPart:IsA("BasePart") then
                             pcall(function()
-                                prompt.HoldDuration = 0
-                                fireproximityprompt(prompt)
+                                hiddenPart.CanTouch = true
+                                if r then
+                                    firetouchinterest(r, hiddenPart, 0)
+                                    task.spawn(function()
+                                        task.wait(0.03)
+                                        if r and hiddenPart and hiddenPart.Parent then
+                                            firetouchinterest(r, hiddenPart, 1)
+                                        end
+                                    end)
+                                end
                             end)
+                        end
+
+                        -- Trigger ManualOpenPrompt or any door proximity prompt
+                        for _, prompt in ipairs(d:GetDescendants()) do
+                            if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Name ~= "UnlockPrompt" then
+                                pcall(function()
+                                    prompt.HoldDuration = 0
+                                    prompt.RequiresLineOfSight = false
+                                    prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 15)
+                                    fireproximityprompt(prompt)
+                                end)
+                            end
                         end
                     end
                 end
@@ -2644,6 +2673,29 @@ local function initAntiGlitchShield()
     if not State.Deflect_Glitch or hasHookedGlitch then return end
     hasHookedGlitch = true
 
+    -- 1. Intercept UseEnemyModule: Drop Glitch & Void triggers before they ever reach client logic
+    pcall(function()
+        local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local uem = rf and rf:FindFirstChild("UseEnemyModule")
+        if uem and getconnections then
+            for _, c in ipairs(getconnections(uem.OnClientEvent)) do
+                local fn = c.Function
+                if fn and not _G["UEM_DETOURED_" .. tostring(fn)] then
+                    _G["UEM_DETOURED_" .. tostring(fn)] = true
+                    if hookfunction then
+                        hookfunction(fn, newcclosure(function(enemyName, method, ...)
+                            if enemyName == "Glitch" or enemyName == "Void" then
+                                return -- Drop Glitch and Void calls from server dead in their tracks!
+                            end
+                            return fn(enemyName, method, ...)
+                        end))
+                    end
+                end
+            end
+        end
+    end)
+
+    -- 2. Neutralize EntityModules Glitch and Void implementations
     pcall(function()
         local mc = game:GetService("ReplicatedStorage"):WaitForChild("ModulesClient", 3)
         local em = mc and mc:WaitForChild("EntityModules", 3)
@@ -2651,9 +2703,12 @@ local function initAntiGlitchShield()
             local gm = em:FindFirstChild("Glitch")
             if gm then
                 local gTable = require(gm)
-                if gTable and gTable.stuff then
+                if gTable then
                     gTable.stuff = function(p1, ...)
-                        if p1 then p1.stopcam = false end
+                        if p1 then
+                            p1.stopcam = false
+                            p1.hideplayers = 0
+                        end
                         local c = getChar()
                         if c and c.PrimaryPart then c.PrimaryPart.Anchored = false end
                         pcall(function()
@@ -2664,6 +2719,7 @@ local function initAntiGlitchShield()
                             local gs = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("MainFrame") and pGui.MainUI.MainFrame:FindFirstChild("GlitchScreen")
                             if gs then gs.Visible = false end
                         end)
+                        return
                     end
                 end
             end
@@ -2671,9 +2727,12 @@ local function initAntiGlitchShield()
             local vm = em:FindFirstChild("Void")
             if vm then
                 local vTable = require(vm)
-                if vTable and vTable.stuff then
+                if vTable then
                     vTable.stuff = function(p1, ...)
-                        if p1 then p1.stopcam = false end
+                        if p1 then
+                            p1.stopcam = false
+                            p1.hideplayers = 0
+                        end
                         local c = getChar()
                         if c and c.PrimaryPart then c.PrimaryPart.Anchored = false end
                         pcall(function()
@@ -2681,6 +2740,7 @@ local function initAntiGlitchShield()
                             lt.FogEnd = 1000
                             lt.FogStart = 0
                         end)
+                        return
                     end
                 end
             end
@@ -2709,7 +2769,7 @@ end
 local function neutralizeServerTeleported()
     if not State.Bypass_AntiCheat then return end
 
-    -- 1. Detour Client RemoteListener ServerTeleported Module ONLY while actively tweening
+    -- 1. Detour Client RemoteListener ServerTeleported Module (Allows wardrobe hiding; blocks void / anticheat pullbacks)
     pcall(function()
         local pGui = LocalPlayer:FindFirstChild("PlayerGui")
         local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
@@ -2720,8 +2780,10 @@ local function neutralizeServerTeleported()
                 local rawFn = require(stMod)
                 if type(rawFn) == "function" and hookfunction then
                     hookfunction(rawFn, newcclosure(function(p1, p2, p3, p4)
-                        -- Only block server teleports during active tween flight; allow wardrobes, closets, and door cutscenes to function normally!
-                        if isTeleportTweening then
+                        local char = getChar()
+                        local mgTable = getMainGameTable()
+                        local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+                        if not hiding and (isTeleportTweening or State.Noclip or isAtRoof or State.Bypass_AntiCheat) then
                             return
                         end
                         return rawFn(p1, p2, p3, p4)
@@ -2731,7 +2793,7 @@ local function neutralizeServerTeleported()
         end
     end)
 
-    -- 2. Detour listeners on RemotesFolder.ServerTeleported & Teleport ONLY while actively tweening
+    -- 2. Detour listeners on RemotesFolder.ServerTeleported & Teleport
     pcall(function()
         local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
         if not rf or not getconnections then return end
@@ -2746,7 +2808,10 @@ local function neutralizeServerTeleported()
                         _G["TP_DETOURED_" .. tostring(fn)] = true
                         if hookfunction then
                             hookfunction(fn, newcclosure(function(...)
-                                if isTeleportTweening then
+                                local char = getChar()
+                                local mgTable = getMainGameTable()
+                                local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+                                if not hiding and (isTeleportTweening or State.Noclip or isAtRoof or State.Bypass_AntiCheat) then
                                     return
                                 end
                                 return fn(...)
@@ -2767,7 +2832,10 @@ local function neutralizeServerTeleported()
                         _G["ST_DETOURED_" .. tostring(fn)] = true
                         if hookfunction then
                             hookfunction(fn, newcclosure(function(...)
-                                if isTeleportTweening then
+                                local char = getChar()
+                                local mgTable = getMainGameTable()
+                                local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+                                if not hiding and (isTeleportTweening or State.Noclip or isAtRoof or State.Bypass_AntiCheat) then
                                     return
                                 end
                                 return fn(...)
@@ -3635,103 +3703,53 @@ RunService.Heartbeat:Connect(function(dt)
     local mgTable = getMainGameTable()
     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
 
-    -- Auto-disable flight if Bypass Anti-Cheat Core is disabled
-    if State.Fly_Enabled and not State.Bypass_AntiCheat then
-        State.Fly_Enabled = false
+    -- Auto-disable Noclip if Bypass Anti-Cheat Core is disabled
+    if State.Noclip and not State.Bypass_AntiCheat then
+        State.Noclip = false
         restoreCharacterInteractivity(char)
         if root then root.AssemblyLinearVelocity = Vector3.zero end
         syncServerSlide(false, false)
-        Hub.Notify("Flight", "Flight disabled: Bypass Anti-Cheat Core is required!", 2)
+        Hub.Notify("Movement", "Fly-Noclip disabled: Bypass Anti-Cheat Core is required!", 2)
     end
 
-    -- Teleport-Grade Smooth Noclip Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
-    if State.Fly_Enabled and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
+    -- Continuous Door Sentry: Always opens doors and removes collisions smoothly on approach
+    if root and not hiding then
+        processNearbyDoors(root.Position, 30)
+    end
+
+    -- Continuous Glitch / Void Shield Deflector: Eradicates all screen freezes, camera locks & fog spikes
+    if not hiding and (State.Noclip or State.Deflect_Glitch or State.Bypass_AntiCheat) then
+        if mgTable then
+            if mgTable.stopcam then mgTable.stopcam = false end
+            if mgTable.hideplayers and mgTable.hideplayers ~= 0 then mgTable.hideplayers = 0 end
+        end
+        if root and root.Anchored then
+            root.Anchored = false
+        end
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainUI = pGui and pGui:FindFirstChild("MainUI")
+        local mainFrame = mainUI and mainUI:FindFirstChild("MainFrame")
+        if mainFrame then
+            local gs = mainFrame:FindFirstChild("GlitchScreen")
+            if gs and gs.Visible then gs.Visible = false end
+            local ge = mainFrame:FindFirstChild("GlitchEffect")
+            if ge and ge.Visible then ge.Visible = false end
+        end
+        local lt = game:GetService("Lighting")
+        if lt and lt.FogEnd < 200 then
+            lt.FogEnd = 1000
+            lt.FogStart = 0
+        end
+    end
+
+    -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
+    if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
         -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") and p.CanCollide then
                 p.CanCollide = false
             end
         end
-
-        local cam = Workspace.CurrentCamera
-        local camLook = cam.CFrame.LookVector
-        local camRight = cam.CFrame.RightVector
-        local camUp = Vector3.new(0, 1, 0)
-        local flyDir = Vector3.zero
-        local hasFlyInput = false
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            flyDir = flyDir + camLook
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            flyDir = flyDir - camLook
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            flyDir = flyDir + camRight
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            flyDir = flyDir - camRight
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            flyDir = flyDir + camUp
-            hasFlyInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            flyDir = flyDir - camUp
-            hasFlyInput = true
-        end
-
-        -- Mobile touch thumbstick fallback
-        if hum.MoveDirection.Magnitude > 0.05 then
-            flyDir = flyDir + hum.MoveDirection
-            hasFlyInput = true
-        end
-
-        -- Continuous slide authorization keep-alive (every 0.60s like teleport engine)
-        local now = os.clock()
-        if (now - lastFlySlidePulse >= 0.60) then
-            lastFlySlidePulse = now
-            task.spawn(pulseSlideKeepAlive)
-        end
-
-        if hasFlyInput and flyDir.Magnitude > 0.01 then
-            local moveDir = flyDir.Unit
-            local spd = math.clamp(State.Fly_Speed or 45, 15, 85)
-            local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
-            local curPos = root.Position
-            local targetPos = curPos + (moveDir * (spd * safeDt))
-
-            if State.Fly_SafeBounds then
-                local safeY = getSafeFlightY(targetPos)
-                targetPos = Vector3.new(targetPos.X, safeY, targetPos.Z)
-            end
-
-            local targetCF = CFrame.new(targetPos, targetPos + camLook)
-            char:PivotTo(targetCF)
-            root.CFrame = targetCF
-            local cp = char:FindFirstChild("CollisionPart")
-            if cp then cp.CFrame = targetCF end
-            local mgTable = getMainGameTable()
-            if mgTable then mgTable.SETNEWCF = targetCF end
-
-            -- Synchronized velocity vector (exact teleport engine mechanics)
-            root.AssemblyLinearVelocity = moveDir * spd
-            root.AssemblyAngularVelocity = Vector3.zero
-
-            processNearbyDoors(targetPos, 22)
-        else
-            -- Hovering steadily at exact coordinates with zero drift
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-        end
-    -- Omnidirectional Sub-Step Micro-Phase Glide Engine
-    -- Automatically glides towards the camera view direction, with full steering (WASD, Space/Ctrl, diagonals)
-    elseif State.Noclip and not hiding and not isTeleportTweening then
-        syncServerSlide(true, isSlidingActive)
 
         local cam = Workspace.CurrentCamera
         local camLook = cam.CFrame.LookVector
@@ -3772,18 +3790,30 @@ RunService.Heartbeat:Connect(function(dt)
             hasInput = true
         end
 
+        -- Continuous slide authorization keep-alive (every 0.55s)
+        local now = os.clock()
+        if (now - lastFlySlidePulse >= 0.55) then
+            lastFlySlidePulse = now
+            task.spawn(pulseSlideKeepAlive)
+        end
+
         -- If direction keys pressed, steer in that 3D direction; otherwise automatically glide where camera looks
         local finalDir = if (hasInput and steer.Magnitude > 0.01) then steer.Unit else camLook
 
-        local speed = math.clamp(State.Noclip_Speed or 11, 4, 13)
+        local speed = math.clamp(State.Noclip_Speed or 12, 4, 35)
         local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
         local delta = finalDir * (speed * safeDt)
 
         char:PivotTo(char:GetPivot() + delta)
         root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
 
-        -- Safe Door & Room Transition Crossing:
-        processNearbyDoors(root.Position, 20)
+        -- Anti-Void Floor Safeguard: If out of bounds or falling in void, clamp altitude to safe baseline
+        if root.Position.Y < -5 then
+            local safeCF = CFrame.new(root.Position.X, 3.5, root.Position.Z) * root.CFrame.Rotation
+            char:PivotTo(safeCF)
+            root.CFrame = safeCF
+        end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
@@ -4467,7 +4497,13 @@ Hub.CreateToggle(mainTab, "Enable Sliding", State.Enable_Sliding, function(v)
     Hub.Notify("Movement", v and "Sliding: ENABLED (C / Ctrl to slide)" or "Sliding: DISABLED", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Omni-Phase Noclip (Glide Through Walls)", State.Noclip, function(v)
+Hub.CreateToggle(mainTab, "Fly-Noclip (Phase Glide / 3D Steering)", State.Noclip, function(v)
+    if v and not State.Bypass_AntiCheat then
+        State.Bypass_AntiCheat = true
+        neutralizeServerTeleported()
+        initAntiGlitchShield()
+        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly-Noclip!", 2)
+    end
     State.Noclip = v
     local char = getChar()
 
@@ -4497,11 +4533,13 @@ Hub.CreateToggle(mainTab, "Omni-Phase Noclip (Glide Through Walls)", State.Nocli
         if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
             syncServerSlide(false, false)
         end
+        local r = getRoot()
+        if r then r.AssemblyLinearVelocity = Vector3.zero end
     end
-    Hub.Notify("Movement", v and "Phase Noclip: ON (Gliding forward / WASD steer)" or "Phase Noclip: OFF", 2)
+    Hub.Notify("Movement", v and "Fly-Noclip: ON (Gliding forward / WASD steer)" or "Fly-Noclip: OFF", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Phase Glide Speed", 4, 13, State.Noclip_Speed, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Phase Fly-Noclip Speed", 4, 35, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
 end)
 
@@ -4522,56 +4560,23 @@ Hub.CreateToggle(mainTab, "Safe Zone Station (Platform)", State.Safe_Roof_Statio
     end
 end)
 
-Hub.CreateToggle(mainTab, "Fly / VFly (WASD + Space/Ctrl)", State.Fly_Enabled, function(v)
-    if v and not State.Bypass_AntiCheat then
-        State.Bypass_AntiCheat = true
-        neutralizeServerTeleported()
-        initAntiGlitchShield()
-        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Flight!", 2)
-    end
-    State.Fly_Enabled = v
-    local char = getChar()
-    local r = getRoot()
-    if v then
-        if r then r.AssemblyLinearVelocity = Vector3.zero end
-        neutralizeServerTeleported()
-        initAntiGlitchShield()
-        if syncServerSlide then syncServerSlide(true, true) end
-        Hub.Notify("Flight", "Smooth Noclip Flight: ACTIVE (WASD + Space/Ctrl)", 2)
-    else
-        if r then r.AssemblyLinearVelocity = Vector3.zero end
-        if char then restoreCharacterInteractivity(char) end
-        syncServerSlide(false, false)
-        Hub.Notify("Flight", "Flight: OFF", 2)
-    end
-end)
-
-Hub.CreateSlider(mainTab, "Fly Speed", 15, 85, State.Fly_Speed, " studs/s", function(v)
-    State.Fly_Speed = v
-end)
-
 Hub.CreateToggle(mainTab, "Bypass Anti-Cheat Core", State.Bypass_AntiCheat, function(v)
     State.Bypass_AntiCheat = v
     if not v then
-        if State.Fly_Enabled then
-            State.Fly_Enabled = false
+        if State.Noclip then
+            State.Noclip = false
             local char = getChar()
             if char then restoreCharacterInteractivity(char) end
             local r = getRoot()
             if r then r.AssemblyLinearVelocity = Vector3.zero end
             syncServerSlide(false, false)
-            Hub.Notify("Flight", "Flight disabled: Bypass Anti-Cheat Core is required!", 2)
+            Hub.Notify("Movement", "Fly-Noclip disabled: Bypass Anti-Cheat Core is required!", 2)
         end
     else
         neutralizeServerTeleported()
         if syncServerSlide then syncServerSlide(true, true) end
     end
     Hub.Notify("Anti-Cheat", v and "Anti-Cheat Bypass: ACTIVE (Slide Token Spoofer & Rollback Nullifier)" or "Anti-Cheat Bypass: OFF", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Anti-Void Altitude Safety (No Glitch)", State.Fly_SafeBounds, function(v)
-    State.Fly_SafeBounds = v
-    Hub.Notify("Safety", v and "Altitude Safety: ACTIVE (Clamps flight inside room bounds)" or "Altitude Safety: OFF", 2)
 end)
 
 Hub.CreateToggle(mainTab, "Deflect Glitch & Void Shield", State.Deflect_Glitch, function(v)
@@ -4755,11 +4760,15 @@ if hookmetamethod then
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if not checkcaller() then
-            if (method == "PivotTo" or method == "pivotTo") and isTeleportTweening then
+            if (method == "PivotTo" or method == "pivotTo") then
                 local char = getChar()
-                local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
-                if isLocalChar then
-                    return -- Only block PivotTo while actively tweening between waypoints; allow wardrobe hiding and door entry!
+                local mgTable = getMainGameTable()
+                local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+                if not hiding and (isTeleportTweening or State.Noclip or isAtRoof) then
+                    local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
+                    if isLocalChar then
+                        return -- Block anticheat rollback PivotTo dead in its tracks; allow wardrobe hiding and door entry!
+                    end
                 end
             end
             if method == "FireServer" then
@@ -4805,33 +4814,38 @@ end
 local teleRemote = remotesFolder and remotesFolder:FindFirstChild("Teleport")
 local servTeleRemote = remotesFolder and remotesFolder:FindFirstChild("ServerTeleported")
 
-if not _G.DOORS_REMOTES_HOOKED then
-    _G.DOORS_REMOTES_HOOKED = true
-    if getconnections then
-        if teleRemote and teleRemote:IsA("RemoteEvent") then
-            for _, conn in ipairs(getconnections(teleRemote.OnClientEvent)) do
-                local oldTele = conn.Function
-                if oldTele and hookfunction then
-                    hookfunction(oldTele, newcclosure(function(...)
-                        if State.Noclip or State.Fly_Enabled or isTeleportTweening or State.Bypass_AntiCheat then
-                            return
-                        end
-                        return oldTele(...)
-                    end))
-                end
+if getconnections then
+    if teleRemote and teleRemote:IsA("RemoteEvent") then
+        for _, conn in ipairs(getconnections(teleRemote.OnClientEvent)) do
+            local oldTele = conn.Function
+            if oldTele and hookfunction and not _G["CONN_TP_" .. tostring(oldTele)] then
+                _G["CONN_TP_" .. tostring(oldTele)] = true
+                hookfunction(oldTele, newcclosure(function(...)
+                    local char = getChar()
+                    local mgTable = getMainGameTable()
+                    local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof) then
+                        return
+                    end
+                    return oldTele(...)
+                end))
             end
         end
-        if servTeleRemote and servTeleRemote:IsA("RemoteEvent") then
-            for _, conn in ipairs(getconnections(servTeleRemote.OnClientEvent)) do
-                local oldServTele = conn.Function
-                if oldServTele and hookfunction then
-                    hookfunction(oldServTele, newcclosure(function(...)
-                        if State.Noclip or State.Fly_Enabled or isTeleportTweening or State.Bypass_AntiCheat then
-                            return
-                        end
-                        return oldServTele(...)
-                    end))
-                end
+    end
+    if servTeleRemote and servTeleRemote:IsA("RemoteEvent") then
+        for _, conn in ipairs(getconnections(servTeleRemote.OnClientEvent)) do
+            local oldServTele = conn.Function
+            if oldServTele and hookfunction and not _G["CONN_ST_" .. tostring(oldServTele)] then
+                _G["CONN_ST_" .. tostring(oldServTele)] = true
+                hookfunction(oldServTele, newcclosure(function(...)
+                    local char = getChar()
+                    local mgTable = getMainGameTable()
+                    local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof) then
+                        return
+                    end
+                    return oldServTele(...)
+                end))
             end
         end
     end
