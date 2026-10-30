@@ -113,7 +113,7 @@ local State = {
     Fly_SafeBounds = true,
     Fly_Speed = 45,
     Fly_VerticalSpeed = 35,
-    Teleport_Speed = 65,
+    Teleport_Speed = 26,
     ClickTP_Enabled = false,
     Target_Room_Number = 10,
 
@@ -2514,46 +2514,61 @@ local activeTweenToken = 0
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     if not curRooms then return end
-    local reach = maxReach or 20
+    local reach = maxReach or 22
     for _, rm in ipairs(curRooms:GetChildren()) do
-        local d = rm:FindFirstChild("Door")
-        if d and d:IsA("Model") and not d:GetAttribute("Opened") then
-            local dPart = d:FindFirstChild("Door") or d:FindFirstChild("Hidden") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-            if dPart and (currentPos - dPart.Position).Magnitude <= reach then
-                -- 1. Check for Lock and auto-unlock if Key available
-                local lock = d:FindFirstChild("Lock")
-                if lock then
-                    local up = lock:FindFirstChild("UnlockPrompt", true)
-                    if up and up.Enabled then
-                        local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (getChar() and getChar():FindFirstChild("Key"))
-                        local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
-                        if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
-                            hum:EquipTool(keyTool)
-                            task.wait(0.1)
+        for _, d in ipairs(rm:GetChildren()) do
+            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name:find("Door")) then
+                local dPart = d:FindFirstChild("Door") or d:FindFirstChild("Hidden") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                if dPart and (currentPos - dPart.Position).Magnitude <= reach then
+                    -- 1. Check for Lock and auto-unlock if Key available
+                    local lock = d:FindFirstChild("Lock")
+                    if lock then
+                        local up = lock:FindFirstChild("UnlockPrompt", true)
+                        if up and up.Enabled then
+                            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (getChar() and getChar():FindFirstChild("Key"))
+                            local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
+                            if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                                hum:EquipTool(keyTool)
+                                task.wait(0.1)
+                            end
+                            pcall(function()
+                                up.HoldDuration = 0
+                                fireproximityprompt(up)
+                            end)
+                            task.wait(0.15)
                         end
+                    end
+
+                    -- 2. Open door via ClientOpen network event
+                    local co = d:FindFirstChild("ClientOpen")
+                    if co then
+                        pcall(function() co:FireServer() end)
+                    end
+
+                    -- Touch-based swing open for DoorNormal / Hidden
+                    local hiddenPart = d:FindFirstChild("Hidden")
+                    if hiddenPart and hiddenPart:IsA("BasePart") then
                         pcall(function()
-                            up.HoldDuration = 0
-                            fireproximityprompt(up)
+                            hiddenPart.CanTouch = true
+                            local r = getRoot()
+                            if r then
+                                firetouchinterest(r, hiddenPart, 0)
+                                task.wait()
+                                firetouchinterest(r, hiddenPart, 1)
+                            end
                         end)
-                        task.wait(0.15)
+                    end
+
+                    -- 3. Open door via ManualOpenPrompt or any door proximity prompt
+                    for _, prompt in ipairs(d:GetDescendants()) do
+                        if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Name ~= "UnlockPrompt" then
+                            pcall(function()
+                                prompt.HoldDuration = 0
+                                fireproximityprompt(prompt)
+                            end)
+                        end
                     end
                 end
-
-                -- 2. Open door via ClientOpen network event
-                local co = d:FindFirstChild("ClientOpen")
-                if co then
-                    pcall(function() co:FireServer() end)
-                end
-
-                -- 3. Open door via ManualOpenPrompt if present
-                local mop = d:FindFirstChildWhichIsA("ProximityPrompt", true)
-                if mop and mop.Enabled then
-                    pcall(function()
-                        mop.HoldDuration = 0
-                        fireproximityprompt(mop)
-                    end)
-                end
-                d:SetAttribute("Opened", true)
             end
         end
     end
@@ -2713,15 +2728,17 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     local targetCFrame = (typeof(targetCF) == "Vector3") and CFrame.new(targetCF) or targetCF
     local targetPos = targetCFrame.Position
     local targetRot = targetCFrame - targetPos
-    local startPos = char:GetPivot().Position
-    local totalDist = (targetPos - startPos).Magnitude
+    local startPos = root.Position
+    local moveVec = (targetPos - startPos)
+    local totalDist = moveVec.Magnitude
     if totalDist < 0.5 then
         if callback then callback() end
         return true
     end
 
-    local speed = math.clamp(speedVal or State.Teleport_Speed or 65, 30, 120)
+    local speed = math.clamp(speedVal or State.Teleport_Speed or 26, 18, 35)
     local duration = totalDist / speed
+    local moveDir = (totalDist > 0.01) and (moveVec / totalDist) or Vector3.zero
     local token = tick() + math.random()
     activeTweenToken = token
     isTeleportTweening = true
@@ -2729,8 +2746,6 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     if syncServerSlide then syncServerSlide(true, true) end
 
     local t0 = os.clock()
-    local finished = false
-
     local conn
     conn = RunService.Heartbeat:Connect(function()
         if activeTweenToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
@@ -2742,7 +2757,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
         local elapsed = os.clock() - t0
         local alpha = math.clamp(elapsed / duration, 0, 1)
 
-        -- Strip all physics collisions for smooth penetration through walls/doors
+        -- Strip physics collisions for smooth pass-through
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
                 p.CanCollide = false
@@ -2752,18 +2767,26 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
         end
 
         local currentSubPos = startPos:Lerp(targetPos, alpha)
-        char:PivotTo(CFrame.new(currentSubPos) * targetRot)
-        root.AssemblyLinearVelocity = Vector3.zero
+        if State.Fly_SafeBounds then
+            local safeY = getSafeFlightY(currentSubPos)
+            currentSubPos = Vector3.new(currentSubPos.X, safeY, currentSubPos.Z)
+        end
 
-        -- Auto-open doors encountered along the flight path
+        root.CFrame = CFrame.new(currentSubPos) * targetRot
+        root.AssemblyLinearVelocity = moveDir * speed
+        root.AssemblyAngularVelocity = Vector3.zero
+
+        -- Auto-open doors encountered along flight path
         if autoDoorOpen ~= false then
             processNearbyDoors(currentSubPos, 18)
         end
 
         if alpha >= 1 then
-            finished = true
             if conn then conn:Disconnect() end
             if activeTweenToken == token then isTeleportTweening = false end
+            root.CFrame = CFrame.new(targetPos) * targetRot
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
             if callback then callback() end
         end
     end)
@@ -2771,101 +2794,19 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
     return true
 end
 
-local function teleportToNextDoor()
+local function teleportToRoomKey(callback)
     local char = getChar()
     local root = getRoot()
     if not char or not root then
-        Hub.Notify("Teleport", "Character not found!", 2)
+        if callback then callback(false) end
         return false
     end
 
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
-    local lrVal = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
-    local curRoom = curRooms and curRooms:FindFirstChild(tostring(lrVal))
-    if not curRoom then
-        Hub.Notify("Teleport", "Current room model (" .. tostring(lrVal) .. ") not loaded!", 2)
+    if not curRooms then
+        if callback then callback(false) end
         return false
     end
-
-    local exitDoor = curRoom:FindFirstChild("Door")
-    if not exitDoor then
-        Hub.Notify("Teleport", "Exit Door for Room " .. tostring(lrVal) .. " not found!", 2)
-        return false
-    end
-
-    local doorPart = exitDoor:FindFirstChild("Hidden") or exitDoor:FindFirstChild("Door") or exitDoor.PrimaryPart or exitDoor:FindFirstChildWhichIsA("BasePart")
-    if not doorPart then
-        Hub.Notify("Teleport", "Door part not resolved!", 2)
-        return false
-    end
-
-    -- Stand 4.0 studs in front of door frame
-    local doorCF = doorPart.CFrame
-    local targetPos = doorCF.Position + doorCF.LookVector * 4.0
-    Hub.Notify("Teleport", "Teleporting to Door " .. tostring(lrVal) .. "...", 2)
-
-    safeTweenTeleport(CFrame.new(targetPos, doorCF.Position), State.Teleport_Speed, true, function()
-        task.wait(0.1)
-        -- Auto-unlock if lock exists and key held
-        local lock = exitDoor:FindFirstChild("Lock")
-        if lock then
-            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
-            local hum = char:FindFirstChildWhichIsA("Humanoid")
-            if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
-                hum:EquipTool(keyTool)
-                task.wait(0.15)
-            end
-            local up = lock:FindFirstChild("UnlockPrompt", true)
-            if up and up.Enabled then
-                pcall(function()
-                    up.HoldDuration = 0
-                    fireproximityprompt(up)
-                end)
-                task.wait(0.25)
-            end
-        end
-
-        -- Open door via ClientOpen and ManualOpenPrompt
-        local co = exitDoor:FindFirstChild("ClientOpen")
-        if co then
-            pcall(function() co:FireServer() end)
-        end
-
-        local mop = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if mop and mop.Enabled then
-            pcall(function()
-                mop.HoldDuration = 0
-                fireproximityprompt(mop)
-            end)
-        end
-
-        -- Await server room confirmation before stepping across threshold
-        local confirmed = false
-        for _ = 1, 10 do
-            if gd and gd.LatestRoom.Value > lrVal then
-                confirmed = true
-                break
-            end
-            task.wait(0.08)
-        end
-
-        -- Smoothly step through doorway into next room
-        local throughPos = doorCF.Position + doorCF.LookVector * -4.0
-        safeTweenTeleport(CFrame.new(throughPos, throughPos + doorCF.LookVector * -1), State.Teleport_Speed, false, function()
-            Hub.Notify("Teleport", "Entered Room " .. tostring(gd.LatestRoom.Value) .. "!", 2)
-        end)
-    end)
-    return true
-end
-
-local function teleportToRoomKey()
-    local char = getChar()
-    local root = getRoot()
-    if not char or not root then return false end
-
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if not curRooms then return false end
 
     local targetKey = nil
     local targetPart = nil
@@ -2887,27 +2828,187 @@ local function teleportToRoomKey()
 
     if not targetKey or not targetPart then
         Hub.Notify("Teleport", "No Key / Objective found in active rooms!", 2)
+        if callback then callback(false) end
         return false
     end
 
     Hub.Notify("Teleport", "Teleporting to " .. targetKey.Name .. "...", 2)
-    local targetPos = targetPart.Position + Vector3.new(0, 1.2, 0)
-    safeTweenTeleport(CFrame.new(targetPos), State.Teleport_Speed, true, function()
+    local toPlayer = (root.Position - targetPart.Position)
+    local hDir = Vector3.new(toPlayer.X, 0, toPlayer.Z)
+    local standDir = (hDir.Magnitude > 0.1) and hDir.Unit or Vector3.new(0, 0, 1)
+    local targetPos = targetPart.Position + standDir * 3.2 + Vector3.new(0, 1.0, 0)
+    local lookTarget = Vector3.new(targetPart.Position.X, targetPos.Y, targetPart.Position.Z)
+    safeTweenTeleport(CFrame.new(targetPos, lookTarget), State.Teleport_Speed, true, function()
         task.wait(0.1)
+        -- Container check: If key is inside a drawer/container, unlock/open the container first
+        local parentModel = targetKey.Parent
+        if parentModel and parentModel:IsA("Model") and parentModel ~= curRooms then
+            for _, dPrompt in ipairs(parentModel:GetDescendants()) do
+                if dPrompt:IsA("ProximityPrompt") and dPrompt.Parent ~= targetKey and dPrompt.Enabled then
+                    pcall(function()
+                        dPrompt.HoldDuration = 0
+                        fireproximityprompt(dPrompt)
+                    end)
+                    task.wait(0.2)
+                    break
+                end
+            end
+        end
+
         local prompt = targetKey:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt and prompt.Enabled then
+        if prompt then
             pcall(function()
+                prompt.Enabled = true
                 prompt.HoldDuration = 0
                 fireproximityprompt(prompt)
             end)
         end
         local hum = char:FindFirstChildWhichIsA("Humanoid")
         task.wait(0.3)
-        local keyTool = LocalPlayer.Backpack:FindFirstChild("Key")
+        local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (getChar() and getChar():FindFirstChild("Key"))
         if keyTool and hum then hum:EquipTool(keyTool) end
         Hub.Notify("Teleport", "Collected " .. targetKey.Name .. "!", 2)
+        if callback then callback(true) end
     end)
     return true
+end
+
+local function teleportToNextDoor(callback)
+    local char = getChar()
+    local root = getRoot()
+    if not char or not root then
+        Hub.Notify("Teleport", "Character not found!", 2)
+        if callback then callback(false) end
+        return false
+    end
+
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+    local lrVal = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
+    local curRoom = curRooms and curRooms:FindFirstChild(tostring(lrVal))
+    if not curRoom then
+        Hub.Notify("Teleport", "Room " .. tostring(lrVal) .. " not loaded!", 2)
+        if callback then callback(false) end
+        return false
+    end
+
+    local exitDoor = curRoom:FindFirstChild("Door")
+    if not exitDoor then
+        Hub.Notify("Teleport", "Exit Door for Room " .. tostring(lrVal) .. " not found!", 2)
+        if callback then callback(false) end
+        return false
+    end
+
+    local doorPart = exitDoor:FindFirstChild("Hidden") or exitDoor:FindFirstChild("Door") or exitDoor.PrimaryPart or exitDoor:FindFirstChildWhichIsA("BasePart")
+    if not doorPart then
+        Hub.Notify("Teleport", "Door part not resolved!", 2)
+        if callback then callback(false) end
+        return false
+    end
+
+    -- Pre-flight Lock Check: If door has a lock and player has no key, fetch key first
+    local lock = exitDoor:FindFirstChild("Lock")
+    if lock then
+        local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
+        if not keyTool then
+            Hub.Notify("Teleport", "Door is locked! Auto-retrieving room key...", 2)
+            teleportToRoomKey(function(success)
+                if success then
+                    task.wait(0.3)
+                    teleportToNextDoor(callback)
+                else
+                    Hub.Notify("Teleport", "Key not found in room! Teleport aborted.", 2)
+                    if callback then callback(false) end
+                end
+            end)
+            return true
+        end
+    end
+
+    local playerPos = root.Position
+    local doorPos = doorPart.Position
+    local doorCF = doorPart.CFrame
+
+    -- Approach Vector Invariant: Vector pointing from door back towards player's position
+    local toPlayer = (playerPos - doorPos)
+    local hToPlayer = Vector3.new(toPlayer.X, 0, toPlayer.Z)
+    local approachDir = (hToPlayer.Magnitude > 0.1) and hToPlayer.Unit or -doorCF.LookVector
+
+    -- Target: 3.5 studs in front of door strictly inside CURRENT room
+    local targetPos = Vector3.new(doorPos.X + approachDir.X * 3.5, doorPos.Y + 2.0, doorPos.Z + approachDir.Z * 3.5)
+    local lookTarget = Vector3.new(doorPos.X, targetPos.Y, doorPos.Z)
+
+    Hub.Notify("Teleport", "Teleporting to Door " .. tostring(lrVal) .. "...", 2)
+
+    safeTweenTeleport(CFrame.new(targetPos, lookTarget), State.Teleport_Speed, true, function()
+        task.wait(0.1)
+
+        -- 1. Auto-unlock if lock exists and key held
+        local currentLock = exitDoor:FindFirstChild("Lock")
+        if currentLock then
+            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+            if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                hum:EquipTool(keyTool)
+                task.wait(0.15)
+            end
+            local up = currentLock:FindFirstChild("UnlockPrompt", true)
+            if up and up.Enabled then
+                pcall(function()
+                    up.HoldDuration = 0
+                    fireproximityprompt(up)
+                end)
+                task.wait(0.25)
+            end
+        end
+
+        -- 2. Open door via ClientOpen and ProximityPrompt
+        local co = exitDoor:FindFirstChild("ClientOpen")
+        if co then
+            pcall(function() co:FireServer() end)
+        end
+
+        local mop = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if mop and mop.Enabled then
+            pcall(function()
+                mop.HoldDuration = 0
+                fireproximityprompt(mop)
+            end)
+        end
+
+        -- 3. Await server room confirmation before stepping across threshold
+        local confirmed = false
+        for _ = 1, 15 do
+            if gd and gd.LatestRoom and gd.LatestRoom.Value > lrVal then
+                confirmed = true
+                break
+            end
+            task.wait(0.06)
+        end
+
+        -- 4. Step through door into next room ONLY if opened/confirmed
+        if confirmed then
+            local throughPos = Vector3.new(doorPos.X - approachDir.X * 3.5, doorPos.Y + 2.0, doorPos.Z - approachDir.Z * 3.5)
+            local throughLook = throughPos - approachDir * 5
+            safeTweenTeleport(CFrame.new(throughPos, throughLook), State.Teleport_Speed, false, function()
+                local nextVal = gd and gd.LatestRoom and gd.LatestRoom.Value or (lrVal + 1)
+                Hub.Notify("Teleport", "Entered Room " .. tostring(nextVal) .. "!", 2)
+                if callback then callback(true) end
+            end)
+        else
+            -- If not confirmed, do not cross threshold into unspawned/unopened room!
+            Hub.Notify("Teleport", "Door opened. Step through manually or retry.", 2)
+            if callback then callback(false) end
+        end
+    end)
+    return true
+end
+
+_G.TeleportToNextDoor = teleportToNextDoor
+_G.TeleportToRoomKey = teleportToRoomKey
+if getgenv then
+    getgenv().TeleportToNextDoor = teleportToNextDoor
+    getgenv().TeleportToRoomKey = teleportToRoomKey
 end
 
 local function teleportToNearestHidingSpot()
@@ -3070,7 +3171,7 @@ RunService.Heartbeat:Connect(function(dt)
         end
     -- Omnidirectional Sub-Step Micro-Phase Glide Engine
     -- Automatically glides towards the camera view direction, with full steering (WASD, Space/Ctrl, diagonals)
-    elseif State.Noclip and not hiding then
+    elseif State.Noclip and not hiding and not isTeleportTweening then
         syncServerSlide(true, isSlidingActive)
 
         local cam = Workspace.CurrentCamera
@@ -3124,7 +3225,7 @@ RunService.Heartbeat:Connect(function(dt)
 
         -- Safe Door & Room Transition Crossing:
         processNearbyDoors(root.Position, 20)
-    elseif State.WalkSpeed_Enabled and not hiding then
+    elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
@@ -4290,7 +4391,7 @@ Hub.CreateToggle(teleportTab, "Click to Teleport (Ctrl + Click)", State.ClickTP_
     Hub.Notify("Teleport", v and "Click TP: ACTIVE (Hold Ctrl + Left Click)" or "Click TP: OFF", 2)
 end)
 
-Hub.CreateSlider(teleportTab, "Teleport Speed", 35, 110, State.Teleport_Speed, " studs/s", function(v)
+Hub.CreateSlider(teleportTab, "Teleport Speed", 18, 35, State.Teleport_Speed, " studs/s", function(v)
     State.Teleport_Speed = v
 end)
 
