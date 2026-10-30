@@ -2667,11 +2667,9 @@ local function getSafeFlightY(desiredPos)
     return desiredPos.Y
 end
 
--- Glitch & Void Deflection Shield
-local hasHookedGlitch = false
+-- Absolute Glitch & Void Deflection Shield (Zero Glitch Invariant: Map & Noclip Immune)
 local function initAntiGlitchShield()
-    if not State.Deflect_Glitch or hasHookedGlitch then return end
-    hasHookedGlitch = true
+    if not State.Deflect_Glitch then return end
 
     -- 1. Intercept UseEnemyModule: Drop Glitch & Void triggers before they ever reach client logic
     pcall(function()
@@ -2692,10 +2690,57 @@ local function initAntiGlitchShield()
                     end
                 end
             end
+
+            -- Direct Upvalue Inoculation: Replace cached module instances in RemoteListener
+            if getupvalues and #getconnections(uem.OnClientEvent) > 0 then
+                local upvals = getupvalues(getconnections(uem.OnClientEvent)[1].Function)
+                if upvals and upvals[2] and type(upvals[2]) == "table" then
+                    local dummy = setmetatable({}, { __index = function() return function() end end })
+                    upvals[2]["Glitch"] = dummy
+                    upvals[2]["Void"] = dummy
+                end
+            end
+        end
+
+        -- 2. Intercept Jumpscare and JumpscareBindable events for Glitch & Void
+        local jmp = rf and rf:FindFirstChild("Jumpscare")
+        if jmp and getconnections then
+            for _, c in ipairs(getconnections(jmp.OnClientEvent)) do
+                local fn = c.Function
+                if fn and not _G["JMP_DETOURED_" .. tostring(fn)] then
+                    _G["JMP_DETOURED_" .. tostring(fn)] = true
+                    if hookfunction then
+                        hookfunction(fn, newcclosure(function(jName, ...)
+                            if jName == "Glitch" or jName == "Void" then
+                                return
+                            end
+                            return fn(jName, ...)
+                        end))
+                    end
+                end
+            end
+        end
+
+        local jb = rf and rf:FindFirstChild("JumpscareBindable")
+        if jb and getconnections then
+            for _, c in ipairs(getconnections(jb.Event)) do
+                local fn = c.Function
+                if fn and not _G["JB_DETOURED_" .. tostring(fn)] then
+                    _G["JB_DETOURED_" .. tostring(fn)] = true
+                    if hookfunction then
+                        hookfunction(fn, newcclosure(function(jName, ...)
+                            if jName == "Glitch" or jName == "Void" then
+                                return
+                            end
+                            return fn(jName, ...)
+                        end))
+                    end
+                end
+            end
         end
     end)
 
-    -- 2. Neutralize EntityModules Glitch and Void implementations
+    -- 3. Neutralize EntityModules Glitch and Void implementations
     pcall(function()
         local mc = game:GetService("ReplicatedStorage"):WaitForChild("ModulesClient", 3)
         local em = mc and mc:WaitForChild("EntityModules", 3)
@@ -2744,6 +2789,80 @@ local function initAntiGlitchShield()
                     end
                 end
             end
+        end
+    end)
+
+    -- 4. Strip model assets and establish instant destroy interceptors
+    pcall(function()
+        local ent = game:GetService("ReplicatedStorage"):FindFirstChild("Entities")
+        local gm = ent and ent:FindFirstChild("Glitch")
+        if gm then gm:ClearAllChildren() end
+
+        local cam = Workspace.CurrentCamera
+        if cam and not _G.GLITCH_CAM_HOOKED then
+            _G.GLITCH_CAM_HOOKED = true
+            cam.ChildAdded:Connect(function(c)
+                local name = c.Name:lower()
+                if name:find("glitch") or name:find("void") or name == "livevoidreaction" or name == "ambience_glitch" then
+                    pcall(function() c:Destroy() end)
+                end
+            end)
+        end
+
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mUI = pGui and pGui:FindFirstChild("MainUI")
+        if mUI and not _G.GLITCH_UI_HOOKED then
+            _G.GLITCH_UI_HOOKED = true
+            mUI.ChildAdded:Connect(function(c)
+                local name = c.Name:lower()
+                if name:find("glitch") or name == "fakeglitchlive" then
+                    pcall(function() c:Destroy() end)
+                end
+            end)
+        end
+
+        local mf = mUI and mUI:FindFirstChild("MainFrame")
+        if mf then
+            local gs = mf:FindFirstChild("GlitchScreen")
+            if gs then
+                gs.Visible = false
+                if not _G.GLITCH_SCREEN_HOOKED then
+                    _G.GLITCH_SCREEN_HOOKED = true
+                    gs:GetPropertyChangedSignal("Visible"):Connect(function()
+                        if gs.Visible then gs.Visible = false end
+                    end)
+                end
+            end
+            local ge = mf:FindFirstChild("GlitchEffect")
+            if ge then
+                ge.Visible = false
+                if not _G.GLITCH_EFFECT_HOOKED then
+                    _G.GLITCH_EFFECT_HOOKED = true
+                    ge:GetPropertyChangedSignal("Visible"):Connect(function()
+                        if ge.Visible then ge.Visible = false end
+                    end)
+                end
+            end
+            local gt = mf:FindFirstChild("GlitchTrial")
+            if gt then
+                gt.Visible = false
+                if not _G.GLITCH_TRIAL_HOOKED then
+                    _G.GLITCH_TRIAL_HOOKED = true
+                    gt:GetPropertyChangedSignal("Visible"):Connect(function()
+                        if gt.Visible then gt.Visible = false end
+                    end)
+                end
+            end
+        end
+
+        local ss = game:GetService("SoundService"):FindFirstChild("Main")
+        if ss and not _G.GLITCH_SS_HOOKED then
+            _G.GLITCH_SS_HOOKED = true
+            ss.ChildAdded:Connect(function(c)
+                if c.Name == "SanityEqualizerLive" or c.Name:lower():find("glitch") then
+                    pcall(function() c:Destroy() end)
+                end
+            end)
         end
     end)
 end
