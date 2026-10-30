@@ -205,10 +205,22 @@ local locationRegistry = {
     { name = "Hangar", target = "Hangar", fallback = Vector3.new(400, -112, 400) },
     { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850, -120, -350) },
     { name = "Plane Crash", target = "Plane", fallback = Vector3.new(325, -143, -63) },
-    { name = "The Maze", target = "ScaryMaze", fallback = Vector3.new(20, -130, -185) }
+    { name = "The Maze (End)", target = "TheMaze", fallback = Vector3.new(1140.9, -144.9, 73.1) }
 }
 
 local function resolveLocationPosition(item)
+    if item.target == "TheMaze" then
+        local mazePage = Workspace:FindFirstChild("Pages") and Workspace.Pages:FindFirstChild("TheMaze")
+        if mazePage then
+            return (mazePage:IsA("BasePart") and mazePage.Position or mazePage:GetPivot().Position) + Vector3.new(0, 3.0, 0)
+        end
+        local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("TheMaze")
+        if poi then
+            return poi:GetPivot().Position + Vector3.new(0, 3.0, 0)
+        end
+        return item.fallback + Vector3.new(0, 3.0, 0)
+    end
+
     local map = Workspace:FindFirstChild("Map")
     if map and item.target then
         local folder = map:FindFirstChild(item.target)
@@ -553,10 +565,24 @@ local function getUncollectedPages()
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
 
+    -- Query authoritative server collected list to ensure 100% database persistence sync
+    local serverCollected = {}
+    pcall(function()
+        local rf = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("World") and ReplicatedStorage.SharedEvents.World:FindFirstChild("RequestCollectedPages")
+        if rf and rf:IsA("RemoteFunction") then
+            local list = rf:InvokeServer()
+            if type(list) == "table" then
+                for _, name in ipairs(list) do
+                    serverCollected[name] = true
+                end
+            end
+        end
+    end)
+
     for _, p in ipairs(pagesFolder:GetChildren()) do
-        if p:GetAttribute("Collected") ~= true then
-            local prompt = p:FindFirstChildOfClass("ProximityPrompt")
-            if prompt and prompt.Enabled then
+        if p:IsA("BasePart") or p:IsA("Model") then
+            local isDone = p:GetAttribute("Collected") == true or serverCollected[p.Name] == true
+            if not isDone then
                 table.insert(uncollected, p)
             end
         end
@@ -580,25 +606,54 @@ local function collectSinglePage(pagePart)
     if not root then return false end
 
     local pagePos = pagePart:IsA("BasePart") and pagePart.Position or pagePart:GetPivot().Position
-    local targetCFrame = CFrame.new(pagePos + Vector3.new(0, 2.0, 0))
+    local targetCFrame = CFrame.new(pagePos + Vector3.new(0, 1.8, 0))
 
     root.CFrame = targetCFrame
     root.AssemblyLinearVelocity = Vector3.zero
-    task.wait(0.22)
+    task.wait(0.25)
 
     local prompt = pagePart:FindFirstChildOfClass("ProximityPrompt")
-    local startWait = tick()
-
-    while pagePart:GetAttribute("Collected") ~= true and (tick() - startWait) < 1.6 do
-        if prompt and prompt.Enabled then
-            triggerPrompt(prompt)
-        end
-        root.CFrame = targetCFrame
-        root.AssemblyLinearVelocity = Vector3.zero
-        task.wait(0.18)
+    if prompt then
+        prompt.RequiresLineOfSight = false
+        prompt.MaxActivationDistance = 25
     end
 
-    return pagePart:GetAttribute("Collected") == true
+    -- Look for CollectedPage2 RemoteFunction inside PlayerScripts.World.Pages
+    local worldPages = LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("World") and LocalPlayer.PlayerScripts.World:FindFirstChild("Pages")
+    local collectedPageRemote = worldPages and worldPages:FindFirstChild("CollectedPage2")
+
+    local startWait = tick()
+    local confirmed = false
+
+    while (tick() - startWait) < 2.5 do
+        root.CFrame = targetCFrame
+        root.AssemblyLinearVelocity = Vector3.zero
+
+        -- Fire proximity prompt natively
+        if prompt and prompt.Enabled then
+            if fireproximityprompt then
+                pcall(function() fireproximityprompt(prompt) end)
+            end
+        end
+
+        -- Direct authoritative RemoteFunction invocation to guarantee server DB persistence
+        if collectedPageRemote and collectedPageRemote:IsA("RemoteFunction") then
+            pcall(function()
+                collectedPageRemote:InvokeServer(pagePart.Name)
+            end)
+        end
+
+        task.wait(0.2)
+
+        if pagePart:GetAttribute("Collected") == true then
+            confirmed = true
+            break
+        end
+    end
+
+    -- Critical dwell delay for server profile write & client u139 unlock
+    task.wait(0.35)
+    return confirmed or pagePart:GetAttribute("Collected") == true
 end
 
 task.spawn(function()
@@ -659,13 +714,19 @@ local function getBearLevitationTarget(bear)
 
     -- Category 0.2: RangedBear & GrizzlyRangedBear (Spike Bear Blindspot)
     -- RangedBear shoots horizontal spike projectiles and performs ground slam shockwaves.
-    -- Solution: Elevate +10.5 studs above head and -6.0 studs behind, well clear of spike trajectory and ground slams.
+    -- In Melee mode: must be within 5.2 studs reach of Hitbox_Head to connect hits safely above spike trajectory.
     if name:find("ranged") or name:find("spike") then
         local head = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head")
         local targetPos = head and head.Position or cf.Position
-        local targetY = cf.Position.Y + (sz.Y * 0.5) + 10.5
-        local distBehind = (sz.Z * 0.5) + 6.0
-        return targetPos, distBehind, targetY
+        if Config.FarmMethod == "Melee" then
+            local targetY = targetPos.Y + 3.0
+            local distBehind = 3.8
+            return targetPos, distBehind, targetY
+        else
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 12.0
+            local distBehind = (sz.Z * 0.5) + 8.0
+            return targetPos, distBehind, targetY
+        end
     end
 
     -- Category 1: Small / Dwarf / Spherical bears (Booboo, LaserBooBoo, HypersonicBooBoo)
@@ -678,14 +739,20 @@ local function getBearLevitationTarget(bear)
     end
 
     -- Category 0.5: WallBear & Giant Wall Entities (Apex Stance above top edge)
-    -- WallBear is 17-20 studs wide and 20 studs tall. Topples forward and spins with width 17 studs.
-    -- Solution: Hover directly above upper edge (BodyTop / Ears) to stay clear of topple & ground spin.
+    -- WallBear topples forward and falls flat on its front face during attack.
+    -- Solution: Anchor directly behind its horizontal heading at safe apex elevation.
     if name:find("wall") then
         local topPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head")
         local targetPos = topPart and topPart.Position or cf.Position
-        local targetY = cf.Position.Y + (sz.Y * 0.5) + 4.2
-        local distBehind = (sz.X * 0.5) + 3.2
-        return targetPos, distBehind, targetY
+        if Config.FarmMethod == "Melee" then
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 5.2
+            local distBehind = 7.2
+            return targetPos, distBehind, targetY
+        else
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 18.0
+            local distBehind = 28.0
+            return targetPos, distBehind, targetY
+        end
     end
 
     -- Category 2: Tall / Giant / Worm bears (TallBear, GrizzlyTallBear, WormBear)
@@ -1229,12 +1296,12 @@ local function getAvailableBearTypes()
     local list = {"All"}
     local rs = game:GetService("ReplicatedStorage")
 
-    -- 1. Read all 22 authoritative bear definitions from ReplicatedStorage.Data.Bears
+    -- 1. Read all authoritative bear definitions from ReplicatedStorage.Data.Bears (excluding nonexistent ClassicBear)
     local dataBears = rs:FindFirstChild("Data") and rs.Data:FindFirstChild("Bears")
     if dataBears then
         for _, b in ipairs(dataBears:GetChildren()) do
             local bn = b.Name:lower()
-            if not bn:find("cutie") and not bn:find("ghost") and not table.find(list, b.Name) then
+            if not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1245,7 +1312,7 @@ local function getAvailableBearTypes()
     if rsBears then
         for _, b in ipairs(rsBears:GetChildren()) do
             local bn = b.Name:lower()
-            if not bn:find("cutie") and not bn:find("ghost") and not table.find(list, b.Name) then
+            if not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1257,7 +1324,7 @@ local function getAvailableBearTypes()
         for _, b in ipairs(wsBears:GetChildren()) do
             local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
             local bn = b.Name:lower()
-            if not isPlr and not bn:find("cutie") and not bn:find("ghost") and not table.find(list, b.Name) then
+            if not isPlr and not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1273,6 +1340,7 @@ end
 
 local function onBearAdded(child)
     if not child or Players:GetPlayerFromCharacter(child) then return end
+    if child.Name:lower():find("classic") then return end
     task.delay(0.5, function()
         if bearTypeDropdown and bearTypeDropdown.Refresh then
             bearTypeDropdown.Refresh(getAvailableBearTypes())
@@ -1464,15 +1532,39 @@ RunService.Heartbeat:Connect(function(dt)
     if not bearRoot or not bearRoot.Parent then return end
 
     local lookVec = bearRoot.CFrame.LookVector
+    -- Strictly project look vector onto horizontal XZ plane to prevent topples or pitch from collapsing standoff
+    local flatLook = Vector3.new(lookVec.X, 0, lookVec.Z)
+    if flatLook.Magnitude < 0.1 then
+        flatLook = Vector3.new(bearRoot.CFrame.RightVector.Z, 0, -bearRoot.CFrame.RightVector.X)
+        if flatLook.Magnitude < 0.1 then
+            flatLook = Vector3.new(0, 0, -1)
+        end
+    end
+    flatLook = flatLook.Unit
+
     local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
     if not centerPos then return end
 
-    local isBoss = bear.Name:lower():find("grinder") or bear.Name:lower():find("robo") or bear.Name:lower():find("boss") or bear.Name:lower():find("wall") or bear.Name:lower():find("ranged")
+    local bearNameLower = bear.Name:lower()
+    local isBoss = bearNameLower:find("grinder") ~= nil or bearNameLower:find("robo") ~= nil or bearNameLower:find("boss") ~= nil
+    local isWall = bearNameLower:find("wall") ~= nil
+    local isRanged = bearNameLower:find("ranged") ~= nil or bearNameLower:find("spike") ~= nil
+
     if Config.FarmMethod == "Melee" then
-        local targetPos = centerPos - (lookVec * distBehind)
+        local targetPos = centerPos - (flatLook * distBehind)
         local y = targetY
-        if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
-            y = y + (isBoss and 12.0 or 4.8) -- Anti-bullet high vault when boss turns, spins, or charges
+        if isWall then
+            -- WallBear topple immunity: stay elevated clear of forward topple sweep
+            if activeFlightEvading then
+                y = y + 7.5
+            end
+        elseif isRanged then
+            -- Spike Bear in melee mode: stay locked within 5.2 studs reach of head without sky-vaulting
+            if activeFlightEvading then
+                y = y + 1.2
+            end
+        elseif activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
+            y = y + (isBoss and 12.0 or 4.8)
         end
 
         -- Dynamic Threat Ceiling: elevate above any nearby giant/tall bears walking close
@@ -1485,9 +1577,9 @@ RunService.Heartbeat:Connect(function(dt)
         root.CFrame = CFrame.lookAt(targetPos, centerPos)
     elseif Config.FarmMethod == "Gun" then
         local cf, bbSize = bear:GetBoundingBox()
-        local distBehindGun = isBoss and 38.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0)
-        local heightAboveGun = isBoss and (bbSize.Y * 0.5 + 28.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0)
-        local hoverPos = centerPos - (lookVec * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
+        local distBehindGun = (isBoss or isWall) and 38.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0)
+        local heightAboveGun = (isBoss or isWall) and (bbSize.Y * 0.5 + 26.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0)
+        local hoverPos = centerPos - (flatLook * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
 
         if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
             hoverPos = hoverPos + Vector3.new(0, 14.0, 0)
@@ -1628,13 +1720,22 @@ task.spawn(function()
             local isMelee = bestTool:FindFirstChild("MeleeScripts")
             if isMelee then
                 applyWeaponMods(bestTool)
-                if not isBearFacing and tick() - lastMeleeSwing >= 0.35 then
+                -- Execute melee swing from safe blindspot without stalling if bear turns
+                if tick() - lastMeleeSwing >= 0.32 then
                     lastMeleeSwing = tick()
                     bestTool:Activate()
 
                     -- Direct authoritative network hit dispatch (Crown/Head priority)
                     local meleeRemote = isMelee:FindFirstChild("MeleeRemote")
-                    local targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
+                    local bName = bear.Name:lower()
+                    local isRangedBear = bName:find("ranged") or bName:find("spike")
+                    local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
+                        or bear:FindFirstChild("BodyTop") 
+                        or bear:FindFirstChild("Ears") 
+                        or bear:FindFirstChild("Hitbox_Head") 
+                        or bear:FindFirstChild("Hitbox_Chest") 
+                        or bear:FindFirstChild("Hitbox_Torso") 
+                        or bearRoot
                     if meleeRemote and targetHitPart then
                         pcall(function()
                             meleeRemote:FireServer("Hit", targetHitPart)
