@@ -469,6 +469,17 @@ local function getMainGameTable()
     return nil
 end
 
+local function isPlayerHiding(char, mgTable)
+    if not char then return false end
+    if char:GetAttribute("Hiding") == true then return true end
+    if char:GetAttribute("AnimatingClient") == true then return true end
+    if char:GetAttribute("ForceOut") == true then return true end
+    if char:GetAttribute("SkipExit") == true then return true end
+    local mg = mgTable or getMainGameTable()
+    if mg and (mg.hiding == true or mg.animating == true) then return true end
+    return false
+end
+
 local lastKnownPlayerRoom = nil
 
 local function getCurrentRoomNumber()
@@ -2364,15 +2375,7 @@ local pendingCrouchState = nil
 local unhideGraceUntil = 0
 local wasHidingState = false
 
-local function isPlayerHiding(char, mgTable)
-    if not char then return false end
-    if char:GetAttribute("Hiding") == true then return true end
-    if char:GetAttribute("AnimatingClient") == true then return true end
-    if char:GetAttribute("ForceOut") == true then return true end
-    if char:GetAttribute("SkipExit") == true then return true end
-    if mgTable and (mgTable.hiding == true or mgTable.animating == true) then return true end
-    return false
-end
+-- isPlayerHiding defined above near top of script (line 472)
 
 local syncServerSlide
 
