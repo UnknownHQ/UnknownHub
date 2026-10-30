@@ -113,7 +113,8 @@ local State = {
     Fly_SafeBounds = true,
     Fly_Speed = 45,
     Fly_VerticalSpeed = 35,
-    Teleport_Speed = 26,
+    Teleport_Speed = 38,
+    Safe_Roof_Station = false,
     ClickTP_Enabled = false,
     Target_Room_Number = 10,
 
@@ -2764,7 +2765,13 @@ local function getExactFloorPos(pos, fallbackOffset)
     return Vector3.new(pos.X, pos.Y + (fallbackOffset or 0), pos.Z)
 end
 
--- Corridor Waypoint Router: Detects wall collisions, calculates L-corner routes, and subdivides long stretches (> 38 studs)
+-- Safe Overhead Clearance Calculator: Determines clear upper air altitude above interior walls, door headers and clutter
+local function getOverheadClearanceY(posA, posB)
+    local startY = math.max(posA.Y, posB.Y)
+    return startY + 11.5
+end
+
+-- Upgraded Waypoint Router: Detects wall collisions, tests hallway routes, and activates overhead sky-corridor bypass to eliminate wall rollbacks!
 local function getNavigationWaypoints(startPos, endPos)
     local char = getChar()
     local rayParams = RaycastParams.new()
@@ -2779,44 +2786,57 @@ local function getNavigationWaypoints(startPos, endPos)
     local hit = workspace:Raycast(s, e - s, rayParams)
 
     if not hit then
-        table.insert(rawWaypoints, endPos)
+        table.insert(rawWaypoints, { pos = endPos, isElevated = false })
     else
         -- Direct path hits a wall/obstacle. Test Manhattan L-corner hallway routes
-        -- Corner 1: traverse X axis first, then Z axis
         local c1 = Vector3.new(endPos.X, startPos.Y, startPos.Z)
         local c1_ray = c1 + Vector3.new(0, 1.5, 0)
         local hit1_a = workspace:Raycast(s, c1_ray - s, rayParams)
         local hit1_b = workspace:Raycast(c1_ray, e - c1_ray, rayParams)
 
         if not hit1_a and not hit1_b then
-            table.insert(rawWaypoints, getExactFloorPos(c1))
-            table.insert(rawWaypoints, endPos)
+            table.insert(rawWaypoints, { pos = getExactFloorPos(c1), isElevated = false })
+            table.insert(rawWaypoints, { pos = endPos, isElevated = false })
         else
-            -- Corner 2: traverse Z axis first, then X axis
             local c2 = Vector3.new(startPos.X, startPos.Y, endPos.Z)
             local c2_ray = c2 + Vector3.new(0, 1.5, 0)
             local hit2_a = workspace:Raycast(s, c2_ray - s, rayParams)
             local hit2_b = workspace:Raycast(c2_ray, e - c2_ray, rayParams)
 
             if not hit2_a and not hit2_b then
-                table.insert(rawWaypoints, getExactFloorPos(c2))
-                table.insert(rawWaypoints, endPos)
+                table.insert(rawWaypoints, { pos = getExactFloorPos(c2), isElevated = false })
+                table.insert(rawWaypoints, { pos = endPos, isElevated = false })
             else
-                table.insert(rawWaypoints, endPos)
+                -- UPGRADED OVERHEAD ARC BYPASS:
+                -- Both direct line and floor Manhattan L-corners are obstructed by walls/doors!
+                -- Route through the Upper Corridor / Overhead Arc so character travels cleanly above walls with ZERO collisions!
+                local overheadY = getOverheadClearanceY(startPos, endPos)
+                local wpLift = Vector3.new(startPos.X, overheadY, startPos.Z)
+                local wpCruise = Vector3.new(endPos.X, overheadY, endPos.Z)
+
+                table.insert(rawWaypoints, { pos = wpLift, isElevated = true })
+                table.insert(rawWaypoints, { pos = wpCruise, isElevated = true })
+                table.insert(rawWaypoints, { pos = endPos, isElevated = false })
             end
         end
     end
 
-    -- Subdivide any segments longer than 38 studs into micro-bursts to keep server slide timers fresh (< 1.4s per burst)
+    -- Subdivide any segments longer than 36 studs into micro-bursts to keep server slide timers fresh (< 1.0s per burst)
     local finalWaypoints = {}
     local prev = startPos
-    for _, wp in ipairs(rawWaypoints) do
+    for _, wpData in ipairs(rawWaypoints) do
+        local wp = wpData.pos
+        local isElevated = wpData.isElevated
         local segDist = (wp - prev).Magnitude
-        if segDist > 38 then
-            local steps = math.ceil(segDist / 34)
+        if segDist > 36 then
+            local steps = math.ceil(segDist / 30)
             for step = 1, steps do
                 local subPos = prev:Lerp(wp, step / steps)
-                table.insert(finalWaypoints, getExactFloorPos(subPos))
+                if not isElevated and (step == steps) then
+                    table.insert(finalWaypoints, getExactFloorPos(subPos))
+                else
+                    table.insert(finalWaypoints, subPos)
+                end
             end
         else
             table.insert(finalWaypoints, wp)
@@ -2844,7 +2864,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
         return true
     end
 
-    local speed = math.clamp(speedVal or State.Teleport_Speed or 28, 18, 35)
+    local speed = math.clamp(speedVal or State.Teleport_Speed or 38, 18, 65)
     local duration = totalDist / speed
     local moveDir = (totalDist > 0.01) and (moveVec / totalDist) or Vector3.zero
     local token = tick() + math.random()
@@ -2881,17 +2901,13 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, callback)
         if alpha < 1 then
             -- Active Flight Phase: interpolate sub-positions with velocity packet alignment
             local currentSubPos = startPos:Lerp(targetPos, alpha)
-            if State.Fly_SafeBounds then
-                local safeY = getSafeFlightY(currentSubPos)
-                currentSubPos = Vector3.new(currentSubPos.X, safeY, currentSubPos.Z)
-            end
 
             root.CFrame = CFrame.new(currentSubPos) * targetRot
             root.AssemblyLinearVelocity = moveDir * speed
             root.AssemblyAngularVelocity = Vector3.zero
 
-            -- Continuous slide timer refresh every 1.1s to prevent server-side slide expiration on long flights
-            if (now - lastSlidePulse >= 1.1) then
+            -- Continuous slide timer refresh every 0.85s to keep server-side slide authorizer perpetually active
+            if (now - lastSlidePulse >= 0.85) then
                 lastSlidePulse = now
                 task.spawn(pulseSlideKeepAlive)
             end
@@ -3182,43 +3198,98 @@ if getgenv then
     getgenv().TeleportToRoomKey = teleportToRoomKey
 end
 
-local function teleportToNearestHidingSpot()
+local isAtRoof = false
+local roofPlatform = nil
+local lastPreRoofFloorPos = nil
+
+local function getOrCreateRoofPlatform(targetPos)
+    if roofPlatform and roofPlatform.Parent then
+        roofPlatform.CFrame = CFrame.new(targetPos - Vector3.new(0, 3.2, 0))
+        return roofPlatform
+    end
+    local plat = Instance.new("Part")
+    plat.Name = "SafeRoofPlatform"
+    plat.Size = Vector3.new(24, 1.2, 24)
+    plat.Anchored = true
+    plat.CanCollide = true
+    plat.Transparency = 0.5
+    plat.Material = Enum.Material.Neon
+    plat.Color = Color3.fromRGB(0, 220, 255)
+    plat.CFrame = CFrame.new(targetPos - Vector3.new(0, 3.2, 0))
+    plat.Parent = Workspace.CurrentCamera
+    roofPlatform = plat
+    return plat
+end
+
+local function removeRoofPlatform()
+    if roofPlatform then
+        pcall(function() roofPlatform:Destroy() end)
+        roofPlatform = nil
+    end
+end
+
+local function teleportToRoof(callback)
     local char = getChar()
     local root = getRoot()
-    if not char or not root then return false end
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return false end
 
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if not curRooms then return false end
-
-    local nearestSpot = nil
-    local minDist = math.huge
-
-    for _, desc in ipairs(curRooms:GetDescendants()) do
-        local n = desc.Name:lower()
-        if (n:find("wardrobe") or n:find("closet") or n:find("bed") or n:find("locker")) and desc:IsA("Model") then
-            local part = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)
-            if part then
-                local d = (root.Position - part.Position).Magnitude
-                if d < minDist then
-                    minDist = d
-                    nearestSpot = desc
-                end
-            end
-        end
+    if isAtRoof then
+        Hub.Notify("Safe Spot", "Already stationed on Safe Roof!", 2)
+        if callback then callback(true) end
+        return true
     end
 
-    if not nearestSpot then
-        Hub.Notify("Teleport", "No closet/wardrobe found nearby!", 2)
+    lastPreRoofFloorPos = root.Position
+    local roofTargetPos = root.Position + Vector3.new(0, 35, 0)
+    
+    getOrCreateRoofPlatform(roofTargetPos)
+    Hub.Notify("Safe Spot", "Ascending to Safe Roof (+35 Studs)...", 2)
+    isAtRoof = true
+    State.Safe_Roof_Station = true
+
+    safeTweenTeleport(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector), 65, false, function()
+        root.CFrame = CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector)
+        root.AssemblyLinearVelocity = Vector3.zero
+        Hub.Notify("Safe Spot", "Secure on Safe Roof! Rush & entities deflected.", 3)
+        if callback then callback(true) end
+    end)
+    return true
+end
+
+local function returnFromRoof(callback)
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return false end
+
+    if not isAtRoof and root.Position.Y < 25 then
+        Hub.Notify("Safe Spot", "Not currently on roof!", 2)
+        if callback then callback(false) end
         return false
     end
 
-    local part = nearestSpot.PrimaryPart or nearestSpot:FindFirstChildWhichIsA("BasePart", true)
-    local standPos = part.Position + part.CFrame.LookVector * 2.5 + Vector3.new(0, 0.5, 0)
-    Hub.Notify("Teleport", "Evacuating to " .. nearestSpot.Name .. "...", 2)
-    safeTweenTeleport(CFrame.new(standPos, part.Position), State.Teleport_Speed, true, function()
-        Hub.Notify("Teleport", "Arrived at safe spot!", 2)
+    Hub.Notify("Safe Spot", "Safely descending from roof...", 2)
+
+    local targetFloorPos = getExactFloorPos(Vector3.new(root.Position.X, (lastPreRoofFloorPos and lastPreRoofFloorPos.Y) or (root.Position.Y - 35), root.Position.Z))
+
+    safeTweenTeleport(CFrame.new(targetFloorPos, targetFloorPos + root.CFrame.LookVector), 55, false, function()
+        removeRoofPlatform()
+        isAtRoof = false
+        State.Safe_Roof_Station = false
+        lastPreRoofFloorPos = nil
+        Hub.Notify("Safe Spot", "Landed safely on room floor!", 2)
+        if callback then callback(true) end
     end)
     return true
+end
+
+_G.TeleportToRoof = teleportToRoof
+_G.ReturnFromRoof = returnFromRoof
+if getgenv then
+    getgenv().TeleportToRoof = teleportToRoof
+    getgenv().ReturnFromRoof = returnFromRoof
+    getgenv().TeleportToNearestHidingSpot = teleportToRoof
 end
 
 local isAutoNavigatingRooms = false
@@ -3473,6 +3544,19 @@ RunService.Heartbeat:Connect(function(dt)
             root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * slideSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * slideSpeed)
         end
     end
+
+    -- Keep Safe Roof Platform dynamically centered under daddy horizontally
+    if isAtRoof and roofPlatform and roofPlatform.Parent and root then
+        roofPlatform.CFrame = CFrame.new(root.Position.X, roofPlatform.Position.Y, root.Position.Z)
+    end
+
+    -- Wipes pending client rollback CFrame every frame during teleport/flight/roof
+    if isTeleportTweening or isAtRoof or State.Fly_Enabled or State.Noclip or State.Bypass_AntiCheat then
+        local mgTable = getMainGameTable()
+        if mgTable and mgTable.SETNEWCF then
+            mgTable.SETNEWCF = nil
+        end
+    end
 end)
 
 -- Stepped Guard: Strips collisions & touch on character parts during Noclip
@@ -3501,7 +3585,7 @@ RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Fly_Enabled or isTeleportTweening then
+    if State.Noclip or State.Fly_Enabled or isTeleportTweening or isAtRoof then
         -- Strip CanCollide, CanTouch & CanQuery from ALL character parts to eliminate physics collisions
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
@@ -3567,7 +3651,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
             local mouse = LocalPlayer:GetMouse()
             if mouse and mouse.Hit then
-                safeTweenTeleport(CFrame.new(mouse.Hit.Position + Vector3.new(0, 2.5, 0)), State.Teleport_Speed, true)
+                safeMultiSegmentTeleport(CFrame.new(mouse.Hit.Position + Vector3.new(0, 2.5, 0)), State.Teleport_Speed, true)
             end
         end
     end
@@ -4253,6 +4337,12 @@ if hookmetamethod then
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if not checkcaller() then
+            if (method == "PivotTo" or method == "pivotTo") and (isTeleportTweening or isAtRoof or State.Noclip or State.Fly_Enabled or State.Bypass_AntiCheat) then
+                local char = getChar()
+                if self == char or (char and self == char.PrimaryPart) then
+                    return -- Block anticheat rollback PivotTo dead in its tracks!
+                end
+            end
             if method == "FireServer" then
                 if self == motorRemote and State.Anti_Eyes and isEyesPresent() then
                     local args = {...}
@@ -4556,8 +4646,21 @@ Hub.CreateButton(teleportTab, "Teleport to Current Room Key", function()
     teleportToRoomKey()
 end)
 
-Hub.CreateButton(teleportTab, "Teleport to Nearest Safe Closet", function()
-    teleportToNearestHidingSpot()
+Hub.CreateButton(teleportTab, "Teleport to Roof (Safe Spot +35 Studs)", function()
+    teleportToRoof()
+end)
+
+Hub.CreateButton(teleportTab, "Return from Roof (Safe Landing)", function()
+    returnFromRoof()
+end)
+
+Hub.CreateToggle(teleportTab, "Safe Roof Station (Platform)", State.Safe_Roof_Station, function(v)
+    State.Safe_Roof_Station = v
+    if v then
+        teleportToRoof()
+    else
+        returnFromRoof()
+    end
 end)
 
 Hub.CreateToggle(teleportTab, "Click to Teleport (Ctrl + Click)", State.ClickTP_Enabled, function(v)
@@ -4565,7 +4668,7 @@ Hub.CreateToggle(teleportTab, "Click to Teleport (Ctrl + Click)", State.ClickTP_
     Hub.Notify("Teleport", v and "Click TP: ACTIVE (Hold Ctrl + Left Click)" or "Click TP: OFF", 2)
 end)
 
-Hub.CreateSlider(teleportTab, "Teleport Speed", 18, 35, State.Teleport_Speed, " studs/s", function(v)
+Hub.CreateSlider(teleportTab, "Teleport Speed", 20, 65, State.Teleport_Speed, " studs/s", function(v)
     State.Teleport_Speed = v
 end)
 
