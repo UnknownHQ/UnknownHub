@@ -4136,7 +4136,7 @@ RunService.Heartbeat:Connect(function(dt)
         local targetVel = Vector3.zero
 
         if hasInput and steer.Magnitude > 0.01 then
-            local speed = math.clamp(State.Noclip_Speed or 35, 4, 85)
+            local speed = math.clamp(State.Noclip_Speed or 35, 4, 300)
             targetVel = steer.Unit * speed
             local stepVec = targetVel * safeDt
 
@@ -4146,7 +4146,7 @@ RunService.Heartbeat:Connect(function(dt)
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
             rayParams.RespectCanCollide = true
 
-            local forwardHit = workspace:Raycast(root.Position, steer.Unit * (math.clamp(speed * 0.1, 3.0, 7.5)), rayParams)
+            local forwardHit = workspace:Raycast(root.Position, steer.Unit * (math.clamp(speed * 0.1, 3.0, 25.0)), rayParams)
             if forwardHit and forwardHit.Instance and not forwardHit.Instance:IsDescendantOf(char) then
                 local probeStart = forwardHit.Position + steer.Unit * 3.2
                 local backHit = workspace:Raycast(probeStart, -steer.Unit * 3.2, rayParams)
@@ -4262,13 +4262,13 @@ RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        if State.Noclip then
-            mgTable.noclip = true
-            if mgTable.hideplayers ~= 0 then
-                mgTable.hideplayers = 0
-            end
-        elseif not State.Noclip and mgTable.noclip then
+        -- CRITICAL: Always keep mgTable.noclip = false so DOORS native debug flight never runs,
+        -- never binds KeyCode.E or Q for elevation, never hides player body, and leaves KeyCode.E 100% free for manual interaction!
+        if mgTable.noclip then
             mgTable.noclip = false
+        end
+        if mgTable.hideplayers ~= 0 then
+            mgTable.hideplayers = 0
         end
     end
 
@@ -5874,6 +5874,10 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
         Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly Noclip!", 2)
     end
     State.Noclip = v
+    local mg = getMainGameTable()
+    if mg and mg.noclip then
+        mg.noclip = false
+    end
     local char = getChar()
 
     if not v and char then
@@ -5922,7 +5926,7 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Fly Speed", 4, 75, State.Noclip_Speed, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
 end)
 
@@ -5942,7 +5946,7 @@ Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
     end
 end)
 
-Hub.CreateSlider(mainTab, "Speed", 15, 75, State.WalkSpeed_Value, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s", function(v)
     State.WalkSpeed_Value = v
     if State.WalkSpeed_Enabled then
         local char = getChar()
@@ -6262,9 +6266,16 @@ if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED the
     local rawIsKeyDown
     rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
         if not checkcaller() then
-            -- Block KeyCode.Q so DOORS native flight down never triggers (NEVER block KeyCode.E so manual interact is 100% responsive!)
+            -- Block KeyCode.Q everywhere in DOORS
             if kc == Enum.KeyCode.Q then
                 return false
+            end
+            -- If called by DOORS Movement script, NEVER allow KeyCode.E so elevation up movement is dead permanently!
+            if kc == Enum.KeyCode.E then
+                local caller = getcallingscript and getcallingscript()
+                if caller and (caller.Name == "Movement" or tostring(caller):find("Movement")) then
+                    return false
+                end
             end
         end
         return rawIsKeyDown(self, kc)
@@ -6280,9 +6291,14 @@ if hookmetamethod then
             if (method == "IsKeyDown" or method == "isKeyDown") then
                 local args = {...}
                 local kc = args[1]
-                -- Only block Q elevation; KeyCode.E is 100% dedicated to manual interaction!
                 if kc == Enum.KeyCode.Q then
                     return false
+                end
+                if kc == Enum.KeyCode.E then
+                    local caller = getcallingscript and getcallingscript()
+                    if caller and (caller.Name == "Movement" or tostring(caller):find("Movement")) then
+                        return false
+                    end
                 end
             end
             if (method == "PivotTo" or method == "pivotTo") then
