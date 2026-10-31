@@ -4208,6 +4208,13 @@ RunService.Heartbeat:Connect(function(dt)
         local cp = char:FindFirstChild("CollisionPart")
         if cp then cp.CFrame = newCF end
 
+        -- Continuous synchronization with DOORS Main_Game internal positioning
+        -- Guarantees that when flight/noclip is turned off, DOORS NEVER rolls back to the old pre-flight position!
+        if mgTable then
+            mgTable.clipPos = targetPos
+            if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
+        end
+
         -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
         root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
         root.AssemblyAngularVelocity = Vector3.zero
@@ -4434,19 +4441,24 @@ RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Fly_Enabled or isTeleportTweening or (os.clock() < lastNoclipDisableGrace) then
+    if State.Noclip or State.Fly_Enabled or isTeleportTweening or (os.clock() < lastNoclipDisableGrace) or State.Anti_Rush or isPlayerOutOfMap() then
         -- Strip CanCollide and set CollisionGroup="None" so server physics solver treats walls as non-collidable
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
-                if part.CanCollide then part.CanCollide = false end
-                if not part.CanTouch then part.CanTouch = true end
-                if not part.CanQuery then part.CanQuery = true end
-                if part.CollisionGroup ~= "None" then
-                    if not part:GetAttribute("OrigCollisionGroup") then
-                        part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
+                if State.Noclip or State.Fly_Enabled or isTeleportTweening or (os.clock() < lastNoclipDisableGrace) then
+                    if part.CanCollide then part.CanCollide = false end
+                    if part.CollisionGroup ~= "None" then
+                        if not part:GetAttribute("OrigCollisionGroup") then
+                            part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
+                        end
+                        part.CollisionGroup = "None"
                     end
-                    part.CollisionGroup = "None"
                 end
+                -- PHANTOM TOUCH SHIELD: Explicitly strip CanTouch so Rush, Ambush & lethal entities NEVER trigger Touched kill events!
+                if State.Noclip or State.Fly_Enabled or State.Anti_Rush or isPlayerOutOfMap() then
+                    if part.CanTouch then part.CanTouch = false end
+                end
+                if not part.CanQuery then part.CanQuery = true end
             end
         end
     else
@@ -4649,6 +4661,15 @@ end
 Workspace.DescendantAdded:Connect(function(desc)
     if desc:IsA("ProximityPrompt") then
         pcall(function() applyPromptModifications(desc) end)
+    end
+end)
+
+-- Continuous 1.0s background prompt keeper: guarantees newly streamed rooms always have 14-stud reach and no LOS requirement
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        pcall(refreshAllPrompts)
+        task.wait(1.0)
     end
 end)
 
@@ -4962,6 +4983,7 @@ task.spawn(function()
                                             task.spawn(function()
                                                 if stagger > 0 then task.wait(stagger) end
                                                 pcall(function()
+                                                    fireproximityprompt(prompt, 0)
                                                     fireproximityprompt(prompt)
                                                 end)
                                             end)
@@ -5306,9 +5328,41 @@ local function triggerEntityNotification(name)
     Hub.Notify("Entity Alert", string.format("⚠️ %s has spawned! Prepare or hide!", name), 4)
 end
 
+local function defuseLethalEntity(entity)
+    if not entity then return end
+    pcall(function()
+        for _, p in ipairs(entity:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanTouch = false
+                p.CanCollide = false
+            elseif p:IsA("TouchTransmitter") then
+                p:Destroy()
+            end
+        end
+        if entity:IsA("BasePart") then
+            entity.CanTouch = false
+            entity.CanCollide = false
+        end
+    end)
+    entity.DescendantAdded:Connect(function(desc)
+        pcall(function()
+            if desc:IsA("BasePart") then
+                desc.CanTouch = false
+                desc.CanCollide = false
+            elseif desc:IsA("TouchTransmitter") then
+                desc:Destroy()
+            end
+        end)
+    end)
+end
+
 Workspace.ChildAdded:Connect(function(child)
     local cName = child.Name
     local lower = cName:lower()
+    local isLethal = lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120")
+    if isLethal and (State.Noclip or State.Anti_Rush or isPlayerOutOfMap()) then
+        defuseLethalEntity(child)
+    end
     for _, ent in ipairs({"Rush", "Ambush", "Eyes", "Seek", "Figure", "Halt", "A60", "A90", "A120", "Giggle", "Gloombat", "Grumble", "Dread", "Blitz", "Lookman"}) do
         if lower:find(ent:lower()) then
             triggerEntityNotification(ent)
@@ -5946,12 +6000,11 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             local targetY = if (floorY and r.Position.Y < (floorY + 2.5)) then floorY + 3.2 else r.Position.Y
             local snapCF = CFrame.new(r.Position.X, targetY, r.Position.Z) * r.CFrame.Rotation
 
-            char:PivotTo(snapCF)
             r.CFrame = snapCF
             if cp then cp.CFrame = snapCF end
             if mg then
                 mg.clipPos = snapCF.Position
-                if mg.SETNEWCF then mg.SETNEWCF = nil end
+                mg.SETNEWCF = nil
             end
             r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
             r.AssemblyAngularVelocity = Vector3.zero
@@ -7126,16 +7179,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             local bestPrompt = nil
             local bestScore = math.huge
 
+            local searchContainers = {}
             local curRooms = Workspace:FindFirstChild("CurrentRooms")
-            if curRooms then
-                for _, p in ipairs(curRooms:GetDescendants()) do
+            if curRooms then table.insert(searchContainers, curRooms) end
+            local drops = Workspace:FindFirstChild("Drops")
+            if drops then table.insert(searchContainers, drops) end
+
+            for _, container in ipairs(searchContainers) do
+                for _, p in ipairs(container:GetDescendants()) do
                     if p:IsA("ProximityPrompt") and p.Enabled then
-                        local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and p.Parent.PrimaryPart)
+                        local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
                         if pPart then
                             local toPart = (pPart.Position - rPos)
                             local dist = toPart.Magnitude
                             local maxReach = 18
-                            if dist <= maxReach and dist <= 18 then
+                            if dist <= maxReach then
                                 local dir = toPart.Unit
                                 local dot = lookVec:Dot(dir)
                                 -- Forgiving dot angle during 3D flight so looking around still triggers prompts instantly
@@ -7154,15 +7212,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
             if bestPrompt then
                 bestPrompt.RequiresLineOfSight = false
-                local curHold = bestPrompt:GetAttribute("OrigHold") or bestPrompt.HoldDuration
-                -- Only fast-trigger instant taps (HoldDuration == 0) or if Instant Interact is turned ON!
-                -- If a prompt requires holding (1-2s), let the user hold E naturally without resetting the hold bar!
-                if State.Instant_Interact or curHold == 0 then
-                    if State.Instant_Interact then bestPrompt.HoldDuration = 0 end
-                    pcall(function()
-                        fireproximityprompt(bestPrompt)
-                    end)
-                end
+                -- Zero-delay frame-0 execution: Triggers both 0-hold and normal fire so items loot INSTANTLY without 6-10s delay!
+                pcall(function()
+                    fireproximityprompt(bestPrompt, 0)
+                end)
+                pcall(function()
+                    fireproximityprompt(bestPrompt)
+                end)
             end
         end
     end
