@@ -1074,12 +1074,11 @@ local function isValidLootItem(model)
     if not model or not (model:IsA("Model") or model:IsA("Tool")) then return false, nil end
     local lower = model.Name:lower()
 
-    -- Reject entire room structures, shops, siderooms, hallways, walls, fixtures
+    -- Reject entire room structures, shops, siderooms, hallways, walls, fixtures (DO NOT REJECT RIFT!)
     if lower:find("room") or lower:find("shop") or lower:find("assets") or lower:find("structure")
-        or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom") or lower:find("rift")
+        or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom")
         or lower:find("wall") or lower:find("ceiling") or lower:find("floor") or lower:find("desk")
-        or lower:find("drawer") or lower:find("cabinet") or lower:find("table") or lower:find("skulllock")
-        or lower:find("riftdoor") or lower:find("riftspawn") then
+        or lower:find("drawer") or lower:find("cabinet") or lower:find("table") or lower:find("skulllock") then
         return false, nil
     end
 
@@ -1353,6 +1352,20 @@ local function processGold(goldInstance)
         local baseText = displayName
         local color = Color3.fromRGB(255, 195, 0)
         registerEsp(owner, targetPart, baseText, color, "Gold", owner, Vector3.new(0, 0.8, 0))
+    end
+end
+
+-- 7b. Dedicated Rift ESP: Brilliant Glowing Cyan Highlighter
+local function processRift(model)
+    if not model then return end
+    local mName = model.Name:lower()
+    if (mName:find("rift") and not mName:find("fragment")) or model:GetAttribute("IsRift") then
+        local targetPart = (model:IsA("Model") and (model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)))
+            or (model:IsA("BasePart") and model)
+        if targetPart then
+            local color = Color3.fromRGB(0, 255, 255)
+            registerEsp(model, targetPart, "The Rift", color, "Special", model, Vector3.new(0, 1.5, 0))
+        end
     end
 end
 
@@ -2018,6 +2031,14 @@ end)
 -- Full Room Parser
 local function scanSingleRoom(room)
     if not room or not room:IsA("Model") then return end
+
+    -- 0b. Scan The Rift
+    for _, child in ipairs(room:GetChildren()) do
+        local cLower = child.Name:lower()
+        if cLower:find("rift") and not cLower:find("fragment") then
+            processRift(child)
+        end
+    end
 
     -- 1. Scan Door
     local door = room:FindFirstChild("Door")
@@ -2783,8 +2804,8 @@ local function initAntiGlitchShield()
                     _G["UEM_DETOURED_" .. tostring(fn)] = true
                     if hookfunction then
                         hookfunction(fn, newcclosure(function(enemyName, method, ...)
-                            if enemyName == "Glitch" or enemyName == "Void" then
-                                return -- Drop Glitch and Void calls from server dead in their tracks!
+                            if State.Noclip or isPlayerOutOfMap() or State.Anti_Rush or State.Deflect_Glitch then
+                                return -- Universal Entity Immunity: Drop ALL enemy modules for ALL entities!
                             end
                             return fn(enemyName, method, ...)
                         end))
@@ -2812,11 +2833,8 @@ local function initAntiGlitchShield()
                     _G["JMP_DETOURED_" .. tostring(fn)] = true
                     if hookfunction then
                         hookfunction(fn, newcclosure(function(jName, ...)
-                            if jName == "Glitch" or jName == "Void" then
-                                return
-                            end
-                            if (jName == "Rush" or jName == "Ambush") and (State.Noclip or isPlayerOutOfMap()) then
-                                return
+                            if State.Noclip or isPlayerOutOfMap() or State.Anti_Rush or State.Deflect_Glitch then
+                                return -- Universal Jumpscare Immunity: Block ALL jumpscares for ALL entities!
                             end
                             return fn(jName, ...)
                         end))
@@ -2833,11 +2851,8 @@ local function initAntiGlitchShield()
                     _G["JB_DETOURED_" .. tostring(fn)] = true
                     if hookfunction then
                         hookfunction(fn, newcclosure(function(jName, ...)
-                            if jName == "Glitch" or jName == "Void" then
-                                return
-                            end
-                            if (jName == "Rush" or jName == "Ambush") and (State.Noclip or isPlayerOutOfMap()) then
-                                return
+                            if State.Noclip or isPlayerOutOfMap() or State.Anti_Rush or State.Deflect_Glitch then
+                                return -- Universal Jumpscare Immunity: Block ALL jumpscares for ALL entities!
                             end
                             return fn(jName, ...)
                         end))
@@ -4348,38 +4363,44 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Continuous 2D Entity Immunity Shield (Rush, Ambush, A-60, A-120 Out-of-Bounds & Flight Deflector):
-    local lethal2DNames = {"RushMoving", "AmbushMoving", "A60", "A120", "Dread", "RushNew"}
-    local lethalActive = false
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    for _, eName in ipairs(lethal2DNames) do
-        local ent = Workspace:FindFirstChild(eName, true) or (curRooms and curRooms:FindFirstChild(eName, true))
-        if ent then
-            lethalActive = true
-            -- Strip touch detection and collisions from the monster on frame 0
-            pcall(function()
-                for _, desc in ipairs(ent:GetDescendants()) do
-                    if desc:IsA("TouchTransmitter") then
-                        pcall(function() desc:Destroy() end)
-                    elseif desc:IsA("BasePart") then
-                        desc.CanTouch = false
-                        desc.CanCollide = false
-                    end
-                end
-            end)
-            break
+    -- FULL BODY RIG POSITION SYNCHRONIZATION WITH COLLISIONPART:
+    -- Guarantees the player's ENTIRE body moves with flight out of the map.
+    -- Zero limbs, torso, or root parts are ever left behind in any room!
+    if State.Noclip and char then
+        local cp = char:FindFirstChild("CollisionPart")
+        local root = getRoot()
+        if cp and root then
+            root.CFrame = cp.CFrame
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            char:PivotTo(cp.CFrame)
+            local col = char:FindFirstChild("Collision")
+            if col then col.CFrame = cp.CFrame end
+            local cc = char:FindFirstChild("CollisionCrouch")
+            if cc then cc.CFrame = cp.CFrame end
         end
     end
 
-    -- Absolute 2D Entity Immunity Shield (without mutating Hiding attribute which causes body invisibility & interact lock!):
-    if (lethalActive or State.Noclip or isPlayerOutOfMap()) and (State.Anti_Rush or State.Noclip or isPlayerOutOfMap()) then
+    -- UNIVERSAL ENTITY IMMUNITY SHIELD (Zero special-casing: protects against ALL entities!)
+    -- Glitch, Rush, Glitch Rush, Ambush, A-60, A-120, Dread, Seek, Figure, Snare, Dupe, Halt, etc.
+    if State.Noclip or State.Anti_Rush or isPlayerOutOfMap() then
         if mgTable then
             if mgTable.deathtick then mgTable.deathtick = tick() + 999999 end
             if mgTable.dead then mgTable.dead = false end
+            if mgTable.stunned then mgTable.stunned = false end
         end
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum and hum.Health < 100 and hum.Health > 0 then
             hum.Health = 100
+        end
+        -- PHANTOM TOUCH SHIELD: Disable CanTouch on ALL player body parts!
+        -- No entity hitbox in Roblox can EVER fire a Touched damage event on the player!
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanTouch then
+                    p.CanTouch = false
+                end
+            end
         end
     end
 
@@ -4425,12 +4446,20 @@ RunService.Stepped:Connect(function()
     end
 
     if State.Noclip or State.Fly_Enabled or isTeleportTweening then
-        -- Strip CanCollide and set CollisionGroup="None" so server physics solver treats walls as non-collidable
+        -- Lock character rig to CollisionPart on Stepped so physics never desynchronizes body from flight
+        local cp = char:FindFirstChild("CollisionPart")
+        local root = getRoot()
+        if cp and root then
+            root.CFrame = cp.CFrame
+            root.AssemblyLinearVelocity = Vector3.zero
+            char:PivotTo(cp.CFrame)
+        end
+
+        -- Strip CanCollide AND CanTouch so walls phase smoothly and NO monster can touch the character
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
-                if not part.CanTouch then part.CanTouch = true end
-                if not part.CanQuery then part.CanQuery = true end
+                if part.CanTouch then part.CanTouch = false end
                 if part.CollisionGroup ~= "None" then
                     if not part:GetAttribute("OrigCollisionGroup") then
                         part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
