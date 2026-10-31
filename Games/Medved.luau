@@ -155,13 +155,15 @@ local Config = {
     -- Visuals
     CratesESP = false,
     BearsESP = false,
+    TurretsESP = false,
 
-    -- Misc & Overpowered Suite
-    AutoVacuumCrates = false,
+    -- Combat: Turret & Sentry Automation
+    AutoStackTurrets = false,
+    AutoHealTurrets = false,
+
+    -- Misc & Progression
     AutoUnlockDoors = false,
-    AutoPrestigeOn32 = false,
-    BearFastSprint = false,
-    SelectedPlayerBear = "CutieBear"
+    AutoPrestigeOn32 = false
 }
 
 local activeESP = {}
@@ -349,62 +351,10 @@ local function isGhostBearNearPosition(pos, radius)
 end
 
 -- =========================================================================
--- OVERPOWERED SUITE ENGINE: Full-Map Crate Vacuum, Gate Unlocker, Remote Prestige & Bear Morph
+-- TURRET AUTOMATION, SECURITY OVERRIDE & REMOTE PRESTIGE SUITE
 -- =========================================================================
 
--- 1. Full-Map Crate Loot Vacuum
-local function vacuumAllMapCrates()
-    task.spawn(function()
-        local sharedEv = ReplicatedStorage:FindFirstChild("SharedEvents")
-        local wEvents = sharedEv and sharedEv:FindFirstChild("World")
-        local reqRemote = wEvents and wEvents:FindFirstChild("RequestCrateData")
-        local openRemote = wEvents and wEvents:FindFirstChild("OpenCrate")
-        local collectRemote = wEvents and wEvents:FindFirstChild("CollectItem")
-
-        if not reqRemote or not openRemote or not collectRemote then
-            Hub.Notify("Crate Vacuum", "Remote events unavailable!", 2.5)
-            return
-        end
-
-        Hub.Notify("Crate Vacuum", "Starting full-map crate vacuum...", 2.5)
-        local allCrates = reqRemote:InvokeServer()
-        if not allCrates then return end
-
-        local lootedCount = 0
-        -- Direct Network Unseal & Remote Slot Looting across all 113 map crates
-        for crateName, _ in pairs(allCrates) do
-            pcall(function()
-                openRemote:InvokeServer(crateName)
-            end)
-            for slot = 1, 4 do
-                pcall(function()
-                    collectRemote:InvokeServer(crateName, slot)
-                end)
-            end
-            lootedCount = lootedCount + 1
-            if lootedCount % 12 == 0 then
-                task.wait(0.03) -- Clean rate throttle to prevent network packet drops
-            end
-        end
-
-        -- Sweep all physical spawned ItemPrompt & CratePrompt instances in Workspace
-        local interactables = Workspace:FindFirstChild("Interactables")
-        local cratesFolder = interactables and interactables:FindFirstChild("Crates")
-        if cratesFolder then
-            for _, c in ipairs(cratesFolder:GetChildren()) do
-                for _, d in ipairs(c:GetDescendants()) do
-                    if d:IsA("ProximityPrompt") and d.Enabled then
-                        pcall(function() fireproximityprompt(d) end)
-                    end
-                end
-            end
-        end
-
-        Hub.Notify("Crate Vacuum", "Successfully vacuumed " .. lootedCount .. " crates across the map!", 3)
-    end)
-end
-
--- 2. Unlock Bunker & All Security Doors (Client Attribute Override)
+-- 1. Unlock Bunker & All Security Doors (Client Attribute Override)
 local function unlockAllDoorsAndBunker()
     LocalPlayer:SetAttribute("BunkerUnlocked", true)
     LocalPlayer:SetAttribute("KeycardAccess", true)
@@ -421,7 +371,27 @@ local function unlockAllDoorsAndBunker()
     Hub.Notify("Security Override", "Bunker & " .. count .. " security doors unlocked!", 2.5)
 end
 
--- 3. Remote Prestige Trigger (Direct Server Remote Invocation)
+-- 2. Prestige Status & Remote Trigger
+local function getPrestigeCooldownStatus()
+    local pc = Workspace:FindFirstChild("Interactables") and Workspace.Interactables:FindFirstChild("PrestigeComputer")
+    local screen = pc and pc:FindFirstChild("ComputerScreen")
+    local sg = screen and screen:FindFirstChild("SurfaceGui")
+    local tl = sg and sg:FindFirstChild("TextLabel")
+    if tl and tl.Text ~= "" then
+        local txt = tl.Text
+        if txt:find("COOLDOWN") then
+            local timeStr = txt:match("%d+:%d+") or txt:gsub("COOLDOWN%s*", "")
+            return "On Cooldown: " .. timeStr .. " remaining"
+        elseif txt:find("INSERT") or txt:find("UNLOCK") then
+            return "READY! (Requires 32 Pages)"
+        elseif txt:find("GRANTED") or txt:find("OPEN") then
+            return "READY TO PRESTIGE NOW!"
+        end
+        return txt
+    end
+    return "Status Unknown (Walk near Lab to stream)"
+end
+
 local function triggerRemotePrestige()
     local pc = Workspace:FindFirstChild("Interactables") and Workspace.Interactables:FindFirstChild("PrestigeComputer")
     local pRemote = pc and pc:FindFirstChild("Prestige")
@@ -434,57 +404,114 @@ local function triggerRemotePrestige()
     if ok and res == true then
         Hub.Notify("Prestige", "PRESTIGE GRANTED! Resetting with prestige rewards 🌟", 4)
     else
-        Hub.Notify("Prestige", "Prestige locked: requires 32 pages or cooldown active.", 3)
+        local status = getPrestigeCooldownStatus()
+        Hub.Notify("Prestige Locked", status, 3.5)
     end
 end
 
--- 4. Player Bears Suite (Morph, Abilities, Fast Sprint)
-local function morphIntoSelectedBear(bearId)
-    local pbEvents = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("PlayerBears")
-    local becomeRemote = pbEvents and pbEvents:FindFirstChild("BecomeBear")
-    if not becomeRemote then
-        Hub.Notify("Bear Morph", "BecomeBear remote not found!", 2)
-        return
-    end
+-- 3. Turret Placement & In-One-Place Mega Stacking
+local currentTurretStackCFrame = nil
 
-    Hub.Notify("Bear Morph", "Transforming into " .. bearId .. "...", 2)
-    local ok, res, msg = pcall(function()
-        return becomeRemote:InvokeServer(bearId, "Become")
-    end)
-
-    -- If not owned yet, attempt to buy permanent or one-time
-    if ok and res == false and tostring(msg):find("don't own") then
-        pcall(function() becomeRemote:InvokeServer(bearId, "Permanent") end)
-        pcall(function() becomeRemote:InvokeServer(bearId, "OneTime") end)
-        pcall(function() becomeRemote:InvokeServer(bearId, "Become") end)
-    end
-
+local function getGroundPlacementCFrame()
     local char = LocalPlayer.Character
-    if char and char:GetAttribute("TransformedToBear") then
-        Hub.Notify("Bear Morph", "Successfully morphed into " .. tostring(char:GetAttribute("TransformedToBear")) .. "! 🐻", 3)
-    else
-        Hub.Notify("Bear Morph", "Morph status: " .. tostring(res or msg), 3)
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {char}
+    rayParams.IgnoreWater = true
+
+    local hit = Workspace:Raycast(root.Position, Vector3.new(0, -12, 0), rayParams)
+    local groundY = hit and hit.Position.Y or (root.Position.Y - 2.8)
+    local look = root.CFrame.LookVector * Vector3.new(1, 0, 1)
+    if look.Magnitude < 0.01 then look = Vector3.new(0, 0, -1) end
+
+    return CFrame.lookAt(Vector3.new(root.Position.X, groundY, root.Position.Z), Vector3.new(root.Position.X, groundY, root.Position.Z) + look)
+end
+
+local function placeTurretAtCFrame(targetCF)
+    if not targetCF then return false end
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+
+    local stb = (char and char:FindFirstChild("SentryToolbox")) or (backpack and backpack:FindFirstChild("SentryToolbox"))
+    if not stb then
+        local shopRemote = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("Shop") and ReplicatedStorage.SharedEvents.Shop:FindFirstChild("PurchaseItem")
+        if shopRemote then
+            pcall(function() shopRemote:InvokeServer("SentryToolbox", "BuyOne") end)
+            task.wait(0.2)
+        end
+        stb = (char and char:FindFirstChild("SentryToolbox")) or (backpack and backpack:FindFirstChild("SentryToolbox"))
     end
+
+    if stb then
+        if stb.Parent == backpack and char and char:FindFirstChildOfClass("Humanoid") then
+            char.Humanoid:EquipTool(stb)
+            task.wait(0.12)
+        end
+        local placeRemote = stb:FindFirstChild("PlaceTurret")
+        if placeRemote then
+            pcall(function() placeRemote:FireServer(targetCF) end)
+            return true
+        end
+    end
+    return false
 end
 
-local function castBearAbility(slot)
-    local pbEvents = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("PlayerBears")
-    local abilityRemote = pbEvents and pbEvents:FindFirstChild("BearAbility")
-    if not abilityRemote then return end
-
-    local cam = Workspace.CurrentCamera
-    local aimPos = cam and (cam.CFrame.Position + (cam.CFrame.LookVector * 100)) or Vector3.zero
-    pcall(function()
-        abilityRemote:FireServer("Use", slot or 1, aimPos)
-    end)
-end
-
--- Continuous Auto-Vacuum Daemon
+-- Continuous Auto-Stack Turrets Daemon: Automatically places any Sentry in inventory directly into the stacked anchor
 task.spawn(function()
     while true do
-        task.wait(4)
-        if Config.AutoVacuumCrates then
-            vacuumAllMapCrates()
+        task.wait(0.3)
+        if Config.AutoStackTurrets then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                if not currentTurretStackCFrame then
+                    currentTurretStackCFrame = getGroundPlacementCFrame()
+                    if currentTurretStackCFrame then
+                        Hub.Notify("Turrets", "Turret stack anchor locked to your spot! Sentries will stack here.", 3)
+                    end
+                end
+
+                local backpack = LocalPlayer:FindFirstChild("Backpack")
+                local stb = (char and char:FindFirstChild("SentryToolbox")) or (backpack and backpack:FindFirstChild("SentryToolbox"))
+                if stb and currentTurretStackCFrame then
+                    placeTurretAtCFrame(currentTurretStackCFrame)
+                    task.wait(0.5)
+                end
+            end
+        else
+            currentTurretStackCFrame = nil
+        end
+    end
+end)
+
+-- 4. Turret Proximity Auto-Heal Engine
+task.spawn(function()
+    while true do
+        task.wait(0.6)
+        if Config.AutoHealTurrets then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if root and hum and hum.Health > 0 then
+                local CollectionService = game:GetService("CollectionService")
+                for _, t in ipairs(CollectionService:GetTagged("Turret")) do
+                    if t:IsA("Model") and t:IsDescendantOf(Workspace) then
+                        local hp = t:GetAttribute("Health")
+                        local maxHp = t:GetAttribute("MaxHealth") or 150
+                        if hp and maxHp and hp < maxHp then
+                            local tPos = t:GetPivot().Position
+                            local dist = (root.Position - tPos).Magnitude
+                            -- If within proximity repair zone (14 studs), zero velocity to keep steady healing contact
+                            if dist <= 14 then
+                                root.AssemblyLinearVelocity = Vector3.zero
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
 end)
@@ -2196,15 +2223,6 @@ RunService.Heartbeat:Connect(function()
             end
         end
     end
-
-    -- 4. Bear Fast Sprint Spammer (when morphed as Bear)
-    if Config.BearFastSprint then
-        local pbEvents = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("PlayerBears")
-        local sprintRemote = pbEvents and pbEvents:FindFirstChild("BearSprint")
-        if sprintRemote then
-            pcall(function() sprintRemote:FireServer(true) end)
-        end
-    end
 end)
 
 --------------------------------------------------------------------------------
@@ -2217,6 +2235,55 @@ local function clearCrateESP()
         end
     end
     table.clear(activeESP)
+end
+
+local activeTurretESP = {}
+
+local function clearTurretESP()
+    for _, obj in pairs(activeTurretESP) do
+        if obj and obj.Parent then pcall(function() obj:Destroy() end) end
+    end
+    table.clear(activeTurretESP)
+end
+
+local function updateTurretsESP()
+    clearTurretESP()
+    if not Config.TurretsESP then return end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local CollectionService = game:GetService("CollectionService")
+
+    for _, t in ipairs(CollectionService:GetTagged("Turret")) do
+        if t:IsA("Model") and t:IsDescendantOf(Workspace) then
+            local head = t:FindFirstChild("Head") or t.PrimaryPart or t:FindFirstChildWhichIsA("BasePart")
+            if head then
+                local hp = t:GetAttribute("Health") or 150
+                local maxHp = t:GetAttribute("MaxHealth") or 150
+                local breached = t:GetAttribute("Breached")
+                local dist = root and math.floor((root.Position - head.Position).Magnitude) or 0
+
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "TurretESP"
+                bb.Adornee = head
+                bb.Size = UDim2.new(0, 130, 0, 30)
+                bb.StudsOffset = Vector3.new(0, 2.8, 0)
+                bb.AlwaysOnTop = true
+
+                local lbl = Instance.new("TextLabel")
+                lbl.Size = UDim2.new(1, 0, 1, 0)
+                lbl.BackgroundTransparency = 1
+                lbl.Font = Enum.Font.GothamBold
+                lbl.TextSize = 12
+                lbl.TextStrokeTransparency = 0.2
+                lbl.TextColor3 = (hp < maxHp * 0.4 or breached) and Color3.fromRGB(255, 60, 60) or Color3.fromRGB(80, 255, 120)
+                lbl.Text = string.format("🔫 Sentry [%d/%d]\n[%d studs]%s", hp, maxHp, dist, breached and " [BREACHED]" or "")
+                lbl.Parent = bb
+                bb.Parent = head
+                table.insert(activeTurretESP, bb)
+            end
+        end
+    end
 end
 
 local function updateCratesESP()
@@ -2338,6 +2405,7 @@ task.spawn(function()
         task.wait(2.0)
         if Config.CratesESP then updateCratesESP() end
         if Config.BearsESP then updateBearESP() end
+        if Config.TurretsESP then updateTurretsESP() end
     end
 end)
 
@@ -2354,10 +2422,6 @@ local farmTab = Hub.CreateTab("Auto Farm", {
 })
 
 Hub.CreateSection(farmTab, "Crates")
-
-Hub.CreateButton(farmTab, "Vacuum All Crates (Instant Loot)", function()
-    vacuumAllMapCrates()
-end)
 
 Hub.CreateToggle(farmTab, "Auto Farm Crates", Config.AutoFarmCrates, function(val)
     Config.AutoFarmCrates = val
@@ -2508,6 +2572,36 @@ Hub.CreateSlider(combatTab, "Speed Modifier", 14.1, 45, Config.CustomSpeed, " sp
     ensureSpeedModifier(LocalPlayer.Character)
 end)
 
+Hub.CreateSection(combatTab, "Turrets & Sentries")
+
+Hub.CreateToggle(combatTab, "Auto Stack Turrets in One Spot", Config.AutoStackTurrets, function(val)
+    Config.AutoStackTurrets = val
+    if val then
+        currentTurretStackCFrame = getGroundPlacementCFrame()
+        Hub.Notify("Turrets", "Turret stack anchor set to your current spot! Sentry guns will place here.", 3)
+    else
+        currentTurretStackCFrame = nil
+        Hub.Notify("Turrets", "Turret stacking: OFF", 2)
+    end
+end)
+
+Hub.CreateButton(combatTab, "Stack Sentry Here (Buy & Place)", function()
+    local targetCF = currentTurretStackCFrame or getGroundPlacementCFrame()
+    if targetCF then
+        local ok = placeTurretAtCFrame(targetCF)
+        if ok then
+            Hub.Notify("Turrets", "Placed sentry gun in stacked cluster! 🔫", 2)
+        else
+            Hub.Notify("Turrets", "Could not place sentry (check cash/inventory)", 2)
+        end
+    end
+end)
+
+Hub.CreateToggle(combatTab, "Auto Heal Turrets", Config.AutoHealTurrets, function(val)
+    Config.AutoHealTurrets = val
+    Hub.Notify("Turrets", val and "Auto Heal Turrets: ACTIVE (Proximity Repair)" or "Auto Heal Turrets: OFF", 2)
+end)
+
 -- TAB: VISUALS
 local visualTab = Hub.CreateTab("Visuals", {
     Icon = "👁️",
@@ -2536,6 +2630,15 @@ Hub.CreateToggle(visualTab, "Bears ESP", Config.BearsESP, function(val)
     end
 end)
 
+Hub.CreateToggle(visualTab, "Turrets ESP", Config.TurretsESP, function(val)
+    Config.TurretsESP = val
+    if val then
+        updateTurretsESP()
+    else
+        clearTurretESP()
+    end
+end)
+
 -- TAB: TELEPORTS
 local tpTab = Hub.CreateTab("Teleports", {
     Icon = "📍",
@@ -2557,7 +2660,7 @@ end
 
 
 -- =========================================================================
--- TAB: MISC & OVERPOWERED SUITE
+-- TAB: MISC & PROGRESSION SUITE
 -- =========================================================================
 local miscTab = Hub.CreateTab("Misc", {
     Icon = "⚡",
@@ -2566,21 +2669,15 @@ local miscTab = Hub.CreateTab("Misc", {
     ActiveColor = Color3.fromRGB(205, 130, 255)
 })
 
-Hub.CreateSection(miscTab, "Overpowered Loot & Crate Vacuum")
-
-Hub.CreateButton(miscTab, "Vacuum All Crates (Instant Loot)", function()
-    vacuumAllMapCrates()
-end)
-
-Hub.CreateToggle(miscTab, "Auto Vacuum Map Crates", Config.AutoVacuumCrates, function(val)
-    Config.AutoVacuumCrates = val
-    Hub.Notify("Misc", val and "Auto Vacuum Crates: ACTIVE" or "Auto Vacuum Crates: OFF", 2)
-end)
-
 Hub.CreateSection(miscTab, "Prestige & Progression")
 
 Hub.CreateButton(miscTab, "Remote Prestige (Instant Server Trigger)", function()
     triggerRemotePrestige()
+end)
+
+Hub.CreateButton(miscTab, "Check Prestige Cooldown", function()
+    local status = getPrestigeCooldownStatus()
+    Hub.Notify("Prestige Status", status, 3.5)
 end)
 
 Hub.CreateToggle(miscTab, "Auto Prestige on 32 Pages", Config.AutoPrestigeOn32, function(val)
@@ -2600,34 +2697,4 @@ Hub.CreateToggle(miscTab, "Auto Unlock All Doors", Config.AutoUnlockDoors, funct
     Hub.Notify("Misc", val and "Auto Unlock Doors: ACTIVE" or "Auto Unlock Doors: OFF", 2)
 end)
 
-Hub.CreateSection(miscTab, "Player Bears & Morph")
-
-local bearMorphOptions = {
-    "CutieBear", "Medved", "ClassicBear", "GrizzlyMedved",
-    "booboo", "RangedBear", "ballbear", "TallBear",
-    "WallBear", "GhostBear", "BurrowingBear", "LaserBooBoo",
-    "GrinderBear", "HypersonicBooBoo", "IceBear"
-}
-
-Hub.CreateDropdown(miscTab, "Select Bear Morph", bearMorphOptions, Config.SelectedPlayerBear, function(val)
-    Config.SelectedPlayerBear = val
-end)
-
-Hub.CreateButton(miscTab, "Morph into Selected Bear", function()
-    morphIntoSelectedBear(Config.SelectedPlayerBear)
-end)
-
-Hub.CreateButton(miscTab, "Cast Bear Ability (Slot 1)", function()
-    castBearAbility(1)
-end)
-
-Hub.CreateButton(miscTab, "Cast Bear Ability (Slot 2)", function()
-    castBearAbility(2)
-end)
-
-Hub.CreateToggle(miscTab, "Bear Fast Sprint", Config.BearFastSprint, function(val)
-    Config.BearFastSprint = val
-    Hub.Notify("Bear", val and "Bear Sprint: ACTIVE" or "Bear Sprint: OFF", 2)
-end)
-
-Hub.Notify("Medved Hub", "Medved! V5 Loaded — Overpowered Suite & Misc Tab 🐻⚡", 3)
+Hub.Notify("Medved Hub", "Medved! V5 Loaded — Turrets Suite & Clean Misc Tab 🐻⚡", 3)
