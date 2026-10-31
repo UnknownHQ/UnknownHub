@@ -7,9 +7,6 @@
 
 -- DOORS Lobby Guard (PlaceId: 6524177990)
 if game.PlaceId == 6524177990 then
-    if getgenv then
-        getgenv().Doors_KnobsFarm_AutoResume = false
-    end
     local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
     if qot then
         pcall(function()
@@ -4259,13 +4256,13 @@ RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        -- CRITICAL: Always keep mgTable.noclip = false so DOORS native debug flight never runs,
-        -- never binds KeyCode.E or Q, and leaves KeyCode.E 100% free for instant proximity interactions!
-        if mgTable.noclip then
+        if State.Noclip then
+            mgTable.noclip = true
+            if mgTable.hideplayers ~= 0 then
+                mgTable.hideplayers = 0
+            end
+        elseif not State.Noclip and mgTable.noclip then
             mgTable.noclip = false
-        end
-        if State.Noclip and mgTable.hideplayers ~= 0 then
-            mgTable.hideplayers = 0
         end
     end
 
@@ -5316,6 +5313,7 @@ local function setupQueueOnTeleport()
         pcall(function()
             qot([[
                 repeat task.wait() until game:IsLoaded()
+                getgenv().Doors_KnobsFarm_AutoResume = true
                 local s, src = pcall(readfile, "Doors.luau")
                 if s and src and #src > 100 then
                     loadstring(src)()
@@ -5348,13 +5346,9 @@ local function farmGlideTo(targetPos, speedVal, maxTime)
     local startTime = os.clock()
     local arrived = false
 
-    -- Ensure Anti-Cheat Bypass & local collision bypass are active (without mutating manual Fly toggle!)
+    -- Ensure Noclip & Anti-Cheat Bypass are actively running
+    if not State.Noclip then State.Noclip = true end
     if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            p.CanCollide = false
-        end
-    end
 
     while (os.clock() - startTime < maxWait) and State.Knobs_Farm_Active do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -5518,7 +5512,7 @@ local function processKnobsFarmStep()
     local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
     if not gd then return end
 
-    -- Critical Gate: Never glide while elevator cutscene is active or before game has loaded!
+    -- Safe Gate: Wait until elevator cutscene finishes and Room 0 is ready
     local inGame = gd:FindFirstChild("InGame")
     if inGame and inGame.Value == false then return end
 
@@ -5731,23 +5725,27 @@ task.spawn(function()
     end
 end)
 
--- Character Respawn Watcher (Auto-Resumes on new match ONLY if actively running in session)
+-- Character Respawn Watcher (Auto-Resumes on new match / after reset!)
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     if _G.DOORS_SESSION ~= currentSession then return end
-    if State.Knobs_Farm_Active then
-        setupQueueOnTeleport()
-        task.delay(3.0, function()
+    setupQueueOnTeleport()
+    if State.Knobs_Farm_Active or getgenv().Doors_KnobsFarm_AutoResume then
+        State.Knobs_Farm_Active = true
+        getgenv().Doors_KnobsFarm_AutoResume = true
+        task.delay(2.5, function()
             lootedContainersThisRun = {}
             lootedRoomsThisRun = {}
             isEvacuatingRoof = false
-            Hub.Notify("Knobs Farm", "⚡ New match detected! Autopilot running.", 3)
+            Hub.Notify("Knobs Farm", "⚡ New match detected! Autopilot resumed.", 3)
         end)
     end
 end)
 
--- Clean stale persistent auto-resume flag on manual load so farm NEVER starts unexpectedly
-if getgenv and getgenv().Doors_KnobsFarm_AutoResume then
-    getgenv().Doors_KnobsFarm_AutoResume = false
+-- Auto-resume immediately if flagged in memory
+if getgenv().Doors_KnobsFarm_AutoResume then
+    State.Knobs_Farm_Active = true
+    setupQueueOnTeleport()
+    Hub.Notify("Knobs Farm", "⚡ Auto-Resuming Knobs Farm from previous session!", 3)
 end
 
 -- =========================================================================
@@ -5796,7 +5794,7 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             r.AssemblyAngularVelocity = Vector3.zero
         end
     end
-    Hub.Notify("Movement", v and "Fly: Enabled (WASD + Space/Ctrl)" or "Fly: Disabled", 2)
+    Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
 end)
 
 Hub.CreateSlider(mainTab, "Fly Speed", 4, 75, State.Noclip_Speed, " studs/s", function(v)
@@ -5985,13 +5983,14 @@ Hub.CreateSection(mainTab, "Knobs Farm Autopilot")
 
 Hub.CreateToggle(mainTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, function(v)
     State.Knobs_Farm_Active = v
-    if getgenv then getgenv().Doors_KnobsFarm_AutoResume = v end
+    getgenv().Doors_KnobsFarm_AutoResume = v
     if v then
         setupQueueOnTeleport()
+        State.Noclip = true
         State.Bypass_AntiCheat = true
         Hub.Notify("Knobs Farm", "⚡ Autopilot activated! Autonomous farming running.", 3)
     else
-        Hub.Notify("Knobs Farm", "Autopilot deactivated.", 2)
+        Hub.Notify("Knobs Farm", "Autopilot paused.", 2)
     end
 end)
 
@@ -6132,11 +6131,35 @@ local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Remotes
 local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
 local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
 
+-- Hook UserInputService.IsKeyDown: strictly intercept Q and E during noclip flight so holding E/Q never moves elevation
+if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED then
+    _G.__ISKEYDOWN_HOOKED = true
+    local rawIsKeyDown
+    rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
+        if not checkcaller() and State.Noclip then
+            -- Only block Q elevation if desired; NEVER block KeyCode.E so interactions always register instantly!
+            if kc == Enum.KeyCode.Q then
+                return false
+            end
+        end
+        return rawIsKeyDown(self, kc)
+    end))
+end
+
 if hookmetamethod then
     local rawNamecall
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if not checkcaller() then
+            -- Intercept IsKeyDown call via namecall to permanently kill Q/E elevation in DOORS Movement
+            if (method == "IsKeyDown" or method == "isKeyDown") and State.Noclip then
+                local args = {...}
+                local kc = args[1]
+                -- Only block Q elevation; NEVER block KeyCode.E so manual interact is 100% responsive!
+                if kc == Enum.KeyCode.Q then
+                    return false
+                end
+            end
             if (method == "PivotTo" or method == "pivotTo") then
                 local char = getChar()
                 local mgTable = getMainGameTable()
