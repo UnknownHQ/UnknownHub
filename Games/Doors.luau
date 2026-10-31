@@ -4208,13 +4208,6 @@ RunService.Heartbeat:Connect(function(dt)
         local cp = char:FindFirstChild("CollisionPart")
         if cp then cp.CFrame = newCF end
 
-        -- Continuous synchronization with DOORS Main_Game internal positioning
-        -- Guarantees that when flight/noclip is turned off, DOORS NEVER rolls back to the old pre-flight position!
-        if mgTable then
-            mgTable.clipPos = targetPos
-            if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
-        end
-
         -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
         root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
         root.AssemblyAngularVelocity = Vector3.zero
@@ -5977,8 +5970,11 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     end
     local char = getChar()
 
-    refreshAllPrompts()
     if not v and char then
+        -- Cleanly restore standard Roblox character collision & friction (eliminates sliding backwards & stumbles!)
+        restoreCharacterInteractivity(char)
+        restoreDefaultFriction(char)
+
         local hum = char:FindFirstChildWhichIsA("Humanoid")
         if hum then
             hum.PlatformStand = false
@@ -5989,36 +5985,30 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
         lastNoclipDisableGrace = os.clock() + 3.5
 
         local r = getRoot()
-        local cp = char:FindFirstChild("CollisionPart")
         if r then
-            -- Floor Snap Raycast: Snap root and character cleanly above floor without wall collision glitches
+            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
+            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
             local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
-            local floorY = downHit and downHit.Position and downHit.Position.Y
-            local targetY = if (floorY and r.Position.Y < (floorY + 2.5)) then floorY + 3.2 else r.Position.Y
-            local snapCF = CFrame.new(r.Position.X, targetY, r.Position.Z) * r.CFrame.Rotation
-
-            r.CFrame = snapCF
-            if cp then cp.CFrame = snapCF end
-            if mg then
-                mg.clipPos = snapCF.Position
-                mg.SETNEWCF = nil
+            if downHit and downHit.Position then
+                local floorY = downHit.Position.Y
+                if r.Position.Y < (floorY + 2.5) then
+                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
+                end
             end
-            r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+            r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
 
-            -- Keep slide authorization alive across the 3.5s grace period so server never rolls back through doors/walls!
+            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
             task.spawn(function()
                 if crouchRemote then
                     pcall(function() crouchRemote:FireServer(false, true) end)
                 end
-                task.wait(3.5)
-                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding and (os.clock() >= lastNoclipDisableGrace) then
+                task.wait(0.2)
+                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
                     syncServerSlide(false, false)
-                    restoreCharacterInteractivity(char)
-                    restoreDefaultFriction(char)
                 end
             end)
         end
