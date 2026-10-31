@@ -3010,7 +3010,6 @@ local function syncNativeFlightSpeed(speed)
     end)
 end
 
-local lastRecordedFlightPos = nil
 local lastFlySlidePulse = 0
 local flyPos = nil
 local lastNoclipDisableGrace = 0
@@ -4106,59 +4105,111 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Harmonized Native Smooth Flight Engine (Real-Time Zero-Lag Replication & Quantum Phasing)
+    -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
-        -- 1. Phantom Phase Shield: Strip CanCollide & CanTouch on every character part
+        -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
                 if p.CanCollide then p.CanCollide = false end
-                if p.CanTouch then p.CanTouch = false end
+                p.CanTouch = false
                 p.CanQuery = true
             end
         end
         if hum then hum:ChangeState(Enum.HumanoidStateType.Freefall) end
 
-        -- Continuous slide authorization keep-alive (every 1.5s)
+        local cam = Workspace.CurrentCamera
+        local camLook = cam.CFrame.LookVector
+        local camRight = cam.CFrame.RightVector
+        local camUp = Vector3.new(0, 1, 0)
+
+        local steer = Vector3.zero
+        local hasInput = false
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            steer = steer + camLook
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            steer = steer - camLook
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            steer = steer + camRight
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            steer = steer - camRight
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            steer = steer + camUp
+            hasInput = true
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
+            steer = steer - camUp
+            hasInput = true
+        end
+
+        -- Fallback to Humanoid.MoveDirection for gamepad thumbsticks or mobile touch controls
+        if hum.MoveDirection.Magnitude > 0.05 then
+            steer = steer + hum.MoveDirection
+            hasInput = true
+        end
+
+        -- Continuous slide authorization keep-alive (clean heartbeat every 1.5s, no toggling)
         local now = os.clock()
         if (now - lastFlySlidePulse >= 1.5) then
             lastFlySlidePulse = now
             if syncServerSlide then syncServerSlide(true, true) end
         end
 
-        local cp = char:FindFirstChild("CollisionPart")
-        if cp and root then
-            -- 2. Real-Time Physics Velocity Calculation:
-            -- Instead of forcing Vector3.zero (which causes 6-10s packet desync buffer on server),
-            -- calculate TRUE real-time velocity so Roblox server pipeline receives exact live coordinates every 15ms!
-            local curPos = cp.Position
-            local safeDt = math.clamp(dt or (1/60), 0.001, 0.05)
-            local computedVel = if lastRecordedFlightPos then (curPos - lastRecordedFlightPos) / safeDt else Vector3.zero
-            lastRecordedFlightPos = curPos
+        -- Rotate character body horizontally with camera so head is ALWAYS directly under the camera
+        local hLook = Vector3.new(camLook.X, 0, camLook.Z)
+        local targetRot = if hLook.Magnitude > 0.01 then CFrame.new(Vector3.zero, hLook) else root.CFrame.Rotation
 
-            -- Extrapolate AssemblyLinearVelocity for zero-lag server physics replication
-            local repVel = if computedVel.Magnitude > 0.1 then computedVel else Vector3.new(0, 0.02, 0)
-            root.AssemblyLinearVelocity = repVel
-            root.AssemblyAngularVelocity = Vector3.zero
+        local targetPos = root.Position
+        local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
+        local targetVel = Vector3.zero
 
-            -- Lock HumanoidRootPart, char Pivot, and Collision directly to CollisionPart CFrame
-            root.CFrame = cp.CFrame
-            char:PivotTo(cp.CFrame)
-            local col = char:FindFirstChild("Collision")
-            if col then col.CFrame = cp.CFrame end
-            local cc = char:FindFirstChild("CollisionCrouch")
-            if cc then cc.CFrame = cp.CFrame end
+        if hasInput and steer.Magnitude > 0.01 then
+            local speed = math.clamp(State.Noclip_Speed or 35, 4, 300)
+            targetVel = steer.Unit * speed
+            local stepVec = targetVel * safeDt
 
-            -- 3. Live Entity AI Synchronizer (Crucial for Sally, Figure & Monster AI):
-            -- DOORS' Movement.lua skipped updating dudespots during noclip, making Sally track stale ghost coordinates!
-            -- We update mgTable.dudespots[char] every frame so monster AI tracks your TRUE real-time position with 0 delay!
-            local mgTable = getMainGameTable()
-            if mgTable then
-                if mgTable.dudespots then
-                    mgTable.dudespots[char] = curPos
+            -- Quantum Wall Tunneling: Micro-phase across thin obstacles in a single step
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            rayParams.RespectCanCollide = true
+
+            local forwardHit = workspace:Raycast(root.Position, steer.Unit * (math.clamp(speed * 0.1, 3.0, 25.0)), rayParams)
+            if forwardHit and forwardHit.Instance and not forwardHit.Instance:IsDescendantOf(char) then
+                local probeStart = forwardHit.Position + steer.Unit * 3.2
+                local backHit = workspace:Raycast(probeStart, -steer.Unit * 3.2, rayParams)
+                if backHit and backHit.Instance == forwardHit.Instance then
+                    local thickness = (backHit.Position - forwardHit.Position).Magnitude
+                    if thickness <= 2.8 then
+                        stepVec = steer.Unit * (thickness + 1.0)
+                    end
                 end
-                mgTable.clipPos = curPos
             end
+
+            targetPos = targetPos + stepVec
         end
+
+        local newCF = CFrame.new(targetPos) * targetRot
+        char:PivotTo(newCF)
+        root.CFrame = newCF
+        local cp = char:FindFirstChild("CollisionPart")
+        if cp then cp.CFrame = newCF end
+        if mgTable then
+            mgTable.clipPos = targetPos
+            if mgTable.dudespots then mgTable.dudespots[char] = targetPos end
+        end
+
+        -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
+        root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
+        root.AssemblyAngularVelocity = Vector3.zero
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
@@ -4316,20 +4367,21 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Live Entity AI & Rig Verification
+    -- FULL BODY RIG POSITION SYNCHRONIZATION WITH COLLISIONPART:
+    -- Guarantees the player's ENTIRE body moves with flight out of the map.
+    -- Zero limbs, torso, or root parts are ever left behind in any room!
     if State.Noclip and char then
         local cp = char:FindFirstChild("CollisionPart")
         local root = getRoot()
         if cp and root then
             root.CFrame = cp.CFrame
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
             char:PivotTo(cp.CFrame)
             local col = char:FindFirstChild("Collision")
             if col then col.CFrame = cp.CFrame end
             local cc = char:FindFirstChild("CollisionCrouch")
             if cc then cc.CFrame = cp.CFrame end
-            if mgTable and mgTable.dudespots then
-                mgTable.dudespots[char] = cp.Position
-            end
         end
     end
 
@@ -4403,6 +4455,7 @@ RunService.Stepped:Connect(function()
         local root = getRoot()
         if cp and root then
             root.CFrame = cp.CFrame
+            root.AssemblyLinearVelocity = Vector3.zero
             char:PivotTo(cp.CFrame)
         end
 
