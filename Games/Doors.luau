@@ -4035,11 +4035,11 @@ RunService.Heartbeat:Connect(function(dt)
         Hub.Notify("Movement", "Fly-Noclip disabled: Bypass Anti-Cheat Core is required!", 2)
     end
 
-    -- Continuous Door Sentry: Always opens doors and removes collisions smoothly on approach (natural 12 stud reach)
+    -- Door Sentry: ONLY runs when Auto Doors is explicitly enabled or during Knobs Farm (NEVER auto-opens in manual flight!)
     local nowTime = os.clock()
-    if root and not hiding and (nowTime - (lastDoorSentryCheck or 0) >= 0.10) then
+    if root and not hiding and (State.AutoInteract_Doors or State.Knobs_Farm_Active) and (nowTime - (lastDoorSentryCheck or 0) >= 0.15) then
         lastDoorSentryCheck = nowTime
-        local doorReach = State.Noclip and 45 or 18
+        local doorReach = State.Knobs_Farm_Active and 35 or 16
         processNearbyDoors(root.Position, doorReach)
     end
 
@@ -4345,11 +4345,8 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
+    -- Absolute 2D Entity Immunity Shield (without mutating Hiding attribute which causes body invisibility & interact lock!):
     if (lethalActive or State.Noclip or isPlayerOutOfMap()) and (State.Anti_Rush or State.Noclip or isPlayerOutOfMap()) then
-        -- Register hiding on character model so DOORS server & entity AI completely ignores player!
-        if char and char:GetAttribute("Hiding") ~= true then
-            char:SetAttribute("Hiding", true)
-        end
         if mgTable then
             if mgTable.deathtick then mgTable.deathtick = tick() + 999999 end
             if mgTable.dead then mgTable.dead = false end
@@ -4358,8 +4355,20 @@ RunService.Heartbeat:Connect(function(dt)
         if hum and hum.Health < 100 and hum.Health > 0 then
             hum.Health = 100
         end
-    elseif not lethalActive and not State.Noclip and not isPlayerOutOfMap() and char and char:GetAttribute("Hiding") == true and not isPlayerHiding(char, mgTable) then
-        char:SetAttribute("Hiding", nil)
+    end
+
+    -- Continuous Body & Limb Visibility Guard: Eradicate invisible character bug!
+    if char and not hiding then
+        if char:GetAttribute("Hiding") == true then
+            char:SetAttribute("Hiding", nil)
+        end
+        for _, p in ipairs(char:GetChildren()) do
+            if p:IsA("BasePart") and (p.Name:find("Arm") or p.Name:find("Hand") or p.Name:find("Leg") or p.Name:find("Foot") or p.Name:find("Torso") or p.Name == "Head") then
+                if p.Transparency > 0.05 then
+                    p.Transparency = 0
+                end
+            end
+        end
     end
 end)
 
@@ -6242,8 +6251,8 @@ if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED the
     local rawIsKeyDown
     rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
         if not checkcaller() then
-            -- Permanently block both Q and E from DOORS native movement scripts so they never move elevation!
-            if kc == Enum.KeyCode.Q or kc == Enum.KeyCode.E then
+            -- Block KeyCode.Q so DOORS native flight down never triggers (NEVER block KeyCode.E so manual interact is 100% responsive!)
+            if kc == Enum.KeyCode.Q then
                 return false
             end
         end
@@ -6260,8 +6269,8 @@ if hookmetamethod then
             if (method == "IsKeyDown" or method == "isKeyDown") then
                 local args = {...}
                 local kc = args[1]
-                -- Permanently kill Q and E from game movement!
-                if kc == Enum.KeyCode.Q or kc == Enum.KeyCode.E then
+                -- Only block Q elevation; KeyCode.E is 100% dedicated to manual interaction!
+                if kc == Enum.KeyCode.Q then
                     return false
                 end
             end
