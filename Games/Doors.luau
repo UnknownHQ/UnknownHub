@@ -110,6 +110,26 @@ local State = {
     Noclip_Speed = 22,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
+    -- Item Exploits & Infinite Items
+    Infinite_Items = true,
+    Infinite_Lockpicks = true,
+    Infinite_Crucifix = true,
+    Infinite_Consumables = true,
+
+    -- World & Visual Enhancements
+    No_Fog = true,
+    SemiTransparent_Closet = true,
+    Notify_EntitySpawn = true,
+    Notify_EntitySound = true,
+    Notify_Entity_Filters = {},
+
+    -- Additional Defenses
+    Anti_Gloombat = true,
+    Anti_Grumble = true,
+    Anti_Halt = true,
+    Anti_Seek = true,
+    Anti_Rush = true,
+
     -- Anti-Cheat Bypass, Safe Teleports & Flight Subsystem
     Bypass_AntiCheat = true,
     Deflect_Glitch = true,
@@ -4005,10 +4025,13 @@ RunService.Heartbeat:Connect(function(dt)
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
         -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") and p.CanCollide then
-                p.CanCollide = false
+            if p:IsA("BasePart") then
+                if p.CanCollide then p.CanCollide = false end
+                p.CanTouch = true
+                p.CanQuery = true
             end
         end
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Freefall) end
 
         local cam = Workspace.CurrentCamera
         local camLook = cam.CFrame.LookVector
@@ -4297,6 +4320,23 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 end)
 
 -- =========================================================================
+-- Pre-Physics Stepped Collision Bypass: Ensures physics engine NEVER overrides noclip collisions before physics step
+RunService.Stepped:Connect(function()
+    if _G.DOORS_SESSION ~= currentSession then return end
+    if State.Noclip then
+        local char = getChar()
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    if p.CanCollide then p.CanCollide = false end
+                    p.CanTouch = true
+                    p.CanQuery = true
+                end
+            end
+        end
+    end
+end)
+
 -- Jumping & Sliding Engine (DOORS Freedom Movement)
 -- =========================================================================
 
@@ -4682,28 +4722,10 @@ task.spawn(function()
                 continue
             end
 
-            -- Pause Auto Interact if daddy is near ANY wardrobe/closet/bed (< 10 studs) so manual interaction focus is NEVER stolen
-            if rootPos then
-                local nearHidingSpot = false
-                local curRooms = Workspace:FindFirstChild("CurrentRooms")
-                if curRooms then
-                    for _, rm in ipairs(curRooms:GetChildren()) do
-                        for _, desc in ipairs(rm:GetChildren()) do
-                            local nl = desc.Name:lower()
-                            if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
-                                if (desc:GetPivot().Position - rootPos).Magnitude < 10 then
-                                    nearHidingSpot = true
-                                    break
-                                end
-                            end
-                        end
-                        if nearHidingSpot then break end
-                    end
-                end
-                if nearHidingSpot then
-                    task.wait(0.1)
-                    continue
-                end
+            -- Pause Auto Interact ONLY if daddy is currently hiding inside a closet/wardrobe
+            if (now < unhideGraceUntil) or isPlayerHiding(char, mgTable) then
+                task.wait(0.08)
+                continue
             end
             if root then
                 local rootPos = root.Position
@@ -4798,6 +4820,431 @@ task.spawn(function()
         task.wait(0.15) -- Smooth 6.6Hz loop: instant looting without choking manual ProximityPromptService
     end
 end)
+
+-- =========================================================================
+-- Infinite Items & Retain-on-Use Exploits Engine (Lockpicks, Skeleton Keys, Crucifix)
+-- =========================================================================
+local isDroppingAndRetrieving = false
+local lastDupeTime = 0
+
+local function getEquippedOrInventoryTool(matchNames)
+    local char = getChar()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") then
+                local tn = t.Name:lower()
+                for _, m in ipairs(matchNames) do
+                    if tn:find(m:lower()) then return t end
+                end
+            end
+        end
+    end
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") then
+                local tn = t.Name:lower()
+                for _, m in ipairs(matchNames) do
+                    if tn:find(m:lower()) then return t end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function retrieveDroppedTool(toolName, maxWait)
+    local start = os.clock()
+    local deadline = start + (maxWait or 1.5)
+    task.spawn(function()
+        while os.clock() < deadline do
+            local drops = Workspace:FindFirstChild("Drops")
+            local targetDrop = nil
+            if drops then
+                for _, d in ipairs(drops:GetChildren()) do
+                    if d.Name:lower():find(toolName:lower()) or (d:IsA("Model") and d:FindFirstChildWhichIsA("ProximityPrompt", true)) then
+                        targetDrop = d
+                        break
+                    end
+                end
+            end
+            if not targetDrop then
+                local cr = Workspace:FindFirstChild("CurrentRooms")
+                if cr then
+                    for _, rm in ipairs(cr:GetChildren()) do
+                        for _, item in ipairs(rm:GetChildren()) do
+                            if item:IsA("Tool") or (item:IsA("Model") and item.Name:lower():find(toolName:lower())) then
+                                local p = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if p and p.Enabled then
+                                    targetDrop = item
+                                    break
+                                end
+                            end
+                        end
+                        if targetDrop then break end
+                    end
+                end
+            end
+
+            if targetDrop then
+                local prompt = targetDrop:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt and prompt.Enabled then
+                    prompt.HoldDuration = 0
+                    prompt.RequiresLineOfSight = false
+                    pcall(function() fireproximityprompt(prompt) end)
+                    break
+                end
+            end
+            task.wait(0.04)
+        end
+    end)
+end
+
+local function executeItemDupeDrop(tool)
+    if not tool or isDroppingAndRetrieving then return end
+    local now = os.clock()
+    if now - lastDupeTime < 0.20 then return end
+    lastDupeTime = now
+    isDroppingAndRetrieving = true
+
+    local toolName = tool.Name
+    local dropRemote = remotesFolder and remotesFolder:FindFirstChild("DropItem")
+    if dropRemote then
+        pcall(function() dropRemote:FireServer(tool) end)
+        pcall(function() dropRemote:FireServer() end)
+    end
+
+    retrieveDroppedTool(toolName, 1.8)
+    task.delay(0.2, function()
+        isDroppingAndRetrieving = false
+    end)
+end
+
+-- Hook ProximityPromptService for instant item retain on lockpick / skeleton key / key usage
+pcall(function()
+    local pps = game:GetService("ProximityPromptService")
+    local function onPromptInteract(prompt, player)
+        if not State.Infinite_Items or not State.Infinite_Lockpicks then return end
+        if player and player ~= LocalPlayer then return end
+        local pName = prompt.Name:lower()
+        local obj = (prompt.ObjectText or ""):lower()
+        local act = (prompt.ActionText or ""):lower()
+
+        if pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock") then
+            local tool = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
+            if tool then
+                executeItemDupeDrop(tool)
+            end
+        end
+    end
+    pps.PromptButtonHoldBegan:Connect(onPromptInteract)
+    pps.PromptTriggered:Connect(onPromptInteract)
+end)
+
+-- Crucifix Auto-Retain Watcher (Drops right as entity attack begins & reclaims)
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Infinite_Items and State.Infinite_Crucifix then
+            local char = getChar()
+            local crucifix = char and char:FindFirstChild("Crucifix")
+            if crucifix then
+                local r = getRoot()
+                if r then
+                    local lethalNames = {"RushMoving", "AmbushMoving", "Eyes", "Screech", "Halt", "SeekMoving", "FigureRig", "Grumble", "A60", "A120"}
+                    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                    for _, name in ipairs(lethalNames) do
+                        local inst = (curRooms and curRooms:FindFirstChild(name, true)) or Workspace:FindFirstChild(name, true)
+                        if inst then
+                            local pos = inst:GetPivot().Position
+                            if (pos - r.Position).Magnitude <= 32 then
+                                executeItemDupeDrop(crucifix)
+                                Hub.Notify("Infinite Crucifix", "Crucifix dropped & ready for re-grab!", 2)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.12)
+    end
+end)
+
+-- Additional Anti-Entity Defenses (Gloombats, Seek Hands, Halt Reversal, Grumble Radar)
+local function applyAdditionalDefenses()
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return end
+
+    -- 1. Anti-Gloombat: Disarms attack hitbox touch interests
+    if State.Anti_Gloombat then
+        for _, desc in ipairs(curRooms:GetDescendants()) do
+            if desc.Name:lower():find("gloombat") and desc:IsA("BasePart") and desc.CanTouch then
+                desc.CanTouch = false
+            end
+        end
+    end
+
+    -- 2. Anti-Seek Hands: Strips touch interest on SeekHand models and falling debris
+    if State.Anti_Seek then
+        for _, desc in ipairs(curRooms:GetDescendants()) do
+            local nl = desc.Name:lower()
+            if (nl:find("seekhand") or nl:find("hand") or nl:find("chandelier")) and desc:IsA("BasePart") and desc.CanTouch then
+                desc.CanTouch = false
+            end
+        end
+    end
+
+    -- 3. Anti-Halt Auto-Reversal
+    if State.Anti_Halt then
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainUI = pGui and pGui:FindFirstChild("MainUI")
+        local mainFrame = mainUI and mainUI:FindFirstChild("MainFrame")
+        local haltUI = mainFrame and mainFrame:FindFirstChild("Halt")
+        if haltUI and haltUI.Visible then
+            local r = getRoot()
+            local cam = Workspace.CurrentCamera
+            if r and cam then
+                r.AssemblyLinearVelocity = -cam.CFrame.LookVector * 18
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        pcall(applyAdditionalDefenses)
+        task.wait(0.25)
+    end
+end)
+
+-- Visual Enhancements: No Fog Enforcer
+local function enforceNoFog(enabled)
+    if not enabled then return end
+    Lighting.FogEnd = 100000
+    Lighting.FogStart = 0
+    local atm = Lighting:FindFirstChildWhichIsA("Atmosphere")
+    if atm then
+        atm.Density = 0
+        atm.Haze = 0
+        atm.Glare = 0
+    end
+end
+
+pcall(function()
+    Lighting:GetPropertyChangedSignal("FogEnd"):Connect(function()
+        if State.No_Fog then enforceNoFog(true) end
+    end)
+end)
+
+-- Visual Enhancements: Semi-Transparent Closet While Hiding
+local lastHidingModel = nil
+local lastHidingOriginalTrans = {}
+
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.SemiTransparent_Closet then
+            local char = getChar()
+            local mgTable = getMainGameTable()
+            local hiding = isPlayerHiding(char, mgTable)
+            if hiding then
+                local cam = Workspace.CurrentCamera
+                local camPos = cam and cam.CFrame.Position
+                local r = getRoot()
+                local refPos = camPos or (r and r.Position)
+                if refPos and not lastHidingModel then
+                    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                    if curRooms then
+                        for _, rm in ipairs(curRooms:GetChildren()) do
+                            for _, desc in ipairs(rm:GetChildren()) do
+                                local nl = desc.Name:lower()
+                                if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
+                                    if (desc:GetPivot().Position - refPos).Magnitude <= 7.0 then
+                                        lastHidingModel = desc
+                                        lastHidingOriginalTrans = {}
+                                        for _, p in ipairs(desc:GetDescendants()) do
+                                            if p:IsA("BasePart") then
+                                                lastHidingOriginalTrans[p] = p.Transparency
+                                                p.Transparency = 0.65
+                                            end
+                                        end
+                                        break
+                                    end
+                                end
+                            end
+                            if lastHidingModel then break end
+                        end
+                    end
+                end
+            else
+                if lastHidingModel then
+                    for p, orig in pairs(lastHidingOriginalTrans) do
+                        if p and p.Parent then
+                            p.Transparency = orig or 0
+                        end
+                    end
+                    lastHidingModel = nil
+                    lastHidingOriginalTrans = {}
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- Visual Enhancements: Entity Spawn Notifier & Sound Alert
+local notifiedEntities = {}
+local notifySound = Instance.new("Sound")
+notifySound.SoundId = "rbxassetid://6534947588"
+notifySound.Volume = 0.6
+notifySound.Parent = game:GetService("SoundService")
+
+local function triggerEntityNotification(name)
+    if not State.Notify_EntitySpawn then return end
+    if State.Notify_Entity_Filters and State.Notify_Entity_Filters[name] == false then return end
+    local now = os.clock()
+    if notifiedEntities[name] and (now - notifiedEntities[name] < 7) then return end
+    notifiedEntities[name] = now
+
+    if State.Notify_EntitySound then
+        pcall(function() game:GetService("SoundService"):PlayLocalSound(notifySound) end)
+    end
+    Hub.Notify("Entity Alert", string.format("⚠️ %s has spawned! Prepare or hide!", name), 4)
+end
+
+Workspace.ChildAdded:Connect(function(child)
+    local cName = child.Name
+    local lower = cName:lower()
+    for _, ent in ipairs({"Rush", "Ambush", "Eyes", "Seek", "Figure", "Halt", "A60", "A90", "A120", "Giggle", "Gloombat", "Grumble", "Dread", "Blitz", "Lookman"}) do
+        if lower:find(ent:lower()) then
+            triggerEntityNotification(ent)
+            break
+        end
+    end
+end)
+
+if remotesFolder then
+    local screechRemote = remotesFolder:FindFirstChild("Screech")
+    if screechRemote and screechRemote:IsA("RemoteEvent") then
+        screechRemote.OnClientEvent:Connect(function()
+            triggerEntityNotification("Screech")
+        end)
+    end
+    local a90Remote = remotesFolder:FindFirstChild("A90")
+    if a90Remote and a90Remote:IsA("RemoteEvent") then
+        a90Remote.OnClientEvent:Connect(function()
+            triggerEntityNotification("A-90")
+        end)
+    end
+end
+
+-- Dynamic Floor Active Entities & Modifier Scanner
+local function getActiveEntitiesForFloor()
+    local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and game.ReplicatedStorage.GameData:FindFirstChild("Floor") and game.ReplicatedStorage.GameData.Floor.Value) or "Hotel"
+    local floorLower = string.lower(tostring(detectedFloor))
+    local isHotel = (floorLower:find("hotel") ~= nil or floorLower == "floor1" or floorLower == "1")
+    local isMines = (floorLower:find("mine") ~= nil or floorLower == "floor2" or floorLower == "2")
+    local isRooms = (floorLower:find("room") ~= nil or floorLower == "a")
+    local isBackdoor = (floorLower:find("backdoor") ~= nil)
+    local isRetro = (floorLower:find("retro") ~= nil)
+
+    local function hasMod(keyword)
+        local kw = keyword:lower()
+        local lm = game.ReplicatedStorage:FindFirstChild("LiveModifiers")
+        if lm then
+            for _, m in ipairs(lm:GetChildren()) do
+                if m.Name:lower():find(kw) then return true end
+            end
+        end
+        local gd = game.ReplicatedStorage:FindFirstChild("GameData")
+        local mods = gd and gd:FindFirstChild("Modifiers")
+        if mods then
+            for _, m in ipairs(mods:GetChildren()) do
+                if m.Name:lower():find(kw) then return true end
+            end
+        end
+        return false
+    end
+
+    local entities = {}
+    local function add(name)
+        if not table.find(entities, name) then table.insert(entities, name) end
+    end
+
+    if isHotel then
+        add("Rush")
+        add("Ambush")
+        add("Screech")
+        add("Eyes")
+        add("Halt")
+        add("Seek")
+        add("Figure")
+        add("Dupe")
+        add("Snare")
+        add("Timothy")
+        add("Dread")
+        if hasMod("a90") or hasMod("ransom") or hasMod("stop") then add("A-90") end
+        if hasMod("giggle") or hasMod("laugh") then add("Giggle") end
+        if hasMod("bat") or hasMod("gloombat") then add("Gloombats") end
+        if hasMod("grumble") then add("Grumble") end
+        if hasMod("lookman") or hasMod("look") then add("Lookman") end
+        if hasMod("blitz") then add("Blitz") end
+    elseif isMines then
+        add("Rush")
+        add("Ambush")
+        add("Screech")
+        add("Eyes")
+        add("Halt")
+        add("Seek")
+        add("Figure")
+        add("Dupe")
+        add("Snare")
+        add("Timothy")
+        add("Giggle")
+        add("Gloombats")
+        add("Grumble")
+        add("Dread")
+        if hasMod("a90") or hasMod("ransom") or hasMod("stop") then add("A-90") end
+        if hasMod("lookman") or hasMod("look") then add("Lookman") end
+        if hasMod("blitz") then add("Blitz") end
+    elseif isRooms then
+        add("A-60")
+        add("A-90")
+        add("A-120")
+        if hasMod("rush") then add("Rush") end
+        if hasMod("screech") then add("Screech") end
+        if hasMod("eyes") then add("Eyes") end
+        if hasMod("dupe") then add("Dupe") end
+    elseif isBackdoor then
+        add("Blitz")
+        add("Lookman")
+        add("Haste")
+        add("Vacuum")
+        if hasMod("rush") then add("Rush") end
+        if hasMod("ambush") then add("Ambush") end
+        if hasMod("screech") then add("Screech") end
+    elseif isRetro then
+        add("Rush")
+        add("Ambush")
+        add("Screech")
+        add("A-90")
+    else
+        add("Rush")
+        add("Ambush")
+        add("Screech")
+        add("Eyes")
+        add("Halt")
+        add("Seek")
+        add("Figure")
+        add("Dupe")
+        add("Snare")
+        add("Timothy")
+    end
+
+    return entities
+end
 
 -- =========================================================================
 -- UI Tabs
@@ -5019,6 +5466,36 @@ end)
 
 Hub.CreateToggle(mainTab, "Auto Books / Breakers", State.AutoInteract_Books, function(v)
     State.AutoInteract_Books = v
+end)
+
+Hub.CreateSection(mainTab, "Item Exploits")
+
+Hub.CreateToggle(mainTab, "Infinite Items", State.Infinite_Items, function(v)
+    State.Infinite_Items = v
+    Hub.Notify("Exploit", v and "Infinite Items: Enabled" or "Infinite Items: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Retain Lockpicks & Keys", State.Infinite_Lockpicks, function(v)
+    State.Infinite_Lockpicks = v
+end)
+
+Hub.CreateToggle(mainTab, "Retain Crucifix", State.Infinite_Crucifix, function(v)
+    State.Infinite_Crucifix = v
+end)
+
+Hub.CreateToggle(mainTab, "Retain Consumables", State.Infinite_Consumables, function(v)
+    State.Infinite_Consumables = v
+end)
+
+Hub.CreateButton(mainTab, "Quick Dupe Held Tool", function()
+    local char = getChar()
+    local tool = char and char:FindFirstChildWhichIsA("Tool")
+    if tool then
+        executeItemDupeDrop(tool)
+        Hub.Notify("Dupe", "Held tool dropped & retrieved!", 2)
+    else
+        Hub.Notify("Dupe", "Equip a tool first to dupe!", 2)
+    end
 end)
 
 local excludeCategories = {
@@ -5469,16 +5946,16 @@ end)
 -- =========================================================================
 -- Tab 2: TELEPORT & MOVEMENT TAB (Anti-Cheat Safe Teleports & 3D Flight)
 -- =========================================================================
--- Tab 2: FLOOR SPECIFIC TAB (Floor 1: Hotel / Floor 2: Mines)
+-- Tab 2: FLOOR SPECIFIC TAB (Dynamic Floor Entities & Modifiers)
 -- =========================================================================
 local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and game.ReplicatedStorage.GameData:FindFirstChild("Floor") and game.ReplicatedStorage.GameData.Floor.Value) or "Hotel"
 local floorTabName = "Floor (" .. detectedFloor .. ")"
 
-local floorTab = Hub.CreateTab(floorTabName, { 
-    Icon = "🏨", 
-    Size = 18, 
-    Color = Color3.fromRGB(255, 120, 50), 
-    ActiveColor = Color3.fromRGB(255, 180, 70) 
+local floorTab = Hub.CreateTab(floorTabName, {
+    Icon = "🏨",
+    Size = 18,
+    Color = Color3.fromRGB(255, 120, 50),
+    ActiveColor = Color3.fromRGB(255, 180, 70)
 })
 
 local floorLower = string.lower(tostring(detectedFloor))
@@ -5487,54 +5964,96 @@ local isMines = (floorLower:find("mine") ~= nil or floorLower == "floor2" or flo
 local isRooms = (floorLower:find("room") ~= nil or floorLower == "a")
 local isBackdoor = (floorLower:find("backdoor") ~= nil)
 local isRetro = (floorLower:find("retro") ~= nil)
-if not isHotel and not isMines and not isRooms and not isBackdoor and not isRetro then
-    isHotel = true
-end
+
+local activeFloorEntities = getActiveEntitiesForFloor()
 
 Hub.CreateSection(floorTab, "Defenses")
 
-if isHotel or isMines or isRetro then
+if table.find(activeFloorEntities, "Screech") then
     Hub.CreateToggle(floorTab, "Anti Screech", State.Anti_Screech, function(v)
         State.Anti_Screech = v
         updateFloorNativeToggles()
         Hub.Notify("Defense", v and "Anti Screech: Enabled" or "Anti Screech: Disabled", 2)
     end)
+end
 
+if table.find(activeFloorEntities, "Eyes") then
     Hub.CreateToggle(floorTab, "Anti Eyes", State.Anti_Eyes, function(v)
         State.Anti_Eyes = v
         updateFloorNativeToggles()
         Hub.Notify("Defense", v and "Anti Eyes: Enabled" or "Anti Eyes: Disabled", 2)
     end)
+end
 
+if table.find(activeFloorEntities, "Dupe") then
     Hub.CreateToggle(floorTab, "Anti Dupe", State.Anti_Dupe, function(v)
         State.Anti_Dupe = v
         updateFloorNativeToggles()
         Hub.Notify("Defense", v and "Anti Dupe: Enabled" or "Anti Dupe: Disabled", 2)
     end)
+end
 
+if table.find(activeFloorEntities, "Snare") then
     Hub.CreateToggle(floorTab, "Anti Snare", State.Anti_Snare, function(v)
         State.Anti_Snare = v
         defuseAllSnares()
         Hub.Notify("Defense", v and "Anti Snare: Enabled" or "Anti Snare: Disabled", 2)
     end)
+end
 
+if table.find(activeFloorEntities, "Timothy") then
     Hub.CreateToggle(floorTab, "Anti Timothy", State.Anti_Timothy, function(v)
         State.Anti_Timothy = v
         Hub.Notify("Defense", v and "Anti Timothy: Enabled" or "Anti Timothy: Disabled", 2)
     end)
 end
 
-if isRooms or isBackdoor or isRetro then
-    Hub.CreateToggle(floorTab, "Anti Ransom", State.Anti_A90, function(v)
+if table.find(activeFloorEntities, "A-90") then
+    Hub.CreateToggle(floorTab, "Anti Ransom (A-90)", State.Anti_A90, function(v)
         State.Anti_A90 = v
         Hub.Notify("Defense", v and "Anti Ransom: Enabled" or "Anti Ransom: Disabled", 2)
     end)
 end
 
-if isMines then
+if table.find(activeFloorEntities, "Giggle") then
     Hub.CreateToggle(floorTab, "Anti Giggle", State.Anti_Giggle, function(v)
         State.Anti_Giggle = v
         Hub.Notify("Defense", v and "Anti Giggle: Enabled" or "Anti Giggle: Disabled", 2)
+    end)
+end
+
+if table.find(activeFloorEntities, "Gloombats") then
+    Hub.CreateToggle(floorTab, "Anti Gloombats", State.Anti_Gloombat, function(v)
+        State.Anti_Gloombat = v
+        Hub.Notify("Defense", v and "Anti Gloombats: Enabled" or "Anti Gloombats: Disabled", 2)
+    end)
+end
+
+if table.find(activeFloorEntities, "Grumble") then
+    Hub.CreateToggle(floorTab, "Anti Grumble Radar", State.Anti_Grumble, function(v)
+        State.Anti_Grumble = v
+        Hub.Notify("Defense", v and "Anti Grumble Radar: Enabled" or "Anti Grumble Radar: Disabled", 2)
+    end)
+end
+
+if table.find(activeFloorEntities, "Halt") then
+    Hub.CreateToggle(floorTab, "Anti Halt (Auto Reversal)", State.Anti_Halt, function(v)
+        State.Anti_Halt = v
+        Hub.Notify("Defense", v and "Anti Halt: Enabled" or "Anti Halt: Disabled", 2)
+    end)
+end
+
+if table.find(activeFloorEntities, "Seek") then
+    Hub.CreateToggle(floorTab, "Anti Seek (Hands Deflector)", State.Anti_Seek, function(v)
+        State.Anti_Seek = v
+        Hub.Notify("Defense", v and "Anti Seek: Enabled" or "Anti Seek: Disabled", 2)
+    end)
+end
+
+if table.find(activeFloorEntities, "Rush") or table.find(activeFloorEntities, "Ambush") then
+    Hub.CreateToggle(floorTab, "Anti Rush & Ambush (Safe Phase)", State.Anti_Rush, function(v)
+        State.Anti_Rush = v
+        Hub.Notify("Defense", v and "Anti Rush & Ambush: Enabled" or "Anti Rush & Ambush: Disabled", 2)
     end)
 end
 
@@ -5563,11 +6082,14 @@ if isHotel then
     end)
 end
 
-local espTab = Hub.CreateTab("Visuals", { 
-    Icon = "👁️", 
-    Size = 18, 
-    Color = Color3.fromRGB(170, 185, 210), 
-    ActiveColor = Color3.fromRGB(0, 215, 255) 
+-- =========================================================================
+-- Tab 3: VISUALS TAB
+-- =========================================================================
+local espTab = Hub.CreateTab("Visuals", {
+    Icon = "👁️",
+    Size = 18,
+    Color = Color3.fromRGB(170, 185, 210),
+    ActiveColor = Color3.fromRGB(0, 215, 255)
 })
 
 Hub.CreateSection(espTab, "Master")
@@ -5734,11 +6256,7 @@ Hub.CreateToggle(espTab, "Closet ESP", State.HidingSpots_ESP, function(v)
     end
 end)
 
-local allMonsterOptions = {
-    "Rush", "Ambush", "Figure", "Seek", "Eyes", "Halt",
-    "Screech", "Giggle", "Grumble", "Gloombats", "Snare",
-    "Timothy", "Rooms", "Dread", "Other"
-}
+local allMonsterOptions = getActiveEntitiesForFloor()
 
 Hub.CreateMultiDropdown(espTab, "Monsters Filter List", allMonsterOptions, allMonsterOptions, function(selectedMonsters)
     local filterMap = {}
@@ -5753,17 +6271,115 @@ Hub.CreateMultiDropdown(espTab, "Monsters Filter List", allMonsterOptions, allMo
     scanAllRooms()
 end)
 
-Hub.CreateSection(espTab, "World")
+Hub.CreateSection(espTab, "World & Atmosphere")
 
 Hub.CreateToggle(espTab, "Fullbright", State.Fullbright, function(v)
     State.Fullbright = v
     applyFullbright(v)
 end)
 
+Hub.CreateToggle(espTab, "No Fog (Clear Atmosphere)", State.No_Fog, function(v)
+    State.No_Fog = v
+    if v then enforceNoFog(true) end
+    Hub.Notify("Visuals", v and "No Fog: Enabled" or "No Fog: Disabled", 2)
+end)
+
+Hub.CreateToggle(espTab, "Semi-Transparent Closet", State.SemiTransparent_Closet, function(v)
+    State.SemiTransparent_Closet = v
+    Hub.Notify("Visuals", v and "Semi-Transparent Closet: Enabled" or "Semi-Transparent Closet: Disabled", 2)
+end)
+
+Hub.CreateToggle(espTab, "Entity Spawn Notifier", State.Notify_EntitySpawn, function(v)
+    State.Notify_EntitySpawn = v
+    Hub.Notify("Visuals", v and "Entity Notifier: Enabled" or "Entity Notifier: Disabled", 2)
+end)
+
+Hub.CreateToggle(espTab, "Entity Notify Sound", State.Notify_EntitySound, function(v)
+    State.Notify_EntitySound = v
+end)
+
+local notifyOptions = getActiveEntitiesForFloor()
+Hub.CreateMultiDropdown(espTab, "Notify Entity Filters", notifyOptions, notifyOptions, function(selectedEntities)
+    local filterMap = {}
+    for _, opt in ipairs(notifyOptions) do
+        filterMap[opt] = false
+    end
+    for _, name in ipairs(selectedEntities) do
+        filterMap[name] = true
+    end
+    State.Notify_Entity_Filters = filterMap
+end)
+
 Hub.CreateButton(espTab, "Refresh ESP", function()
     clearAllEsp()
     scanAllRooms()
     Hub.Notify("ESP", "Refreshed all active room ESPs!", 2)
+end)
+
+-- =========================================================================
+-- Tab 4: DIAGNOSTICS & TELEMETRY ROUTINES
+-- =========================================================================
+local diagTab = Hub.CreateTab("Diagnostics", {
+    Icon = "⚙️",
+    Size = 18,
+    Color = Color3.fromRGB(150, 150, 160),
+    ActiveColor = Color3.fromRGB(220, 220, 230)
+})
+
+Hub.CreateSection(diagTab, "Core Protections")
+
+Hub.CreateToggle(diagTab, "Anti-Cheat Bypass Core", State.Bypass_AntiCheat, function(v)
+    State.Bypass_AntiCheat = v
+    if v then
+        neutralizeServerTeleported()
+        if syncServerSlide then syncServerSlide(true, true) end
+    end
+    Hub.Notify("Anti-Cheat", v and "Anti-Cheat Core: Active" or "Anti-Cheat Core: Inactive", 2)
+end)
+
+Hub.CreateToggle(diagTab, "Void & Glitch Deflector", State.Deflect_Glitch, function(v)
+    State.Deflect_Glitch = v
+    if v then initAntiGlitchShield() end
+    Hub.Notify("Protection", v and "Glitch Deflector: Active" or "Glitch Deflector: Inactive", 2)
+end)
+
+Hub.CreateToggle(diagTab, "Safe Roof Station", State.Safe_Roof_Station, function(v)
+    State.Safe_Roof_Station = v
+    Hub.Notify("Movement", v and "Safe Roof Station: Enabled" or "Safe Roof Station: Disabled", 2)
+end)
+
+Hub.CreateSection(diagTab, "Live Telemetry")
+
+Hub.CreateButton(diagTab, "Check Client State", function()
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    local curRoom = getCurrentRoomNumber() or 0
+    local floor = detectedFloor
+    local activeMods = {}
+    local lm = game.ReplicatedStorage:FindFirstChild("LiveModifiers")
+    if lm then
+        for _, m in ipairs(lm:GetChildren()) do table.insert(activeMods, m.Name) end
+    end
+    local modsStr = #activeMods > 0 and table.concat(activeMods, ", ") or "None"
+    local hp = hum and math.floor(hum.Health) or 0
+    Hub.Notify("Telemetry", string.format("Room: %d | Floor: %s | HP: %d | Mods: %s", curRoom, floor, hp, modsStr), 5)
+end)
+
+Hub.CreateSection(diagTab, "Recovery Routines")
+
+Hub.CreateButton(diagTab, "Re-sync Character Interactivity", function()
+    local char = getChar()
+    if char then
+        restoreCharacterInteractivity(char)
+        Hub.Notify("Diagnostics", "Character collisions & prompts re-synchronized!", 2)
+    end
+end)
+
+Hub.CreateButton(diagTab, "Full World Re-scan", function()
+    clearAllEsp()
+    scanAllRooms()
+    refreshAllPrompts()
+    Hub.Notify("Diagnostics", "World ESP and prompts fully re-indexed!", 2)
 end)
 
 -- Initial Startup Scan
@@ -5782,7 +6398,7 @@ Hub.Notify("Unknown Hub", "DOORS Precision ESP Loaded", 3)
 
 -- Frame-0 ProximityPrompt Fast Trigger: Bypasses native engine input polling delays on KeyCode.E
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if input.KeyCode == Enum.KeyCode.E and not gameProcessed then
+    if input.KeyCode == Enum.KeyCode.E and not UserInputService:GetFocusedTextBox() then
         local r = getRoot()
         local cam = Workspace.CurrentCamera
         if r and cam then
