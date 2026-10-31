@@ -3229,6 +3229,8 @@ local function restoreCharacterInteractivity(char)
         if p:IsA("BasePart") then
             p.CanTouch = true
             p.CanQuery = true
+            local orig = p:GetAttribute("OrigCollisionGroup")
+            p.CollisionGroup = orig or "Player"
         end
     end
     local coll = char:FindFirstChild("Collision")
@@ -3236,16 +3238,19 @@ local function restoreCharacterInteractivity(char)
     local root = char:FindFirstChild("HumanoidRootPart")
     if coll and coll:IsA("BasePart") then
         coll.CanCollide = true
+        coll.CollisionGroup = "Player"
         coll.CanTouch = true
         coll.CanQuery = true
     end
     if cp and cp:IsA("BasePart") then
         cp.CanCollide = false
+        cp.CollisionGroup = "Player"
         cp.CanTouch = true
         cp.CanQuery = true
     end
     if root and root:IsA("BasePart") then
         root.CanCollide = false
+        root.CollisionGroup = "Player"
         root.CanTouch = true
         root.CanQuery = true
     end
@@ -4334,6 +4339,19 @@ RunService.Stepped:Connect(function()
                 end
             end
         end
+    else
+        -- FLOOR NOCLIP FIX: When not noclipping/flying, actively enforce "Player" collision group and enable Collision part!
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CollisionGroup == "None" then
+                local orig = part:GetAttribute("OrigCollisionGroup")
+                part.CollisionGroup = orig or "Player"
+            end
+        end
+        local coll = char:FindFirstChild("Collision")
+        if coll and coll:IsA("BasePart") then
+            if not coll.CanCollide then coll.CanCollide = true end
+            if coll.CollisionGroup ~= "Player" then coll.CollisionGroup = "Player" end
+        end
     end
 end)
 
@@ -4559,6 +4577,19 @@ local function isPromptSafeToAutoInteract(prompt)
     local act = (prompt.ActionText or ""):lower()
     local obj = (prompt.ObjectText or ""):lower()
     local prName = prompt.Name:lower()
+
+    -- STRICT INVARIANT: Rift & Rift Storage MUST NEVER be touched by Auto Interact!
+    if prName:find("rift") or act:find("rift") or obj:find("rift") or pName:find("rift") or mName:find("rift") then
+        return false
+    end
+    local curAncestor = prompt.Parent
+    while curAncestor and curAncestor ~= workspace do
+        local aName = curAncestor.Name:lower()
+        if aName:find("rift") or curAncestor:GetAttribute("IsRift") or curAncestor:GetAttribute("Rift") then
+            return false
+        end
+        curAncestor = curAncestor.Parent
+    end
 
     -- STRICT INVARIANT: All hiding spots (Wardrobes, Closets, Beds, Lockers) MUST NEVER be auto-interacted!
     if prName:find("hide") or act:find("hide") or act:find("enter")
@@ -5790,6 +5821,18 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
 
         local r = getRoot()
         if r then
+            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
+            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
+            if downHit and downHit.Position then
+                local floorY = downHit.Position.Y
+                if r.Position.Y < (floorY + 2.5) then
+                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
+                end
+            end
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
         end
@@ -6131,14 +6174,14 @@ local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Remotes
 local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
 local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
 
--- Hook UserInputService.IsKeyDown: strictly intercept Q and E during noclip flight so holding E/Q never moves elevation
+-- Hook UserInputService.IsKeyDown: PERMANENTLY REMOVE Q AND E FROM DOORS MOVEMENT
 if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED then
     _G.__ISKEYDOWN_HOOKED = true
     local rawIsKeyDown
     rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
-        if not checkcaller() and State.Noclip then
-            -- Only block Q elevation if desired; NEVER block KeyCode.E so interactions always register instantly!
-            if kc == Enum.KeyCode.Q then
+        if not checkcaller() then
+            -- Permanently block both Q and E from DOORS native movement scripts so they never move elevation!
+            if kc == Enum.KeyCode.Q or kc == Enum.KeyCode.E then
                 return false
             end
         end
@@ -6152,11 +6195,11 @@ if hookmetamethod then
         local method = getnamecallmethod()
         if not checkcaller() then
             -- Intercept IsKeyDown call via namecall to permanently kill Q/E elevation in DOORS Movement
-            if (method == "IsKeyDown" or method == "isKeyDown") and State.Noclip then
+            if (method == "IsKeyDown" or method == "isKeyDown") then
                 local args = {...}
                 local kc = args[1]
-                -- Only block Q elevation; NEVER block KeyCode.E so manual interact is 100% responsive!
-                if kc == Enum.KeyCode.Q then
+                -- Permanently kill Q and E from game movement!
+                if kc == Enum.KeyCode.Q or kc == Enum.KeyCode.E then
                     return false
                 end
             end
