@@ -3039,25 +3039,18 @@ local function neutralizeServerTeleported()
                         local char = getChar()
                         local mgTable = getMainGameTable()
                         local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                        if hiding or isHidingSpotNearPos(p2) then
+                        if hiding then
                             return rawFn(p1, p2, p3, p4)
                         end
                         if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                            -- Instant Server Re-Synchronization Handshake:
-                            -- Pulses slide token and sends a directional replication impulse from the rollback point
-                            -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
                             task.spawn(function()
                                 local r = getRoot()
                                 if r and crouchRemote then
                                     pcall(function() crouchRemote:FireServer(false, true) end)
-                                    local p2Pos = (typeof(p2) == "Vector3" and p2) or (typeof(p2) == "CFrame" and p2.Position) or r.Position
-                                    local toClient = (r.Position - p2Pos)
-                                    local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
-                                    r.AssemblyLinearVelocity = impulseVel
+                                    r.AssemblyLinearVelocity = Vector3.zero
+                                    r.AssemblyAngularVelocity = Vector3.zero
                                     task.wait(0.03)
-                                    if r and r.Parent then
-                                        r.AssemblyLinearVelocity = Vector3.zero
-                                    end
+                                    pcall(function() crouchRemote:FireServer(false, false) end)
                                 end
                             end)
                             return
@@ -3088,26 +3081,18 @@ local function neutralizeServerTeleported()
                                 local mgTable = getMainGameTable()
                                 local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
                                 local args = {...}
-                                if hiding or isHidingSpotNearPos(args[1]) then
+                                if hiding then
                                     return fn(...)
                                 end
                                 if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                                    -- Instant Server Re-Synchronization Handshake:
-                                    -- Pulses slide token and sends a directional replication impulse from the rollback point
-                                    -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
                                     task.spawn(function()
                                         local r = getRoot()
                                         if r and crouchRemote then
                                             pcall(function() crouchRemote:FireServer(false, true) end)
-                                            local arg1 = (typeof(args) == "table" and args[1])
-                                            local p2Pos = (typeof(arg1) == "Vector3" and arg1) or (typeof(arg1) == "CFrame" and arg1.Position) or r.Position
-                                            local toClient = (r.Position - p2Pos)
-                                            local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
-                                            r.AssemblyLinearVelocity = impulseVel
+                                            r.AssemblyLinearVelocity = Vector3.zero
+                                            r.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
-                                            if r and r.Parent then
-                                                r.AssemblyLinearVelocity = Vector3.zero
-                                            end
+                                            pcall(function() crouchRemote:FireServer(false, false) end)
                                         end
                                     end)
                                     return
@@ -3134,26 +3119,18 @@ local function neutralizeServerTeleported()
                                 local mgTable = getMainGameTable()
                                 local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
                                 local args = {...}
-                                if hiding or isHidingSpotNearPos(args[1]) then
+                                if hiding then
                                     return fn(...)
                                 end
                                 if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                                    -- Instant Server Re-Synchronization Handshake:
-                                    -- Pulses slide token and sends a directional replication impulse from the rollback point
-                                    -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
                                     task.spawn(function()
                                         local r = getRoot()
                                         if r and crouchRemote then
                                             pcall(function() crouchRemote:FireServer(false, true) end)
-                                            local arg1 = (typeof(args) == "table" and args[1])
-                                            local p2Pos = (typeof(arg1) == "Vector3" and arg1) or (typeof(arg1) == "CFrame" and arg1.Position) or r.Position
-                                            local toClient = (r.Position - p2Pos)
-                                            local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
-                                            r.AssemblyLinearVelocity = impulseVel
+                                            r.AssemblyLinearVelocity = Vector3.zero
+                                            r.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
-                                            if r and r.Parent then
-                                                r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
-                                            end
+                                            pcall(function() crouchRemote:FireServer(false, false) end)
                                         end
                                     end)
                                     if mgTable and mgTable.SETNEWCF then
@@ -4382,12 +4359,12 @@ RunService.Heartbeat:Connect(function(dt)
         if hum and hum.Health < 100 and hum.Health > 0 then
             hum.Health = 100
         end
-        -- PHANTOM TOUCH SHIELD: Disable CanTouch on ALL player body parts!
-        -- No entity hitbox in Roblox can EVER fire a Touched damage event on the player!
+        -- TOUCH PRESERVATION: Ensure CanTouch & CanQuery are ALWAYS true across all character parts!
         if char then
             for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") and p.CanTouch then
-                    p.CanTouch = false
+                if p:IsA("BasePart") then
+                    if not p.CanTouch then p.CanTouch = true end
+                    if not p.CanQuery then p.CanQuery = true end
                 end
             end
         end
@@ -4473,28 +4450,54 @@ RunService.Stepped:Connect(function()
 end)
 
 -- =========================================================================
--- Noclip Room Entrance & Wardrobe Desynchronization Resolver
--- Synchronizes CurrentRoom and doorway triggers when noclipping through walls
+-- Noclip Room Entrance & Wardrobe Desynchronization Resolver + PromptGate Immunity
+-- 1. Detours DOORS PromptGate to ensure wardrobe & closet prompts NEVER get suppressed/hidden
+-- 2. Sequentially touches Door.Hidden triggers so server CurrentRoom matches physical room
 -- =========================================================================
+pcall(function()
+    local ps = LocalPlayer and LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("PromptService")
+    local pgMod = ps and ps:FindFirstChild("PromptGate")
+    if pgMod then
+        local pg = require(pgMod)
+        if pg and not _G.__PROMPT_GATE_DETOURED then
+            _G.__PROMPT_GATE_DETOURED = true
+            local oldRefresh = pg.refresh
+            pg.refresh = function(promptObj, ...)
+                if promptObj and promptObj:IsA("ProximityPrompt") then
+                    promptObj.Enabled = true
+                    promptObj.RequiresLineOfSight = false
+                end
+                return false -- NEVER gate/suppress!
+            end
+            local oldIsHidden = pg.isHidden
+            pg.isHidden = function(promptObj, ...)
+                return false -- Never hidden!
+            end
+        end
+    end
+end)
+
 task.spawn(function()
     while true do
-        task.wait(0.2)
+        task.wait(0.25)
         if State.Noclip or State.Fly_Enabled then
             pcall(function()
                 local curSpatialRoom = getCurrentRoomNumber()
                 local curAttr = tonumber(LocalPlayer:GetAttribute("CurrentRoom"))
-                if curSpatialRoom and curAttr and curSpatialRoom ~= curAttr then
+                if curSpatialRoom and curAttr and curSpatialRoom > curAttr then
                     local cr = Workspace:FindFirstChild("CurrentRooms")
-                    local roomModel = cr and cr:FindFirstChild(tostring(curSpatialRoom))
-                    local entrance = roomModel and (roomModel:FindFirstChild("RoomEntrance") or roomModel:FindFirstChild("Door") or roomModel:FindFirstChild("Trigger"))
                     local char = getChar()
                     local coll = char and (char:FindFirstChild("Collision") or char:FindFirstChild("HumanoidRootPart"))
-                    if entrance and coll then
-                        local targetPart = entrance:IsA("Model") and (entrance.PrimaryPart or entrance:FindFirstChildWhichIsA("BasePart")) or entrance
-                        if targetPart and targetPart:IsA("BasePart") then
-                            firetouchinterest(coll, targetPart, 0)
-                            task.wait(0.02)
-                            firetouchinterest(coll, targetPart, 1)
+                    if cr and coll then
+                        for rIdx = curAttr, curSpatialRoom - 1 do
+                            local rModel = cr:FindFirstChild(tostring(rIdx))
+                            local door = rModel and rModel:FindFirstChild("Door")
+                            local hidden = door and door:FindFirstChild("Hidden")
+                            if hidden and hidden:IsA("BasePart") then
+                                firetouchinterest(coll, hidden, 0)
+                                task.wait(0.02)
+                                firetouchinterest(coll, hidden, 1)
+                            end
                         end
                     end
                 end
@@ -4654,7 +4657,9 @@ local function applyPromptModifications(prompt)
         -- Keep within native 9.5 studs, disable LOS, and guarantee prompt is enabled!
         local origDist = prompt:GetAttribute("OrigMaxDist") or 9.5
         prompt.MaxActivationDistance = math.clamp(origDist, 8.0, 10.5)
-        prompt.HoldDuration = 0
+        -- PRESERVE DELIBERATE HOLD DURATION: Never 0-hold hiding spots so looting drawers never pulls player into closet!
+        local origHold = prompt:GetAttribute("OrigHold") or 0.6
+        prompt.HoldDuration = math.max(origHold, 0.45)
         prompt.RequiresLineOfSight = false
         if not prompt.Enabled then prompt.Enabled = true end
     elseif isDoorPrompt then
@@ -6016,30 +6021,50 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
 
-        lastNoclipDisableGrace = os.clock() + 1.0
+        lastNoclipDisableGrace = os.clock() + 2.0
 
         local r = getRoot()
         if r then
-            -- Immediate Solid Floor Grounding Raycast: Snaps root firmly on solid floor
+            -- Immediate Solid Floor Grounding Raycast: Snaps whole character firmly onto solid floor
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 4, 0), Vector3.new(0, -20, 0), rayParams)
+            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 4, 0), Vector3.new(0, -35, 0), rayParams)
+            local hipHeight = hum and hum.HipHeight or 2.0
+            local rootOffset = hipHeight + 1.1
             if downHit and downHit.Position then
                 local floorY = downHit.Position.Y
-                r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
+                char:PivotTo(CFrame.new(r.Position.X, floorY + rootOffset, r.Position.Z) * r.CFrame.Rotation)
+            else
+                local safePos = getSafeLandingPosition()
+                if safePos then
+                    char:PivotTo(CFrame.new(safePos) * r.CFrame.Rotation)
+                end
             end
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
 
-            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
+            local coll = char:FindFirstChild("Collision")
+            if coll then
+                coll.CanCollide = true
+                coll.CanTouch = true
+                coll.CanQuery = true
+                coll.AssemblyLinearVelocity = Vector3.zero
+                coll.AssemblyAngularVelocity = Vector3.zero
+            end
+
+            local cp = char:FindFirstChild("CollisionPart")
+            if cp then
+                cp.AssemblyLinearVelocity = Vector3.zero
+                cp.AssemblyAngularVelocity = Vector3.zero
+            end
+
+            -- Replicate position packet to server with instant clean reset
             task.spawn(function()
                 if crouchRemote then
                     pcall(function() crouchRemote:FireServer(false, true) end)
-                end
-                task.wait(0.2)
-                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-                    syncServerSlide(false, false)
+                    task.wait(0.05)
+                    pcall(function() crouchRemote:FireServer(false, false) end)
                 end
             end)
         end
@@ -7209,20 +7234,30 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             for _, container in ipairs(searchContainers) do
                 for _, p in ipairs(container:GetDescendants()) do
                     if p:IsA("ProximityPrompt") and p.Enabled then
-                        local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
-                        if pPart then
-                            local toPart = (pPart.Position - rPos)
-                            local dist = toPart.Magnitude
-                            local maxReach = 18
-                            if dist <= maxReach then
-                                local dir = toPart.Unit
-                                local dot = lookVec:Dot(dir)
-                                -- Forgiving dot angle during 3D flight so looking around still triggers prompts instantly
-                                if dot > -0.2 or dist <= 6.5 or State.Noclip then
-                                    local score = dist - dot * 4.0
-                                    if score < bestScore then
-                                        bestScore = score
-                                        bestPrompt = p
+                        -- STRICT SAFETY CHECK: NEVER FAST-TRIGGER HIDING SPOTS!
+                        local prName = p.Name:lower()
+                        local pAct = (p.ActionText or ""):lower()
+                        local pObj = (p.ObjectText or ""):lower()
+                        local parentName = p.Parent and p.Parent.Name:lower() or ""
+                        local isHiding = prName:find("hide") or pAct:find("hide") or pAct:find("enter")
+                            or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("bed") or pObj:find("locker")
+                            or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("bed") or parentName:find("locker")
+
+                        if not isHiding then
+                            local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
+                            if pPart then
+                                local toPart = (pPart.Position - rPos)
+                                local dist = toPart.Magnitude
+                                local maxReach = 9.0 -- TIGHT CONSTRAINED REACH: Prevents interacting with far objects!
+                                if dist <= maxReach then
+                                    local dir = toPart.Unit
+                                    local dot = lookVec:Dot(dir)
+                                    if dot > 0.65 or dist <= 4.0 then
+                                        local score = dist - dot * 5.0
+                                        if score < bestScore then
+                                            bestScore = score
+                                            bestPrompt = p
+                                        end
                                     end
                                 end
                             end
