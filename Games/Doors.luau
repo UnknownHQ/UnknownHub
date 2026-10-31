@@ -4285,8 +4285,71 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Immortality & Lethality Shield against Rush / Ambush when flying or out of the map
-    if State.Noclip or isPlayerOutOfMap() then
+    -- Continuous Viewmodel & Hand Retention Shield (Prevents hands/items from disappearing):
+    if mgTable then
+        if mgTable.__NOBASERIG == true then
+            mgTable.__NOBASERIG = false
+        end
+        if mgTable.canUseItems == false and not hiding then
+            mgTable.canUseItems = true
+        end
+    end
+
+    local cam = Workspace.CurrentCamera
+    local baseRig = cam and cam:FindFirstChild("BaseRig")
+    if baseRig and not hiding then
+        for _, p in ipairs(baseRig:GetDescendants()) do
+            if p:IsA("BasePart") then
+                local pName = p.Name:lower()
+                if pName:find("arm") or pName:find("hand") or p:FindFirstAncestorWhichIsA("Tool") or (p.Parent and p.Parent:IsA("Model") and p.Parent ~= baseRig) then
+                    if p.Transparency > 0.05 and p.Name ~= "HumanoidRootPart" and p.Name ~= "CollisionPart" then
+                        p.Transparency = 0
+                    end
+                end
+            end
+        end
+    end
+
+    if char and not hiding then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                for _, part in ipairs(tool:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Transparency > 0.05 then
+                        part.Transparency = 0
+                    end
+                end
+            end
+        end
+    end
+
+    -- Continuous 2D Entity Immunity Shield (Rush, Ambush, A-60, A-120 Out-of-Bounds & Flight Deflector):
+    local lethal2DNames = {"RushMoving", "AmbushMoving", "A60", "A120", "Dread", "RushNew"}
+    local lethalActive = false
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    for _, eName in ipairs(lethal2DNames) do
+        local ent = Workspace:FindFirstChild(eName, true) or (curRooms and curRooms:FindFirstChild(eName, true))
+        if ent then
+            lethalActive = true
+            -- Strip touch detection and collisions from the monster on frame 0
+            pcall(function()
+                for _, desc in ipairs(ent:GetDescendants()) do
+                    if desc:IsA("TouchTransmitter") then
+                        pcall(function() desc:Destroy() end)
+                    elseif desc:IsA("BasePart") then
+                        desc.CanTouch = false
+                        desc.CanCollide = false
+                    end
+                end
+            end)
+            break
+        end
+    end
+
+    if (lethalActive or State.Noclip or isPlayerOutOfMap()) and (State.Anti_Rush or State.Noclip or isPlayerOutOfMap()) then
+        -- Register hiding on character model so DOORS server & entity AI completely ignores player!
+        if char and char:GetAttribute("Hiding") ~= true then
+            char:SetAttribute("Hiding", true)
+        end
         if mgTable then
             if mgTable.deathtick then mgTable.deathtick = tick() + 999999 end
             if mgTable.dead then mgTable.dead = false end
@@ -4295,6 +4358,8 @@ RunService.Heartbeat:Connect(function(dt)
         if hum and hum.Health < 100 and hum.Health > 0 then
             hum.Health = 100
         end
+    elseif not lethalActive and not State.Noclip and not isPlayerOutOfMap() and char and char:GetAttribute("Hiding") == true and not isPlayerHiding(char, mgTable) then
+        char:SetAttribute("Hiding", nil)
     end
 end)
 
@@ -4503,19 +4568,16 @@ local function applyPromptModifications(prompt)
 
     if isHidingSpot then
         -- CRITICAL WARDROBE COMPLIANCE FIX:
-        -- DOORS server enforces strict ~9 stud distance check. If client extends MaxActivationDistance to 12,
-        -- player triggers prompt from too far away and server silently drops the interaction FOREVER!
         -- Clamping strictly to native 9.0 studs guarantees 100% server acceptance!
         local origDist = prompt:GetAttribute("OrigMaxDist") or 9
         prompt.MaxActivationDistance = math.clamp(origDist, 5, 9.0)
         prompt.HoldDuration = 0
-    elseif isDoorPrompt then
+        prompt.RequiresLineOfSight = false
+    elseif isDoorPrompt or State.Noclip or State.Instant_Interact or State.Noclip_Interact then
         prompt.HoldDuration = 0
-        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 12)
-    elseif State.Instant_Interact then
-        prompt.HoldDuration = 0
-        if State.Range_Interact then
-            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, isDrawerOrContainer and 10 or State.Interact_MaxRange)
+        prompt.RequiresLineOfSight = false
+        if State.Noclip or State.Range_Interact then
+            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 14)
         end
     else
         local origHold = prompt:GetAttribute("OrigHold")
@@ -6988,11 +7050,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                         if pPart then
                             local toPart = (pPart.Position - rPos)
                             local dist = toPart.Magnitude
-                            if dist <= (p.MaxActivationDistance + 1.5) and dist <= 14 then
+                            local maxReach = State.Noclip and 18 or (p.MaxActivationDistance + 2.5)
+                            if dist <= maxReach and dist <= 18 then
                                 local dir = toPart.Unit
                                 local dot = lookVec:Dot(dir)
-                                if dot > 0.25 or dist <= 4.5 then
-                                    local score = dist - dot * 3.5
+                                -- Forgiving dot angle during 3D flight so looking around still triggers prompts instantly
+                                if dot > -0.2 or dist <= 6.5 or State.Noclip then
+                                    local score = dist - dot * 4.0
                                     if score < bestScore then
                                         bestScore = score
                                         bestPrompt = p
@@ -7005,6 +7069,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end
 
             if bestPrompt then
+                bestPrompt.RequiresLineOfSight = false
+                bestPrompt.HoldDuration = 0
                 pcall(function()
                     fireproximityprompt(bestPrompt)
                 end)
