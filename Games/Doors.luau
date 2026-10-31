@@ -2976,6 +2976,7 @@ end
 
 local lastFlySlidePulse = 0
 local flyPos = nil
+local lastNoclipDisableGrace = 0
 
 local function pulseSlideKeepAlive()
     if syncServerSlide then
@@ -3003,7 +3004,7 @@ local function neutralizeServerTeleported()
                         if hiding or isHidingSpotNearPos(p2) then
                             return rawFn(p1, p2, p3, p4)
                         end
-                        if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
+                        if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                             -- Instant Server Re-Synchronization Handshake:
                             -- Pulses slide token and sends a directional replication impulse from the rollback point
                             -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
@@ -3016,8 +3017,8 @@ local function neutralizeServerTeleported()
                                     local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
                                     r.AssemblyLinearVelocity = impulseVel
                                     task.wait(0.03)
-                                    if State.Noclip and r and r.Parent then
-                                        r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+                                    if r and r.Parent then
+                                        r.AssemblyLinearVelocity = Vector3.zero
                                     end
                                 end
                             end)
@@ -3052,7 +3053,7 @@ local function neutralizeServerTeleported()
                                 if hiding or isHidingSpotNearPos(args[1]) then
                                     return fn(...)
                                 end
-                                if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
+                                if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     -- Instant Server Re-Synchronization Handshake:
                                     -- Pulses slide token and sends a directional replication impulse from the rollback point
                                     -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
@@ -3066,8 +3067,8 @@ local function neutralizeServerTeleported()
                                             local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
                                             r.AssemblyLinearVelocity = impulseVel
                                             task.wait(0.03)
-                                            if State.Noclip and r and r.Parent then
-                                                r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+                                            if r and r.Parent then
+                                                r.AssemblyLinearVelocity = Vector3.zero
                                             end
                                         end
                                     end)
@@ -4582,17 +4583,18 @@ local function applyPromptModifications(prompt)
         prompt.MaxActivationDistance = math.clamp(origDist, 5, 9.0)
         prompt.HoldDuration = 0
         prompt.RequiresLineOfSight = false
-    elseif isDoorPrompt or State.Noclip or State.Instant_Interact or State.Noclip_Interact then
+    elseif State.Instant_Interact then
+        -- ONLY force HoldDuration = 0 when Instant Interact is explicitly enabled by user
         prompt.HoldDuration = 0
         prompt.RequiresLineOfSight = false
-        if State.Noclip or State.Range_Interact then
-            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 14)
+        if State.Range_Interact then
+            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, isDrawerOrContainer and 10 or State.Interact_MaxRange)
         end
     else
+        -- PRESERVE NATURAL HOLD DURATION: Never flicker or overwrite HoldDuration so 1-2s hold prompts work smoothly!
         local origHold = prompt:GetAttribute("OrigHold")
         if origHold ~= nil then prompt.HoldDuration = origHold end
-        local origLOS = prompt:GetAttribute("OrigLOS")
-        if origLOS ~= nil then prompt.RequiresLineOfSight = origLOS end
+        prompt.RequiresLineOfSight = false -- Line of sight is false so prompts never get blocked by doorframes/angles
         local origDist = prompt:GetAttribute("OrigMaxDist")
         if origDist ~= nil then prompt.MaxActivationDistance = origDist end
     end
@@ -5886,9 +5888,7 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
 
-        if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-            syncServerSlide(false, false)
-        end
+        lastNoclipDisableGrace = os.clock() + 3.5
 
         local r = getRoot()
         if r then
@@ -5906,6 +5906,17 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             end
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
+
+            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
+            task.spawn(function()
+                if crouchRemote then
+                    pcall(function() crouchRemote:FireServer(false, true) end)
+                end
+                task.wait(0.2)
+                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+                    syncServerSlide(false, false)
+                end
+            end)
         end
     end
     Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
@@ -6278,7 +6289,7 @@ if hookmetamethod then
                 local char = getChar()
                 local mgTable = getMainGameTable()
                 local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                if not hiding and (isTeleportTweening or State.Noclip or State.Bypass_AntiCheat or isAtRoof) then
+                if not hiding and (isTeleportTweening or State.Noclip or State.Bypass_AntiCheat or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
                     local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
                     if isLocalChar then
                         return -- Block anticheat rollback PivotTo dead in its tracks; allow wardrobe hiding and door entry!
@@ -7079,10 +7090,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
             if bestPrompt then
                 bestPrompt.RequiresLineOfSight = false
-                bestPrompt.HoldDuration = 0
-                pcall(function()
-                    fireproximityprompt(bestPrompt)
-                end)
+                local curHold = bestPrompt:GetAttribute("OrigHold") or bestPrompt.HoldDuration
+                -- Only fast-trigger instant taps (HoldDuration == 0) or if Instant Interact is turned ON!
+                -- If a prompt requires holding (1-2s), let the user hold E naturally without resetting the hold bar!
+                if State.Instant_Interact or curHold == 0 then
+                    if State.Instant_Interact then bestPrompt.HoldDuration = 0 end
+                    pcall(function()
+                        fireproximityprompt(bestPrompt)
+                    end)
+                end
             end
         end
     end
