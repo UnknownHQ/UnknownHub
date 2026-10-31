@@ -143,7 +143,6 @@ local Config = {
     MeleeAuraRange = 18,
     GunAura = false,
     GunAuraRange = 90,
-    InfiniteAmmo = true,
     PriorityBears = { ["GrinderBear"] = true, ["Grinder"] = true },
 
     -- Movement & Stamina
@@ -1202,26 +1201,12 @@ local function applyWeaponMods(tool)
         clip.Value = orig.ClipSize
     end
 
-    -- Infinite Ammo & NoPump Injection (Built-in GunClient native hooks!)
-    if Config.InfiniteAmmo then
-        if not config:FindFirstChild("NoReload") then
-            local nr = Instance.new("Folder")
-            nr.Name = "NoReload"
-            nr.Parent = config
-        end
-        local shotgunCfg = config:FindFirstChild("Shotgun")
-        if shotgunCfg and not shotgunCfg:FindFirstChild("NoPump") then
-            local np = Instance.new("Folder")
-            np.Name = "NoPump"
-            np.Parent = shotgunCfg
-        end
-    else
-        local nr = config:FindFirstChild("NoReload")
-        if nr then nr:Destroy() end
-        local shotgunCfg = config:FindFirstChild("Shotgun")
-        local np = shotgunCfg and shotgunCfg:FindFirstChild("NoPump")
-        if np then np:Destroy() end
-    end
+    -- Clean up any desyncing client-only NoReload/NoPump folders (server enforces ammo!)
+    local nr = config:FindFirstChild("NoReload")
+    if nr then nr:Destroy() end
+    local shotgunCfg = config:FindFirstChild("Shotgun")
+    local np = shotgunCfg and shotgunCfg:FindFirstChild("NoPump")
+    if np then np:Destroy() end
 
     -- Flamethrower Configuration Enhancements
     if tool.Name == "Flamethrower" or tool:FindFirstChild("FlameRemote") then
@@ -1270,30 +1255,11 @@ local function getToolMaxClip(tool)
     return (clipVal and clipVal:IsA("ValueBase") and clipVal.Value) or 30
 end
 
-local function applyInfiniteAmmoToAllTools()
-    local char = LocalPlayer.Character
-    if char then
-        for _, child in ipairs(char:GetChildren()) do
-            if child:IsA("Tool") then
-                applyWeaponMods(child)
-            end
-        end
-    end
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    if bp then
-        for _, child in ipairs(bp:GetChildren()) do
-            if child:IsA("Tool") then
-                applyWeaponMods(child)
-            end
-        end
-    end
-end
-
 local function syncAmmoToGUI(tool)
     if not tool then return end
     local maxClip = getToolMaxClip(tool)
-    local curAmmo = Config.InfiniteAmmo and maxClip or (currentGunAmmo[tool] or maxClip)
-    local str = (not Config.InfiniteAmmo and isReloading) and "RELOAD" or (curAmmo .. " / " .. maxClip)
+    local curAmmo = currentGunAmmo[tool] or maxClip
+    local str = isReloading and "RELOAD" or (curAmmo .. " / " .. maxClip)
 
     pcall(function()
         local pgui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -1308,19 +1274,13 @@ local function syncAmmoToGUI(tool)
             end
             local reloadBtn = gunHud:FindFirstChild("MobileButtons") and gunHud.MobileButtons:FindFirstChild("Reload")
             if reloadBtn then
-                reloadBtn.Visible = not Config.InfiniteAmmo
+                reloadBtn.Visible = true
             end
         end
     end)
 end
 
 local function getLoadedAmmoFromGUI(tool)
-    if Config.InfiniteAmmo then
-        local maxClip = getToolMaxClip(tool)
-        currentGunAmmo[tool] = maxClip
-        return maxClip, false
-    end
-
     if tick() < reloadEndTime or isReloading then
         return 0, true
     end
@@ -1372,7 +1332,7 @@ end
 
 -- Comprehensive Authoritative Gun Reload Trigger (Simulated Key + Server Remote + UI Trigger)
 local function triggerGunReload(tool)
-    if not tool or Config.InfiniteAmmo then return end
+    if not tool then return end
     if tick() < reloadEndTime or isReloading then return end
 
     local gunScripts = tool:FindFirstChild("GunScripts")
@@ -1466,14 +1426,12 @@ local function shootTargetBear(tool, bear, bearPart)
 
     -- Authoritative Ammo & Reload Gate: NEVER shoot while reloading or with 0 ammo!
     local currentAmmo, reloading = getLoadedAmmoFromGUI(tool)
-    if not Config.InfiniteAmmo then
-        if reloading or now < reloadEndTime or isReloading then
-            return
-        end
-        if currentAmmo <= 0 then
-            triggerGunReload(tool)
-            return
-        end
+    if reloading or now < reloadEndTime or isReloading then
+        return
+    end
+    if currentAmmo <= 0 then
+        triggerGunReload(tool)
+        return
     end
 
     lastGunShotTime[tool] = now
@@ -1550,18 +1508,13 @@ local function shootTargetBear(tool, bear, bearPart)
     end
 
     -- Clip Management & Shot Dispatch:
-    if not Config.InfiniteAmmo then
-        currentGunAmmo[tool] = math.max(0, currentAmmo - 1)
-        syncAmmoToGUI(tool)
-    else
-        currentGunAmmo[tool] = getToolMaxClip(tool)
-        syncAmmoToGUI(tool)
-    end
+    currentGunAmmo[tool] = math.max(0, currentAmmo - 1)
+    syncAmmoToGUI(tool)
 
     fireRemote:FireServer(hitData)
 
     -- If clip is now empty, immediately trigger reload
-    if not Config.InfiniteAmmo and currentGunAmmo[tool] <= 0 then
+    if currentGunAmmo[tool] <= 0 then
         triggerGunReload(tool)
     end
 
@@ -2040,15 +1993,41 @@ RunService.Heartbeat:Connect(function(dt)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return end
 
-    -- Anti-Touch & Anti-Collision Defense: Suppress touch + disable physics collision so buildings/walls never block attacks
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            if p.CanTouch then pcall(function() p.CanTouch = false end) end
-            if p.CanCollide then pcall(function() p.CanCollide = false end) end
-        end
+    -- Anti-Void Failsafe: Catch character before dropping into void below map floor
+    if root.Position.Y < -170 then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.CFrame = CFrame.new(root.Position.X, -132, root.Position.Z)
     end
 
-    if not Config.AutoFarmBears or isFleeingLowHP then return end
+    -- Ragdoll Safety Guard: If knocked down or ragdolled, IMMEDIATELY restore CanCollide so body rests on solid ground!
+    local isRagdolled = char:FindFirstChild("RagdollTag") ~= nil
+        or hum:GetState() == Enum.HumanoidStateType.Physics
+        or hum:GetState() == Enum.HumanoidStateType.Ragdoll
+        or hum.PlatformStanding
+
+    if isRagdolled then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanCollide = true
+            end
+        end
+        return
+    end
+
+    if not Config.AutoFarmBears or isFleeingLowHP then
+        -- Restore collision when not farming or flying
+        if not Config.FlyNoclip and not root.CanCollide then
+            root.CanCollide = true
+        end
+        return
+    end
+
+    -- During active flight farming, suppress touch to avoid damage from bear parts, but keep limb collisions intact
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") and p.CanTouch then
+            pcall(function() p.CanTouch = false end)
+        end
+    end
 
     local bear = activeFlightBear
     if not bear or not bear.Parent then return end
@@ -2776,16 +2755,6 @@ end)
 
 Hub.CreateSection(combatTab, "Firearms")
 
-Hub.CreateToggle(combatTab, "Infinite Ammo", Config.InfiniteAmmo, function(val)
-    Config.InfiniteAmmo = val
-    applyInfiniteAmmoToAllTools()
-    local equipped = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-    if equipped then
-        syncAmmoToGUI(equipped)
-    end
-    Hub.Notify("Combat", val and "Infinite Ammo: ACTIVE (NoReload Hook)" or "Infinite Ammo: OFF", 2)
-end)
-
 Hub.CreateToggle(combatTab, "Gun Aura", Config.GunAura, function(val)
     Config.GunAura = val
     Hub.Notify("Combat", val and "Gun Aura: ACTIVE" or "Gun Aura: OFF", 2)
@@ -2949,10 +2918,8 @@ Hub.CreateToggle(miscTab, "Auto Unlock All Doors", Config.AutoUnlockDoors, funct
     Hub.Notify("Misc", val and "Auto Unlock Doors: ACTIVE" or "Auto Unlock Doors: OFF", 2)
 end)
 
--- =========================================================================
--- Automatic Tool Infinite Ammo Listeners (Watches Character & Backpack)
--- =========================================================================
-local function setupInfiniteAmmoListeners()
+-- Automatic Tool Sanitizer (Ensures authentic reload and cleans fake client folders)
+local function setupToolSanitizers()
     local function watchContainer(container)
         if not container then return end
         container.ChildAdded:Connect(function(child)
@@ -2980,6 +2947,6 @@ local function setupInfiniteAmmoListeners()
         watchContainer(LocalPlayer.Character)
     end
 end
-task.spawn(setupInfiniteAmmoListeners)
+task.spawn(setupToolSanitizers)
 
 Hub.Notify("Medved Hub", "Medved! V5 Loaded — Turrets Suite & Clean Misc Tab 🐻⚡", 3)
