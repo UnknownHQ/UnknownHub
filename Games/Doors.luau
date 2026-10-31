@@ -107,7 +107,7 @@ local State = {
     Enable_Jumping = false,
     Enable_Sliding = false,
     Noclip = false,
-    Noclip_Speed = 22,
+    Noclip_Speed = 35,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
     -- Item Exploits & Infinite Items
@@ -701,11 +701,24 @@ task.spawn(function()
                     if record.Category == "Doors" then
                         local shouldShow = State.Doors_ESP
                         if shouldShow then
-                            if State.ESP_OnlyCurrentRoom or State.ESP_RoomFilterMode == "Current Room Only" then
-                                shouldShow = (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
-                            elseif State.ESP_RoomFilterMode == "Current & Next Room" then
-                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 1)
-                            else -- "All Rooms (Full Vision)"
+                            if curRoom ~= nil and record.RoomNumber ~= nil then
+                                -- Strict Filter: Previous door - No, Current Door - Yes, Next Door - Yes
+                                if record.RoomNumber < curRoom or record.RoomNumber > (curRoom + 1) then
+                                    shouldShow = false
+                                else
+                                    shouldShow = true
+                                    -- Dynamically update role label: Current Door vs Next Door
+                                    if record.Label then
+                                        local isLocked = record.Owner and (record.Owner:GetAttribute("Locked") == true or (record.Owner:FindFirstChild("Lock") and record.Owner.Lock:FindFirstChildWhichIsA("ProximityPrompt", true)))
+                                        local isDupe = record.BaseText and record.BaseText:find("Dupe")
+                                        if not isDupe then
+                                            local doorNum = record.RoomNumber + 1
+                                            local rolePrefix = (record.RoomNumber == curRoom) and "Current Door" or "Next Door"
+                                            record.BaseText = string.format("%s %d%s", rolePrefix, doorNum, isLocked and " [LOCKED]" or "")
+                                        end
+                                    end
+                                end
+                            else
                                 shouldShow = true
                             end
                         end
@@ -2429,7 +2442,7 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
     -- Crucial: When WalkSpeed is enabled OR when the player is actively sliding, sliding MUST be authorized on the DOORS server (arg 2 = true).
     -- This raises the server's anti-cheat speed threshold and eliminates door/room transition rubberbanding!
-    local isSliding = (shouldAuthorize == true) and (State.WalkSpeed_Enabled or (isActuallySliding == true) or isCrouching)
+    local isSliding = (shouldAuthorize == true) and (not isCrouching) and (State.WalkSpeed_Enabled or (isActuallySliding == true))
     local now = os.clock()
 
     if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
@@ -4088,18 +4101,17 @@ RunService.Heartbeat:Connect(function(dt)
         local targetVel = Vector3.zero
 
         if hasInput and steer.Magnitude > 0.01 then
-            local speed = math.clamp(State.Noclip_Speed or 22, 4, 35)
+            local speed = math.clamp(State.Noclip_Speed or 35, 4, 85)
             targetVel = steer.Unit * speed
             local stepVec = targetVel * safeDt
 
             -- Quantum Wall Tunneling: Micro-phase across thin obstacles in a single step
-            -- so character coordinates are NEVER embedded inside solid geometry for multiple frames!
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
             rayParams.RespectCanCollide = true
 
-            local forwardHit = workspace:Raycast(root.Position, steer.Unit * 3.0, rayParams)
+            local forwardHit = workspace:Raycast(root.Position, steer.Unit * (math.clamp(speed * 0.1, 3.0, 7.5)), rayParams)
             if forwardHit and forwardHit.Instance and not forwardHit.Instance:IsDescendantOf(char) then
                 local probeStart = forwardHit.Position + steer.Unit * 3.2
                 local backHit = workspace:Raycast(probeStart, -steer.Unit * 3.2, rayParams)
@@ -4124,16 +4136,17 @@ RunService.Heartbeat:Connect(function(dt)
         root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
         root.AssemblyAngularVelocity = Vector3.zero
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
+        local mgTable = getMainGameTable()
+        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
-        local targetSpeed = State.WalkSpeed_Value
+        local targetSpeed = isCrouching and math.clamp(State.WalkSpeed_Value * 0.60, 14, 25) or State.WalkSpeed_Value
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
 
         -- Instant Responsive Movement (No Slip / Zero Acceleration Drift):
-        -- Horizontal velocity is immediately redirected into the current MoveDirection without slipping
         if State.Instant_Movement and not isSlidingActive then
             local moveDir = hum.MoveDirection
             local curY = root.AssemblyLinearVelocity.Y
@@ -4143,7 +4156,7 @@ RunService.Heartbeat:Connect(function(dt)
                 rayParams.FilterType = Enum.RaycastFilterType.Exclude
                 rayParams.RespectCanCollide = true
 
-                local rayOrigin = root.Position + Vector3.new(0, 0.4, 0)
+                local rayOrigin = root.Position + Vector3.new(0, isCrouching and -0.8 or 0.4, 0)
                 local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
                 if hit and hit.Instance and hit.Instance.CanCollide then
                     local n = hit.Normal
@@ -4985,12 +4998,21 @@ local function applyAdditionalDefenses()
         end
     end
 
-    -- 2. Anti-Seek Hands: Strips touch interest on SeekHand models and falling debris
-    if State.Anti_Seek then
+    -- 2. Anti-Seek Hands & Obstructions: Strips touch on SeekHands and disables collisions on fallen debris while crouching
+    if State.Anti_Seek or State.WalkSpeed_Enabled then
+        local char = getChar()
+        local r = getRoot()
+        local mgTable = getMainGameTable()
+        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         for _, desc in ipairs(curRooms:GetDescendants()) do
             local nl = desc.Name:lower()
             if (nl:find("seekhand") or nl:find("hand") or nl:find("chandelier")) and desc:IsA("BasePart") and desc.CanTouch then
                 desc.CanTouch = false
+            end
+            if (nl:find("obstruction") or nl:find("fallen") or nl:find("bookshelf") or nl:find("chandelier") or nl:find("debris")) and desc:IsA("BasePart") then
+                if isCrouching or (r and desc.Position.Y > (r.Position.Y + 1.2)) then
+                    desc.CanCollide = false
+                end
             end
         end
     end
@@ -5271,34 +5293,15 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     local char = getChar()
 
     if not v and char then
-        -- 1. Synchronously restore collision and CollisionGroup across all character parts
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                local origGroup = part:GetAttribute("OrigCollisionGroup") or "Player"
-                part.CollisionGroup = origGroup
-                if part.Name == "Collision" or part.Name == "CollisionPart" or part.Name == "CollisionCrouch" then
-                    part.CanCollide = true
-                    part.CanTouch = true
-                elseif part.Name ~= "HumanoidRootPart" and not part.Parent:IsA("Accessory") then
-                    part.CanCollide = true
-                    part.CanTouch = true
-                end
-            end
-        end
+        -- Cleanly restore standard Roblox character collision & friction (eliminates sliding backwards & stumbles!)
+        restoreCharacterInteractivity(char)
+        restoreDefaultFriction(char)
 
-        -- 2. Make all ceilings, roofs, and walls in CurrentRooms 100% solid so daddy lands and walks on them smoothly
-        local curRooms = Workspace:FindFirstChild("CurrentRooms")
-        if curRooms then
-            for _, rm in ipairs(curRooms:GetChildren()) do
-                for _, p in ipairs(rm:GetDescendants()) do
-                    if p:IsA("BasePart") then
-                        local nl = p.Name:lower()
-                        if nl:find("roof") or nl:find("ceiling") or nl:find("top") or nl:find("wall") or nl:find("structure") then
-                            p.CanCollide = true
-                        end
-                    end
-                end
-            end
+        local hum = char:FindFirstChildWhichIsA("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
 
         if not State.WalkSpeed_Enabled and not State.Enable_Sliding then
@@ -5307,16 +5310,14 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
 
         local r = getRoot()
         if r then
-            -- NATURAL ROOF FALL: Gentle downward impulse so gravity takes over and daddy falls onto the roof.
-            -- NO TELEPORTATION, NO PIVOTTO, NO SNAPPING INTO MAP!
-            r.AssemblyLinearVelocity = Vector3.new(0, -1.0, 0)
+            r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
         end
     end
     Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Fly Speed", 4, 35, State.Noclip_Speed, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Fly Speed", 4, 75, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
 end)
 
