@@ -143,8 +143,7 @@ local Config = {
     MeleeAuraRange = 18,
     GunAura = false,
     GunAuraRange = 90,
-    TargetPlayerBears = false, -- false: player bears are friendly/ignored; true: targetable in PvP
-    InstantReload = true,
+    PriorityBears = { ["GrinderBear"] = true, ["Grinder"] = true },
 
     -- Movement & Stamina
     InfiniteStamina = false,
@@ -203,8 +202,8 @@ local locationRegistry = {
     { name = "Main Base (Spawn)", target = "TheBase", fallback = Vector3.new(52, -137, -144) },
     { name = "Old Statue (Lenin)", target = "LeninStatue", fallback = Vector3.new(-398.5, -124.0, -685.0) },
     { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-626, -114, 443) },
-    { name = "The Maze (Entrance)", target = "ScaryMaze", fallback = Vector3.new(20, -130, -185) },
-    { name = "The Maze (End)", target = "TheMaze", fallback = Vector3.new(1140.9, -144.9, 73.1) },
+    { name = "The Maze (Entrance)", target = "TheMazeEntrance", fallback = Vector3.new(20, -130, -185) },
+    { name = "The Maze (End)", target = "TheMazeEnd", fallback = Vector3.new(1140.9, -144.9, 73.1) },
     { name = "Research Facility", target = "OutsideResearchFacility", fallback = Vector3.new(-17, -136, -396) },
     { name = "Star Lab", target = "Star Lab", fallback = Vector3.new(-300, -112, 850) },
     { name = "Plane Crash", target = "Plane", fallback = Vector3.new(325, -143, -63) },
@@ -215,16 +214,25 @@ local locationRegistry = {
 }
 
 local function resolveLocationPosition(item)
-    if item.target == "TheMaze" then
-        local mazePage = Workspace:FindFirstChild("Pages") and Workspace.Pages:FindFirstChild("TheMaze")
-        if mazePage then
-            return (mazePage:IsA("BasePart") and mazePage.Position or mazePage:GetPivot().Position) + Vector3.new(0, 2.0, 0)
-        end
+    if item.target == "TheMazeEntrance" then
         local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("TheMaze")
         if poi then
-            return poi:GetPivot().Position + Vector3.new(0, 2.0, 0)
+            return poi:GetPivot().Position + Vector3.new(0, 3.5, 0)
         end
-        return item.fallback + Vector3.new(0, 2.0, 0)
+        return item.fallback + Vector3.new(0, 3.5, 0)
+    elseif item.target == "TheMazeEnd" then
+        -- Final Chamber: Teleport to the end where the bells and 5 crates are located
+        local chamberPos = Vector3.new(1140.9, -144.9, 73.1)
+        local cratesFolder = Workspace:FindFirstChild("Crates")
+        if cratesFolder then
+            for _, c in ipairs(cratesFolder:GetChildren()) do
+                local cp = c:FindFirstChild("Crate") or c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart")
+                if cp and (cp.Position - chamberPos).Magnitude < 75 then
+                    return cp.Position + Vector3.new(0, 3.5, 0)
+                end
+            end
+        end
+        return chamberPos + Vector3.new(0, 3.5, 0)
     elseif item.target == "LeninStatue" then
         local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("LeninStatue")
         if poi then
@@ -936,17 +944,16 @@ local function getBearLevitationTarget(bear)
     end
 
     -- Category 1: Ball Bear (ballbear, BooBoo, LaserBooBoo, HypersonicBooBoo)
-    -- BallBear performs BallLunge and SpinCharge (high velocity spherical body catapult).
-    -- Solution: Maintain high apex ceiling in Melee, elevated far above jump/roll hitbox.
+    -- BooBoo & Ball bears: In Melee, stay tightly locked within 2.8 studs so melee reach is 100% satisfied without missing!
     if name:find("booboo") or name:find("ball") or sz.Y < 6.5 or sz.Magnitude < 8 then
         local targetPos = cf.Position
         if Config.FarmMethod == "Melee" then
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 12.0
-            local distBehind = 7.5
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 2.0
+            local distBehind = 2.0
             return targetPos, distBehind, targetY
         else
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 32.0
-            local distBehind = 42.0
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 22.0
+            local distBehind = 28.0
             return targetPos, distBehind, targetY
         end
     end
@@ -978,9 +985,24 @@ local function getBearLevitationTarget(bear)
     end
 
     -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, IceBear, ThinBear, etc.)
-    -- In Melee mode: hover closely above spine (+1.3 studs) and tight behind (-2.2 studs) so melee reach is always 100% satisfied
+    -- In Melee mode: hover closely above spine (+1.3 studs) and tight behind (-2.0 studs) so melee reach is always 100% satisfied
     local targetY = (Config.FarmMethod == "Melee") and (cf.Position.Y + (sz.Y * 0.5) + 1.3) or (cf.Position.Y + (sz.Y * 0.5) + 3.4)
-    local distBehind = (Config.FarmMethod == "Melee") and math.min((sz.Z * 0.5) + 1.8, 3.4) or ((sz.Z * 0.5) + 2.4)
+    local distBehind = (Config.FarmMethod == "Melee") and math.min((sz.Z * 0.5) + 1.8, 3.0) or ((sz.Z * 0.5) + 2.4)
+
+    -- Building / Shop Wall Anti-Obstruction Guard:
+    -- If bear is backed against a shop or building wall, hover directly above the bear so walls never block attacks!
+    pcall(function()
+        local rayParams = RaycastParams.new()
+        local char = LocalPlayer.Character
+        rayParams.FilterDescendantsInstances = {bear, char, Workspace.CurrentCamera}
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        local testHit = workspace:Raycast(cf.Position, -bear.PrimaryPart.CFrame.LookVector * (distBehind + 2.0), rayParams)
+        if testHit and testHit.Instance and not testHit.Instance:IsDescendantOf(bear) then
+            distBehind = 0.5
+            targetY = math.max(targetY, cf.Position.Y + (sz.Y * 0.5) + (Config.FarmMethod == "Melee" and 2.2 or 14.0))
+        end
+    end)
+
     return cf.Position, distBehind, targetY
 end
 
@@ -1014,12 +1036,56 @@ local function getBearBottomRearPart(bear)
     return hrp or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
 end
 
+local function isFriendlyBearOrPlayer(b)
+    if not b or not b.Parent then return true end
+    local name = b.Name:lower()
+
+    -- Cutie bears are strictly friendly and peaceful
+    if name:find("cutie") or name:find("cute") or name:find("baby") then
+        return true
+    end
+
+    -- Player bears with friendly / peaceful mode active
+    local plr = Players:GetPlayerFromCharacter(b)
+    if plr then
+        if plr:GetAttribute("Friendly") == true or plr:GetAttribute("FriendlyMode") == true
+            or plr:GetAttribute("Peaceful") == true or plr:GetAttribute("Peace") == true
+            or plr:GetAttribute("PvP") == false or plr:GetAttribute("PVP") == false
+            or b:GetAttribute("Friendly") == true or b:GetAttribute("FriendlyMode") == true
+            or b:GetAttribute("Peaceful") == true or b:GetAttribute("Peace") == true
+            or b:GetAttribute("PvP") == false or b:GetAttribute("PVP") == false then
+            return true
+        end
+
+        local head = b:FindFirstChild("Head") or b:FindFirstChildWhichIsA("BasePart")
+        if head then
+            for _, gui in ipairs(head:GetChildren()) do
+                if gui:IsA("BillboardGui") then
+                    for _, desc in ipairs(gui:GetDescendants()) do
+                        if desc:IsA("TextLabel") then
+                            local txt = desc.Text:lower()
+                            if txt:find("friendly") or txt:find("peaceful") or txt:find("passive") then
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 local function isBearTargetable(b)
     if not b or not b.Parent then return false end
     local name = b.Name:lower()
 
-    -- 1. Never target CutieBear, GhostBear, DemonBear, WormBear, or ClassicBear
-    if name:find("cutie") or name:find("ghost") or name:find("demon") or name:find("worm") or name:find("classic") then
+    -- 1. Never target Cutie bears, Ghost bears, Worm bears, Classic bears, or DEMON BEARS!
+    if name:find("cutie") or name:find("cute") or name:find("ghost") or name:find("demon") or name:find("devil") or name:find("satan") or name:find("worm") or name:find("classic") then
+        return false
+    end
+    if b:GetAttribute("IsDemon") == true or b:GetAttribute("Demon") == true then
         return false
     end
 
@@ -1037,10 +1103,14 @@ local function isBearTargetable(b)
         return false
     end
 
-    -- 2. Friendly Player Bears Protection
-    -- When TargetPlayerBears is false, all player bears are strictly protected as friendly!
-    local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
-    if isPlr and not Config.TargetPlayerBears then
+    -- Demon Bear & Invulnerable Boss Immunity: Do NOT target 50,000+ HP entities
+    if (hum.MaxHealth and hum.MaxHealth >= 50000) or hum.Health >= 50000 then
+        return false
+    end
+
+    -- 2. Friendly Bear / Player in Friendly Mode Protection:
+    -- Attacks ALL hostile wild bears & non-friendly player bears, but STRICTLY protects friendly ones!
+    if isFriendlyBearOrPlayer(b) then
         return false
     end
 
@@ -1161,7 +1231,7 @@ local function applyWeaponMods(tool)
         if windup and windup:IsA("ValueBase") then windup.Value = 0 end
 
         local cooldown = config:FindFirstChild("CooldownTime")
-        if cooldown and cooldown:IsA("ValueBase") then cooldown.Value = 0.35 end
+        if cooldown and cooldown:IsA("ValueBase") then cooldown.Value = 0.20 end
 
         local hitboxTime = config:FindFirstChild("HitboxTime")
         if hitboxTime and hitboxTime:IsA("ValueBase") then hitboxTime.Value = 0.8 end
@@ -1342,13 +1412,32 @@ local function shootTargetBear(tool, bear, bearPart)
         return
     end
 
-    local hitData = {
-        {
+    ensureBearQueryable(bear)
+
+    -- Multi-Pellet & Shotgun Full Damage Multiplier:
+    -- Shotguns and scatter weapons fire multiple pellets per shell (typically 8).
+    -- Dispatching all pellets simultaneously guarantees full 8x damage registration!
+    local numBullets = 1
+    local cfg = tool:FindFirstChild("Config")
+    if cfg then
+        local bVal = cfg:FindFirstChild("Bullets") or cfg:FindFirstChild("NumBullets") or cfg:FindFirstChild("Pellets") or cfg:FindFirstChild("ShotCount")
+        if bVal and bVal:IsA("ValueBase") then
+            numBullets = math.max(1, tonumber(bVal.Value) or 1)
+        elseif tool.Name:lower():find("shotgun") then
+            numBullets = 8
+        end
+    elseif tool.Name:lower():find("shotgun") then
+        numBullets = 8
+    end
+
+    local hitData = {}
+    for i = 1, numBullets do
+        table.insert(hitData, {
             hit = targetPart,
             hitpos = hitPos,
             normal = Vector3.new(0, 1, 0)
-        }
-    }
+        })
+    end
 
     -- Decrement authoritative clip ammo for this shot & update GUI counter in real-time
     currentGunAmmo[tool] = math.max(0, currentAmmo - 1)
@@ -1595,7 +1684,7 @@ local function getAvailableBearTypes()
         for _, b in ipairs(wsBears:GetChildren()) do
             local isPlr = Players:GetPlayerFromCharacter(b) ~= nil
             local bn = b.Name:lower()
-            if not isPlr and not bn:find("cutie") and not bn:find("ghost") and not bn:find("classic") and not table.find(list, b.Name) then
+            if not isPlr and not bn:find("cutie") and not bn:find("cute") and not bn:find("ghost") and not bn:find("classic") and not bn:find("demon") and not bn:find("devil") and not bn:find("satan") and not table.find(list, b.Name) then
                 table.insert(list, b.Name)
             end
         end
@@ -1646,6 +1735,46 @@ local function getFarmBearTarget()
     if not wsBears then
         lockedFarmTarget = nil
         return nil, nil
+    end
+
+    local function isPriorityBear(bear)
+        if not bear or not bear.Parent then return false end
+        local bName = bear.Name:lower()
+        if Config.PriorityBears and type(Config.PriorityBears) == "table" then
+            if Config.PriorityBears[bear.Name] == true or Config.PriorityBears["All"] == true then
+                return true
+            end
+            for pName, isEnabled in pairs(Config.PriorityBears) do
+                if isEnabled and (bName:find(pName:lower()) or pName:lower():find(bName)) then
+                    return true
+                end
+            end
+        end
+        return bName:find("grinder") ~= nil
+    end
+
+    -- PRIORITY PIPELINE: If any priority bear (e.g. Grinder Bear) exists, kill it FIRST!
+    local bestPriorityBear = nil
+    local bestPriorityDist = math.huge
+    for _, bear in ipairs(wsBears:GetChildren()) do
+        if isBearTargetable(bear) and isPriorityBear(bear) then
+            local bearHum = bear:FindFirstChildOfClass("Humanoid")
+            if bearHum and bearHum.Health > 0 then
+                local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
+                if bearRoot then
+                    local dist = (bearRoot.Position - root.Position).Magnitude
+                    if dist < bestPriorityDist then
+                        bestPriorityDist = dist
+                        bestPriorityBear = bear
+                    end
+                end
+            end
+        end
+    end
+
+    if bestPriorityBear then
+        lockedFarmTarget = bestPriorityBear
+        return bestPriorityBear, bestPriorityDist
     end
 
     -- 1. Sticky Target Lock: Stay locked onto the current bear until it is completely dead!
@@ -1796,11 +1925,11 @@ RunService.Heartbeat:Connect(function(dt)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return end
 
-    -- Anti-Touch & Anti-Collision Defense: Suppress touch + disable limb physics collision across all activities
+    -- Anti-Touch & Anti-Collision Defense: Suppress touch + disable physics collision so buildings/walls never block attacks
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
             if p.CanTouch then pcall(function() p.CanTouch = false end) end
-            if p ~= root and p.CanCollide then pcall(function() p.CanCollide = false end) end
+            if p.CanCollide then pcall(function() p.CanCollide = false end) end
         end
     end
 
@@ -1849,7 +1978,7 @@ RunService.Heartbeat:Connect(function(dt)
             end
         elseif isBoss then
             if activeFlightEvading or bearRoot.AssemblyLinearVelocity.Magnitude > 18 then
-                y = y + 10.0
+                y = y + 2.0
             end
         else
             -- Standard bears in Melee: remain locked tightly within 4.5 studs of hit parts! Do NOT vault into sky on evasion!
@@ -2018,7 +2147,7 @@ task.spawn(function()
             if isMelee then
                 applyWeaponMods(bestTool)
                 -- Execute melee swing from safe blindspot without stalling if bear turns
-                if tick() - lastMeleeSwing >= 0.32 then
+                if tick() - lastMeleeSwing >= 0.22 then
                     lastMeleeSwing = tick()
                     bestTool:Activate()
 
@@ -2452,18 +2581,7 @@ Hub.CreateToggle(farmTab, "Auto Collect Pages", Config.AutoCollectPages, functio
     Hub.Notify("Pages", val and "Page Collector: ACTIVE" or "Page Collector: OFF", 2)
 end)
 
-Hub.CreateButton(farmTab, "Sweep All Pages", function()
-    task.spawn(function()
-        silenceTelemetry()
-        Hub.Notify("Pages", "Collecting all pages on map...", 2)
-        local pages = getUncollectedPages()
-        for _, p in ipairs(pages) do
-            collectSinglePage(p)
-            task.wait(math.max(Config.FarmDelay, 0.35))
-        end
-        Hub.Notify("Pages", "One-time page sweep complete!", 3)
-    end)
-end)
+
 
 -- Auto Farm Bears UI Controls & Dynamic Low HP Bounds
 local initialChar = LocalPlayer.Character
@@ -2496,6 +2614,12 @@ bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears", getAvailable
     Hub.Notify("Bear Farm", "Targeting: " .. desc, 2)
 end)
 
+priorityBearDropdown = Hub.CreateMultiDropdown(farmTab, "Priority Bears (Kill First)", getAvailableBearTypes(), {"GrinderBear"}, function(dict, arr)
+    Config.PriorityBears = dict
+    local desc = dict["All"] and "All Bears" or (#arr > 0 and table.concat(arr, ", ") or "None")
+    Hub.Notify("Bear Farm", "Priority Targets: " .. desc, 2)
+end)
+
 Hub.CreateToggle(farmTab, "Safe Zone Retreat", Config.SafeZoneLowHP, function(val)
     Config.SafeZoneLowHP = val
     Hub.Notify("Bear Farm", val and "Safe Zone Retreat: ON" or "Safe Zone Retreat: OFF", 2)
@@ -2524,10 +2648,7 @@ Hub.CreateSlider(combatTab, "Melee Range", 8, 30, Config.MeleeAuraRange, " studs
     Config.MeleeAuraRange = val
 end)
 
-Hub.CreateToggle(combatTab, "Target Player Bears", Config.TargetPlayerBears, function(val)
-    Config.TargetPlayerBears = val
-    Hub.Notify("Combat", val and "Player Bears: TARGETABLE (PvP Active)" or "Player Bears: FRIENDLY (Protected)", 2)
-end)
+
 
 Hub.CreateSection(combatTab, "Firearms")
 
@@ -2540,10 +2661,7 @@ Hub.CreateSlider(combatTab, "Gun Range", 20, 150, Config.GunAuraRange, " studs",
     Config.GunAuraRange = val
 end)
 
-Hub.CreateToggle(combatTab, "Instant Reload", Config.InstantReload, function(val)
-    Config.InstantReload = val
-    Hub.Notify("Combat", val and "Instant Reload: ACTIVE" or "Instant Reload: OFF", 2)
-end)
+
 
 Hub.CreateSection(combatTab, "Movement")
 
