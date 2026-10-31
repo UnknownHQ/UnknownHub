@@ -1377,6 +1377,25 @@ local function triggerGunReload(tool)
     end)
 end
 
+local lastGunShotTime = {}
+
+local function getToolFireRate(tool)
+    if not tool then return 0.20 end
+    local isShotgun = tool.Name:lower():find("shotgun") ~= nil
+    if isShotgun then
+        local cfg = tool:FindFirstChild("Config")
+        local fr = cfg and cfg:FindFirstChild("FireRate")
+        local val = fr and fr:IsA("ValueBase") and tonumber(fr.Value)
+        return math.max(val or 0.70, 0.65) -- Authentic shotgun pump action cycle time
+    end
+    local cfg = tool:FindFirstChild("Config")
+    local fr = cfg and cfg:FindFirstChild("FireRate")
+    if fr and fr:IsA("ValueBase") then
+        return math.max(0.12, tonumber(fr.Value) or 0.18)
+    end
+    return 0.18
+end
+
 -- Server-Authoritative Shooting Dispatcher (Prevents 0-Damage Soft-Locks & Ghost Shots)
 local function shootTargetBear(tool, bear, bearPart)
     if not tool or not bear or not bearPart then return end
@@ -1389,15 +1408,26 @@ local function shootTargetBear(tool, bear, bearPart)
     local fireRemote = gunScripts and gunScripts:FindFirstChild("FireBullet")
     if not fireRemote then return end
 
+    -- 0. Gun Cycle / Fire Rate Debounce:
+    -- Shotguns require authentic pump action cycle time (0.70s).
+    -- Spamming shots every frame like an AK-47 causes server to drop packets and deal 0 damage!
+    local fireRate = getToolFireRate(tool)
+    local now = tick()
+    if now - (lastGunShotTime[tool] or 0) < fireRate then
+        return
+    end
+
     -- Authoritative Ammo & Reload Gate: NEVER shoot while reloading or with 0 ammo!
     local currentAmmo, reloading = getLoadedAmmoFromGUI(tool)
-    if reloading or tick() < reloadEndTime or isReloading then
+    if reloading or now < reloadEndTime or isReloading then
         return
     end
     if currentAmmo <= 0 then
         triggerGunReload(tool)
         return
     end
+
+    lastGunShotTime[tool] = now
 
     local muzzle = tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("Muzzle")
     local muzzlePos = muzzle and muzzle.WorldCFrame.Position or (root.Position + Vector3.new(0, 1.5, 0))
@@ -1416,22 +1446,53 @@ local function shootTargetBear(tool, bear, bearPart)
 
     -- Multi-Pellet & Shotgun Full Damage Multiplier:
     -- Shotguns and scatter weapons fire multiple pellets per shell (typically 8).
-    -- Dispatching all pellets simultaneously guarantees full 8x damage registration!
+    -- Dispatching all pellets simultaneously with realistic ballistics spread guarantees full damage!
+    local isShotgun = tool.Name:lower():find("shotgun") ~= nil
     local numBullets = 1
     local cfg = tool:FindFirstChild("Config")
     if cfg then
         local bVal = cfg:FindFirstChild("Bullets") or cfg:FindFirstChild("NumBullets") or cfg:FindFirstChild("Pellets") or cfg:FindFirstChild("ShotCount")
         if bVal and bVal:IsA("ValueBase") then
             numBullets = math.max(1, tonumber(bVal.Value) or 1)
-        elseif tool.Name:lower():find("shotgun") then
+        elseif isShotgun then
             numBullets = 8
         end
-    elseif tool.Name:lower():find("shotgun") then
+    elseif isShotgun then
         numBullets = 8
     end
 
     local hitData = {}
-    for i = 1, numBullets do
+    if isShotgun or numBullets > 1 then
+        -- Target verified critical hitboxes (Head, Chest, Crown, Torso, BodyTop)
+        local targetParts = {
+            bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head"),
+            bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso"),
+            bear:FindFirstChild("Hitbox_Crown") or bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears"),
+            targetPart,
+            bearPart
+        }
+        local validParts = {}
+        for _, p in ipairs(targetParts) do
+            if p and p:IsA("BasePart") then
+                table.insert(validParts, p)
+            end
+        end
+        if #validParts == 0 then table.insert(validParts, targetPart) end
+
+        -- Scatter pellets realistically across target hitboxes with micro-spread offsets
+        for i = 1, numBullets do
+            local chosenPart = validParts[((i - 1) % #validParts) + 1]
+            local angle = (i / numBullets) * math.pi * 2
+            local spreadRadius = (i == 1) and 0 or (0.25 + (i % 3) * 0.15)
+            local spreadOffset = (i == 1) and Vector3.zero or Vector3.new(math.cos(angle) * spreadRadius, math.sin(angle) * spreadRadius, math.sin(angle * 2) * 0.2)
+
+            table.insert(hitData, {
+                hit = chosenPart,
+                hitpos = chosenPart.Position + spreadOffset,
+                normal = Vector3.new(0, 1, 0)
+            })
+        end
+    else
         table.insert(hitData, {
             hit = targetPart,
             hitpos = hitPos,
@@ -2000,11 +2061,20 @@ RunService.Heartbeat:Connect(function(dt)
         root.CFrame = CFrame.lookAt(targetPos, centerPos)
     elseif Config.FarmMethod == "Gun" then
         local cf, bbSize = bear:GetBoundingBox()
-        local distBehindGun = (isBoss or isWall) and 38.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0)
-        local heightAboveGun = (isBoss or isWall) and (bbSize.Y * 0.5 + 26.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0)
+        local isShotgunEquipped = false
+        local equippedTool = char:FindFirstChildOfClass("Tool")
+        if equippedTool and equippedTool.Name:lower():find("shotgun") then
+            isShotgunEquipped = true
+        end
+
+        -- Shotgun lethal point-blank lock (8-10 studs distance): prevents pellet drop and 100% damage falloff!
+        local distBehindGun = isShotgunEquipped and math.clamp(bbSize.Z * 0.5 + 3.5, 6.0, 10.0)
+            or ((isBoss or isWall) and 38.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0))
+        local heightAboveGun = isShotgunEquipped and math.clamp(bbSize.Y * 0.5 + 2.5, 4.5, 8.0)
+            or ((isBoss or isWall) and (bbSize.Y * 0.5 + 26.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0))
         local hoverPos = centerPos - (flatLook * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
 
-        if activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18) then
+        if not isShotgunEquipped and (activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18)) then
             hoverPos = hoverPos + Vector3.new(0, 14.0, 0)
         end
 
