@@ -154,7 +154,14 @@ local Config = {
 
     -- Visuals
     CratesESP = false,
-    BearsESP = false
+    BearsESP = false,
+
+    -- Misc & Overpowered Suite
+    AutoVacuumCrates = false,
+    AutoUnlockDoors = false,
+    AutoPrestigeOn32 = false,
+    BearFastSprint = false,
+    SelectedPlayerBear = "CutieBear"
 }
 
 local activeESP = {}
@@ -340,6 +347,147 @@ local function isGhostBearNearPosition(pos, radius)
     end
     return false, math.huge
 end
+
+-- =========================================================================
+-- OVERPOWERED SUITE ENGINE: Full-Map Crate Vacuum, Gate Unlocker, Remote Prestige & Bear Morph
+-- =========================================================================
+
+-- 1. Full-Map Crate Loot Vacuum
+local function vacuumAllMapCrates()
+    task.spawn(function()
+        local sharedEv = ReplicatedStorage:FindFirstChild("SharedEvents")
+        local wEvents = sharedEv and sharedEv:FindFirstChild("World")
+        local reqRemote = wEvents and wEvents:FindFirstChild("RequestCrateData")
+        local openRemote = wEvents and wEvents:FindFirstChild("OpenCrate")
+        local collectRemote = wEvents and wEvents:FindFirstChild("CollectItem")
+
+        if not reqRemote or not openRemote or not collectRemote then
+            Hub.Notify("Crate Vacuum", "Remote events unavailable!", 2.5)
+            return
+        end
+
+        Hub.Notify("Crate Vacuum", "Starting full-map crate vacuum...", 2.5)
+        local allCrates = reqRemote:InvokeServer()
+        if not allCrates then return end
+
+        local lootedCount = 0
+        -- Direct Network Unseal & Remote Slot Looting across all 113 map crates
+        for crateName, _ in pairs(allCrates) do
+            pcall(function()
+                openRemote:InvokeServer(crateName)
+            end)
+            for slot = 1, 4 do
+                pcall(function()
+                    collectRemote:InvokeServer(crateName, slot)
+                end)
+            end
+            lootedCount = lootedCount + 1
+            if lootedCount % 12 == 0 then
+                task.wait(0.03) -- Clean rate throttle to prevent network packet drops
+            end
+        end
+
+        -- Sweep all physical spawned ItemPrompt & CratePrompt instances in Workspace
+        local interactables = Workspace:FindFirstChild("Interactables")
+        local cratesFolder = interactables and interactables:FindFirstChild("Crates")
+        if cratesFolder then
+            for _, c in ipairs(cratesFolder:GetChildren()) do
+                for _, d in ipairs(c:GetDescendants()) do
+                    if d:IsA("ProximityPrompt") and d.Enabled then
+                        pcall(function() fireproximityprompt(d) end)
+                    end
+                end
+            end
+        end
+
+        Hub.Notify("Crate Vacuum", "Successfully vacuumed " .. lootedCount .. " crates across the map!", 3)
+    end)
+end
+
+-- 2. Unlock Bunker & All Security Doors (Client Attribute Override)
+local function unlockAllDoorsAndBunker()
+    LocalPlayer:SetAttribute("BunkerUnlocked", true)
+    LocalPlayer:SetAttribute("KeycardAccess", true)
+    LocalPlayer:SetAttribute("AccessGranted", true)
+
+    local CollectionService = game:GetService("CollectionService")
+    local count = 0
+    for _, d in ipairs(CollectionService:GetTagged("Door")) do
+        pcall(function()
+            d:SetAttribute("Locked", false)
+            count = count + 1
+        end)
+    end
+    Hub.Notify("Security Override", "Bunker & " .. count .. " security doors unlocked!", 2.5)
+end
+
+-- 3. Remote Prestige Trigger (Direct Server Remote Invocation)
+local function triggerRemotePrestige()
+    local pc = Workspace:FindFirstChild("Interactables") and Workspace.Interactables:FindFirstChild("PrestigeComputer")
+    local pRemote = pc and pc:FindFirstChild("Prestige")
+    if not pRemote then
+        Hub.Notify("Prestige", "Prestige computer remote not found!", 2.5)
+        return
+    end
+
+    local ok, res = pcall(function() return pRemote:InvokeServer() end)
+    if ok and res == true then
+        Hub.Notify("Prestige", "PRESTIGE GRANTED! Resetting with prestige rewards 🌟", 4)
+    else
+        Hub.Notify("Prestige", "Prestige locked: requires 32 pages or cooldown active.", 3)
+    end
+end
+
+-- 4. Player Bears Suite (Morph, Abilities, Fast Sprint)
+local function morphIntoSelectedBear(bearId)
+    local pbEvents = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("PlayerBears")
+    local becomeRemote = pbEvents and pbEvents:FindFirstChild("BecomeBear")
+    if not becomeRemote then
+        Hub.Notify("Bear Morph", "BecomeBear remote not found!", 2)
+        return
+    end
+
+    Hub.Notify("Bear Morph", "Transforming into " .. bearId .. "...", 2)
+    local ok, res, msg = pcall(function()
+        return becomeRemote:InvokeServer(bearId, "Become")
+    end)
+
+    -- If not owned yet, attempt to buy permanent or one-time
+    if ok and res == false and tostring(msg):find("don't own") then
+        pcall(function() becomeRemote:InvokeServer(bearId, "Permanent") end)
+        pcall(function() becomeRemote:InvokeServer(bearId, "OneTime") end)
+        pcall(function() becomeRemote:InvokeServer(bearId, "Become") end)
+    end
+
+    local char = LocalPlayer.Character
+    if char and char:GetAttribute("TransformedToBear") then
+        Hub.Notify("Bear Morph", "Successfully morphed into " .. tostring(char:GetAttribute("TransformedToBear")) .. "! 🐻", 3)
+    else
+        Hub.Notify("Bear Morph", "Morph status: " .. tostring(res or msg), 3)
+    end
+end
+
+local function castBearAbility(slot)
+    local pbEvents = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("PlayerBears")
+    local abilityRemote = pbEvents and pbEvents:FindFirstChild("BearAbility")
+    if not abilityRemote then return end
+
+    local cam = Workspace.CurrentCamera
+    local aimPos = cam and (cam.CFrame.Position + (cam.CFrame.LookVector * 100)) or Vector3.zero
+    pcall(function()
+        abilityRemote:FireServer("Use", slot or 1, aimPos)
+    end)
+end
+
+-- Continuous Auto-Vacuum Daemon
+task.spawn(function()
+    while true do
+        task.wait(4)
+        if Config.AutoVacuumCrates then
+            vacuumAllMapCrates()
+        end
+    end
+end)
 
 -- Active GhostBear Neutralization & Visualizer Protocol
 task.spawn(function()
@@ -700,7 +848,11 @@ task.spawn(function()
                     collectSinglePage(targetPage)
                     task.wait(Config.FarmDelay)
                 else
-                    Hub.Notify("Pages", "All pages on map collected!", 3)
+                    Hub.Notify("Pages", "All pages on map collected! (32/32)", 3)
+                    if Config.AutoPrestigeOn32 then
+                        task.wait(0.5)
+                        triggerRemotePrestige()
+                    end
                     Config.AutoCollectPages = false
                     task.wait(2)
                 end
@@ -2031,6 +2183,28 @@ RunService.Heartbeat:Connect(function()
 
     -- 2. WalkSpeed & SprintingSpeed Multiplier via Game's SpeedModifiers
     ensureSpeedModifier(char)
+
+    -- 3. Auto Unlock Bunker & Security Doors
+    if Config.AutoUnlockDoors then
+        LocalPlayer:SetAttribute("BunkerUnlocked", true)
+        LocalPlayer:SetAttribute("KeycardAccess", true)
+        LocalPlayer:SetAttribute("AccessGranted", true)
+        local CollectionService = game:GetService("CollectionService")
+        for _, d in ipairs(CollectionService:GetTagged("Door")) do
+            if d:GetAttribute("Locked") == true then
+                d:SetAttribute("Locked", false)
+            end
+        end
+    end
+
+    -- 4. Bear Fast Sprint Spammer (when morphed as Bear)
+    if Config.BearFastSprint then
+        local pbEvents = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("PlayerBears")
+        local sprintRemote = pbEvents and pbEvents:FindFirstChild("BearSprint")
+        if sprintRemote then
+            pcall(function() sprintRemote:FireServer(true) end)
+        end
+    end
 end)
 
 --------------------------------------------------------------------------------
@@ -2180,6 +2354,10 @@ local farmTab = Hub.CreateTab("Auto Farm", {
 })
 
 Hub.CreateSection(farmTab, "Crates")
+
+Hub.CreateButton(farmTab, "Vacuum All Crates (Instant Loot)", function()
+    vacuumAllMapCrates()
+end)
 
 Hub.CreateToggle(farmTab, "Auto Farm Crates", Config.AutoFarmCrates, function(val)
     Config.AutoFarmCrates = val
@@ -2378,4 +2556,78 @@ end
 
 
 
-Hub.Notify("Medved Hub", "Medved! V4 Loaded — Combat Suite & Dynamic Teleports 🐻", 3)
+-- =========================================================================
+-- TAB: MISC & OVERPOWERED SUITE
+-- =========================================================================
+local miscTab = Hub.CreateTab("Misc", {
+    Icon = "⚡",
+    Size = 18,
+    Color = Color3.fromRGB(180, 100, 255),
+    ActiveColor = Color3.fromRGB(205, 130, 255)
+})
+
+Hub.CreateSection(miscTab, "Overpowered Loot & Crate Vacuum")
+
+Hub.CreateButton(miscTab, "Vacuum All Crates (Instant Loot)", function()
+    vacuumAllMapCrates()
+end)
+
+Hub.CreateToggle(miscTab, "Auto Vacuum Map Crates", Config.AutoVacuumCrates, function(val)
+    Config.AutoVacuumCrates = val
+    Hub.Notify("Misc", val and "Auto Vacuum Crates: ACTIVE" or "Auto Vacuum Crates: OFF", 2)
+end)
+
+Hub.CreateSection(miscTab, "Prestige & Progression")
+
+Hub.CreateButton(miscTab, "Remote Prestige (Instant Server Trigger)", function()
+    triggerRemotePrestige()
+end)
+
+Hub.CreateToggle(miscTab, "Auto Prestige on 32 Pages", Config.AutoPrestigeOn32, function(val)
+    Config.AutoPrestigeOn32 = val
+    Hub.Notify("Misc", val and "Auto Prestige: ACTIVE" or "Auto Prestige: OFF", 2)
+end)
+
+Hub.CreateSection(miscTab, "Security & Doors Override")
+
+Hub.CreateButton(miscTab, "Unlock Bunker & All Security Doors", function()
+    unlockAllDoorsAndBunker()
+end)
+
+Hub.CreateToggle(miscTab, "Auto Unlock All Doors", Config.AutoUnlockDoors, function(val)
+    Config.AutoUnlockDoors = val
+    if val then unlockAllDoorsAndBunker() end
+    Hub.Notify("Misc", val and "Auto Unlock Doors: ACTIVE" or "Auto Unlock Doors: OFF", 2)
+end)
+
+Hub.CreateSection(miscTab, "Player Bears & Morph")
+
+local bearMorphOptions = {
+    "CutieBear", "Medved", "ClassicBear", "GrizzlyMedved",
+    "booboo", "RangedBear", "ballbear", "TallBear",
+    "WallBear", "GhostBear", "BurrowingBear", "LaserBooBoo",
+    "GrinderBear", "HypersonicBooBoo", "IceBear"
+}
+
+Hub.CreateDropdown(miscTab, "Select Bear Morph", bearMorphOptions, Config.SelectedPlayerBear, function(val)
+    Config.SelectedPlayerBear = val
+end)
+
+Hub.CreateButton(miscTab, "Morph into Selected Bear", function()
+    morphIntoSelectedBear(Config.SelectedPlayerBear)
+end)
+
+Hub.CreateButton(miscTab, "Cast Bear Ability (Slot 1)", function()
+    castBearAbility(1)
+end)
+
+Hub.CreateButton(miscTab, "Cast Bear Ability (Slot 2)", function()
+    castBearAbility(2)
+end)
+
+Hub.CreateToggle(miscTab, "Bear Fast Sprint", Config.BearFastSprint, function(val)
+    Config.BearFastSprint = val
+    Hub.Notify("Bear", val and "Bear Sprint: ACTIVE" or "Bear Sprint: OFF", 2)
+end)
+
+Hub.Notify("Medved Hub", "Medved! V5 Loaded — Overpowered Suite & Misc Tab 🐻⚡", 3)
