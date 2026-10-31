@@ -867,13 +867,29 @@ local function getBearLevitationTarget(bear)
         end
     end
 
-    -- Category 1: Ball Bear (ballbear, BooBoo, LaserBooBoo, HypersonicBooBoo)
-    -- BooBoo & Ball bears: In Melee, stay tightly locked within 2.8 studs so melee reach is 100% satisfied without missing!
+    -- Category 1.1: Laser BooBoo / Roboo-800 (Deadly Eye Lasers, Balefire & DeathRay Boss)
+    -- Roboo shoots forward eye lasers & DeathRay. Hover safely above its spine blindspot (+4.5 studs above head)
+    if name:find("laser") or name:find("roboo") or name:find("robo") then
+        local targetPos = cf.Position
+        if Config.FarmMethod == "Melee" then
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 4.5
+            local distBehind = 3.6
+            return targetPos, distBehind, targetY
+        else
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 26.0
+            local distBehind = 34.0
+            return targetPos, distBehind, targetY
+        end
+    end
+
+    -- Category 1: Ball Bear (ballbear, BooBoo, HypersonicBooBoo)
+    -- In Melee: Hover at +3.8 studs elevation (feet 1.8 studs above head) and 2.6 studs behind.
+    -- This puts player completely out of bite/headbutt hitbox while keeping melee swings 100% within reach!
     if name:find("booboo") or name:find("ball") or sz.Y < 6.5 or sz.Magnitude < 8 then
         local targetPos = cf.Position
         if Config.FarmMethod == "Melee" then
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 2.0
-            local distBehind = 2.0
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.8
+            local distBehind = 2.6
             return targetPos, distBehind, targetY
         else
             local targetY = cf.Position.Y + (sz.Y * 0.5) + 22.0
@@ -1641,42 +1657,58 @@ local WEAPON_TIERS = {
     Pistol = 30
 }
 
+local function getToolDamage(tool)
+    if not tool then return 0 end
+    local cfg = tool:FindFirstChild("Config")
+    if cfg then
+        local dmgVal = cfg:FindFirstChild("Damage") or cfg:FindFirstChild("DPS")
+        if dmgVal and dmgVal:IsA("ValueBase") and tonumber(dmgVal.Value) then
+            return tonumber(dmgVal.Value)
+        end
+    end
+    return WEAPON_TIERS[tool.Name] or 10
+end
+
+local function isToolMatchingType(tool, weaponType)
+    if not tool or not tool:IsA("Tool") then return false end
+    local isMelee = tool:FindFirstChild("MeleeScripts") ~= nil
+    local isGun = (tool:FindFirstChild("GunScripts") ~= nil) or (tool:FindFirstChild("FlameRemote") ~= nil) or (tool.Name:lower():find("flame") ~= nil)
+    if weaponType == "Melee" then
+        return isMelee
+    elseif weaponType == "Gun" then
+        return isGun
+    end
+    return false
+end
+
 local function getBestTool(weaponType)
     local char = LocalPlayer.Character
     local backpack = LocalPlayer:FindFirstChild("Backpack")
+
+    -- 1. If player ALREADY has a matching weapon equipped in character, USE IT IMMEDIATELY!
+    local equipped = char and char:FindFirstChildOfClass("Tool")
+    if equipped and isToolMatchingType(equipped, weaponType) then
+        return equipped
+    end
+
     local candidates = {}
-
     local function checkTool(tool)
-        if not tool or not tool:IsA("Tool") then return end
-        local isMelee = tool:FindFirstChild("MeleeScripts") ~= nil
-        local isGun = (tool:FindFirstChild("GunScripts") ~= nil) or (tool:FindFirstChild("FlameRemote") ~= nil) or (tool.Name == "Flamethrower")
-
-        if weaponType == "Melee" and isMelee then
-            table.insert(candidates, tool)
-        elseif weaponType == "Gun" and isGun then
+        if isToolMatchingType(tool, weaponType) then
             table.insert(candidates, tool)
         end
     end
 
     if char then
-        for _, c in ipairs(char:GetChildren()) do
-            checkTool(c)
-        end
+        for _, c in ipairs(char:GetChildren()) do checkTool(c) end
     end
     if backpack then
-        for _, c in ipairs(backpack:GetChildren()) do
-            checkTool(c)
-        end
+        for _, c in ipairs(backpack:GetChildren()) do checkTool(c) end
     end
 
     if #candidates == 0 then return nil end
 
     table.sort(candidates, function(a, b)
-        local cfgA = a:FindFirstChild("Config")
-        local cfgB = b:FindFirstChild("Config")
-        local dmgA = (cfgA and (cfgA:FindFirstChild("Damage") or cfgA:FindFirstChild("DPS")) and cfgA:FindFirstChildWhichIsA("ValueBase").Value) or WEAPON_TIERS[a.Name] or 10
-        local dmgB = (cfgB and (cfgB:FindFirstChild("Damage") or cfgB:FindFirstChild("DPS")) and cfgB:FindFirstChildWhichIsA("ValueBase").Value) or WEAPON_TIERS[b.Name] or 10
-        return dmgA > dmgB
+        return getToolDamage(a) > getToolDamage(b)
     end)
 
     return candidates[1]
@@ -1687,6 +1719,12 @@ local function ensureBestWeaponEquipped(weaponType)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not char or not hum or hum.Health <= 0 then return nil end
 
+    -- Check if already held in hand
+    local equipped = char:FindFirstChildOfClass("Tool")
+    if equipped and isToolMatchingType(equipped, weaponType) then
+        return equipped
+    end
+
     local bestTool = getBestTool(weaponType)
     if not bestTool then return nil end
 
@@ -1695,7 +1733,8 @@ local function ensureBestWeaponEquipped(weaponType)
     end
 
     hum:EquipTool(bestTool)
-    return nil
+    task.wait(0.08)
+    return bestTool
 end
 
 local bearTypeDropdown = nil
@@ -2038,7 +2077,8 @@ RunService.Heartbeat:Connect(function(dt)
     if not centerPos then return end
 
     local bearNameLower = bear.Name:lower()
-    local isBoss = bearNameLower:find("grinder") ~= nil or bearNameLower:find("robo") ~= nil or bearNameLower:find("boss") ~= nil
+    local isLaser = bearNameLower:find("laser") ~= nil or bearNameLower:find("roboo") ~= nil or bearNameLower:find("robo") ~= nil
+    local isBoss = bearNameLower:find("grinder") ~= nil or bearNameLower:find("boss") ~= nil or isLaser
     local isWall = bearNameLower:find("wall") ~= nil
     local isRanged = bearNameLower:find("ranged") ~= nil or bearNameLower:find("spike") ~= nil
 
@@ -2050,19 +2090,24 @@ RunService.Heartbeat:Connect(function(dt)
             if activeFlightEvading then
                 y = y + 7.5
             end
+        elseif isLaser then
+            -- Roboo-800 laser evasion: vault high above forward laser eye and DeathRay line-of-fire!
+            if activeFlightEvading or bearRoot.AssemblyLinearVelocity.Magnitude > 12 then
+                y = y + 6.0
+            end
         elseif isRanged then
-            -- Spike Bear in melee mode: stay locked within 5.2 studs reach of head without sky-vaulting
+            -- Spike / Ranged Bear in melee mode: stay clear of needle spray
             if activeFlightEvading then
-                y = y + 0.8
+                y = y + 3.8
             end
         elseif isBoss then
-            if activeFlightEvading or bearRoot.AssemblyLinearVelocity.Magnitude > 18 then
-                y = y + 2.0
+            if activeFlightEvading or bearRoot.AssemblyLinearVelocity.Magnitude > 16 then
+                y = y + 4.2
             end
         else
-            -- Standard bears in Melee: remain locked tightly within 4.5 studs of hit parts! Do NOT vault into sky on evasion!
+            -- Standard bears (including BooBoo) in Melee: vault +3.2 studs above bite/slash reach when bear turns!
             if activeFlightEvading then
-                y = y + 0.5
+                y = y + 3.2
             end
         end
 
