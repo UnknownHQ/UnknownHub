@@ -110,6 +110,16 @@ local State = {
     Noclip_Speed = 35,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
+    -- Knobs Farm Autopilot Suite
+    Knobs_Farm_Active = false,
+    Knobs_Farm_MaxGold = 3500,
+    Knobs_Farm_MaxDoors = 85,
+    Knobs_Farm_LootDrawers = true,
+    Knobs_Farm_LootChests = true,
+    Knobs_Farm_RoofEvacuation = true,
+    Knobs_Farm_AutoSolveFigure = true,
+    Knobs_Farm_AutoRestart = true,
+
     -- Item Exploits & Infinite Items
     Infinite_Items = true,
     Infinite_Lockpicks = true,
@@ -5269,6 +5279,445 @@ local function getActiveEntitiesForFloor()
 end
 
 -- =========================================================================
+-- Autonomous Knobs Farm & Auto-Win Engine (Fly-Noclip, Anti-Entity, Quota Reset)
+-- =========================================================================
+local isKnobsFarmRunning = false
+local currentFarmTarget = nil
+local lootedContainersThisRun = {}
+local lootedRoomsThisRun = {}
+local isEvacuatingRoof = false
+
+-- Persistent Auto Re-execution Setup (Runs across matches without auto-exec folder!)
+local function setupQueueOnTeleport()
+    local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
+    if qot then
+        pcall(function()
+            qot([[
+                repeat task.wait() until game:IsLoaded()
+                getgenv().Doors_KnobsFarm_AutoResume = true
+                local s, src = pcall(readfile, "Doors.luau")
+                if s and src and #src > 100 then
+                    loadstring(src)()
+                end
+            ]])
+        end)
+    end
+end
+
+-- Rush / Ambush / A-60 / A-120 Lethal Threat Detector
+local function isLethalEntityIncoming()
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    for _, name in ipairs({"RushMoving", "AmbushMoving", "A60", "A120"}) do
+        if (curRooms and curRooms:FindFirstChild(name, true)) or Workspace:FindFirstChild(name, true) then
+            return true, name
+        end
+    end
+    return false, nil
+end
+
+-- Fly-Noclip Glide Controller: Direct 3D linear flight through walls and obstacles
+local function farmGlideTo(targetPos, speedVal, maxTime)
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return false end
+
+    local speed = speedVal or (State.Noclip_Speed or 55)
+    local maxWait = maxTime or 6.0
+    local startTime = os.clock()
+    local arrived = false
+
+    -- Ensure Noclip & Anti-Cheat Bypass are actively running
+    if not State.Noclip then State.Noclip = true end
+    if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
+
+    while (os.clock() - startTime < maxWait) and State.Knobs_Farm_Active do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        local curChar = getChar()
+        local curRoot = getRoot()
+        if not curChar or not curRoot then break end
+
+        -- Check Rush / Ambush interrupt
+        if State.Knobs_Farm_RoofEvacuation and not isAtRoof then
+            local incoming, entName = isLethalEntityIncoming()
+            if incoming then
+                return "THREAT_INTERRUPT"
+            end
+        end
+
+        local curPos = curRoot.Position
+        local diff = (targetPos - curPos)
+        local dist = diff.Magnitude
+
+        if dist <= 2.8 then
+            arrived = true
+            break
+        end
+
+        local dir = diff.Unit
+        local dt = 1/60
+        local step = math.min(dist, speed * dt)
+        local nextPos = curPos + dir * step
+        local lookCF = CFrame.new(nextPos, nextPos + dir)
+
+        curChar:PivotTo(lookCF)
+        curRoot.CFrame = lookCF
+        local cp = curChar:FindFirstChild("CollisionPart")
+        if cp then cp.CFrame = lookCF end
+
+        curRoot.AssemblyLinearVelocity = dir * speed
+        curRoot.AssemblyAngularVelocity = Vector3.zero
+
+        -- Continuous door touch sentry along flight path
+        processNearbyDoors(curPos, 22)
+
+        task.wait(0.016)
+    end
+
+    if arrived and root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+
+    return arrived
+end
+
+-- Safe Roof Haven Handler for Knobs Farm
+local function handleFarmRoofEvacuation()
+    if isEvacuatingRoof then return end
+    isEvacuatingRoof = true
+    Hub.Notify("Knobs Farm", "⚠️ Entity incoming! Evacuating to safe roof platform...", 3)
+
+    teleportToRoof()
+
+    -- Wait until threat is completely cleared
+    while State.Knobs_Farm_Active do
+        local incoming = isLethalEntityIncoming()
+        if not incoming then
+            task.wait(2.5) -- Safety tail after despawn
+            break
+        end
+        task.wait(0.3)
+    end
+
+    returnFromRoof()
+    task.wait(0.5)
+    isEvacuatingRoof = false
+    Hub.Notify("Knobs Farm", "Threat cleared. Resuming farming loop!", 2)
+end
+
+-- Room 50 (Library) Auto Solver & Padlock Unlocker
+local function solveFigureLibraryRoom()
+    Hub.Notify("Knobs Farm", "Room 50 (Figure) entered! Collecting books & paper...", 4)
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local r50 = curRooms and curRooms:FindFirstChild("50")
+    if not r50 then return false end
+
+    -- 1. Collect Hint Paper first
+    local paper = Workspace:FindFirstChild("LibraryHintPaper", true) or (r50 and r50:FindFirstChild("LibraryHintPaper", true))
+    if paper then
+        local pPart = paper:IsA("BasePart") and paper or (paper:IsA("Model") and (paper.PrimaryPart or paper:FindFirstChildWhichIsA("BasePart", true)))
+        if pPart then
+            farmGlideTo(pPart.Position + Vector3.new(0, 1.5, 0), 45, 4.0)
+            local pPrompt = paper:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if pPrompt then
+                pPrompt.HoldDuration = 0
+                pPrompt.RequiresLineOfSight = false
+                pcall(function() fireproximityprompt(pPrompt) end)
+            end
+            task.wait(0.2)
+        end
+    end
+
+    -- 2. Collect all 8 books
+    local attempts = 0
+    while attempts < 12 and State.Knobs_Farm_Active do
+        local booksLeft = 0
+        for _, desc in ipairs(r50:GetDescendants()) do
+            if desc.Name == "LiveHintBook" or desc.Name:lower():find("hintbook") then
+                booksLeft = booksLeft + 1
+                local bPart = desc:IsA("BasePart") and desc or (desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)))
+                if bPart then
+                    farmGlideTo(bPart.Position + Vector3.new(0, 1.5, 0), 50, 3.5)
+                    local bPrompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if bPrompt then
+                        bPrompt.HoldDuration = 0
+                        bPrompt.RequiresLineOfSight = false
+                        pcall(function() fireproximityprompt(bPrompt) end)
+                    end
+                    task.wait(0.15)
+                end
+            end
+        end
+        if booksLeft == 0 then break end
+        attempts = attempts + 1
+        task.wait(0.3)
+    end
+
+    -- 3. Solve 5-digit code
+    local code, err = solveLibraryCode()
+    if not code or code:find("_") then
+        Hub.Notify("Knobs Farm", "Solving library code with partial digits...", 3)
+    else
+        Hub.Notify("Knobs Farm", "Library Padlock Code Deciphered: " .. tostring(code), 5)
+    end
+
+    -- 4. Unlock Padlock via PL remote or prompt
+    if code and not code:find("_") then
+        local plRemote = remotesFolder and remotesFolder:FindFirstChild("PL")
+        if plRemote then
+            pcall(function() plRemote:FireServer(code) end)
+        end
+    end
+
+    -- Also glide to exit door 51
+    local door50 = r50:FindFirstChild("Door")
+    if door50 then
+        local dPart = door50:FindFirstChild("Door") or door50:FindFirstChild("Hidden") or door50.PrimaryPart
+        if dPart then
+            farmGlideTo(dPart.Position + Vector3.new(0, 0, 3), 55, 4.0)
+            processNearbyDoors(dPart.Position, 25)
+        end
+    end
+
+    return true
+end
+
+-- Room-by-room Farm Step
+local function processKnobsFarmStep()
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return end
+
+    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+    local curRoomNum = (gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value) or getCurrentRoomNumber() or 0
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local roomModel = curRooms and curRooms:FindFirstChild(tostring(curRoomNum))
+
+    -- Check Quota
+    local gs = game:GetService("ReplicatedStorage"):FindFirstChild("GameStats")
+    local pStats = gs and gs:FindFirstChild("Player_" .. LocalPlayer.Name)
+    local currentGold = (pStats and pStats.Total:FindFirstChild("GoldPicked") and pStats.Total.GoldPicked.Value) or 0
+    local currentDoors = curRoomNum
+
+    if (currentGold >= (State.Knobs_Farm_MaxGold or 3500)) or (currentDoors >= (State.Knobs_Farm_MaxDoors or 85)) then
+        Hub.Notify("Knobs Farm", string.format("🎯 Quota Hit! Gold: %d | Doors: %d. Cashing in Knobs and restarting!", currentGold, currentDoors), 5)
+        setupQueueOnTeleport()
+        getgenv().Doors_KnobsFarm_AutoResume = true
+
+        -- Authoritative reset to bank all Knobs!
+        task.wait(0.5)
+        pcall(function() char:BreakJoints() end)
+        pcall(function() hum.Health = 0 end)
+
+        -- Await death & fire PlayAgain
+        task.wait(6.0)
+        local pa = remotesFolder and remotesFolder:FindFirstChild("PlayAgain")
+        if pa then
+            pcall(function() pa:FireServer() end)
+        end
+        task.wait(5.0)
+        return
+    end
+
+    -- Check Rush / Ambush threat
+    if isLethalEntityIncoming() then
+        handleFarmRoofEvacuation()
+        return
+    end
+
+    -- Room 0 (Elevator / Reception Initial Key & Door 1)
+    if curRoomNum == 0 and roomModel then
+        local keyObtain = roomModel:FindFirstChild("KeyObtain", true)
+        if keyObtain then
+            local kp = keyObtain:IsA("BasePart") and keyObtain or (keyObtain:IsA("Model") and (keyObtain.PrimaryPart or keyObtain:FindFirstChildWhichIsA("BasePart", true)))
+            if kp then
+                farmGlideTo(kp.Position + Vector3.new(0, 1.2, 0), 45, 3.0)
+                local p = keyObtain:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if p then
+                    p.HoldDuration = 0
+                    pcall(function() fireproximityprompt(p) end)
+                end
+                task.wait(0.3)
+            end
+        end
+    end
+
+    -- Room 50 (Figure & Library)
+    if curRoomNum == 50 then
+        solveFigureLibraryRoom()
+        task.wait(1.0)
+        return
+    end
+
+    -- Seek Chase: Rapid pass-through mode
+    local isSeekChase = (gd and gd:FindFirstChild("ChaseInSession") and gd.ChaseInSession.Value == true) or (Workspace:FindFirstChild("SeekMoving") ~= nil)
+    if isSeekChase then
+        Hub.Notify("Knobs Farm", "Seek Chase active! Sprint-flying through corridor...", 2)
+        local exitDoor = roomModel and roomModel:FindFirstChild("Door")
+        if exitDoor then
+            local dPart = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("Hidden") or exitDoor.PrimaryPart
+            if dPart then
+                farmGlideTo(dPart.Position + Vector3.new(0, 0, 2), 75, 4.0)
+                processNearbyDoors(dPart.Position, 25)
+            end
+        end
+        task.wait(0.15)
+        return
+    end
+
+    -- Loot current room (Containers, Drawers, Gold, Chests)
+    if roomModel and not lootedRoomsThisRun[curRoomNum] then
+        lootedRoomsThisRun[curRoomNum] = true
+        local lootTargets = {}
+
+        for _, desc in ipairs(roomModel:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") and desc.Enabled and not lootedContainersThisRun[desc] then
+                local obj = (desc.ObjectText or ""):lower()
+                local act = (desc.ActionText or ""):lower()
+                local pName = desc.Parent and desc.Parent.Name:lower() or ""
+
+                -- Gold / Coins / Stardust
+                local isGold = obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") or pName:find("gold") or obj:find("stardust")
+                -- Drawers & Desks
+                local isDrawer = State.Knobs_Farm_LootDrawers and (pName:find("knob") or pName:find("drawer") or obj:find("drawer") or pName:find("desk") or obj:find("desk") or pName:find("dresser"))
+                -- Chests
+                local isChest = State.Knobs_Farm_LootChests and (pName:find("chest") or obj:find("chest"))
+                -- Tools (Lockpicks, Crucifix, Skeleton Key)
+                local isTool = pName:find("lockpick") or obj:find("lockpick") or pName:find("crucifix") or obj:find("crucifix") or pName:find("skeleton") or obj:find("skeleton") or pName:find("key")
+
+                if isGold or isDrawer or isChest or isTool then
+                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent:IsA("Model") and (desc.Parent.PrimaryPart or desc.Parent:FindFirstChildWhichIsA("BasePart", true)))
+                    if pPart then
+                        table.insert(lootTargets, { Prompt = desc, Part = pPart, IsChest = isChest, IsTool = isTool })
+                    end
+                end
+            end
+        end
+
+        -- Fly to and loot each target in sequence
+        for _, target in ipairs(lootTargets) do
+            if not State.Knobs_Farm_Active then break end
+            if isLethalEntityIncoming() then
+                handleFarmRoofEvacuation()
+                break
+            end
+
+            local p = target.Prompt
+            local part = target.Part
+            if p and p.Parent and p.Enabled and part and part.Parent then
+                local res = farmGlideTo(part.Position + Vector3.new(0, 1.2, 0), 55, 2.5)
+                if res == "THREAT_INTERRUPT" then
+                    handleFarmRoofEvacuation()
+                    break
+                end
+
+                -- If locked chest, trigger Infinite Items dupe-drop with lockpick
+                if target.IsChest then
+                    local lockpick = getEquippedOrInventoryTool({"lockpick", "skeleton"})
+                    if lockpick then
+                        executeItemDupeDrop(lockpick)
+                    end
+                end
+
+                p.HoldDuration = 0
+                p.RequiresLineOfSight = false
+                lootedContainersThisRun[p] = true
+                pcall(function() fireproximityprompt(p) end)
+                task.wait(0.12)
+            end
+        end
+    end
+
+    -- Locked Door Handling: Grab room key if locked
+    local exitDoor = roomModel and roomModel:FindFirstChild("Door")
+    if exitDoor then
+        local lock = exitDoor:FindFirstChild("Lock")
+        if lock and (lock:GetAttribute("Locked") == true or lock:FindFirstChild("UnlockPrompt", true)) then
+            local hasKey = LocalPlayer.Backpack:FindFirstChild("Key") ~= nil or (char and char:FindFirstChild("Key") ~= nil)
+            if not hasKey then
+                -- Locate key in room
+                local key = roomModel:FindFirstChild("KeyObtain", true)
+                if key then
+                    local kp = key:IsA("BasePart") and key or (key:IsA("Model") and (key.PrimaryPart or key:FindFirstChildWhichIsA("BasePart", true)))
+                    if kp then
+                        farmGlideTo(kp.Position + Vector3.new(0, 1.2, 0), 60, 3.5)
+                        local kpPrompt = key:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if kpPrompt then
+                            kpPrompt.HoldDuration = 0
+                            pcall(function() fireproximityprompt(kpPrompt) end)
+                        end
+                        task.wait(0.2)
+                    end
+                end
+            end
+        end
+
+        -- Fly to Exit Door & Open
+        local dPart = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("Hidden") or exitDoor.PrimaryPart
+        if dPart then
+            farmGlideTo(dPart.Position + Vector3.new(0, 0, 3), 55, 3.5)
+
+            -- Unlock if lock prompt exists
+            if lock then
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (char and char:FindFirstChild("Key"))
+                if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                    hum:EquipTool(keyTool)
+                    task.wait(0.05)
+                end
+                local up = lock:FindFirstChild("UnlockPrompt", true)
+                if up and up.Enabled then
+                    up.HoldDuration = 0
+                    pcall(function() fireproximityprompt(up) end)
+                    task.wait(0.15)
+                end
+            end
+
+            -- Open door & step across into next chamber
+            processNearbyDoors(dPart.Position, 25)
+            farmGlideTo(dPart.Position - exitDoor:GetPivot().LookVector * 5, 50, 2.0)
+            task.wait(0.2)
+        end
+    end
+end
+
+-- Knobs Farm Background Master Daemon
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Knobs_Farm_Active then
+            pcall(processKnobsFarmStep)
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- Character Respawn Watcher (Auto-Resumes on new match / after reset!)
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    if _G.DOORS_SESSION ~= currentSession then return end
+    setupQueueOnTeleport()
+    if State.Knobs_Farm_Active or getgenv().Doors_KnobsFarm_AutoResume then
+        State.Knobs_Farm_Active = true
+        getgenv().Doors_KnobsFarm_AutoResume = true
+        task.delay(2.5, function()
+            lootedContainersThisRun = {}
+            lootedRoomsThisRun = {}
+            isEvacuatingRoof = false
+            Hub.Notify("Knobs Farm", "⚡ New match detected! Autopilot resumed.", 3)
+        end)
+    end
+end)
+
+-- Auto-resume immediately if flagged in memory
+if getgenv().Doors_KnobsFarm_AutoResume then
+    State.Knobs_Farm_Active = true
+    setupQueueOnTeleport()
+    Hub.Notify("Knobs Farm", "⚡ Auto-Resuming Knobs Farm from previous session!", 3)
+end
+
+-- =========================================================================
 -- UI Tabs
 -- =========================================================================
 
@@ -5497,6 +5946,55 @@ Hub.CreateButton(mainTab, "Quick Dupe Held Tool", function()
     else
         Hub.Notify("Dupe", "Equip a tool first to dupe!", 2)
     end
+end)
+
+Hub.CreateSection(mainTab, "Knobs Farm Autopilot")
+
+Hub.CreateToggle(mainTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, function(v)
+    State.Knobs_Farm_Active = v
+    getgenv().Doors_KnobsFarm_AutoResume = v
+    if v then
+        setupQueueOnTeleport()
+        State.Noclip = true
+        State.Bypass_AntiCheat = true
+        Hub.Notify("Knobs Farm", "⚡ Autopilot activated! Autonomous farming running.", 3)
+    else
+        Hub.Notify("Knobs Farm", "Autopilot paused.", 2)
+    end
+end)
+
+Hub.CreateSlider(mainTab, "Max Gold Quota", 1000, 5000, State.Knobs_Farm_MaxGold or 3500, " gold", function(v)
+    State.Knobs_Farm_MaxGold = v
+end)
+
+Hub.CreateSlider(mainTab, "Max Door Quota", 40, 95, State.Knobs_Farm_MaxDoors or 85, " doors", function(v)
+    State.Knobs_Farm_MaxDoors = v
+end)
+
+Hub.CreateToggle(mainTab, "Loot Drawers & Desks", State.Knobs_Farm_LootDrawers, function(v)
+    State.Knobs_Farm_LootDrawers = v
+end)
+
+Hub.CreateToggle(mainTab, "Unlock Chests (Lockpick)", State.Knobs_Farm_LootChests, function(v)
+    State.Knobs_Farm_LootChests = v
+end)
+
+Hub.CreateToggle(mainTab, "Roof Haven on Rush/Ambush", State.Knobs_Farm_RoofEvacuation, function(v)
+    State.Knobs_Farm_RoofEvacuation = v
+end)
+
+Hub.CreateButton(mainTab, "Force Match Reset & Play Again", function()
+    setupQueueOnTeleport()
+    getgenv().Doors_KnobsFarm_AutoResume = true
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if char then pcall(function() char:BreakJoints() end) end
+    if hum then pcall(function() hum.Health = 0 end) end
+    task.delay(6.0, function()
+        local pa = remotesFolder and remotesFolder:FindFirstChild("PlayAgain")
+        if pa then pcall(function() pa:FireServer() end) end
+    end)
+    Hub.Notify("Knobs Farm", "Resetting match & cashing in Knobs...", 3)
 end)
 
 local excludeCategories = {
