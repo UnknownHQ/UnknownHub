@@ -157,7 +157,6 @@ local Config = {
     TurretsESP = false,
 
     -- Combat: Turret & Sentry Automation
-    AutoStackTurrets = false,
     AutoHealTurrets = false,
 
     -- Misc & Progression
@@ -417,83 +416,7 @@ local function triggerRemotePrestige()
     end
 end
 
--- 3. Turret Placement & In-One-Place Mega Stacking
-local currentTurretStackCFrame = nil
 
-local function getGroundPlacementCFrame()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil end
-
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = {char}
-    rayParams.IgnoreWater = true
-
-    local hit = Workspace:Raycast(root.Position, Vector3.new(0, -12, 0), rayParams)
-    local groundY = hit and hit.Position.Y or (root.Position.Y - 2.8)
-    local look = root.CFrame.LookVector * Vector3.new(1, 0, 1)
-    if look.Magnitude < 0.01 then look = Vector3.new(0, 0, -1) end
-
-    return CFrame.lookAt(Vector3.new(root.Position.X, groundY, root.Position.Z), Vector3.new(root.Position.X, groundY, root.Position.Z) + look)
-end
-
-local function placeTurretAtCFrame(targetCF)
-    if not targetCF then return false end
-    local char = LocalPlayer.Character
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-
-    local stb = (char and char:FindFirstChild("SentryToolbox")) or (backpack and backpack:FindFirstChild("SentryToolbox"))
-    if not stb then
-        local shopRemote = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("Shop") and ReplicatedStorage.SharedEvents.Shop:FindFirstChild("PurchaseItem")
-        if shopRemote then
-            pcall(function() shopRemote:InvokeServer("SentryToolbox", "BuyOne") end)
-            task.wait(0.2)
-        end
-        stb = (char and char:FindFirstChild("SentryToolbox")) or (backpack and backpack:FindFirstChild("SentryToolbox"))
-    end
-
-    if stb then
-        if stb.Parent == backpack and char and char:FindFirstChildOfClass("Humanoid") then
-            char.Humanoid:EquipTool(stb)
-            task.wait(0.12)
-        end
-        local placeRemote = stb:FindFirstChild("PlaceTurret")
-        if placeRemote then
-            pcall(function() placeRemote:FireServer(targetCF) end)
-            return true
-        end
-    end
-    return false
-end
-
--- Continuous Auto-Stack Turrets Daemon: Automatically places any Sentry in inventory directly into the stacked anchor
-task.spawn(function()
-    while true do
-        task.wait(0.3)
-        if Config.AutoStackTurrets then
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            if root then
-                if not currentTurretStackCFrame then
-                    currentTurretStackCFrame = getGroundPlacementCFrame()
-                    if currentTurretStackCFrame then
-                        Hub.Notify("Turrets", "Turret stack anchor locked to your spot! Sentries will stack here.", 3)
-                    end
-                end
-
-                local backpack = LocalPlayer:FindFirstChild("Backpack")
-                local stb = (char and char:FindFirstChild("SentryToolbox")) or (backpack and backpack:FindFirstChild("SentryToolbox"))
-                if stb and currentTurretStackCFrame then
-                    placeTurretAtCFrame(currentTurretStackCFrame)
-                    task.wait(0.5)
-                end
-            end
-        else
-            currentTurretStackCFrame = nil
-        end
-    end
-end)
 
 -- 4. Turret Proximity Auto-Heal Engine
 task.spawn(function()
@@ -2794,29 +2717,6 @@ Hub.CreateSlider(combatTab, "Speed Modifier", 14.1, 45, Config.CustomSpeed, " sp
 end)
 
 Hub.CreateSection(combatTab, "Turrets & Sentries")
-
-Hub.CreateToggle(combatTab, "Auto Stack Turrets in One Spot", Config.AutoStackTurrets, function(val)
-    Config.AutoStackTurrets = val
-    if val then
-        currentTurretStackCFrame = getGroundPlacementCFrame()
-        Hub.Notify("Turrets", "Turret stack anchor set to your current spot! Sentry guns will place here.", 3)
-    else
-        currentTurretStackCFrame = nil
-        Hub.Notify("Turrets", "Turret stacking: OFF", 2)
-    end
-end)
-
-Hub.CreateButton(combatTab, "Stack Sentry Here (Buy & Place)", function()
-    local targetCF = currentTurretStackCFrame or getGroundPlacementCFrame()
-    if targetCF then
-        local ok = placeTurretAtCFrame(targetCF)
-        if ok then
-            Hub.Notify("Turrets", "Placed sentry gun in stacked cluster! 🔫", 2)
-        else
-            Hub.Notify("Turrets", "Could not place sentry (check cash/inventory)", 2)
-        end
-    end
-end)
 
 Hub.CreateToggle(combatTab, "Auto Heal Turrets", Config.AutoHealTurrets, function(val)
     Config.AutoHealTurrets = val
