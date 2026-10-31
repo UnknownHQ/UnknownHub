@@ -2974,6 +2974,27 @@ local function initAntiGlitchShield()
     end)
 end
 
+local cachedMovSpeedFn = nil
+local function syncNativeFlightSpeed(speed)
+    pcall(function()
+        if not cachedMovSpeedFn and getgc then
+            local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+            local mov = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("Movement")
+            if mov then
+                for _, fn in ipairs(getgc(false)) do
+                    if type(fn) == "function" and getfenv(fn).script == mov and debug.info(fn, "l") == 1491 then
+                        cachedMovSpeedFn = fn
+                        break
+                    end
+                end
+            end
+        end
+        if cachedMovSpeedFn and debug.setupvalue then
+            debug.setupvalue(cachedMovSpeedFn, 22, speed)
+        end
+    end)
+end
+
 local lastFlySlidePulse = 0
 local flyPos = nil
 local lastNoclipDisableGrace = 0
@@ -4262,19 +4283,23 @@ RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        -- CRITICAL: Always keep mgTable.noclip = false so DOORS native debug flight never runs,
-        -- never binds KeyCode.E or Q for elevation, never hides player body, and leaves KeyCode.E 100% free for manual interaction!
-        if mgTable.noclip then
+        -- RESTORE & LOCK ORIGINAL SMOOTH FLY METHOD (mgTable.noclip = true)
+        if State.Noclip then
+            mgTable.noclip = true
+            if mgTable.hideplayers ~= 0 then
+                mgTable.hideplayers = 0
+            end
+        elseif not State.Noclip and mgTable.noclip then
             mgTable.noclip = false
-        end
-        if mgTable.hideplayers ~= 0 then
-            mgTable.hideplayers = 0
         end
     end
 
-    -- Ensure DOORS never hides the local viewmodel or held tools during flight
-    if State.Noclip and mgTable and mgTable.hideplayers ~= 0 then
-        mgTable.hideplayers = 0
+    -- Ensure DOORS never hides the local viewmodel or held tools during flight, and sync speed continuously
+    if State.Noclip then
+        if mgTable and mgTable.hideplayers ~= 0 then
+            mgTable.hideplayers = 0
+        end
+        syncNativeFlightSpeed(State.Noclip_Speed or 45)
     end
 
     -- Continuous FOV synchronization
@@ -5875,8 +5900,14 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     end
     State.Noclip = v
     local mg = getMainGameTable()
-    if mg and mg.noclip then
-        mg.noclip = false
+    if mg then
+        mg.noclip = v
+        if v and mg.hideplayers ~= 0 then
+            mg.hideplayers = 0
+        end
+    end
+    if v then
+        syncNativeFlightSpeed(State.Noclip_Speed or 45)
     end
     local char = getChar()
 
@@ -5928,6 +5959,7 @@ end)
 
 Hub.CreateSlider(mainTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
+    syncNativeFlightSpeed(v)
 end)
 
 Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
