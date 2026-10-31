@@ -3137,7 +3137,7 @@ local function neutralizeServerTeleported()
                                 if hiding or isHidingSpotNearPos(args[1]) then
                                     return fn(...)
                                 end
-                                if State.Noclip or isTeleportTweening or State.Deflect_Glitch then
+                                if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     -- Instant Server Re-Synchronization Handshake:
                                     -- Pulses slide token and sends a directional replication impulse from the rollback point
                                     -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
@@ -3151,11 +3151,14 @@ local function neutralizeServerTeleported()
                                             local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
                                             r.AssemblyLinearVelocity = impulseVel
                                             task.wait(0.03)
-                                            if State.Noclip and r and r.Parent then
+                                            if r and r.Parent then
                                                 r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
                                             end
                                         end
                                     end)
+                                    if mgTable and mgTable.SETNEWCF then
+                                        mgTable.SETNEWCF = nil
+                                    end
                                     return
                                 end
                                 return fn(...)
@@ -3167,9 +3170,9 @@ local function neutralizeServerTeleported()
         end
     end)
 
-    -- 3. Clear SETNEWCF only during active Noclip or Tweening, NEVER during hiding or normal play
+    -- 3. Clear SETNEWCF during active Noclip, Tweening, Anti-Cheat, or disable grace period
     local mgTable = getMainGameTable()
-    if mgTable and not isPlayerHiding(getChar(), mgTable) and (os.clock() >= unhideGraceUntil) and (State.Noclip or isTeleportTweening) then
+    if mgTable and not isPlayerHiding(getChar(), mgTable) and (os.clock() >= unhideGraceUntil) and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or (os.clock() < lastNoclipDisableGrace)) then
         if mgTable.SETNEWCF then
             mgTable.SETNEWCF = nil
         end
@@ -4295,7 +4298,7 @@ RunService.Heartbeat:Connect(function(dt)
     -- Synchronizes DOORS native noclip flag without corrupting wardrobe or door transitions
     local mgTable = getMainGameTable()
     if mgTable then
-        if not hiding and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or isAtRoof) then
+        if not hiding and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
             if mgTable.SETNEWCF then
                 mgTable.SETNEWCF = nil
             end
@@ -4431,7 +4434,7 @@ RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Fly_Enabled or isTeleportTweening then
+    if State.Noclip or State.Fly_Enabled or isTeleportTweening or (os.clock() < lastNoclipDisableGrace) then
         -- Strip CanCollide and set CollisionGroup="None" so server physics solver treats walls as non-collidable
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
@@ -4619,13 +4622,9 @@ local function applyPromptModifications(prompt)
         prompt.RequiresLineOfSight = false
     else
         -- ITEMS, KEYS, GOLD, CHESTS, LEVERS, TOOLS & DRAWERS:
-        -- During Noclip/Flight, expand MaxActivationDistance to 14 studs so items NEVER have interaction delay!
-        if State.Noclip or State.Range_Interact then
-            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 14)
-        else
-            local origDist = prompt:GetAttribute("OrigMaxDist")
-            if origDist ~= nil then prompt.MaxActivationDistance = origDist end
-        end
+        -- ALWAYS expand MaxActivationDistance to 14 studs and strip RequiresLineOfSight!
+        -- Eradicates all 6-10s interaction delays whether flying, noclipping through walls, or walking!
+        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 14)
         prompt.RequiresLineOfSight = false
 
         if State.Instant_Interact then
@@ -5924,11 +5923,8 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     end
     local char = getChar()
 
+    refreshAllPrompts()
     if not v and char then
-        -- Cleanly restore standard Roblox character collision & friction (eliminates sliding backwards & stumbles!)
-        restoreCharacterInteractivity(char)
-        restoreDefaultFriction(char)
-
         local hum = char:FindFirstChildWhichIsA("Humanoid")
         if hum then
             hum.PlatformStand = false
@@ -5939,30 +5935,37 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
         lastNoclipDisableGrace = os.clock() + 3.5
 
         local r = getRoot()
+        local cp = char:FindFirstChild("CollisionPart")
         if r then
-            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
-            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
+            -- Floor Snap Raycast: Snap root and character cleanly above floor without wall collision glitches
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
             local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
-            if downHit and downHit.Position then
-                local floorY = downHit.Position.Y
-                if r.Position.Y < (floorY + 2.5) then
-                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
-                end
+            local floorY = downHit and downHit.Position and downHit.Position.Y
+            local targetY = if (floorY and r.Position.Y < (floorY + 2.5)) then floorY + 3.2 else r.Position.Y
+            local snapCF = CFrame.new(r.Position.X, targetY, r.Position.Z) * r.CFrame.Rotation
+
+            char:PivotTo(snapCF)
+            r.CFrame = snapCF
+            if cp then cp.CFrame = snapCF end
+            if mg then
+                mg.clipPos = snapCF.Position
+                if mg.SETNEWCF then mg.SETNEWCF = nil end
             end
-            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
             r.AssemblyAngularVelocity = Vector3.zero
 
-            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
+            -- Keep slide authorization alive across the 3.5s grace period so server never rolls back through doors/walls!
             task.spawn(function()
                 if crouchRemote then
                     pcall(function() crouchRemote:FireServer(false, true) end)
                 end
-                task.wait(0.2)
-                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+                task.wait(3.5)
+                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding and (os.clock() >= lastNoclipDisableGrace) then
                     syncServerSlide(false, false)
+                    restoreCharacterInteractivity(char)
+                    restoreDefaultFriction(char)
                 end
             end)
         end
@@ -6410,7 +6413,7 @@ if getconnections then
                     local char = getChar()
                     local mgTable = getMainGameTable()
                     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof) then
+                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
                         return
                     end
                     return oldTele(...)
@@ -6427,7 +6430,7 @@ if getconnections then
                     local char = getChar()
                     local mgTable = getMainGameTable()
                     local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof) then
+                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
                         return
                     end
                     return oldServTele(...)
@@ -7131,7 +7134,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                         if pPart then
                             local toPart = (pPart.Position - rPos)
                             local dist = toPart.Magnitude
-                            local maxReach = State.Noclip and 18 or (p.MaxActivationDistance + 2.5)
+                            local maxReach = 18
                             if dist <= maxReach and dist <= 18 then
                                 local dir = toPart.Unit
                                 local dot = lookVec:Dot(dir)
