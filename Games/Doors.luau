@@ -4434,38 +4434,71 @@ RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Fly_Enabled or isTeleportTweening or (os.clock() < lastNoclipDisableGrace) or State.Anti_Rush or isPlayerOutOfMap() then
-        -- Strip CanCollide and set CollisionGroup="None" so server physics solver treats walls as non-collidable
+    if State.Noclip or State.Fly_Enabled or isTeleportTweening then
+        -- Strip CanCollide only during ACTIVE flight/noclip so walls/doors can be flown through smoothly
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
-                if State.Noclip or State.Fly_Enabled or isTeleportTweening or (os.clock() < lastNoclipDisableGrace) then
-                    if part.CanCollide then part.CanCollide = false end
-                    if part.CollisionGroup ~= "None" then
-                        if not part:GetAttribute("OrigCollisionGroup") then
-                            part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
-                        end
-                        part.CollisionGroup = "None"
+                if part.CanCollide then part.CanCollide = false end
+                if part.CollisionGroup ~= "None" then
+                    if not part:GetAttribute("OrigCollisionGroup") then
+                        part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
                     end
+                    part.CollisionGroup = "None"
                 end
-                -- PHANTOM TOUCH SHIELD: Explicitly strip CanTouch so Rush, Ambush & lethal entities NEVER trigger Touched kill events!
-                if State.Noclip or State.Fly_Enabled or State.Anti_Rush or isPlayerOutOfMap() then
-                    if part.CanTouch then part.CanTouch = false end
-                end
+                -- Always preserve CanTouch & CanQuery so wardrobes, drawers & doorway triggers never break!
+                if not part.CanTouch then part.CanTouch = true end
                 if not part.CanQuery then part.CanQuery = true end
             end
         end
     else
-        -- FLOOR NOCLIP FIX: When not noclipping/flying, actively enforce "Player" collision group and enable Collision part!
+        -- SOLID FLOOR GROUNDING: Instantly restore solid collisions the microsecond flight is disabled!
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CollisionGroup == "None" then
-                local orig = part:GetAttribute("OrigCollisionGroup")
-                part.CollisionGroup = orig or "Player"
+            if part:IsA("BasePart") then
+                if part.CollisionGroup == "None" then
+                    local orig = part:GetAttribute("OrigCollisionGroup")
+                    part.CollisionGroup = orig or "Player"
+                end
+                if not part.CanTouch then part.CanTouch = true end
+                if not part.CanQuery then part.CanQuery = true end
             end
         end
         local coll = char:FindFirstChild("Collision")
         if coll and coll:IsA("BasePart") then
             if not coll.CanCollide then coll.CanCollide = true end
             if coll.CollisionGroup ~= "Player" then coll.CollisionGroup = "Player" end
+            coll.CanTouch = true
+            coll.CanQuery = true
+        end
+    end
+end)
+
+-- =========================================================================
+-- Noclip Room Entrance & Wardrobe Desynchronization Resolver
+-- Synchronizes CurrentRoom and doorway triggers when noclipping through walls
+-- =========================================================================
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if State.Noclip or State.Fly_Enabled then
+            pcall(function()
+                local curSpatialRoom = getCurrentRoomNumber()
+                local curAttr = tonumber(LocalPlayer:GetAttribute("CurrentRoom"))
+                if curSpatialRoom and curAttr and curSpatialRoom ~= curAttr then
+                    local cr = Workspace:FindFirstChild("CurrentRooms")
+                    local roomModel = cr and cr:FindFirstChild(tostring(curSpatialRoom))
+                    local entrance = roomModel and (roomModel:FindFirstChild("RoomEntrance") or roomModel:FindFirstChild("Door") or roomModel:FindFirstChild("Trigger"))
+                    local char = getChar()
+                    local coll = char and (char:FindFirstChild("Collision") or char:FindFirstChild("HumanoidRootPart"))
+                    if entrance and coll then
+                        local targetPart = entrance:IsA("Model") and (entrance.PrimaryPart or entrance:FindFirstChildWhichIsA("BasePart")) or entrance
+                        if targetPart and targetPart:IsA("BasePart") then
+                            firetouchinterest(coll, targetPart, 0)
+                            task.wait(0.02)
+                            firetouchinterest(coll, targetPart, 1)
+                        end
+                    end
+                end
+            end)
         end
     end
 end)
@@ -4617,12 +4650,13 @@ local function applyPromptModifications(prompt)
     prompt.RequiresLineOfSight = false
 
     if isHidingSpot then
-        -- CRITICAL WARDROBE COMPLIANCE FIX:
-        -- Clamping strictly to native 9.0 studs guarantees 100% server acceptance!
-        local origDist = prompt:GetAttribute("OrigMaxDist") or 9
-        prompt.MaxActivationDistance = math.clamp(origDist, 5, 9.0)
+        -- Wardrobe & Closet Interaction Assurance:
+        -- Keep within native 9.5 studs, disable LOS, and guarantee prompt is enabled!
+        local origDist = prompt:GetAttribute("OrigMaxDist") or 9.5
+        prompt.MaxActivationDistance = math.clamp(origDist, 8.0, 10.5)
         prompt.HoldDuration = 0
         prompt.RequiresLineOfSight = false
+        if not prompt.Enabled then prompt.Enabled = true end
     elseif isDoorPrompt then
         prompt.RequiresLineOfSight = false
     else
@@ -5982,21 +6016,18 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
 
-        lastNoclipDisableGrace = os.clock() + 3.5
+        lastNoclipDisableGrace = os.clock() + 1.0
 
         local r = getRoot()
         if r then
-            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
-            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
+            -- Immediate Solid Floor Grounding Raycast: Snaps root firmly on solid floor
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
+            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 4, 0), Vector3.new(0, -20, 0), rayParams)
             if downHit and downHit.Position then
                 local floorY = downHit.Position.Y
-                if r.Position.Y < (floorY + 2.5) then
-                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
-                end
+                r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
             end
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
