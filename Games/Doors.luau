@@ -3010,6 +3010,26 @@ local function syncNativeFlightSpeed(speed)
     end)
 end
 
+local function syncNativeFlightPosition(pos)
+    pcall(function()
+        if not cachedMovSpeedFn and getgc then
+            local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+            local mov = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("Movement")
+            if mov then
+                for _, fn in ipairs(getgc(false)) do
+                    if type(fn) == "function" and getfenv(fn).script == mov and debug.info(fn, "l") == 1491 then
+                        cachedMovSpeedFn = fn
+                        break
+                    end
+                end
+            end
+        end
+        if cachedMovSpeedFn and debug.setupvalue then
+            debug.setupvalue(cachedMovSpeedFn, 26, pos)
+        end
+    end)
+end
+
 local lastFlySlidePulse = 0
 local flyPos = nil
 local lastNoclipDisableGrace = 0
@@ -3041,23 +3061,13 @@ local function neutralizeServerTeleported()
                             return rawFn(p1, p2, p3, p4)
                         end
                         if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                            -- Instant Server Re-Synchronization Handshake:
-                            -- Pulses slide token and sends a directional replication impulse from the rollback point
-                            -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
-                            task.spawn(function()
-                                local r = getRoot()
-                                if r and crouchRemote then
-                                    pcall(function() crouchRemote:FireServer(false, true) end)
-                                    local p2Pos = (typeof(p2) == "Vector3" and p2) or (typeof(p2) == "CFrame" and p2.Position) or r.Position
-                                    local toClient = (r.Position - p2Pos)
-                                    local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
-                                    r.AssemblyLinearVelocity = impulseVel
-                                    task.wait(0.03)
-                                    if r and r.Parent then
-                                        r.AssemblyLinearVelocity = Vector3.zero
-                                    end
-                                end
-                            end)
+                            -- Eradicate Server Teleport Rollback: Purge SETNEWCF and acknowledge slide token without freezing velocity
+                            if mgTable and mgTable.SETNEWCF then
+                                mgTable.SETNEWCF = nil
+                            end
+                            if crouchRemote then
+                                pcall(function() crouchRemote:FireServer(false, true) end)
+                            end
                             return
                         end
                         return rawFn(p1, p2, p3, p4)
@@ -3090,24 +3100,13 @@ local function neutralizeServerTeleported()
                                     return fn(...)
                                 end
                                 if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                                    -- Instant Server Re-Synchronization Handshake:
-                                    -- Pulses slide token and sends a directional replication impulse from the rollback point
-                                    -- to the player's true position so the server's internal model updates in 30ms, eliminating the 5s interact freeze and network lag!
-                                    task.spawn(function()
-                                        local r = getRoot()
-                                        if r and crouchRemote then
-                                            pcall(function() crouchRemote:FireServer(false, true) end)
-                                            local arg1 = (typeof(args) == "table" and args[1])
-                                            local p2Pos = (typeof(arg1) == "Vector3" and arg1) or (typeof(arg1) == "CFrame" and arg1.Position) or r.Position
-                                            local toClient = (r.Position - p2Pos)
-                                            local impulseVel = if toClient.Magnitude > 0.1 then toClient.Unit * 35 else Vector3.new(0, 0.25, 0)
-                                            r.AssemblyLinearVelocity = impulseVel
-                                            task.wait(0.03)
-                                            if r and r.Parent then
-                                                r.AssemblyLinearVelocity = Vector3.zero
-                                            end
-                                        end
-                                    end)
+                                    -- Eradicate Teleport Rollback: Purge SETNEWCF and acknowledge slide token
+                                    if mgTable and mgTable.SETNEWCF then
+                                        mgTable.SETNEWCF = nil
+                                    end
+                                    if crouchRemote then
+                                        pcall(function() crouchRemote:FireServer(false, true) end)
+                                    end
                                     return
                                 end
                                 return fn(...)
@@ -4205,7 +4204,9 @@ RunService.Heartbeat:Connect(function(dt)
         if mgTable then
             mgTable.clipPos = targetPos
             if mgTable.dudespots then mgTable.dudespots[char] = targetPos end
+            if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
         end
+        syncNativeFlightPosition(targetPos)
 
         -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
         root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
@@ -4367,23 +4368,7 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- FULL BODY RIG POSITION SYNCHRONIZATION WITH COLLISIONPART:
-    -- Guarantees the player's ENTIRE body moves with flight out of the map.
-    -- Zero limbs, torso, or root parts are ever left behind in any room!
-    if State.Noclip and char then
-        local cp = char:FindFirstChild("CollisionPart")
-        local root = getRoot()
-        if cp and root then
-            root.CFrame = cp.CFrame
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-            char:PivotTo(cp.CFrame)
-            local col = char:FindFirstChild("Collision")
-            if col then col.CFrame = cp.CFrame end
-            local cc = char:FindFirstChild("CollisionCrouch")
-            if cc then cc.CFrame = cp.CFrame end
-        end
-    end
+
 
     -- UNIVERSAL ENTITY IMMUNITY SHIELD (Zero special-casing: protects against ALL entities!)
     -- Glitch, Rush, Glitch Rush, Ambush, A-60, A-120, Dread, Seek, Figure, Snare, Dupe, Halt, etc.
@@ -4450,14 +4435,7 @@ RunService.Stepped:Connect(function()
     end
 
     if State.Noclip or State.Fly_Enabled or isTeleportTweening then
-        -- Lock character rig to CollisionPart on Stepped so physics never desynchronizes body from flight
-        local cp = char:FindFirstChild("CollisionPart")
-        local root = getRoot()
-        if cp and root then
-            root.CFrame = cp.CFrame
-            root.AssemblyLinearVelocity = Vector3.zero
-            char:PivotTo(cp.CFrame)
-        end
+
 
         -- Strip CanCollide AND CanTouch so walls phase smoothly and NO monster can touch the character
         for _, part in ipairs(char:GetDescendants()) do
