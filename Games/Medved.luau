@@ -161,7 +161,8 @@ local Config = {
 
     -- Misc & Progression
     AutoUnlockDoors = false,
-    AutoPrestigeOn32 = false
+    AutoPrestigeOn32 = false,
+    AntiRagdoll = false
 }
 
 local activeESP = {}
@@ -1164,6 +1165,62 @@ local function applyWeaponMods(tool)
     end
 end
 
+-- =========================================================================
+-- Native Anti-Ragdoll Recovery Protocol
+-- =========================================================================
+local function recoverFromRagdoll()
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    -- 1. Strip client/server RagdollTag instance
+    local tag = char:FindFirstChild("RagdollTag")
+    if tag then
+        pcall(function() tag:Destroy() end)
+    end
+
+    -- 2. Strip bone ragdoll and jumpscare attributes
+    if char:GetAttribute("BoneRagdolled") then
+        pcall(function() char:SetAttribute("BoneRagdolled", nil) end)
+    end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health > 0 then
+        if hum:GetAttribute("BeingJumpscared") then
+            pcall(function() hum:SetAttribute("BeingJumpscared", nil) end)
+        end
+
+        hum.PlatformStand = false
+        hum.AutoRotate = true
+
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.Physics
+            or state == Enum.HumanoidStateType.Ragdoll
+            or state == Enum.HumanoidStateType.FallingDown
+            or state == Enum.HumanoidStateType.PlatformStanding then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            task.defer(function()
+                if hum and hum.Health > 0 then
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end)
+        end
+    end
+
+    -- 3. Restore all Motor6D joints
+    for _, m in ipairs(char:GetDescendants()) do
+        if m:IsA("Motor6D") and not m.Enabled then
+            m.Enabled = true
+        end
+    end
+
+    -- 4. Guarantee solid ground collision
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            p.CanCollide = true
+        end
+    end
+end
+
 -- Server-Synchronized Gun Reload & Live Ammo State Machine
 local isReloading = false
 local reloadEndTime = 0
@@ -1922,19 +1979,24 @@ RunService.Heartbeat:Connect(function(dt)
         root.CFrame = CFrame.new(root.Position.X, -132, root.Position.Z)
     end
 
-    -- Ragdoll Safety Guard: If knocked down or ragdolled, IMMEDIATELY restore CanCollide so body rests on solid ground!
+    -- Ragdoll Safety Guard & Anti-Ragdoll Recovery Engine
     local isRagdolled = char:FindFirstChild("RagdollTag") ~= nil
         or hum:GetState() == Enum.HumanoidStateType.Physics
         or hum:GetState() == Enum.HumanoidStateType.Ragdoll
         or hum.PlatformStanding
+        or char:GetAttribute("BoneRagdolled") ~= nil
 
     if isRagdolled then
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then
-                p.CanCollide = true
+        if Config.AntiRagdoll then
+            recoverFromRagdoll()
+        else
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = true
+                end
             end
+            return
         end
-        return
     end
 
     if not Config.AutoFarmBears or isFleeingLowHP then
@@ -2818,6 +2880,16 @@ Hub.CreateToggle(miscTab, "Auto Unlock All Doors", Config.AutoUnlockDoors, funct
     Hub.Notify("Misc", val and "Auto Unlock Doors: ACTIVE" or "Auto Unlock Doors: OFF", 2)
 end)
 
+Hub.CreateSection(miscTab, "Character & Combat Recovery")
+
+Hub.CreateToggle(miscTab, "Anti Ragdoll", Config.AntiRagdoll, function(val)
+    Config.AntiRagdoll = val
+    if val then
+        recoverFromRagdoll()
+    end
+    Hub.Notify("Misc", val and "Anti Ragdoll: ACTIVE (Instant Standup)" or "Anti Ragdoll: OFF", 2)
+end)
+
 -- Automatic Tool Sanitizer (Ensures authentic reload and cleans fake client folders)
 local function setupToolSanitizers()
     local function watchContainer(container)
@@ -2842,9 +2914,19 @@ local function setupToolSanitizers()
         watchContainer(newChar)
         local newBp = LocalPlayer:WaitForChild("Backpack", 5)
         if newBp then watchContainer(newBp) end
+        newChar.ChildAdded:Connect(function(child)
+            if Config.AntiRagdoll and child.Name == "RagdollTag" then
+                task.defer(recoverFromRagdoll)
+            end
+        end)
     end)
     if LocalPlayer.Character then
         watchContainer(LocalPlayer.Character)
+        LocalPlayer.Character.ChildAdded:Connect(function(child)
+            if Config.AntiRagdoll and child.Name == "RagdollTag" then
+                task.defer(recoverFromRagdoll)
+            end
+        end)
     end
 end
 task.spawn(setupToolSanitizers)
