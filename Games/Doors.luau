@@ -1878,7 +1878,7 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
 
     -- Active RenderStepped tracking backup: keeps rounded cube 100% aligned even across instant teleportation or CFrame snaps
     local followConn
-    followConn = trackConn(RunService.RenderStepped:Connect(function()
+    followConn = RunService.RenderStepped:Connect(function()
         if not targetPart or not targetPart.Parent or not model.Parent then
             if followConn then followConn:Disconnect() end
             return
@@ -1887,6 +1887,7 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
             model:PivotTo(targetPart.CFrame)
         end
     end)
+    trackConn(followConn)
     model.Destroying:Connect(function()
         if followConn then followConn:Disconnect() end
     end)
@@ -3834,7 +3835,8 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
     local settleStartTime = nil
 
     local conn
-    conn = trackConn(RunService.Heartbeat:Connect(function()
+    conn = RunService.Heartbeat:Connect(function()
+        if conn then trackConn(conn) end
         if activeTweenToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
             if conn then conn:Disconnect() end
             if activeTweenToken == token then
@@ -4524,7 +4526,8 @@ end
 -- =========================================================================
 -- Continuous Heartbeat Enforcement & Omnidirectional Phase Noclip Engine
 -- =========================================================================
-trackConn(RunService.Heartbeat:Connect(function(dt)
+local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
+    if hbFlightConn then trackConn(hbFlightConn) end
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
     local root = getRoot()
@@ -4885,7 +4888,8 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- Stepped Guard: Strips collisions & touch on character parts during Noclip
-trackConn(RunService.Stepped:Connect(function()
+local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
+    if steppedConn1 then trackConn(steppedConn1) end
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
     local mgTable = getMainGameTable()
@@ -5031,7 +5035,8 @@ end)
 
 -- =========================================================================
 -- Pre-Physics Stepped Collision Bypass: Ensures physics engine NEVER overrides noclip collisions before physics step
-trackConn(RunService.Stepped:Connect(function()
+local steppedConn2; steppedConn2 = RunService.Stepped:Connect(function()
+    if steppedConn2 then trackConn(steppedConn2) end
     if _G.DOORS_SESSION ~= currentSession then return end
     if State.Noclip then
         local char = getChar()
@@ -5050,7 +5055,8 @@ end)
 -- Jumping & Sliding Engine (DOORS Freedom Movement)
 -- =========================================================================
 
-trackConn(UserInputService.JumpRequest:Connect(function()
+local jumpConn; jumpConn = UserInputService.JumpRequest:Connect(function()
+    if jumpConn then trackConn(jumpConn) end
     if State.Enable_Jumping then
         local char = getChar()
         local root = getRoot()
@@ -5070,7 +5076,8 @@ trackConn(UserInputService.JumpRequest:Connect(function()
     end
 end)
 
-trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+local inputConn1; inputConn1 = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if inputConn1 then trackConn(inputConn1) end
     -- Click to Teleport (Ctrl + Left Click)
     if State.ClickTP_Enabled and input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessed then
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
@@ -7293,8 +7300,6 @@ if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
                 local args = {...}
                 if args[1] == true then return nil end
             end
-        local method = getnamecallmethod()
-        if not checkcaller() then
             -- Intercept IsKeyDown call via namecall to permanently kill Q/E elevation in DOORS Movement
             if (method == "IsKeyDown" or method == "isKeyDown") then
                 local args = {...}
@@ -8106,7 +8111,8 @@ scanAllRooms()
 Hub.Notify("Unknown Hub", "DOORS Precision ESP Loaded", 3)
 
 -- Frame-0 ProximityPrompt Fast Trigger: Bypasses native engine input polling delays on KeyCode.E
-trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+local inputConn2; inputConn2 = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if inputConn2 then trackConn(inputConn2) end
     if input.KeyCode == Enum.KeyCode.E and not UserInputService:GetFocusedTextBox() then
         local r = getRoot()
         local cam = Workspace.CurrentCamera
