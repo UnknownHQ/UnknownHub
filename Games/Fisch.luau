@@ -1,14 +1,13 @@
 --------------------------------------------------------------------------------
--- UNKNOWN HUB: FISCH (Comprehensive Anti-Cheat Neutralized Edition)
--- PlaceId: 16732694052, 17910972410 | GameId: 5750914919
--- Complete Feature Suite:
---   • Tier-0 Anti-Cheat Neutralization (Metamethod Detours, Honeypot Drop, WalkSpeed Spoof)
---   • Auto Fishing (Auto Cast, Instant Auto Shake, Safe Humanized Auto Reel)
---   • Catch Safeguard Engine (Server Duration Validation, Zero-Ban Heuristics)
---   • Auto Sell All Fish & Auto Inventory Manager
---   • Visuals & ESP (Fish Pools, Sunken Crates, Merchants & Island Totems)
---   • World Teleports (All Islands, Deep Zones, Secret Altars)
---   • Movement: Walk on Water, Infinite Oxygen, Fullbright & Anti-Drown
+-- UNKNOWN HUB: FISCH (Stealth Clean Edition - Zero Ban & Zero Kick)
+-- PlaceId: 16732694052, 17910972410, 131716211654599 | GameId: 5750914919
+-- Architecture:
+--   • 100% Pure Client Runtime (Zero risky metamethod detours to prevent Error 267)
+--   • Auto Cast with customizable power and state validation
+--   • Instant Auto Shake (clicks shake bubbles naturally)
+--   • Safe Auto Reel (locks playerbar on the fish bubble with server duration guard)
+--   • Auto Sell All Fish routine
+--   • World Teleports & Movement Utilities
 --------------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
@@ -25,67 +24,10 @@ local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
 --------------------------------------------------------------------------------
--- 1. TIER-0 ANTI-CHEAT NEUTRALIZATION & DETECTION SHIELD
+-- 1. NATURAL ANTI-AFK (Zero Metamethod Risk)
 --------------------------------------------------------------------------------
-local AntiCheatShield = {
-    OriginalWalkSpeed = 16,
-    OriginalJumpPower = 50,
-    Installed = false
-}
-
-local function setupAntiCheatBypass()
-    if AntiCheatShield.Installed then return end
-    pcall(function()
-        if not hookmetamethod or not getnamecallmethod then return end
-
-        local oldNamecall = nil
-        local oldIndex = nil
-
-        -- Detour 1: Surgical __namecall filter (prevents kick calls & drown damage without breaking internal handshakes)
-        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            if typeof(self) == "Instance" then
-                -- Block client-side kick calls directed at LocalPlayer
-                if method == "Kick" or method == "kick" then
-                    return nil
-                end
-
-                -- Block drowning damage remote when infinite oxygen is active
-                if Config.InfiniteOxygen and (self.Name == "drown" or self.Name:lower() == "drown") then
-                    return nil
-                end
-            end
-
-            return oldNamecall(self, ...)
-        end))
-
-        -- Detour 2: Safe __index filter (spoofs WalkSpeed/JumpPower only for outside scripts)
-        oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-            if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
-                if key == "WalkSpeed" and Config.WalkSpeed ~= 16 then
-                    return AntiCheatShield.OriginalWalkSpeed
-                elseif key == "JumpPower" and Config.JumpPower ~= 50 then
-                    return AntiCheatShield.OriginalJumpPower
-                end
-            end
-            return oldIndex(self, key)
-        end))
-
-        AntiCheatShield.Installed = true
-    end)
-end
-
-setupAntiCheatBypass()
-
--- Anti-AFK Engine (Prevents 20-minute Roblox idle kick)
 pcall(function()
-    for _, conn in ipairs(getconnections(LocalPlayer.Idled)) do
-        pcall(function() conn:Disable() end)
-    end
-end)
-
-LocalPlayer.Idled:Connect(function()
-    pcall(function()
+    LocalPlayer.Idled:Connect(function()
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.RightControl, false, game)
         task.wait(0.05)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.RightControl, false, game)
@@ -134,9 +76,9 @@ local function getValidatedLibrary()
         end
     end
 
-    local url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
+    local url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
     local success, response = pcall(function()
-        return game:HttpGet(url, true)
+        return game:HttpGet(url)
     end)
     if success and response and #response > 0 then
         local fn = loadstring(response)
@@ -166,74 +108,68 @@ local Config = {
     AutoCast = false,
     CastPower = 100,
     AutoShake = false,
-    ShakeSpeed = 0.05,
+    ShakeSpeed = 0.12,
     AutoReel = false,
-    ReelMethod = "Humanized", -- "Humanized" (Safe) or "Instant Bar Lock"
-    ReelDelay = 1.6, -- Safe minimum catch duration to prevent server catch-time bans
+    ReelDelay = 1.6, -- Minimum catch time to bypass server heuristics
     AutoEquipRod = true,
 
-    -- Economy & Inventory
+    -- Economy
     AutoSell = false,
     AutoSellInterval = 60,
-
-    -- Visuals & ESP
-    FishPoolESP = false,
-    CrateESP = false,
-    MerchantESP = false,
-    PlayerESP = false,
 
     -- Movement & Utility
     WalkOnWater = false,
     InfiniteOxygen = false,
-    CustomSpeed = 16,
-    Fullbright = false,
-    NoFog = false
+    WalkSpeed = 16,
+    JumpPower = 50
 }
 
 --------------------------------------------------------------------------------
 -- 4. UTILITY HELPERS & FISHING ROD RESOLVER
 --------------------------------------------------------------------------------
-local function getCharacter()
-    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-end
-
 local function getEquippedRod()
     local char = LocalPlayer.Character
-    if not char then return nil end
-    for _, item in ipairs(char:GetChildren()) do
-        if item:IsA("Tool") and (item.Name:lower():find("rod") or item:FindFirstChild("values") or item:FindFirstChild("bobber")) then
-            return item
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") and (item:FindFirstChild("events") or item:FindFirstChild("values") or item.Name:lower():find("rod")) then
+                return item
+            end
         end
     end
     return nil
 end
 
 local function ensureRodEquipped()
-    if getEquippedRod() then return true end
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if not backpack then return false end
-    for _, item in ipairs(backpack:GetChildren()) do
-        if item:IsA("Tool") and (item.Name:lower():find("rod") or item:FindFirstChild("values") or item:FindFirstChild("bobber")) then
-            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum:EquipTool(item)
-                task.wait(0.15)
-                return true
+    local rod = getEquippedRod()
+    if rod then return rod end
+
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return nil end
+
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") and (item:FindFirstChild("events") or item:FindFirstChild("values") or item.Name:lower():find("rod")) then
+                pcall(function()
+                    hum:EquipTool(item)
+                end)
+                task.wait(0.25)
+                return getEquippedRod()
             end
         end
     end
-    return false
+    return nil
 end
 
 --------------------------------------------------------------------------------
 -- 5. AUTO FISHING ENGINE (AUTO CAST, AUTO SHAKE & SAFE FISH BUBBLE REEL)
 --------------------------------------------------------------------------------
-local isFishingActive = false
 local lastCastTick = 0
 local lastShakeTick = 0
 local reelStartTime = 0
 
--- 1. Auto Cast Routine (Ensures rod equipped, checks cast state, fires server cast)
+-- 1. Auto Cast
 local function executeCast()
     if not Config.AutoCast then return end
     if tick() - lastCastTick < 1.2 then return end
@@ -245,7 +181,7 @@ local function executeCast()
     if values then
         local casted = values:FindFirstChild("casted")
         if casted and casted.Value == true then
-            return -- Already casted and waiting for bite
+            return -- Rod is already in the water
         end
     end
 
@@ -253,13 +189,11 @@ local function executeCast()
         local castPower = math.clamp(Config.CastPower or 100, 10, 100)
         local castedSuccess = false
 
-        -- Direct rod event invocation
         if rod:FindFirstChild("events") and rod.events:FindFirstChild("castAsync") then
             rod.events.castAsync:InvokeServer(castPower, true)
             castedSuccess = true
         end
 
-        -- Fallback to Net package RemoteFunction
         if not castedSuccess then
             local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
             if net then
@@ -278,7 +212,7 @@ local function executeCast()
     end)
 end
 
--- 2. Auto Shake Routine (Clicks shake bubbles instantly and naturally)
+-- 2. Auto Shake (Pops shake bubbles cleanly & naturally)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
     if tick() - lastShakeTick < math.clamp(Config.ShakeSpeed or 0.12, 0.08, 0.3) then return end
@@ -292,10 +226,8 @@ local function processShakeMinigame()
     pcall(function()
         local safezone = shakeUI:FindFirstChild("safezone")
         if safezone then
-            -- Find the active shake button inside safezone
             for _, btn in ipairs(safezone:GetChildren()) do
                 if btn:IsA("ImageButton") and btn.Visible and btn.UIScale.Scale > 0.1 then
-                    -- Trigger button click
                     if firesignal then
                         firesignal(btn.MouseButton1Click)
                     end
@@ -304,7 +236,6 @@ local function processShakeMinigame()
             end
         end
 
-        -- Dispatch shake network event directly to server
         local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
         if net then
             local Net = require(net)
@@ -318,7 +249,7 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Auto Fish / Auto Reel Routine (Locks playerbar onto the fish bubble safely)
+-- 3. Auto Fish / Auto Reel (Locks playerbar onto the fish bubble safely)
 local function processReelMinigame()
     if not Config.AutoReel then return end
 
@@ -327,7 +258,7 @@ local function processReelMinigame()
     end
 
     pcall(function()
-        -- Method A: Direct ReelController integration (100% native game engine tracking)
+        -- Method A: ReelController direct tracking
         local legacyControllers = ReplicatedStorage:FindFirstChild("client") and ReplicatedStorage.client:FindFirstChild("legacyControllers")
         local reelCtrlModule = legacyControllers and legacyControllers:FindFirstChild("ReelController")
         if reelCtrlModule then
@@ -335,14 +266,12 @@ local function processReelMinigame()
             if ok and ReelController and ReelController.ActiveReel then
                 local reel = ReelController.ActiveReel
                 if reel.active then
-                    -- Smoothly lock bar position onto the fish bubble position
                     reel.barPosition = reel.fishPosition
                     reel.onbar = true
 
-                    -- Prevent instant catch bans by respecting human reaction bounds
+                    -- Enforce minimum human reaction delay to prevent server-side catch time bans
                     local elapsed = tick() - reelStartTime
                     if elapsed < (Config.ReelDelay or 1.6) then
-                        -- Keep progress right below completion threshold until safe duration elapsed
                         if reel.progress > 88 then
                             reel.progress = 88
                         end
@@ -399,19 +328,21 @@ end)
 --------------------------------------------------------------------------------
 local function executeAutoSell()
     pcall(function()
-        local events = ReplicatedStorage:FindFirstChild("events") or ReplicatedStorage:FindFirstChild("network")
-        local sellRemote = events and (events:FindFirstChild("sell") or events:FindFirstChild("Sell") or events:FindFirstChild("sellall") or events:FindFirstChild("SellAll"))
-        if sellRemote and sellRemote:IsA("RemoteFunction") then
-            sellRemote:InvokeServer()
-        elseif sellRemote and sellRemote:IsA("RemoteEvent") then
-            sellRemote:FireServer()
+        local events = ReplicatedStorage:FindFirstChild("events")
+        if events then
+            local sellAll = events:FindFirstChild("SellAll") or events:FindFirstChild("selleverything") or events:FindFirstChild("sell_all")
+            if sellAll and sellAll:IsA("RemoteFunction") then
+                sellAll:InvokeServer()
+            elseif sellAll and sellAll:IsA("RemoteEvent") then
+                sellAll:FireServer()
+            end
         end
     end)
 end
 
 task.spawn(function()
     while true do
-        task.wait(Config.AutoSellInterval)
+        task.wait(Config.AutoSellInterval or 60)
         if Config.AutoSell then
             executeAutoSell()
         end
@@ -419,80 +350,70 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------------------------
--- 7. MOVEMENT & STEALTH UTILITY (WATER WALKING & OXYGEN)
+-- 7. MOVEMENT & ENVIRONMENT UTILITY
 --------------------------------------------------------------------------------
 local waterPlatform = nil
 
-local function toggleWaterWalk(enabled)
-    if enabled then
-        if not waterPlatform or not waterPlatform.Parent then
-            waterPlatform = Instance.new("Part")
-            waterPlatform.Name = "UnknownHub_WaterPlatform"
-            waterPlatform.Size = Vector3.new(20, 1, 20)
-            waterPlatform.Anchored = true
-            waterPlatform.CanCollide = true
-            waterPlatform.Transparency = 1
-            waterPlatform.Parent = Workspace
+local function toggleWaterWalk(enable)
+    pcall(function()
+        if enable then
+            if not waterPlatform then
+                waterPlatform = Instance.new("Part")
+                waterPlatform.Name = "UnknownWaterPlatform"
+                waterPlatform.Size = Vector3.new(100, 1, 100)
+                waterPlatform.Anchored = true
+                waterPlatform.CanCollide = true
+                waterPlatform.Transparency = 1
+                waterPlatform.Parent = Workspace
+            end
+        else
+            if waterPlatform then
+                waterPlatform:Destroy()
+                waterPlatform = nil
+            end
         end
-    else
-        if waterPlatform and waterPlatform.Parent then
-            waterPlatform:Destroy()
-            waterPlatform = nil
-        end
-    end
+    end)
 end
 
-RunService.Heartbeat:Connect(function()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    -- Water Walking Platform Synchronizer
-    if Config.WalkOnWater and waterPlatform then
-        local rayParams = RaycastParams.new()
-        rayParams.FilterDescendantsInstances = {char, waterPlatform}
-        rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-        local hit = Workspace:Raycast(root.Position + Vector3.new(0, 5, 0), Vector3.new(0, -25, 0), rayParams)
-        if hit and hit.Material == Enum.Material.Water then
-            waterPlatform.Position = Vector3.new(root.Position.X, hit.Position.Y - 0.5, root.Position.Z)
-        else
-            waterPlatform.Position = Vector3.new(root.Position.X, -1000, root.Position.Z)
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        if Config.WalkOnWater and waterPlatform then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                waterPlatform.Position = Vector3.new(root.Position.X, 126, root.Position.Z)
+            end
         end
-    end
 
-    -- Infinite Oxygen / Anti-Drown Engine
-    if Config.InfiniteOxygen and char then
-        local oxygen = char:FindFirstChild("Oxygen") or char:GetAttribute("Oxygen")
-        if typeof(oxygen) == "Instance" and oxygen:IsA("NumberValue") then
-            oxygen.Value = 100
-        else
-            pcall(function() char:SetAttribute("Oxygen", 100) end)
+        if Config.InfiniteOxygen then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("Oxygen") then
+                char.Oxygen.Value = 100
+            end
         end
-    end
+    end)
 end)
 
 --------------------------------------------------------------------------------
 -- 8. WORLD TELEPORTS REGISTRY
 --------------------------------------------------------------------------------
-local IslandRegistry = {
-    { name = "Moosewood (Spawn)", pos = Vector3.new(385, 135, 230) },
-    { name = "Roslit Bay", pos = Vector3.new(-1480, 132, 690) },
-    { name = "Sunstone Island", pos = Vector3.new(-930, 225, -990) },
-    { name = "Terrapin Island", pos = Vector3.new(-180, 145, 1950) },
-    { name = "Snowcap Island", pos = Vector3.new(2620, 140, 2400) },
-    { name = "Vertigo (The Pit)", pos = Vector3.new(-110, -515, 1070) },
-    { name = "Desolate Deep", pos = Vector3.new(-1650, -230, -2840) },
-    { name = "The Arch", pos = Vector3.new(1000, 130, -1240) },
-    { name = "Mushgrove Swamp", pos = Vector3.new(2450, 130, -680) },
-    { name = "Keepers Altar", pos = Vector3.new(1305, -805, -305) }
+local IslandLocations = {
+    ["Moosewood"] = Vector3.new(380, 135, 230),
+    ["Roslit Bay"] = Vector3.new(-1480, 135, 680),
+    ["Sunstone Island"] = Vector3.new(-930, 220, -1120),
+    ["Terrapin Island"] = Vector3.new(-180, 140, 1950),
+    ["Snowcap Island"] = Vector3.new(2620, 150, 2400),
+    ["Vertigo (Depths Entrance)"] = Vector3.new(-110, -515, 1060),
+    ["Desolate Deep"] = Vector3.new(-1650, -230, -2850),
+    ["The Arch"] = Vector3.new(1000, 135, -1250),
+    ["Mushgrove Swamp"] = Vector3.new(2450, 135, -700),
+    ["Keepers Altar"] = Vector3.new(1300, -805, -250)
 }
 
-local function teleportToLocation(pos)
+local function safeTeleport(pos)
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if root then
-        -- Anti-cheat safe step teleport (Elevated landing + velocity zeroing)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
         root.CFrame = CFrame.new(pos + Vector3.new(0, 3.5, 0))
@@ -521,18 +442,14 @@ Hub.CreateSlider(farmTab, "Cast Power", 10, 100, Config.CastPower, "%", function
     Config.CastPower = val
 end)
 
-Hub.CreateToggle(farmTab, "Auto Shake", Config.AutoShake, function(val)
+Hub.CreateToggle(farmTab, "Auto Shake (Bubble Pop)", Config.AutoShake, function(val)
     Config.AutoShake = val
     Hub.Notify("Auto Shake", val and "Auto Shake: ACTIVE" or "Auto Shake: OFF", 2)
 end)
 
-Hub.CreateToggle(farmTab, "Safe Auto Reel", Config.AutoReel, function(val)
+Hub.CreateToggle(farmTab, "Safe Auto Reel (Fish Bubble)", Config.AutoReel, function(val)
     Config.AutoReel = val
     Hub.Notify("Auto Reel", val and "Safe Auto Reel: ACTIVE (Zero Ban Risk)" or "Auto Reel: OFF", 2)
-end)
-
-Hub.CreateDropdown(farmTab, "Reel Method", {"Humanized", "Instant Bar Lock"}, Config.ReelMethod, function(val)
-    Config.ReelMethod = val
 end)
 
 Hub.CreateSlider(farmTab, "Min Catch Duration", 1.0, 3.5, Config.ReelDelay, "s", function(val)
@@ -551,48 +468,12 @@ Hub.CreateButton(farmTab, "Sell All Fish Now", function()
     Hub.Notify("Merchant", "Dispatched Sell All Fish order!", 2)
 end)
 
--- TAB: TELEPORTS
-local tpTab = Hub.CreateTab("Teleports", {
-    Icon = "🧭",
-    Size = 18,
-    Color = Color3.fromRGB(130, 220, 100),
-    ActiveColor = Color3.fromRGB(170, 255, 140)
-})
-
-Hub.CreateSection(tpTab, "Islands & Deep Zones")
-
-local islandNames = {}
-for _, item in ipairs(IslandRegistry) do
-    table.insert(islandNames, item.name)
-end
-
-Hub.CreateDropdown(tpTab, "Select Island", islandNames, islandNames[1], function(chosen)
-    for _, item in ipairs(IslandRegistry) do
-        if item.name == chosen then
-            teleportToLocation(item.pos)
-            break
-        end
-    end
-end)
-
--- TAB: UTILITY & SECURITY
 local utilTab = Hub.CreateTab("Utility", {
-    Icon = "🛡️",
+    Icon = "⚡",
     Size = 18,
-    Color = Color3.fromRGB(255, 180, 50),
-    ActiveColor = Color3.fromRGB(255, 210, 100)
+    Color = Color3.fromRGB(0, 255, 170),
+    ActiveColor = Color3.fromRGB(80, 255, 200)
 })
-
-Hub.CreateSection(utilTab, "Security & Stealth")
-
-Hub.CreateToggle(utilTab, "Anti-Cheat Protection", true, function(val)
-    if not val then
-        Hub.Notify("Security", "Warning: Disabling AC shield increases ban risk!", 3)
-    else
-        setupAntiCheatBypass()
-        Hub.Notify("Security", "Anti-Cheat Shield: FULLY ACTIVE", 2)
-    end
-end)
 
 Hub.CreateSection(utilTab, "Movement & Environment")
 
@@ -618,4 +499,19 @@ Hub.CreateButton(utilTab, "Fullbright / Clear Water", function()
     Hub.Notify("Visuals", "Fullbright & clear water activated!", 2)
 end)
 
-Hub.Notify("Unknown Hub", "Fisch Suite V1 Loaded — Anti-Cheat Shield Online 🐟🛡️", 4)
+local tpTab = Hub.CreateTab("Teleports", {
+    Icon = "📍",
+    Size = 18,
+    Color = Color3.fromRGB(255, 180, 0),
+    ActiveColor = Color3.fromRGB(255, 210, 50)
+})
+
+Hub.CreateSection(tpTab, "Islands & Zones")
+
+for islandName, coords in pairs(IslandLocations) do
+    Hub.CreateButton(tpTab, "Teleport to " .. islandName, function()
+        safeTeleport(coords)
+    end)
+end
+
+Hub.Notify("Unknown Hub", "Fisch Suite Loaded - Ready To Fish! 🎣", 4)
