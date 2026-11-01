@@ -1,11 +1,6 @@
 --------------------------------------------------------------------------------
--- UNKNOWN HUB: FISCH (Hyper-Speed Automation & Bypass Edition)
+-- UNKNOWN HUB: FISCH
 -- PlaceId: 16732694052, 17910972410, 131716211654599 | GameId: 5750914919
--- Architecture:
---   • Instant Reel Bypass: Executes native EndMinigame(true) with server handshake synchronization
---   • Hyper Fast Shake: Multi-vector Activated triggers & rapid server network dispatch (<0.25s total)
---   • Single-Cast Guard: Strictly checks values.casted and bobber to eliminate recast decline loops
---   • 100% Pure Client Runtime: Zero risky metamethod detours (No Error 267)
 --------------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
@@ -504,7 +499,279 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------------------------------------
--- 8. WORLD TELEPORTS REGISTRY
+-- 8. SHOP REGISTRIES & PURCHASING ENGINE
+--------------------------------------------------------------------------------
+local function formatPrice(num)
+    local formatted = tostring(num):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+    return formatted .. " C$"
+end
+
+local RodRegistry = {
+    { Name = "Flimsy Rod", Price = 0, Pos = Vector3.new(471, 148, 229) },
+    { Name = "Training Rod", Price = 300, Pos = Vector3.new(457, 148, 230) },
+    { Name = "Plastic Rod", Price = 750, Pos = Vector3.new(453, 148, 229) },
+    { Name = "Pool Noodle Rod", Price = 1000, Pos = Vector3.new(465, 148, 230) },
+    { Name = "Carbon Rod", Price = 2000, Pos = Vector3.new(448, 148, 228) },
+    { Name = "Decayed Rod", Price = 2000, Pos = Vector3.new(-110, -515, 1060) },
+    { Name = "Stone Rod", Price = 2000, Pos = Vector3.new(2450, 135, -700) },
+    { Name = "Long Rod", Price = 3000, Pos = Vector3.new(485, 148, 224) },
+    { Name = "Fast Rod", Price = 4000, Pos = Vector3.new(447, 148, 220) },
+    { Name = "Lucky Rod", Price = 4500, Pos = Vector3.new(446, 148, 222) },
+    { Name = "Steady Rod", Price = 7000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Firefly Rod", Price = 9500, Pos = Vector3.new(2450, 135, -700) },
+    { Name = "Fortune Rod", Price = 11000, Pos = Vector3.new(-1490, 135, 690) },
+    { Name = "Frog Rod", Price = 12000, Pos = Vector3.new(2450, 135, -700) },
+    { Name = "Rapid Rod", Price = 12000, Pos = Vector3.new(-1500, 135, 700) },
+    { Name = "Magnet Rod", Price = 15000, Pos = Vector3.new(-180, 140, 1950) },
+    { Name = "Nocturnal Rod", Price = 15000, Pos = Vector3.new(-110, -515, 1060) },
+    { Name = "Reinforced Rod", Price = 20000, Pos = Vector3.new(-930, 220, -1120) },
+    { Name = "Merchant Rod", Price = 20000, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Arctic Rod", Price = 25000, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Coral Rod", Price = 30000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Avalanche Rod", Price = 35000, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Crystalized Rod", Price = 35000, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Artisan Rod", Price = 40000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Boreal Rod", Price = 42000, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Carrot Rod", Price = 45000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Midas Rod", Price = 55000, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Ice Warpers Rod", Price = 65000, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Aurora Rod", Price = 70000, Pos = Vector3.new(-1790, -143, -3400) },
+    { Name = "Champions Rod", Price = 90000, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Mythical Rod", Price = 90000, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Kings Rod", Price = 100000, Pos = Vector3.new(1300, -805, -250) },
+    { Name = "Trident Rod", Price = 150000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Volcanic Rod", Price = 150000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Fallen Rod", Price = 175000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Free Spirit Rod", Price = 200000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Heaven's Rod", Price = 800000, Pos = Vector3.new(1000, 135, -1250) },
+    { Name = "Rod Of The Depths", Price = 750000, Pos = Vector3.new(990, -710, 1215) },
+    { Name = "Zeus Rod", Price = 500000, Pos = Vector3.new(1000, 135, -1250) }
+}
+
+local TotemRegistry = {
+    { Name = "Enchant Relic", Price = 11000, Pos = Vector3.new(-930, 225, -990) },
+    { Name = "Clearcast Totem", Price = 1000, Pos = Vector3.new(418, 148, 235) },
+    { Name = "Sundial Totem", Price = 2000, Pos = Vector3.new(-1145, 135, -1075) },
+    { Name = "Windset Totem", Price = 2000, Pos = Vector3.new(2840, 178, 2700) },
+    { Name = "Tempest Totem", Price = 2000, Pos = Vector3.new(-190, 155, 1960) },
+    { Name = "Smokescreen Totem", Price = 2000, Pos = Vector3.new(2490, 131, -730) },
+    { Name = "Meteor Totem", Price = 75000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Avalanche Totem", Price = 150000, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Blizzard Totem", Price = 150000, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Poseidon Wrath Totem", Price = 150000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Zeus Storm Totem", Price = 150000, Pos = Vector3.new(1000, 135, -1250) },
+    { Name = "Eclipse Totem", Price = 200000, Pos = Vector3.new(-110, -515, 1060) },
+    { Name = "Aurora Totem", Price = 500000, Pos = Vector3.new(-1810, -143, -3405) },
+    { Name = "Blue Moon Totem", Price = 1200000, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Dripstone Collapse Totem", Price = 7500000, Pos = Vector3.new(-1650, -230, -2850) }
+}
+
+local GearRegistry = {
+    { Name = "Basic Oxygen Tank", Price = 1000, Pos = Vector3.new(515, 151, 235) },
+    { Name = "Basic Diving Gear", Price = 3000, Pos = Vector3.new(515, 151, 238) },
+    { Name = "Beginner Oxygen Tank", Price = 3500, Pos = Vector3.new(515, 151, 235) },
+    { Name = "Intermediate Oxygen Tank", Price = 10000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Advanced Diving Gear", Price = 15000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Advanced Oxygen Tank", Price = 25000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Flippers", Price = 9000, Pos = Vector3.new(515, 151, 235) },
+    { Name = "Super Flippers", Price = 30000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Winter Cloak", Price = 7500, Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Glimmerfin Suit Lvl 1", Price = 7500, Pos = Vector3.new(515, 151, 235) },
+    { Name = "Glimmerfin Suit Lvl 2", Price = 7500, Pos = Vector3.new(515, 151, 235) },
+    { Name = "Glimmerfin Suit Lvl 3", Price = 7500, Pos = Vector3.new(515, 151, 235) },
+    { Name = "Dunehaven Wraps", Price = 40000, Pos = Vector3.new(-930, 220, -1120) },
+    { Name = "Scoria Armor", Price = 75000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Gas Mask", Price = 75000, Pos = Vector3.new(-1650, -230, -2850) }
+}
+
+local UtilityRegistry = {
+    { Name = "Crab Cage", Price = 45, Pos = Vector3.new(470, 148, 230) },
+    { Name = "GPS", Price = 100, Pos = Vector3.new(515, 151, 235) },
+    { Name = "Glider", Price = 900, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Reinforced Crab Cage", Price = 1000, Pos = Vector3.new(-930, 220, -1120) },
+    { Name = "Coral Crab Cage", Price = 1500, Pos = Vector3.new(1000, 135, -1250) },
+    { Name = "Relic Crab Cage", Price = 2000, Pos = Vector3.new(-930, 220, -1120) },
+    { Name = "Pickaxe", Price = 5000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Fish Radar", Price = 8000, Pos = Vector3.new(510, 151, 240) },
+    { Name = "Advanced Glider", Price = 10000, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Golden Crab Cage", Price = 25000, Pos = Vector3.new(-110, -515, 1060) },
+    { Name = "Tidebreaker", Price = 40000, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Magic Mirror", Price = 50000, Pos = Vector3.new(-930, 220, -1120) },
+    { Name = "Traveler's Whistle", Price = 25000, Pos = Vector3.new(380, 135, 230) }
+}
+
+local BaitRegistry = {
+    { Name = "Krill", Price = 50, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Bait Crate", Price = 120, Pos = Vector3.new(470, 148, 230) },
+    { Name = "Quality Bait Crate", Price = 350, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Obsidian-Bone", Price = 7500, Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Whale Bait", Price = 25000, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Golden Shrimp Bait", Price = 50000, Pos = Vector3.new(-1650, -230, -2850) }
+}
+
+local BoatRegistry = {
+    { Name = "Rowboat", Price = 400 },
+    { Name = "Surfboard", Price = 1500 },
+    { Name = "Giant Box of Chocolate", Price = 3500 },
+    { Name = "Quack Cruiser", Price = 5000 },
+    { Name = "Titan", Price = 5000 },
+    { Name = "Bass Boat", Price = 6000 },
+    { Name = "Hovercraft", Price = 7000 },
+    { Name = "Speedboat", Price = 15000 },
+    { Name = "Fishing Boat", Price = 20000 },
+    { Name = "Pontoon", Price = 20000 },
+    { Name = "Luxury Speedboat", Price = 20000 },
+    { Name = "Pirate Ship", Price = 20000 },
+    { Name = "Aquarium Boat", Price = 20000 },
+    { Name = "Archaeological Boat", Price = 20000 },
+    { Name = "Jetski", Price = 50000 },
+    { Name = "Small Utility Boat", Price = 50000 },
+    { Name = "The Pearl", Price = 50000 },
+    { Name = "Medium Utility Boat", Price = 250000 },
+    { Name = "Crew-ser", Price = 250000 },
+    { Name = "Large Utility Boat", Price = 500000 },
+    { Name = "Windsurfer Boast", Price = 1000000 },
+    { Name = "Huge Utility Boat", Price = 1500000 },
+    { Name = "Submarine", Price = 1500000 },
+    { Name = "Cursed Rider", Price = 2000000 },
+    { Name = "Airboat", Price = 5000000 }
+}
+
+local function purchaseItemAtLocation(targetPos, modelName)
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then 
+        Hub.Notify("Shop", "Character root not found.", 2)
+        return false
+    end
+    
+    Hub.Notify("Shop", "Purchasing " .. modelName .. "...", 2)
+    local originalCFrame = root.CFrame
+    
+    local function findPrompt()
+        local interactables = Workspace:FindFirstChild("world") and Workspace.world:FindFirstChild("interactables")
+        if interactables and interactables:FindFirstChild(modelName) then
+            local model = interactables[modelName]
+            local p = model:FindFirstChildOfClass("ProximityPrompt") or model:FindFirstChild("PromptTemplate")
+            if p and p.Enabled then return p end
+        end
+        for _, p in ipairs(Workspace:GetDescendants()) do
+            if p:IsA("ProximityPrompt") then
+                local obj = p.ObjectText ~= "" and p.ObjectText or (p.Parent and p.Parent.Name or "")
+                if string.lower(obj) == string.lower(modelName) or string.find(string.lower(obj), string.lower(modelName), 1, true) then
+                    return p
+                end
+            end
+        end
+        return nil
+    end
+
+    local prompt = findPrompt()
+    if not prompt or (root.Position - prompt.Parent:GetPivot().Position).Magnitude > 15 then
+        if targetPos then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+            
+            local start = tick()
+            while tick() - start < 3.5 do
+                prompt = findPrompt()
+                if prompt then break end
+                task.wait(0.2)
+            end
+        end
+    end
+    
+    if not prompt then
+        root.CFrame = originalCFrame
+        Hub.Notify("Shop", "Could not locate " .. modelName .. " prompt.", 3)
+        return false
+    end
+    
+    local promptPos = prompt.Parent:IsA("BasePart") and prompt.Parent.Position or prompt.Parent:GetPivot().Position
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.CFrame = CFrame.new(promptPos + Vector3.new(0, 1.5, 3), promptPos)
+    task.wait(0.25)
+    
+    pcall(function()
+        fireproximityprompt(prompt, 0)
+    end)
+    pcall(function()
+        if prompt.InputHoldBegin and prompt.InputHoldEnd then
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration or 0.1)
+            prompt:InputHoldEnd()
+        end
+    end)
+    
+    local pc = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("PromptConfirmation")
+    local startWait = tick()
+    while tick() - startWait < 2.5 do
+        if pc and pc:FindFirstChild("Frame") and pc.Frame.Visible then
+            local options = pc.Frame:FindFirstChild("Options")
+            if options then
+                local buyBtn = nil
+                for _, b in ipairs(options:GetChildren()) do
+                    if b:IsA("GuiButton") then
+                        local lbl = b:FindFirstChildWhichIsA("TextLabel")
+                        local txt = lbl and string.lower(lbl.Text) or string.lower(b.Name)
+                        if string.find(txt, "buy") or string.find(txt, "yes") or string.find(txt, "confirm") or string.find(txt, "2") then
+                            buyBtn = b
+                            break
+                        end
+                    end
+                end
+                if not buyBtn then
+                    local buttons = {}
+                    for _, b in ipairs(options:GetChildren()) do
+                        if b:IsA("GuiButton") then table.insert(buttons, b) end
+                    end
+                    buyBtn = buttons[#buttons]
+                end
+                
+                if buyBtn then
+                    task.wait(0.15)
+                    local conns = getconnections(buyBtn.Activated)
+                    if #conns > 0 then
+                        for _, c in ipairs(conns) do c:Fire() end
+                    elseif firesignal then
+                        firesignal(buyBtn.Activated)
+                    end
+                    break
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+    
+    task.wait(0.3)
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.CFrame = originalCFrame
+    Hub.Notify("Shop", "Purchased " .. modelName .. "!", 3)
+    return true
+end
+
+local function purchaseBoat(boatName)
+    local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
+    local rf = net and net:FindFirstChild("RF/Boats/Purchase")
+    if rf then
+        local success, res = pcall(function()
+            return rf:InvokeServer(boatName)
+        end)
+        if success and res == true then
+            Hub.Notify("Shop", "Purchased " .. boatName .. "!", 3)
+            return true
+        else
+            Hub.Notify("Shop", "Failed: Not enough C$ or already owned.", 3)
+            return false
+        end
+    end
+    Hub.Notify("Shop", "Boat remote not available.", 3)
+    return false
+end
+
+--------------------------------------------------------------------------------
+-- 9. WORLD TELEPORTS REGISTRY
 --------------------------------------------------------------------------------
 local IslandLocations = {
     ["Moosewood"] = Vector3.new(380, 135, 230),
@@ -526,12 +793,12 @@ local function safeTeleport(pos)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
         root.CFrame = CFrame.new(pos + Vector3.new(0, 3.5, 0))
-        Hub.Notify("Teleport", "Safely arrived at destination!", 2)
+        Hub.Notify("Teleport", "Arrived at destination.", 2)
     end
 end
 
 --------------------------------------------------------------------------------
--- 9. USER INTERFACE TABS & CONTROLS
+-- 10. USER INTERFACE TABS & CONTROLS
 --------------------------------------------------------------------------------
 local farmTab = Hub.CreateTab("Fishing", {
     Icon = "🎣",
@@ -544,33 +811,172 @@ Hub.CreateSection(farmTab, "Automation")
 
 Hub.CreateToggle(farmTab, "Auto Cast", Config.AutoCast, function(val)
     Config.AutoCast = val
-    Hub.Notify("Auto Cast", val and "Auto Cast: ACTIVE" or "Auto Cast: OFF", 2)
+    Hub.Notify("Auto Cast", val and "Enabled" or "Disabled", 2)
 end)
 
 Hub.CreateSlider(farmTab, "Cast Power", 10, 100, Config.CastPower, "%", function(val)
     Config.CastPower = val
 end)
 
-Hub.CreateToggle(farmTab, "Auto Shake (Bubble Pop - Max Speed)", Config.AutoShake, function(val)
+Hub.CreateToggle(farmTab, "Auto Shake", Config.AutoShake, function(val)
     Config.AutoShake = val
-    Hub.Notify("Auto Shake", val and "Auto Shake: ACTIVE (Max Speed)" or "Auto Shake: OFF", 2)
+    Hub.Notify("Auto Shake", val and "Enabled" or "Disabled", 2)
 end)
 
-Hub.CreateToggle(farmTab, "Auto Reel (Instant / Hyper-Speed)", Config.AutoReel, function(val)
+Hub.CreateToggle(farmTab, "Instant Reel", Config.AutoReel, function(val)
     Config.AutoReel = val
-    Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE (Max Speed)" or "Auto Reel: OFF", 2)
+    Hub.Notify("Instant Reel", val and "Enabled" or "Disabled", 2)
 end)
 
-Hub.CreateSection(farmTab, "Merchant & Sales")
+Hub.CreateSection(farmTab, "Sales")
 
-Hub.CreateToggle(farmTab, "Auto Sell Fish", Config.AutoSell, function(val)
+Hub.CreateToggle(farmTab, "Auto Sell", Config.AutoSell, function(val)
     Config.AutoSell = val
-    Hub.Notify("Auto Sell", val and "Auto Sell: ACTIVE" or "Auto Sell: OFF", 2)
+    Hub.Notify("Auto Sell", val and "Enabled" or "Disabled", 2)
 end)
 
-Hub.CreateButton(farmTab, "Sell All Fish Now", function()
+Hub.CreateButton(farmTab, "Sell All Fish", function()
     executeAutoSell()
-    Hub.Notify("Merchant", "Dispatched Sell All Fish order!", 2)
+    Hub.Notify("Sales", "Sold all fish.", 2)
+end)
+
+local shopTab = Hub.CreateTab("Shop", {
+    Icon = "🛒",
+    Size = 18,
+    Color = Color3.fromRGB(255, 170, 0),
+    ActiveColor = Color3.fromRGB(255, 200, 50)
+})
+
+-- Section: Fishing Rods
+Hub.CreateSection(shopTab, "Fishing Rods")
+local selectedRod = RodRegistry[1]
+local rodOptions = {}
+for _, item in ipairs(RodRegistry) do
+    table.insert(rodOptions, item.Name .. " | " .. formatPrice(item.Price))
+end
+Hub.CreateDropdown(shopTab, "Select Rod", rodOptions, rodOptions[1], function(val)
+    local name = val:match("^(.-)%s*|") or val
+    for _, item in ipairs(RodRegistry) do
+        if item.Name == name then
+            selectedRod = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(shopTab, "Buy Selected Rod", function()
+    if selectedRod then
+        purchaseItemAtLocation(selectedRod.Pos, selectedRod.Name)
+    end
+end)
+
+-- Section: Totems & Relics
+Hub.CreateSection(shopTab, "Totems & Relics")
+local selectedTotem = TotemRegistry[1]
+local totemOptions = {}
+for _, item in ipairs(TotemRegistry) do
+    table.insert(totemOptions, item.Name .. " | " .. formatPrice(item.Price))
+end
+Hub.CreateDropdown(shopTab, "Select Totem / Relic", totemOptions, totemOptions[1], function(val)
+    local name = val:match("^(.-)%s*|") or val
+    for _, item in ipairs(TotemRegistry) do
+        if item.Name == name then
+            selectedTotem = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(shopTab, "Buy Selected Totem / Relic", function()
+    if selectedTotem then
+        purchaseItemAtLocation(selectedTotem.Pos, selectedTotem.Name)
+    end
+end)
+
+-- Section: Diving & Gear
+Hub.CreateSection(shopTab, "Diving & Gear")
+local selectedGear = GearRegistry[1]
+local gearOptions = {}
+for _, item in ipairs(GearRegistry) do
+    table.insert(gearOptions, item.Name .. " | " .. formatPrice(item.Price))
+end
+Hub.CreateDropdown(shopTab, "Select Gear", gearOptions, gearOptions[1], function(val)
+    local name = val:match("^(.-)%s*|") or val
+    for _, item in ipairs(GearRegistry) do
+        if item.Name == name then
+            selectedGear = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(shopTab, "Buy Selected Gear", function()
+    if selectedGear then
+        purchaseItemAtLocation(selectedGear.Pos, selectedGear.Name)
+    end
+end)
+
+-- Section: Utility & Tools
+Hub.CreateSection(shopTab, "Utility & Tools")
+local selectedUtility = UtilityRegistry[1]
+local utilityOptions = {}
+for _, item in ipairs(UtilityRegistry) do
+    table.insert(utilityOptions, item.Name .. " | " .. formatPrice(item.Price))
+end
+Hub.CreateDropdown(shopTab, "Select Utility", utilityOptions, utilityOptions[1], function(val)
+    local name = val:match("^(.-)%s*|") or val
+    for _, item in ipairs(UtilityRegistry) do
+        if item.Name == name then
+            selectedUtility = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(shopTab, "Buy Selected Utility", function()
+    if selectedUtility then
+        purchaseItemAtLocation(selectedUtility.Pos, selectedUtility.Name)
+    end
+end)
+
+-- Section: Bait & Crates
+Hub.CreateSection(shopTab, "Bait & Crates")
+local selectedBait = BaitRegistry[1]
+local baitOptions = {}
+for _, item in ipairs(BaitRegistry) do
+    table.insert(baitOptions, item.Name .. " | " .. formatPrice(item.Price))
+end
+Hub.CreateDropdown(shopTab, "Select Bait", baitOptions, baitOptions[1], function(val)
+    local name = val:match("^(.-)%s*|") or val
+    for _, item in ipairs(BaitRegistry) do
+        if item.Name == name then
+            selectedBait = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(shopTab, "Buy Selected Bait", function()
+    if selectedBait then
+        purchaseItemAtLocation(selectedBait.Pos, selectedBait.Name)
+    end
+end)
+
+-- Section: Boats
+Hub.CreateSection(shopTab, "Boats")
+local selectedBoat = BoatRegistry[1]
+local boatOptions = {}
+for _, item in ipairs(BoatRegistry) do
+    table.insert(boatOptions, item.Name .. " | " .. formatPrice(item.Price))
+end
+Hub.CreateDropdown(shopTab, "Select Boat", boatOptions, boatOptions[1], function(val)
+    local name = val:match("^(.-)%s*|") or val
+    for _, item in ipairs(BoatRegistry) do
+        if item.Name == name then
+            selectedBoat = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(shopTab, "Buy Selected Boat", function()
+    if selectedBoat then
+        purchaseBoat(selectedBoat.Name)
+    end
 end)
 
 local utilTab = Hub.CreateTab("Utility", {
@@ -580,20 +986,20 @@ local utilTab = Hub.CreateTab("Utility", {
     ActiveColor = Color3.fromRGB(80, 255, 200)
 })
 
-Hub.CreateSection(utilTab, "Movement & Environment")
+Hub.CreateSection(utilTab, "Player")
 
 Hub.CreateToggle(utilTab, "Walk on Water", Config.WalkOnWater, function(val)
     Config.WalkOnWater = val
     toggleWaterWalk(val)
-    Hub.Notify("Utility", val and "Walk on Water: ACTIVE" or "Walk on Water: OFF", 2)
+    Hub.Notify("Utility", val and "Walk on Water enabled" or "Walk on Water disabled", 2)
 end)
 
 Hub.CreateToggle(utilTab, "Infinite Oxygen", Config.InfiniteOxygen, function(val)
     Config.InfiniteOxygen = val
-    Hub.Notify("Utility", val and "Infinite Oxygen: ACTIVE" or "Infinite Oxygen: OFF", 2)
+    Hub.Notify("Utility", val and "Infinite Oxygen enabled" or "Infinite Oxygen disabled", 2)
 end)
 
-Hub.CreateButton(utilTab, "Fullbright / Clear Water", function()
+Hub.CreateButton(utilTab, "Fullbright", function()
     pcall(function()
         Lighting.Brightness = 2
         Lighting.ClockTime = 14
@@ -601,7 +1007,7 @@ Hub.CreateButton(utilTab, "Fullbright / Clear Water", function()
         Lighting.GlobalShadows = false
         Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
     end)
-    Hub.Notify("Visuals", "Fullbright & clear water activated!", 2)
+    Hub.Notify("Visuals", "Fullbright activated.", 2)
 end)
 
 local tpTab = Hub.CreateTab("Teleports", {
@@ -611,12 +1017,12 @@ local tpTab = Hub.CreateTab("Teleports", {
     ActiveColor = Color3.fromRGB(255, 210, 50)
 })
 
-Hub.CreateSection(tpTab, "Islands & Zones")
+Hub.CreateSection(tpTab, "Islands")
 
 for islandName, coords in pairs(IslandLocations) do
-    Hub.CreateButton(tpTab, "Teleport to " .. islandName, function()
+    Hub.CreateButton(tpTab, islandName, function()
         safeTeleport(coords)
     end)
 end
 
-Hub.Notify("Unknown Hub", "Fisch Suite Loaded - Ready To Fish! 🎣", 4)
+Hub.Notify("Unknown Hub", "Fisch Suite Loaded 🎣", 3)
