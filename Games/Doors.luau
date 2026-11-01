@@ -5430,16 +5430,27 @@ pcall(function()
     end
 end)
 
--- Frame-0 Immediate Prompt Trigger: Fires the exact millisecond KeyCode.E is pressed down!
+local lastPromptFiredTick = 0
+local lastPromptFiredObj = nil
+local function safeInstantFirePrompt(prompt)
+    if not prompt or not prompt.Parent then return end
+    local now = os.clock()
+    if lastPromptFiredObj == prompt and (now - lastPromptFiredTick < 0.25) then return end
+    lastPromptFiredObj = prompt
+    lastPromptFiredTick = now
+    pcall(function()
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        end
+    end)
+end
+
+-- Frame-0 Immediate Prompt Trigger: Fires the exact millisecond KeyCode.E is pressed down without double-tap cancellation!
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
         if (player == nil or player == LocalPlayer) and (State.Instant_Interact or State.Noclip) then
-            pcall(function()
-                if fireproximityprompt then
-                    fireproximityprompt(prompt)
-                end
-            end)
+            safeInstantFirePrompt(prompt)
         end
     end)
 end)
@@ -8397,9 +8408,7 @@ local inputConn2; inputConn2 = UserInputService.InputBegan:Connect(function(inpu
 
             if bestPrompt and State.Instant_Interact then
                 bestPrompt.RequiresLineOfSight = false
-                pcall(function()
-                    fireproximityprompt(bestPrompt)
-                end)
+                safeInstantFirePrompt(bestPrompt)
             end
         end
     end
