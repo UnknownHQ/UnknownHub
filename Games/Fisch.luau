@@ -186,9 +186,9 @@ pcall(function()
                 for _, arg in ipairs(args) do
                     if typeof(arg) == "table" and (arg.fish ~= nil or arg.stats ~= nil) then
                         if arg.stats then
-                            arg.stats.StartingProgress = 85
-                            arg.stats.ProgressSpeed = 350
-                            arg.stats.Control = 2.0
+                            arg.stats.StartingProgress = 100
+                            arg.stats.ProgressSpeed = 9999
+                            arg.stats.Control = 10
                         end
                         break
                     end
@@ -204,11 +204,24 @@ pcall(function()
                 pcall(function()
                     if reel.core and reel.core.minigame then
                         reel.core.minigame.NoFail = true
+                        if reel.core.minigame._progressModifier then
+                            reel.core.minigame._progressModifier.Value = 100
+                        end
                     end
+                    reel.barSize = 10
+                    reel.barPosition = reel.fishPosition or 0.5
+                    reel.onbar = true
+                    reel.perfect = true
                     reel:AddModifier("barSize", "force", 10)
-                    reel:AddModifier("progressefficiency", "force", 300)
+                    reel:AddModifier("progressefficiency", "force", 9999)
                     reel:AddModifier("progressLossMultiplier", "force", 0)
                     reel:AddProgress(100)
+
+                    task.defer(function()
+                        pcall(function()
+                            reel:EndMinigame(true)
+                        end)
+                    end)
                 end)
             end)
         end
@@ -368,14 +381,9 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Maximum Speed Safe Reel Engine (Zero-Delay Finish & Anti-Kick)
+-- 3. Maximum Speed Instant Reel Engine (True Zero-Delay Finish)
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
-
-    if reelStartTick == 0 then
-        reelStartTick = tick()
-        instantReelDispatched = false
-    end
 
     pcall(function()
         if activeReel.core and activeReel.core.minigame then
@@ -394,12 +402,12 @@ local function processReelMinigame(activeReel)
         activeReel:AddModifier("progressLossMultiplier", "force", 0)
         activeReel:AddProgress(100)
 
-        -- Complete minigame safely after 0.35s network handshake
-        local elapsed = tick() - reelStartTick
-        if elapsed >= 0.35 and not instantReelDispatched then
+        if not instantReelDispatched then
             instantReelDispatched = true
-            pcall(function()
-                activeReel:EndMinigame(true)
+            task.defer(function()
+                pcall(function()
+                    activeReel:EndMinigame(true)
+                end)
             end)
         end
     end)
