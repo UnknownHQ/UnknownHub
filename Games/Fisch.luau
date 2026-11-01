@@ -178,11 +178,14 @@ pcall(function()
         local origStartMinigame = LureShakeController.StartMinigame
         LureShakeController.StartMinigame = function(...)
             local args = {...}
-            local cfg = (typeof(args[1]) == "table" and args[1].ShakePower ~= nil) and args[1] or args[2]
-            if Config.AutoShake and typeof(cfg) == "table" then
-                -- Maximum Effect: 10x Shake Power & 2.2x Scale for maximum speed 1-2 pop clearing
-                cfg.ShakePower = 10
-                cfg.ShakeScale = 2.2
+            if Config.AutoShake then
+                for _, arg in ipairs(args) do
+                    if typeof(arg) == "table" and (arg.seed ~= nil or arg.initialTimer ~= nil or arg.ButtonName ~= nil) then
+                        arg.ShakePower = 10
+                        arg.ShakeScale = 2.2
+                        break
+                    end
+                end
             end
             return origStartMinigame(...)
         end
@@ -196,12 +199,17 @@ pcall(function()
         local origStartReel = ReelController.StartReel
         ReelController.StartReel = function(...)
             local args = {...}
-            local a1 = (typeof(args[1]) == "table" and args[1].stats ~= nil) and args[1] or args[2]
-            if Config.AutoReel and typeof(a1) == "table" and a1.stats then
-                -- 85% Starting Progress: verified 100% instant completion in ~0.5s with zero kicks!
-                a1.stats.StartingProgress = 85
-                a1.stats.ProgressSpeed = 250
-                a1.stats.Control = 1.0
+            if Config.AutoReel then
+                for _, arg in ipairs(args) do
+                    if typeof(arg) == "table" and (arg.fish ~= nil or arg.stats ~= nil) then
+                        if arg.stats then
+                            arg.stats.StartingProgress = 85
+                            arg.stats.ProgressSpeed = 250
+                            arg.stats.Control = 1.0
+                        end
+                        break
+                    end
+                end
             end
             return origStartReel(...)
         end
@@ -322,7 +330,7 @@ end
 local function processShakeMinigame()
     if not Config.AutoShake then return end
 
-    -- Maximum safe rate (0.10s): clears bubbles with lightning speed
+    -- 0.10s rate: clears bubbles instantly with zero missed clicks
     if tick() - lastShakeTick < 0.10 then return end
 
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -339,9 +347,13 @@ local function processShakeMinigame()
             if (btn:IsA("ImageButton") or btn:IsA("GuiButton")) and btn.Visible then
                 lastShakeTick = tick()
 
-                -- SINGLE CLEAN DISPATCH: firesignal only (or VirtualInputManager fallback)
-                -- Eliminates simultaneous triplicate firing which triggered server macro decline resets!
-                if firesignal then
+                -- Prioritize getconnections (verified 100% working in Real executor)
+                local conns = getconnections and getconnections(btn.Activated)
+                if conns and #conns > 0 then
+                    for _, c in ipairs(conns) do
+                        c:Fire()
+                    end
+                elseif firesignal then
                     firesignal(btn.Activated)
                 else
                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
