@@ -1631,64 +1631,7 @@ local function processGold(goldInstance)
 end
 
 
--- =========================================================================
--- PERMANENT RIFT MODEL KEEPER & EMPTY CULLING BYPASS
--- =========================================================================
-local function ensureRiftAlive(desc)
-    if not desc then return end
-    local isRiftSpawn = (desc.Name == "RiftSpawn") or desc:GetAttribute("RiftSpawn")
-    local isRiftModel = (desc.Name == "Rift") or desc:GetAttribute("IsRift")
-    
-    if isRiftSpawn or isRiftModel then
-        pcall(function()
-            desc:SetAttribute("ShowIfNoItem", true)
-            
-            if isRiftSpawn then
-                local existingRift = desc:FindFirstChild("Rift")
-                if not existingRift then
-                    local misc = game:GetService("ReplicatedStorage"):FindFirstChild("Misc")
-                    local templateRift = misc and misc:FindFirstChild("Rift")
-                    if templateRift then
-                        local clone = templateRift:Clone()
-                        clone.Name = "Rift"
-                        clone:PivotTo(desc.WorldPivot)
-                        clone.Parent = desc
-                        existingRift = clone
-                    end
-                end
-            end
-            
-            for _, p in ipairs(desc:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    p.Transparency = 0
-                elseif p:IsA("Light") then
-                    p.Brightness = 1
-                    p.Enabled = true
-                elseif p:IsA("ParticleEmitter") then
-                    p.Enabled = true
-                elseif p:IsA("ProximityPrompt") then
-                    p.Enabled = true
-                    p.MaxActivationDistance = math.max(p.MaxActivationDistance, 14)
-                end
-            end
-        end)
-    end
-end
-
--- Active continuous scan to prevent DOORS client culling tweens
-task.spawn(function()
-    while true do
-        if _G.DOORS_SESSION ~= currentSession then break end
-        pcall(function()
-            for _, desc in ipairs(Workspace:GetDescendants()) do
-                if desc.Name == "RiftSpawn" or desc.Name == "Rift" then
-                    ensureRiftAlive(desc)
-                end
-            end
-        end)
-        task.wait(1.5)
-    end
-end)
+-- Clean Rift Detection: Highlight natural Rift when present without force-spawning fake clones or particle emitters
 
 -- 7b. Dedicated Rift ESP: Brilliant Glowing Cyan Highlighter
 local function processRift(model)
@@ -5011,17 +4954,17 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
 
 
-        -- First-Person Limb Guard: Arms and legs visible; head and upper torso transparent to local camera
+        -- Character & Equipment Visibility Shield: Ensures body parts, head, hands, and tools remain visible
         for _, p in ipairs(char:GetChildren()) do
             if p:IsA("BasePart") then
-                local pName = p.Name:lower()
-                if pName:find("arm") or pName:find("hand") or pName:find("leg") or pName:find("foot") then
+                if p.Name ~= "HumanoidRootPart" and p.Name ~= "CollisionPart" then
                     p.LocalTransparencyModifier = 0
                     if p.Transparency > 0.05 then p.Transparency = 0 end
-                elseif pName == "head" or pName:find("torso") then
-                    p.LocalTransparencyModifier = 1
                 end
             end
+        end
+        if mgTable and mgTable.hideplayers ~= 0 then
+            mgTable.hideplayers = 0
         end
     end
 end)
@@ -6321,16 +6264,31 @@ end
 
 -- Rush / Ambush / A-60 / A-120 / Seek / Dread / Blitz / Lookman / Figure Lethal Threat Detector
 local function isLethalEntityIncoming()
-    local checkList = {"rush", "ambush", "a60", "a120", "seek", "dread", "blitz", "lookman", "halt", "figure"}
-    
+    -- Strictly Hide-In-Closet threats: Rush, Ambush, A-60, A-120, Blitz
+    local closetThreats = {"rush", "ambush", "a60", "a-60", "a120", "a-120", "blitz"}
+    -- Explicit exclusions: NEVER trigger closet auto-hide or roof evacuation for these
+    local explicitExclusions = {"figure", "seek", "dread", "halt", "screech", "eyes", "lookman", "dupe", "snare", "timothy", "grumble", "void", "glitch"}
+
+    local function isThreat(name)
+        local lower = name:lower()
+        for _, excl in ipairs(explicitExclusions) do
+            if lower:find(excl) then
+                return false
+            end
+        end
+        for _, threat in ipairs(closetThreats) do
+            if lower:find(threat) then
+                return true
+            end
+        end
+        return false
+    end
+
     local function scan(container)
         if not container then return nil end
         for _, child in ipairs(container:GetChildren()) do
-            local lower = child.Name:lower()
-            for _, threat in ipairs(checkList) do
-                if lower:find(threat) then
-                    return child.Name
-                end
+            if isThreat(child.Name) then
+                return child.Name
             end
         end
         return nil
@@ -6348,41 +6306,27 @@ end
 -- When Rush, Ambush, or any entity approaches, safely elevates flight to +160 studs until threat passes!
 -- =========================================================================
 local isSafePhased = false
-local prePhaseCF = nil
 
 task.spawn(function()
     while _G.DOORS_SESSION == currentSession do
         task.wait(0.08)
-        if State.Anti_Rush or State.Noclip or State.Auto_Hide or State.Auto_RoofEvacuate then
+        if State.Anti_Rush or State.Auto_Hide or State.Auto_RoofEvacuate then
             local incoming, entName = isLethalEntityIncoming()
             local root = getRoot()
             local char = getChar()
             local mgTable = getMainGameTable()
             if incoming and root and not isPlayerHiding(char, mgTable) then
-                if not isSafePhased then
+                if not isSafePhased and not isAtRoof and not isEvacuatingRoof then
                     isSafePhased = true
-                    prePhaseCF = root.CFrame
-                    Hub.Notify("Anti-Threat", "?? " .. tostring(entName) .. " detected! Phasing to Sky Sanctum (+160 Studs)...", 3)
+                    Hub.Notify("Anti-Threat", "⚠️ " .. tostring(entName) .. " detected! Phasing to Safe Roof...", 3)
+                    teleportToRoof()
                 end
-                -- Elevate far beyond any entity's kill sphere / raycast range (160+ studs above floor)
-                if root and prePhaseCF then
-                    local safeY = math.max(prePhaseCF.Position.Y + 160, 200)
-                    root.CFrame = CFrame.new(prePhaseCF.Position.X, safeY, prePhaseCF.Position.Z) * prePhaseCF.Rotation
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
-                end
-            elseif isSafePhased and not incoming then
-                task.wait(2.2) -- Post-despawn safety buffer
-                local stillIncoming = isLethalEntityIncoming()
-                if not stillIncoming then
-                    isSafePhased = false
-                    if prePhaseCF and root then
-                        root.CFrame = prePhaseCF
-                        root.AssemblyLinearVelocity = Vector3.zero
-                        root.AssemblyAngularVelocity = Vector3.zero
-                        prePhaseCF = nil
-                        Hub.Notify("Anti-Threat", "?? Threat neutralized! Returned safely to flight coordinates.", 2)
-                    end
+            elseif not incoming and isSafePhased then
+                isSafePhased = false
+                task.wait(1.5)
+                if not isLethalEntityIncoming() and isAtRoof and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
+                    returnFromRoof()
+                    Hub.Notify("Anti-Threat", "Threat neutralized! Returned safely to room floor.", 2)
                 end
             end
         end
@@ -7577,6 +7521,19 @@ if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
                     if caller and (caller.Name == "Movement" or tostring(caller):find("Movement")) then
                         return false
                     end
+                end
+            end
+            if (method == "TakeDamage" or method == "takeDamage") then
+                local char = getChar()
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                if self == hum then
+                    return nil
+                end
+            end
+            if (method == "BreakJoints" or method == "breakJoints") then
+                local char = getChar()
+                if self == char or (char and self:IsDescendantOf(char)) then
+                    return nil
                 end
             end
             if (method == "PivotTo" or method == "pivotTo") then
