@@ -131,6 +131,7 @@ local State = {
 
     -- Autonomous 1-100 Doors Master Completer Suite
     Auto_Complete_100 = false,
+    Auto_Hide = true,
     Auto_RoofEvacuate = true,
     Knobs_Farm_ExtraGoldMultiplier = true,
 
@@ -4050,6 +4051,34 @@ end
 local function teleportToRoomKey(callback)
     local char = getChar()
     local root = getRoot()
+    if (State.Noclip or State.Auto_Complete_100) and curRooms then
+        local targetKey = nil
+        local targetPart = nil
+        local minDist = math.huge
+        for _, desc in ipairs(curRooms:GetDescendants()) do
+            if desc.Name == "KeyObtain" or (desc.Name:lower():find("key") and desc:IsA("Model") and desc:FindFirstChildWhichIsA("ProximityPrompt", true)) then
+                local part = desc:IsA("Model") and (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)) or (desc:IsA("BasePart") and desc)
+                if part and root then
+                    local d = (root.Position - part.Position).Magnitude
+                    if d < minDist then
+                        minDist = d
+                        targetKey = desc
+                        targetPart = part
+                    end
+                end
+            end
+        end
+        if targetPart then
+            farmGlideTo(targetPart.Position + Vector3.new(0, 1.2, 0), 55, 4.0)
+            local p = targetKey:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if p then
+                p.HoldDuration = 0
+                pcall(function() fireproximityprompt(p) end)
+            end
+            if callback then callback(true) end
+            return true
+        end
+    end
     if not char or not root then
         if callback then callback(false) end
         return false
@@ -4195,6 +4224,35 @@ local function teleportToNextDoor(callback)
     local lookTarget = Vector3.new(doorPos.X, targetPos.Y, doorPos.Z)
 
     Hub.Notify("Teleport", "Navigating to Door " .. tostring(lrVal) .. "...", 2)
+
+    if State.Noclip or State.Auto_Complete_100 then
+        farmGlideTo(doorPos + Vector3.new(0, 0, 2), 55, 4.0)
+        local currentLock = exitDoor:FindFirstChild("Lock")
+        if currentLock then
+            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+            if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                hum:EquipTool(keyTool)
+                task.wait(0.15)
+            end
+            local up = currentLock:FindFirstChild("UnlockPrompt", true)
+            if up and up.Enabled then
+                up.HoldDuration = 0
+                pcall(function() fireproximityprompt(up) end)
+                task.wait(0.2)
+            end
+        end
+        local co = exitDoor:FindFirstChild("ClientOpen")
+        if co then pcall(function() co:FireServer() end) end
+        local hiddenPart = exitDoor:FindFirstChild("Hidden")
+        if hiddenPart and hiddenPart:IsA("BasePart") then
+            pcall(function() hiddenPart.CanTouch = true end)
+        end
+        processNearbyDoors(doorPos, 25)
+        farmGlideTo(doorPos - exitDoor:GetPivot().LookVector * 6, 50, 2.0)
+        if callback then callback(true) end
+        return true
+    end
 
     safeMultiSegmentTeleport(CFrame.new(targetPos, lookTarget), State.Teleport_Speed, true, function()
         task.wait(0.1)
@@ -4569,7 +4627,7 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
-    if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening then
+    if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening and not isAutoFlying then
         -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
@@ -6142,6 +6200,8 @@ task.spawn(function()
     end
 end)
 
+local isAutoFlying = false
+
 -- Fly-Noclip Glide Controller: Direct 3D linear flight through walls and obstacles
 local function farmGlideTo(targetPos, speedVal, maxTime)
     local char = getChar()
@@ -6158,7 +6218,9 @@ local function farmGlideTo(targetPos, speedVal, maxTime)
     if not State.Noclip then State.Noclip = true end
     if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
 
-    while (os.clock() - startTime < maxWait) and State.Knobs_Farm_Active do
+    isAutoFlying = true
+
+    while (os.clock() - startTime < maxWait) and (State.Knobs_Farm_Active or State.Auto_Complete_100) do
         if _G.DOORS_SESSION ~= currentSession then break end
         local curChar = getChar()
         local curRoot = getRoot()
@@ -6168,6 +6230,7 @@ local function farmGlideTo(targetPos, speedVal, maxTime)
         if State.Knobs_Farm_RoofEvacuation and not isAtRoof then
             local incoming, entName = isLethalEntityIncoming()
             if incoming then
+                isAutoFlying = false
                 return "THREAT_INTERRUPT"
             end
         end
@@ -6596,10 +6659,6 @@ Hub.CreateSection(mainTab, "Autonomous 1-100 Doors Completer")
         end
     end)
 
-    Hub.CreateToggle(mainTab, "Auto Roof Evacuate on Threat", State.Auto_RoofEvacuate, function(v)
-        State.Auto_RoofEvacuate = v
-        Hub.Notify("Defense", v and "Auto Roof Evacuation: Enabled" or "Auto Roof Evacuation: Disabled", 2)
-    end)
 
     Hub.CreateSection(mainTab, "Movement")
 
@@ -6674,6 +6733,12 @@ Hub.CreateSlider(mainTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", f
     syncNativeFlightSpeed(v)
 end)
 
+Hub.CreateToggle(mainTab, "Auto Hide", State.Auto_Hide, function(v)
+    State.Auto_Hide = v
+    State.Auto_RoofEvacuate = v
+    Hub.Notify("Movement", v and "Auto Hide: Enabled (Safe roof elevation on threat)" or "Auto Hide: Disabled", 2)
+end)
+
 Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
     local char = getChar()
@@ -6735,32 +6800,6 @@ Hub.CreateToggle(mainTab, "Enable Slide", State.Enable_Sliding, function(v)
     Hub.Notify("Movement", v and "Slide: Enabled" or "Slide: Disabled", 2)
 end)
 
-Hub.CreateSection(mainTab, "Protections")
-
-Hub.CreateToggle(mainTab, "Anti-Cheat Bypass", State.Bypass_AntiCheat, function(v)
-    State.Bypass_AntiCheat = v
-    if not v then
-        if State.Noclip then
-            State.Noclip = false
-            local char = getChar()
-            if char then restoreCharacterInteractivity(char) end
-            local r = getRoot()
-            if r then r.AssemblyLinearVelocity = Vector3.zero end
-            syncServerSlide(false, false)
-            Hub.Notify("Anti-Cheat", "Fly disabled (Anti-Cheat required)", 2)
-        end
-    else
-        neutralizeServerTeleported()
-        if syncServerSlide then syncServerSlide(true, true) end
-    end
-    Hub.Notify("Anti-Cheat", v and "Anti-Cheat: Enabled" or "Anti-Cheat: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Anti-Glitch", State.Deflect_Glitch, function(v)
-    State.Deflect_Glitch = v
-    if v then initAntiGlitchShield() end
-    Hub.Notify("Protection", v and "Anti-Glitch: Enabled" or "Anti-Glitch: Disabled", 2)
-end)
 
 Hub.CreateSection(mainTab, "Interaction")
 
