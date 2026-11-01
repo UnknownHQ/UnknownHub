@@ -132,7 +132,9 @@ local Config = {
 
     -- Auto Farm Bears Suite
     AutoFarmBears = false,
-    FarmMethod = "Gun", -- "Gun" or "Melee"
+    FarmMethod = "Gun", -- "Gun", "Melee", or "Bear Attack"
+    SpawnAsBear = "booboo",
+    AutoFriendlyBear = true,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -856,9 +858,9 @@ local function getBearLevitationTarget(bear)
     if name:find("ranged") or name:find("spike") then
         local head = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head")
         local targetPos = head and head.Position or cf.Position
-        if Config.FarmMethod == "Melee" then
-            local targetY = targetPos.Y + 3.0
-            local distBehind = 3.8
+        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
+            local targetY = targetPos.Y + 2.8
+            local distBehind = 3.2
             return targetPos, distBehind, targetY
         else
             local targetY = cf.Position.Y + (sz.Y * 0.5) + 12.0
@@ -871,9 +873,9 @@ local function getBearLevitationTarget(bear)
     -- Roboo shoots forward eye lasers & DeathRay. Hover safely above its spine blindspot (+4.5 studs above head)
     if name:find("laser") or name:find("roboo") or name:find("robo") then
         local targetPos = cf.Position
-        if Config.FarmMethod == "Melee" then
+        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
             local targetY = cf.Position.Y + (sz.Y * 0.5) + 4.5
-            local distBehind = 3.6
+            local distBehind = 3.4
             return targetPos, distBehind, targetY
         else
             local targetY = cf.Position.Y + (sz.Y * 0.5) + 26.0
@@ -883,13 +885,12 @@ local function getBearLevitationTarget(bear)
     end
 
     -- Category 1: Ball Bear (ballbear, BooBoo, HypersonicBooBoo)
-    -- In Melee: Hover at +3.8 studs elevation (feet 1.8 studs above head) and 2.6 studs behind.
-    -- This puts player completely out of bite/headbutt hitbox while keeping melee swings 100% within reach!
+    -- In Melee / Bear Attack: Hover tightly behind spine so claw swipes and bite hitboxes connect 100%!
     if name:find("booboo") or name:find("ball") or sz.Y < 6.5 or sz.Magnitude < 8 then
         local targetPos = cf.Position
-        if Config.FarmMethod == "Melee" then
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.8
-            local distBehind = 2.6
+        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 2.2
+            local distBehind = 2.4
             return targetPos, distBehind, targetY
         else
             local targetY = cf.Position.Y + (sz.Y * 0.5) + 22.0
@@ -904,9 +905,9 @@ local function getBearLevitationTarget(bear)
     if name:find("wall") then
         local topPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head")
         local targetPos = topPart and topPart.Position or cf.Position
-        if Config.FarmMethod == "Melee" then
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 7.2
-            local distBehind = 8.5
+        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 5.5
+            local distBehind = 6.0
             return targetPos, distBehind, targetY
         else
             local targetY = cf.Position.Y + (sz.Y * 0.5) + 34.0
@@ -919,15 +920,15 @@ local function getBearLevitationTarget(bear)
     if name:find("tall") or name:find("worm") or sz.Y > 14 or sz.Z > 14 then
         local head = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head")
         local targetPos = head and head.Position or cf.Position
-        local targetY = cf.Position.Y + (sz.Y * 0.5) + 4.0
-        local distBehind = (sz.Z * 0.5) + 3.0
+        local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.2
+        local distBehind = (sz.Z * 0.5) + 2.4
         return targetPos, distBehind, targetY
     end
 
     -- Category 3: Quadruped / standard bears (Medved, ClassicBear, Grizzly, IceBear, ThinBear, etc.)
-    -- In Melee mode: hover closely above spine (+1.3 studs) and tight behind (-2.0 studs) so melee reach is always 100% satisfied
-    local targetY = (Config.FarmMethod == "Melee") and (cf.Position.Y + (sz.Y * 0.5) + 1.3) or (cf.Position.Y + (sz.Y * 0.5) + 3.4)
-    local distBehind = (Config.FarmMethod == "Melee") and math.min((sz.Z * 0.5) + 1.8, 3.0) or ((sz.Z * 0.5) + 2.4)
+    -- In Melee / Bear Attack: hover closely above spine (+1.2 studs) and tight behind (2.4 studs) so attacks connect 100%
+    local targetY = (Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack") and (cf.Position.Y + (sz.Y * 0.5) + 1.2) or (cf.Position.Y + (sz.Y * 0.5) + 3.4)
+    local distBehind = (Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack") and math.min((sz.Z * 0.5) + 1.5, 2.6) or ((sz.Z * 0.5) + 2.4)
 
     -- Building / Shop Wall Anti-Obstruction Guard:
     -- If bear is backed against a shop or building wall, hover directly above the bear so walls never block attacks!
@@ -939,7 +940,7 @@ local function getBearLevitationTarget(bear)
         local testHit = workspace:Raycast(cf.Position, -bear.PrimaryPart.CFrame.LookVector * (distBehind + 2.0), rayParams)
         if testHit and testHit.Instance and not testHit.Instance:IsDescendantOf(bear) then
             distBehind = 0.5
-            targetY = math.max(targetY, cf.Position.Y + (sz.Y * 0.5) + (Config.FarmMethod == "Melee" and 2.2 or 14.0))
+            targetY = math.max(targetY, cf.Position.Y + (sz.Y * 0.5) + ((Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack") and 2.2 or 14.0))
         end
     end)
 
@@ -978,10 +979,16 @@ end
 
 local function isFriendlyBearOrPlayer(b)
     if not b or not b.Parent then return true end
+    if b == LocalPlayer.Character then return true end
     local name = b.Name:lower()
 
     -- Cutie bears are strictly friendly and peaceful
     if name:find("cutie") or name:find("cute") or name:find("baby") then
+        return true
+    end
+
+    -- Explicit friendly stance flag
+    if b:GetAttribute("Stance") == "Friendly" then
         return true
     end
 
@@ -1543,6 +1550,7 @@ end
 
 -- Active Combat Loop: Melee Aura, Gun Aura & Weapon Enhancements
 local lastMeleeSwing = 0
+local lastBearAttack = 0
 
 task.spawn(function()
     while true do
@@ -2082,7 +2090,7 @@ RunService.Heartbeat:Connect(function(dt)
     local isWall = bearNameLower:find("wall") ~= nil
     local isRanged = bearNameLower:find("ranged") ~= nil or bearNameLower:find("spike") ~= nil
 
-    if Config.FarmMethod == "Melee" then
+    if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
         local targetPos = centerPos - (flatLook * distBehind)
         local y = targetY
         if isWall then
@@ -2233,13 +2241,42 @@ task.spawn(function()
             end
         end
 
-        -- 2. Equip Best Weapon for chosen FarmMethod
-        local bestTool = ensureBestWeaponEquipped(Config.FarmMethod)
-        if not bestTool then
-            activeFlightBear = nil
-            Hub.Notify("Bear Farm", "No " .. Config.FarmMethod .. " weapon found in inventory!", 2)
-            task.wait(2)
-            continue
+        -- 2. Equip Best Weapon for chosen FarmMethod / Autonomous Bear Transform
+        local bestTool = nil
+        if Config.FarmMethod ~= "Bear Attack" then
+            bestTool = ensureBestWeaponEquipped(Config.FarmMethod)
+            if not bestTool then
+                activeFlightBear = nil
+                Hub.Notify("Bear Farm", "No " .. Config.FarmMethod .. " weapon found in inventory!", 2)
+                task.wait(2)
+                continue
+            end
+        else
+            -- Bear Attack Mode: Ensure player is transformed into a bear!
+            local transformedBear = char:GetAttribute("TransformedToBear")
+            if not transformedBear then
+                pcall(function()
+                    local RS = game:GetService("ReplicatedStorage")
+                    local becomeRemote = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BecomeBear")
+                    if becomeRemote then
+                        local chosenBear = Config.SpawnAsBear or "booboo"
+                        local s, err = becomeRemote:InvokeServer(chosenBear, "Become")
+                        if not s then
+                            becomeRemote:InvokeServer(chosenBear, "OneTime")
+                        end
+                    end
+                end)
+            end
+            -- Autonomous Friendly Stance Enforcement: Attacks wild bears & player/turrets cannot damage user
+            if char:GetAttribute("Stance") ~= "Friendly" then
+                pcall(function()
+                    local RS = game:GetService("ReplicatedStorage")
+                    local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
+                    if bearAbility then
+                        bearAbility:FireServer("Stance")
+                    end
+                end)
+            end
         end
 
         -- 3. Acquire Target Bear
@@ -2326,6 +2363,71 @@ task.spawn(function()
                 elseif not reloading and currentAmmo > 0 then
                     local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
                     shootTargetBear(bestTool, bear, targetPart)
+                end
+            end
+        elseif Config.FarmMethod == "Bear Attack" then
+            local RS = game:GetService("ReplicatedStorage")
+            local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
+            if bearAbility then
+                local bName = bear.Name:lower()
+                local isRangedBear = bName:find("ranged") or bName:find("spike")
+                local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
+                    or bear:FindFirstChild("Hitbox_Crown")
+                    or bear:FindFirstChild("Hitbox_Head")
+                    or bear:FindFirstChild("Head")
+                    or bear:FindFirstChild("BodyTop")
+                    or bear:FindFirstChild("Ears")
+                    or bear:FindFirstChild("Hitbox_Chest")
+                    or bear:FindFirstChild("Hitbox_Torso")
+                    or bearRoot
+                local aimPos = targetHitPart and targetHitPart.Position or bearRoot.Position
+
+                -- Keep character facing target for authoritative claw swipe reach
+                root.CFrame = CFrame.lookAt(root.Position, aimPos)
+
+                if tick() - lastBearAttack >= 0.16 then
+                    lastBearAttack = tick()
+
+                    -- 1. Authoritative BearAbility M1 Dispatch ("Use", "Default", aimPos)
+                    pcall(function()
+                        bearAbility:FireServer("Use", "Default", aimPos)
+                    end)
+
+                    -- 2. Dispatch synthetic M1 mouse event via VirtualInputManager for seamless animation
+                    pcall(function()
+                        local VIM = game:GetService("VirtualInputManager")
+                        VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                        task.delay(0.03, function()
+                            pcall(function()
+                                VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                            end)
+                        end)
+                    end)
+                end
+            end
+        end
+    end
+end)
+
+-- =========================================================================
+-- Autonomous Bear Friendly Stance Daemon
+-- Ensures player bear remains in Friendly stance at all times (attacks wild bears & immune to players/turrets)
+-- =========================================================================
+task.spawn(function()
+    while true do
+        task.wait(0.4)
+        if Config.AutoFriendlyBear or (Config.AutoFarmBears and Config.FarmMethod == "Bear Attack") then
+            local char = LocalPlayer.Character
+            if char and char:GetAttribute("TransformedToBear") then
+                local stance = char:GetAttribute("Stance")
+                if stance ~= "Friendly" then
+                    pcall(function()
+                        local RS = game:GetService("ReplicatedStorage")
+                        local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
+                        if bearAbility then
+                            bearAbility:FireServer("Stance")
+                        end
+                    end)
                 end
             end
         end
@@ -2735,9 +2837,73 @@ Hub.CreateToggle(farmTab, "Auto Farm Bears", Config.AutoFarmBears, function(val)
     Hub.Notify("Bear Farm", val and "Auto Farm Bears: ACTIVE" or "Auto Farm Bears: OFF", 2)
 end)
 
-Hub.CreateDropdown(farmTab, "Attack Method", {"Gun", "Melee"}, Config.FarmMethod, function(val)
+local function getPlayableBearsList()
+    local list = {
+        "booboo", "ClassicBear", "CutieBear", "DemonBear", "GhostBear",
+        "GoldenMedved", "GrinderBear", "GrizzlyMedved", "GrizzlyRangedBear",
+        "GrizzlyTallBear", "HypersonicBooBoo", "IceBear", "LaserBooBoo",
+        "Medved", "RadioactiveMedved", "RangedBear", "TallBear",
+        "ThinBear", "WallBear", "WormBear", "ballbear"
+    }
+    pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        local bearsFolder = rs:FindFirstChild("Bears")
+        if bearsFolder then
+            for _, b in ipairs(bearsFolder:GetChildren()) do
+                if not table.find(list, b.Name) then
+                    table.insert(list, b.Name)
+                end
+            end
+        end
+    end)
+    table.sort(list)
+    return list
+end
+
+Hub.CreateDropdown(farmTab, "Attack Method", {"Gun", "Melee", "Bear Attack"}, Config.FarmMethod, function(val)
     Config.FarmMethod = val
     Hub.Notify("Bear Farm", "Method set to: " .. val, 2)
+end)
+
+Hub.CreateDropdown(farmTab, "Spawn as", getPlayableBearsList(), Config.SpawnAsBear, function(val)
+    Config.SpawnAsBear = val
+    task.spawn(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local becomeRemote = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BecomeBear")
+        if becomeRemote then
+            local s, err = becomeRemote:InvokeServer(val, "Become")
+            if not s then
+                s, err = becomeRemote:InvokeServer(val, "OneTime")
+            end
+            if s then
+                Hub.Notify("Bear Spawn", "Spawned as " .. val .. "!", 3)
+                task.wait(0.25)
+                local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
+                if bearAbility then
+                    bearAbility:FireServer("Stance")
+                end
+            else
+                Hub.Notify("Bear Spawn", "Could not spawn as " .. val .. ": " .. tostring(err), 3)
+            end
+        end
+    end)
+end)
+
+Hub.CreateToggle(farmTab, "Auto Friendly Bear", Config.AutoFriendlyBear, function(val)
+    Config.AutoFriendlyBear = val
+    if val then
+        local char = LocalPlayer.Character
+        if char and char:GetAttribute("TransformedToBear") and char:GetAttribute("Stance") ~= "Friendly" then
+            pcall(function()
+                local RS = game:GetService("ReplicatedStorage")
+                local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
+                if bearAbility then
+                    bearAbility:FireServer("Stance")
+                end
+            end)
+        end
+    end
+    Hub.Notify("Bear", val and "Auto Friendly Bear: ACTIVE" or "Auto Friendly Bear: OFF", 2)
 end)
 
 bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears", getAvailableBearTypes(), {"All"}, function(dict, arr)
