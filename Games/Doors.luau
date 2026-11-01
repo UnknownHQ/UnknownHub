@@ -3230,7 +3230,7 @@ local function initGodModeImmunity()
                     if oldFn and hookfunction and not _G["HC_IMMUNE_" .. tostring(oldFn)] then
                         _G["HC_IMMUNE_" .. tostring(oldFn)] = true
                         hookfunction(oldFn, newcclosure(function(newHealth, ...)
-                            if (State.Anti_Rush or State.Noclip or isPlayerOutOfMap() or State.Auto_Complete_100 or State.Knobs_Farm_Active or State.Auto_Hide) and newHealth <= 0 then
+                            if newHealth <= 0 then
                                 hum.Health = 100
                                 return -- Drop the death handler! DO NOT allow DOORS to trigger DIED!
                             end
@@ -3251,11 +3251,8 @@ local function initGodModeImmunity()
                 if fn and hookfunction and not _G["JS_IMMUNE_" .. tostring(fn)] then
                     _G["JS_IMMUNE_" .. tostring(fn)] = true
                     hookfunction(fn, newcclosure(function(jName, ...)
-                        if State.Anti_Rush or State.Noclip or isPlayerOutOfMap() or State.Auto_Complete_100 or State.Knobs_Farm_Active or State.Auto_Hide then
-                            Hub.Notify("Entity Shield", "Lethal jumpscare suppressed: " .. tostring(jName), 2)
-                            return
-                        end
-                        return fn(jName, ...)
+                        Hub.Notify("Entity Shield", "Lethal jumpscare suppressed: " .. tostring(jName), 2)
+                        return
                     end))
                 end
             end
@@ -3719,13 +3716,20 @@ end
 -- Character Interactivity & Collision Re-enabler: Restores full ProximityPrompt raycasting and room triggers
 local function restoreCharacterInteractivity(char)
     if not char then return end
-    -- NoPlayer CollisionGroup: TouchPlayer (monsters) CANNOT touch or damage you, while Default (doors/prompts) still collide & work!
-    for _, p in ipairs(char:GetDescendants()) do
+    local function applyPartImmunity(p)
         if p:IsA("BasePart") then
             p.CanTouch = true
             p.CanQuery = true
-            p.CollisionGroup = "NoPlayer"
+            pcall(function() p.CollisionGroup = "NoPlayer" end)
         end
+    end
+    -- NoPlayer CollisionGroup: TouchPlayer (monsters) CANNOT touch or damage you, while Default (doors/prompts) still collide & work!
+    for _, p in ipairs(char:GetDescendants()) do
+        applyPartImmunity(p)
+    end
+    if not char:GetAttribute("InteractivityHooked") then
+        char:SetAttribute("InteractivityHooked", true)
+        char.DescendantAdded:Connect(applyPartImmunity)
     end
     local coll = char:FindFirstChild("Collision")
     local cp = char:FindFirstChild("CollisionPart")
@@ -4893,7 +4897,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
     -- UNIVERSAL ENTITY IMMUNITY SHIELD (Zero special-casing: protects against ALL entities!)
     -- Glitch, Rush, Glitch Rush, Ambush, A-60, A-120, Dread, Seek, Figure, Snare, Dupe, Halt, etc.
-    if State.Noclip or State.Anti_Rush or isPlayerOutOfMap() or State.Auto_Complete_100 or State.Knobs_Farm_Active or State.Auto_Hide then
+    if true then -- ALWAYS ACTIVE UNIVERSAL ENTITY IMMUNITY SHIELD
         if mgTable then
             if mgTable.deathtick then mgTable.deathtick = tick() + 999999 end
             if mgTable.dead then mgTable.dead = false end
@@ -6865,6 +6869,8 @@ end
 -- UI Tabs
 -- =========================================================================
 
+local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and game.ReplicatedStorage.GameData:FindFirstChild("Floor") and game.ReplicatedStorage.GameData.Floor.Value) or "Hotel"
+
 -- Tab 1: MAIN TAB (Movement, Speed Changer, Test Suite)
 do
 local mainTab = Hub.CreateTab("Main", { 
@@ -7737,10 +7743,9 @@ end)
 -- =========================================================================
 -- Tab 2: FLOOR SPECIFIC TAB (Dynamic Floor Entities & Modifiers)
 -- =========================================================================
-local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and game.ReplicatedStorage.GameData:FindFirstChild("Floor") and game.ReplicatedStorage.GameData.Floor.Value) or "Hotel"
 end
 
-local floorTabName = "Floor (" .. detectedFloor .. ")"
+local floorTabName = "Floor (" .. tostring(detectedFloor) .. ")"
 
 do
 local floorTab = Hub.CreateTab(floorTabName, {
