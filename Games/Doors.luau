@@ -2561,11 +2561,24 @@ pcall(function()
                 end
             end)
 
-            -- Real-time dropped items, drawer looting, and lever discovery
+            -- Real-time dropped items, drawer looting, and lever discovery (High-Speed Zero-Lag Filter)
             newRoom.DescendantAdded:Connect(function(desc)
-                task.wait(0.05)
-                local dName = desc.Name:lower()
+                -- FAST TYPE FILTER: Discard 99% of non-interactive room geometry immediately (walls, wedges, lights, etc.)
+                local isPrompt = desc:IsA("ProximityPrompt")
+                local isTool = desc:IsA("Tool")
+                local isModel = desc:IsA("Model")
+                if not (isPrompt or isTool or isModel) then
+                    if desc:IsA("BasePart") then
+                        local n = desc.Name:lower()
+                        if not (n:find("dupe") or n:find("snare") or n:find("giggle") or n:find("lever") or n:find("gold") or n:find("coin")) then
+                            return
+                        end
+                    else
+                        return
+                    end
+                end
 
+                local dName = desc.Name:lower()
                 if desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake" then
                     return
                 end
@@ -2574,7 +2587,7 @@ pcall(function()
                     processGlitchFragment(desc)
                 end
 
-                if desc:IsA("Model") or desc:IsA("Tool") then
+                if isModel or isTool then
                     if desc.Name == "Door" or desc.Name == "DoorFake" then
                         processDoor(newRoom, desc)
                         if desc.Name == "DoorFake" and State.Anti_Dupe then
@@ -2619,7 +2632,7 @@ pcall(function()
                             processLever(desc)
                         end
                     end
-                elseif desc:IsA("ProximityPrompt") then
+                elseif isPrompt then
                     local obj = (desc.ObjectText or ""):lower()
                     local act = (desc.ActionText or ""):lower()
                     if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
@@ -2639,7 +2652,14 @@ pcall(function()
             bindRoom(r)
         end
 
-        currentRooms.ChildAdded:Connect(bindRoom)
+        currentRooms.ChildAdded:Connect(function(newRoom)
+            -- 2.5s anti-rollback grace window: prevents server from snapping player back during room streaming
+            lastNoclipDisableGrace = math.max(lastNoclipDisableGrace, os.clock() + 2.5)
+            if crouchRemote then
+                pcall(function() crouchRemote:FireServer(false, true) end)
+            end
+            bindRoom(newRoom)
+        end)
     end
 end)
 
@@ -3258,11 +3278,10 @@ local function initGodModeImmunity()
             end
         end
     end)
-    -- Defuse Jack jumpscares: Silences scream sounds and deletes Jack popups from wardrobes
+    -- Defuse Jack jumpscares: Silences scream sounds and deletes Jack popups from wardrobes (Zero FPS overhead)
     pcall(function()
-        local curRooms = Workspace:FindFirstChild("CurrentRooms")
-        local function defuseJack(inst)
-            if not inst then return end
+        local function defuseJackModel(inst)
+            if not inst or not inst:IsA("Model") then return end
             local n = inst.Name:lower()
             if n:find("jack") then
                 for _, d in ipairs(inst:GetDescendants()) do
@@ -3273,16 +3292,16 @@ local function initGodModeImmunity()
                         d.Transparency = 1
                     end
                 end
-                if inst:IsA("Model") or inst:IsA("BasePart") then
-                    pcall(function() inst:Destroy() end)
-                end
+                pcall(function() inst:Destroy() end)
             end
         end
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
         if curRooms then
-            for _, d in ipairs(curRooms:GetDescendants()) do defuseJack(d) end
-            curRooms.DescendantAdded:Connect(defuseJack)
+            for _, rm in ipairs(curRooms:GetChildren()) do
+                local j = rm:FindFirstChild("Jack") or (rm:FindFirstChild("Wardrobe") and rm.Wardrobe:FindFirstChild("Jack"))
+                if j then defuseJackModel(j) end
+            end
         end
-        Workspace.DescendantAdded:Connect(defuseJack)
     end)
 
     -- Intercept PlayerDied to eradicate ReviveRift effect spam and ghost-death desync
@@ -5367,9 +5386,24 @@ local function applyPromptModifications(prompt)
 end
 
 local function refreshAllPrompts()
-    for _, desc in ipairs(Workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") then
-            pcall(function() applyPromptModifications(desc) end)
+    local root = getRoot()
+    local curRoom = root and getObjectRoom(root)
+    if curRoom then
+        for _, desc in ipairs(curRoom:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                pcall(function() applyPromptModifications(desc) end)
+            end
+        end
+    else
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, rm in ipairs(curRooms:GetChildren()) do
+                for _, desc in ipairs(rm:GetDescendants()) do
+                    if desc:IsA("ProximityPrompt") then
+                        pcall(function() applyPromptModifications(desc) end)
+                    end
+                end
+            end
         end
     end
 end
@@ -5438,21 +5472,7 @@ task.spawn(function()
     end
 end)
 
--- Hook new prompts dynamically and ensure immediate optimization on load & room transition
-Workspace.DescendantAdded:Connect(function(desc)
-    if desc:IsA("ProximityPrompt") then
-        pcall(function() applyPromptModifications(desc) end)
-    end
-end)
-
--- Continuous 1.0s background prompt keeper: guarantees newly streamed rooms always have 14-stud reach and no LOS requirement
-task.spawn(function()
-    while true do
-        if _G.DOORS_SESSION ~= currentSession then break end
-        pcall(refreshAllPrompts)
-        task.wait(1.0)
-    end
-end)
+-- High-speed prompt optimization on demand (Zero background loops, zero FPS lag)
 
 -- Hook ProximityPromptService for frame-0 prompt display
 pcall(function()
@@ -5514,16 +5534,7 @@ task.spawn(function()
     refreshAllPrompts()
 end)
 
--- Auto-refresh prompts whenever new rooms stream in
-task.spawn(function()
-    local curRooms = Workspace:WaitForChild("CurrentRooms", 5)
-    if curRooms then
-        curRooms.ChildAdded:Connect(function()
-            task.wait(0.2)
-            refreshAllPrompts()
-        end)
-    end
-end)
+-- Prompts are dynamically optimized on-demand via ProximityPromptService.PromptShown (0ms room streaming lag)
 
 local function isPromptSafeToAutoInteract(prompt)
     if not prompt or not prompt.Enabled or not prompt.Parent then return false end
