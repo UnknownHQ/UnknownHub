@@ -5236,6 +5236,8 @@ local function applyAdditionalDefenses()
                 if desc:IsA("BasePart") then
                     if desc.CanTouch then desc.CanTouch = false end
                     if desc.CanCollide then desc.CanCollide = false end
+                    local tt = desc:FindFirstChildWhichIsA("TouchTransmitter")
+                    if tt then pcall(function() tt:Destroy() end) end
                 elseif desc:IsA("TouchTransmitter") then
                     pcall(function() desc:Destroy() end)
                 end
