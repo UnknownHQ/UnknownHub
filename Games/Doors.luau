@@ -221,6 +221,10 @@ local State = {
     Notify_EntitySound = true,
     Notify_Entity_Filters = {},
 
+    -- God Mode & Anti Figure Hearing Defenses
+    God_Mode = true,
+    Anti_Figure_Hearing = true,
+
     -- Additional Defenses
     Anti_Gloombat = true,
     Anti_Grumble = true,
@@ -3473,6 +3477,7 @@ end
 
 
 local lastFlySlidePulse = 0
+local lastCrouchStealthTick = 0
 local flyPos = nil
 local lastNoclipDisableGrace = 0
 
@@ -4861,6 +4866,26 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             mgTable.hideplayers = 0
         end
         syncNativeFlightSpeed(State.Noclip_Speed or 45)
+    end
+
+    -- Anti Figure Hearing & Silent Stealth Enforcement (Figure AI Radar Invisibility):
+    if State.Anti_Figure_Hearing or State.Anti_Figure then
+        if char and not char:GetAttribute("Crouching") then
+            char:SetAttribute("Crouching", true)
+        end
+        local r = getRoot()
+        if r then
+            for _, s in ipairs(r:GetChildren()) do
+                if s:IsA("Sound") and (s.Name == "Footsteps" or s.Name:lower():find("step") or s.Name:lower():find("run") or s.Name:lower():find("walk")) then
+                    if s.Volume > 0 then s.Volume = 0 end
+                end
+            end
+        end
+        local nowTick = os.clock()
+        if crouchRemote and (nowTick - lastCrouchStealthTick >= 2.0) then
+            lastCrouchStealthTick = nowTick
+            pcall(function() crouchRemote:FireServer(true, true) end)
+        end
     end
 
     -- Continuous FOV synchronization
@@ -6964,6 +6989,19 @@ local mainTab = Hub.CreateTab("Main", {
 
 Hub.CreateSection(mainTab, "Autonomous 1-100 Doors Completer")
 
+    Hub.CreateToggle(mainTab, "God Mode", State.God_Mode, function(v)
+        State.God_Mode = v
+        if v then
+            initGodModeImmunity()
+        end
+        Hub.Notify("Immunity", v and "God Mode: Enabled (Universal Invulnerability)" or "God Mode: Disabled", 2)
+    end)
+
+    Hub.CreateToggle(mainTab, "Anti Figure Hearing", State.Anti_Figure_Hearing, function(v)
+        State.Anti_Figure_Hearing = v
+        Hub.Notify("Stealth", v and "Anti Figure Hearing: Enabled (Silent Stealth)" or "Anti Figure Hearing: Disabled", 2)
+    end)
+
     Hub.CreateToggle(mainTab, "Auto Complete 100 Doors", State.Auto_Complete_100, function(v)
         State.Auto_Complete_100 = v
         if v then
@@ -7548,6 +7586,9 @@ if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
                 end
             end
             if method == "FireServer" then
+                if (self.Name == "Footstep" or self.Name == "FootstepRemoteThatWeNeed") and (activeState.Anti_Figure_Hearing or activeState.Anti_Figure) then
+                    return nil -- Drop footstep packets completely from reaching server and alerting Figure!
+                end
                 if self == motorRemote and State.Anti_Eyes and isEyesPresent() then
                     local args = {...}
                     args[1] = -899
@@ -7566,6 +7607,43 @@ if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
 end
 
 if hookfunction then
+    local footstepRemote = remotesFolder and remotesFolder:FindFirstChild("Footstep")
+    if footstepRemote and footstepRemote.FireServer then
+        local rawFsFire
+        rawFsFire = hookfunction(footstepRemote.FireServer, newcclosure(function(self, ...)
+            if not checkcaller() and (State.Anti_Figure_Hearing or State.Anti_Figure) then
+                return nil
+            end
+            return rawFsFire(self, ...)
+        end))
+    end
+    local footstepNeedRemote = remotesFolder and remotesFolder:FindFirstChild("FootstepRemoteThatWeNeed")
+    if footstepNeedRemote and footstepNeedRemote.FireServer then
+        local rawFsNFire
+        rawFsNFire = hookfunction(footstepNeedRemote.FireServer, newcclosure(function(self, ...)
+            if not checkcaller() and (State.Anti_Figure_Hearing or State.Anti_Figure) then
+                return nil
+            end
+            return rawFsNFire(self, ...)
+        end))
+    end
+    pcall(function()
+        local mc = game:GetService("ReplicatedStorage"):FindFirstChild("ModulesClient")
+        local fh = mc and mc:FindFirstChild("FootstepHandler")
+        if fh then
+            local rawFh = require(fh)
+            if type(rawFh) == "function" and not _G.__FH_HOOKED then
+                _G.__FH_HOOKED = true
+                local origFh
+                origFh = hookfunction(rawFh, newcclosure(function(...)
+                    if not checkcaller() and (State.Anti_Figure_Hearing or State.Anti_Figure) then
+                        return nil
+                    end
+                    return origFh(...)
+                end))
+            end
+        end
+    end)
     if motorRemote and motorRemote.FireServer then
         local rawMotorFire
         rawMotorFire = hookfunction(motorRemote.FireServer, newcclosure(function(self, pitch, room, ...)
@@ -7956,6 +8034,11 @@ end
 if table.find(activeFloorEntities, "Seek") then
     Hub.CreateToggle(floorTab, "Anti Figure (Defusal & Clutch)", State.Anti_Figure, function(v)
         State.Anti_Figure = v
+    end)
+
+    Hub.CreateToggle(floorTab, "Anti Figure Hearing (Silent Stealth)", State.Anti_Figure_Hearing, function(v)
+        State.Anti_Figure_Hearing = v
+        Hub.Notify("Stealth", v and "Anti Figure Hearing: Enabled (Silent Stealth)" or "Anti Figure Hearing: Disabled", 2)
     end)
 
     Hub.CreateToggle(floorTab, "Anti Dread (Darkness & Entity Defusal)", State.Anti_Dread, function(v)
