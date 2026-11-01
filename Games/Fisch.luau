@@ -1,10 +1,10 @@
 --------------------------------------------------------------------------------
--- UNKNOWN HUB: FISCH (Precision Continuous Automation)
+-- UNKNOWN HUB: FISCH (Hyper-Speed Automation & Bypass Edition)
 -- PlaceId: 16732694052, 17910972410, 131716211654599 | GameId: 5750914919
 -- Architecture:
+--   • Instant Reel Bypass: Executes native EndMinigame(true) with server handshake synchronization
+--   • Hyper Fast Shake: Multi-vector Activated triggers & rapid server network dispatch (<0.25s total)
 --   • Single-Cast Guard: Strictly checks values.casted and bobber to eliminate recast decline loops
---   • Misclick-Free Auto Shake: Pops shake bubbles cleanly via Activated & Return key
---   • Natural Auto-Detect Reel: Direct fish bubble tracking with native game progress calculation
 --   • 100% Pure Client Runtime: Zero risky metamethod detours (No Error 267)
 --------------------------------------------------------------------------------
 
@@ -95,7 +95,7 @@ end
 local Library = getValidatedLibrary()
 local Hub = Library({
     title = "Unknown Hub",
-    game = "Fisch 🐟"
+    game = "Fisch ⚡"
 })
 
 --------------------------------------------------------------------------------
@@ -106,8 +106,10 @@ local Config = {
     AutoCast = false,
     CastPower = 100,
     AutoShake = false,
-    ShakeSpeed = 0.28,
+    ShakeMode = "Blazing Fast (0.05s)", -- "Blazing Fast (0.05s)", "Instant Burst", "Humanized (0.25s)"
     AutoReel = false,
+    ReelMode = "Instant Catch (Bypass)", -- "Instant Catch (Bypass)" or "Safe Tracking"
+    InstantReelDelay = 0.2, -- Small delay (0.15s - 0.3s) allowing server seed synchronization before bypass
     AutoEquipRod = true,
 
     -- Economy
@@ -170,12 +172,14 @@ local function ensureRodEquipped()
 end
 
 --------------------------------------------------------------------------------
--- 5. CONTINUOUS AUTO FISHING PIPELINE
+-- 5. HYPER-SPEED AUTOMATION ENGINE (INSTANT REEL & FAST SHAKE)
 --------------------------------------------------------------------------------
 local lastCastTick = 0
 local lastShakeTick = 0
 local lastCatchTick = 0
+local reelStartTick = 0
 local hadActiveReel = false
+local instantReelDispatched = false
 
 -- Helper: Retrieve active ReelController object
 local function getActiveReel()
@@ -228,13 +232,13 @@ local function isRodCurrentlyCasted(rod)
     return false
 end
 
--- 1. Precision Auto Cast (ONLY executes when rod is completely free & idle)
+-- 1. Precision Auto Cast
 local function executeCast()
     if not Config.AutoCast then return end
     if getActiveReel() ~= nil then return end
     if isShakingActive() then return end
-    if tick() - lastCastTick < 2.5 then return end
-    if tick() - lastCatchTick < 2.0 then return end
+    if tick() - lastCastTick < 2.0 then return end
+    if tick() - lastCatchTick < 1.5 then return end
 
     local rod = ensureRodEquipped()
     if not rod then return end
@@ -263,10 +267,18 @@ local function executeCast()
     end)
 end
 
--- 2. Misclick-Free Auto Shake (Pops bubbles cleanly)
+-- 2. Hyper-Fast Auto Shake (Multi-Vector Instant Trigger)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
-    if tick() - lastShakeTick < math.clamp(Config.ShakeSpeed or 0.28, 0.25, 0.45) then return end
+
+    local interval = 0.05
+    if Config.ShakeMode == "Instant Burst" then
+        interval = 0.02
+    elseif Config.ShakeMode == "Humanized (0.25s)" then
+        interval = 0.25
+    end
+
+    if tick() - lastShakeTick < interval then return end
 
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
@@ -283,33 +295,64 @@ local function processShakeMinigame()
                         firesignal(btn.Activated)
                     else
                         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-                        task.wait(0.02)
+                        task.wait(0.01)
                         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
                     end
                     lastShakeTick = tick()
-                    return
+                    break
                 end
             end
         end
 
+        -- Instant Burst Network Synchronization
+        if Config.ShakeMode == "Instant Burst" or Config.ShakeMode == "Blazing Fast (0.05s)" then
+            local net = require(ReplicatedStorage.packages.Net)
+            local shakeEvent = net:RemoteEvent("LureShake/Shake", -1)
+            if shakeEvent then
+                shakeEvent:FireServer()
+            end
+        end
+
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-        task.wait(0.02)
+        task.wait(0.01)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
         lastShakeTick = tick()
     end)
 end
 
--- 3. Natural Auto-Detect Reel (Locks playerbar onto fish bubble with native game progress)
+-- 3. Auto Reel & Instant Reel Bypass Engine
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
+
+    if reelStartTick == 0 then
+        reelStartTick = tick()
+        instantReelDispatched = false
+    end
 
     pcall(function()
         -- Lock bar position directly onto the fish bubble
         activeReel.barPosition = activeReel.fishPosition
         activeReel.onbar = true
 
-        -- Let the game's ReelController naturally calculate progress based on fish stats & rod speed
-        -- When progress reaches 100, ReelController automatically triggers EndMinigame() safely!
+        if Config.ReelMode == "Instant Catch (Bypass)" then
+            -- Enforce small synchronization delay (0.15s - 0.25s) so the server registers the reel handshake before completion
+            local delayTime = math.clamp(Config.InstantReelDelay or 0.2, 0.1, 0.6)
+            if tick() - reelStartTick >= delayTime and not instantReelDispatched then
+                instantReelDispatched = true
+                activeReel.perfect = true
+
+                -- Execute native EndMinigame with perfect 100% bypass argument
+                task.defer(function()
+                    pcall(function()
+                        if activeReel.active then
+                            activeReel:EndMinigame(true)
+                        end
+                    end)
+                end)
+            end
+        else
+            -- Safe Tracking Mode: Let native game physics calculate duration based on fish resilience
+        end
     end)
 end
 
@@ -328,8 +371,10 @@ RunService.Heartbeat:Connect(function()
             processReelMinigame(activeReel)
         else
             if hadActiveReel then
-                -- Catch just completed!
+                -- Reel just ended / catch complete!
                 hadActiveReel = false
+                reelStartTick = 0
+                instantReelDispatched = false
                 lastCatchTick = tick()
             end
 
@@ -468,9 +513,22 @@ Hub.CreateToggle(farmTab, "Auto Shake (Bubble Pop)", Config.AutoShake, function(
     Hub.Notify("Auto Shake", val and "Auto Shake: ACTIVE" or "Auto Shake: OFF", 2)
 end)
 
-Hub.CreateToggle(farmTab, "Safe Auto Reel (Fish Bubble)", Config.AutoReel, function(val)
+Hub.CreateDropdown(farmTab, "Shake Speed", {"Blazing Fast (0.05s)", "Instant Burst", "Humanized (0.25s)"}, Config.ShakeMode, function(val)
+    Config.ShakeMode = val
+end)
+
+Hub.CreateToggle(farmTab, "Auto Reel (Fish Bubble)", Config.AutoReel, function(val)
     Config.AutoReel = val
-    Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE (Auto-Detect)" or "Auto Reel: OFF", 2)
+    Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE" or "Auto Reel: OFF", 2)
+end)
+
+Hub.CreateDropdown(farmTab, "Reel Mode", {"Instant Catch (Bypass)", "Safe Tracking"}, Config.ReelMode, function(val)
+    Config.ReelMode = val
+    Hub.Notify("Reel Mode", "Reel Mode set to: " .. val, 2)
+end)
+
+Hub.CreateSlider(farmTab, "Instant Reel Sync Delay", 0.1, 0.6, Config.InstantReelDelay, "s", function(val)
+    Config.InstantReelDelay = val
 end)
 
 Hub.CreateSection(farmTab, "Merchant & Sales")
