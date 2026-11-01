@@ -351,11 +351,11 @@ return function(opts)
     headerDivider.BorderSizePixel = 0
     headerDivider.Parent = header
 
-    -- Search Bar & Live Control Filter
+    -- Search Bar & Live Control Filter (Anti-Collision Spaced Layout)
     local searchContainer = Instance.new("Frame")
     searchContainer.Name = "SearchContainer"
-    searchContainer.Size = UDim2.new(0, 190, 0, 26)
-    searchContainer.Position = UDim2.new(1, -300, 0.5, -13)
+    searchContainer.Size = UDim2.new(0, 154, 0, 26)
+    searchContainer.Position = UDim2.new(1, -360, 0.5, -13)
     searchContainer.BackgroundColor3 = DEFAULT_THEME.Input
     searchContainer.BorderSizePixel = 0
     searchContainer.Parent = header
@@ -363,8 +363,8 @@ return function(opts)
     applyStroke(searchContainer, DEFAULT_THEME.Stroke, 1, 0.3)
 
     local searchIcon = Instance.new("TextLabel")
-    searchIcon.Size = UDim2.new(0, 22, 1, 0)
-    searchIcon.Position = UDim2.new(0, 4, 0, 0)
+    searchIcon.Size = UDim2.new(0, 20, 1, 0)
+    searchIcon.Position = UDim2.new(0, 6, 0, 0)
     searchIcon.BackgroundTransparency = 1
     searchIcon.Font = Enum.Font.Gotham
     searchIcon.Text = "?"
@@ -374,11 +374,11 @@ return function(opts)
 
     local searchInput = Instance.new("TextBox")
     searchInput.Name = "SearchBox"
-    searchInput.Size = UDim2.new(1, -28, 1, 0)
-    searchInput.Position = UDim2.new(0, 24, 0, 0)
+    searchInput.Size = UDim2.new(1, -32, 1, 0)
+    searchInput.Position = UDim2.new(0, 26, 0, 0)
     searchInput.BackgroundTransparency = 1
     searchInput.Font = Enum.Font.Gotham
-    searchInput.PlaceholderText = "Search features..."
+    searchInput.PlaceholderText = "Search..."
     searchInput.PlaceholderColor3 = DEFAULT_THEME.TextDim
     searchInput.Text = ""
     searchInput.TextColor3 = DEFAULT_THEME.TextPrimary
@@ -503,11 +503,11 @@ return function(opts)
         })
     end
 
-    -- Updates / Changelog Header Button
+    -- Updates / Changelog Header Button (Clean Spacing)
     local updatesBtn = Instance.new("TextButton")
     updatesBtn.Name = "UpdatesButton"
-    updatesBtn.Size = UDim2.new(0, 72, 0, 24)
-    updatesBtn.Position = UDim2.new(1, -98, 0.5, -12)
+    updatesBtn.Size = UDim2.new(0, 62, 0, 24)
+    updatesBtn.Position = UDim2.new(1, -134, 0.5, -12)
     updatesBtn.BackgroundColor3 = DEFAULT_THEME.Card
     updatesBtn.BorderSizePixel = 0
     updatesBtn.Font = Enum.Font.GothamBold
@@ -534,10 +534,10 @@ return function(opts)
         end
     end)
 
-    -- Breadcrumb Title
+    -- Breadcrumb Title (Truncated dynamically so it never bleeds into search box)
     local breadcrumbTitle = Instance.new("TextLabel")
     breadcrumbTitle.Name = "BreadcrumbTitle"
-    breadcrumbTitle.Size = UDim2.new(1, -320, 1, 0)
+    breadcrumbTitle.Size = UDim2.new(1, -384, 1, 0)
     breadcrumbTitle.Position = UDim2.new(0, 18, 0, 0)
     breadcrumbTitle.BackgroundTransparency = 1
     breadcrumbTitle.Font = Enum.Font.GothamBold
@@ -545,13 +545,14 @@ return function(opts)
     breadcrumbTitle.TextColor3 = DEFAULT_THEME.TextPrimary
     breadcrumbTitle.TextSize = 14
     breadcrumbTitle.TextXAlignment = Enum.TextXAlignment.Left
+    breadcrumbTitle.TextTruncate = Enum.TextTruncate.AtEnd
     breadcrumbTitle.Parent = header
 
-    -- Keybind Badge Pill
+    -- Keybind Badge Pill (No overlap with Updates or Search)
     local keybindPill = Instance.new("TextButton")
     keybindPill.Name = "ToggleKeyBadge"
-    keybindPill.Size = UDim2.new(0, 68, 0, 24)
-    keybindPill.Position = UDim2.new(1, -140, 0.5, -12)
+    keybindPill.Size = UDim2.new(0, 56, 0, 24)
+    keybindPill.Position = UDim2.new(1, -198, 0.5, -12)
     keybindPill.BackgroundColor3 = DEFAULT_THEME.Card
     keybindPill.BorderSizePixel = 0
     keybindPill.Font = Enum.Font.Gotham
@@ -563,11 +564,11 @@ return function(opts)
     applyCorner(keybindPill, 6)
     applyStroke(keybindPill, DEFAULT_THEME.Stroke, 1, 0.3)
 
-    -- Window Controls Container
+    -- Window Controls Container (Minimize & Close pinned on right)
     local winControls = Instance.new("Frame")
     winControls.Name = "WindowControls"
-    winControls.Size = UDim2.new(0, 56, 0, 24)
-    winControls.Position = UDim2.new(1, -66, 0.5, -12)
+    winControls.Size = UDim2.new(0, 52, 0, 24)
+    winControls.Position = UDim2.new(1, -64, 0.5, -12)
     winControls.BackgroundTransparency = 1
     winControls.Parent = header
 
@@ -1212,10 +1213,10 @@ return function(opts)
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
 
-        -- Title on left
+        -- Title on left (Never bleeds into ValueBadge)
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
-        titleLabel.Size = UDim2.new(0.65, 0, 0, 20)
+        titleLabel.Size = UDim2.new(1, -90, 0, 20)
         titleLabel.Position = UDim2.new(0, 14, 0, 8)
         titleLabel.BackgroundTransparency = 1
         titleLabel.Font = Enum.Font.Gotham
@@ -1226,11 +1227,11 @@ return function(opts)
         titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
         titleLabel.Parent = card
 
-        -- Value badge on right
+        -- Value badge on right (Fixed clean width)
         local valBadge = Instance.new("TextLabel")
         valBadge.Name = "ValueBadge"
-        valBadge.Size = UDim2.new(0.35, -28, 0, 20)
-        valBadge.Position = UDim2.new(0.65, 0, 0, 8)
+        valBadge.Size = UDim2.new(0, 65, 0, 20)
+        valBadge.Position = UDim2.new(1, -79, 0, 8)
         valBadge.BackgroundTransparency = 1
         valBadge.Font = Enum.Font.GothamMedium
         valBadge.Text = tostring(currentValue) .. suffix
@@ -1402,7 +1403,7 @@ return function(opts)
 
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
-        titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
+        titleLabel.Size = UDim2.new(1, -170, 1, 0)
         titleLabel.Position = UDim2.new(0, 14, 0, 0)
         titleLabel.BackgroundTransparency = 1
         titleLabel.Font = Enum.Font.Gotham
@@ -1410,12 +1411,13 @@ return function(opts)
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
         titleLabel.Parent = headerBtn
 
         local selectionPill = Instance.new("TextLabel")
         selectionPill.Name = "Pill"
-        selectionPill.Size = UDim2.new(0.5, -42, 0, 24)
-        selectionPill.Position = UDim2.new(0.5, 0, 0.5, -12)
+        selectionPill.Size = UDim2.new(0, 120, 0, 24)
+        selectionPill.Position = UDim2.new(1, -158, 0.5, -12)
         selectionPill.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
         selectionPill.BorderSizePixel = 0
         selectionPill.Font = Enum.Font.Gotham
@@ -1551,7 +1553,7 @@ return function(opts)
 
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
-        titleLabel.Size = UDim2.new(0.48, 0, 1, 0)
+        titleLabel.Size = UDim2.new(1, -180, 1, 0)
         titleLabel.Position = UDim2.new(0, 14, 0, 0)
         titleLabel.BackgroundTransparency = 1
         titleLabel.Font = Enum.Font.Gotham
@@ -1559,12 +1561,13 @@ return function(opts)
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
         titleLabel.Parent = headerBtn
 
         local selectionPill = Instance.new("TextLabel")
         selectionPill.Name = "Pill"
-        selectionPill.Size = UDim2.new(0.52, -42, 0, 24)
-        selectionPill.Position = UDim2.new(0.48, 0, 0.5, -12)
+        selectionPill.Size = UDim2.new(0, 130, 0, 24)
+        selectionPill.Position = UDim2.new(1, -168, 0.5, -12)
         selectionPill.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
         selectionPill.BorderSizePixel = 0
         selectionPill.Font = Enum.Font.Gotham
@@ -2003,7 +2006,7 @@ return function(opts)
 
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
-        titleLabel.Size = UDim2.new(0.5, 0, 1, 0)
+        titleLabel.Size = UDim2.new(1, -165, 1, 0)
         titleLabel.Position = UDim2.new(0, 14, 0, 0)
         titleLabel.BackgroundTransparency = 1
         titleLabel.Font = Enum.Font.Gotham
@@ -2011,12 +2014,13 @@ return function(opts)
         titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         titleLabel.TextSize = 12
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
         titleLabel.Parent = card
 
         local boxFrame = Instance.new("Frame")
         boxFrame.Name = "BoxFrame"
-        boxFrame.Size = UDim2.new(0.5, -28, 0, 26)
-        boxFrame.Position = UDim2.new(0.5, 0, 0.5, -13)
+        boxFrame.Size = UDim2.new(0, 140, 0, 26)
+        boxFrame.Position = UDim2.new(1, -154, 0.5, -13)
         boxFrame.BackgroundColor3 = Color3.fromRGB(16, 19, 26)
         boxFrame.BorderSizePixel = 0
         boxFrame.Parent = card
