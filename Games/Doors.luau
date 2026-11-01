@@ -4901,15 +4901,13 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        -- RESTORE & LOCK ORIGINAL SMOOTH FLY METHOD (mgTable.noclip = true) with continuous clipPos sync
+        -- RESTORE & LOCK ORIGINAL SMOOTH FLY METHOD (mgTable.noclip = true)
         if State.Noclip then
             mgTable.noclip = true
-            if root then mgTable.clipPos = root.Position end
             if mgTable.hideplayers ~= 0 then
                 mgTable.hideplayers = 0
             end
         elseif not State.Noclip and mgTable.noclip then
-            if root then mgTable.clipPos = root.Position end
             mgTable.noclip = false
         end
     end
@@ -7038,64 +7036,78 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
         Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly Noclip!", 2)
     end
     State.Noclip = v
+    local mg = getMainGameTable()
+    if mg then
+        mg.noclip = v
+        if v and mg.hideplayers ~= 0 then
+            mg.hideplayers = 0
+        end
+    end
     if v then
         syncNativeFlightSpeed(State.Noclip_Speed or 45)
     end
     local char = getChar()
 
     if not v and char then
-        local r = getRoot()
-        local cp = char:FindFirstChild("CollisionPart")
+        -- Cleanly restore standard Roblox character collision & friction (eliminates sliding backwards & stumbles!)
+        restoreCharacterInteractivity(char)
+        restoreDefaultFriction(char)
+
         local hum = char:FindFirstChildWhichIsA("Humanoid")
-        local mg = getMainGameTable()
+        if hum then
+            hum.PlatformStand = false
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
 
+        lastNoclipDisableGrace = os.clock() + 3.5
+
+        local r = getRoot()
         if r then
-            r.AssemblyLinearVelocity = Vector3.zero
-            r.AssemblyAngularVelocity = Vector3.zero
-
-            -- Deep raycast down up to 80 studs to guarantee finding the current room's floor
+            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
+            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local hit = workspace:Raycast(r.Position + Vector3.new(0, 5, 0), Vector3.new(0, -80, 0), rayParams)
-            local floorY = hit and (hit.Position.Y + 3.2) or r.Position.Y
-            local safeCF = CFrame.new(r.Position.X, floorY, r.Position.Z) * (r.CFrame - r.Position)
+            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
+            if downHit and downHit.Position then
+                local floorY = downHit.Position.Y
+                if r.Position.Y < (floorY + 2.5) then
+                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
+                end
+            end
+            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyAngularVelocity = Vector3.zero
 
-            char:PivotTo(safeCF)
-            r.CFrame = safeCF
-
+            local cp = char:FindFirstChild("CollisionPart")
             if cp and cp:IsA("BasePart") then
-                cp.CFrame = safeCF
+                cp.CFrame = r.CFrame
                 cp.CanCollide = true
                 pcall(function() cp.CollisionGroup = "NoPlayer" end)
                 cp.CanTouch = true
                 cp.CanQuery = true
             end
 
-            -- Update clipPos to exact current position so DOORS never snaps backwards into the void!
+            local mg = getMainGameTable()
             if mg then
-                mg.clipPos = safeCF.Position
                 mg.noclip = false
+                mg.clipPos = r.Position
                 mg.inAir = false
                 if mg.stopcam then mg.stopcam = false end
             end
 
+            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
+            task.spawn(function()
+                if crouchRemote then
+                    pcall(function() crouchRemote:FireServer(false, true) end)
+                end
+                task.wait(0.2)
+                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+                    syncServerSlide(false, false)
+                end
+            end)
             syncServerRoomBoundary()
         end
-
-        if hum then
-            hum.PlatformStand = false
-            pcall(function()
-                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end)
-        end
-
-        restoreCharacterInteractivity(char)
-        restoreDefaultFriction(char)
-        lastNoclipDisableGrace = os.clock() + 5.0
     end
     Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
 end)
