@@ -102,14 +102,11 @@ local Hub = Library({
 -- 3. CONFIGURATION STATE
 --------------------------------------------------------------------------------
 local Config = {
-    -- Auto Fishing
+    -- Auto Fishing (Always Maximum Effect)
     AutoCast = false,
     CastPower = 100,
     AutoShake = false,
-    ShakeMode = "Fast (0.15s)", -- "Fast (0.15s)", "Humanized"
     AutoReel = false,
-    ReelMode = "Hyper Fast (~0.5s)", -- "Hyper Fast (~0.5s)", "Safe (~2s)"
-    InstantReelDelay = 0.25, -- Handshake delay waiting for server Reeling attribute
     AutoEquipRod = true,
 
     -- Economy
@@ -183,9 +180,9 @@ pcall(function()
             local args = {...}
             local cfg = (typeof(args[1]) == "table" and args[1].ShakePower ~= nil) and args[1] or args[2]
             if Config.AutoShake and typeof(cfg) == "table" then
-                -- 5x Shake Power & 1.5x Scale: clears shake in 2 rapid pops with zero desyncs or layout bugs
-                cfg.ShakePower = 5
-                cfg.ShakeScale = 1.5
+                -- Maximum Effect: 10x Shake Power & 2.2x Scale for maximum speed 1-2 pop clearing
+                cfg.ShakePower = 10
+                cfg.ShakeScale = 2.2
             end
             return origStartMinigame(...)
         end
@@ -321,17 +318,12 @@ local function executeCast()
     end)
 end
 
--- 2. Precision Fast Auto Shake Engine (Zero Misclicks, Zero Declines)
+-- 2. Maximum-Speed Precision Auto Shake Engine (<0.2s Total)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
 
-    -- 0.15s interval ensures server receives exactly one clean shake packet per bubble without rate-limit decline
-    local interval = 0.15
-    if Config.ShakeMode == "Humanized" then
-        interval = 0.28
-    end
-
-    if tick() - lastShakeTick < interval then return end
+    -- Maximum safe rate (0.10s): clears bubbles with lightning speed
+    if tick() - lastShakeTick < 0.10 then return end
 
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
@@ -547,23 +539,14 @@ Hub.CreateSlider(farmTab, "Cast Power", 10, 100, Config.CastPower, "%", function
     Config.CastPower = val
 end)
 
-Hub.CreateToggle(farmTab, "Auto Shake (Bubble Pop)", Config.AutoShake, function(val)
+Hub.CreateToggle(farmTab, "Auto Shake (Bubble Pop - Max Speed)", Config.AutoShake, function(val)
     Config.AutoShake = val
-    Hub.Notify("Auto Shake", val and "Auto Shake: ACTIVE" or "Auto Shake: OFF", 2)
+    Hub.Notify("Auto Shake", val and "Auto Shake: ACTIVE (Max Speed)" or "Auto Shake: OFF", 2)
 end)
 
-Hub.CreateDropdown(farmTab, "Shake Speed", {"Fast (0.15s)", "Humanized"}, Config.ShakeMode, function(val)
-    Config.ShakeMode = val
-end)
-
-Hub.CreateToggle(farmTab, "Auto Reel (Fish Bubble)", Config.AutoReel, function(val)
+Hub.CreateToggle(farmTab, "Auto Reel (Instant / Hyper-Speed)", Config.AutoReel, function(val)
     Config.AutoReel = val
-    Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE" or "Auto Reel: OFF", 2)
-end)
-
-Hub.CreateDropdown(farmTab, "Reel Speed", {"Hyper Fast (~0.5s)", "Safe (~2s)"}, Config.ReelMode, function(val)
-    Config.ReelMode = val
-    Hub.Notify("Reel Speed", "Reel Speed set to: " .. val, 2)
+    Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE (Max Speed)" or "Auto Reel: OFF", 2)
 end)
 
 Hub.CreateSection(farmTab, "Merchant & Sales")
