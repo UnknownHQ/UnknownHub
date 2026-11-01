@@ -1,3 +1,66 @@
+-- =========================================================================
+-- Universal Session Maid & Multi-Execution Lag Prevention Engine
+-- Purges previous session connections, loops, hooks, drawings & UI to guarantee 0 FPS drops!
+-- =========================================================================
+if _G.DOORS_CLEANUP and type(_G.DOORS_CLEANUP) == "function" then
+    pcall(_G.DOORS_CLEANUP)
+end
+
+local sessionConnections = {}
+local sessionDrawings = {}
+
+local function trackConn(conn)
+    if conn then table.insert(sessionConnections, conn) end
+    return conn
+end
+
+local function trackDrawing(d)
+    if d then table.insert(sessionDrawings, d) end
+    return d
+end
+
+_G.DOORS_SESSION = tick()
+local currentSession = _G.DOORS_SESSION
+
+_G.DOORS_CLEANUP = function()
+    -- 1. Invalidate session token to instantly terminate all background while-loops
+    _G.DOORS_SESSION = tick()
+
+    -- 2. Disconnect every tracked RBXScriptConnection
+    for _, conn in ipairs(sessionConnections) do
+        pcall(function()
+            if conn and conn.Disconnect then conn:Disconnect() end
+        end)
+    end
+    table.clear(sessionConnections)
+
+    -- 3. Destroy all tracked Drawing instances
+    for _, d in ipairs(sessionDrawings) do
+        pcall(function()
+            if d and d.Remove then d:Remove() elseif d and d.Destroy then d:Destroy() end
+        end)
+    end
+    table.clear(sessionDrawings)
+
+    -- 4. Destroy existing UI
+    pcall(function()
+        local cg = game:GetService("CoreGui")
+        local hui = gethui and gethui()
+        local lp = game:GetService("Players").LocalPlayer
+        local pg = lp and lp:FindFirstChild("PlayerGui")
+        local targets = {cg, hui, pg}
+        for _, p in ipairs(targets) do
+            if p then
+                for _, desc in ipairs(p:GetDescendants()) do
+                    if desc.Name == "UnknownHub" or desc.Name:find("Unknown_ESP") or desc.Name:find("Unknown_") then
+                        pcall(function() desc:Destroy() end)
+                    end
+                end
+            end
+        end
+    end)
+end
+
 --[[
     ========================================================================
     Unknown Hub - DOORS (Hotel & The Mines)
@@ -296,22 +359,7 @@ pcall(function()
     end
 end)
 
--- Metatable namecall guard for Halt damage remote (ShadeResult)
-pcall(function()
-    local remotes = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder")
-    local shadeResult = remotes:WaitForChild("ShadeResult")
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        local args = {...}
-        if not checkcaller() and State.Anti_Halt and self == shadeResult then
-            if args[1] == true then
-                return nil
-            end
-        end
-        return oldNamecall(self, ...)
-    end)
-end)
+-- Metatable namecall guard for Halt damage remote (consolidated into unified detour below)
 
 
 -- =========================================================================
@@ -338,7 +386,7 @@ local function hookCamShakerScreech()
 end
 
 task.spawn(function()
-    while true do
+    while _G.DOORS_SESSION == currentSession do
         task.wait(0.5)
         pcall(hookCamShakerScreech)
     end
@@ -395,7 +443,7 @@ local function instantSolveBreakers()
 end
 
 task.spawn(function()
-    while true do
+    while _G.DOORS_SESSION == currentSession do
         task.wait(0.2)
         if State.Auto_Breakers then
             local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
@@ -453,9 +501,7 @@ local instantSolveBreakers
 local handleFarmRoofEvacuation
 local isLethalEntityIncoming
 
--- Session lifecycle
-_G.DOORS_SESSION = tick()
-local currentSession = _G.DOORS_SESSION
+-- Session lifecycle state synchronization
 _G.State = State
 _G.UnknownHub_State = State
 
@@ -1832,7 +1878,7 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
 
     -- Active RenderStepped tracking backup: keeps rounded cube 100% aligned even across instant teleportation or CFrame snaps
     local followConn
-    followConn = RunService.RenderStepped:Connect(function()
+    followConn = trackConn(RunService.RenderStepped:Connect(function()
         if not targetPart or not targetPart.Parent or not model.Parent then
             if followConn then followConn:Disconnect() end
             return
@@ -3788,7 +3834,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
     local settleStartTime = nil
 
     local conn
-    conn = RunService.Heartbeat:Connect(function()
+    conn = trackConn(RunService.Heartbeat:Connect(function()
         if activeTweenToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
             if conn then conn:Disconnect() end
             if activeTweenToken == token then
@@ -4478,7 +4524,7 @@ end
 -- =========================================================================
 -- Continuous Heartbeat Enforcement & Omnidirectional Phase Noclip Engine
 -- =========================================================================
-RunService.Heartbeat:Connect(function(dt)
+trackConn(RunService.Heartbeat:Connect(function(dt)
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
     local root = getRoot()
@@ -4839,7 +4885,7 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- Stepped Guard: Strips collisions & touch on character parts during Noclip
-RunService.Stepped:Connect(function()
+trackConn(RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
     local mgTable = getMainGameTable()
@@ -4931,7 +4977,7 @@ pcall(function()
 end)
 
 task.spawn(function()
-    while true do
+    while _G.DOORS_SESSION == currentSession do
         task.wait(0.25)
         if State.Noclip or State.Fly_Enabled then
             pcall(function()
@@ -4985,7 +5031,7 @@ end)
 
 -- =========================================================================
 -- Pre-Physics Stepped Collision Bypass: Ensures physics engine NEVER overrides noclip collisions before physics step
-RunService.Stepped:Connect(function()
+trackConn(RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     if State.Noclip then
         local char = getChar()
@@ -5004,7 +5050,7 @@ end)
 -- Jumping & Sliding Engine (DOORS Freedom Movement)
 -- =========================================================================
 
-UserInputService.JumpRequest:Connect(function()
+trackConn(UserInputService.JumpRequest:Connect(function()
     if State.Enable_Jumping then
         local char = getChar()
         local root = getRoot()
@@ -5024,7 +5070,7 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
     -- Click to Teleport (Ctrl + Left Click)
     if State.ClickTP_Enabled and input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessed then
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
@@ -6074,7 +6120,7 @@ local isSafePhased = false
 local prePhaseY = nil
 
 task.spawn(function()
-    while true do
+    while _G.DOORS_SESSION == currentSession do
         task.wait(0.1)
         if State.Anti_Rush or State.Noclip then
             local incoming, entName = isLethalEntityIncoming()
@@ -6667,7 +6713,7 @@ end)
 
 -- Death / Win Auto-Restart Pipeline (Restarts match & continues completing)
 task.spawn(function()
-    while true do
+    while _G.DOORS_SESSION == currentSession do
         task.wait(1.0)
         if State.Auto_Complete_100 or State.Knobs_Farm_Active then
             local pGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -6997,7 +7043,7 @@ end)
 
 if game.PlaceId == PLACE_LOBBY then
     task.spawn(function()
-        while true do
+        while _G.DOORS_SESSION == currentSession do
             task.wait(1.5)
             local char = LocalPlayer.Character
             local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
@@ -7235,9 +7281,18 @@ if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED the
     end))
 end
 
-if hookmetamethod then
+if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
+    _G.__UNIFIED_NAMECALL_HOOKED = true
     local rawNamecall
     rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local activeState = _G.State or State
+        local method = getnamecallmethod()
+        if not checkcaller() then
+            -- Intercept ShadeResult (Halt Anti-Damage)
+            if self.Name == "ShadeResult" and activeState.Anti_Halt then
+                local args = {...}
+                if args[1] == true then return nil end
+            end
         local method = getnamecallmethod()
         if not checkcaller() then
             -- Intercept IsKeyDown call via namecall to permanently kill Q/E elevation in DOORS Movement
@@ -8051,7 +8106,7 @@ scanAllRooms()
 Hub.Notify("Unknown Hub", "DOORS Precision ESP Loaded", 3)
 
 -- Frame-0 ProximityPrompt Fast Trigger: Bypasses native engine input polling delays on KeyCode.E
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.E and not UserInputService:GetFocusedTextBox() then
         local r = getRoot()
         local cam = Workspace.CurrentCamera
