@@ -4380,6 +4380,11 @@ RunService.Heartbeat:Connect(function(dt)
         local cp = char:FindFirstChild("CollisionPart")
         if cp then cp.CFrame = newCF end
 
+        -- Synchronize native flight clipPos directly so first-person camera follows head seamlessly with zero jitter
+        if mgTable then
+            mgTable.clipPos = targetPos
+        end
+
         -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
         root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
         root.AssemblyAngularVelocity = Vector3.zero
@@ -5783,7 +5788,7 @@ end
 -- Rush / Ambush / A-60 / A-120 Lethal Threat Detector
 local function isLethalEntityIncoming()
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    for _, name in ipairs({"RushMoving", "AmbushMoving", "A60", "A120"}) do
+    for _, name in ipairs({"RushMoving", "AmbushMoving", "A60", "A120", "SeekMoving", "Dread", "Blitz", "FigureRig"}) do
         if (curRooms and curRooms:FindFirstChild(name, true)) or Workspace:FindFirstChild(name, true) then
             return true, name
         end
