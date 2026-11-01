@@ -129,6 +129,11 @@ local State = {
     Noclip_Speed = 35,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
+    -- Autonomous 1-100 Doors Master Completer Suite
+    Auto_Complete_100 = false,
+    Auto_RoofEvacuate = true,
+    Knobs_Farm_ExtraGoldMultiplier = true,
+
     -- Knobs Farm Autopilot Suite
     Knobs_Farm_Active = false,
     Knobs_Farm_MaxGold = 3500,
@@ -425,6 +430,132 @@ pcall(function()
     end)
 end)
 
+
+
+-- =========================================================================
+-- Autonomous DOORS 1–100 Master Completer Engine
+-- Complete Hands-Free Run: Key Finder, Puzzle Solver, Room 50 & 100 Auto-Beat
+-- Roof Safe Evacuation & Instant Death/Win Auto-Restart Pipeline
+-- =========================================================================
+local isCompleterActive = false
+
+local function runAutoComplete100Step()
+    if not State.Auto_Complete_100 then return end
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not char or not root or not hum or hum.Health <= 0 then return end
+
+    -- Threat evacuation check: if lethal entity incoming, evacuate to safe ceiling
+    if isLethalEntityIncoming() then
+        handleFarmRoofEvacuation()
+        return
+    end
+
+    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+    local lr = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local curRoom = curRooms and curRooms:FindFirstChild(tostring(lr))
+
+    -- Ensure Noclip & Anti-Cheat Bypass are actively engaged
+    if not State.Noclip then State.Noclip = true end
+    if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
+
+    -- Special Stage: Room 50 (Figure Library)
+    if lr == 50 then
+        local padlock = curRoom and curRoom:FindFirstChild("Padlock", true)
+        if padlock and padlock:FindFirstChildWhichIsA("ProximityPrompt", true) then
+            solveFigureLibraryRoom()
+            task.wait(1.5)
+            return
+        end
+    end
+
+    -- Special Stage: Room 100 (Figure & Elevator Circuit Breakers)
+    if lr == 100 then
+        local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
+        if elBreaker then
+            Hub.Notify("Completer", "Door 100 reached! Solving Breakers...", 3)
+            instantSolveBreakers()
+            task.wait(3.0)
+
+            local elevator = Workspace:FindFirstChild("StarterElevator", true) or Workspace:FindFirstChild("Elevator", true)
+            if elevator then
+                local ePart = elevator:FindFirstChildWhichIsA("BasePart", true)
+                if ePart then
+                    farmGlideTo(ePart.Position + Vector3.new(0, 2, 0), 45, 5.0)
+                    Hub.Notify("Completer", "Entered Elevator! Victory achieved!", 5)
+                end
+            end
+            task.wait(5.0)
+            return
+        end
+    end
+
+    if not curRoom then
+        task.wait(0.5)
+        return
+    end
+
+    local door = curRoom:FindFirstChild("Door")
+    local lock = door and door:FindFirstChild("Lock")
+    local isLocked = lock and lock:FindFirstChild("UnlockPrompt", true) ~= nil
+
+    if isLocked then
+        local hasKey = LocalPlayer.Backpack:FindFirstChild("Key") ~= nil or (char:FindFirstChild("Key") ~= nil)
+        if not hasKey then
+            Hub.Notify("Completer", "Room " .. tostring(lr) .. " locked. Finding Key...", 2)
+            teleportToRoomKey()
+            task.wait(1.0)
+            return
+        else
+            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
+            if keyTool and hum then hum:EquipTool(keyTool) end
+        end
+    end
+
+    -- Path to and through door
+    teleportToNextDoor()
+    task.wait(0.8)
+end
+
+-- Completer Main Execution Daemon
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Auto_Complete_100 then
+            pcall(runAutoComplete100Step)
+        end
+        task.wait(0.3)
+    end
+end)
+
+-- Death / Win Auto-Restart Pipeline (Restarts match & continues completing)
+task.spawn(function()
+    while true do
+        task.wait(1.0)
+        if State.Auto_Complete_100 or State.Knobs_Farm_Active then
+            local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+            local mainUI = pGui and pGui:FindFirstChild("MainUI")
+            local deathPanel = mainUI and mainUI:FindFirstChild("DeathPanel")
+            if deathPanel and deathPanel.Visible then
+                Hub.Notify("Completer", "Match finished. Restarting run in 2s...", 2)
+                task.wait(2.0)
+                local playAgainBtn = deathPanel:FindFirstChild("PlayAgain") or deathPanel:FindFirstChild("BattlePlayAgain")
+                if playAgainBtn then
+                    pcall(function()
+                        for _, c in ipairs(getconnections(playAgainBtn.MouseButton1Down)) do
+                            if c.Fire then c:Fire() elseif c.Function then c.Function() end
+                        end
+                    end)
+                end
+                local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                local playAgainRemote = remotes and remotes:FindFirstChild("PlayAgain")
+                if playAgainRemote then pcall(function() playAgainRemote:FireServer() end) end
+            end
+        end
+    end
+end)
 
 -- Session lifecycle
 _G.DOORS_SESSION = tick()
@@ -5922,8 +6053,8 @@ local function handleFarmRoofEvacuation()
 
     teleportToRoof()
 
-    -- Wait until threat is completely cleared
-    while State.Knobs_Farm_Active do
+    -- Wait until threat is completely cleared across all automation modes
+    while (State.Knobs_Farm_Active or State.Auto_Complete_100 or State.Auto_RoofEvacuate or State.Noclip) do
         local incoming = isLethalEntityIncoming()
         if not incoming then
             task.wait(2.5) -- Safety tail after despawn
@@ -6134,11 +6265,19 @@ local function processKnobsFarmStep()
                 if isGold or isDrawer or isChest or isTool then
                     local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent:IsA("Model") and (desc.Parent.PrimaryPart or desc.Parent:FindFirstChildWhichIsA("BasePart", true)))
                     if pPart then
-                        table.insert(lootTargets, { Prompt = desc, Part = pPart, IsChest = isChest, IsTool = isTool })
+                        table.insert(lootTargets, { Prompt = desc, Part = pPart, IsChest = isChest, IsTool = isTool, IsGold = isGold })
                     end
                 end
             end
         end
+
+        -- Priority Gold Sorting: Collect high-value gold piles first to maximize Knobs per minute!
+        table.sort(lootTargets, function(a, b)
+            local aGold = a.IsGold or false
+            local bGold = b.IsGold or false
+            if aGold ~= bGold then return aGold end
+            return false
+        end)
 
         -- Fly to and loot each target in sequence
         for _, target in ipairs(lootTargets) do
@@ -6273,7 +6412,25 @@ local mainTab = Hub.CreateTab("Main", {
     ActiveColor = Color3.fromRGB(255, 185, 30) 
 })
 
-Hub.CreateSection(mainTab, "Movement")
+Hub.CreateSection(mainTab, "Autonomous 1-100 Doors Completer")
+
+    Hub.CreateToggle(mainTab, "Auto Complete 100 Doors", State.Auto_Complete_100, function(v)
+        State.Auto_Complete_100 = v
+        if v then
+            State.Noclip = true
+            State.Bypass_AntiCheat = true
+            Hub.Notify("Completer", "Autonomous 1-100 Completer Active! Hands-free game completion running.", 4)
+        else
+            Hub.Notify("Completer", "Autonomous 1-100 Completer Paused.", 2)
+        end
+    end)
+
+    Hub.CreateToggle(mainTab, "Auto Roof Evacuate on Threat", State.Auto_RoofEvacuate, function(v)
+        State.Auto_RoofEvacuate = v
+        Hub.Notify("Defense", v and "Auto Roof Evacuation: Enabled" or "Auto Roof Evacuation: Disabled", 2)
+    end)
+
+    Hub.CreateSection(mainTab, "Movement")
 
 Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     if v and not State.Bypass_AntiCheat then

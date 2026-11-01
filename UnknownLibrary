@@ -349,10 +349,194 @@ return function(opts)
     headerDivider.BorderSizePixel = 0
     headerDivider.Parent = header
 
+    -- Search Bar & Live Control Filter
+    local searchContainer = Instance.new("Frame")
+    searchContainer.Name = "SearchContainer"
+    searchContainer.Size = UDim2.new(0, 190, 0, 26)
+    searchContainer.Position = UDim2.new(1, -300, 0.5, -13)
+    searchContainer.BackgroundColor3 = DEFAULT_THEME.Input
+    searchContainer.BorderSizePixel = 0
+    searchContainer.Parent = header
+    applyCorner(searchContainer, 6)
+    applyStroke(searchContainer, DEFAULT_THEME.Stroke, 1, 0.3)
+
+    local searchIcon = Instance.new("TextLabel")
+    searchIcon.Size = UDim2.new(0, 22, 1, 0)
+    searchIcon.Position = UDim2.new(0, 4, 0, 0)
+    searchIcon.BackgroundTransparency = 1
+    searchIcon.Font = Enum.Font.Gotham
+    searchIcon.Text = "?"
+    searchIcon.TextColor3 = DEFAULT_THEME.TextDim
+    searchIcon.TextSize = 11
+    searchIcon.Parent = searchContainer
+
+    local searchInput = Instance.new("TextBox")
+    searchInput.Name = "SearchBox"
+    searchInput.Size = UDim2.new(1, -28, 1, 0)
+    searchInput.Position = UDim2.new(0, 24, 0, 0)
+    searchInput.BackgroundTransparency = 1
+    searchInput.Font = Enum.Font.Gotham
+    searchInput.PlaceholderText = "Search features..."
+    searchInput.PlaceholderColor3 = DEFAULT_THEME.TextDim
+    searchInput.Text = ""
+    searchInput.TextColor3 = DEFAULT_THEME.TextPrimary
+    searchInput.TextSize = 11
+    searchInput.TextXAlignment = Enum.TextXAlignment.Left
+    searchInput.ClearTextOnFocus = false
+    searchInput.Parent = searchContainer
+
+    -- Universal Changelog & Update Log Modal Viewer
+    local function showUpdateLogModal()
+        local modalOverlay = Instance.new("TextButton")
+        modalOverlay.Name = "Unknown_UpdateLogModal"
+        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
+        modalOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        modalOverlay.BackgroundTransparency = 0.45
+        modalOverlay.BorderSizePixel = 0
+        modalOverlay.Text = ""
+        modalOverlay.AutoButtonColor = false
+        modalOverlay.ZIndex = 99999
+        modalOverlay.Parent = screenGui
+
+        local mBox = Instance.new("Frame")
+        mBox.Size = UDim2.new(0, 480, 0, 360)
+        mBox.Position = UDim2.new(0.5, -240, 0.5, -180)
+        mBox.BackgroundColor3 = DEFAULT_THEME.Background
+        mBox.BorderSizePixel = 0
+        mBox.Parent = modalOverlay
+        applyCorner(mBox, 12)
+        applyStroke(mBox, DEFAULT_THEME.Stroke, 1, 0.2)
+
+        local mHead = Instance.new("Frame")
+        mHead.Size = UDim2.new(1, 0, 0, 44)
+        mHead.BackgroundTransparency = 1
+        mHead.Parent = mBox
+
+        local mTitle = Instance.new("TextLabel")
+        mTitle.Size = UDim2.new(1, -50, 1, 0)
+        mTitle.Position = UDim2.new(0, 18, 0, 0)
+        mTitle.BackgroundTransparency = 1
+        mTitle.Font = Enum.Font.GothamBold
+        mTitle.Text = "Unknown Hub ? Global Update Log"
+        mTitle.TextColor3 = primaryTheme
+        mTitle.TextSize = 14
+        mTitle.TextXAlignment = Enum.TextXAlignment.Left
+        mTitle.Parent = mHead
+
+        local mClose = Instance.new("TextButton")
+        mClose.Size = UDim2.new(0, 28, 0, 28)
+        mClose.Position = UDim2.new(1, -38, 0.5, -14)
+        mClose.BackgroundColor3 = DEFAULT_THEME.Card
+        mClose.Text = "?"
+        mClose.TextColor3 = DEFAULT_THEME.TextSecondary
+        mClose.Font = Enum.Font.GothamBold
+        mClose.TextSize = 14
+        mClose.Parent = mHead
+        applyCorner(mClose, 6)
+        mClose.MouseButton1Click:Connect(function() modalOverlay:Destroy() end)
+
+        local logScroll = Instance.new("ScrollingFrame")
+        logScroll.Size = UDim2.new(1, -24, 1, -56)
+        logScroll.Position = UDim2.new(0, 12, 0, 46)
+        logScroll.BackgroundTransparency = 1
+        logScroll.BorderSizePixel = 0
+        logScroll.ScrollBarThickness = 4
+        logScroll.ScrollBarImageColor3 = primaryTheme
+        logScroll.Parent = mBox
+
+        local logLayout = Instance.new("UIListLayout")
+        logLayout.Padding = UDim.new(0, 10)
+        logLayout.Parent = logScroll
+        logLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            logScroll.CanvasSize = UDim2.new(0, 0, 0, logLayout.AbsoluteContentSize.Y + 20)
+        end)
+
+        local function addLogCard(ver, date, bulletList)
+            local card = Instance.new("Frame")
+            card.Size = UDim2.new(1, 0, 0, 30 + (#bulletList * 20))
+            card.BackgroundColor3 = DEFAULT_THEME.Card
+            card.BorderSizePixel = 0
+            card.Parent = logScroll
+            applyCorner(card, 8)
+            applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+            local vLabel = Instance.new("TextLabel")
+            vLabel.Size = UDim2.new(1, -16, 0, 22)
+            vLabel.Position = UDim2.new(0, 12, 0, 6)
+            vLabel.BackgroundTransparency = 1
+            vLabel.Font = Enum.Font.GothamBold
+            vLabel.Text = ver .. "  ?  " .. date
+            vLabel.TextColor3 = primaryTheme
+            vLabel.TextSize = 12
+            vLabel.TextXAlignment = Enum.TextXAlignment.Left
+            vLabel.Parent = card
+
+            for idx, text in ipairs(bulletList) do
+                local b = Instance.new("TextLabel")
+                b.Size = UDim2.new(1, -24, 0, 18)
+                b.Position = UDim2.new(0, 16, 0, 26 + (idx - 1) * 20)
+                b.BackgroundTransparency = 1
+                b.Font = Enum.Font.Gotham
+                b.Text = "? " .. text
+                b.TextColor3 = DEFAULT_THEME.TextSecondary
+                b.TextSize = 11
+                b.TextXAlignment = Enum.TextXAlignment.Left
+                b.Parent = card
+            end
+        end
+
+        addLogCard("V2.5.0", "November 2026", {
+            "Autonomous 1-100 DOORS Completer with Room 50 & 100 auto-solvers",
+            "Universal Configuration System: Save/Load profiles to disk",
+            "Real-Time Header Search Bar across all categories",
+            "Universal 2D Entity Rounded Corner ESP Library with C++ physics welds",
+            "Anti-Halt full neutralization & Anti-Screech camera shake filter",
+            "Autonomous Rush & Entity Altitude Safe Phase (+35 studs)"
+        })
+
+        addLogCard("V2.4.0", "October 2026", {
+            "Autonomous Knobs Farm integrated with native Fly Noclip",
+            "Auto Death Farm 24/7 background worker added",
+            "First-Person camera & head alignment fix (zero body clipping)"
+        })
+    end
+
+    updatesBtn.MouseButton1Click:Connect(showUpdateLogModal)
+    Hub.ShowUpdateLog = showUpdateLogModal
+
+
+    searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+        local q = searchInput.Text:lower():gsub("^%s*(.-)%s*$", "%1")
+        for _, elem in ipairs(Hub.RegisteredElements or {}) do
+            if elem.Card and elem.Card.Parent then
+                if q == "" then
+                    elem.Card.Visible = true
+                else
+                    elem.Card.Visible = (elem.Title:lower():find(q, 1, true) ~= nil)
+                end
+            end
+        end
+    end)
+
+    -- Updates / Changelog Header Button
+    local updatesBtn = Instance.new("TextButton")
+    updatesBtn.Name = "UpdatesButton"
+    updatesBtn.Size = UDim2.new(0, 72, 0, 24)
+    updatesBtn.Position = UDim2.new(1, -98, 0.5, -12)
+    updatesBtn.BackgroundColor3 = DEFAULT_THEME.Card
+    updatesBtn.BorderSizePixel = 0
+    updatesBtn.Font = Enum.Font.GothamBold
+    updatesBtn.Text = "? Logs"
+    updatesBtn.TextColor3 = primaryTheme
+    updatesBtn.TextSize = 11
+    updatesBtn.Parent = header
+    applyCorner(updatesBtn, 6)
+    applyStroke(updatesBtn, primaryTheme, 1, 0.4)
+
     -- Breadcrumb Title
     local breadcrumbTitle = Instance.new("TextLabel")
     breadcrumbTitle.Name = "BreadcrumbTitle"
-    breadcrumbTitle.Size = UDim2.new(1, -150, 1, 0)
+    breadcrumbTitle.Size = UDim2.new(1, -320, 1, 0)
     breadcrumbTitle.Position = UDim2.new(0, 18, 0, 0)
     breadcrumbTitle.BackgroundTransparency = 1
     breadcrumbTitle.Font = Enum.Font.GothamBold
@@ -901,6 +1085,17 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         local stroke = applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(Hub.RegisteredElements, { Card = card, Title = tostring(titleText), Type = "Toggle" })
+        Hub.RegisteredFlags[tostring(titleText)] = {
+            Type = "Toggle",
+            Get = function() return state end,
+            Set = function(newVal)
+                if state ~= newVal then
+                    setToggle(newVal)
+                end
+            end
+        }
 
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
@@ -2148,6 +2343,78 @@ return function(opts)
     Hub.frame = mainFrame
     Hub.content = contentArea
 
+    -- Config System & Control Registry
+    Hub.RegisteredFlags = {}
+    Hub.RegisteredElements = {}
+
+    -- Universal Configuration Serializer (Profiles, Auto-Save & Auto-Load)
+    Hub.SaveConfig = function(configName)
+        configName = (configName and configName ~= "") and configName or "default"
+        local gameName = tostring(game.PlaceId)
+        local folder = "UnknownHub/Configs/" .. gameName
+        pcall(function()
+            if not isfolder("UnknownHub") then makefolder("UnknownHub") end
+            if not isfolder("UnknownHub/Configs") then makefolder("UnknownHub/Configs") end
+            if not isfolder(folder) then makefolder(folder) end
+        end)
+        local data = {}
+        for flagName, flagObj in pairs(Hub.RegisteredFlags) do
+            local ok, val = pcall(flagObj.Get)
+            if ok and val ~= nil then
+                data[flagName] = val
+            end
+        end
+        local encoded = HttpService:JSONEncode(data)
+        local path = folder .. "/" .. configName .. ".json"
+        local ok, err = pcall(function() writefile(path, encoded) end)
+        if ok then
+            sendNotification("Configuration", "Saved config '" .. configName .. "' successfully!", 2.5)
+        else
+            sendNotification("Config Error", "Failed to save: " .. tostring(err), 3)
+        end
+    end
+
+    Hub.LoadConfig = function(configName)
+        configName = (configName and configName ~= "") and configName or "default"
+        local gameName = tostring(game.PlaceId)
+        local path = "UnknownHub/Configs/" .. gameName .. "/" .. configName .. ".json"
+        local exists = false
+        pcall(function() exists = isfile(path) end)
+        if not exists then
+            sendNotification("Configuration", "Config '" .. configName .. "' not found.", 2.5)
+            return false
+        end
+        local content = readfile(path)
+        local ok, decoded = pcall(function() return HttpService:JSONDecode(content) end)
+        if not ok or type(decoded) ~= "table" then
+            sendNotification("Config Error", "Corrupt config file.", 2.5)
+            return false
+        end
+        for flagName, val in pairs(decoded) do
+            local flagObj = Hub.RegisteredFlags[flagName]
+            if flagObj and flagObj.Set then
+                pcall(flagObj.Set, val)
+            end
+        end
+        sendNotification("Configuration", "Loaded config '" .. configName .. "'!", 2.5)
+        return true
+    end
+
+    Hub.ListConfigs = function()
+        local gameName = tostring(game.PlaceId)
+        local folder = "UnknownHub/Configs/" .. gameName
+        local list = {}
+        pcall(function()
+            if isfolder(folder) then
+                for _, f in ipairs(listfiles(folder)) do
+                    local name = f:match("([^/\\]+)%.json$")
+                    if name then table.insert(list, name) end
+                end
+            end
+        end)
+        return list
+    end
+
     -- Tab & Component Factories
     Hub.CreateTab = createTab
     Hub.createTab = createTab
@@ -2231,6 +2498,22 @@ return function(opts)
     local function ensureSettingsTab()
         if settingsPage then return end
         settingsPage = createTab("Settings", { Icon = "⚙", Size = 16 })
+
+        -- Section 0: Configuration Profiles Manager
+        createSection(settingsPage, "Configuration Profiles")
+
+        local configNameInput = "default"
+        createTextBox(settingsPage, "Config Profile Name", "default", function(text)
+            if text and text ~= "" then configNameInput = text end
+        end)
+
+        createButton(settingsPage, "Save Current Configuration", function()
+            Hub.SaveConfig(configNameInput)
+        end)
+
+        createButton(settingsPage, "Load Selected Configuration", function()
+            Hub.LoadConfig(configNameInput)
+        end)
 
         -- Section 1: Appearance & UI
         createSection(settingsPage, "🎨 UI & Theme Customization")
