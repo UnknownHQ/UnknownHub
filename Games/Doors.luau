@@ -358,6 +358,7 @@ local isLethalEntityIncoming
 local defuseLethalEntity
 local getExactFloorPos
 local solveLibraryCode
+-- lastNoclipDisableGrace hoisted
 local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
 
 
@@ -2654,7 +2655,7 @@ pcall(function()
 
         currentRooms.ChildAdded:Connect(function(newRoom)
             -- 2.5s anti-rollback grace window: prevents server from snapping player back during room streaming
-            lastNoclipDisableGrace = math.max(lastNoclipDisableGrace, os.clock() + 2.5)
+            lastNoclipDisableGrace = math.max(lastNoclipDisableGrace or 0, os.clock() + 2.5)
             if crouchRemote then
                 pcall(function() crouchRemote:FireServer(false, true) end)
             end
