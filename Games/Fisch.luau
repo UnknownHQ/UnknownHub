@@ -226,126 +226,172 @@ local function ensureRodEquipped()
 end
 
 --------------------------------------------------------------------------------
--- 5. AUTO FISHING ENGINE (BYPASS-SECURE & HUMANIZED)
+-- 5. AUTO FISHING ENGINE (AUTO CAST, AUTO SHAKE & SAFE FISH BUBBLE REEL)
 --------------------------------------------------------------------------------
 local isFishingActive = false
 local lastCastTick = 0
-local lastReelTick = 0
+local lastShakeTick = 0
+local reelStartTime = 0
 
--- Sub-routine: Auto Cast
+-- 1. Auto Cast Routine (Ensures rod equipped, checks cast state, fires server cast)
 local function executeCast()
-    if not Config.AutoCast or tick() - lastCastTick < 1.0 then return end
-    if Config.AutoEquipRod then ensureRodEquipped() end
+    if not Config.AutoCast then return end
+    if tick() - lastCastTick < 1.2 then return end
 
-    local rod = getEquippedRod()
+    local rod = ensureRodEquipped()
     if not rod then return end
 
-    pcall(function()
-        local events = ReplicatedStorage:FindFirstChild("events") or ReplicatedStorage:FindFirstChild("network")
-        local castEvent = events and (events:FindFirstChild("cast") or events:FindFirstChild("Cast") or events:FindFirstChild("fishing_cast"))
+    local values = rod:FindFirstChild("values")
+    if values then
+        local casted = values:FindFirstChild("casted")
+        if casted and casted.Value == true then
+            return -- Already casted and waiting for bite
+        end
+    end
 
-        if castEvent and castEvent:IsA("RemoteEvent") then
-            castEvent:FireServer(Config.CastPower / 100)
-            lastCastTick = tick()
-        elseif castEvent and castEvent:IsA("RemoteFunction") then
-            castEvent:InvokeServer(Config.CastPower / 100)
-            lastCastTick = tick()
-        else
-            -- Native Rod tool activation fallback
-            rod:Activate()
+    pcall(function()
+        local castPower = math.clamp(Config.CastPower or 100, 10, 100)
+        local castedSuccess = false
+
+        -- Direct rod event invocation
+        if rod:FindFirstChild("events") and rod.events:FindFirstChild("castAsync") then
+            rod.events.castAsync:InvokeServer(castPower, true)
+            castedSuccess = true
+        end
+
+        -- Fallback to Net package RemoteFunction
+        if not castedSuccess then
+            local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
+            if net then
+                local Net = require(net)
+                local castRf = Net:RemoteFunction("FishingRod/Cast", -1)
+                if castRf then
+                    castRf:InvokeServer(castPower, true)
+                    castedSuccess = true
+                end
+            end
+        end
+
+        if castedSuccess then
             lastCastTick = tick()
         end
     end)
 end
 
--- Sub-routine: Auto Shake (Solves shake minigame UI)
+-- 2. Auto Shake Routine (Clicks shake bubbles instantly and naturally)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
+    if tick() - lastShakeTick < math.clamp(Config.ShakeSpeed or 0.12, 0.08, 0.3) then return end
+
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
 
-    local shakeGui = playerGui:FindFirstChild("shake") or playerGui:FindFirstChild("Shake")
-    if not shakeGui or not shakeGui.Enabled then return end
+    local shakeUI = playerGui:FindFirstChild("shakeui")
+    if not shakeUI or not shakeUI.Enabled then return end
 
     pcall(function()
-        local safezone = shakeGui:FindFirstChild("safezone", true) or shakeGui:FindFirstChild("Safezone", true)
+        local safezone = shakeUI:FindFirstChild("safezone")
         if safezone then
-            local button = safezone:FindFirstChildWhichIsA("ImageButton", true) or safezone:FindFirstChildWhichIsA("TextButton", true)
-            if button and button.Visible then
-                if GuiService and GuiService.SelectedObject ~= button then
-                    GuiService.SelectedObject = button
+            -- Find the active shake button inside safezone
+            for _, btn in ipairs(safezone:GetChildren()) do
+                if btn:IsA("ImageButton") and btn.Visible and btn.UIScale.Scale > 0.1 then
+                    -- Trigger button click
+                    if firesignal then
+                        firesignal(btn.MouseButton1Click)
+                    end
+                    break
                 end
-                -- Send enter key simulation / virtual click
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-                task.wait(0.02)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
             end
         end
+
+        -- Dispatch shake network event directly to server
+        local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
+        if net then
+            local Net = require(net)
+            local shakeEvent = Net:RemoteEvent("LureShake/Shake", -1)
+            if shakeEvent then
+                shakeEvent:FireServer()
+            end
+        end
+
+        lastShakeTick = tick()
     end)
 end
 
--- Sub-routine: Safe Humanized Auto Reel (Solves reel minigame bar safely)
+-- 3. Auto Fish / Auto Reel Routine (Locks playerbar onto the fish bubble safely)
 local function processReelMinigame()
     if not Config.AutoReel then return end
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then return end
 
-    local reelGui = playerGui:FindFirstChild("reel") or playerGui:FindFirstChild("Reel")
-    if not reelGui or not reelGui.Enabled then return end
+    if reelStartTime == 0 then
+        reelStartTime = tick()
+    end
 
     pcall(function()
-        local bar = reelGui:FindFirstChild("bar", true) or reelGui:FindFirstChild("Bar", true)
-        local fish = reelGui:FindFirstChild("fish", true) or reelGui:FindFirstChild("Fish", true)
+        -- Method A: Direct ReelController integration (100% native game engine tracking)
+        local legacyControllers = ReplicatedStorage:FindFirstChild("client") and ReplicatedStorage.client:FindFirstChild("legacyControllers")
+        local reelCtrlModule = legacyControllers and legacyControllers:FindFirstChild("ReelController")
+        if reelCtrlModule then
+            local ok, ReelController = pcall(require, reelCtrlModule)
+            if ok and ReelController and ReelController.ActiveReel then
+                local reel = ReelController.ActiveReel
+                if reel.active then
+                    -- Smoothly lock bar position onto the fish bubble position
+                    reel.barPosition = reel.fishPosition
+                    reel.onbar = true
 
-        if bar and fish then
-            -- Perfect Alignment without remote instant packet (Bypasses server catch time heuristics)
-            if Config.ReelMethod == "Humanized" then
-                local currentX = bar.Position.X.Scale
-                local targetX = fish.Position.X.Scale
-                local step = (targetX - currentX) * 0.4
-                bar.Position = UDim2.new(currentX + step, 0, bar.Position.Y.Scale, bar.Position.Y.Offset)
-            else
-                bar.Position = UDim2.new(fish.Position.X.Scale, 0, bar.Position.Y.Scale, bar.Position.Y.Offset)
+                    -- Prevent instant catch bans by respecting human reaction bounds
+                    local elapsed = tick() - reelStartTime
+                    if elapsed < (Config.ReelDelay or 1.6) then
+                        -- Keep progress right below completion threshold until safe duration elapsed
+                        if reel.progress > 88 then
+                            reel.progress = 88
+                        end
+                    end
+                    return
+                end
             end
         end
 
-        -- Check if reel minigame is ready to submit completion
-        local events = ReplicatedStorage:FindFirstChild("events") or ReplicatedStorage:FindFirstChild("network")
-        local reelRemote = events and (events:FindFirstChild("reelfinished") or events:FindFirstChild("ReelFinished") or events:FindFirstChild("fish_caught"))
+        -- Method B: UI Frame direct manipulation fallback
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local reelUI = playerGui and playerGui:FindFirstChild("reel")
+        if reelUI and reelUI.Enabled then
+            local bar = reelUI:FindFirstChild("bar", true)
+            local fish = bar and bar:FindFirstChild("fish")
+            local playerbar = bar and bar:FindFirstChild("playerbar")
 
-        if reelRemote and (tick() - lastReelTick >= Config.ReelDelay) then
-            lastReelTick = tick()
-            if reelRemote:IsA("RemoteEvent") then
-                reelRemote:FireServer(100, true)
-            elseif reelRemote:IsA("RemoteFunction") then
-                reelRemote:InvokeServer(100, true)
+            if bar and fish and playerbar then
+                playerbar.Position = UDim2.new(fish.Position.X.Scale, 0, playerbar.Position.Y.Scale, playerbar.Position.Y.Offset)
             end
         end
     end)
 end
 
--- Autonomous Fishing Daemon
-task.spawn(function()
-    while true do
-        task.wait(0.04)
-        if Config.AutoCast or Config.AutoShake or Config.AutoReel then
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if char and hum and hum.Health > 0 then
-                local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-                local isShaking = playerGui and (playerGui:FindFirstChild("shake") or playerGui:FindFirstChild("Shake"))
-                local isReeling = playerGui and (playerGui:FindFirstChild("reel") or playerGui:FindFirstChild("Reel"))
+-- Master Automation Heartbeat
+RunService.Heartbeat:Connect(function()
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not char or not hum or hum.Health <= 0 then return end
 
-                if isShaking and isShaking.Enabled then
-                    processShakeMinigame()
-                elseif isReeling and isReeling.Enabled then
-                    processReelMinigame()
-                else
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local isShaking = playerGui and playerGui:FindFirstChild("shakeui") and playerGui.shakeui.Enabled
+        local isReeling = playerGui and playerGui:FindFirstChild("reel") and playerGui.reel.Enabled
+
+        if isReeling then
+            processReelMinigame()
+        else
+            reelStartTime = 0 -- Reset reel timer when minigame closes
+
+            if isShaking then
+                processShakeMinigame()
+            else
+                if Config.AutoCast then
                     executeCast()
                 end
             end
         end
-    end
+    end)
 end)
 
 --------------------------------------------------------------------------------
