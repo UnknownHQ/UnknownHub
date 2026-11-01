@@ -194,8 +194,8 @@ local State = {
 
     -- Autonomous 1-100 Doors Master Completer Suite
     Auto_Complete_100 = false,
-    Auto_Hide = true,
-    Auto_RoofEvacuate = true,
+    Auto_Hide = false,
+    Auto_RoofEvacuate = false,
     Knobs_Farm_ExtraGoldMultiplier = true,
 
     -- Knobs Farm Autopilot Suite
@@ -230,7 +230,7 @@ local State = {
     Anti_Grumble = true,
     Anti_Halt = true,
     Anti_Seek = true,
-    Anti_Rush = true,
+    Anti_Rush = false,
     Anti_Figure = true,
     Anti_Dread = true,
 
@@ -1011,19 +1011,27 @@ task.spawn(function()
             local curRoom = getCurrentRoomNumber()
 
             -- Dynamic Highlight Budget Engine (Solves Roblox 31 Highlight limit):
-            -- Sorts all active ESP records by distance and allocates active Highlights strictly
-            -- to the closest 24 entities/doors/items, so Highlights NEVER disappear or flicker!
-            local highlightCandidates = {}
+            -- Doors, Keys, and Entities receive TOP PRIORITY so the Next Door and Key ALWAYS have Highlights!
+            local priorityRecords = {}
+            local otherCandidates = {}
             for owner, record in pairs(activeEspRecords) do
                 if record and record.Adornee and record.Adornee.Parent and record.Owner and record.Owner.Parent then
-                    local d = rootPos and (rootPos - record.Adornee.Position).Magnitude or 9999
-                    table.insert(highlightCandidates, { Record = record, Dist = d })
+                    if record.Category == "Doors" or record.Category == "Keys" or record.Category == "Entities" then
+                        priorityRecords[record] = true
+                    else
+                        local d = rootPos and (rootPos - record.Adornee.Position).Magnitude or 9999
+                        table.insert(otherCandidates, { Record = record, Dist = d })
+                    end
                 end
             end
-            table.sort(highlightCandidates, function(a, b) return a.Dist < b.Dist end)
+            table.sort(otherCandidates, function(a, b) return a.Dist < b.Dist end)
             local allowedHighlights = {}
-            for i = 1, math.min(24, #highlightCandidates) do
-                allowedHighlights[highlightCandidates[i].Record] = true
+            for rec, _ in pairs(priorityRecords) do
+                allowedHighlights[rec] = true
+            end
+            local remainingBudget = math.max(0, 24 - math.min(24, #highlightCandidates or 0))
+            for i = 1, math.min(24, #otherCandidates) do
+                allowedHighlights[otherCandidates[i].Record] = true
             end
 
             for owner, record in pairs(activeEspRecords) do
@@ -1035,12 +1043,14 @@ task.spawn(function()
                         local shouldShow = State.Doors_ESP
                         if shouldShow then
                             if curRoom ~= nil and record.RoomNumber ~= nil then
-                                -- Strict Filter: Previous door - No, Current Door - Yes, Next Door - Yes
-                                if record.RoomNumber < curRoom or record.RoomNumber > (curRoom + 1) then
+                                -- Strict Door Visibility: Completely HIDE previous doors (already passed)!
+                                -- ONLY highlight the Next Door and current room door!
+                                if record.RoomNumber < curRoom then
+                                    shouldShow = false
+                                elseif record.RoomNumber > (curRoom + 1) then
                                     shouldShow = false
                                 else
                                     shouldShow = true
-                                    -- Dynamically update role label: Current Door vs Next Door
                                     if record.Label then
                                         local isLocked = record.Owner and (record.Owner:GetAttribute("Locked") == true or (record.Owner:FindFirstChild("Lock") and record.Owner.Lock:FindFirstChildWhichIsA("ProximityPrompt", true)))
                                         local isDupe = record.BaseText and record.BaseText:find("Dupe")
@@ -1246,7 +1256,7 @@ local function processDoor(room, doorModel)
         or doorMesh
 
     -- Clean Unified Door Highlight: Highlighting the Model outlines the complete solid door leaf, sign, and padlock without internal wireframe cuts
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorModel, Vector3.new(0, 1.2, 0), roomNumber)
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorModel, Vector3.new(0, 1.2, 0), roomNum)
 
     -- Lifecycle listener: automatically update if lock is removed or room scripts finish loading
     if not doorModel:GetAttribute("ESP_Hooked") then
@@ -3148,19 +3158,8 @@ local function processNearbyDoors(currentPos, maxReach)
                             end)
                         end
 
-                        -- Trigger ManualOpenPrompt and any other door prompts
-                        -- For DoorNormal, ManualOpenPrompt is often disabled by default; force Enabled = true so prompt fires!
-                        for _, prompt in ipairs(d:GetDescendants()) do
-                            if prompt:IsA("ProximityPrompt") and prompt.Name ~= "UnlockPrompt" then
-                                pcall(function()
-                                    if not prompt.Enabled then prompt.Enabled = true end
-                                    prompt.HoldDuration = 0
-                                    prompt.RequiresLineOfSight = false
-                                    prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 20)
-                                    fireproximityprompt(prompt)
-                                end)
-                            end
-                        end
+                        -- Note: Doors open cleanly via Hidden touch interest and ClientOpen remote.
+                        -- ProximityPrompt interaction on doors is disabled so no interact prompt or E-spam appears!
                     end
                 end
             end
@@ -3250,46 +3249,8 @@ end
 -- Eradicates all one-shot entity kill triggers across Rush, Ambush, A-60, Seek, etc.!
 -- =========================================================================
 local function initGodModeImmunity()
-    pcall(function()
-        local char = getChar()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then
-            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-            if hum.Health < 100 then hum.Health = 100 end
-            if getconnections then
-                for _, c in ipairs(getconnections(hum.HealthChanged)) do
-                    local oldFn = c.Function
-                    if oldFn and hookfunction and not _G["HC_IMMUNE_" .. tostring(oldFn)] then
-                        _G["HC_IMMUNE_" .. tostring(oldFn)] = true
-                        hookfunction(oldFn, newcclosure(function(newHealth, ...)
-                            if newHealth <= 0 then
-                                hum.Health = 100
-                                return -- Drop the death handler! DO NOT allow DOORS to trigger DIED!
-                            end
-                            return oldFn(newHealth, ...)
-                        end))
-                    end
-                end
-            end
-        end
-    end)
-    -- Intercept lethal jumpscares from RemotesFolder.Jumpscare
-    pcall(function()
-        local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-        local js = rf and rf:FindFirstChild("Jumpscare")
-        if js and getconnections then
-            for _, c in ipairs(getconnections(js.OnClientEvent)) do
-                local fn = c.Function
-                if fn and hookfunction and not _G["JS_IMMUNE_" .. tostring(fn)] then
-                    _G["JS_IMMUNE_" .. tostring(fn)] = true
-                    hookfunction(fn, newcclosure(function(jName, ...)
-                        Hub.Notify("Entity Shield", "Lethal jumpscare suppressed: " .. tostring(jName), 2)
-                        return
-                    end))
-                end
-            end
-        end
-    end)
+    -- God Mode neutered per daddy's instruction so Fly Noclip runs cleanly without conflict.
+end
     -- Defuse Jack jumpscares: Silences scream sounds and deletes Jack popups from wardrobes (Zero FPS overhead)
     pcall(function()
         local function defuseJackModel(inst)
@@ -4858,15 +4819,10 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+        applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
-        -- Native DOORS Speed Boost Integration: Sets SpeedBoostExtra attribute so Movement's own updatespeed()
-        -- calculates native walkspeed smoothly with synchronized animation speed & camera FOV!
         local targetSpeed = isCrouching and math.clamp(State.WalkSpeed_Value * 0.60, 14, 25) or State.WalkSpeed_Value
-        local boostAmt = math.max(0, targetSpeed - (isCrouching and 10 or 15))
-        if char:GetAttribute("SpeedBoostExtra") ~= boostAmt then
-            pcall(function() char:SetAttribute("SpeedBoostExtra", boostAmt) end)
-        end
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
@@ -4889,8 +4845,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         if not State.Noclip and not State.Enable_Sliding and not isTeleportImmune() then
             syncServerSlide(false, false)
         end
-        if char and char:GetAttribute("SpeedBoostExtra") and char:GetAttribute("SpeedBoostExtra") ~= 0 and not State.WalkSpeed_Enabled then
-            pcall(function() char:SetAttribute("SpeedBoostExtra", 0) end)
+        if char and char:GetAttribute("SpeedBoostExtra") then
+            pcall(function() char:SetAttribute("SpeedBoostExtra", nil) end)
         end
         if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled and not State.Noclip and not isSlidingActive then
             hum.WalkSpeed = 15
@@ -5038,9 +4994,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
 
 
-        -- Precision First-Person Camera Shield:
+        -- Precision First-Person & Fly Noclip Visibility Engine:
         -- ONLY hide Head, head Decals, Accessories, and Collision hitboxes from the local camera!
-        -- Torso, Arms, Legs, and equipped Tools remain 100% visible so your body and items in hand render cleanly!
         local head = char:FindFirstChild("Head")
         if head and head:IsA("BasePart") then
             head.LocalTransparencyModifier = 1
@@ -5061,6 +5016,34 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         if coll and coll:IsA("BasePart") then coll.Transparency = 1 end
         local rootPart = char:FindFirstChild("HumanoidRootPart")
         if rootPart and rootPart:IsA("BasePart") then rootPart.Transparency = 1 end
+
+        -- Force Torso, Arms, Legs, and equipped Tools to remain 100% visible even during Fly Noclip!
+        -- Defeats DOORS native hideplayers = -2 spectate override during flight!
+        if State.Noclip then
+            for _, p in ipairs(char:GetChildren()) do
+                if p:IsA("BasePart") then
+                    local pLower = p.Name:lower()
+                    if pLower:find("torso") or pLower:find("arm") or pLower:find("leg") or pLower:find("hand") or pLower:find("foot") then
+                        p.LocalTransparencyModifier = 0
+                    end
+                elseif p:IsA("Tool") then
+                    for _, tp in ipairs(p:GetDescendants()) do
+                        if tp:IsA("BasePart") and tp.Name ~= "Handle" then
+                            tp.LocalTransparencyModifier = 0
+                        end
+                    end
+                end
+            end
+            local cam = Workspace.CurrentCamera
+            local baseRig = cam and cam:FindFirstChild("BaseRig")
+            if baseRig then
+                for _, bp in ipairs(baseRig:GetDescendants()) do
+                    if bp:IsA("BasePart") then
+                        bp.LocalTransparencyModifier = 0
+                    end
+                end
+            end
+        end
     end
 end)
 
@@ -6422,54 +6405,8 @@ end
 -- =========================================================================
 local isSafePhased = false
 
-local autoHideNoclipActivated = false
-task.spawn(function()
-    while _G.DOORS_SESSION == currentSession do
-        task.wait(0.08)
-        -- STRICT INVARIANT: If daddy disabled Auto Hide, NEVER trigger hiding or roof evasion!
-        if State.Auto_Hide then
-            if not isPlayerOutOfMap() then
-                local incoming, entName = isLethalEntityIncoming()
-                local root = getRoot()
-                local char = getChar()
-                local mgTable = getMainGameTable()
-                if incoming and root and not isPlayerHiding(char, mgTable) then
-                    if not isSafePhased and not isAtRoof and not isEvacuatingRoof then
-                        isSafePhased = true
-                        Hub.Notify("Anti-Threat", "⚠️ " .. tostring(entName) .. " detected! Activating Fly Noclip Safe Roof...", 3)
-                        -- Auto Hide uses Fly Noclip to elevate cleanly through the ceiling without collision!
-                        if not State.Noclip then
-                            State.Noclip = true
-                            autoHideNoclipActivated = true
-                            if mgTable then mgTable.noclip = true end
-                            syncNativeFlightSpeed(State.Noclip_Speed or 45)
-                        end
-                        teleportToRoof()
-                    end
-                elseif not incoming and isSafePhased then
-                    isSafePhased = false
-                    task.wait(1.5)
-                    if not isLethalEntityIncoming() and isAtRoof and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
-                        returnFromRoof(function()
-                            if autoHideNoclipActivated then
-                                autoHideNoclipActivated = false
-                                State.Noclip = false
-                                local mg = getMainGameTable()
-                                if mg then mg.noclip = false end
-                                local c = getChar()
-                                if c then
-                                    restoreCharacterInteractivity(c)
-                                    restoreDefaultFriction(c)
-                                end
-                            end
-                        end)
-                        Hub.Notify("Anti-Threat", "Threat neutralized! Returned safely to room floor.", 2)
-                    end
-                end
-            end
-        end
-    end
-end)
+-- Auto-Hide and Threat Evasion Daemon removed per daddy's instruction.
+-- Fly Noclip runs 100% standalone and completely unhindered!
 
 -- Fly-Noclip Glide Controller: Direct 3D linear flight through walls and obstacles
 farmGlideTo = function(targetPos, speedVal, maxTime)
@@ -7214,32 +7151,24 @@ Hub.CreateSlider(mainTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", f
     syncNativeFlightSpeed(v)
 end)
 
-Hub.CreateToggle(mainTab, "Auto Hide", State.Auto_Hide, function(v)
-    State.Auto_Hide = v
-    State.Auto_RoofEvacuate = v
-    Hub.Notify("Movement", v and "Auto Hide: Enabled (Safe roof elevation on threat)" or "Auto Hide: Disabled", 2)
-end)
+-- Auto Hide toggle removed
 
 Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if char then
+        pcall(function() char:SetAttribute("SpeedBoostExtra", nil) end)
+    end
     if not v then
         syncServerSlide(false)
         restoreDefaultFriction(char)
-        if char then
-            pcall(function() char:SetAttribute("SpeedBoostExtra", 0) end)
-        end
         if hum then hum.WalkSpeed = 15 end
         Hub.Notify("WalkSpeed", "WalkSpeed: Reset (15)", 2)
     else
         syncServerSlide(true)
         applyTeflonGlide(char)
         local targetSpeed = State.WalkSpeed_Value or 45
-        local boostAmt = math.max(0, targetSpeed - 15)
-        if char then
-            pcall(function() char:SetAttribute("SpeedBoostExtra", boostAmt) end)
-        end
         if hum then hum.WalkSpeed = targetSpeed end
         Hub.Notify("WalkSpeed", string.format("WalkSpeed: %d studs/s", targetSpeed), 2)
     end
