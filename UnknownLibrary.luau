@@ -1383,6 +1383,9 @@ return function(opts)
         local currentSelection = defaultChoice or options[1] or "None"
         local cb = type(callback) == "function" and callback or function() end
         local isExpanded = false
+        local currentQuery = ""
+
+        local isLarge = #options > 5
 
         local card = Instance.new("Frame")
         card.Name = "DropdownCard_" .. tostring(titleText)
@@ -1439,24 +1442,85 @@ return function(opts)
         chevron.TextSize = 14
         chevron.Parent = headerBtn
 
-        local optionsContainer = Instance.new("Frame")
-        optionsContainer.Name = "OptionsList"
-        optionsContainer.Size = UDim2.new(1, -20, 0, 0)
-        optionsContainer.Position = UDim2.new(0, 10, 0, 44)
-        optionsContainer.BackgroundTransparency = 1
-        optionsContainer.Parent = card
+        -- Search Bar (Visible for large option lists)
+        local searchBar = nil
+        if isLarge then
+            searchBar = Instance.new("TextBox")
+            searchBar.Name = "SearchBox"
+            searchBar.Size = UDim2.new(1, -20, 0, 26)
+            searchBar.Position = UDim2.new(0, 10, 0, 44)
+            searchBar.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+            searchBar.BorderSizePixel = 0
+            searchBar.PlaceholderText = "Search..."
+            searchBar.PlaceholderColor3 = Color3.fromRGB(110, 120, 140)
+            searchBar.Text = ""
+            searchBar.TextColor3 = DEFAULT_THEME.TextPrimary
+            searchBar.Font = Enum.Font.Gotham
+            searchBar.TextSize = 11
+            searchBar.ClearTextOnFocus = false
+            searchBar.Parent = card
+            applyCorner(searchBar, 6)
+            applyStroke(searchBar, DEFAULT_THEME.Stroke, 1, 0.3)
+        end
+
+        local optionsContainer = nil
+        if isLarge then
+            optionsContainer = Instance.new("ScrollingFrame")
+            optionsContainer.Name = "OptionsList"
+            optionsContainer.Size = UDim2.new(1, -20, 0, 150)
+            optionsContainer.Position = UDim2.new(0, 10, 0, 74)
+            optionsContainer.BackgroundTransparency = 1
+            optionsContainer.BorderSizePixel = 0
+            optionsContainer.ScrollBarThickness = 3
+            optionsContainer.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 105)
+            optionsContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            optionsContainer.Parent = card
+        else
+            optionsContainer = Instance.new("Frame")
+            optionsContainer.Name = "OptionsList"
+            optionsContainer.Size = UDim2.new(1, -20, 0, 0)
+            optionsContainer.Position = UDim2.new(0, 10, 0, 44)
+            optionsContainer.BackgroundTransparency = 1
+            optionsContainer.Parent = card
+        end
 
         local optLayout = Instance.new("UIListLayout")
         optLayout.FillDirection = Enum.FillDirection.Vertical
         optLayout.Padding = UDim.new(0, 3)
         optLayout.Parent = optionsContainer
 
-        local function rebuildOptions()
+        local function getFilteredOptions(query)
+            if not query or query == "" then return options end
+            local filtered = {}
+            local lowerQuery = string.lower(query)
+            for _, opt in ipairs(options) do
+                if string.find(string.lower(tostring(opt)), lowerQuery, 1, true) then
+                    table.insert(filtered, opt)
+                end
+            end
+            return filtered
+        end
+
+        local function rebuildOptions(query)
             for _, child in ipairs(optionsContainer:GetChildren()) do
-                if child:IsA("TextButton") then child:Destroy() end
+                if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
             end
 
-            for _, opt in ipairs(options) do
+            local filtered = getFilteredOptions(query)
+            if #filtered == 0 then
+                local emptyLbl = Instance.new("TextLabel")
+                emptyLbl.Name = "EmptyLabel"
+                emptyLbl.Size = UDim2.new(1, 0, 0, 26)
+                emptyLbl.BackgroundTransparency = 1
+                emptyLbl.Font = Enum.Font.Gotham
+                emptyLbl.Text = "No matching results"
+                emptyLbl.TextColor3 = DEFAULT_THEME.TextSecondary
+                emptyLbl.TextSize = 11
+                emptyLbl.Parent = optionsContainer
+                return 0
+            end
+
+            for _, opt in ipairs(filtered) do
                 local optBtn = Instance.new("TextButton")
                 optBtn.Name = "Opt_" .. tostring(opt)
                 optBtn.Size = UDim2.new(1, 0, 0, 28)
@@ -1489,14 +1553,39 @@ return function(opts)
                     tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 42)})
                 end)
             end
+            return #filtered
         end
-        rebuildOptions()
+
+        if searchBar then
+            searchBar:GetPropertyChangedSignal("Text"):Connect(function()
+                currentQuery = searchBar.Text
+                local count = rebuildOptions(currentQuery)
+                if isExpanded then
+                    local scrollH = math.min(160, math.max(34, count * 31))
+                    optionsContainer.Size = UDim2.new(1, -20, 0, scrollH)
+                    local targetH = 44 + 26 + 8 + scrollH + 10
+                    tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+                end
+            end)
+        end
+
+        rebuildOptions("")
 
         headerBtn.MouseButton1Click:Connect(function()
             isExpanded = not isExpanded
             chevron.Text = isExpanded and "▴" or "▾"
-            local targetH = isExpanded and (48 + (#options * 31)) or 42
-            rebuildOptions()
+            if searchBar then searchBar.Text = "" end
+            local count = rebuildOptions("")
+            local targetH = 42
+            if isExpanded then
+                if isLarge then
+                    local scrollH = math.min(160, math.max(34, count * 31))
+                    optionsContainer.Size = UDim2.new(1, -20, 0, scrollH)
+                    targetH = 44 + 26 + 8 + scrollH + 10
+                else
+                    targetH = 48 + (#options * 31)
+                end
+            end
             tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
         end)
 
@@ -1510,7 +1599,8 @@ return function(opts)
             end,
             Refresh = function(newOpts)
                 options = newOpts or {}
-                rebuildOptions()
+                isLarge = #options > 5
+                rebuildOptions("")
             end
         }
         return dropdownObj

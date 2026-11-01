@@ -499,7 +499,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 --------------------------------------------------------------------------------
--- 8. SHOP REGISTRIES & PURCHASING ENGINE
+-- 8. SHOP REGISTRIES & REMOTE PURCHASING ENGINE
 --------------------------------------------------------------------------------
 local function formatPrice(num)
     local formatted = tostring(num):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
@@ -549,7 +549,7 @@ local RodRegistry = {
 }
 
 local TotemRegistry = {
-    { Name = "Enchant Relic", Price = 11000, Pos = Vector3.new(-930, 225, -990) },
+    { Name = "Enchant Relic", Price = 11000, Pos = Vector3.new(-950, 222, -991) },
     { Name = "Clearcast Totem", Price = 1000, Pos = Vector3.new(418, 148, 235) },
     { Name = "Sundial Totem", Price = 2000, Pos = Vector3.new(-1145, 135, -1075) },
     { Name = "Windset Totem", Price = 2000, Pos = Vector3.new(2840, 178, 2700) },
@@ -585,7 +585,7 @@ local GearRegistry = {
 }
 
 local UtilityRegistry = {
-    { Name = "Crab Cage", Price = 45, Pos = Vector3.new(470, 148, 230) },
+    { Name = "Crab Cage", Price = 45, Pos = Vector3.new(474, 149, 236) },
     { Name = "GPS", Price = 100, Pos = Vector3.new(515, 151, 235) },
     { Name = "Glider", Price = 900, Pos = Vector3.new(-1480, 135, 680) },
     { Name = "Reinforced Crab Cage", Price = 1000, Pos = Vector3.new(-930, 220, -1120) },
@@ -604,6 +604,10 @@ local BaitRegistry = {
     { Name = "Krill", Price = 50, Pos = Vector3.new(380, 135, 230) },
     { Name = "Bait Crate", Price = 120, Pos = Vector3.new(470, 148, 230) },
     { Name = "Quality Bait Crate", Price = 350, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Coral Bait Crate", Price = 600, Pos = Vector3.new(-3550, 135, 450) },
+    { Name = "Volcanic Bait Crate", Price = 1200, Pos = Vector3.new(-1900, 165, 300) },
+    { Name = "Deep Bait Crate", Price = 1500, Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "Magma Bait Crate", Price = 2000, Pos = Vector3.new(-1900, 165, 300) },
     { Name = "Obsidian-Bone", Price = 7500, Pos = Vector3.new(-1480, 135, 680) },
     { Name = "Whale Bait", Price = 25000, Pos = Vector3.new(380, 135, 230) },
     { Name = "Golden Shrimp Bait", Price = 50000, Pos = Vector3.new(-1650, -230, -2850) }
@@ -637,6 +641,25 @@ local BoatRegistry = {
     { Name = "Airboat", Price = 5000000 }
 }
 
+local function isStorePrompt(p)
+    if not p or not p.Enabled then return false end
+    local act = string.lower(p.ActionText or "")
+    if string.find(act, "collect") or string.find(act, "open") or string.find(act, "retrieve") or string.find(act, "harvest") or string.find(act, "take") or string.find(act, "inspect") then
+        return false
+    end
+    if p:FindFirstAncestor("active") or p:FindFirstAncestor("Active") then
+        return false
+    end
+    if p:FindFirstAncestor("interactables") then
+        return true
+    end
+    local obj = string.lower(p.ObjectText ~= "" and p.ObjectText or (p.Parent and p.Parent.Name or ""))
+    if string.find(act, "buy") or string.find(act, "view") or string.find(act, "purchase") or string.find(act, "c$") or string.find(obj, "c$") then
+        return true
+    end
+    return false
+end
+
 local function purchaseItemAtLocation(targetPos, modelName)
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -648,25 +671,32 @@ local function purchaseItemAtLocation(targetPos, modelName)
     Hub.Notify("Shop", "Purchasing " .. modelName .. "...", 2)
     local originalCFrame = root.CFrame
     
-    local function findPrompt()
+    local function findPrompt(maxDistFromTarget)
         local interactables = Workspace:FindFirstChild("world") and Workspace.world:FindFirstChild("interactables")
         if interactables and interactables:FindFirstChild(modelName) then
             local model = interactables[modelName]
             local p = model:FindFirstChildOfClass("ProximityPrompt") or model:FindFirstChild("PromptTemplate")
-            if p and p.Enabled then return p end
+            if p and isStorePrompt(p) then return p end
         end
         for _, p in ipairs(Workspace:GetDescendants()) do
-            if p:IsA("ProximityPrompt") then
+            if p:IsA("ProximityPrompt") and isStorePrompt(p) then
                 local obj = p.ObjectText ~= "" and p.ObjectText or (p.Parent and p.Parent.Name or "")
                 if string.lower(obj) == string.lower(modelName) or string.find(string.lower(obj), string.lower(modelName), 1, true) then
-                    return p
+                    if maxDistFromTarget and targetPos then
+                        local pPos = p.Parent:IsA("BasePart") and p.Parent.Position or p.Parent:GetPivot().Position
+                        if (pPos - targetPos).Magnitude <= maxDistFromTarget then
+                            return p
+                        end
+                    else
+                        return p
+                    end
                 end
             end
         end
         return nil
     end
 
-    local prompt = findPrompt()
+    local prompt = findPrompt(25)
     if not prompt or (root.Position - prompt.Parent:GetPivot().Position).Magnitude > 15 then
         if targetPos then
             root.AssemblyLinearVelocity = Vector3.zero
@@ -675,7 +705,7 @@ local function purchaseItemAtLocation(targetPos, modelName)
             
             local start = tick()
             while tick() - start < 3.5 do
-                prompt = findPrompt()
+                prompt = findPrompt(25)
                 if prompt then break end
                 task.wait(0.2)
             end
@@ -683,8 +713,12 @@ local function purchaseItemAtLocation(targetPos, modelName)
     end
     
     if not prompt then
+        prompt = findPrompt(nil)
+    end
+    
+    if not prompt then
         root.CFrame = originalCFrame
-        Hub.Notify("Shop", "Could not locate " .. modelName .. " prompt.", 3)
+        Hub.Notify("Shop", "Could not locate " .. modelName .. " store.", 3)
         return false
     end
     
@@ -773,17 +807,88 @@ end
 --------------------------------------------------------------------------------
 -- 9. WORLD TELEPORTS REGISTRY
 --------------------------------------------------------------------------------
-local IslandLocations = {
-    ["Moosewood"] = Vector3.new(380, 135, 230),
-    ["Roslit Bay"] = Vector3.new(-1480, 135, 680),
-    ["Sunstone Island"] = Vector3.new(-930, 220, -1120),
-    ["Terrapin Island"] = Vector3.new(-180, 140, 1950),
-    ["Snowcap Island"] = Vector3.new(2620, 150, 2400),
-    ["Vertigo (Depths Entrance)"] = Vector3.new(-110, -515, 1060),
-    ["Desolate Deep"] = Vector3.new(-1650, -230, -2850),
-    ["The Arch"] = Vector3.new(1000, 135, -1250),
-    ["Mushgrove Swamp"] = Vector3.new(2450, 135, -700),
-    ["Keepers Altar"] = Vector3.new(1300, -805, -250)
+local IslandRegistry = {
+    { Name = "Moosewood", Pos = Vector3.new(380, 135, 230) },
+    { Name = "Roslit Bay", Pos = Vector3.new(-1480, 135, 680) },
+    { Name = "Sunstone Island", Pos = Vector3.new(-930, 220, -1120) },
+    { Name = "Terrapin Island", Pos = Vector3.new(-180, 140, 1950) },
+    { Name = "Snowcap Island", Pos = Vector3.new(2620, 150, 2400) },
+    { Name = "Vertigo (Depths Entrance)", Pos = Vector3.new(-110, -515, 1060) },
+    { Name = "The Depths", Pos = Vector3.new(990, -710, 1215) },
+    { Name = "Desolate Deep", Pos = Vector3.new(-1650, -230, -2850) },
+    { Name = "The Arch", Pos = Vector3.new(1000, 135, -1250) },
+    { Name = "Mushgrove Swamp", Pos = Vector3.new(2450, 135, -700) },
+    { Name = "Keepers Altar", Pos = Vector3.new(1300, -805, -250) },
+    { Name = "Brine Pool", Pos = Vector3.new(-1790, -143, -3400) },
+    { Name = "Forsaken Shores", Pos = Vector3.new(-2500, 135, 1550) },
+    { Name = "Ancient Isle", Pos = Vector3.new(6000, 150, 400) },
+    { Name = "Atlantis", Pos = Vector3.new(-4250, -650, 1900) },
+    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450) },
+    { Name = "Ethereal Abyss", Pos = Vector3.new(-1400, -1100, -3200) },
+    { Name = "Scoria Reach", Pos = Vector3.new(-1750, 175, 450) },
+    { Name = "Cursed Isle", Pos = Vector3.new(1450, 135, 3500) },
+    { Name = "Statue of Sovereign", Pos = Vector3.new(25, 135, -1000) }
+}
+
+local NpcRegistry = {
+    { Name = "Appraiser (Moosewood)", Pos = Vector3.new(452, 150, 206) },
+    { Name = "Axel (Sunstone)", Pos = Vector3.new(-971, 199, -1068) },
+    { Name = "Boneyard Bernie (Sunstone)", Pos = Vector3.new(-1016, 223, -967) },
+    { Name = "Chloe (Sunstone)", Pos = Vector3.new(-920, 204, -1050) },
+    { Name = "Construction Lead (Sunstone)", Pos = Vector3.new(-945, 218, -970) },
+    { Name = "Construction Worker (Sunstone)", Pos = Vector3.new(-933, 241, -975) },
+    { Name = "Crazy Cat Lady (Depths)", Pos = Vector3.new(2025, -648, 2460) },
+    { Name = "Daisy (Moosewood)", Pos = Vector3.new(561, 167, 208) },
+    { Name = "Disco Dan (Sunstone)", Pos = Vector3.new(-1063, 204, -937) },
+    { Name = "Dr. Anton (Depths)", Pos = Vector3.new(2045, -648, 2465) },
+    { Name = "Draven (Depths)", Pos = Vector3.new(1985, -648, 2435) },
+    { Name = "Furnisher (Sunstone)", Pos = Vector3.new(-981, 223, -1002) },
+    { Name = "Ghoulish Goblin (Moosewood)", Pos = Vector3.new(537, 175, 139) },
+    { Name = "Henry (Moosewood)", Pos = Vector3.new(483, 152, 236) },
+    { Name = "Hollow (Depths)", Pos = Vector3.new(2005, -648, 2445) },
+    { Name = "Inn Keeper (Moosewood)", Pos = Vector3.new(487, 150, 231) },
+    { Name = "Inn Keeper (Sunstone)", Pos = Vector3.new(-905, 131, -1105) },
+    { Name = "Joseph (Sunstone)", Pos = Vector3.new(-925, 184, -1057) },
+    { Name = "Ken Carson (Depths)", Pos = Vector3.new(1970, -648, 2420) },
+    { Name = "Kenith (Sunstone)", Pos = Vector3.new(-1144, 134, -1078) },
+    { Name = "Keystone (Sunstone)", Pos = Vector3.new(-938, 223, -983) },
+    { Name = "Lucas (Moosewood)", Pos = Vector3.new(449, 181, 180) },
+    { Name = "Marc Merchant (Moosewood)", Pos = Vector3.new(466, 151, 224) },
+    { Name = "Marlon Friend (Moosewood Shipwright)", Pos = Vector3.new(358, 132, 199) },
+    { Name = "Max Merchant (Sunstone)", Pos = Vector3.new(-930, 131, -1105) },
+    { Name = "Merlin (Sunstone)", Pos = Vector3.new(-950, 222, -991) },
+    { Name = "Moosewood Angler", Pos = Vector3.new(480, 150, 302) },
+    { Name = "Mysterious Songstress (Depths)", Pos = Vector3.new(2010, -648, 2450) },
+    { Name = "Oddie (Sunstone)", Pos = Vector3.new(-938, 199, -923) },
+    { Name = "Phineas (Moosewood)", Pos = Vector3.new(469, 150, 277) },
+    { Name = "Quiet Synph (Moosewood)", Pos = Vector3.new(566, 152, 353) },
+    { Name = "Rhea (Sunstone)", Pos = Vector3.new(-1039, 203, -1116) },
+    { Name = "Silver Scalper (Depths)", Pos = Vector3.new(2035, -648, 2470) },
+    { Name = "Spirit of Darkness", Pos = Vector3.new(2092, 151, 1031) },
+    { Name = "Spirit of Light", Pos = Vector3.new(20096, 1226, 5395) },
+    { Name = "Sunstone Angler", Pos = Vector3.new(-887, 133, -1119) },
+    { Name = "Sunstone Shipwright", Pos = Vector3.new(-946, 131, -1117) },
+    { Name = "The Evil Guide (Depths)", Pos = Vector3.new(1960, -648, 2410) },
+    { Name = "Thomas (Sunstone)", Pos = Vector3.new(-953, 199, -924) },
+    { Name = "Todd (Moosewood)", Pos = Vector3.new(495, 158, 221) },
+    { Name = "Totem Carver (Sunstone)", Pos = Vector3.new(-1027, 204, -936) },
+    { Name = "Tryce (Depths)", Pos = Vector3.new(2030, -648, 2481) }
+}
+
+local PoiRegistry = {
+    { Name = "Appraiser Stand (Moosewood)", Pos = Vector3.new(452, 150, 206) },
+    { Name = "Brine Pool Altar", Pos = Vector3.new(-1810, -143, -3405) },
+    { Name = "Deep Gate (Vertigo)", Pos = Vector3.new(-110, -515, 1060) },
+    { Name = "Keepers Altar (Enchanting)", Pos = Vector3.new(1300, -805, -250) },
+    { Name = "Merlin's Cliff (Sunstone)", Pos = Vector3.new(-950, 222, -991) },
+    { Name = "Moosewood Docks", Pos = Vector3.new(358, 132, 199) },
+    { Name = "Moosewood Lighthouse", Pos = Vector3.new(480, 175, 300) },
+    { Name = "Rod Crafting Table", Pos = Vector3.new(1350, 135, -1250) },
+    { Name = "Roslit Volcano Crater", Pos = Vector3.new(-1900, 165, 300) },
+    { Name = "Snowcap Peak", Pos = Vector3.new(2650, 280, 2550) },
+    { Name = "Sunstone Docks", Pos = Vector3.new(-946, 131, -1117) },
+    { Name = "Sunstone Lighthouse", Pos = Vector3.new(-900, 230, -1200) },
+    { Name = "Vertigo Waterfall", Pos = Vector3.new(-140, -510, 1090) }
 }
 
 local function safeTeleport(pos)
@@ -1017,12 +1122,67 @@ local tpTab = Hub.CreateTab("Teleports", {
     ActiveColor = Color3.fromRGB(255, 210, 50)
 })
 
-Hub.CreateSection(tpTab, "Islands")
-
-for islandName, coords in pairs(IslandLocations) do
-    Hub.CreateButton(tpTab, islandName, function()
-        safeTeleport(coords)
-    end)
+-- Section: Islands & Areas
+Hub.CreateSection(tpTab, "Islands & Areas")
+local selectedIsland = IslandRegistry[1]
+local islandOptions = {}
+for _, item in ipairs(IslandRegistry) do
+    table.insert(islandOptions, item.Name)
 end
+Hub.CreateDropdown(tpTab, "Select Area", islandOptions, islandOptions[1], function(val)
+    for _, item in ipairs(IslandRegistry) do
+        if item.Name == val then
+            selectedIsland = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(tpTab, "Teleport to Area", function()
+    if selectedIsland then
+        safeTeleport(selectedIsland.Pos)
+    end
+end)
+
+-- Section: All NPCs
+Hub.CreateSection(tpTab, "All NPCs")
+local selectedNpc = NpcRegistry[1]
+local npcOptions = {}
+for _, item in ipairs(NpcRegistry) do
+    table.insert(npcOptions, item.Name)
+end
+Hub.CreateDropdown(tpTab, "Select NPC", npcOptions, npcOptions[1], function(val)
+    for _, item in ipairs(NpcRegistry) do
+        if item.Name == val then
+            selectedNpc = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(tpTab, "Teleport to NPC", function()
+    if selectedNpc then
+        safeTeleport(selectedNpc.Pos)
+    end
+end)
+
+-- Section: Points of Interest
+Hub.CreateSection(tpTab, "Points of Interest")
+local selectedPoi = PoiRegistry[1]
+local poiOptions = {}
+for _, item in ipairs(PoiRegistry) do
+    table.insert(poiOptions, item.Name)
+end
+Hub.CreateDropdown(tpTab, "Select Point of Interest", poiOptions, poiOptions[1], function(val)
+    for _, item in ipairs(PoiRegistry) do
+        if item.Name == val then
+            selectedPoi = item
+            break
+        end
+    end
+end)
+Hub.CreateButton(tpTab, "Teleport to POI", function()
+    if selectedPoi then
+        safeTeleport(selectedPoi.Pos)
+    end
+end)
 
 Hub.Notify("Unknown Hub", "Fisch Suite Loaded 🎣", 3)
