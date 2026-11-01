@@ -28,15 +28,8 @@ local LocalPlayer = Players.LocalPlayer
 -- 1. TIER-0 ANTI-CHEAT NEUTRALIZATION & DETECTION SHIELD
 --------------------------------------------------------------------------------
 local AntiCheatShield = {
-    BlockedKeywords = {
-        "kick", "ban", "anticheat", "flag", "report", "teleport_detection",
-        "walkspeed_detection", "speed_check", "security", "honeypot",
-        "verify_player", "client_tamper", "gameanalyticserror", "gameanalyticsremoteconfigs"
-    },
     OriginalWalkSpeed = 16,
     OriginalJumpPower = 50,
-    SpoofedWalkSpeed = 16,
-    SpoofedJumpPower = 50,
     Installed = false
 }
 
@@ -48,46 +41,30 @@ local function setupAntiCheatBypass()
         local oldNamecall = nil
         local oldIndex = nil
 
-        -- Detour 1: __namecall filter (blocks honeypot, AFK/idle detection telemetry, analytics & kick remotes)
+        -- Detour 1: Surgical __namecall filter (prevents kick calls & drown damage without breaking internal handshakes)
         oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
-            local args = {...}
-
-            if (method == "FireServer" or method == "fireServer" or method == "InvokeServer" or method == "invokeServer") and typeof(self) == "Instance" then
-                local sName = self.Name:lower()
-
-                -- Intercept and drop Fisch idle / AFK reporting to prevent bot-detection flags
-                if self.Name == "idleReport" or sName == "idlereport" then
-                    if args[1] == true then return nil end
-                end
-                if self.Name == "afk" or sName == "afk" then
-                    if args[1] == true then return nil end
+            if typeof(self) == "Instance" then
+                -- Block client-side kick calls directed at LocalPlayer
+                if method == "Kick" or method == "kick" then
+                    return nil
                 end
 
-                -- Intercept drowning damage telemetry
-                if self.Name == "drown" or sName == "drown" then
-                    if Config.InfiniteOxygen then return nil end
-                end
-
-                -- Honeypot and telemetry filter
-                if not checkcaller() then
-                    for _, kw in ipairs(AntiCheatShield.BlockedKeywords) do
-                        if sName:find(kw) then
-                            return nil
-                        end
-                    end
+                -- Block drowning damage remote when infinite oxygen is active
+                if Config.InfiniteOxygen and (self.Name == "drown" or self.Name:lower() == "drown") then
+                    return nil
                 end
             end
 
             return oldNamecall(self, ...)
         end))
 
-        -- Detour 2: __index filter (spoofs WalkSpeed/JumpPower so game AC controllers see vanilla 16/50)
+        -- Detour 2: Safe __index filter (spoofs WalkSpeed/JumpPower only for outside scripts)
         oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
             if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
-                if key == "WalkSpeed" then
+                if key == "WalkSpeed" and Config.WalkSpeed ~= 16 then
                     return AntiCheatShield.OriginalWalkSpeed
-                elseif key == "JumpPower" then
+                elseif key == "JumpPower" and Config.JumpPower ~= 50 then
                     return AntiCheatShield.OriginalJumpPower
                 end
             end
