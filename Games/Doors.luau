@@ -1029,8 +1029,10 @@ task.spawn(function()
             for rec, _ in pairs(priorityRecords) do
                 allowedHighlights[rec] = true
             end
-            local remainingBudget = math.max(0, 24 - math.min(24, #highlightCandidates or 0))
-            for i = 1, math.min(24, #otherCandidates) do
+            local priorityCount = 0
+            for _ in pairs(priorityRecords) do priorityCount = priorityCount + 1 end
+            local remainingBudget = math.max(0, 24 - priorityCount)
+            for i = 1, math.min(remainingBudget, #otherCandidates) do
                 allowedHighlights[otherCandidates[i].Record] = true
             end
 
@@ -3250,7 +3252,6 @@ end
 -- =========================================================================
 local function initGodModeImmunity()
     -- God Mode neutered per daddy's instruction so Fly Noclip runs cleanly without conflict.
-end
     -- Defuse Jack jumpscares: Silences scream sounds and deletes Jack popups from wardrobes (Zero FPS overhead)
     pcall(function()
         local function defuseJackModel(inst)
