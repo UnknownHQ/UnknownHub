@@ -100,6 +100,14 @@ local SupportedGames = {
         gameIds = { 7144947546 },
         scriptUrl = BASE_URL .. "/Games/Medved.luau",
         desc = "Dedicated automation & farming suite for Medved!"
+    },
+    {
+        name = "Fisch",
+        icon = "🐟",
+        placeIds = { 16732694052, 17910972410 },
+        gameIds = { 5750914919 },
+        scriptUrl = BASE_URL .. "/Games/Fisch.luau",
+        desc = "Anti-cheat bypass shield, auto-cast, auto-shake, safe humanized auto-reel, auto-sell & island teleports"
     }
 }
 
