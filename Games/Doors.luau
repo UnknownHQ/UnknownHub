@@ -4852,13 +4852,13 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         if hum and hum.Health < 100 and hum.Health > 0 then
             hum.Health = 100
         end
-        -- UNIVERSAL TOUCH IMMUNITY: Completely strip CanTouch on character parts!
-        -- Eradicates all monster kill triggers (.Touched) from Rush, Ambush, Seek, A-60 when noclipping, flying, or out of map!
+        -- UNIVERSAL INTERACTIVITY & TRIGGER RECEPTOR: Character parts MUST maintain CanTouch & CanQuery
+        -- Allows ProximityPrompts, doors, keys, and wardrobe triggers to function seamlessly!
         if char then
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if p.CanTouch then p.CanTouch = false end
-                    if not p.CanQuery then p.CanQuery = true end -- Preserves raycast queries & proximity interactions!
+                    if not p.CanTouch then p.CanTouch = true end
+                    if not p.CanQuery then p.CanQuery = true end
                 end
             end
         end
@@ -4962,49 +4962,50 @@ pcall(function()
     local pgMod = ps and ps:FindFirstChild("PromptGate")
     if pgMod then
         local pg = require(pgMod)
-        if pg and not _G.__PROMPT_GATE_DETOURED then
+        if pg and pg.isHidden and not _G.__PROMPT_GATE_DETOURED then
             _G.__PROMPT_GATE_DETOURED = true
-            local oldRefresh = pg.refresh
-            pg.refresh = function(promptObj, ...)
-                if promptObj and promptObj:IsA("ProximityPrompt") then
-                    promptObj.Enabled = true
-                    promptObj.RequiresLineOfSight = false
-                end
-                return false -- NEVER gate/suppress!
-            end
             local oldIsHidden = pg.isHidden
-            pg.isHidden = function(promptObj, ...)
-                return false -- Never hidden!
+            pg.isHidden = function(prompt, ...)
+                if State.Instant_Interact or State.Noclip or State.Noclip_Interact then
+                    return false -- Never gate/suppress prompts!
+                end
+                return oldIsHidden and oldIsHidden(prompt, ...) or false
             end
         end
     end
 end)
 
+local function syncServerRoomBoundary()
+    pcall(function()
+        local curSpatialRoom = getCurrentRoomNumber()
+        local curAttr = tonumber(LocalPlayer:GetAttribute("CurrentRoom"))
+        if curSpatialRoom and curAttr and curSpatialRoom > curAttr then
+            local cr = Workspace:FindFirstChild("CurrentRooms")
+            local char = getChar()
+            local coll = char and (char:FindFirstChild("Collision") or char:FindFirstChild("HumanoidRootPart"))
+            if cr and coll then
+                coll.CanTouch = true
+                for rIdx = curAttr, curSpatialRoom - 1 do
+                    local rModel = cr:FindFirstChild(tostring(rIdx))
+                    local door = rModel and rModel:FindFirstChild("Door")
+                    local hidden = door and door:FindFirstChild("Hidden")
+                    if hidden and hidden:IsA("BasePart") then
+                        hidden.CanTouch = true
+                        firetouchinterest(coll, hidden, 0)
+                        task.wait(0.01)
+                        firetouchinterest(coll, hidden, 1)
+                    end
+                end
+            end
+        end
+    end)
+end
+
 task.spawn(function()
     while _G.DOORS_SESSION == currentSession do
         task.wait(0.25)
         if State.Noclip or State.Fly_Enabled then
-            pcall(function()
-                local curSpatialRoom = getCurrentRoomNumber()
-                local curAttr = tonumber(LocalPlayer:GetAttribute("CurrentRoom"))
-                if curSpatialRoom and curAttr and curSpatialRoom > curAttr then
-                    local cr = Workspace:FindFirstChild("CurrentRooms")
-                    local char = getChar()
-                    local coll = char and (char:FindFirstChild("Collision") or char:FindFirstChild("HumanoidRootPart"))
-                    if cr and coll then
-                        for rIdx = curAttr, curSpatialRoom - 1 do
-                            local rModel = cr:FindFirstChild(tostring(rIdx))
-                            local door = rModel and rModel:FindFirstChild("Door")
-                            local hidden = door and door:FindFirstChild("Hidden")
-                            if hidden and hidden:IsA("BasePart") then
-                                firetouchinterest(coll, hidden, 0)
-                                task.wait(0.02)
-                                firetouchinterest(coll, hidden, 1)
-                            end
-                        end
-                    end
-                end
-            end)
+            syncServerRoomBoundary()
         end
     end
 end)
@@ -5243,7 +5244,7 @@ end)
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
-        if player == LocalPlayer and (State.Instant_Interact or State.Noclip) then
+        if (player == nil or player == LocalPlayer) and (State.Instant_Interact or State.Noclip) then
             pcall(function()
                 if fireproximityprompt then
                     fireproximityprompt(prompt)
@@ -6805,13 +6806,6 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
         Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly Noclip!", 2)
     end
     State.Noclip = v
-    local mg = getMainGameTable()
-    if mg then
-        mg.noclip = v
-        if v and mg.hideplayers ~= 0 then
-            mg.hideplayers = 0
-        end
-    end
     if v then
         syncNativeFlightSpeed(State.Noclip_Speed or 45)
     end
@@ -6829,35 +6823,26 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
 
-        lastNoclipDisableGrace = os.clock() + 3.5
+        lastNoclipDisableGrace = os.clock() + 5.0
 
         local r = getRoot()
         if r then
-            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
-            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
-            local rayParams = RaycastParams.new()
-            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
-            if downHit and downHit.Position then
-                local floorY = downHit.Position.Y
-                if r.Position.Y < (floorY + 2.5) then
-                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
-                end
-            end
+            -- Zero velocity and angular drift: keep player exactly where flight was stopped!
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
 
-            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
-            task.spawn(function()
-                if crouchRemote then
-                    pcall(function() crouchRemote:FireServer(false, true) end)
-                end
-                task.wait(0.2)
-                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-                    syncServerSlide(false, false)
-                end
-            end)
+            -- Synchronize CollisionPart and MainGame clipPos to current root location
+            local cp = char:FindFirstChild("CollisionPart")
+            if cp then cp.CFrame = r.CFrame end
+
+            local mg = getMainGameTable()
+            if mg then
+                mg.noclip = false
+                mg.clipPos = r.Position
+            end
+
+            -- Immediately synchronize server room boundary so server commits player's new room coordinates without rubberbanding!
+            syncServerRoomBoundary()
         end
     end
     Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
@@ -8168,12 +8153,8 @@ local inputConn2; inputConn2 = UserInputService.InputBegan:Connect(function(inpu
                 end
             end
 
-            if bestPrompt then
+            if bestPrompt and State.Instant_Interact then
                 bestPrompt.RequiresLineOfSight = false
-                -- Zero-delay frame-0 execution: Triggers both 0-hold and normal fire so items loot INSTANTLY without 6-10s delay!
-                pcall(function()
-                    fireproximityprompt(bestPrompt, 0)
-                end)
                 pcall(function()
                     fireproximityprompt(bestPrompt)
                 end)
