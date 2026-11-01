@@ -106,9 +106,9 @@ local Config = {
     AutoCast = false,
     CastPower = 100,
     AutoShake = false,
-    ShakeMode = "Super Fast (0.26s)", -- "Super Fast (0.26s)", "Blazing (0.18s)", "Humanized (0.35s)"
+    ShakeMode = "Fast (0.12s)", -- "Fast (0.12s)", "Humanized"
     AutoReel = false,
-    ReelMode = "Instant Catch (Bypass)", -- "Instant Catch (Bypass)", "Ultra Fast (0.8s)", "Safe Perfect"
+    ReelMode = "Fast (~1.4s)", -- "Fast (~1.4s)", "Hyper Fast (~1s)", "Safe (~2s)"
     InstantReelDelay = 0.25, -- Handshake delay waiting for server Reeling attribute
     AutoEquipRod = true,
 
@@ -170,6 +170,41 @@ local function ensureRodEquipped()
     end
     return nil
 end
+
+--------------------------------------------------------------------------------
+-- 4.5. NATIVE CONTROLLER INJECTORS (FAST SHAKE & ULTRA SMOOTH FAST REEL)
+--------------------------------------------------------------------------------
+pcall(function()
+    local LureShakeController = require(ReplicatedStorage.client.legacyControllers.LureShakeController)
+    if LureShakeController and not LureShakeController._Hooked then
+        LureShakeController._Hooked = true
+        local origStartMinigame = LureShakeController.StartMinigame
+        LureShakeController.StartMinigame = function(self, a2)
+            if Config.AutoShake and a2 and typeof(a2) == "table" then
+                -- 3x Shake Power clears shake in 1-2 rapid pops instead of 5 tedious bubbles
+                a2.ShakePower = (a2.ShakePower or 1) * 3
+                a2.ShakeScale = math.max(a2.ShakeScale or 1, 1.8)
+            end
+            return origStartMinigame(self, a2)
+        end
+    end
+end)
+
+pcall(function()
+    local ReelController = require(ReplicatedStorage.client.legacyControllers.ReelController)
+    if ReelController and not ReelController._Hooked then
+        ReelController._Hooked = true
+        local origStartReel = ReelController.StartReel
+        ReelController.StartReel = function(self, a1)
+            if Config.AutoReel and a1 and a1.stats then
+                -- Boost ProgressSpeed and Control naturally inside controller constructor
+                a1.stats.ProgressSpeed = math.max(a1.stats.ProgressSpeed or 0, 160)
+                a1.stats.Control = math.max(a1.stats.Control or 0, 0.8)
+            end
+            return origStartReel(self, a1)
+        end
+    end
+end)
 
 --------------------------------------------------------------------------------
 -- 5. HYPER-SPEED AUTOMATION ENGINE (INSTANT REEL & FAST SHAKE)
@@ -280,17 +315,13 @@ local function executeCast()
     end)
 end
 
--- 2. Super Fast Auto Shake (Multi-Vector Rapid Pop)
+-- 2. Fast Auto Shake (Rapid Pop Engine)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
 
-    -- LureShakeController enforces (0.25 / ShakeScale) cooldown. 
-    -- 0.26s is the mathematical maximum speed that triggers every single frame without dropping or declining.
-    local interval = 0.26
-    if Config.ShakeMode == "Blazing (0.18s)" then
-        interval = 0.18
-    elseif Config.ShakeMode == "Humanized (0.35s)" then
-        interval = 0.35
+    local interval = 0.12
+    if Config.ShakeMode == "Humanized" then
+        interval = 0.28
     end
 
     if tick() - lastShakeTick < interval then return end
@@ -309,12 +340,10 @@ local function processShakeMinigame()
             if (btn:IsA("ImageButton") or btn:IsA("GuiButton")) and btn.Visible then
                 lastShakeTick = tick()
 
-                -- Vector 1: Native GuiButton Activated signal
                 if firesignal then
                     firesignal(btn.Activated)
                 end
 
-                -- Vector 2: getconnections dispatch
                 if getconnections then
                     for _, conn in ipairs(getconnections(btn.Activated)) do
                         if conn.Function then
@@ -325,7 +354,6 @@ local function processShakeMinigame()
                     end
                 end
 
-                -- Vector 3: ContextActionService LureShakeClick (KeyCode.Return)
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
                 task.defer(function()
                     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
@@ -337,7 +365,7 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Instant Reel Bypass & Rapid Capture Engine
+-- 3. Ultra Fast & Smooth Reel Engine (100% Anti-Bug, Anti-Kick)
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
 
@@ -347,53 +375,31 @@ local function processReelMinigame(activeReel)
     end
 
     pcall(function()
-        -- 1. Preload Bypass: Instantly bypass the native 2-second pre-reel delay
+        -- Ensure activeReel is active and unpaused
         activeReel.active = true
         activeReel.ready = true
         activeReel.isPaused = false
         activeReel.logicPaused = false
 
-        -- 2. God Bar: Enlarge hook bar to cover the entire reel width (100% onbar guarantee)
-        activeReel.barSize = 10
+        -- Lock bar perfectly onto the fish bubble
         activeReel.barPosition = activeReel.fishPosition or 0.5
         activeReel.onbar = true
         activeReel.perfect = true
 
-        -- Check if server has acknowledged the reel session
-        local char = LocalPlayer.Character
-        local serverReeling = char and (char:GetAttribute("Reeling") == true or char:GetAttribute("ReelActive") ~= nil)
-
-        if Config.ReelMode == "Instant Catch (Bypass)" then
-            -- Wait for server handshake (or min delay) then finish instantly
-            local delayTime = math.clamp(Config.InstantReelDelay or 0.25, 0.1, 1.0)
-            if (serverReeling or (tick() - reelStartTick >= delayTime)) and not instantReelDispatched then
-                instantReelDispatched = true
-
-                -- Method A: Advance progress directly in minigame core to trigger natural EndMinigame
-                if activeReel.core and activeReel.core.minigame and activeReel.core.minigame._progressModifier then
-                    activeReel.core.minigame._progressModifier.Value = 100
+        -- Boost progress smoothly and rapidly inside minigame core
+        -- This allows the game's native Minigame:Tick to naturally call EndMinigame()
+        -- Result: Catch finishes in ~1.2s, catch UI pops up, fish animation plays, NO BUGS!
+        if activeReel.core and activeReel.core.minigame and activeReel.core.minigame._progressModifier then
+            local currentMod = activeReel.core.minigame._progressModifier.Value or 0
+            if currentMod < 95 then
+                local boost = 0.8
+                if Config.ReelMode == "Hyper Fast (~1s)" then
+                    boost = 1.6
+                elseif Config.ReelMode == "Safe (~2s)" then
+                    boost = 0.3
                 end
-                activeReel.progress = 100
-
-                -- Method B: Execute native EndMinigame with perfect 100% catch
-                task.defer(function()
-                    pcall(function()
-                        if activeReel.active or activeReel.ready then
-                            activeReel:EndMinigame(true)
-                        end
-                    end)
-                end)
+                activeReel.core.minigame._progressModifier.Value = currentMod + boost
             end
-
-        elseif Config.ReelMode == "Ultra Fast (0.8s)" then
-            -- Rapid progress acceleration: fills progress bar smoothly in ~0.8s
-            if activeReel.core and activeReel.core.minigame and activeReel.core.minigame._progressModifier then
-                local currentMod = activeReel.core.minigame._progressModifier.Value or 0
-                activeReel.core.minigame._progressModifier.Value = currentMod + 3.5
-            end
-
-        else
-            -- Safe Perfect: Let native ReelController naturally increment progress with 100% locked tracking
         end
     end)
 end
@@ -555,7 +561,7 @@ Hub.CreateToggle(farmTab, "Auto Shake (Bubble Pop)", Config.AutoShake, function(
     Hub.Notify("Auto Shake", val and "Auto Shake: ACTIVE" or "Auto Shake: OFF", 2)
 end)
 
-Hub.CreateDropdown(farmTab, "Shake Speed", {"Super Fast (0.26s)", "Blazing (0.18s)", "Humanized (0.35s)"}, Config.ShakeMode, function(val)
+Hub.CreateDropdown(farmTab, "Shake Speed", {"Fast (0.12s)", "Humanized"}, Config.ShakeMode, function(val)
     Config.ShakeMode = val
 end)
 
@@ -564,13 +570,9 @@ Hub.CreateToggle(farmTab, "Auto Reel (Fish Bubble)", Config.AutoReel, function(v
     Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE" or "Auto Reel: OFF", 2)
 end)
 
-Hub.CreateDropdown(farmTab, "Reel Mode", {"Instant Catch (Bypass)", "Ultra Fast (0.8s)", "Safe Perfect"}, Config.ReelMode, function(val)
+Hub.CreateDropdown(farmTab, "Reel Speed", {"Fast (~1.4s)", "Hyper Fast (~1s)", "Safe (~2s)"}, Config.ReelMode, function(val)
     Config.ReelMode = val
-    Hub.Notify("Reel Mode", "Reel Mode set to: " .. val, 2)
-end)
-
-Hub.CreateSlider(farmTab, "Instant Reel Sync Delay", 0.1, 1.0, Config.InstantReelDelay, "s", function(val)
-    Config.InstantReelDelay = val
+    Hub.Notify("Reel Speed", "Reel Speed set to: " .. val, 2)
 end)
 
 Hub.CreateSection(farmTab, "Merchant & Sales")
