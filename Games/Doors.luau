@@ -4326,6 +4326,7 @@ RunService.Heartbeat:Connect(function(dt)
             if p:IsA("BasePart") then
                 local pName = p.Name:lower()
                 if pName:find("arm") or pName:find("hand") or p:FindFirstAncestorWhichIsA("Tool") or (p.Parent and p.Parent:IsA("Model") and p.Parent ~= baseRig) then
+                    p.LocalTransparencyModifier = 0
                     if p.Transparency > 0.05 and p.Name ~= "HumanoidRootPart" and p.Name ~= "CollisionPart" then
                         p.Transparency = 0
                     end
@@ -4371,15 +4372,32 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Continuous Body & Limb Visibility Guard: Eradicate invisible character bug!
+    -- Continuous Body & First-Person Head Alignment (Camera follows head; no torso clipping!):
     if char and not hiding then
         if char:GetAttribute("Hiding") == true then
             char:SetAttribute("Hiding", nil)
         end
+
+        -- Synchronize character root to flight clipPos so body always travels exactly with the camera
+        if State.Noclip and mgTable and mgTable.clipPos then
+            local root = getRoot()
+            if root then
+                local lookYaw = mgTable.ax or 0
+                root.CFrame = CFrame.new(mgTable.clipPos) * CFrame.Angles(0, math.rad(lookYaw), 0)
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+
+        -- First-Person Limb Guard: Arms and legs visible; head and upper torso transparent to local camera
         for _, p in ipairs(char:GetChildren()) do
-            if p:IsA("BasePart") and (p.Name:find("Arm") or p.Name:find("Hand") or p.Name:find("Leg") or p.Name:find("Foot") or p.Name:find("Torso") or p.Name == "Head") then
-                if p.Transparency > 0.05 then
-                    p.Transparency = 0
+            if p:IsA("BasePart") then
+                local pName = p.Name:lower()
+                if pName:find("arm") or pName:find("hand") or pName:find("leg") or pName:find("foot") then
+                    p.LocalTransparencyModifier = 0
+                    if p.Transparency > 0.05 then p.Transparency = 0 end
+                elseif pName == "head" or pName:find("torso") then
+                    p.LocalTransparencyModifier = 1
                 end
             end
         end
@@ -5578,6 +5596,50 @@ local function isLethalEntityIncoming()
     end
     return false, nil
 end
+
+-- =========================================================================
+-- Autonomous Rush & Ambush Safe Phase Daemon (Vertical Safe Altitude Shield)
+-- When Rush or Ambush approaches, safely elevates flight to +35 studs until threat passes!
+-- =========================================================================
+local isSafePhased = false
+local prePhaseY = nil
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if State.Anti_Rush or State.Noclip then
+            local incoming, entName = isLethalEntityIncoming()
+            local root = getRoot()
+            local mgTable = getMainGameTable()
+            if incoming and root and mgTable and not isPlayerHiding(getChar(), mgTable) then
+                if not isSafePhased then
+                    isSafePhased = true
+                    prePhaseY = root.Position.Y
+                    Hub.Notify("Anti-Rush", entName .. " incoming! Phasing to Safe Altitude (+35 Studs)...", 2)
+                end
+                -- Elevate above ground-level kill sphere
+                if State.Noclip and mgTable.clipPos then
+                    mgTable.clipPos = Vector3.new(mgTable.clipPos.X, math.max(mgTable.clipPos.Y, prePhaseY + 35), mgTable.clipPos.Z)
+                else
+                    root.CFrame = CFrame.new(root.Position.X, prePhaseY + 35, root.Position.Z) * root.CFrame.Rotation
+                    root.AssemblyLinearVelocity = Vector3.zero
+                end
+            elseif isSafePhased and not incoming then
+                isSafePhased = false
+                if prePhaseY then
+                    if State.Noclip and mgTable and mgTable.clipPos then
+                        mgTable.clipPos = Vector3.new(mgTable.clipPos.X, prePhaseY, mgTable.clipPos.Z)
+                    elseif root then
+                        root.CFrame = CFrame.new(root.Position.X, prePhaseY, root.Position.Z) * root.CFrame.Rotation
+                        root.AssemblyLinearVelocity = Vector3.zero
+                    end
+                    prePhaseY = nil
+                    Hub.Notify("Anti-Rush", "Threat cleared! Returned to flight level.", 2)
+                end
+            end
+        end
+    end
+end)
 
 -- Fly-Noclip Glide Controller: Direct 3D linear flight through walls and obstacles
 local function farmGlideTo(targetPos, speedVal, maxTime)
