@@ -693,6 +693,52 @@ end)
 --------------------------------------------------------------------------------
 -- 6. PAGES AUTOMATION ENGINE
 --------------------------------------------------------------------------------
+local cachedServerCollectedPages = {}
+local sessionCollectedPages = {}
+local pageAttempts = {}
+local blacklistedPages = {}
+local lastServerPagesQuery = 0
+
+local function syncServerCollectedPages(force)
+    if not force and (tick() - lastServerPagesQuery) < 6 then
+        return
+    end
+    lastServerPagesQuery = tick()
+    pcall(function()
+        local rf = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("World") and ReplicatedStorage.SharedEvents.World:FindFirstChild("RequestCollectedPages")
+        if rf and rf:IsA("RemoteFunction") then
+            local list = rf:InvokeServer()
+            if type(list) == "table" then
+                for _, name in ipairs(list) do
+                    cachedServerCollectedPages[name] = true
+                end
+            end
+        end
+    end)
+end
+
+local function isPageAlreadyCollected(p)
+    if not p or not p.Parent then return true end
+    local name = p.Name
+    if blacklistedPages[name] == true then return true end
+    if sessionCollectedPages[name] == true then return true end
+    if cachedServerCollectedPages[name] == true then return true end
+    if p:GetAttribute("Collected") == true then return true end
+
+    -- Visual & Prompt state checks: Game sets Transparency = 0.8 and disables prompt on collected pages
+    if p:IsA("BasePart") and p.Transparency >= 0.5 then
+        cachedServerCollectedPages[name] = true
+        return true
+    end
+    local prompt = p:FindFirstChildOfClass("ProximityPrompt")
+    if prompt and not prompt.Enabled then
+        cachedServerCollectedPages[name] = true
+        return true
+    end
+
+    return false
+end
+
 local function getUncollectedPages()
     local uncollected = {}
     local pagesFolder = Workspace:FindFirstChild("Pages")
@@ -701,24 +747,11 @@ local function getUncollectedPages()
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
 
-    -- Query authoritative server collected list to ensure 100% database persistence sync
-    local serverCollected = {}
-    pcall(function()
-        local rf = ReplicatedStorage:FindFirstChild("SharedEvents") and ReplicatedStorage.SharedEvents:FindFirstChild("World") and ReplicatedStorage.SharedEvents.World:FindFirstChild("RequestCollectedPages")
-        if rf and rf:IsA("RemoteFunction") then
-            local list = rf:InvokeServer()
-            if type(list) == "table" then
-                for _, name in ipairs(list) do
-                    serverCollected[name] = true
-                end
-            end
-        end
-    end)
+    syncServerCollectedPages(false)
 
     for _, p in ipairs(pagesFolder:GetChildren()) do
         if p:IsA("BasePart") or p:IsA("Model") then
-            local isDone = p:GetAttribute("Collected") == true or serverCollected[p.Name] == true
-            if not isDone then
+            if not isPageAlreadyCollected(p) then
                 table.insert(uncollected, p)
             end
         end
@@ -736,19 +769,36 @@ local function getUncollectedPages()
 end
 
 local function collectSinglePage(pagePart)
-    if not pagePart then return false end
+    if not pagePart or not pagePart.Parent then return false end
+    local name = pagePart.Name
+    if isPageAlreadyCollected(pagePart) then
+        return true
+    end
+
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
+
+    pageAttempts[name] = (pageAttempts[name] or 0) + 1
+    if pageAttempts[name] > 2 then
+        blacklistedPages[name] = true
+        return false
+    end
 
     local pagePos = pagePart:IsA("BasePart") and pagePart.Position or pagePart:GetPivot().Position
     local targetCFrame = CFrame.new(pagePos + Vector3.new(0, 1.8, 0))
 
     root.CFrame = targetCFrame
     root.AssemblyLinearVelocity = Vector3.zero
-    task.wait(0.25)
+    task.wait(0.2)
 
     local prompt = pagePart:FindFirstChildOfClass("ProximityPrompt")
+    if prompt and not prompt.Enabled then
+        sessionCollectedPages[name] = true
+        cachedServerCollectedPages[name] = true
+        return true
+    end
+
     if prompt then
         prompt.RequiresLineOfSight = false
         prompt.MaxActivationDistance = 25
@@ -761,35 +811,39 @@ local function collectSinglePage(pagePart)
     local startWait = tick()
     local confirmed = false
 
-    while (tick() - startWait) < 2.5 do
+    while (tick() - startWait) < 2.0 do
         root.CFrame = targetCFrame
         root.AssemblyLinearVelocity = Vector3.zero
 
-        -- Fire proximity prompt natively
         if prompt and prompt.Enabled then
             if fireproximityprompt then
                 pcall(function() fireproximityprompt(prompt) end)
             end
         end
 
-        -- Direct authoritative RemoteFunction invocation to guarantee server DB persistence
         if collectedPageRemote and collectedPageRemote:IsA("RemoteFunction") then
             pcall(function()
-                collectedPageRemote:InvokeServer(pagePart.Name)
+                collectedPageRemote:InvokeServer(name)
             end)
         end
 
-        task.wait(0.2)
+        task.wait(0.18)
 
-        if pagePart:GetAttribute("Collected") == true then
+        if pagePart:GetAttribute("Collected") == true or (prompt and not prompt.Enabled) or (pagePart:IsA("BasePart") and pagePart.Transparency >= 0.5) then
             confirmed = true
+            sessionCollectedPages[name] = true
+            cachedServerCollectedPages[name] = true
             break
         end
     end
 
-    -- Critical dwell delay for server profile write & client u139 unlock
-    task.wait(0.35)
-    return confirmed or pagePart:GetAttribute("Collected") == true
+    if confirmed then
+        sessionCollectedPages[name] = true
+        cachedServerCollectedPages[name] = true
+    end
+
+    task.wait(0.25)
+    return confirmed or isPageAlreadyCollected(pagePart)
 end
 
 task.spawn(function()
@@ -979,7 +1033,8 @@ end
 
 local function isFriendlyBearOrPlayer(b)
     if not b or not b.Parent then return true end
-    if b == LocalPlayer.Character then return true end
+    if b == LocalPlayer.Character or b.Name == LocalPlayer.Name then return true end
+    if Players:FindFirstChild(b.Name) ~= nil or Players:GetPlayerFromCharacter(b) ~= nil then return true end
     local name = b.Name:lower()
 
     -- Cutie bears are strictly friendly and peaceful
@@ -1026,6 +1081,8 @@ end
 
 local function isBearTargetable(b)
     if not b or not b.Parent then return false end
+    if b == LocalPlayer.Character or b.Name == LocalPlayer.Name then return false end
+    if Players:FindFirstChild(b.Name) ~= nil or Players:GetPlayerFromCharacter(b) ~= nil then return false end
     local name = b.Name:lower()
 
     -- 1. Never target Cutie bears, Ghost bears, Worm bears, Classic bears, or DEMON BEARS!
@@ -1874,6 +1931,11 @@ local function getFarmBearTarget()
 
     -- 1. Sticky Target Lock: Stay locked onto the current bear until it is completely dead!
     if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
+        if lockedFarmTarget == LocalPlayer.Character or lockedFarmTarget.Name == LocalPlayer.Name or Players:FindFirstChild(lockedFarmTarget.Name) then
+            lockedFarmTarget = nil
+        end
+    end
+    if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
         local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
         local lockedRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart or lockedFarmTarget:FindFirstChildWhichIsA("BasePart")
         if lockedHum and lockedHum.Health > 0 and lockedRoot and lockedRoot.Parent then
@@ -2262,6 +2324,8 @@ task.spawn(function()
                         end
                     end
                 end)
+                task.wait(0.6)
+                continue
             end
             -- Autonomous Friendly Stance Enforcement: Attacks wild bears & player/turrets cannot damage user
             if char:GetAttribute("Stance") ~= "Friendly" then
@@ -2391,18 +2455,12 @@ task.spawn(function()
                     or bearRoot
                 local aimPos = targetHitPart and targetHitPart.Position or bearRoot.Position
 
-                -- Only attack when within valid attack reach (<= 14 studs), zero air spamming
-                local distToBear = (root.Position - aimPos).Magnitude
-                if distToBear <= 14 then
-                    if tick() - lastBearAttack >= 0.18 then
-                        lastBearAttack = tick()
-                        -- 100% Authoritative Remote Only:
-                        -- Completely eliminates VirtualInputManager mouse clicking so Esc menu is NEVER dismissed
-                        -- and mouse cursor / camera control is NEVER stolen!
-                        pcall(function()
-                            bearAbility:FireServer("Use", "Default", aimPos)
-                        end)
-                    end
+                -- Authoritative Remote M1 Dispatch (Zero VIM mouse clicks, Esc menu safe)
+                if tick() - lastBearAttack >= 0.18 then
+                    lastBearAttack = tick()
+                    pcall(function()
+                        bearAbility:FireServer("Use", "Default", aimPos)
+                    end)
                 end
             end
         end
