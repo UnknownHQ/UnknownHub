@@ -214,6 +214,7 @@ local state = {
     InfiniteStamina = false,
     Noclip = false,
     Fly = false,
+    FlyNoclip = false,
     FlySpeed = 50,
     WaterWalk = false,
 
@@ -2145,7 +2146,7 @@ end)
 -- Master High-Performance ESP Manager
 local espFolder = Instance.new("Folder")
 espFolder.Name = "Unknown_BoogaMasterESP"
-pcall(function() espFolder.Parent = (gethui and gethui()) or CoreGui or Workspace end)
+pcall(function() espFolder.Parent = (gethui and gethui()) or game:GetService("CoreGui") or Workspace end)
 
 addCleanup(function()
     pcall(function() espFolder:Destroy() end)

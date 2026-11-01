@@ -87,6 +87,11 @@ local Hub = Library({
 --------------------------------------------------------------------------------
 -- 3. CONFIGURATION STATE
 --------------------------------------------------------------------------------
+local currentTargetFish
+local currentTargetItem
+local currentBestSpot
+local safeTeleport
+
 local Config = {
     -- Auto Fishing (Always Maximum Effect)
     AutoCast = false,
@@ -877,7 +882,7 @@ local function purchaseItemAtLocation(targetPos, modelName, itemType)
     task.wait(0.4)
 
     pcall(function()
-        fireproximityprompt(prompt, 0)
+        fireproximityprompt(prompt)
     end)
     pcall(function()
         if prompt.InputHoldBegin and prompt.InputHoldEnd then
@@ -1159,7 +1164,7 @@ local PoiRegistry = {
     { Name = "Vertigo Waterfall", Pos = Vector3.new(-140, -510, 1090) }
 }
 
-local function safeTeleport(pos, lookAt)
+safeTeleport = function(pos, lookAt)
     if not pos then return end
     pcall(function()
         local char = LocalPlayer.Character

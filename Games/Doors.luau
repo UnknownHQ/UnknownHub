@@ -344,6 +344,21 @@ local State = {
     Auto_Breakers = false
 }
 
+-- Forward Declarations (Guarantees zero unscoped calls across all modules)
+local getMainGameTable
+local instantSolveBreakers
+local farmGlideTo
+local runAutoComplete100Step
+local processKnobsFarmStep
+local teleportToRoomKey
+local teleportToNextDoor
+local solveFigureLibraryRoom
+local handleFarmRoofEvacuation
+local isLethalEntityIncoming
+local defuseLethalEntity
+local getExactFloorPos
+local solveLibraryCode
+
 
 -- =========================================================================
 -- Anti-Halt Complete Neutralization (No Spawns, No Fog, No Camera Shake, No Damage)
@@ -418,7 +433,7 @@ end)
 -- =========================================================================
 -- Instant Electrical Breaker Solver (Door 100 Elevator Power)
 -- =========================================================================
-local function instantSolveBreakers()
+instantSolveBreakers = function()
     local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
     local ebf = remotes and remotes:FindFirstChild("EBF")
     if ebf then
@@ -538,15 +553,7 @@ local isCompleterActive = false
 local isKnobsFarmRunning = false
 local isEvacuatingRoof = false
 
-local farmGlideTo
-local runAutoComplete100Step
-local processKnobsFarmStep
-local teleportToRoomKey
-local teleportToNextDoor
-local solveFigureLibraryRoom
-local instantSolveBreakers
-local handleFarmRoofEvacuation
-local isLethalEntityIncoming
+-- Forward declarations hoisted to top of script
 
 -- Session lifecycle state synchronization
 _G.State = State
@@ -789,7 +796,7 @@ local function getObjectRoom(instance)
     return nil, nil
 end
 
-local function getMainGameTable()
+getMainGameTable = function()
     local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
     local mg = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game")
     if mg then
@@ -3715,7 +3722,7 @@ local function getSafeLandingPosition()
 end
 
 -- Floor Raycast Snapping: Guaranteed placement on walkable floor surface (eliminates mid-air drops & gravity physics spikes)
-local function getExactFloorPos(pos, fallbackOffset)
+getExactFloorPos = function(pos, fallbackOffset)
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     local hipHeight = hum and hum.HipHeight or 2.0
@@ -4068,7 +4075,7 @@ local function safeMultiSegmentTeleport(targetCF, speedVal, autoDoorOpen, callba
     return true
 end
 
-local function teleportToRoomKey(callback)
+teleportToRoomKey = function(callback)
     local char = getChar()
     local root = getRoot()
     if (State.Noclip or State.Auto_Complete_100) and curRooms then
@@ -4177,7 +4184,7 @@ local function teleportToRoomKey(callback)
     return true
 end
 
-local function teleportToNextDoor(callback)
+teleportToNextDoor = function(callback)
     local char = getChar()
     local root = getRoot()
     if not char or not root then
@@ -6088,7 +6095,7 @@ local function triggerEntityNotification(name)
     Hub.Notify("Entity Alert", string.format("⚠️ %s has spawned! Prepare or hide!", name), 4)
 end
 
-local function defuseLethalEntity(entity)
+defuseLethalEntity = function(entity)
     if not entity then return end
     pcall(function()
         for _, p in ipairs(entity:GetDescendants()) do
@@ -6288,7 +6295,7 @@ local function setupQueueOnTeleport()
 end
 
 -- Rush / Ambush / A-60 / A-120 / Seek / Dread / Blitz / Lookman / Figure Lethal Threat Detector
-local function isLethalEntityIncoming()
+isLethalEntityIncoming = function()
     -- Strictly Hide-In-Closet threats: Rush, Ambush, A-60, A-120, Blitz
     local closetThreats = {"rush", "ambush", "a60", "a-60", "a120", "a-120", "blitz"}
     -- Explicit exclusions: NEVER trigger closet auto-hide or roof evacuation for these
@@ -6454,7 +6461,7 @@ farmGlideTo = function(targetPos, speedVal, maxTime)
 end
 _G.farmGlideTo = farmGlideTo
 
-local function handleFarmRoofEvacuation()
+handleFarmRoofEvacuation = function()
     if isEvacuatingRoof then return end
     isEvacuatingRoof = true
     Hub.Notify("Knobs Farm", "⚠️ Entity incoming! Evacuating to safe roof platform...", 3)
@@ -6478,7 +6485,7 @@ local function handleFarmRoofEvacuation()
 end
 
 -- Room 50 (Library) Auto Solver & Padlock Unlocker
-local function solveFigureLibraryRoom()
+solveFigureLibraryRoom = function()
     Hub.Notify("Knobs Farm", "Room 50 (Figure) entered! Collecting books & paper...", 4)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     local r50 = curRooms and curRooms:FindFirstChild("50")
@@ -7853,7 +7860,7 @@ task.spawn(function()
 end)
 
 -- Room 50 Library Padlock Code Solver
-local function solveLibraryCode()
+solveLibraryCode = function()
     local pGui = LocalPlayer:FindFirstChild("PlayerGui")
     local hints = pGui and pGui:FindFirstChild("PermUI") and pGui.PermUI:FindFirstChild("Hints")
     
