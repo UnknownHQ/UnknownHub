@@ -3059,13 +3059,15 @@ local lastDoorSentryCheck = 0
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     if not curRooms then return end
-    local reach = math.clamp(maxReach or 18, 8, 48)
+    local reach = math.clamp(maxReach or 20, 10, 48)
     local r = getRoot()
     local char = getChar()
+    local coll = char and char:FindFirstChild("Collision")
+    local cp = char and char:FindFirstChild("CollisionPart")
 
     for _, rm in ipairs(curRooms:GetChildren()) do
         for _, d in ipairs(rm:GetDescendants()) do
-            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name:find("Door")) then
+            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name:lower():find("door")) then
                 local dPart = d:FindFirstChild("Door") or d:FindFirstChild("Hidden") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                 if dPart and (currentPos - dPart.Position).Magnitude <= reach then
                     -- 1. Strip CanCollide locally on all door parts so character never hits physical barrier
@@ -3101,52 +3103,43 @@ local function processNearbyDoors(currentPos, maxReach)
                         end
                     end
 
-                    -- 3. Instant Door Opening (ONLY when not locked)
+                    -- 3. Universal Door Opening Engine (Side Doors DoorNormal & Main Doors)
                     if not isLocked then
-                        local lastOpened = openedDoors[d]
-                        local now = os.clock()
-                        if not lastOpened or (now - lastOpened >= 0.5) then
-                            openedDoors[d] = now
+                        -- Trigger client network remote (Main doors)
+                        local co = d:FindFirstChild("ClientOpen")
+                        if co and co:IsA("RemoteEvent") then
+                            pcall(function() co:FireServer() end)
+                        end
 
-                            -- Trigger client network remote
-                            local co = d:FindFirstChild("ClientOpen")
-                            if co and co:IsA("RemoteEvent") then
-                                pcall(function() co:FireServer() end)
-                            end
+                        -- Trigger local bindable open events
+                        local fo = d:FindFirstChild("Func_ForceOpen") or d:FindFirstChild("Func_Open")
+                        if fo and fo:IsA("BindableEvent") then
+                            pcall(function() fo:Fire() end)
+                        end
 
-                            -- Trigger local bindable open events
-                            local fo = d:FindFirstChild("Func_ForceOpen") or d:FindFirstChild("Func_Open")
-                            if fo and fo:IsA("BindableEvent") then
-                                pcall(function() fo:Fire() end)
-                            end
+                        -- Multi-receptor Touch Trigger for DoorNormal / Hidden
+                        -- Satisfies all server touch listeners: Collision, CollisionPart, and HumanoidRootPart!
+                        local hiddenPart = d:FindFirstChild("Hidden")
+                        if hiddenPart and hiddenPart:IsA("BasePart") then
+                            pcall(function()
+                                hiddenPart.CanTouch = true
+                                if coll then firetouchinterest(coll, hiddenPart, 0); firetouchinterest(coll, hiddenPart, 1) end
+                                if cp then firetouchinterest(cp, hiddenPart, 0); firetouchinterest(cp, hiddenPart, 1) end
+                                if r then firetouchinterest(r, hiddenPart, 0); firetouchinterest(r, hiddenPart, 1) end
+                            end)
+                        end
 
-                            -- Touch-based swing open for DoorNormal / Hidden
-                            local hiddenPart = d:FindFirstChild("Hidden")
-                            if hiddenPart and hiddenPart:IsA("BasePart") then
+                        -- Trigger ManualOpenPrompt and any other door prompts
+                        -- For DoorNormal, ManualOpenPrompt is often disabled by default; force Enabled = true so prompt fires!
+                        for _, prompt in ipairs(d:GetDescendants()) do
+                            if prompt:IsA("ProximityPrompt") and prompt.Name ~= "UnlockPrompt" then
                                 pcall(function()
-                                    hiddenPart.CanTouch = true
-                                    if r then
-                                        firetouchinterest(r, hiddenPart, 0)
-                                        task.spawn(function()
-                                            task.wait(0.02)
-                                            if r and hiddenPart and hiddenPart.Parent then
-                                                firetouchinterest(r, hiddenPart, 1)
-                                            end
-                                        end)
-                                    end
+                                    if not prompt.Enabled then prompt.Enabled = true end
+                                    prompt.HoldDuration = 0
+                                    prompt.RequiresLineOfSight = false
+                                    prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 20)
+                                    fireproximityprompt(prompt)
                                 end)
-                            end
-
-                            -- Trigger ManualOpenPrompt or any door proximity prompt
-                            for _, prompt in ipairs(d:GetDescendants()) do
-                                if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Name ~= "UnlockPrompt" then
-                                    pcall(function()
-                                        prompt.HoldDuration = 0
-                                        prompt.RequiresLineOfSight = false
-                                        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 14)
-                                        fireproximityprompt(prompt)
-                                    end)
-                                end
                             end
                         end
                     end
@@ -4487,6 +4480,12 @@ local function removeRoofPlatform()
 end
 
 local function teleportToRoof(callback)
+    if State.Noclip or isPlayerOutOfMap() then
+        -- In-Flight & Out-of-Bounds Protection: Never trigger roof evacuation into ceiling boundary kill!
+        if callback then callback(false) end
+        return false
+    end
+
     local char = getChar()
     local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -4716,7 +4715,6 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     if not hiding and (State.Noclip or State.Deflect_Glitch or State.Bypass_AntiCheat) then
         if mgTable then
             if mgTable.stopcam then mgTable.stopcam = false end
-            if mgTable.hideplayers and mgTable.hideplayers ~= 0 then mgTable.hideplayers = 0 end
         end
         if root and root.Anchored then
             root.Anchored = false
@@ -4907,19 +4905,13 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         -- RESTORE & LOCK ORIGINAL SMOOTH FLY METHOD (mgTable.noclip = true)
         if State.Noclip then
             mgTable.noclip = true
-            if mgTable.hideplayers ~= 0 then
-                mgTable.hideplayers = 0
-            end
         elseif not State.Noclip and mgTable.noclip then
             mgTable.noclip = false
         end
     end
 
-    -- Ensure DOORS never hides the local viewmodel or held tools during flight, and sync speed continuously
+    -- Ensure DOORS flight speed is synchronized continuously
     if State.Noclip then
-        if mgTable and mgTable.hideplayers ~= 0 then
-            mgTable.hideplayers = 0
-        end
         syncNativeFlightSpeed(State.Noclip_Speed or 45)
     end
 
@@ -4962,34 +4954,10 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    local cam = Workspace.CurrentCamera
-    local baseRig = cam and cam:FindFirstChild("BaseRig")
-    if baseRig and not hiding then
-        for _, p in ipairs(baseRig:GetDescendants()) do
-            if p:IsA("BasePart") then
-                local pName = p.Name:lower()
-                if pName:find("arm") or pName:find("hand") or p:FindFirstAncestorWhichIsA("Tool") then
-                    p.LocalTransparencyModifier = 0
-                    if p.Transparency > 0.05 then p.Transparency = 0 end
-                else
-                    p.Transparency = 1
-                    p.LocalTransparencyModifier = 1
-                end
-            end
-        end
-    end
-
-    if char and not hiding then
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") then
-                for _, part in ipairs(tool:GetDescendants()) do
-                    if part:IsA("BasePart") and part.Transparency > 0.05 then
-                        part.Transparency = 0
-                    end
-                end
-            end
-        end
-    end
+    -- Native Viewmodel & Equipped Item Shield:
+    -- DOORS natively manages cam.BaseRig viewmodel meshes and equipped tool attachments.
+    -- We strictly preserve original part transparencies, preventing held items from disappearing
+    -- and preserving Buddy's transparent bounding handle (eliminating the magenta/red box permanently!).
 
 
 
@@ -5048,23 +5016,20 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
 
 
-        -- Precision First-Person Camera Shield: Head, face, torso, accessories and hitboxes NEVER clip into camera
+        -- Precision First-Person Camera Shield:
+        -- In DOORS first-person view, the player character's real physical body (Head, Decals, Torso, Arms, Legs, Accessories)
+        -- MUST have LocalTransparencyModifier = 1 so no floating limbs, bald head, face, or torso ever clip or flicker into the camera!
+        -- DOORS natively renders and animates the viewmodel (cam.BaseRig) with held items and sleeved arms.
         for _, p in ipairs(char:GetChildren()) do
             if p:IsA("BasePart") then
+                p.LocalTransparencyModifier = 1
                 local pLower = p.Name:lower()
                 if pLower == "head" then
-                    p.LocalTransparencyModifier = 1
                     for _, d in ipairs(p:GetChildren()) do
                         if d:IsA("Decal") then d.Transparency = 1 end
                     end
-                elseif pLower:find("torso") then
-                    p.LocalTransparencyModifier = 1
                 elseif pLower:find("collision") or pLower == "humanoidrootpart" then
                     p.Transparency = 1
-                    p.LocalTransparencyModifier = 1
-                elseif pLower:find("arm") or pLower:find("leg") or pLower:find("hand") or pLower:find("foot") then
-                    p.LocalTransparencyModifier = 0
-                    if p.Transparency > 0.05 then p.Transparency = 0 end
                 end
             elseif p:IsA("Accessory") then
                 for _, accPart in ipairs(p:GetDescendants()) do
@@ -5073,9 +5038,6 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                     end
                 end
             end
-        end
-        if mgTable and mgTable.hideplayers ~= 0 then
-            mgTable.hideplayers = 0
         end
     end
 end)
@@ -5348,13 +5310,13 @@ local function applyPromptModifications(prompt)
 
     if isHidingSpot then
         -- Wardrobe & Closet Interaction Assurance:
-        -- Expand reach to 12.0 studs so prompt NEVER flickers or disappears when walking up!
-        local origDist = prompt:GetAttribute("OrigMaxDist") or 9.5
-        prompt.MaxActivationDistance = math.max(origDist, 12.0)
-        -- Snappy 0.25s hold duration: fast and responsive to click E, yet deliberate enough to prevent accidental looting triggers!
-        prompt.HoldDuration = 0.25
+        -- Ensure 14.0 studs reach and responsive 0.2s hold duration so prompt is always accessible!
+        prompt.MaxActivationDistance = 14.0
+        prompt.HoldDuration = 0.2
         prompt.RequiresLineOfSight = false
-        if not prompt.Enabled then prompt.Enabled = true end
+        if not prompt.Enabled and (not prompt.Parent or not prompt.Parent:GetAttribute("HiddenPlayer")) then
+            prompt.Enabled = true
+        end
     elseif isDrawerOrContainer then
         -- CRITICAL DRAWER FIX: Server strictly rejects drawer activation beyond 6.5 studs!
         -- Clamping to 6.5 guarantees client triggers only within server reach, preventing false prompt disappearance!
@@ -5407,6 +5369,24 @@ local function refreshAllPrompts()
         end
     end
 end
+
+-- Auto-initialize prompts for newly streamed rooms (Fires ONCE per room load, 0 FPS overhead)
+pcall(function()
+    local curRooms = Workspace:WaitForChild("CurrentRooms", 5)
+    if curRooms and not _G.ROOM_PROMPT_INIT_CONN then
+        _G.ROOM_PROMPT_INIT_CONN = true
+        curRooms.ChildAdded:Connect(function(newRoom)
+            task.wait(0.2)
+            if newRoom and newRoom.Parent then
+                for _, desc in ipairs(newRoom:GetDescendants()) do
+                    if desc:IsA("ProximityPrompt") then
+                        pcall(function() applyPromptModifications(desc) end)
+                    end
+                end
+            end
+        end)
+    end
+end)
 
 -- Drawer Guardian Daemon: Scans ONLY player's current room within 14 studs, optimizes knobs, and prevents remote spam
 local drawerLootDebounce = {}
@@ -6419,22 +6399,24 @@ task.spawn(function()
     while _G.DOORS_SESSION == currentSession do
         task.wait(0.08)
         if State.Anti_Rush or State.Auto_Hide or State.Auto_RoofEvacuate then
-            local incoming, entName = isLethalEntityIncoming()
-            local root = getRoot()
-            local char = getChar()
-            local mgTable = getMainGameTable()
-            if incoming and root and not isPlayerHiding(char, mgTable) then
-                if not isSafePhased and not isAtRoof and not isEvacuatingRoof then
-                    isSafePhased = true
-                    Hub.Notify("Anti-Threat", "⚠️ " .. tostring(entName) .. " detected! Phasing to Safe Roof...", 3)
-                    teleportToRoof()
-                end
-            elseif not incoming and isSafePhased then
-                isSafePhased = false
-                task.wait(1.5)
-                if not isLethalEntityIncoming() and isAtRoof and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
-                    returnFromRoof()
-                    Hub.Notify("Anti-Threat", "Threat neutralized! Returned safely to room floor.", 2)
+            if not State.Noclip and not isPlayerOutOfMap() then
+                local incoming, entName = isLethalEntityIncoming()
+                local root = getRoot()
+                local char = getChar()
+                local mgTable = getMainGameTable()
+                if incoming and root and not isPlayerHiding(char, mgTable) then
+                    if not isSafePhased and not isAtRoof and not isEvacuatingRoof then
+                        isSafePhased = true
+                        Hub.Notify("Anti-Threat", "⚠️ " .. tostring(entName) .. " detected! Phasing to Safe Roof...", 3)
+                        teleportToRoof()
+                    end
+                elseif not incoming and isSafePhased then
+                    isSafePhased = false
+                    task.wait(1.5)
+                    if not isLethalEntityIncoming() and isAtRoof and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
+                        returnFromRoof()
+                        Hub.Notify("Anti-Threat", "Threat neutralized! Returned safely to room floor.", 2)
+                    end
                 end
             end
         end
@@ -7115,9 +7097,6 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     local mg = getMainGameTable()
     if mg then
         mg.noclip = v
-        if v and mg.hideplayers ~= 0 then
-            mg.hideplayers = 0
-        end
     end
     if v then
         syncNativeFlightSpeed(State.Noclip_Speed or 45)
