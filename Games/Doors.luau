@@ -436,133 +436,28 @@ end)
 
 
 -- =========================================================================
--- Autonomous DOORS 1–100 Master Completer Engine
--- Complete Hands-Free Run: Key Finder, Puzzle Solver, Room 50 & 100 Auto-Beat
--- Roof Safe Evacuation & Instant Death/Win Auto-Restart Pipeline
+-- Forward Declarations & Core Motion Synchronization Flags
 -- =========================================================================
+local isAutoFlying = false
 local isCompleterActive = false
+local isKnobsFarmRunning = false
+local isEvacuatingRoof = false
 
-local function runAutoComplete100Step()
-    if not State.Auto_Complete_100 then return end
-    local char = getChar()
-    local root = getRoot()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if not char or not root or not hum or hum.Health <= 0 then return end
-
-    -- Threat evacuation check: if lethal entity incoming, evacuate to safe ceiling
-    if isLethalEntityIncoming() then
-        handleFarmRoofEvacuation()
-        return
-    end
-
-    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
-    local lr = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    local curRoom = curRooms and curRooms:FindFirstChild(tostring(lr))
-
-    -- Ensure Noclip & Anti-Cheat Bypass are actively engaged
-    if not State.Noclip then State.Noclip = true end
-    if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
-
-    -- Special Stage: Room 50 (Figure Library)
-    if lr == 50 then
-        local padlock = curRoom and curRoom:FindFirstChild("Padlock", true)
-        if padlock and padlock:FindFirstChildWhichIsA("ProximityPrompt", true) then
-            solveFigureLibraryRoom()
-            task.wait(1.5)
-            return
-        end
-    end
-
-    -- Special Stage: Room 100 (Figure & Elevator Circuit Breakers)
-    if lr == 100 then
-        local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
-        if elBreaker then
-            Hub.Notify("Completer", "Door 100 reached! Solving Breakers...", 3)
-            instantSolveBreakers()
-            task.wait(3.0)
-
-            local elevator = Workspace:FindFirstChild("StarterElevator", true) or Workspace:FindFirstChild("Elevator", true)
-            if elevator then
-                local ePart = elevator:FindFirstChildWhichIsA("BasePart", true)
-                if ePart then
-                    farmGlideTo(ePart.Position + Vector3.new(0, 2, 0), 45, 5.0)
-                    Hub.Notify("Completer", "Entered Elevator! Victory achieved!", 5)
-                end
-            end
-            task.wait(5.0)
-            return
-        end
-    end
-
-    if not curRoom then
-        task.wait(0.5)
-        return
-    end
-
-    local door = curRoom:FindFirstChild("Door")
-    local lock = door and door:FindFirstChild("Lock")
-    local isLocked = lock and lock:FindFirstChild("UnlockPrompt", true) ~= nil
-
-    if isLocked then
-        local hasKey = LocalPlayer.Backpack:FindFirstChild("Key") ~= nil or (char:FindFirstChild("Key") ~= nil)
-        if not hasKey then
-            Hub.Notify("Completer", "Room " .. tostring(lr) .. " locked. Finding Key...", 2)
-            teleportToRoomKey()
-            task.wait(1.0)
-            return
-        else
-            local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
-            if keyTool and hum then hum:EquipTool(keyTool) end
-        end
-    end
-
-    -- Path to and through door
-    teleportToNextDoor()
-    task.wait(0.8)
-end
-
--- Completer Main Execution Daemon
-task.spawn(function()
-    while true do
-        if _G.DOORS_SESSION ~= currentSession then break end
-        if State.Auto_Complete_100 then
-            pcall(runAutoComplete100Step)
-        end
-        task.wait(0.3)
-    end
-end)
-
--- Death / Win Auto-Restart Pipeline (Restarts match & continues completing)
-task.spawn(function()
-    while true do
-        task.wait(1.0)
-        if State.Auto_Complete_100 or State.Knobs_Farm_Active then
-            local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-            local mainUI = pGui and pGui:FindFirstChild("MainUI")
-            local deathPanel = mainUI and mainUI:FindFirstChild("DeathPanel")
-            if deathPanel and deathPanel.Visible then
-                Hub.Notify("Completer", "Match finished. Restarting run in 2s...", 2)
-                task.wait(2.0)
-                local playAgainBtn = deathPanel:FindFirstChild("PlayAgain") or deathPanel:FindFirstChild("BattlePlayAgain")
-                if playAgainBtn then
-                    pcall(function()
-                        for _, c in ipairs(getconnections(playAgainBtn.MouseButton1Down)) do
-                            if c.Fire then c:Fire() elseif c.Function then c.Function() end
-                        end
-                    end)
-                end
-                local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-                local playAgainRemote = remotes and remotes:FindFirstChild("PlayAgain")
-                if playAgainRemote then pcall(function() playAgainRemote:FireServer() end) end
-            end
-        end
-    end
-end)
+local farmGlideTo
+local runAutoComplete100Step
+local processKnobsFarmStep
+local teleportToRoomKey
+local teleportToNextDoor
+local solveFigureLibraryRoom
+local instantSolveBreakers
+local handleFarmRoofEvacuation
+local isLethalEntityIncoming
 
 -- Session lifecycle
 _G.DOORS_SESSION = tick()
 local currentSession = _G.DOORS_SESSION
+_G.State = State
+_G.UnknownHub_State = State
 
 -- Anti-AFK: Prevents 20-minute idle disconnects so session stays active while away
 pcall(function()
@@ -4226,7 +4121,8 @@ local function teleportToNextDoor(callback)
     Hub.Notify("Teleport", "Navigating to Door " .. tostring(lrVal) .. "...", 2)
 
     if State.Noclip or State.Auto_Complete_100 then
-        farmGlideTo(doorPos + Vector3.new(0, 0, 2), 55, 4.0)
+        -- Smooth linear flight directly to door front in current room
+        farmGlideTo(doorPos + approachDir * 3.0, 55, 4.0)
         local currentLock = exitDoor:FindFirstChild("Lock")
         if currentLock then
             local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
@@ -4246,10 +4142,18 @@ local function teleportToNextDoor(callback)
         if co then pcall(function() co:FireServer() end) end
         local hiddenPart = exitDoor:FindFirstChild("Hidden")
         if hiddenPart and hiddenPart:IsA("BasePart") then
-            pcall(function() hiddenPart.CanTouch = true end)
+            pcall(function()
+                hiddenPart.CanTouch = true
+                if root then
+                    firetouchinterest(root, hiddenPart, 0)
+                    task.wait(0.02)
+                    firetouchinterest(root, hiddenPart, 1)
+                end
+            end)
         end
         processNearbyDoors(doorPos, 25)
-        farmGlideTo(doorPos - exitDoor:GetPivot().LookVector * 6, 50, 2.0)
+        -- Glide through the doorway into the next room chamber
+        farmGlideTo(doorPos - approachDir * 6.0, 50, 2.0)
         if callback then callback(true) end
         return true
     end
@@ -4627,7 +4531,7 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
-    if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening and not isAutoFlying then
+    if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening and not isAutoFlying and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
         -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
@@ -6200,10 +6104,8 @@ task.spawn(function()
     end
 end)
 
-local isAutoFlying = false
-
 -- Fly-Noclip Glide Controller: Direct 3D linear flight through walls and obstacles
-local function farmGlideTo(targetPos, speedVal, maxTime)
+farmGlideTo = function(targetPos, speedVal, maxTime)
     local char = getChar()
     local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -6220,17 +6122,44 @@ local function farmGlideTo(targetPos, speedVal, maxTime)
 
     isAutoFlying = true
 
-    while (os.clock() - startTime < maxWait) and (State.Knobs_Farm_Active or State.Auto_Complete_100) do
-        if _G.DOORS_SESSION ~= currentSession then break end
+    local function cleanup()
+        isAutoFlying = false
+        local curR = getRoot()
+        if curR and curR.Parent then
+            curR.AssemblyLinearVelocity = Vector3.zero
+            curR.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+
+    while (os.clock() - startTime < maxWait) do
+        if _G.DOORS_SESSION ~= currentSession then cleanup(); return false end
+        if not (State.Knobs_Farm_Active or State.Auto_Complete_100 or State.Noclip) then
+            cleanup()
+            return false
+        end
+
         local curChar = getChar()
         local curRoot = getRoot()
-        if not curChar or not curRoot then break end
+        if not curChar or not curRoot then cleanup(); return false end
+
+        -- Strip collisions on character during auto-flight
+        for _, p in ipairs(curChar:GetDescendants()) do
+            if p:IsA("BasePart") then
+                if p.CanCollide then p.CanCollide = false end
+                p.CanTouch = true
+                p.CanQuery = true
+            end
+        end
+        local hum = curChar:FindFirstChildWhichIsA("Humanoid")
+        if hum and hum:GetState() ~= Enum.HumanoidStateType.Freefall then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
 
         -- Check Rush / Ambush interrupt
         if State.Knobs_Farm_RoofEvacuation and not isAtRoof then
             local incoming, entName = isLethalEntityIncoming()
             if incoming then
-                isAutoFlying = false
+                cleanup()
                 return "THREAT_INTERRUPT"
             end
         end
@@ -6250,13 +6179,6 @@ local function farmGlideTo(targetPos, speedVal, maxTime)
         local nextPos = curPos + dir * step
         local lookCF = CFrame.new(nextPos, nextPos + dir)
 
-        -- Synchronize with native DOORS flight engine
-        local mgTable = getMainGameTable()
-        if mgTable then
-            mgTable.noclip = true
-            mgTable.clipPos = nextPos
-        end
-
         curChar:PivotTo(lookCF)
         curRoot.CFrame = lookCF
         local cp = curChar:FindFirstChild("CollisionPart")
@@ -6271,15 +6193,11 @@ local function farmGlideTo(targetPos, speedVal, maxTime)
         task.wait(0.016)
     end
 
-    if arrived and root then
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-    end
-
+    cleanup()
     return arrived
 end
+_G.farmGlideTo = farmGlideTo
 
--- Safe Roof Haven Handler for Knobs Farm
 local function handleFarmRoofEvacuation()
     if isEvacuatingRoof then return end
     isEvacuatingRoof = true
@@ -6381,7 +6299,13 @@ local function solveFigureLibraryRoom()
 end
 
 -- Room-by-room Farm Step
-local function processKnobsFarmStep()
+processKnobsFarmStep = function()
+    _G.processKnobsFarmStep = processKnobsFarmStep
+    if not State.Knobs_Farm_Active then return end
+    if isKnobsFarmRunning then return end
+    isKnobsFarmRunning = true
+
+    local pcallStatus, pcallErr = pcall(function()
     local char = getChar()
     local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -6398,7 +6322,7 @@ local function processKnobsFarmStep()
     if inCutscene and inCutscene.Value == true then return end
 
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if not curRooms or not curRooms:FindFirstChild("0") then return end
+    if not curRooms or #curRooms:GetChildren() == 0 then return end
 
     local curRoomNum = (gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value) or getCurrentRoomNumber() or 0
     local roomModel = curRooms:FindFirstChild(tostring(curRoomNum))
@@ -6574,7 +6498,11 @@ local function processKnobsFarmStep()
         -- Fly to Exit Door & Open
         local dPart = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("Hidden") or exitDoor.PrimaryPart
         if dPart then
-            farmGlideTo(dPart.Position + Vector3.new(0, 0, 3), 55, 3.5)
+            local toPlayer = (root.Position - dPart.Position)
+            local hToPlayer = Vector3.new(toPlayer.X, 0, toPlayer.Z)
+            local approachDir = (hToPlayer.Magnitude > 0.1) and hToPlayer.Unit or -dPart.CFrame.LookVector
+
+            farmGlideTo(dPart.Position + approachDir * 3.0, 55, 3.5)
 
             -- Unlock if lock prompt exists
             if lock then
@@ -6593,12 +6521,28 @@ local function processKnobsFarmStep()
             end
 
             -- Open door & step across into next chamber
+            local co = exitDoor:FindFirstChild("ClientOpen")
+            if co then pcall(function() co:FireServer() end) end
+            local hiddenPart = exitDoor:FindFirstChild("Hidden")
+            if hiddenPart and hiddenPart:IsA("BasePart") then
+                pcall(function()
+                    hiddenPart.CanTouch = true
+                    if root then
+                        firetouchinterest(root, hiddenPart, 0)
+                        task.wait(0.02)
+                        firetouchinterest(root, hiddenPart, 1)
+                    end
+                end)
+            end
             processNearbyDoors(dPart.Position, 25)
-            farmGlideTo(dPart.Position - exitDoor:GetPivot().LookVector * 5, 50, 2.0)
+            farmGlideTo(dPart.Position - approachDir * 6.0, 50, 2.0)
             task.wait(0.2)
         end
     end
+    end)
+    isKnobsFarmRunning = false
 end
+_G.processKnobsFarmStep = processKnobsFarmStep
 
 -- Knobs Farm Background Master Daemon
 task.spawn(function()
@@ -6610,6 +6554,144 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
+
+-- =========================================================================
+-- Autonomous DOORS 1-100 Master Completer Engine
+-- Complete Hands-Free Run: Key Finder, Puzzle Solver, Room 50 & 100 Auto-Beat
+-- Roof Safe Evacuation & Instant Death/Win Auto-Restart Pipeline
+-- =========================================================================
+runAutoComplete100Step = function()
+    _G.runAutoComplete100Step = runAutoComplete100Step
+    if not State.Auto_Complete_100 then return end
+    if isCompleterActive then return end
+    isCompleterActive = true
+
+    local pcallStatus, pcallErr = pcall(function()
+        local char = getChar()
+        local root = getRoot()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if not char or not root or not hum or hum.Health <= 0 then return end
+
+        -- Threat evacuation check: if lethal entity incoming, evacuate to safe ceiling
+        if isLethalEntityIncoming() then
+            handleFarmRoofEvacuation()
+            return
+        end
+
+        local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+        local lr = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if not curRooms or #curRooms:GetChildren() == 0 then
+            task.wait(0.5)
+            return
+        end
+
+        local curRoom = curRooms:FindFirstChild(tostring(lr))
+
+        -- Ensure Noclip & Anti-Cheat Bypass are actively engaged
+        if not State.Noclip then State.Noclip = true end
+        if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
+
+        -- Special Stage: Room 50 (Figure Library)
+        if lr == 50 then
+            local padlock = curRoom and curRoom:FindFirstChild("Padlock", true)
+            if padlock and padlock:FindFirstChildWhichIsA("ProximityPrompt", true) then
+                solveFigureLibraryRoom()
+                task.wait(1.5)
+                return
+            end
+        end
+
+        -- Special Stage: Room 100 (Figure & Elevator Circuit Breakers)
+        if lr == 100 then
+            local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
+            if elBreaker then
+                Hub.Notify("Completer", "Door 100 reached! Solving Breakers...", 3)
+                instantSolveBreakers()
+                task.wait(3.0)
+
+                local elevator = Workspace:FindFirstChild("StarterElevator", true) or Workspace:FindFirstChild("Elevator", true)
+                if elevator then
+                    local ePart = elevator:FindFirstChildWhichIsA("BasePart", true)
+                    if ePart then
+                        farmGlideTo(ePart.Position + Vector3.new(0, 2, 0), 45, 5.0)
+                        Hub.Notify("Completer", "Entered Elevator! Victory achieved!", 5)
+                    end
+                end
+                task.wait(5.0)
+                return
+            end
+        end
+
+        if not curRoom then
+            task.wait(0.5)
+            return
+        end
+
+        local door = curRoom:FindFirstChild("Door")
+        local lock = door and door:FindFirstChild("Lock")
+        local isLocked = lock and lock:FindFirstChild("UnlockPrompt", true) ~= nil
+
+        if isLocked then
+            local hasKey = LocalPlayer.Backpack:FindFirstChild("Key") ~= nil or (char:FindFirstChild("Key") ~= nil)
+            if not hasKey then
+                Hub.Notify("Completer", "Room " .. tostring(lr) .. " locked. Finding Key...", 2)
+                teleportToRoomKey()
+                task.wait(1.0)
+                return
+            else
+                local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or char:FindFirstChild("Key")
+                if keyTool and hum then hum:EquipTool(keyTool) end
+            end
+        end
+
+        -- Path to and through door
+        teleportToNextDoor()
+        task.wait(0.8)
+    end)
+
+    isCompleterActive = false
+end
+_G.runAutoComplete100Step = runAutoComplete100Step
+
+-- Completer Main Execution Daemon
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Auto_Complete_100 then
+            pcall(runAutoComplete100Step)
+        end
+        task.wait(0.3)
+    end
+end)
+
+-- Death / Win Auto-Restart Pipeline (Restarts match & continues completing)
+task.spawn(function()
+    while true do
+        task.wait(1.0)
+        if State.Auto_Complete_100 or State.Knobs_Farm_Active then
+            local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+            local mainUI = pGui and pGui:FindFirstChild("MainUI")
+            local deathPanel = mainUI and mainUI:FindFirstChild("DeathPanel")
+            if deathPanel and deathPanel.Visible then
+                Hub.Notify("Completer", "Match finished. Restarting run in 2s...", 2)
+                task.wait(2.0)
+                local playAgainBtn = deathPanel:FindFirstChild("PlayAgain") or deathPanel:FindFirstChild("BattlePlayAgain")
+                if playAgainBtn then
+                    pcall(function()
+                        for _, c in ipairs(getconnections(playAgainBtn.MouseButton1Down)) do
+                            if c.Fire then c:Fire() elseif c.Function then c.Function() end
+                        end
+                    end)
+                end
+                local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                local playAgainRemote = remotes and remotes:FindFirstChild("PlayAgain")
+                if playAgainRemote then pcall(function() playAgainRemote:FireServer() end) end
+            end
+        end
+    end
+end)
+
 
 -- Character Respawn Watcher (Auto-Resumes on new match / after reset!)
 LocalPlayer.CharacterAdded:Connect(function(newChar)
