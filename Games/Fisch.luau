@@ -108,7 +108,7 @@ local Config = {
     AutoShake = false,
     ShakeMode = "Fast (0.12s)", -- "Fast (0.12s)", "Humanized"
     AutoReel = false,
-    ReelMode = "Fast (~1.4s)", -- "Fast (~1.4s)", "Hyper Fast (~1s)", "Safe (~2s)"
+    ReelMode = "Hyper Fast (~1s)", -- "Hyper Fast (~1s)", "Fast (~1.4s)", "Safe (~2s)"
     InstantReelDelay = 0.25, -- Handshake delay waiting for server Reeling attribute
     AutoEquipRod = true,
 
@@ -381,7 +381,8 @@ local function processReelMinigame(activeReel)
         activeReel.isPaused = false
         activeReel.logicPaused = false
 
-        -- Lock bar perfectly onto the fish bubble
+        -- Lock bar perfectly onto the fish bubble & expand bar size
+        activeReel.barSize = 10
         activeReel.barPosition = activeReel.fishPosition or 0.5
         activeReel.onbar = true
         activeReel.perfect = true
@@ -570,7 +571,7 @@ Hub.CreateToggle(farmTab, "Auto Reel (Fish Bubble)", Config.AutoReel, function(v
     Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE" or "Auto Reel: OFF", 2)
 end)
 
-Hub.CreateDropdown(farmTab, "Reel Speed", {"Fast (~1.4s)", "Hyper Fast (~1s)", "Safe (~2s)"}, Config.ReelMode, function(val)
+Hub.CreateDropdown(farmTab, "Reel Speed", {"Hyper Fast (~1s)", "Fast (~1.4s)", "Safe (~2s)"}, Config.ReelMode, function(val)
     Config.ReelMode = val
     Hub.Notify("Reel Speed", "Reel Speed set to: " .. val, 2)
 end)
