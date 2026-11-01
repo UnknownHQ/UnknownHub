@@ -167,10 +167,14 @@ pcall(function()
     local LureShakeController = require(ReplicatedStorage.client.legacyControllers.LureShakeController)
     if LureShakeController and not LureShakeController._Hooked then
         LureShakeController._Hooked = true
-        -- Keep authentic parameters so client countdown and server shake counters stay 100% in sync
         local origStartMinigame = LureShakeController.StartMinigame
-        LureShakeController.StartMinigame = function(...)
-            return origStartMinigame(...)
+        LureShakeController.StartMinigame = function(self, config, ...)
+            if Config.AutoShake and typeof(config) == "table" then
+                -- Align ShakeScale to 3.0 so controller internal debounce (0.25 / ShakeScale) locks to 83ms!
+                config.ShakeScale = 3.0
+                config.ShakePower = (config.ShakePower or 1) * 1.5
+            end
+            return origStartMinigame(self, config, ...)
         end
     end
 end)
@@ -415,13 +419,12 @@ local function executeCast()
     end)
 end
 
--- 2. Maximum-Speed Precision Auto Shake Engine (Zero Drops, 100% Server Validated)
+-- 2. Maximum-Speed Constant Auto Shake Engine (Always Fast 80ms Sync)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
 
-    -- Cadence Control (120ms): Fisch server enforces rate-limiting on LureShake/Shake.
-    -- 120ms allows each shake to register cleanly with the server without dropping the bite!
-    if tick() - lastShakeTick < 0.12 then return end
+    -- Cadence Control (80ms): Perfectly synchronized with internal 83ms controller debounce
+    if tick() - lastShakeTick < 0.08 then return end
 
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
@@ -437,7 +440,7 @@ local function processShakeMinigame()
             if (btn:IsA("ImageButton") or btn:IsA("GuiButton")) and btn.Visible then
                 lastShakeTick = tick()
 
-                -- Prioritize getconnections (verified 100% working in Real executor)
+                -- Prioritize getconnections and fall through cleanly
                 local conns = getconnections and getconnections(btn.Activated)
                 if conns and #conns > 0 then
                     for _, c in ipairs(conns) do
@@ -445,12 +448,14 @@ local function processShakeMinigame()
                     end
                 elseif firesignal then
                     firesignal(btn.Activated)
-                else
+                end
+
+                pcall(function()
                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
                     task.defer(function()
                         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
                     end)
-                end
+                end)
 
                 return
             end
