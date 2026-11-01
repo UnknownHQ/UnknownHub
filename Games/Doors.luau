@@ -4920,11 +4920,12 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         for _, p in ipairs(baseRig:GetDescendants()) do
             if p:IsA("BasePart") then
                 local pName = p.Name:lower()
-                if pName:find("arm") or pName:find("hand") or p:FindFirstAncestorWhichIsA("Tool") or (p.Parent and p.Parent:IsA("Model") and p.Parent ~= baseRig) then
+                if pName:find("arm") or pName:find("hand") or p:FindFirstAncestorWhichIsA("Tool") then
                     p.LocalTransparencyModifier = 0
-                    if p.Transparency > 0.05 and p.Name ~= "HumanoidRootPart" and p.Name ~= "CollisionPart" then
-                        p.Transparency = 0
-                    end
+                    if p.Transparency > 0.05 then p.Transparency = 0 end
+                else
+                    p.Transparency = 1
+                    p.LocalTransparencyModifier = 1
                 end
             end
         end
@@ -4986,12 +4987,29 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
 
 
-        -- Character & Equipment Visibility Shield: Ensures body parts, head, hands, and tools remain visible
+        -- Precision First-Person Camera Shield: Head, face, torso, accessories and hitboxes NEVER clip into camera
         for _, p in ipairs(char:GetChildren()) do
             if p:IsA("BasePart") then
-                if p.Name ~= "HumanoidRootPart" and p.Name ~= "CollisionPart" then
+                local pLower = p.Name:lower()
+                if pLower == "head" then
+                    p.LocalTransparencyModifier = 1
+                    for _, d in ipairs(p:GetChildren()) do
+                        if d:IsA("Decal") then d.Transparency = 1 end
+                    end
+                elseif pLower:find("torso") then
+                    p.LocalTransparencyModifier = 1
+                elseif pLower:find("collision") or pLower == "humanoidrootpart" then
+                    p.Transparency = 1
+                    p.LocalTransparencyModifier = 1
+                elseif pLower:find("arm") or pLower:find("leg") or pLower:find("hand") or pLower:find("foot") then
                     p.LocalTransparencyModifier = 0
                     if p.Transparency > 0.05 then p.Transparency = 0 end
+                end
+            elseif p:IsA("Accessory") then
+                for _, accPart in ipairs(p:GetDescendants()) do
+                    if accPart:IsA("BasePart") then
+                        accPart.LocalTransparencyModifier = 1
+                    end
                 end
             end
         end
