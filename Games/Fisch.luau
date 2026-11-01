@@ -173,8 +173,8 @@ pcall(function()
             if Config.AutoShake then
                 for _, arg in ipairs(args) do
                     if typeof(arg) == "table" and (arg.seed ~= nil or arg.initialTimer ~= nil or arg.ButtonName ~= nil) then
-                        arg.ShakePower = 9999
-                        arg.ShakeScale = 25
+                        arg.ShakePower = 10
+                        arg.ShakeScale = 2.2
                         break
                     end
                 end
@@ -195,9 +195,9 @@ pcall(function()
                 for _, arg in ipairs(args) do
                     if typeof(arg) == "table" and (arg.fish ~= nil or arg.stats ~= nil) then
                         if arg.stats then
-                            arg.stats.StartingProgress = 99
-                            arg.stats.ProgressSpeed = 9999
-                            arg.stats.Control = 10
+                            arg.stats.StartingProgress = 85
+                            arg.stats.ProgressSpeed = 250
+                            arg.stats.Control = 1.0
                         end
                         break
                     end
@@ -322,6 +322,9 @@ end
 local function processShakeMinigame()
     if not Config.AutoShake then return end
 
+    -- 0.10s rate: clears bubbles instantly with zero missed clicks
+    if tick() - lastShakeTick < 0.10 then return end
+
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
 
@@ -357,7 +360,7 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Maximum Speed Instant Reel Engine (Zero-Delay Finish & Anti-Kick)
+-- 3. Ultra Fast & Smooth Reel Engine (100% Anti-Bug, Anti-Kick)
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
 
@@ -367,27 +370,23 @@ local function processReelMinigame(activeReel)
     end
 
     pcall(function()
-        -- Lock bar perfectly onto the fish bubble & expand bar size to full
+        -- Lock bar perfectly onto the fish bubble & expand bar size
         activeReel.barSize = 10
         activeReel.barPosition = activeReel.fishPosition or 0.5
         activeReel.onbar = true
         activeReel.perfect = true
 
-        -- Directly advance core progress modifier to 100
+        -- Advance progress smoothly inside minigame core
+        -- With starting progress at 85%, this completes the minigame in ~0.5s naturally!
         if activeReel.core and activeReel.core.minigame and activeReel.core.minigame._progressModifier then
-            activeReel.core.minigame._progressModifier.Value = 100
-        end
-
-        -- Dispatch native AddProgress to 100
-        activeReel:AddProgress(100)
-
-        -- If elapsed at least 0.12s (smooth network debounce), complete minigame natively
-        local elapsed = tick() - reelStartTick
-        if elapsed >= 0.12 and not instantReelDispatched then
-            instantReelDispatched = true
-            pcall(function()
-                activeReel:EndMinigame(true)
-            end)
+            local p = activeReel.core.minigame._progressModifier
+            if p.Value < 98 then
+                local boost = 2.0
+                if Config.ReelMode == "Safe (~2s)" then
+                    boost = 0.5
+                end
+                p.Value = p.Value + boost
+            end
         end
     end)
 end
