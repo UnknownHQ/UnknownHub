@@ -459,8 +459,51 @@ end)
 -- =========================================================================
 -- Proactive ProximityPrompt Line-Of-Sight & Range Strip (Zero Wall Delays)
 -- =========================================================================
+-- Permanent Universal PromptGate & PromptService Immunity
+local function initPromptGateImmunity()
+    pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("PromptService")
+        if ps then
+            ps:SetAttribute("Suppressed", false)
+            if not _G.PS_SUPP_SIGNAL then
+                _G.PS_SUPP_SIGNAL = true
+                ps:GetAttributeChangedSignal("Suppressed"):Connect(function()
+                    if ps:GetAttribute("Suppressed") == true then
+                        ps:SetAttribute("Suppressed", false)
+                    end
+                end)
+            end
+            local pg = ps:FindFirstChild("PromptGate")
+            if pg and not _G.PG_HOOKED then
+                local s, pgMod = pcall(require, pg)
+                if s and type(pgMod) == "table" and hookfunction then
+                    if pgMod.isHidden then
+                        _G.PG_HOOKED = true
+                        hookfunction(pgMod.isHidden, newcclosure(function(prompt)
+                            return false -- Never hide prompts! All prompts remain enabled!
+                        end))
+                    end
+                end
+            end
+        end
+    end)
+end
+initPromptGateImmunity()
+
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
+    pps.PromptButtonHoldBegan:Connect(function(prompt, player)
+        if player == LocalPlayer then
+            unhideGraceUntil = os.clock() + 10.0
+            initPromptGateImmunity()
+        end
+    end)
+    pps.PromptTriggered:Connect(function(prompt, player)
+        if player == LocalPlayer then
+            unhideGraceUntil = os.clock() + 10.0
+            initPromptGateImmunity()
+        end
+    end)
     pps.PromptShown:Connect(function(prompt)
         prompt.RequiresLineOfSight = false
         if prompt.MaxActivationDistance < 14.0 then
@@ -3200,12 +3243,14 @@ local function isHidingSpotNearPos(pos)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     if not curRooms then return false end
     for _, rm in ipairs(curRooms:GetChildren()) do
-        for _, desc in ipairs(rm:GetChildren()) do
-            local nl = desc.Name:lower()
-            if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
-                local pivot = desc:GetPivot().Position
-                if (pivot - p).Magnitude < 12 then
-                    return true
+        for _, desc in ipairs(rm:GetDescendants()) do
+            if desc:IsA("Model") then
+                local nl = desc.Name:lower()
+                if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
+                    local pivot = desc:GetPivot().Position
+                    if (pivot - p).Magnitude < 22 then
+                        return true
+                    end
                 end
             end
         end
@@ -3509,18 +3554,28 @@ local function neutralizeServerTeleported()
                 if type(rawFn) == "function" and hookfunction then
                     hookfunction(rawFn, newcclosure(function(p1, p2, p3, p4)
                         local char = getChar()
+                        local r = getRoot()
                         local mgTable = getMainGameTable()
-                        local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                        if hiding then
+                        local targetPos = (typeof(p2) == "Vector3") and p2 or ((typeof(p2) == "CFrame") and p2.Position or nil)
+                        local dist = (r and targetPos) and (targetPos - r.Position).Magnitude or 0
+
+                        local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
+                        local isLocalTransition = dist < 25.0
+                        local isGraceActive = (os.clock() < unhideGraceUntil)
+                        local isHidingNow = isPlayerHiding(char, mgTable)
+                        local isChaseActive = (mgTable and mgTable.chase == true)
+
+                        if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening) then
                             return rawFn(p1, p2, p3, p4)
                         end
+
                         if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                             task.spawn(function()
-                                local r = getRoot()
-                                if r and crouchRemote then
+                                local rRoot = getRoot()
+                                if rRoot and crouchRemote then
                                     pcall(function() crouchRemote:FireServer(false, true) end)
-                                    r.AssemblyLinearVelocity = Vector3.zero
-                                    r.AssemblyAngularVelocity = Vector3.zero
+                                    rRoot.AssemblyLinearVelocity = Vector3.zero
+                                    rRoot.AssemblyAngularVelocity = Vector3.zero
                                     task.wait(0.03)
                                     pcall(function() crouchRemote:FireServer(false, false) end)
                                 end
@@ -3548,28 +3603,37 @@ local function neutralizeServerTeleported()
                     if fn and not _G["TP_DETOURED_" .. tostring(fn)] then
                         _G["TP_DETOURED_" .. tostring(fn)] = true
                         if hookfunction then
-                            hookfunction(fn, newcclosure(function(...)
+                            hookfunction(fn, newcclosure(function(pTarget, ...)
                                 local char = getChar()
+                                local r = getRoot()
                                 local mgTable = getMainGameTable()
-                                local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                                local args = {...}
-                                if hiding then
-                                    return fn(...)
+                                local targetPos = (typeof(pTarget) == "Vector3") and pTarget or ((typeof(pTarget) == "CFrame") and pTarget.Position or nil)
+                                local dist = (r and targetPos) and (targetPos - r.Position).Magnitude or 0
+
+                                local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
+                                local isLocalTransition = dist < 25.0
+                                local isGraceActive = (os.clock() < unhideGraceUntil)
+                                local isHidingNow = isPlayerHiding(char, mgTable)
+                                local isChaseActive = (mgTable and mgTable.chase == true)
+
+                                if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening) then
+                                    return fn(pTarget, ...)
                                 end
+
                                 if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     task.spawn(function()
-                                        local r = getRoot()
-                                        if r and crouchRemote then
+                                        local rRoot = getRoot()
+                                        if rRoot and crouchRemote then
                                             pcall(function() crouchRemote:FireServer(false, true) end)
-                                            r.AssemblyLinearVelocity = Vector3.zero
-                                            r.AssemblyAngularVelocity = Vector3.zero
+                                            rRoot.AssemblyLinearVelocity = Vector3.zero
+                                            rRoot.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
                                             pcall(function() crouchRemote:FireServer(false, false) end)
                                         end
                                     end)
                                     return
                                 end
-                                return fn(...)
+                                return fn(pTarget, ...)
                             end))
                         end
                     end
@@ -3586,21 +3650,30 @@ local function neutralizeServerTeleported()
                     if fn and not _G["ST_DETOURED_" .. tostring(fn)] then
                         _G["ST_DETOURED_" .. tostring(fn)] = true
                         if hookfunction then
-                            hookfunction(fn, newcclosure(function(...)
+                            hookfunction(fn, newcclosure(function(p1, p2, ...)
                                 local char = getChar()
+                                local r = getRoot()
                                 local mgTable = getMainGameTable()
-                                local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                                local args = {...}
-                                if hiding then
-                                    return fn(...)
+                                local targetPos = (typeof(p2) == "Vector3") and p2 or ((typeof(p2) == "CFrame") and p2.Position or ((typeof(p1) == "Vector3") and p1 or nil))
+                                local dist = (r and targetPos) and (targetPos - r.Position).Magnitude or 0
+
+                                local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
+                                local isLocalTransition = dist < 25.0
+                                local isGraceActive = (os.clock() < unhideGraceUntil)
+                                local isHidingNow = isPlayerHiding(char, mgTable)
+                                local isChaseActive = (mgTable and mgTable.chase == true)
+
+                                if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening) then
+                                    return fn(p1, p2, ...)
                                 end
+
                                 if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     task.spawn(function()
-                                        local r = getRoot()
-                                        if r and crouchRemote then
+                                        local rRoot = getRoot()
+                                        if rRoot and crouchRemote then
                                             pcall(function() crouchRemote:FireServer(false, true) end)
-                                            r.AssemblyLinearVelocity = Vector3.zero
-                                            r.AssemblyAngularVelocity = Vector3.zero
+                                            rRoot.AssemblyLinearVelocity = Vector3.zero
+                                            rRoot.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
                                             pcall(function() crouchRemote:FireServer(false, false) end)
                                         end
@@ -3610,7 +3683,7 @@ local function neutralizeServerTeleported()
                                     end
                                     return
                                 end
-                                return fn(...)
+                                return fn(p1, p2, ...)
                             end))
                         end
                     end
@@ -3736,19 +3809,20 @@ local function restoreCharacterInteractivity(char)
     local root = char:FindFirstChild("HumanoidRootPart")
     if coll and coll:IsA("BasePart") then
         coll.CanCollide = true
-        coll.CollisionGroup = "NoPlayer"
+        pcall(function() coll.CollisionGroup = "NoPlayer" end)
         coll.CanTouch = true
         coll.CanQuery = true
     end
     if cp and cp:IsA("BasePart") then
-        cp.CanCollide = false
-        cp.CollisionGroup = "NoPlayer"
+        -- CollisionPart MUST be CanCollide = true when not flying so player stands firmly on the floor without void-falling!
+        cp.CanCollide = not State.Noclip
+        pcall(function() cp.CollisionGroup = "NoPlayer" end)
         cp.CanTouch = true
         cp.CanQuery = true
     end
     if root and root:IsA("BasePart") then
         root.CanCollide = false
-        root.CollisionGroup = "NoPlayer"
+        pcall(function() root.CollisionGroup = "NoPlayer" end)
         root.CanTouch = true
         root.CanQuery = true
     end
@@ -5003,7 +5077,7 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
                 if not part.CanQuery then part.CanQuery = true end
             end
         end
-        local coll = char:FindFirstChild("Collision")
+        local coll = char:FindFirstChild("CollisionPart") or char:FindFirstChild("Collision")
         if coll and coll:IsA("BasePart") then
             if not coll.CanCollide then coll.CanCollide = true end
             if coll.CollisionGroup ~= "NoPlayer" then coll.CollisionGroup = "NoPlayer" end
@@ -6915,38 +6989,56 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     local char = getChar()
 
     if not v and char then
-        -- Cleanly restore standard Roblox character collision & friction (eliminates sliding backwards & stumbles!)
+        -- 1. Ensure CollisionPart is solid so player stands on the floor without void-falling!
+        local cp = char:FindFirstChild("CollisionPart")
+        if cp and cp:IsA("BasePart") then
+            cp.CanCollide = true
+            pcall(function() cp.CollisionGroup = "NoPlayer" end)
+            cp.CanTouch = true
+            cp.CanQuery = true
+        end
+
         restoreCharacterInteractivity(char)
         restoreDefaultFriction(char)
 
-        local hum = char:FindFirstChildWhichIsA("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-
-        lastNoclipDisableGrace = os.clock() + 5.0
-
         local r = getRoot()
         if r then
-            -- Zero velocity and angular drift: keep player exactly where flight was stopped!
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
 
-            -- Synchronize CollisionPart and MainGame clipPos to current root location
-            local cp = char:FindFirstChild("CollisionPart")
+            -- Snap to solid floor if slightly clipped into or below floor
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            local hit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -20, 0), rayParams)
+            if hit then
+                r.CFrame = CFrame.new(r.Position.X, hit.Position.Y + 3.2, r.Position.Z) * (r.CFrame - r.Position)
+            end
+
             if cp then cp.CFrame = r.CFrame end
 
             local mg = getMainGameTable()
             if mg then
                 mg.noclip = false
                 mg.clipPos = r.Position
+                mg.inAir = false
             end
 
-            -- Immediately synchronize server room boundary so server commits player's new room coordinates without rubberbanding!
             syncServerRoomBoundary()
         end
+
+        local hum = char:FindFirstChildWhichIsA("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end)
+        end
+
+        lastNoclipDisableGrace = os.clock() + 5.0
     end
     Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
 end)
@@ -7457,43 +7549,27 @@ if hookfunction then
     end
 end
 
--- Intercept server rollback teleports while Noclip is active
-local teleRemote = remotesFolder and remotesFolder:FindFirstChild("Teleport")
-local servTeleRemote = remotesFolder and remotesFolder:FindFirstChild("ServerTeleported")
-
-if getconnections then
-    if teleRemote and teleRemote:IsA("RemoteEvent") then
-        for _, conn in ipairs(getconnections(teleRemote.OnClientEvent)) do
-            local oldTele = conn.Function
-            if oldTele and hookfunction and not _G["CONN_TP_" .. tostring(oldTele)] then
-                _G["CONN_TP_" .. tostring(oldTele)] = true
-                hookfunction(oldTele, newcclosure(function(...)
-                    local char = getChar()
-                    local mgTable = getMainGameTable()
-                    local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
-                        return
-                    end
-                    return oldTele(...)
-                end))
-            end
-        end
-    end
-    if servTeleRemote and servTeleRemote:IsA("RemoteEvent") then
-        for _, conn in ipairs(getconnections(servTeleRemote.OnClientEvent)) do
-            local oldServTele = conn.Function
-            if oldServTele and hookfunction and not _G["CONN_ST_" .. tostring(oldServTele)] then
-                _G["CONN_ST_" .. tostring(oldServTele)] = true
-                hookfunction(oldServTele, newcclosure(function(...)
-                    local char = getChar()
-                    local mgTable = getMainGameTable()
-                    local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                    if not hiding and (State.Noclip or isTeleportTweening or State.Bypass_AntiCheat or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
-                        return
-                    end
-                    return oldServTele(...)
-                end))
-            end
+-- Intercept Ragdoll events to prevent unrequested ragdoll states in void or during transitions
+local ragdollRemote = remotesFolder and remotesFolder:FindFirstChild("Ragdoll")
+if getconnections and ragdollRemote and ragdollRemote:IsA("RemoteEvent") then
+    for _, conn in ipairs(getconnections(ragdollRemote.OnClientEvent)) do
+        local oldRag = conn.Function
+        if oldRag and hookfunction and not _G["CONN_RAG_" .. tostring(oldRag)] then
+            _G["CONN_RAG_" .. tostring(oldRag)] = true
+            hookfunction(oldRag, newcclosure(function(...)
+                local char = getChar()
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                if hum then
+                    hum.PlatformStand = false
+                    pcall(function()
+                        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end)
+                end
+                return -- Drop remote ragdoll!
+            end))
         end
     end
 end
