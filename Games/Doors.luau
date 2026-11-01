@@ -4901,13 +4901,15 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                 mgTable.SETNEWCF = nil
             end
         end
-        -- RESTORE & LOCK ORIGINAL SMOOTH FLY METHOD (mgTable.noclip = true)
+        -- RESTORE & LOCK ORIGINAL SMOOTH FLY METHOD (mgTable.noclip = true) with continuous clipPos sync
         if State.Noclip then
             mgTable.noclip = true
+            if root then mgTable.clipPos = root.Position end
             if mgTable.hideplayers ~= 0 then
                 mgTable.hideplayers = 0
             end
         elseif not State.Noclip and mgTable.noclip then
+            if root then mgTable.clipPos = root.Position end
             mgTable.noclip = false
         end
     end
@@ -7042,45 +7044,45 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     local char = getChar()
 
     if not v and char then
-        -- 1. Ensure CollisionPart is solid so player stands on the floor without void-falling!
-        local cp = char:FindFirstChild("CollisionPart")
-        if cp and cp:IsA("BasePart") then
-            cp.CanCollide = true
-            pcall(function() cp.CollisionGroup = "NoPlayer" end)
-            cp.CanTouch = true
-            cp.CanQuery = true
-        end
-
-        restoreCharacterInteractivity(char)
-        restoreDefaultFriction(char)
-
         local r = getRoot()
+        local cp = char:FindFirstChild("CollisionPart")
+        local hum = char:FindFirstChildWhichIsA("Humanoid")
+        local mg = getMainGameTable()
+
         if r then
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
 
-            -- Snap to solid floor if slightly clipped into or below floor
+            -- Deep raycast down up to 80 studs to guarantee finding the current room's floor
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local hit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -20, 0), rayParams)
-            if hit then
-                r.CFrame = CFrame.new(r.Position.X, hit.Position.Y + 3.2, r.Position.Z) * (r.CFrame - r.Position)
+            local hit = workspace:Raycast(r.Position + Vector3.new(0, 5, 0), Vector3.new(0, -80, 0), rayParams)
+            local floorY = hit and (hit.Position.Y + 3.2) or r.Position.Y
+            local safeCF = CFrame.new(r.Position.X, floorY, r.Position.Z) * (r.CFrame - r.Position)
+
+            char:PivotTo(safeCF)
+            r.CFrame = safeCF
+
+            if cp and cp:IsA("BasePart") then
+                cp.CFrame = safeCF
+                cp.CanCollide = true
+                pcall(function() cp.CollisionGroup = "NoPlayer" end)
+                cp.CanTouch = true
+                cp.CanQuery = true
             end
 
-            if cp then cp.CFrame = r.CFrame end
-
-            local mg = getMainGameTable()
+            -- Update clipPos to exact current position so DOORS never snaps backwards into the void!
             if mg then
+                mg.clipPos = safeCF.Position
                 mg.noclip = false
-                mg.clipPos = r.Position
                 mg.inAir = false
+                if mg.stopcam then mg.stopcam = false end
             end
 
             syncServerRoomBoundary()
         end
 
-        local hum = char:FindFirstChildWhichIsA("Humanoid")
         if hum then
             hum.PlatformStand = false
             pcall(function()
@@ -7091,6 +7093,8 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             end)
         end
 
+        restoreCharacterInteractivity(char)
+        restoreDefaultFriction(char)
         lastNoclipDisableGrace = os.clock() + 5.0
     end
     Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
