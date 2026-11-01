@@ -202,6 +202,12 @@ pcall(function()
             ReelController.OnReelCreated:Connect(function(reel)
                 if not Config.AutoReel then return end
                 pcall(function()
+                    -- Instantly hide the reel UI so it disappears with zero visual delay
+                    reel.cleanup_delay = 0
+                    if reel.reel then
+                        reel.reel.Enabled = false
+                    end
+
                     if reel.core and reel.core.minigame then
                         reel.core.minigame.NoFail = true
                         if reel.core.minigame._progressModifier then
@@ -212,16 +218,12 @@ pcall(function()
                     reel.barPosition = reel.fishPosition or 0.5
                     reel.onbar = true
                     reel.perfect = true
+                    reel.active = true
+                    reel.ready = true
                     reel:AddModifier("barSize", "force", 10)
                     reel:AddModifier("progressefficiency", "force", 9999)
                     reel:AddModifier("progressLossMultiplier", "force", 0)
                     reel:AddProgress(100)
-
-                    task.defer(function()
-                        pcall(function()
-                            reel:EndMinigame(true)
-                        end)
-                    end)
                 end)
             end)
         end
@@ -381,11 +383,31 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Maximum Speed Instant Reel Engine (True Zero-Delay Finish)
+-- 3. Maximum Speed Instant Reel Engine (Zero-Delay Finish & True Win Handshake)
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
 
     pcall(function()
+        -- 1. Instantly hide the reel UI so it disappears with zero visual delay
+        activeReel.cleanup_delay = 0
+        if activeReel.reel then
+            activeReel.reel.Enabled = false
+        end
+
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        local reelGui = pg and pg:FindFirstChild("reel")
+        if reelGui then
+            reelGui.Enabled = false
+        end
+
+        -- 2. Lock bar perfectly onto the fish with 100% progress
+        activeReel.barSize = 10
+        activeReel.barPosition = activeReel.fishPosition or 0.5
+        activeReel.onbar = true
+        activeReel.perfect = true
+        activeReel.active = true
+        activeReel.ready = true
+
         if activeReel.core and activeReel.core.minigame then
             activeReel.core.minigame.NoFail = true
             if activeReel.core.minigame._progressModifier then
@@ -393,21 +415,31 @@ local function processReelMinigame(activeReel)
             end
         end
 
-        activeReel.barSize = 10
-        activeReel.barPosition = activeReel.fishPosition or 0.5
-        activeReel.onbar = true
-        activeReel.perfect = true
-
         activeReel:AddModifier("barSize", "force", 10)
         activeReel:AddModifier("progressLossMultiplier", "force", 0)
         activeReel:AddProgress(100)
 
+        -- 3. Zero-Delay Instant Win: Dispatch as soon as server handshake registers
         if not instantReelDispatched then
             instantReelDispatched = true
-            task.defer(function()
+            task.spawn(function()
+                -- Wait for server to register Reeling state (typically ~0.04s) to prevent Reel/Abort
+                local char = LocalPlayer.Character
+                if char and not char:GetAttribute("Reeling") then
+                    pcall(function()
+                        char:GetAttributeChangedSignal("Reeling"):Wait()
+                    end)
+                end
+
                 pcall(function()
                     activeReel:EndMinigame(true)
                 end)
+
+                if activeReel.reel then
+                    pcall(function()
+                        activeReel.reel:Destroy()
+                    end)
+                end
             end)
         end
     end)
