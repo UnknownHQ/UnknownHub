@@ -1,12 +1,11 @@
 --------------------------------------------------------------------------------
--- UNKNOWN HUB: FISCH (Precision State Machine Edition)
+-- UNKNOWN HUB: FISCH (Continuous Precision Automation Edition)
 -- PlaceId: 16732694052, 17910972410, 131716211654599 | GameId: 5750914919
 -- Architecture:
---   • State-Isolated Automation: Auto Cast NEVER interrupts Shake or Reel
---   • Exact Rod Resolver: Exclusively equips true fishing rods (never tool bags)
---   • Misclick-Free Auto Shake: Uses Activated signals & Return key (zero declines)
---   • Safe Auto Reel: Locks playerbar on fish bubble with duration guard (zero bans)
---   • 100% Pure Client Runtime: Zero risky metamethod hooks to prevent Error 267
+--   • Continuous Auto Cast: Automatic re-casting loop with zero stall
+--   • Misclick-Free Auto Shake: Pops bubbles cleanly via Activated signals & Return key
+--   • Natural Auto-Detect Reel: Tracks fish bubble legitimately with auto-calculated duration
+--   • 100% Pure Client Runtime: Zero dangerous metamethod detours (No Error 267)
 --------------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
@@ -109,7 +108,6 @@ local Config = {
     AutoShake = false,
     ShakeSpeed = 0.28,
     AutoReel = false,
-    ReelDelay = 1.6, -- Minimum catch time to bypass server heuristics
     AutoEquipRod = true,
 
     -- Economy
@@ -172,91 +170,75 @@ local function ensureRodEquipped()
 end
 
 --------------------------------------------------------------------------------
--- 5. STATE-ISOLATED FISHING ENGINE (ZERO INTERFERENCE)
+-- 5. CONTINUOUS FISHING AUTOMATION ENGINE
 --------------------------------------------------------------------------------
-local isCastPending = false
-local castStartTick = 0
+local lastCastTick = 0
 local lastShakeTick = 0
-local reelStartTick = 0
-local lastCatchCompleteTick = 0
+local lastCatchTick = 0
+local hadActiveReel = false
 
--- Check if any fishing action is currently active (prevents double-casting)
-local function isFishingInProgress()
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then return false end
-
-    -- Active minigame checks
-    local shakeUI = playerGui:FindFirstChild("shakeui")
-    if shakeUI and shakeUI.Enabled then return true end
-
-    local reelUI = playerGui:FindFirstChild("reel")
-    if reelUI and reelUI.Enabled then return true end
-
-    -- Catch cooldown buffer (gives server 2s to process fish rewards)
-    if tick() - lastCatchCompleteTick < 2.0 then return true end
-
-    -- Character & Rod state checks
-    local char = LocalPlayer.Character
-    if char and char:GetAttribute("Fishing") == true then return true end
-
-    local rod = getEquippedRod()
-    if rod then
-        if rod:FindFirstChild("bobber") then return true end
-
-        local values = rod:FindFirstChild("values")
-        if values then
-            local casted = values:FindFirstChild("casted")
-            if casted and casted.Value == true then return true end
-
-            local state = values:FindFirstChild("state")
-            if state and state.Value >= 4 and state.Value <= 8 then return true end
-        end
+-- Helper: Retrieve active ReelController object if minigame is currently running
+local function getActiveReel()
+    local ok, rc = pcall(function()
+        return require(ReplicatedStorage.client.legacyControllers.ReelController)
+    end)
+    if ok and rc and rc.ActiveReel and rc.ActiveReel.active then
+        return rc.ActiveReel
     end
-
-    -- Pending cast timeout check (gives a cast 35 seconds to bite before resetting)
-    if isCastPending and (tick() - castStartTick < 35) then
-        return true
-    end
-
-    return false
+    return nil
 end
 
--- 1. Precision Auto Cast (ONLY fires when completely idle)
+-- Helper: Check if shake minigame UI is active
+local function isShakingActive()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local shakeUI = pg and pg:FindFirstChild("shakeui")
+    return shakeUI and shakeUI.Enabled == true
+end
+
+-- 1. Precision Auto Cast (Runs continuously whenever rod is idle)
 local function executeCast()
     if not Config.AutoCast then return end
-    if isFishingInProgress() then return end
+    if getActiveReel() ~= nil then return end
+    if isShakingActive() then return end
+    if tick() - lastCastTick < 2.0 then return end
+    if tick() - lastCatchTick < 2.0 then return end
 
     local rod = ensureRodEquipped()
     if not rod then return end
+
+    -- If bobber is already in water waiting for a bite, do NOT re-cast!
+    if rod:FindFirstChild("bobber") then return end
+
+    local values = rod:FindFirstChild("values")
+    if values then
+        local state = values:FindFirstChild("state")
+        -- States: 4=Casting, 5=Searching, 6=Luring, 7=PreReel, 8=Reeling
+        if state and state.Value >= 4 and state.Value <= 8 then
+            return
+        end
+    end
 
     pcall(function()
         local castPower = math.clamp(Config.CastPower or 100, 10, 100)
         local net = require(ReplicatedStorage.packages.Net)
         local castRf = net:RemoteFunction("FishingRod/Cast", -1)
         if castRf then
-            isCastPending = true
-            castStartTick = tick()
-            local success = castRf:InvokeServer(castPower, true)
-            if not success then
-                isCastPending = false
-            end
+            lastCastTick = tick()
+            castRf:InvokeServer(castPower, true)
         end
     end)
 end
 
--- 2. Misclick-Free Auto Shake (Pops bubbles with zero decline risk)
+-- 2. Misclick-Free Auto Shake (Pops bubbles cleanly)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
-    if tick() - lastShakeTick < math.clamp(Config.ShakeSpeed or 0.28, 0.25, 0.5) then return end
+    if tick() - lastShakeTick < math.clamp(Config.ShakeSpeed or 0.28, 0.25, 0.45) then return end
 
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
 
     local shakeUI = playerGui:FindFirstChild("shakeui")
     if not shakeUI or not shakeUI.Enabled then return end
-
-    -- Mark cast as fulfilled now that shake is active
-    isCastPending = true
 
     pcall(function()
         local safezone = shakeUI:FindFirstChild("safezone")
@@ -276,7 +258,6 @@ local function processShakeMinigame()
             end
         end
 
-        -- Keycode fallback
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
         task.wait(0.02)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
@@ -284,49 +265,17 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Safe Auto Reel (Tracks fish bubble & bypasses instant catch ban)
-local function processReelMinigame()
-    if not Config.AutoReel then return end
-
-    if reelStartTick == 0 then
-        reelStartTick = tick()
-    end
+-- 3. Natural Auto-Detect Reel (Tracks fish bubble with native speed calculation)
+local function processReelMinigame(activeReel)
+    if not Config.AutoReel or not activeReel then return end
 
     pcall(function()
-        -- Method A: Hook into ReelController
-        local legacyControllers = ReplicatedStorage:FindFirstChild("client") and ReplicatedStorage.client:FindFirstChild("legacyControllers")
-        local reelCtrlModule = legacyControllers and legacyControllers:FindFirstChild("ReelController")
-        if reelCtrlModule then
-            local ok, ReelController = pcall(require, reelCtrlModule)
-            if ok and ReelController and ReelController.ActiveReel then
-                local reel = ReelController.ActiveReel
-                if reel.active then
-                    reel.barPosition = reel.fishPosition
-                    reel.onbar = true
+        -- Lock bar position directly onto the fish bubble
+        activeReel.barPosition = activeReel.fishPosition
+        activeReel.onbar = true
 
-                    -- Server catch time heuristics guard
-                    local elapsed = tick() - reelStartTick
-                    if elapsed < (Config.ReelDelay or 1.6) then
-                        if reel.progress > 85 then
-                            reel.progress = 85
-                        end
-                    end
-                end
-            end
-        end
-
-        -- Method B: Direct UI playerbar alignment
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        local reelUI = playerGui and playerGui:FindFirstChild("reel")
-        if reelUI and reelUI.Enabled then
-            local bar = reelUI:FindFirstChild("bar", true)
-            local fish = bar and bar:FindFirstChild("fish")
-            local playerbar = bar and bar:FindFirstChild("playerbar")
-
-            if bar and fish and playerbar then
-                playerbar.Position = UDim2.new(fish.Position.X.Scale, 0, playerbar.Position.Y.Scale, playerbar.Position.Y.Offset)
-            end
-        end
+        -- Let the game's ReelController naturally calculate progress based on fish stats & rod speed
+        -- When progress reaches 100, ReelController automatically triggers EndMinigame() safely!
     end)
 end
 
@@ -337,24 +286,23 @@ RunService.Heartbeat:Connect(function()
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if not char or not hum or hum.Health <= 0 then return end
 
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        local isShaking = playerGui and playerGui:FindFirstChild("shakeui") and playerGui.shakeui.Enabled
-        local isReeling = playerGui and playerGui:FindFirstChild("reel") and playerGui.reel.Enabled
+        local activeReel = getActiveReel()
+        local isShaking = isShakingActive()
 
-        if isReeling then
-            processReelMinigame()
+        if activeReel then
+            hadActiveReel = true
+            processReelMinigame(activeReel)
         else
-            if reelStartTick > 0 then
-                -- Minigame just ended! Catch completed.
-                reelStartTick = 0
-                isCastPending = false
-                lastCatchCompleteTick = tick()
+            if hadActiveReel then
+                -- Catch just completed!
+                hadActiveReel = false
+                lastCatchTick = tick()
             end
 
             if isShaking then
                 processShakeMinigame()
             else
-                if Config.AutoCast and not isFishingInProgress() then
+                if Config.AutoCast then
                     executeCast()
                 end
             end
@@ -488,11 +436,7 @@ end)
 
 Hub.CreateToggle(farmTab, "Safe Auto Reel (Fish Bubble)", Config.AutoReel, function(val)
     Config.AutoReel = val
-    Hub.Notify("Auto Reel", val and "Safe Auto Reel: ACTIVE (Zero Ban Risk)" or "Auto Reel: OFF", 2)
-end)
-
-Hub.CreateSlider(farmTab, "Min Catch Duration", 1.0, 3.5, Config.ReelDelay, "s", function(val)
-    Config.ReelDelay = val
+    Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE (Auto-Detect)" or "Auto Reel: OFF", 2)
 end)
 
 Hub.CreateSection(farmTab, "Merchant & Sales")
