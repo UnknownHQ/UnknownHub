@@ -269,6 +269,163 @@ local State = {
     Auto_Breakers = false
 }
 
+
+-- =========================================================================
+-- Anti-Halt Complete Neutralization (No Spawns, No Fog, No Camera Shake, No Damage)
+-- =========================================================================
+pcall(function()
+    local entityModules = game:GetService("ReplicatedStorage"):WaitForChild("ModulesClient"):WaitForChild("EntityModules")
+    local shadeModule = require(entityModules:WaitForChild("Shade"))
+    if shadeModule and shadeModule.stuff then
+        local origShadeStuff = shadeModule.stuff
+        shadeModule.stuff = function(a1, a2, a3)
+            if State.Anti_Halt then
+                -- Defused completely: Halt does not appear, does not play audio, and does not attack
+                return
+            end
+            return origShadeStuff(a1, a2, a3)
+        end
+    end
+end)
+
+-- Metatable namecall guard for Halt damage remote (ShadeResult)
+pcall(function()
+    local remotes = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder")
+    local shadeResult = remotes:WaitForChild("ShadeResult")
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        if not checkcaller() and State.Anti_Halt and self == shadeResult then
+            if args[1] == true then
+                return nil
+            end
+        end
+        return oldNamecall(self, ...)
+    end)
+end)
+
+
+-- =========================================================================
+-- Anti-Screech Camera Shake Elimination & Instant Remote Defusal
+-- =========================================================================
+local function hookCamShakerScreech()
+    local mg = getMainGameTable()
+    if mg and mg.camShaker and not mg.camShaker._screechHooked then
+        mg.camShaker._screechHooked = true
+        local origShakeOnce = mg.camShaker.ShakeOnce
+        mg.camShaker.ShakeOnce = function(self, ...)
+            local args = {...}
+            if State.Anti_Screech then
+                local cam = Workspace.CurrentCamera
+                local hasScreech = cam and (cam:FindFirstChild("Screech") or cam:FindFirstChild("ScreechRetro"))
+                -- Screech shake signature: ShakeOnce(0.5, 12, 3, 1)
+                if hasScreech or (args[1] == 0.5 and args[2] == 12 and args[3] == 3 and args[4] == 1) then
+                    return -- Completely eliminate screen shake!
+                end
+            end
+            return origShakeOnce(self, ...)
+        end
+    end
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        pcall(hookCamShakerScreech)
+    end
+end)
+
+-- Instant defusal of Screech when parented to Camera
+pcall(function()
+    local cam = Workspace.CurrentCamera or Workspace:WaitForChild("Camera")
+    cam.ChildAdded:Connect(function(child)
+        if State.Anti_Screech and (child.Name == "Screech" or child.Name == "ScreechRetro") then
+            pcall(function()
+                local remotes = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder")
+                local screechRemote = remotes:FindFirstChild("Screech")
+                if screechRemote then screechRemote:FireServer(true) end
+            end)
+            for _, d in ipairs(child:GetDescendants()) do
+                if d:IsA("Sound") then d.Volume = 0 d:Stop() end
+                if d:IsA("ParticleEmitter") then d.Enabled = false end
+            end
+        end
+    end)
+end)
+
+
+-- =========================================================================
+-- Instant Electrical Breaker Solver (Door 100 Elevator Power)
+-- =========================================================================
+local function instantSolveBreakers()
+    local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+    local ebf = remotes and remotes:FindFirstChild("EBF")
+    if ebf then
+        pcall(function() ebf:FireServer() end)
+    end
+
+    local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
+    if elBreaker then
+        for _, v in ipairs(elBreaker:GetChildren()) do
+            if v.Name == "BreakerSwitch" then
+                pcall(function()
+                    v:SetAttribute("Enabled", true)
+                    local pc = v:FindFirstChild("PrismaticConstraint", true)
+                    if pc then pc.TargetPosition = -0.2 end
+                end)
+            end
+        end
+    end
+
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local mainUI = pGui and pGui:FindFirstChild("MainUI")
+    local mb = mainUI and mainUI:FindFirstChild("MinigameBackout", true)
+    if mb then mb.Visible = false end
+
+    Hub.Notify("Door 100", "Elevator Breaker Solved Instantly!", 3)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if State.Auto_Breakers then
+            local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
+            if elBreaker then
+                instantSolveBreakers()
+                task.wait(2.0)
+            end
+        end
+    end
+end)
+
+
+-- =========================================================================
+-- Proactive ProximityPrompt Line-Of-Sight & Range Strip (Zero Wall Delays)
+-- =========================================================================
+pcall(function()
+    local pps = game:GetService("ProximityPromptService")
+    pps.PromptShown:Connect(function(prompt)
+        prompt.RequiresLineOfSight = false
+        if prompt.MaxActivationDistance < 14.0 then
+            prompt.MaxActivationDistance = 14.0
+        end
+    end)
+end)
+
+pcall(function()
+    local curRooms = Workspace:WaitForChild("CurrentRooms")
+    curRooms.DescendantAdded:Connect(function(desc)
+        if desc:IsA("ProximityPrompt") then
+            desc.RequiresLineOfSight = false
+            if desc.MaxActivationDistance < 14.0 then
+                desc.MaxActivationDistance = 14.0
+            end
+        end
+    end)
+end)
+
+
 -- Session lifecycle
 _G.DOORS_SESSION = tick()
 local currentSession = _G.DOORS_SESSION
@@ -1565,16 +1722,35 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
     end
 
     model.PrimaryPart = core
+    -- Weld Core directly to targetPart for zero-latency C++ physics synchronization
+    local coreWeld = Instance.new("WeldConstraint")
+    coreWeld.Part0 = core
+    coreWeld.Part1 = targetPart
+    coreWeld.Parent = core
+
+    for _, desc in ipairs(model:GetDescendants()) do
+        if desc:IsA("BasePart") and desc ~= core then
+            desc.Anchored = false
+            local w = Instance.new("WeldConstraint")
+            w.Part0 = desc
+            w.Part1 = core
+            w.Parent = desc
+        end
+    end
+    core.Anchored = false
+
     model.Parent = Workspace
 
-    -- Active RenderStepped tracking: continuously synchronizes rounded cube to the moving 2D entity
+    -- Active RenderStepped tracking backup: keeps rounded cube 100% aligned even across instant teleportation or CFrame snaps
     local followConn
     followConn = RunService.RenderStepped:Connect(function()
         if not targetPart or not targetPart.Parent or not model.Parent then
             if followConn then followConn:Disconnect() end
             return
         end
-        model:PivotTo(targetPart.CFrame)
+        if (core.Position - targetPart.Position).Magnitude > 0.5 then
+            model:PivotTo(targetPart.CFrame)
+        end
     end)
     model.Destroying:Connect(function()
         if followConn then followConn:Disconnect() end
@@ -1711,13 +1887,31 @@ local function processEntity(entity)
         local extraVisuals = {}
         local entityColor = State.ESP_Color_Entities or Color3.fromRGB(255, 35, 35)
 
-        -- Exclusively target verified 2D sprite entities (A-60, A-90, A-120, Rush, Ambush, Nextbots, Dread, Glitch)
+        -- Exclusively target ALL verified 2D sprite/billboard entities (Rush, Eyes, Lookman, Screech, Ambush, Halt, A-60, A-90, A-120, Dread, etc.)
         local is2D = (cfg.Category == "Rooms")
             or (cfg.Category == "Rush")
             or (cfg.Category == "Ambush")
+            or (cfg.Category == "Eyes")
+            or (cfg.Category == "Screech")
+            or (cfg.Category == "Halt")
             or (cfg.Category == "Dread")
+            or (cfg.Name == "Eyes")
+            or (cfg.Name == "Retro Eyes")
+            or (cfg.Name == "Lookman")
+            or (cfg.Name == "Screech")
+            or (cfg.Name == "Retro Screech")
+            or (cfg.Name == "Halt")
             or (cfg.Name == "Glitch")
+            or (cfg.Name == "Void")
+            or (cfg.Name == "Depth")
+            or (cfg.Name == "Silence")
+            or (cfg.Name == "Greed")
+            or (cfg.Name == "Blitz")
+            or (cfg.Name == "Vacuum")
+            or (cfg.Name == "Surge")
             or eLower:find("nextbot")
+            or eLower:find("lookman")
+            or (not entity:FindFirstChildOfClass("Humanoid") and not entity:FindFirstChild("Body") and not eLower:find("figure") and not eLower:find("seek") and not eLower:find("grumble"))
 
         if is2D then
             -- Procedural 3D Cube with smooth rounded corners and rounded edges
@@ -5686,6 +5880,13 @@ local function farmGlideTo(targetPos, speedVal, maxTime)
         local nextPos = curPos + dir * step
         local lookCF = CFrame.new(nextPos, nextPos + dir)
 
+        -- Synchronize with native DOORS flight engine
+        local mgTable = getMainGameTable()
+        if mgTable then
+            mgTable.noclip = true
+            mgTable.clipPos = nextPos
+        end
+
         curChar:PivotTo(lookCF)
         curRoot.CFrame = lookCF
         local cp = curChar:FindFirstChild("CollisionPart")
@@ -6335,7 +6536,95 @@ Hub.CreateButton(mainTab, "Quick Dupe Held Tool", function()
     end
 end)
 
-Hub.CreateSection(mainTab, "Knobs Farm Autopilot")
+Hub.CreateSection(mainTab, "Autonomous Knobs & Death Farm")
+
+Hub.CreateButton(mainTab, "Copy Auto Death Farm Script", function()
+    local deathFarmCode = [[-- UnknownHub DOORS Autonomous Death Farm (Auto-Exec Standalone)
+repeat task.wait() until game:IsLoaded()
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+repeat task.wait() until LocalPlayer
+
+local PLACE_LOBBY = 6516141723
+local PLACE_GAME = 6839171747
+
+pcall(function()
+    if getconnections then
+        for _, conn in ipairs(getconnections(LocalPlayer.Idled)) do
+            if conn.Disable then conn:Disable() elseif conn.Disconnect then conn:Disconnect() end
+        end
+    end
+end)
+
+if game.PlaceId == PLACE_LOBBY then
+    task.spawn(function()
+        while true do
+            task.wait(1.5)
+            local char = LocalPlayer.Character
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+            if root then
+                local elevators = Workspace:FindFirstChild("Elevators") or Workspace:FindFirstChild("LobbyElevators")
+                local targetElevator = nil
+                if elevators then
+                    for _, el in ipairs(elevators:GetChildren()) do
+                        if not (el:GetAttribute("Closed") or false) then targetElevator = el break end
+                    end
+                end
+                if targetElevator then
+                    local elPart = targetElevator:FindFirstChildWhichIsA("BasePart", true)
+                    if elPart then root.CFrame = elPart.CFrame + Vector3.new(0, 2, 0) task.wait(3.0) end
+                end
+            end
+        end
+    end)
+elseif game.PlaceId == PLACE_GAME then
+    task.spawn(function()
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        repeat task.wait(0.5) until Workspace:FindFirstChild("CurrentRooms")
+        task.wait(2.5)
+        local root = char:WaitForChild("HumanoidRootPart", 10) or char.PrimaryPart
+        local hum = char:WaitForChild("Humanoid", 10)
+        if hum and root then
+            root.CFrame = CFrame.new(root.Position.X, -250, root.Position.Z)
+            root.AssemblyLinearVelocity = Vector3.new(0, -100, 0)
+            pcall(function() hum.Health = 0 end)
+        end
+        local pGui = LocalPlayer:WaitForChild("PlayerGui")
+        local mainUI = pGui:WaitForChild("MainUI", 15)
+        local deathPanel = mainUI and mainUI:WaitForChild("DeathPanel", 15)
+        local playAgainBtn = deathPanel and (deathPanel:FindFirstChild("PlayAgain") or deathPanel:FindFirstChild("BattlePlayAgain"))
+        local retries = 0
+        while retries < 40 do
+            task.wait(0.5)
+            retries = retries + 1
+            if playAgainBtn and playAgainBtn.Visible then
+                pcall(function()
+                    for _, c in ipairs(getconnections(playAgainBtn.MouseButton1Down)) do
+                        if c.Fire then c:Fire() elseif c.Function then c.Function() end
+                    end
+                end)
+                break
+            end
+            local remotes = ReplicatedStorage:FindFirstChild("RemotesFolder")
+            local playAgainRemote = remotes and remotes:FindFirstChild("PlayAgain")
+            if playAgainRemote then pcall(function() playAgainRemote:FireServer() end) end
+        end
+        task.wait(6.0)
+        pcall(function() TeleportService:Teleport(PLACE_GAME, LocalPlayer) end)
+    end)
+end]]
+
+    pcall(function()
+        if setclipboard then
+            setclipboard(deathFarmCode)
+        elseif toclipboard then
+            toclipboard(deathFarmCode)
+        end
+    end)
+    Hub.Notify("Death Farm", "Copied Auto Death Farm script to clipboard! (Also placed in autoexec)", 4)
+end)
 
 Hub.CreateToggle(mainTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, function(v)
     State.Knobs_Farm_Active = v
@@ -6977,6 +7266,10 @@ if isHotel then
     Hub.CreateToggle(floorTab, "Auto Circuit Breaker", State.Auto_Breakers, function(v)
         State.Auto_Breakers = v
         Hub.Notify("Puzzle", v and "Auto Circuit Breaker: Enabled" or "Auto Circuit Breaker: Disabled", 2)
+    end)
+
+    Hub.CreateButton(floorTab, "Instant Solve Breakers (Door 100)", function()
+        instantSolveBreakers()
     end)
 end
 
