@@ -154,6 +154,7 @@ return function(opts)
     -- =========================================================================
     local registeredElements = {}
     local registeredFlags = {}
+    local registeredSections = {}
     local mainFrame = Instance.new("CanvasGroup")
     mainFrame.Name = "MainWindow"
     mainFrame.Size = UDim2.new(0, winWidth, 0, winHeight)
@@ -521,18 +522,48 @@ return function(opts)
     updatesBtn.MouseButton1Click:Connect(showUpdateLogModal)
     -- Hub.ShowUpdateLog assigned below after Hub table creation
 
-    searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+    local function applyGlobalFilter()
         local q = searchInput.Text:lower():gsub("^%s*(.-)%s*$", "%1")
+        if q == "" then
+            for _, elem in ipairs(registeredElements) do
+                if elem.Card and elem.Card.Parent then
+                    elem.Card.Visible = true
+                end
+            end
+            for _, sec in ipairs(registeredSections) do
+                if sec.Container and sec.Container.Parent then
+                    sec.Container.Visible = true
+                end
+            end
+            return
+        end
+
+        local visibleCountByParent = {}
         for _, elem in ipairs(registeredElements) do
             if elem.Card and elem.Card.Parent then
-                if q == "" then
-                    elem.Card.Visible = true
-                else
-                    elem.Card.Visible = (elem.Title:lower():find(q, 1, true) ~= nil)
+                local matches = (elem.Title:lower():find(q, 1, true) ~= nil)
+                elem.Card.Visible = matches
+                if matches then
+                    local p = elem.Card.Parent
+                    visibleCountByParent[p] = (visibleCountByParent[p] or 0) + 1
                 end
             end
         end
-    end)
+
+        for _, sec in ipairs(registeredSections) do
+            if sec.Container and sec.Container.Parent then
+                local secTitleMatches = (sec.Title:lower():find(q, 1, true) ~= nil)
+                local p = sec.Container.Parent
+                if secTitleMatches then
+                    sec.Container.Visible = true
+                else
+                    sec.Container.Visible = (visibleCountByParent[p] ~= nil and visibleCountByParent[p] > 0)
+                end
+            end
+        end
+    end
+
+    searchInput:GetPropertyChangedSignal("Text"):Connect(applyGlobalFilter)
 
     -- Breadcrumb Title (Truncated dynamically so it never bleeds into search box)
     local breadcrumbTitle = Instance.new("TextLabel")
@@ -1041,6 +1072,8 @@ return function(opts)
         container.BackgroundTransparency = 1
         container.Parent = parent
 
+        table.insert(registeredSections, { Container = container, Title = tostring(titleText), Parent = parent })
+
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Title"
         titleLabel.Size = UDim2.new(0, 0, 1, 0)
@@ -1213,6 +1246,8 @@ return function(opts)
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
 
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Slider" })
+
         -- Title on left (Never bleeds into ValueBadge)
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
@@ -1356,6 +1391,8 @@ return function(opts)
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
 
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Button" })
+
         card.MouseEnter:Connect(function()
             tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover})
         end)
@@ -1385,8 +1422,6 @@ return function(opts)
         local isExpanded = false
         local currentQuery = ""
 
-        local isLarge = #options > 5
-
         local card = Instance.new("Frame")
         card.Name = "DropdownCard_" .. tostring(titleText)
         card.Size = UDim2.new(1, 0, 0, 42)
@@ -1396,6 +1431,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Dropdown" })
 
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "HeaderButton"
@@ -1442,47 +1479,35 @@ return function(opts)
         chevron.TextSize = 14
         chevron.Parent = headerBtn
 
-        -- Search Bar (Visible for large option lists)
-        local searchBar = nil
-        if isLarge then
-            searchBar = Instance.new("TextBox")
-            searchBar.Name = "SearchBox"
-            searchBar.Size = UDim2.new(1, -20, 0, 26)
-            searchBar.Position = UDim2.new(0, 10, 0, 44)
-            searchBar.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
-            searchBar.BorderSizePixel = 0
-            searchBar.PlaceholderText = "Search..."
-            searchBar.PlaceholderColor3 = Color3.fromRGB(110, 120, 140)
-            searchBar.Text = ""
-            searchBar.TextColor3 = DEFAULT_THEME.TextPrimary
-            searchBar.Font = Enum.Font.Gotham
-            searchBar.TextSize = 11
-            searchBar.ClearTextOnFocus = false
-            searchBar.Parent = card
-            applyCorner(searchBar, 6)
-            applyStroke(searchBar, DEFAULT_THEME.Stroke, 1, 0.3)
-        end
+        -- Search Bar (Dynamic visibility)
+        local searchBar = Instance.new("TextBox")
+        searchBar.Name = "SearchBox"
+        searchBar.Size = UDim2.new(1, -20, 0, 26)
+        searchBar.Position = UDim2.new(0, 10, 0, 44)
+        searchBar.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        searchBar.BorderSizePixel = 0
+        searchBar.PlaceholderText = "Search..."
+        searchBar.PlaceholderColor3 = Color3.fromRGB(110, 120, 140)
+        searchBar.Text = ""
+        searchBar.TextColor3 = DEFAULT_THEME.TextPrimary
+        searchBar.Font = Enum.Font.Gotham
+        searchBar.TextSize = 11
+        searchBar.ClearTextOnFocus = false
+        searchBar.Visible = false
+        searchBar.Parent = card
+        applyCorner(searchBar, 6)
+        applyStroke(searchBar, DEFAULT_THEME.Stroke, 1, 0.3)
 
-        local optionsContainer = nil
-        if isLarge then
-            optionsContainer = Instance.new("ScrollingFrame")
-            optionsContainer.Name = "OptionsList"
-            optionsContainer.Size = UDim2.new(1, -20, 0, 150)
-            optionsContainer.Position = UDim2.new(0, 10, 0, 74)
-            optionsContainer.BackgroundTransparency = 1
-            optionsContainer.BorderSizePixel = 0
-            optionsContainer.ScrollBarThickness = 3
-            optionsContainer.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 105)
-            optionsContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
-            optionsContainer.Parent = card
-        else
-            optionsContainer = Instance.new("Frame")
-            optionsContainer.Name = "OptionsList"
-            optionsContainer.Size = UDim2.new(1, -20, 0, 0)
-            optionsContainer.Position = UDim2.new(0, 10, 0, 44)
-            optionsContainer.BackgroundTransparency = 1
-            optionsContainer.Parent = card
-        end
+        local optionsContainer = Instance.new("ScrollingFrame")
+        optionsContainer.Name = "OptionsList"
+        optionsContainer.Size = UDim2.new(1, -20, 0, 150)
+        optionsContainer.Position = UDim2.new(0, 10, 0, 44)
+        optionsContainer.BackgroundTransparency = 1
+        optionsContainer.BorderSizePixel = 0
+        optionsContainer.ScrollBarThickness = 3
+        optionsContainer.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 105)
+        optionsContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        optionsContainer.Parent = card
 
         local optLayout = Instance.new("UIListLayout")
         optLayout.FillDirection = Enum.FillDirection.Vertical
@@ -1556,37 +1581,38 @@ return function(opts)
             return #filtered
         end
 
-        if searchBar then
-            searchBar:GetPropertyChangedSignal("Text"):Connect(function()
-                currentQuery = searchBar.Text
-                local count = rebuildOptions(currentQuery)
-                if isExpanded then
-                    local scrollH = math.min(160, math.max(34, count * 31))
-                    optionsContainer.Size = UDim2.new(1, -20, 0, scrollH)
-                    local targetH = 44 + 26 + 8 + scrollH + 10
-                    tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
-                end
-            end)
+        local function updateDropdownVisuals()
+            local hasSearch = (#options >= 5)
+            searchBar.Visible = isExpanded and hasSearch
+            if hasSearch then
+                optionsContainer.Position = UDim2.new(0, 10, 0, 76)
+            else
+                optionsContainer.Position = UDim2.new(0, 10, 0, 44)
+            end
+
+            local count = rebuildOptions(currentQuery)
+            chevron.Text = isExpanded and "▴" or "▾"
+            local targetH = 42
+            if isExpanded then
+                local scrollH = math.min(160, math.max(34, count * 31))
+                optionsContainer.Size = UDim2.new(1, -20, 0, scrollH)
+                targetH = (hasSearch and 76 or 44) + scrollH + 8
+            end
+            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
         end
+
+        searchBar:GetPropertyChangedSignal("Text"):Connect(function()
+            currentQuery = searchBar.Text
+            updateDropdownVisuals()
+        end)
 
         rebuildOptions("")
 
         headerBtn.MouseButton1Click:Connect(function()
             isExpanded = not isExpanded
-            chevron.Text = isExpanded and "▴" or "▾"
-            if searchBar then searchBar.Text = "" end
-            local count = rebuildOptions("")
-            local targetH = 42
-            if isExpanded then
-                if isLarge then
-                    local scrollH = math.min(160, math.max(34, count * 31))
-                    optionsContainer.Size = UDim2.new(1, -20, 0, scrollH)
-                    targetH = 44 + 26 + 8 + scrollH + 10
-                else
-                    targetH = 48 + (#options * 31)
-                end
-            end
-            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+            currentQuery = ""
+            searchBar.Text = ""
+            updateDropdownVisuals()
         end)
 
         local dropdownObj = {
@@ -1599,8 +1625,10 @@ return function(opts)
             end,
             Refresh = function(newOpts)
                 options = newOpts or {}
-                isLarge = #options > 5
+                currentQuery = ""
+                if searchBar then searchBar.Text = "" end
                 rebuildOptions("")
+                if isExpanded then updateDropdownVisuals() end
             end
         }
         return dropdownObj
@@ -1633,6 +1661,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "MultiDropdown" })
 
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "HeaderButton"
@@ -1834,6 +1864,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "ColorPicker" })
 
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "Header"
@@ -2094,6 +2126,8 @@ return function(opts)
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
 
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "TextBox" })
+
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
         titleLabel.Size = UDim2.new(1, -165, 1, 0)
@@ -2165,6 +2199,8 @@ return function(opts)
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
 
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "List" })
+
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "Header"
         headerBtn.Size = UDim2.new(1, 0, 0, 40)
@@ -2208,6 +2244,25 @@ return function(opts)
         chevron.TextSize = 14
         chevron.Parent = headerBtn
 
+        -- Search Bar (Visible when list is large)
+        local searchBar = Instance.new("TextBox")
+        searchBar.Name = "SearchBox"
+        searchBar.Size = UDim2.new(1, -20, 0, 26)
+        searchBar.Position = UDim2.new(0, 10, 0, 44)
+        searchBar.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        searchBar.BorderSizePixel = 0
+        searchBar.PlaceholderText = "Search list..."
+        searchBar.PlaceholderColor3 = Color3.fromRGB(110, 120, 140)
+        searchBar.Text = ""
+        searchBar.TextColor3 = DEFAULT_THEME.TextPrimary
+        searchBar.Font = Enum.Font.Gotham
+        searchBar.TextSize = 11
+        searchBar.ClearTextOnFocus = false
+        searchBar.Visible = false
+        searchBar.Parent = card
+        applyCorner(searchBar, 6)
+        applyStroke(searchBar, DEFAULT_THEME.Stroke, 1, 0.3)
+
         local listScroll = Instance.new("ScrollingFrame")
         listScroll.Name = "ScrollItems"
         listScroll.Size = UDim2.new(1, -20, 0, tonumber(maxHeight) or 160)
@@ -2232,15 +2287,49 @@ return function(opts)
         }
 
         local function updateListVisuals()
-            local contentHeight = listLayout.AbsoluteContentSize.Y
-            local targetH = isExpanded and math.min(contentHeight + 52, tonumber(maxHeight) or 220) or 40
+            local showSearch = (#listObj.Items >= 5)
+            searchBar.Visible = isExpanded and showSearch
+            if showSearch then
+                listScroll.Position = UDim2.new(0, 10, 0, 76)
+            else
+                listScroll.Position = UDim2.new(0, 10, 0, 44)
+            end
+
+            local visibleCount = 0
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") and child.Visible then
+                    visibleCount = visibleCount + 1
+                end
+            end
+
+            local maxH = tonumber(maxHeight) or 160
+            local scrollHeight = math.min(visibleCount * 32, maxH)
+            listScroll.Size = UDim2.new(1, -20, 0, scrollHeight)
+
+            local baseH = showSearch and 76 or 44
+            local targetH = isExpanded and (baseH + scrollHeight + 8) or 40
             chevron.Text = isExpanded and "▴" or "▾"
             countBadge.Text = tostring(#listObj.Items)
             tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
         end
 
+        searchBar:GetPropertyChangedSignal("Text"):Connect(function()
+            local q = searchBar.Text:lower():gsub("^%s*(.-)%s*$", "%1")
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local txt = child.Text:lower():gsub("^%s*", "")
+                    child.Visible = (q == "" or txt:find(q, 1, true) ~= nil)
+                end
+            end
+            updateListVisuals()
+        end)
+
         headerBtn.MouseButton1Click:Connect(function()
             isExpanded = not isExpanded
+            searchBar.Text = ""
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then child.Visible = true end
+            end
             updateListVisuals()
         end)
 
@@ -2285,250 +2374,6 @@ return function(opts)
 
         return listObj
     end
-
-    -- =========================================================================
-    -- Component 9: Loop Toggle (Game Automation Helper)
-    -- =========================================================================
-    local function createLoopToggle(parent, titleText, defaultState, loopFunc, loopInterval)
-        local interval = loopInterval or 0.1
-        local running = false
-        local loopThread = nil
-
-        local t = createToggle(parent, titleText, defaultState, function(enabled)
-            running = enabled
-            if running then
-                loopThread = task.spawn(function()
-                    while running do
-                        pcall(loopFunc)
-                        task.wait(interval)
-                    end
-                end)
-            else
-                if loopThread then
-                    pcall(function() task.cancel(loopThread) end)
-                    loopThread = nil
-                end
-            end
-        end)
-
-        table.insert(featureStoppers, function()
-            running = false
-            if loopThread then pcall(function() task.cancel(loopThread) end) end
-        end)
-
-        return t
-    end
-
-    -- =========================================================================
-    -- Component 10: Modal Warning Dialog
-    -- =========================================================================
-    local function showWarning(title, desc, btn1, btn2, onBtn1, onBtn2)
-        local modalOverlay = Instance.new("Frame")
-        modalOverlay.Name = "ModalOverlay"
-        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
-        modalOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        modalOverlay.BackgroundTransparency = 0.5
-        modalOverlay.BorderSizePixel = 0
-        modalOverlay.ZIndex = 100
-        modalOverlay.Parent = screenGui
-
-        local modalBox = Instance.new("Frame")
-        modalBox.Name = "ModalBox"
-        modalBox.Size = UDim2.new(0, 360, 0, 180)
-        modalBox.Position = UDim2.new(0.5, -180, 0.5, -90)
-        modalBox.BackgroundColor3 = DEFAULT_THEME.Background
-        modalBox.BorderSizePixel = 0
-        modalBox.Parent = modalOverlay
-        applyCorner(modalBox, 10)
-        applyStroke(modalBox, DEFAULT_THEME.Stroke, 1, 0.2)
-
-        local mTitle = Instance.new("TextLabel")
-        mTitle.Size = UDim2.new(1, -28, 0, 24)
-        mTitle.Position = UDim2.new(0, 14, 0, 14)
-        mTitle.BackgroundTransparency = 1
-        mTitle.Font = Enum.Font.GothamBold
-        mTitle.Text = tostring(title or "Notice")
-        mTitle.TextColor3 = primaryTheme
-        mTitle.TextSize = 14
-        mTitle.TextXAlignment = Enum.TextXAlignment.Left
-        mTitle.Parent = modalBox
-
-        local mDesc = Instance.new("TextLabel")
-        mDesc.Size = UDim2.new(1, -28, 0, 60)
-        mDesc.Position = UDim2.new(0, 14, 0, 42)
-        mDesc.BackgroundTransparency = 1
-        mDesc.Font = Enum.Font.Gotham
-        mDesc.Text = tostring(desc or "")
-        mDesc.TextColor3 = DEFAULT_THEME.TextSecondary
-        mDesc.TextSize = 12
-        mDesc.TextWrapped = true
-        mDesc.TextXAlignment = Enum.TextXAlignment.Left
-        mDesc.Parent = modalBox
-
-        local b1 = Instance.new("TextButton")
-        b1.Size = UDim2.new(0.5, -18, 0, 32)
-        b1.Position = UDim2.new(0, 14, 1, -44)
-        b1.BackgroundColor3 = primaryTheme
-        b1.BorderSizePixel = 0
-        b1.Font = Enum.Font.Gotham
-        b1.Text = tostring(btn1 or "Confirm")
-        b1.TextColor3 = Color3.fromRGB(255, 255, 255)
-        b1.TextSize = 12
-        b1.Parent = modalBox
-        applyCorner(b1, 6)
-
-        local b2 = Instance.new("TextButton")
-        b2.Size = UDim2.new(0.5, -18, 0, 32)
-        b2.Position = UDim2.new(0.5, 4, 1, -44)
-        b2.BackgroundColor3 = DEFAULT_THEME.Card
-        b2.BorderSizePixel = 0
-        b2.Font = Enum.Font.Gotham
-        b2.Text = tostring(btn2 or "Cancel")
-        b2.TextColor3 = DEFAULT_THEME.TextSecondary
-        b2.TextSize = 12
-        b2.Parent = modalBox
-        applyCorner(b2, 6)
-
-        b1.MouseButton1Click:Connect(function()
-            pcall(onBtn1 or function() end)
-            modalOverlay:Destroy()
-        end)
-        b2.MouseButton1Click:Connect(function()
-            pcall(onBtn2 or function() end)
-            modalOverlay:Destroy()
-        end)
-    end
-
-    -- =========================================================================
-    -- Black Screen Performance Mode
-    -- =========================================================================
-    local blackScreenOverlay = nil
-    local function setBlackScreen(enabled)
-        pcall(function()
-            RunService:Set3dRenderingEnabled(not enabled)
-        end)
-        if enabled then
-            if not blackScreenOverlay or not blackScreenOverlay.Parent then
-                blackScreenOverlay = Instance.new("Frame")
-                blackScreenOverlay.Name = "Unknown_BlackScreenOverlay"
-                blackScreenOverlay.Size = UDim2.new(1, 0, 1, 0)
-                blackScreenOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                blackScreenOverlay.BorderSizePixel = 0
-                blackScreenOverlay.ZIndex = 999999
-                blackScreenOverlay.Parent = screenGui
-            end
-            blackScreenOverlay.Visible = true
-        else
-            if blackScreenOverlay and blackScreenOverlay.Parent then
-                blackScreenOverlay.Visible = false
-            end
-        end
-    end
-
-
-    -- =========================================================================
-    -- Public API Hub Interface
-    -- =========================================================================
-    local Hub = {}
-    Hub.ShowUpdateLog = showUpdateLogModal
-
-    -- Core GUI Elements
-    Hub.screenGui = screenGui
-    Hub.gui = screenGui
-    Hub.mainFrame = mainFrame
-    Hub.frame = mainFrame
-    Hub.content = contentArea
-
-    -- Config System & Control Registry
-    Hub.RegisteredFlags = registeredFlags
-    Hub.RegisteredElements = registeredElements
-    Hub.RegisteredElements = {}
-
-    -- Universal Configuration Serializer (Profiles, Auto-Save & Auto-Load)
-    Hub.SaveConfig = function(configName)
-        configName = (configName and configName ~= "") and configName or "default"
-        local gameName = tostring(game.PlaceId)
-        local folder = "UnknownHub/Configs/" .. gameName
-        pcall(function()
-            if not isfolder("UnknownHub") then makefolder("UnknownHub") end
-            if not isfolder("UnknownHub/Configs") then makefolder("UnknownHub/Configs") end
-            if not isfolder(folder) then makefolder(folder) end
-        end)
-        local data = {}
-        for flagName, flagObj in pairs(registeredFlags) do
-            local ok, val = pcall(flagObj.Get)
-            if ok and val ~= nil then
-                data[flagName] = val
-            end
-        end
-        local encoded = HttpService:JSONEncode(data)
-        local path = folder .. "/" .. configName .. ".json"
-        local ok, err = pcall(function() writefile(path, encoded) end)
-        if ok then
-            sendNotification("Configuration", "Saved config '" .. configName .. "' successfully!", 2.5)
-        else
-            sendNotification("Config Error", "Failed to save: " .. tostring(err), 3)
-        end
-    end
-
-    Hub.LoadConfig = function(configName)
-        configName = (configName and configName ~= "") and configName or "default"
-        local gameName = tostring(game.PlaceId)
-        local path = "UnknownHub/Configs/" .. gameName .. "/" .. configName .. ".json"
-        local exists = false
-        pcall(function() exists = isfile(path) end)
-        if not exists then
-            sendNotification("Configuration", "Config '" .. configName .. "' not found.", 2.5)
-            return false
-        end
-        local content = readfile(path)
-        local ok, decoded = pcall(function() return HttpService:JSONDecode(content) end)
-        if not ok or type(decoded) ~= "table" then
-            sendNotification("Config Error", "Corrupt config file.", 2.5)
-            return false
-        end
-        for flagName, val in pairs(decoded) do
-            local flagObj = registeredFlags[flagName]
-            if flagObj and flagObj.Set then
-                pcall(flagObj.Set, val)
-            end
-        end
-        sendNotification("Configuration", "Loaded config '" .. configName .. "'!", 2.5)
-        return true
-    end
-
-    Hub.ListConfigs = function()
-        local gameName = tostring(game.PlaceId)
-        local folder = "UnknownHub/Configs/" .. gameName
-        local list = {}
-        pcall(function()
-            if isfolder(folder) then
-                for _, f in ipairs(listfiles(folder)) do
-                    local name = f:match("([^/\\]+)%.json$")
-                    if name then table.insert(list, name) end
-                end
-            end
-        end)
-        return list
-    end
-
-    -- Tab & Component Factories
-    Hub.CreateTab = createTab
-    Hub.createTab = createTab
-    Hub.CreatePage = createTab
-    Hub.createPage = createTab
-
-    Hub.CreateSection = createSection
-    Hub.createSection = createSection
-    Hub.addSection = createSection
-
-    Hub.CreateToggle = createToggle
-    Hub.createToggle = createToggle
-    Hub.CreateLoopToggle = createLoopToggle
-    Hub.createLoopToggle = createLoopToggle
-
-    Hub.CreateSlider = createSlider
-    Hub.createSlider = createSlider
 
     Hub.CreateDropdown = createDropdown
     Hub.createDropdown = createDropdown

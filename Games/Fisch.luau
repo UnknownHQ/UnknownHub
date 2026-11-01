@@ -31,20 +31,6 @@ end)
 -- 2. LIBRARY INITIALIZATION
 --------------------------------------------------------------------------------
 local function getValidatedLibrary()
-    local lib = getgenv().UnknownLibrary
-    local isValid = false
-    if lib and typeof(lib) == "function" then
-        pcall(function()
-            local test = lib({ title = "_T", game = "_T" })
-            if test and test.CreateMultiDropdown then
-                isValid = true
-            end
-        end)
-    end
-    if isValid then
-        return lib
-    end
-
     local localPaths = {
         "UnknownLibrary.luau",
         "UnknownLibrary",
@@ -67,6 +53,11 @@ local function getValidatedLibrary()
                 end
             end
         end
+    end
+
+    local lib = getgenv().UnknownLibrary
+    if lib and typeof(lib) == "function" then
+        return lib
     end
 
     local url = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau"
@@ -103,6 +94,12 @@ local Config = {
     AutoShake = false,
     AutoReel = false,
     AutoEquipRod = true,
+
+    -- Target Auto Farm
+    AutoFarmFish = false,
+    AutoFarmItem = false,
+    AutoFarmSpot = false,
+    AutoEquipTargetBait = true,
 
     -- Economy
     AutoSell = false,
@@ -725,7 +722,7 @@ local function purchaseItemAtLocation(targetPos, modelName)
     local promptPos = prompt.Parent:IsA("BasePart") and prompt.Parent.Position or prompt.Parent:GetPivot().Position
     root.AssemblyLinearVelocity = Vector3.zero
     root.CFrame = CFrame.new(promptPos + Vector3.new(0, 1.5, 3), promptPos)
-    task.wait(0.25)
+    task.wait(0.45)
     
     pcall(function()
         fireproximityprompt(prompt, 0)
@@ -738,41 +735,62 @@ local function purchaseItemAtLocation(targetPos, modelName)
         end
     end)
     
-    local pc = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("PromptConfirmation")
+    local pg = LocalPlayer:WaitForChild("PlayerGui")
+    local over = pg:FindFirstChild("over")
     local startWait = tick()
-    while tick() - startWait < 2.5 do
+    local confirmed = false
+
+    while tick() - startWait < 3.5 do
+        if over then
+            local promptFrame = over:FindFirstChild("prompt")
+            if promptFrame and promptFrame:FindFirstChild("confirm") and promptFrame.confirm.Visible then
+                local info = promptFrame:FindFirstChild("info")
+                local infoTxt = info and string.lower(info.Text) or ""
+                if string.find(infoTxt, "insufficient") then
+                    Hub.Notify("Shop", "Insufficient funds to purchase " .. modelName .. ".", 3)
+                    pcall(function()
+                        local conns = getconnections(promptFrame.confirm.MouseButton1Click)
+                        for _, c in ipairs(conns) do c:Fire() end
+                    end)
+                    break
+                end
+                task.wait(0.12)
+                local btn = promptFrame.confirm
+                local conns = getconnections(btn.MouseButton1Click)
+                if #conns > 0 then
+                    for _, c in ipairs(conns) do c:Fire() end
+                elseif firesignal then
+                    firesignal(btn.MouseButton1Click)
+                end
+                confirmed = true
+                break
+            end
+        end
+
+        local pc = pg:FindFirstChild("PromptConfirmation")
         if pc and pc:FindFirstChild("Frame") and pc.Frame.Visible then
             local options = pc.Frame:FindFirstChild("Options")
             if options then
-                local buyBtn = nil
                 for _, b in ipairs(options:GetChildren()) do
                     if b:IsA("GuiButton") then
                         local lbl = b:FindFirstChildWhichIsA("TextLabel")
                         local txt = lbl and string.lower(lbl.Text) or string.lower(b.Name)
                         if string.find(txt, "buy") or string.find(txt, "yes") or string.find(txt, "confirm") or string.find(txt, "2") then
-                            buyBtn = b
+                            task.wait(0.12)
+                            local conns = getconnections(b.MouseButton1Click)
+                            if #conns > 0 then
+                                for _, c in ipairs(conns) do c:Fire() end
+                            else
+                                conns = getconnections(b.Activated)
+                                if #conns > 0 then for _, c in ipairs(conns) do c:Fire() end
+                                elseif firesignal then firesignal(b.MouseButton1Click) end
+                            end
+                            confirmed = true
                             break
                         end
                     end
                 end
-                if not buyBtn then
-                    local buttons = {}
-                    for _, b in ipairs(options:GetChildren()) do
-                        if b:IsA("GuiButton") then table.insert(buttons, b) end
-                    end
-                    buyBtn = buttons[#buttons]
-                end
-                
-                if buyBtn then
-                    task.wait(0.15)
-                    local conns = getconnections(buyBtn.Activated)
-                    if #conns > 0 then
-                        for _, c in ipairs(conns) do c:Fire() end
-                    elseif firesignal then
-                        firesignal(buyBtn.Activated)
-                    end
-                    break
-                end
+                if confirmed then break end
             end
         end
         task.wait(0.1)
@@ -781,8 +799,13 @@ local function purchaseItemAtLocation(targetPos, modelName)
     task.wait(0.3)
     root.AssemblyLinearVelocity = Vector3.zero
     root.CFrame = originalCFrame
-    Hub.Notify("Shop", "Purchased " .. modelName .. "!", 3)
-    return true
+    if confirmed then
+        Hub.Notify("Shop", "Purchased " .. modelName .. "!", 3)
+        return true
+    else
+        Hub.Notify("Shop", "Purchase did not complete for " .. modelName .. ".", 3)
+        return false
+    end
 end
 
 local function purchaseBoat(boatName)
@@ -807,6 +830,100 @@ end
 --------------------------------------------------------------------------------
 -- 9. WORLD TELEPORTS REGISTRY
 --------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- TARGET FARM REGISTRIES (Fish, Items & Best Farming Spots)
+--------------------------------------------------------------------------------
+local TargetFishRegistry = {
+    { Name = "Colossal Squid", Zone = "The Depths", Pos = Vector3.new(990, -710, 1215), Bait = "Squid", Rod = "Magma Rod" },
+    { Name = "Megalodon", Zone = "Ancient Isle Deep", Pos = Vector3.new(6000, 150, 400), Bait = "Fish Head", Rod = "Destiny Rod" },
+    { Name = "Whispering Eel", Zone = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), Bait = "Truffle Worm", Rod = "Nocturnal Rod" },
+    { Name = "Phantom Ray", Zone = "The Depths Cave", Pos = Vector3.new(1200, -710, 1300), Bait = "Super Flakes", Rod = "Mythical Rod" },
+    { Name = "Magma Fish", Zone = "Roslit Volcano", Pos = Vector3.new(-1900, 165, 300), Bait = "Instant Catch", Rod = "Magma Rod" },
+    { Name = "Obsidian Salmon", Zone = "Roslit Volcano", Pos = Vector3.new(-1900, 165, 300), Bait = "Maggot", Rod = "Magma Rod" },
+    { Name = "Sunken Golden Fish", Zone = "Sunstone Lighthouse", Pos = Vector3.new(-900, 230, -1200), Bait = "Rapid Catch", Rod = "Midas Rod" },
+    { Name = "Voidfin Mahi", Zone = "Vertigo Entrance", Pos = Vector3.new(-110, -515, 1060), Bait = "Weird Algae", Rod = "Nocturnal Rod" },
+    { Name = "Abyssal Shark", Zone = "Forsaken Shores Deep", Pos = Vector3.new(-2500, 135, 1550), Bait = "Fish Head", Rod = "Carbon Rod" },
+    { Name = "Golden Seahorse", Zone = "Moosewood Docks", Pos = Vector3.new(358, 132, 199), Bait = "Seaweed", Rod = "Steady Rod" },
+    { Name = "Glacier Salmon", Zone = "Snowcap Lake", Pos = Vector3.new(2620, 150, 2400), Bait = "Shrimp", Rod = "Fast Rod" },
+    { Name = "Alligator", Zone = "Mushgrove Swamp", Pos = Vector3.new(2450, 135, -700), Bait = "Fish Head", Rod = "Kings Rod" },
+    { Name = "Barracuda", Zone = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), Bait = "Shrimp", Rod = "Rapid Rod" },
+    { Name = "Anglerfish", Zone = "The Depths Floor", Pos = Vector3.new(1050, -710, 1180), Bait = "Glowworm", Rod = "Nocturnal Rod" },
+    { Name = "Ancient Serpent", Zone = "Atlantis Trench", Pos = Vector3.new(-4250, -650, 1900), Bait = "Truffle Worm", Rod = "Destiny Rod" },
+    { Name = "Whale Shark", Zone = "Ocean Open Sea", Pos = Vector3.new(1000, 135, -1250), Bait = "Fish Head", Rod = "Trident Rod" }
+}
+
+local TargetItemRegistry = {
+    { Name = "Bait Crate", Pos = Vector3.new(358, 132, 199), Spot = "Moosewood Docks", RecommendedBait = "Magnet" },
+    { Name = "Quality Bait Crate", Pos = Vector3.new(2620, 150, 2400), Spot = "Snowcap Island", RecommendedBait = "Magnet" },
+    { Name = "Carbon Crate", Pos = Vector3.new(-1480, 135, 680), Spot = "Roslit Bay", RecommendedBait = "Magnet" },
+    { Name = "Volcanic Geode", Pos = Vector3.new(-1900, 165, 300), Spot = "Roslit Volcano", RecommendedBait = "Magnet" },
+    { Name = "Encrusted Geode", Pos = Vector3.new(990, -710, 1215), Spot = "The Depths", RecommendedBait = "Magnet" },
+    { Name = "Strange Relic", Pos = Vector3.new(6000, 150, 400), Spot = "Ancient Isle", RecommendedBait = "Super Flakes" },
+    { Name = "Sunken Treasure Chest", Pos = Vector3.new(-946, 131, -1117), Spot = "Sunstone Docks", RecommendedBait = "Magnet" },
+    { Name = "Prehistoric Fossil", Pos = Vector3.new(2450, 135, -700), Spot = "Mushgrove Swamp", RecommendedBait = "Magnet" }
+}
+
+local BestSpotsRegistry = {
+    { Name = "Roslit Volcano Crater", Pos = Vector3.new(-1900, 165, 300), Description = "Top C$ Magma Fish" },
+    { Name = "The Depths Trench", Pos = Vector3.new(990, -710, 1215), Description = "Colossal Squid & Abyssal Legendaries" },
+    { Name = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), Description = "Max Catch XP & Relics" },
+    { Name = "Ancient Isle Shore", Pos = Vector3.new(6000, 150, 400), Description = "Megalodon Apex Hotspot" },
+    { Name = "Sunstone Lighthouse Cliff", Pos = Vector3.new(-900, 230, -1200), Description = "Daylight Golden Variants" },
+    { Name = "Moosewood Docks", Pos = Vector3.new(358, 132, 199), Description = "Fastest Starter Bite Rate" },
+    { Name = "Snowcap Island Lake", Pos = Vector3.new(2620, 150, 2400), Description = "Glacial Catches & High Crates" },
+    { Name = "Brine Pool", Pos = Vector3.new(-1790, -143, -3400), Description = "Alchemical Catches" },
+    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), Description = "Tropical Exotics & Whale Shark" },
+    { Name = "Mushgrove Deep", Pos = Vector3.new(2450, 135, -700), Description = "Ancient Swamp Biome" }
+}
+
+local currentTargetFish = TargetFishRegistry[1]
+local currentTargetItem = TargetItemRegistry[1]
+local currentBestSpot = BestSpotsRegistry[1]
+
+local function equipBaitRemote(baitName)
+    pcall(function()
+        local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
+        if net and baitName then
+            local re = net:FindFirstChild("RE/Bait/Equip") or net:FindFirstChild("RF/Bait/Equip")
+            if re and re:IsA("RemoteEvent") then
+                re:FireServer(baitName)
+            elseif re and re:IsA("RemoteFunction") then
+                re:InvokeServer(baitName)
+            end
+        end
+    end)
+end
+
+-- Autonomous Target Farm Anchor & Position Guardian
+task.spawn(function()
+    while true do
+        task.wait(1)
+        pcall(function()
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if not root then return end
+
+            local activeTargetPos = nil
+            if Config.AutoFarmFish and currentTargetFish then
+                activeTargetPos = currentTargetFish.Pos
+            elseif Config.AutoFarmItem and currentTargetItem then
+                activeTargetPos = currentTargetItem.Pos
+            elseif Config.AutoFarmSpot and currentBestSpot then
+                activeTargetPos = currentBestSpot.Pos
+            end
+
+            if activeTargetPos then
+                local dist = (root.Position - activeTargetPos).Magnitude
+                if dist > 35 or root.Position.Y < activeTargetPos.Y - 15 then
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
+                    root.CFrame = CFrame.new(activeTargetPos + Vector3.new(0, 3.5, 0))
+                end
+            end
+        end)
+    end
+end)
 local IslandRegistry = {
     { Name = "Moosewood", Pos = Vector3.new(380, 135, 230) },
     { Name = "Roslit Bay", Pos = Vector3.new(-1480, 135, 680) },
@@ -933,6 +1050,163 @@ Hub.CreateToggle(farmTab, "Instant Reel", Config.AutoReel, function(val)
     Hub.Notify("Instant Reel", val and "Enabled" or "Disabled", 2)
 end)
 
+-- Section: Target Fish Farm
+Hub.CreateSection(farmTab, "Target Fish Farm")
+
+local fishOptions = {}
+for _, f in ipairs(TargetFishRegistry) do
+    table.insert(fishOptions, f.Name .. " (" .. f.Zone .. ")")
+end
+
+Hub.CreateDropdown(farmTab, "Select Target Fish", fishOptions, fishOptions[1], function(val)
+    local name = val:match("^(.-)%s*%(") or val
+    for _, f in ipairs(TargetFishRegistry) do
+        if f.Name == name then
+            currentTargetFish = f
+            if Config.AutoFarmFish then
+                safeTeleport(f.Pos)
+                if Config.AutoEquipTargetBait and f.Bait then
+                    equipBaitRemote(f.Bait)
+                end
+            end
+            break
+        end
+    end
+end)
+
+Hub.CreateToggle(farmTab, "Auto Farm Fish", Config.AutoFarmFish, function(val)
+    Config.AutoFarmFish = val
+    if val then
+        Config.AutoFarmItem = false
+        Config.AutoFarmSpot = false
+        Config.AutoCast = true
+        Config.AutoShake = true
+        Config.AutoReel = true
+        if currentTargetFish then
+            safeTeleport(currentTargetFish.Pos)
+            if Config.AutoEquipTargetBait and currentTargetFish.Bait then
+                equipBaitRemote(currentTargetFish.Bait)
+            end
+            Hub.Notify("Target Fish", "Farming " .. currentTargetFish.Name .. " (" .. currentTargetFish.Zone .. ")", 3)
+        end
+    else
+        Hub.Notify("Target Fish", "Auto Farm Fish Disabled", 2)
+    end
+end)
+
+Hub.CreateToggle(farmTab, "Auto Equip Target Bait", Config.AutoEquipTargetBait, function(val)
+    Config.AutoEquipTargetBait = val
+    if val and currentTargetFish and currentTargetFish.Bait then
+        equipBaitRemote(currentTargetFish.Bait)
+    end
+end)
+
+Hub.CreateButton(farmTab, "Teleport to Fish Spot", function()
+    if currentTargetFish then
+        safeTeleport(currentTargetFish.Pos)
+        if Config.AutoEquipTargetBait and currentTargetFish.Bait then
+            equipBaitRemote(currentTargetFish.Bait)
+        end
+    end
+end)
+
+-- Section: Target Item Farm
+Hub.CreateSection(farmTab, "Target Item Farm")
+
+local itemOptions = {}
+for _, itm in ipairs(TargetItemRegistry) do
+    table.insert(itemOptions, itm.Name .. " (" .. itm.Spot .. ")")
+end
+
+Hub.CreateDropdown(farmTab, "Select Target Item", itemOptions, itemOptions[1], function(val)
+    local name = val:match("^(.-)%s*%(") or val
+    for _, itm in ipairs(TargetItemRegistry) do
+        if itm.Name == name then
+            currentTargetItem = itm
+            if Config.AutoFarmItem then
+                safeTeleport(itm.Pos)
+                if itm.RecommendedBait then
+                    equipBaitRemote(itm.RecommendedBait)
+                end
+            end
+            break
+        end
+    end
+end)
+
+Hub.CreateToggle(farmTab, "Auto Farm Items", Config.AutoFarmItem, function(val)
+    Config.AutoFarmItem = val
+    if val then
+        Config.AutoFarmFish = false
+        Config.AutoFarmSpot = false
+        Config.AutoCast = true
+        Config.AutoShake = true
+        Config.AutoReel = true
+        if currentTargetItem then
+            safeTeleport(currentTargetItem.Pos)
+            if currentTargetItem.RecommendedBait then
+                equipBaitRemote(currentTargetItem.RecommendedBait)
+            end
+            Hub.Notify("Target Item", "Farming " .. currentTargetItem.Name .. " at " .. currentTargetItem.Spot, 3)
+        end
+    else
+        Hub.Notify("Target Item", "Auto Farm Items Disabled", 2)
+    end
+end)
+
+Hub.CreateButton(farmTab, "Teleport to Item Spot", function()
+    if currentTargetItem then
+        safeTeleport(currentTargetItem.Pos)
+        if currentTargetItem.RecommendedBait then
+            equipBaitRemote(currentTargetItem.RecommendedBait)
+        end
+    end
+end)
+
+-- Section: Best Farming Spots
+Hub.CreateSection(farmTab, "Best Farming Spots")
+
+local bestSpotOptions = {}
+for _, sp in ipairs(BestSpotsRegistry) do
+    table.insert(bestSpotOptions, sp.Name)
+end
+
+Hub.CreateDropdown(farmTab, "Select Best Spot", bestSpotOptions, bestSpotOptions[1], function(val)
+    for _, sp in ipairs(BestSpotsRegistry) do
+        if sp.Name == val then
+            currentBestSpot = sp
+            if Config.AutoFarmSpot then
+                safeTeleport(sp.Pos)
+            end
+            break
+        end
+    end
+end)
+
+Hub.CreateButton(farmTab, "Teleport to Best Spot", function()
+    if currentBestSpot then
+        safeTeleport(currentBestSpot.Pos)
+    end
+end)
+
+Hub.CreateToggle(farmTab, "Auto Farm at Best Spot", Config.AutoFarmSpot, function(val)
+    Config.AutoFarmSpot = val
+    if val then
+        Config.AutoFarmFish = false
+        Config.AutoFarmItem = false
+        Config.AutoCast = true
+        Config.AutoShake = true
+        Config.AutoReel = true
+        if currentBestSpot then
+            safeTeleport(currentBestSpot.Pos)
+            Hub.Notify("Spot Farm", "Farming at " .. currentBestSpot.Name, 3)
+        end
+    else
+        Hub.Notify("Spot Farm", "Auto Farm Spot Disabled", 2)
+    end
+end)
+
+-- Section: Sales
 Hub.CreateSection(farmTab, "Sales")
 
 Hub.CreateToggle(farmTab, "Auto Sell", Config.AutoSell, function(val)
