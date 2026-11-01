@@ -179,13 +179,15 @@ pcall(function()
     if LureShakeController and not LureShakeController._Hooked then
         LureShakeController._Hooked = true
         local origStartMinigame = LureShakeController.StartMinigame
-        LureShakeController.StartMinigame = function(self, a2)
-            if Config.AutoShake and a2 and typeof(a2) == "table" then
-                -- 3x Shake Power clears shake in 1-2 rapid pops instead of 5 tedious bubbles
-                a2.ShakePower = (a2.ShakePower or 1) * 3
-                a2.ShakeScale = math.max(a2.ShakeScale or 1, 1.8)
+        LureShakeController.StartMinigame = function(...)
+            local args = {...}
+            local cfg = (typeof(args[1]) == "table" and args[1].ShakePower ~= nil) and args[1] or args[2]
+            if Config.AutoShake and typeof(cfg) == "table" then
+                -- 20x Shake Power clears the entire shake stage in ONE single pop instantly!
+                cfg.ShakePower = 20
+                cfg.ShakeScale = 2.0
             end
-            return origStartMinigame(self, a2)
+            return origStartMinigame(...)
         end
     end
 end)
@@ -195,13 +197,16 @@ pcall(function()
     if ReelController and not ReelController._Hooked then
         ReelController._Hooked = true
         local origStartReel = ReelController.StartReel
-        ReelController.StartReel = function(self, a1)
-            if Config.AutoReel and a1 and a1.stats then
-                -- Boost ProgressSpeed and Control naturally inside controller constructor
-                a1.stats.ProgressSpeed = math.max(a1.stats.ProgressSpeed or 0, 160)
-                a1.stats.Control = math.max(a1.stats.Control or 0, 0.8)
+        ReelController.StartReel = function(...)
+            local args = {...}
+            local a1 = (typeof(args[1]) == "table" and args[1].stats ~= nil) and args[1] or args[2]
+            if Config.AutoReel and typeof(a1) == "table" and a1.stats then
+                -- Start minigame at 85% progress with massive control and speed!
+                a1.stats.StartingProgress = 85
+                a1.stats.ProgressSpeed = 250
+                a1.stats.Control = 1.0
             end
-            return origStartReel(self, a1)
+            return origStartReel(...)
         end
     end
 end)
@@ -375,31 +380,22 @@ local function processReelMinigame(activeReel)
     end
 
     pcall(function()
-        -- Ensure activeReel is active and unpaused
-        activeReel.active = true
-        activeReel.ready = true
-        activeReel.isPaused = false
-        activeReel.logicPaused = false
-
         -- Lock bar perfectly onto the fish bubble & expand bar size
         activeReel.barSize = 10
         activeReel.barPosition = activeReel.fishPosition or 0.5
         activeReel.onbar = true
         activeReel.perfect = true
 
-        -- Boost progress smoothly and rapidly inside minigame core
-        -- This allows the game's native Minigame:Tick to naturally call EndMinigame()
-        -- Result: Catch finishes in ~1.2s, catch UI pops up, fish animation plays, NO BUGS!
+        -- Advance progress smoothly inside minigame core
+        -- With starting progress at 85%, this completes the minigame in ~0.5s naturally!
         if activeReel.core and activeReel.core.minigame and activeReel.core.minigame._progressModifier then
-            local currentMod = activeReel.core.minigame._progressModifier.Value or 0
-            if currentMod < 95 then
-                local boost = 0.8
-                if Config.ReelMode == "Hyper Fast (~1s)" then
-                    boost = 1.6
-                elseif Config.ReelMode == "Safe (~2s)" then
-                    boost = 0.3
+            local p = activeReel.core.minigame._progressModifier
+            if p.Value < 98 then
+                local boost = 2.0
+                if Config.ReelMode == "Safe (~2s)" then
+                    boost = 0.5
                 end
-                activeReel.core.minigame._progressModifier.Value = currentMod + boost
+                p.Value = p.Value + boost
             end
         end
     end)
