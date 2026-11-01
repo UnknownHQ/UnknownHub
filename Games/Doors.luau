@@ -3257,6 +3257,41 @@ local function initGodModeImmunity()
             end
         end
     end)
+    -- Intercept PlayerDied to eradicate ReviveRift effect spam and ghost-death desync
+    pcall(function()
+        local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local pd = rf and rf:FindFirstChild("PlayerDied")
+        if pd and getconnections then
+            for _, c in ipairs(getconnections(pd.OnClientEvent)) do
+                local oldFn = c.Function
+                if oldFn and hookfunction and not _G["PD_IMMUNE_" .. tostring(oldFn)] then
+                    _G["PD_IMMUNE_" .. tostring(oldFn)] = true
+                    hookfunction(oldFn, newcclosure(function(...)
+                        if State.God_Mode then
+                            task.spawn(function()
+                                task.wait(0.05)
+                                local cam = Workspace.CurrentCamera
+                                if cam then
+                                    for _, ch in ipairs(cam:GetChildren()) do
+                                        if ch.Name == "ReviveRift" then ch:Destroy() end
+                                    end
+                                end
+                                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+                                local mainUI = pGui and pGui:FindFirstChild("MainUI")
+                                if mainUI and mainUI:FindFirstChild("GiftRevive") then
+                                    mainUI.GiftRevive.Visible = false
+                                end
+                                local ch = getChar()
+                                if ch then ch:SetAttribute("Alive", true) end
+                            end)
+                            return
+                        end
+                        return oldFn(...)
+                    end))
+                end
+            end
+        end
+    end)
 end
 
 -- Absolute Glitch & Void Deflection Shield (Zero Glitch Invariant: Map & Noclip Immune)
@@ -4384,33 +4419,24 @@ if getgenv then
 end
 
 local isAtRoof = false
-local roofPlatform = nil
 local lastPreRoofFloorPos = nil
 
-local function getOrCreateRoofPlatform(targetPos)
-    if roofPlatform and roofPlatform.Parent then
-        roofPlatform.CFrame = CFrame.new(targetPos - Vector3.new(0, 3.2, 0))
-        return roofPlatform
-    end
-    local plat = Instance.new("Part")
-    plat.Name = "SafeRoofPlatform"
-    plat.Size = Vector3.new(24, 1.2, 24)
-    plat.Anchored = true
-    plat.CanCollide = true
-    plat.Transparency = 0.5
-    plat.Material = Enum.Material.Neon
-    plat.Color = Color3.fromRGB(0, 220, 255)
-    plat.CFrame = CFrame.new(targetPos - Vector3.new(0, 3.2, 0))
-    plat.Parent = Workspace.CurrentCamera
-    roofPlatform = plat
-    return plat
+-- Purge any residual physical platform bricks (eliminates sky-freeze traps permanently)
+local function purgeResidualRoofPlatforms()
+    pcall(function()
+        local cam = Workspace.CurrentCamera
+        if cam then
+            local p = cam:FindFirstChild("SafeRoofPlatform")
+            if p then p:Destroy() end
+        end
+        local wsPlat = Workspace:FindFirstChild("SafeRoofPlatform")
+        if wsPlat then wsPlat:Destroy() end
+    end)
 end
+purgeResidualRoofPlatforms()
 
 local function removeRoofPlatform()
-    if roofPlatform then
-        pcall(function() roofPlatform:Destroy() end)
-        roofPlatform = nil
-    end
+    purgeResidualRoofPlatforms()
 end
 
 local function teleportToRoof(callback)
@@ -4426,10 +4452,11 @@ local function teleportToRoof(callback)
     end
 
     lastPreRoofFloorPos = root.Position
-    local roofTargetPos = root.Position + Vector3.new(0, 35, 0)
+    -- Elevate vertically +75 studs: 100% outside Rush's 40-stud kill cylinder & ceiling boundary without physical platform trap
+    local roofTargetPos = root.Position + Vector3.new(0, 75, 0)
     
-    getOrCreateRoofPlatform(roofTargetPos)
-    Hub.Notify("Safe Zone", "Ascending to Safe Roof (+35 Studs)...", 2)
+    purgeResidualRoofPlatforms()
+    Hub.Notify("Safe Zone", "Ascending to Safe Roof (+75 Studs)...", 2)
     isAtRoof = true
     State.Safe_Roof_Station = true
 
@@ -4439,18 +4466,18 @@ local function teleportToRoof(callback)
         local rayParams = RaycastParams.new()
         rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
         rayParams.FilterType = Enum.RaycastFilterType.Exclude
-        local upHit = workspace:Raycast(root.Position, Vector3.new(0, 45, 0), rayParams)
+        local upHit = workspace:Raycast(root.Position, Vector3.new(0, 85, 0), rayParams)
         if upHit and upHit.Instance then
             upHit.Instance.CanCollide = false
         end
     end)
 
-    safeTweenTeleport(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector), 65, true, true, function()
+    safeTweenTeleport(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector), 85, true, true, function()
         char:PivotTo(CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector))
         root.CFrame = CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector)
         local cp = char:FindFirstChild("CollisionPart")
         if cp then cp.CFrame = CFrame.new(roofTargetPos, roofTargetPos + root.CFrame.LookVector) end
-        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
         Hub.Notify("Safe Zone", "Secure on Safe Roof! Rush & entities deflected.", 3)
         if callback then callback(true) end
     end)
@@ -4471,10 +4498,10 @@ local function returnFromRoof(callback)
 
     Hub.Notify("Safe Zone", "Safely descending from roof...", 2)
 
-    local targetFloorPos = getExactFloorPos(Vector3.new(root.Position.X, (lastPreRoofFloorPos and lastPreRoofFloorPos.Y) or (root.Position.Y - 35), root.Position.Z))
+    local targetFloorPos = getExactFloorPos(Vector3.new(root.Position.X, (lastPreRoofFloorPos and lastPreRoofFloorPos.Y) or (root.Position.Y - 75), root.Position.Z))
 
-    safeTweenTeleport(CFrame.new(targetFloorPos, targetFloorPos + root.CFrame.LookVector), 55, false, function()
-        removeRoofPlatform()
+    safeTweenTeleport(CFrame.new(targetFloorPos, targetFloorPos + root.CFrame.LookVector), 75, false, function()
+        purgeResidualRoofPlatforms()
         isAtRoof = false
         State.Safe_Roof_Station = false
         lastPreRoofFloorPos = nil
@@ -4843,9 +4870,11 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Keep Safe Roof Platform dynamically centered under daddy horizontally
-    if isAtRoof and roofPlatform and roofPlatform.Parent and root then
-        roofPlatform.CFrame = CFrame.new(root.Position.X, roofPlatform.Position.Y, root.Position.Z)
+    -- Pure native flight altitude maintenance during Safe Roof Evasion (zero physical brick needed)
+    if isAtRoof and root then
+        if root.AssemblyLinearVelocity.Y < 0 then
+            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0.05, root.AssemblyLinearVelocity.Z)
+        end
     end
 
     -- Synchronizes DOORS native noclip flag without corrupting wardrobe or door transitions
@@ -5336,36 +5365,58 @@ local function refreshAllPrompts()
     end
 end
 
--- Drawer Guardian Daemon: Prevents drawer prompts from vanishing before opening & auto-loots drawer contents
+-- Drawer Guardian Daemon: Scans ONLY player's current room within 14 studs, optimizes knobs, and prevents remote spam
+local drawerLootDebounce = {}
 task.spawn(function()
     while _G.DOORS_SESSION == currentSession do
-        task.wait(0.25)
-        local curRooms = Workspace:FindFirstChild("CurrentRooms")
-        if curRooms then
-            for _, rm in ipairs(curRooms:GetChildren()) do
+        task.wait(0.35)
+        local root = getRoot()
+        local rootPos = root and root.Position
+        if rootPos then
+            local curRoom = getObjectRoom(root)
+            local searchRooms = {}
+            if curRoom then
+                table.insert(searchRooms, curRoom)
+            else
+                local cr = Workspace:FindFirstChild("CurrentRooms")
+                if cr then
+                    for _, rm in ipairs(cr:GetChildren()) do
+                        local primary = rm.PrimaryPart or rm:FindFirstChildWhichIsA("BasePart")
+                        if primary and (rootPos - primary.Position).Magnitude < 45 then
+                            table.insert(searchRooms, rm)
+                        end
+                    end
+                end
+            end
+
+            local now = os.clock()
+            for _, rm in ipairs(searchRooms) do
                 for _, desc in ipairs(rm:GetDescendants()) do
                     if desc.Name == "DrawerContainer" then
-                        local knobs = desc:FindFirstChild("Knobs")
-                        local prompt = knobs and knobs:FindFirstChildWhichIsA("ProximityPrompt")
                         local main = desc:FindFirstChild("Main")
-                        local holder = desc:FindFirstChild("Holder")
-                        local isOpen = (main and holder) and (main.Position - holder.Position).Magnitude > 0.4
-                        if prompt then
-                            if not isOpen then
-                                if not prompt.Enabled then
-                                    prompt.Enabled = true
-                                end
-                                prompt.MaxActivationDistance = 6.5
-                                prompt.RequiresLineOfSight = false
-                            else
-                                -- Drawer is open: immediately loot all items & gold inside
-                                local lootHolder = desc:FindFirstChild("LootHolder")
-                                if lootHolder then
-                                    for _, lDesc in ipairs(lootHolder:GetDescendants()) do
-                                        if lDesc:IsA("ProximityPrompt") and lDesc.Enabled then
-                                            lDesc.RequiresLineOfSight = false
-                                            lDesc.MaxActivationDistance = 14
-                                            pcall(function() fireproximityprompt(lDesc) end)
+                        if main and (rootPos - main.Position).Magnitude <= 14 then
+                            local knobs = desc:FindFirstChild("Knobs")
+                            local prompt = knobs and knobs:FindFirstChildWhichIsA("ProximityPrompt")
+                            local holder = desc:FindFirstChild("Holder")
+                            local isOpen = holder and (main.Position - holder.Position).Magnitude > 0.4
+                            if prompt then
+                                if not isOpen then
+                                    if not prompt.Enabled then prompt.Enabled = true end
+                                    prompt.MaxActivationDistance = 6.5
+                                    prompt.RequiresLineOfSight = false
+                                elseif State.Auto_Interact then
+                                    -- Drawer is open: cleanly loot contents with 1.5s debounce to eradicate remote flooding!
+                                    local lootHolder = desc:FindFirstChild("LootHolder")
+                                    if lootHolder then
+                                        for _, lDesc in ipairs(lootHolder:GetDescendants()) do
+                                            if lDesc:IsA("ProximityPrompt") and lDesc.Enabled then
+                                                lDesc.RequiresLineOfSight = false
+                                                lDesc.MaxActivationDistance = 14
+                                                if not drawerLootDebounce[lDesc] or (now - drawerLootDebounce[lDesc] > 1.5) then
+                                                    drawerLootDebounce[lDesc] = now
+                                                    safeInstantFirePrompt(lDesc)
+                                                end
+                                            end
                                         end
                                     end
                                 end
@@ -5749,10 +5800,7 @@ task.spawn(function()
                                             local stagger = (batchCount - 1) * 0.02
                                             task.spawn(function()
                                                 if stagger > 0 then task.wait(stagger) end
-                                                pcall(function()
-                                                    fireproximityprompt(prompt, 0)
-                                                    fireproximityprompt(prompt)
-                                                end)
+                                                safeInstantFirePrompt(prompt)
                                             end)
                                         end
                                     end
@@ -7082,17 +7130,11 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
 
         local r = getRoot()
         if r then
-            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
-            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
-            local rayParams = RaycastParams.new()
-            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
-            if downHit and downHit.Position then
-                local floorY = downHit.Position.Y
-                if r.Position.Y < (floorY + 2.5) then
-                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
-                end
+            -- Floor Snap & Ground Transition: If player is hovering in air, descending from roof,
+            -- or intersecting the floor, snap root cleanly 3.2 studs above exact room floor (zero sky freezes!)
+            local targetFloorPos = getExactFloorPos(r.Position)
+            if targetFloorPos then
+                r.CFrame = CFrame.new(r.Position.X, targetFloorPos.Y + 3.2, r.Position.Z) * r.CFrame.Rotation
             end
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
@@ -7576,13 +7618,10 @@ if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
             if (method == "IsKeyDown" or method == "isKeyDown") then
                 local args = {...}
                 local kc = args[1]
-                if kc == Enum.KeyCode.Q then
-                    return false
-                end
-                if kc == Enum.KeyCode.E then
+                if kc == Enum.KeyCode.Q or kc == Enum.KeyCode.E then
                     local caller = getcallingscript and getcallingscript()
-                    if caller and (caller.Name == "Movement" or tostring(caller):find("Movement")) then
-                        return false
+                    if not caller or caller.Name == "Movement" or tostring(caller):find("Movement") then
+                        return false -- Completely prevents DOORS Movement from treating KeyCode.E as fly UP!
                     end
                 end
             end
