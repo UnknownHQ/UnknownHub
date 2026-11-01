@@ -201,8 +201,62 @@ pcall(function()
 end)
 
 --------------------------------------------------------------------------------
--- 4.6. INFINITE OXYGEN & DROWNING PREVENTION ENGINE
+-- 4.6. INFINITE OXYGEN & ENVIRONMENTAL IMMUNITY ENGINE
 --------------------------------------------------------------------------------
+local function applyCharacterImmunity(char)
+    if not char then return end
+    pcall(function()
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            hum.BreakJointsOnDeath = false
+        end
+    end)
+end
+
+applyCharacterImmunity(LocalPlayer.Character)
+LocalPlayer.CharacterAdded:Connect(applyCharacterImmunity)
+
+-- Override EnvironmentResourceController in client memory
+local function updateEnvironmentResources()
+    if not Config.InfiniteOxygen then return end
+    pcall(function()
+        local erc = require(ReplicatedStorage.client.legacyControllers.EnvironmentResourceController)
+        if erc and erc.ResourceData then
+            for _, res in pairs(erc.ResourceData) do
+                if res.Name == "Oxygen" or res.Name == "OxygenPeaks" then
+                    res.Value = 100
+                    res.ServerValue = 100
+                    res.DrainRate = 0
+                elseif res.Name == "Heat" then
+                    res.Value = 37
+                    res.ServerValue = 37
+                    res.DrainRate = 0
+                elseif res.Name == "ToxicFumes" or res.Name == "Decay" then
+                    res.Value = 0
+                    res.ServerValue = 0
+                    res.DrainRate = 0
+                end
+            end
+        end
+    end)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if Config.InfiniteOxygen then
+            updateEnvironmentResources()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health < 100 and hum.Health > 0 then
+                hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+                hum.BreakJointsOnDeath = false
+            end
+        end
+    end
+end)
+
 pcall(function()
     local events = ReplicatedStorage:WaitForChild("events", 5)
     local drownEvent = events and events:WaitForChild("drown", 5)
@@ -222,7 +276,7 @@ pcall(function()
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
         if not checkcaller() and Config.InfiniteOxygen then
-            if (method == "FireServer" or method == "fireServer") and (self.Name == "drown" or self.Name == "Drown") then
+            if (method == "FireServer" or method == "fireServer") and (self.Name == "drown" or self.Name == "Drown" or self.Name == "clientTakeDamage") then
                 return
             end
         end
@@ -933,45 +987,47 @@ end
 --------------------------------------------------------------------------------
 local TargetFishRegistry = {
     { Name = "Colossal Squid", Zone = "The Depths", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Bait = "Squid", Rod = "Magma Rod" },
-    { Name = "Megalodon", Zone = "Ancient Isle Deep", Pos = Vector3.new(5950, 140, 360), LookAt = Vector3.new(6020, 140, 360), Bait = "Fish Head", Rod = "Destiny Rod" },
-    { Name = "Whispering Eel", Zone = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), LookAt = Vector3.new(-140, -510, 1150), Bait = "Truffle Worm", Rod = "Nocturnal Rod" },
+    { Name = "Megalodon", Zone = "Ancient Isle Shore", Pos = Vector3.new(5950, 335, 360), LookAt = Vector3.new(6020, 335, 360), Bait = "Fish Head", Rod = "Destiny Rod" },
+    { Name = "Whispering Eel", Zone = "Vertigo Abyss", Pos = Vector3.new(-110, -512, 1060), LookAt = Vector3.new(-110, -512, 1140), Bait = "Truffle Worm", Rod = "Nocturnal Rod" },
     { Name = "Phantom Ray", Zone = "The Depths Cave", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Bait = "Super Flakes", Rod = "Mythical Rod" },
     { Name = "Magma Fish", Zone = "Roslit Volcano", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Bait = "Instant Catch", Rod = "Magma Rod" },
     { Name = "Obsidian Salmon", Zone = "Roslit Volcano", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Bait = "Maggot", Rod = "Magma Rod" },
-    { Name = "Sunken Golden Fish", Zone = "Sunstone Lighthouse", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Bait = "Rapid Catch", Rod = "Midas Rod" },
-    { Name = "Voidfin Mahi", Zone = "Vertigo Entrance", Pos = Vector3.new(-140, -510, 1090), LookAt = Vector3.new(-140, -510, 1150), Bait = "Weird Algae", Rod = "Nocturnal Rod" },
-    { Name = "Abyssal Shark", Zone = "Forsaken Shores Deep", Pos = Vector3.new(-2500, 135, 1550), LookAt = Vector3.new(-2560, 135, 1550), Bait = "Fish Head", Rod = "Carbon Rod" },
+    { Name = "Sunken Golden Fish", Zone = "Sunstone Docks", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Bait = "Rapid Catch", Rod = "Midas Rod" },
+    { Name = "Voidfin Mahi", Zone = "Vertigo Entrance", Pos = Vector3.new(-110, -512, 1060), LookAt = Vector3.new(-110, -512, 1140), Bait = "Weird Algae", Rod = "Nocturnal Rod" },
+    { Name = "Abyssal Shark", Zone = "Forsaken Shores Dock", Pos = Vector3.new(-2840, 137, 1580), LookAt = Vector3.new(-2840, 137, 1650), Bait = "Fish Head", Rod = "Carbon Rod" },
     { Name = "Golden Seahorse", Zone = "Moosewood Docks", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Bait = "Seaweed", Rod = "Steady Rod" },
     { Name = "Glacier Salmon", Zone = "Snowcap Lake", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Bait = "Shrimp", Rod = "Fast Rod" },
-    { Name = "Alligator", Zone = "Mushgrove Swamp", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Bait = "Fish Head", Rod = "Kings Rod" },
-    { Name = "Barracuda", Zone = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), LookAt = Vector3.new(-3620, 135, 450), Bait = "Shrimp", Rod = "Rapid Rod" },
+    { Name = "Alligator", Zone = "Mushgrove Swamp Pier", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Bait = "Fish Head", Rod = "Kings Rod" },
+    { Name = "Barracuda", Zone = "Grand Reef Shore", Pos = Vector3.new(-3618, 142, 502), LookAt = Vector3.new(-3680, 142, 502), Bait = "Shrimp", Rod = "Rapid Rod" },
     { Name = "Anglerfish", Zone = "The Depths Floor", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Bait = "Glowworm", Rod = "Nocturnal Rod" },
-    { Name = "Ancient Serpent", Zone = "Atlantis Trench", Pos = Vector3.new(-4006, -694, 1012), LookAt = Vector3.new(-4080, -694, 1012), Bait = "Truffle Worm", Rod = "Destiny Rod" },
+    { Name = "Ancient Serpent", Zone = "Atlantis Temple", Pos = Vector3.new(-4281, -830, 1052), LookAt = Vector3.new(-4281, -830, 1120), Bait = "Truffle Worm", Rod = "Destiny Rod" },
     { Name = "Whale Shark", Zone = "Ocean Open Sea", Pos = Vector3.new(1000, 135, -1250), LookAt = Vector3.new(1000, 135, -1320), Bait = "Fish Head", Rod = "Trident Rod" }
 }
 
 local TargetItemRegistry = {
-    { Name = "Bait Crate", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Spot = "Moosewood Docks", RecommendedBait = "Magnet" },
-    { Name = "Quality Bait Crate", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Spot = "Snowcap Lake", RecommendedBait = "Magnet" },
+    { Name = "Bait Crate", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Spot = "Moosewood Docks Pier", RecommendedBait = "Magnet" },
+    { Name = "Quality Bait Crate", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Spot = "Snowcap Lake Shore", RecommendedBait = "Magnet" },
     { Name = "Carbon Crate", Pos = Vector3.new(-1480, 133, 715), LookAt = Vector3.new(-1540, 133, 715), Spot = "Roslit Bay Pier", RecommendedBait = "Magnet" },
     { Name = "Volcanic Geode", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Spot = "Roslit Volcano Ledge", RecommendedBait = "Magnet" },
     { Name = "Encrusted Geode", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Spot = "The Depths Trench", RecommendedBait = "Magnet" },
-    { Name = "Strange Relic", Pos = Vector3.new(5950, 140, 360), LookAt = Vector3.new(6020, 140, 360), Spot = "Ancient Isle Shore", RecommendedBait = "Super Flakes" },
+    { Name = "Strange Relic", Pos = Vector3.new(5950, 335, 360), LookAt = Vector3.new(6020, 335, 360), Spot = "Ancient Isle Shore", RecommendedBait = "Super Flakes" },
     { Name = "Sunken Treasure Chest", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Spot = "Sunstone Docks", RecommendedBait = "Magnet" },
-    { Name = "Prehistoric Fossil", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Spot = "Mushgrove Swamp", RecommendedBait = "Magnet" }
+    { Name = "Prehistoric Fossil", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Spot = "Mushgrove Swamp Pier", RecommendedBait = "Magnet" }
 }
 
 local BestSpotsRegistry = {
-    { Name = "Moosewood Docks", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Description = "Fastest Starter Bite Rate & 100% Safe" },
-    { Name = "Sunstone Lighthouse Cliff", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Description = "Daylight Golden Variants & Sunken Chests" },
+    { Name = "Moosewood Docks Pier", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Description = "Fastest Starter Bite Rate & 100% Safe" },
+    { Name = "Sunstone Docks Pier", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Description = "Daylight Golden Variants & Sunken Chests" },
     { Name = "Roslit Volcano Ledge", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Description = "Top C$ Magma Fish (Safe Upper Ledge)" },
     { Name = "The Depths Trench", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Description = "Colossal Squid & Abyssal Legendaries" },
-    { Name = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), LookAt = Vector3.new(-140, -510, 1150), Description = "Max Catch XP & Relics" },
-    { Name = "Ancient Isle Shore", Pos = Vector3.new(5950, 140, 360), LookAt = Vector3.new(6020, 140, 360), Description = "Megalodon Apex Hotspot" },
-    { Name = "Snowcap Island Lake", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Description = "Glacial Catches & High Crates" },
-    { Name = "Brine Pool", Pos = Vector3.new(-1790, -143, -3400), LookAt = Vector3.new(-1790, -143, -3460), Description = "Alchemical Catches" },
-    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), LookAt = Vector3.new(-3620, 135, 450), Description = "Tropical Exotics & Whale Shark" },
-    { Name = "Mushgrove Deep", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Description = "Ancient Swamp Biome" }
+    { Name = "Vertigo Abyss Ledge", Pos = Vector3.new(-110, -512, 1060), LookAt = Vector3.new(-110, -512, 1140), Description = "Max Catch XP & Relics" },
+    { Name = "Ancient Isle Shore", Pos = Vector3.new(5950, 335, 360), LookAt = Vector3.new(6020, 335, 360), Description = "Megalodon Apex Hotspot" },
+    { Name = "Snowcap Lake Shore", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Description = "Glacial Catches & High Crates" },
+    { Name = "Brine Pool Cave", Pos = Vector3.new(-1790, -143, -3400), LookAt = Vector3.new(-1790, -143, -3460), Description = "Alchemical Catches" },
+    { Name = "Grand Reef Coral Ledge", Pos = Vector3.new(-3618, 142, 502), LookAt = Vector3.new(-3680, 142, 502), Description = "Tropical Exotics & Whale Shark" },
+    { Name = "Mushgrove Swamp Pier", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Description = "Ancient Swamp Biome" },
+    { Name = "Forsaken Shores Pirate Dock", Pos = Vector3.new(-2840, 137, 1580), LookAt = Vector3.new(-2840, 137, 1650), Description = "Abyssal Shark Hotspot" },
+    { Name = "Atlantis Temple Basin", Pos = Vector3.new(-4281, -830, 1052), LookAt = Vector3.new(-4281, -830, 1120), Description = "Ancient Serpent & Mythic Catches" }
 }
 
 local currentTargetFish = TargetFishRegistry[1]
@@ -1015,26 +1071,26 @@ local IslandRegistry = {
     { Name = "Moosewood", Pos = Vector3.new(467, 150, 230), LookAt = Vector3.new(382, 134, 240) },
     { Name = "Roslit Bay", Pos = Vector3.new(-1460, 149, 701), LookAt = Vector3.new(-1480, 133, 715) },
     { Name = "Sunstone Island", Pos = Vector3.new(-947, 135, -1120), LookAt = Vector3.new(-946, 133, -1117) },
-    { Name = "Terrapin Island", Pos = Vector3.new(57, 149, 1939), LookAt = Vector3.new(57, 135, 2000) },
+    { Name = "Terrapin Island", Pos = Vector3.new(-180, 142, 1950), LookAt = Vector3.new(-180, 142, 2010) },
     { Name = "Snowcap Island", Pos = Vector3.new(2620, 150, 2400), LookAt = Vector3.new(2620, 142, 2460) },
     { Name = "Mushgrove Swamp", Pos = Vector3.new(2697, 164, -757), LookAt = Vector3.new(2450, 134, -760) },
-    { Name = "Ancient Isle", Pos = Vector3.new(5942, 150, 338), LookAt = Vector3.new(6020, 140, 360) },
-    { Name = "Forsaken Shores", Pos = Vector3.new(-3017, 150, 1627), LookAt = Vector3.new(-2560, 135, 1550) },
+    { Name = "Ancient Isle", Pos = Vector3.new(5943, 335, 339), LookAt = Vector3.new(5950, 335, 400) },
+    { Name = "Forsaken Shores", Pos = Vector3.new(-2840, 137, 1580), LookAt = Vector3.new(-2840, 137, 1650) },
     { Name = "Brine Pool", Pos = Vector3.new(-1788, -119, -3385), LookAt = Vector3.new(-1790, -143, -3460) },
     { Name = "Desolate Deep", Pos = Vector3.new(-1642, -182, -2843), LookAt = Vector3.new(-1642, -182, -2890) },
     { Name = "The Depths", Pos = Vector3.new(999, -749, 1307), LookAt = Vector3.new(990, -710, 1280) },
-    { Name = "Vertigo (Depths Entrance)", Pos = Vector3.new(-46, -718, 1403), LookAt = Vector3.new(-140, -510, 1150) },
-    { Name = "Atlantis", Pos = Vector3.new(-4006, -694, 1012), LookAt = Vector3.new(-4080, -694, 1012) },
+    { Name = "Vertigo (Ledge & Angler)", Pos = Vector3.new(-110, -512, 1060), LookAt = Vector3.new(-110, -512, 1140) },
+    { Name = "Atlantis (Poseidon Temple)", Pos = Vector3.new(-4281, -830, 1052), LookAt = Vector3.new(-4281, -830, 1120) },
     { Name = "Zeus's Sanctuary", Pos = Vector3.new(-4308, -621, 2716), LookAt = Vector3.new(-4308, -621, 2780) },
-    { Name = "Cursed Isle / Frightful Pool", Pos = Vector3.new(-15150, 263, -9340), LookAt = Vector3.new(-15150, 263, -9400) },
+    { Name = "Cursed Isle (Scarecrow Town)", Pos = Vector3.new(-14972, 155, -9410), LookAt = Vector3.new(-14972, 155, -9480) },
     { Name = "Glacial Grotto", Pos = Vector3.new(19983, 1169, 5523), LookAt = Vector3.new(19983, 1169, 5580) },
-    { Name = "Boreal Pines", Pos = Vector3.new(21606, 478, 3996), LookAt = Vector3.new(21606, 478, 4050) },
-    { Name = "Volcanic Vents", Pos = Vector3.new(-2645, -2277, 817), LookAt = Vector3.new(-2645, -2277, 880) },
+    { Name = "Boreal Pines (Ground Level)", Pos = Vector3.new(21606, 215, 3996), LookAt = Vector3.new(21606, 215, 4050) },
+    { Name = "Volcanic Vents (Safe Ledge)", Pos = Vector3.new(-2645, -1850, 818), LookAt = Vector3.new(-2645, -1850, 880) },
     { Name = "The Arch", Pos = Vector3.new(1000, 135, -1250), LookAt = Vector3.new(1000, 135, -1320) },
-    { Name = "Statue of Sovereign", Pos = Vector3.new(25, 135, -1000), LookAt = Vector3.new(25, 135, -1060) },
-    { Name = "Scoria Reach", Pos = Vector3.new(-1750, 175, 450), LookAt = Vector3.new(-1750, 175, 510) },
+    { Name = "Statue of Sovereign (Pedestal)", Pos = Vector3.new(-32, 165, -1135), LookAt = Vector3.new(-32, 165, -1200) },
+    { Name = "Scoria Reach (True Island)", Pos = Vector3.new(-5219, 165, -1520), LookAt = Vector3.new(-5219, 165, -1580) },
     { Name = "Keepers Altar", Pos = Vector3.new(1300, -805, -250), LookAt = Vector3.new(1300, -805, -310) },
-    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), LookAt = Vector3.new(-3620, 135, 450) }
+    { Name = "Grand Reef (Coral Island)", Pos = Vector3.new(-3618, 142, 502), LookAt = Vector3.new(-3680, 142, 502) }
 }
 
 local NpcRegistry = {
