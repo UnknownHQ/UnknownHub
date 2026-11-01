@@ -222,7 +222,7 @@ local State = {
     Notify_Entity_Filters = {},
 
     -- God Mode & Anti Figure Hearing Defenses
-    God_Mode = true,
+    God_Mode = false,
     Anti_Figure_Hearing = true,
 
     -- Additional Defenses
@@ -3278,41 +3278,8 @@ local function initGodModeImmunity()
         end
     end)
 
-    -- Intercept PlayerDied to eradicate ReviveRift effect spam and ghost-death desync
-    pcall(function()
-        local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-        local pd = rf and rf:FindFirstChild("PlayerDied")
-        if pd and getconnections then
-            for _, c in ipairs(getconnections(pd.OnClientEvent)) do
-                local oldFn = c.Function
-                if oldFn and hookfunction and not _G["PD_IMMUNE_" .. tostring(oldFn)] then
-                    _G["PD_IMMUNE_" .. tostring(oldFn)] = true
-                    hookfunction(oldFn, newcclosure(function(...)
-                        if State.God_Mode then
-                            task.spawn(function()
-                                task.wait(0.05)
-                                local cam = Workspace.CurrentCamera
-                                if cam then
-                                    for _, ch in ipairs(cam:GetChildren()) do
-                                        if ch.Name == "ReviveRift" then ch:Destroy() end
-                                    end
-                                end
-                                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-                                local mainUI = pGui and pGui:FindFirstChild("MainUI")
-                                if mainUI and mainUI:FindFirstChild("GiftRevive") then
-                                    mainUI.GiftRevive.Visible = false
-                                end
-                                local ch = getChar()
-                                if ch then ch:SetAttribute("Alive", true) end
-                            end)
-                            return
-                        end
-                        return oldFn(...)
-                    end))
-                end
-            end
-        end
-    end)
+    -- Note: PlayerDied hook removed per daddy's instruction.
+    -- Natural DOORS death cutscenes, Guiding Light hints, and death messages now play cleanly with zero desync!
 end
 
 -- Absolute Glitch & Void Deflection Shield (Zero Glitch Invariant: Map & Noclip Immune)
@@ -4940,52 +4907,31 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
 
 
-    -- UNIVERSAL ENTITY IMMUNITY SHIELD (Zero special-casing: protects against ALL entities!)
-    -- Glitch, Rush, Glitch Rush, Ambush, A-60, A-120, Dread, Seek, Figure, Snare, Dupe, Halt, etc.
-    if true then -- ALWAYS ACTIVE UNIVERSAL ENTITY IMMUNITY SHIELD
-        if mgTable then
-            if mgTable.deathtick then mgTable.deathtick = tick() + 999999 end
-            if mgTable.dead then mgTable.dead = false end
-            if mgTable.humdead then mgTable.humdead = false end
-            if mgTable.stunned then mgTable.stunned = false end
-        end
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then
-            if hum:GetStateEnabled(Enum.HumanoidStateType.Dead) then
-                hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-            end
-            if hum.Health < 100 then
-                hum.Health = 100
-            end
-        end
-        -- UNIVERSAL INTERACTIVITY & TRIGGER RECEPTOR WITH NoPlayer COLLISION GROUP:
-        -- TouchPlayer (Rush, Ambush, Seek hitboxes) CANNOT collide with NoPlayer!
-        -- Meanwhile CanTouch & CanQuery remain true so doors and prompts work flawlessly!
-        if char then
-            local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
-            local targetGroup = isCrouching and "PlayerCrouching" or "NoPlayer"
-            local coll = char:FindFirstChild("Collision")
-            local cc = coll and coll:FindFirstChild("CollisionCrouch")
-            local cp = char:FindFirstChild("CollisionPart")
+    -- Character Collision & Prompt Interactivity Receptors:
+    if char then
+        local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
+        local targetGroup = isCrouching and "PlayerCrouching" or "NoPlayer"
+        local coll = char:FindFirstChild("Collision")
+        local cc = coll and coll:FindFirstChild("CollisionCrouch")
+        local cp = char:FindFirstChild("CollisionPart")
 
-            if isCrouching then
-                if coll and coll.CanCollide then coll.CanCollide = false end
-                if cc and not cc.CanCollide then cc.CanCollide = true end
-                if cp and cp.CanCollide then cp.CanCollide = false end
-            else
-                if coll and not coll.CanCollide then coll.CanCollide = true end
-                if cc and cc.CanCollide then cc.CanCollide = false end
-                if cp and cp.CanCollide then cp.CanCollide = false end
-            end
+        if isCrouching then
+            if coll and coll.CanCollide then coll.CanCollide = false end
+            if cc and not cc.CanCollide then cc.CanCollide = true end
+            if cp and cp.CanCollide then cp.CanCollide = false end
+        else
+            if coll and not coll.CanCollide then coll.CanCollide = true end
+            if cc and cc.CanCollide then cc.CanCollide = false end
+            if cp and cp.CanCollide then cp.CanCollide = false end
+        end
 
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    if p.CollisionGroup ~= targetGroup then
-                        pcall(function() p.CollisionGroup = targetGroup end)
-                    end
-                    if not p.CanTouch then p.CanTouch = true end
-                    if not p.CanQuery then p.CanQuery = true end
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                if p.CollisionGroup ~= targetGroup then
+                    pcall(function() p.CollisionGroup = targetGroup end)
                 end
+                if not p.CanTouch then p.CanTouch = true end
+                if not p.CanQuery then p.CanQuery = true end
             end
         end
     end
@@ -4995,52 +4941,25 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
 
 
-        -- Precision First-Person & Fly Noclip Visibility Engine:
-        -- ONLY hide Head, head Decals, Accessories, and Collision hitboxes from the local camera!
-        local head = char:FindFirstChild("Head")
-        if head and head:IsA("BasePart") then
-            head.LocalTransparencyModifier = 1
-            for _, d in ipairs(head:GetChildren()) do
-                if d:IsA("Decal") then d.Transparency = 1 end
-            end
-        end
-        for _, acc in ipairs(char:GetChildren()) do
-            if acc:IsA("Accessory") then
-                for _, accPart in ipairs(acc:GetDescendants()) do
+        -- Precision First-Person Camera & Viewmodel Integrity Shield:
+        -- In DOORS native first-person view, the player's physical character body (Head, Decals, Torso, Arms, Legs, Accessories)
+        -- MUST have LocalTransparencyModifier = 1 so no black torso dome or floating limbs EVER clip into the camera!
+        -- DOORS natively renders and animates the viewmodel (cam.BaseRig) with held items, textures, and proper hand placement.
+        for _, p in ipairs(char:GetChildren()) do
+            if p:IsA("BasePart") then
+                p.LocalTransparencyModifier = 1
+                local pLower = p.Name:lower()
+                if pLower == "head" then
+                    for _, d in ipairs(p:GetChildren()) do
+                        if d:IsA("Decal") then d.Transparency = 1 end
+                    end
+                elseif pLower:find("collision") or pLower == "humanoidrootpart" then
+                    p.Transparency = 1
+                end
+            elseif p:IsA("Accessory") then
+                for _, accPart in ipairs(p:GetDescendants()) do
                     if accPart:IsA("BasePart") then
                         accPart.LocalTransparencyModifier = 1
-                    end
-                end
-            end
-        end
-        local coll = char:FindFirstChild("Collision")
-        if coll and coll:IsA("BasePart") then coll.Transparency = 1 end
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if rootPart and rootPart:IsA("BasePart") then rootPart.Transparency = 1 end
-
-        -- Force Torso, Arms, Legs, and equipped Tools to remain 100% visible even during Fly Noclip!
-        -- Defeats DOORS native hideplayers = -2 spectate override during flight!
-        if State.Noclip then
-            for _, p in ipairs(char:GetChildren()) do
-                if p:IsA("BasePart") then
-                    local pLower = p.Name:lower()
-                    if pLower:find("torso") or pLower:find("arm") or pLower:find("leg") or pLower:find("hand") or pLower:find("foot") then
-                        p.LocalTransparencyModifier = 0
-                    end
-                elseif p:IsA("Tool") then
-                    for _, tp in ipairs(p:GetDescendants()) do
-                        if tp:IsA("BasePart") and tp.Name ~= "Handle" then
-                            tp.LocalTransparencyModifier = 0
-                        end
-                    end
-                end
-            end
-            local cam = Workspace.CurrentCamera
-            local baseRig = cam and cam:FindFirstChild("BaseRig")
-            if baseRig then
-                for _, bp in ipairs(baseRig:GetDescendants()) do
-                    if bp:IsA("BasePart") then
-                        bp.LocalTransparencyModifier = 0
                     end
                 end
             end
@@ -7040,13 +6959,7 @@ local mainTab = Hub.CreateTab("Main", {
 
 Hub.CreateSection(mainTab, "Autonomous 1-100 Doors Completer")
 
-    Hub.CreateToggle(mainTab, "God Mode", State.God_Mode, function(v)
-        State.God_Mode = v
-        if v then
-            initGodModeImmunity()
-        end
-        Hub.Notify("Immunity", v and "God Mode: Enabled (Universal Invulnerability)" or "God Mode: Disabled", 2)
-    end)
+    -- God Mode UI toggle removed per daddy's instruction
 
     Hub.CreateToggle(mainTab, "Anti Figure Hearing", State.Anti_Figure_Hearing, function(v)
         State.Anti_Figure_Hearing = v
