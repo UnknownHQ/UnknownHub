@@ -5305,6 +5305,17 @@ local function applyPromptModifications(prompt)
         prompt.HoldDuration = 0.25
         prompt.RequiresLineOfSight = false
         if not prompt.Enabled then prompt.Enabled = true end
+    elseif isDrawerOrContainer then
+        -- CRITICAL DRAWER FIX: Server strictly rejects drawer activation beyond 6.5 studs!
+        -- Clamping to 6.5 guarantees client triggers only within server reach, preventing false prompt disappearance!
+        prompt.MaxActivationDistance = 6.5
+        prompt.RequiresLineOfSight = false
+        if State.Instant_Interact then
+            prompt.HoldDuration = 0
+        else
+            local origHold = prompt:GetAttribute("OrigHold") or 0
+            prompt.HoldDuration = origHold
+        end
     elseif isDoorPrompt then
         prompt.RequiresLineOfSight = false
     else
@@ -5331,6 +5342,48 @@ local function refreshAllPrompts()
         end
     end
 end
+
+-- Drawer Guardian Daemon: Prevents drawer prompts from vanishing before opening & auto-loots drawer contents
+task.spawn(function()
+    while _G.DOORS_SESSION == currentSession do
+        task.wait(0.25)
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, rm in ipairs(curRooms:GetChildren()) do
+                for _, desc in ipairs(rm:GetDescendants()) do
+                    if desc.Name == "DrawerContainer" then
+                        local knobs = desc:FindFirstChild("Knobs")
+                        local prompt = knobs and knobs:FindFirstChildWhichIsA("ProximityPrompt")
+                        local main = desc:FindFirstChild("Main")
+                        local holder = desc:FindFirstChild("Holder")
+                        local isOpen = (main and holder) and (main.Position - holder.Position).Magnitude > 0.4
+                        if prompt then
+                            if not isOpen then
+                                if not prompt.Enabled then
+                                    prompt.Enabled = true
+                                end
+                                prompt.MaxActivationDistance = 6.5
+                                prompt.RequiresLineOfSight = false
+                            else
+                                -- Drawer is open: immediately loot all items & gold inside
+                                local lootHolder = desc:FindFirstChild("LootHolder")
+                                if lootHolder then
+                                    for _, lDesc in ipairs(lootHolder:GetDescendants()) do
+                                        if lDesc:IsA("ProximityPrompt") and lDesc.Enabled then
+                                            lDesc.RequiresLineOfSight = false
+                                            lDesc.MaxActivationDistance = 14
+                                            pcall(function() fireproximityprompt(lDesc) end)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
 
 -- Hook new prompts dynamically and ensure immediate optimization on load & room transition
 Workspace.DescendantAdded:Connect(function(desc)
@@ -5684,7 +5737,7 @@ task.spawn(function()
                                     local dist = (rootPos - pPart.Position).Magnitude
                                     local pObj = (prompt.ObjectText or ""):lower()
                                     local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
-                                    local promptReach = isDrawerOrContainer and math.clamp(maxDist, 9, 12) or maxDist
+                                    local promptReach = isDrawerOrContainer and 6.0 or maxDist
                                     if dist <= promptReach then
                                         if isPromptSafeToAutoInteract(prompt) then
                                             promptDebounce[prompt] = now + 0.4
@@ -8307,7 +8360,8 @@ local inputConn2; inputConn2 = UserInputService.InputBegan:Connect(function(inpu
                             if pPart then
                                 local toPart = (pPart.Position - rPos)
                                 local dist = toPart.Magnitude
-                                local maxReach = 9.0 -- TIGHT CONSTRAINED REACH: Prevents interacting with far objects!
+                                local isDrawerPrompt = pObj:find("drawer") or pObj:find("desk") or parentName:find("knob")
+                                local maxReach = isDrawerPrompt and 6.5 or 9.0 -- Strictly enforce 6.5 studs for drawers to match server range!
                                 if dist <= maxReach then
                                     local dir = toPart.Unit
                                     local dot = lookVec:Dot(dir)
