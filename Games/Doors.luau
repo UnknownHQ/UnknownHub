@@ -180,7 +180,7 @@ local State = {
     Target_Room_Number = 10,
 
     -- Main / Interactions
-    Instant_Interact = false,
+    Instant_Interact = true,
     Noclip_Interact = false,
     Range_Interact = false,
     Interact_MaxRange = 12,
@@ -2703,6 +2703,57 @@ pcall(function()
 end)
 
 -- Dynamic Workspace Drops & Entity Spawning Listeners
+-- Hook LiveEntities folder and all descendant spawns for frame-0 hitbox defusal
+local function monitorEntitiesFolder(folder)
+    if not folder then return end
+    folder.ChildAdded:Connect(function(child)
+        local lower = child.Name:lower()
+        local isLethal = lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120") or lower:find("seek") or lower:find("figure") or lower:find("grumble") or lower:find("giggle") or lower:find("gloombat") or lower:find("dread")
+        if isLethal then
+            defuseLethalEntity(child)
+        end
+    end)
+    folder.DescendantAdded:Connect(function(desc)
+        if desc:IsA("TouchTransmitter") then
+            local parentModel = desc:FindFirstAncestorOfClass("Model")
+            if parentModel then
+                local lower = parentModel.Name:lower()
+                if lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120") or lower:find("seek") or lower:find("figure") or lower:find("giggle") or lower:find("gloombat") then
+                    pcall(function() desc:Destroy() end)
+                end
+            end
+        end
+    end)
+end
+
+pcall(function()
+    local liveEntities = Workspace:WaitForChild("LiveEntities", 5)
+    if liveEntities then
+        monitorEntitiesFolder(liveEntities)
+    end
+end)
+
+-- Continuous 20Hz Entity Defusal Daemon: Guarantees zero entities can kill player inside or outside the map!
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        pcall(function()
+            local searchContainers = {Workspace:FindFirstChild("LiveEntities"), Workspace, Workspace:FindFirstChild("CurrentRooms")}
+            for _, container in ipairs(searchContainers) do
+                if container then
+                    for _, child in ipairs(container:GetChildren()) do
+                        local lower = child.Name:lower()
+                        if lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120") or lower:find("seek") or lower:find("figure") or lower:find("grumble") or lower:find("giggle") or lower:find("gloombat") or lower:find("dread") then
+                            defuseLethalEntity(child)
+                        end
+                    end
+                end
+            end
+        end)
+        task.wait(0.05)
+    end
+end)
+
 Workspace.ChildAdded:Connect(function(child)
     task.wait(0.05)
     if child:IsA("Model") or child:IsA("Tool") then
@@ -4790,12 +4841,13 @@ RunService.Heartbeat:Connect(function(dt)
         if hum and hum.Health < 100 and hum.Health > 0 then
             hum.Health = 100
         end
-        -- TOUCH PRESERVATION: Ensure CanTouch & CanQuery are ALWAYS true across all character parts!
+        -- UNIVERSAL TOUCH IMMUNITY: Completely strip CanTouch on character parts!
+        -- Eradicates all monster kill triggers (.Touched) from Rush, Ambush, Seek, A-60 when noclipping, flying, or out of map!
         if char then
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if not p.CanTouch then p.CanTouch = true end
-                    if not p.CanQuery then p.CanQuery = true end
+                    if p.CanTouch then p.CanTouch = false end
+                    if not p.CanQuery then p.CanQuery = true end -- Preserves raycast queries & proximity interactions!
                 end
             end
         end
@@ -5148,6 +5200,41 @@ pcall(function()
     local pps = game:GetService("ProximityPromptService")
     pps.PromptShown:Connect(function(prompt)
         pcall(function() applyPromptModifications(prompt) end)
+    end)
+end)
+
+-- =========================================================================
+-- PROMPTGATE BYPASS & ZERO-DELAY INSTANT INTERACT ENGINE
+-- =========================================================================
+pcall(function()
+    local ps = LocalPlayer:WaitForChild("PlayerScripts", 5)
+    local promptService = ps and ps:WaitForChild("PromptService", 5)
+    local promptGateModule = promptService and promptService:WaitForChild("PromptGate", 5)
+    if promptGateModule then
+        local PromptGate = require(promptGateModule)
+        if PromptGate and PromptGate.isHidden then
+            local origIsHidden = PromptGate.isHidden
+            PromptGate.isHidden = function(prompt, ...)
+                if State.Instant_Interact or State.Noclip or State.Noclip_Interact then
+                    return false -- Completely bypasses DOORS custom LOS, Facing, Sector, and Crouch gates!
+                end
+                return origIsHidden(prompt, ...)
+            end
+        end
+    end
+end)
+
+-- Frame-0 Immediate Prompt Trigger: Fires the exact millisecond KeyCode.E is pressed down!
+pcall(function()
+    local pps = game:GetService("ProximityPromptService")
+    pps.PromptButtonHoldBegan:Connect(function(prompt, player)
+        if player == LocalPlayer and (State.Instant_Interact or State.Noclip) then
+            pcall(function()
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                end
+            end)
+        end
     end)
 end)
 
