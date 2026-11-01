@@ -2113,84 +2113,9 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    if not Config.AutoFarmBears or isFleeingLowHP then
-        -- Restore collision when not farming or flying
-        if not Config.FlyNoclip and not root.CanCollide then
-            root.CanCollide = true
-        end
-        return
+    if not Config.FlyNoclip and not root.CanCollide then
+        root.CanCollide = true
     end
-
-    -- During active flight farming, suppress touch to avoid damage from bear parts, but keep limb collisions intact
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") and p.CanTouch then
-            pcall(function() p.CanTouch = false end)
-        end
-    end
-
-    local bear = activeFlightBear
-    if not bear or not bear.Parent then return end
-
-    local bearHum = bear:FindFirstChildOfClass("Humanoid")
-    if not bearHum or bearHum.Health <= 0 then return end
-
-    local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
-    if not bearRoot or not bearRoot.Parent then return end
-
-    local lookVec = bearRoot.CFrame.LookVector
-    -- Strictly project look vector onto horizontal XZ plane to prevent topples or pitch from collapsing standoff
-    local flatLook = Vector3.new(lookVec.X, 0, lookVec.Z)
-    if flatLook.Magnitude < 0.1 then
-        flatLook = Vector3.new(bearRoot.CFrame.RightVector.Z, 0, -bearRoot.CFrame.RightVector.X)
-        if flatLook.Magnitude < 0.1 then
-            flatLook = Vector3.new(0, 0, -1)
-        end
-    end
-    flatLook = flatLook.Unit
-
-    local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
-    if not centerPos then return end
-
-    local bearNameLower = bear.Name:lower()
-    local isLaser = bearNameLower:find("laser") ~= nil or bearNameLower:find("roboo") ~= nil or bearNameLower:find("robo") ~= nil
-    local isBoss = bearNameLower:find("grinder") ~= nil or bearNameLower:find("boss") ~= nil or isLaser
-    local isWall = bearNameLower:find("wall") ~= nil
-    local isRanged = bearNameLower:find("ranged") ~= nil or bearNameLower:find("spike") ~= nil
-
-    local desiredCF = nil
-    if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
-        -- Hover directly above bear apex blindspot: zero horizontal orbiting, safe from all frontal claws/bites
-        local hoverPos = Vector3.new(centerPos.X, targetY, centerPos.Z)
-        desiredCF = CFrame.lookAt(hoverPos, centerPos)
-    elseif Config.FarmMethod == "Gun" then
-        local cf, bbSize = bear:GetBoundingBox()
-        local isShotgunEquipped = false
-        local equippedTool = char:FindFirstChildOfClass("Tool")
-        if equippedTool and equippedTool.Name:lower():find("shotgun") then
-            isShotgunEquipped = true
-        end
-
-        -- Stable apex hovering directly above bear (eliminates erratic circle flying and teleport stutter)
-        local heightAboveGun = isShotgunEquipped and math.clamp(bbSize.Y * 0.5 + 3.5, 5.0, 8.0)
-            or ((isBoss or isWall) and (bbSize.Y * 0.5 + 18.0) or math.max(11.0, bbSize.Y * 0.6 + 5.0))
-        local hoverPos = Vector3.new(centerPos.X, centerPos.Y + heightAboveGun, centerPos.Z)
-        desiredCF = CFrame.lookAt(hoverPos, centerPos)
-    end
-
-    if desiredCF then
-        local distToTarget = (root.Position - desiredCF.Position).Magnitude
-        if distToTarget > 80 then
-            -- Long-range target transition
-            root.CFrame = desiredCF
-        else
-            -- 60 FPS butter-smooth gliding lerp: zero terrifying snapping or teleport stutter
-            local alpha = math.clamp(dt * 14, 0.16, 0.55)
-            root.CFrame = root.CFrame:Lerp(desiredCF, alpha)
-        end
-    end
-
-    root.AssemblyLinearVelocity = Vector3.zero
-    root.AssemblyAngularVelocity = Vector3.zero
 end)
 
 -- Pipeline 2: Autonomous Combat & Target Acquisition Loop
@@ -2331,16 +2256,19 @@ task.spawn(function()
             continue
         end
 
-        activeFlightBear = bear
+        -- Grounded Blindspot Positioning: Stay behind the bear at ground level (ZERO flying in the air)
+        local bearCF = bearRoot.CFrame
+        local flatLook = Vector3.new(bearCF.LookVector.X, 0, bearCF.LookVector.Z)
+        if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
 
-        -- Acquire target position and update active flight bear
-        local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
-        if (root.Position - centerPos).Magnitude > 80 then
-            local initialPos = Vector3.new(centerPos.X, targetY, centerPos.Z)
-            root.CFrame = CFrame.lookAt(initialPos, centerPos)
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-        end
+        local distBehind = (Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack") and 3.5 or 9.0
+        local targetPos = bearRoot.Position - (flatLook * distBehind)
+        targetPos = Vector3.new(targetPos.X, bearRoot.Position.Y, targetPos.Z)
+
+        -- Keep character completely upright (pitch = 0) looking at the bear
+        root.CFrame = CFrame.lookAt(targetPos, Vector3.new(bearRoot.Position.X, targetPos.Y, bearRoot.Position.Z))
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
 
         -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved, Melee Reach Guaranteed & Flamethrower)
         if Config.FarmMethod == "Melee" then
