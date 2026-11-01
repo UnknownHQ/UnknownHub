@@ -2414,7 +2414,8 @@ local function startFlyNoclip()
         end)
     end
 
-    -- 2. Butter-Smooth Flight Engine with Network-Synchronized Linear Velocity (Eliminates physics rubberbands)
+    -- 2. Butter-Smooth Flight Engine with Damped Inertia & Camera Alignment
+    local flyVelocity = Vector3.zero
     flyConnection = RunService.RenderStepped:Connect(function(dt)
         if not Config.FlyNoclip then return end
         local char = LocalPlayer.Character
@@ -2430,26 +2431,32 @@ local function startFlyNoclip()
         local camera = Workspace.CurrentCamera
         if not camera then return end
 
-        local moveDir = Vector3.zero
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camera.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camera.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        local targetDir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then targetDir = targetDir + camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then targetDir = targetDir - camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then targetDir = targetDir + camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then targetDir = targetDir - camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then targetDir = targetDir + Vector3.new(0, 1, 0) end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-            moveDir = moveDir - Vector3.new(0, 1, 0)
+            targetDir = targetDir - Vector3.new(0, 1, 0)
         end
 
         local speed = Config.FlySpeed or 45
-        if moveDir.Magnitude > 0 then
-            local unitDir = moveDir.Unit
-            root.CFrame = root.CFrame + (unitDir * speed * dt)
-            -- Synchronize assembly velocity to match displacement: server reconciler sees consistent physics!
-            root.AssemblyLinearVelocity = unitDir * speed
-        else
-            root.AssemblyLinearVelocity = Vector3.zero
+        local targetVelocity = (targetDir.Magnitude > 0) and (targetDir.Unit * speed) or Vector3.zero
+        flyVelocity = flyVelocity:Lerp(targetVelocity, math.clamp(dt * 14, 0.15, 0.6))
+
+        if flyVelocity.Magnitude > 0.05 then
+            root.CFrame = root.CFrame + (flyVelocity * dt)
         end
 
+        local camLook = camera.CFrame.LookVector
+        local flatCamLook = Vector3.new(camLook.X, 0, camLook.Z)
+        if flatCamLook.Magnitude > 0.05 then
+            local targetCF = CFrame.lookAt(root.Position, root.Position + flatCamLook)
+            root.CFrame = root.CFrame:Lerp(targetCF, math.clamp(dt * 16, 0.2, 0.7))
+        end
+
+        root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
     end)
 end
