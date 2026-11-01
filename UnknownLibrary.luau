@@ -152,6 +152,8 @@ return function(opts)
     -- =========================================================================
     -- Main Window Shell (CanvasGroup for 100% Flawless Rounded Corner Clipping)
     -- =========================================================================
+    local registeredElements = {}
+    local registeredFlags = {}
     local mainFrame = Instance.new("CanvasGroup")
     mainFrame.Name = "MainWindow"
     mainFrame.Size = UDim2.new(0, winWidth, 0, winHeight)
@@ -501,23 +503,6 @@ return function(opts)
         })
     end
 
-    updatesBtn.MouseButton1Click:Connect(showUpdateLogModal)
-    Hub.ShowUpdateLog = showUpdateLogModal
-
-
-    searchInput:GetPropertyChangedSignal("Text"):Connect(function()
-        local q = searchInput.Text:lower():gsub("^%s*(.-)%s*$", "%1")
-        for _, elem in ipairs(Hub.RegisteredElements or {}) do
-            if elem.Card and elem.Card.Parent then
-                if q == "" then
-                    elem.Card.Visible = true
-                else
-                    elem.Card.Visible = (elem.Title:lower():find(q, 1, true) ~= nil)
-                end
-            end
-        end
-    end)
-
     -- Updates / Changelog Header Button
     local updatesBtn = Instance.new("TextButton")
     updatesBtn.Name = "UpdatesButton"
@@ -532,6 +517,22 @@ return function(opts)
     updatesBtn.Parent = header
     applyCorner(updatesBtn, 6)
     applyStroke(updatesBtn, primaryTheme, 1, 0.4)
+
+    updatesBtn.MouseButton1Click:Connect(showUpdateLogModal)
+    -- Hub.ShowUpdateLog assigned below after Hub table creation
+
+    searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+        local q = searchInput.Text:lower():gsub("^%s*(.-)%s*$", "%1")
+        for _, elem in ipairs(registeredElements) do
+            if elem.Card and elem.Card.Parent then
+                if q == "" then
+                    elem.Card.Visible = true
+                else
+                    elem.Card.Visible = (elem.Title:lower():find(q, 1, true) ~= nil)
+                end
+            end
+        end
+    end)
 
     -- Breadcrumb Title
     local breadcrumbTitle = Instance.new("TextLabel")
@@ -1086,8 +1087,8 @@ return function(opts)
         applyCorner(card, 8)
         local stroke = applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
 
-        table.insert(Hub.RegisteredElements, { Card = card, Title = tostring(titleText), Type = "Toggle" })
-        Hub.RegisteredFlags[tostring(titleText)] = {
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Toggle" })
+        registeredFlags[tostring(titleText)] = {
             Type = "Toggle",
             Get = function() return state end,
             Set = function(newVal)
@@ -2335,6 +2336,7 @@ return function(opts)
     -- Public API Hub Interface
     -- =========================================================================
     local Hub = {}
+    Hub.ShowUpdateLog = showUpdateLogModal
 
     -- Core GUI Elements
     Hub.screenGui = screenGui
@@ -2344,7 +2346,8 @@ return function(opts)
     Hub.content = contentArea
 
     -- Config System & Control Registry
-    Hub.RegisteredFlags = {}
+    Hub.RegisteredFlags = registeredFlags
+    Hub.RegisteredElements = registeredElements
     Hub.RegisteredElements = {}
 
     -- Universal Configuration Serializer (Profiles, Auto-Save & Auto-Load)
@@ -2358,7 +2361,7 @@ return function(opts)
             if not isfolder(folder) then makefolder(folder) end
         end)
         local data = {}
-        for flagName, flagObj in pairs(Hub.RegisteredFlags) do
+        for flagName, flagObj in pairs(registeredFlags) do
             local ok, val = pcall(flagObj.Get)
             if ok and val ~= nil then
                 data[flagName] = val
@@ -2391,7 +2394,7 @@ return function(opts)
             return false
         end
         for flagName, val in pairs(decoded) do
-            local flagObj = Hub.RegisteredFlags[flagName]
+            local flagObj = registeredFlags[flagName]
             if flagObj and flagObj.Set then
                 pcall(flagObj.Set, val)
             end
