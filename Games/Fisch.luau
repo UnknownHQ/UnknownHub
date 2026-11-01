@@ -201,6 +201,36 @@ pcall(function()
 end)
 
 --------------------------------------------------------------------------------
+-- 4.6. INFINITE OXYGEN & DROWNING PREVENTION ENGINE
+--------------------------------------------------------------------------------
+pcall(function()
+    local events = ReplicatedStorage:WaitForChild("events", 5)
+    local drownEvent = events and events:WaitForChild("drown", 5)
+    if drownEvent then
+        local origFire = drownEvent.FireServer
+        hookfunction(drownEvent.FireServer, function(self, ...)
+            if Config.InfiniteOxygen then
+                return
+            end
+            return origFire(self, ...)
+        end)
+    end
+end)
+
+pcall(function()
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() and Config.InfiniteOxygen then
+            if (method == "FireServer" or method == "fireServer") and (self.Name == "drown" or self.Name == "Drown") then
+                return
+            end
+        end
+        return oldNamecall(self, ...)
+    end)
+end)
+
+--------------------------------------------------------------------------------
 -- 5. HYPER-SPEED AUTOMATION ENGINE (INSTANT REEL & FAST SHAKE)
 --------------------------------------------------------------------------------
 local lastCastTick = 0
@@ -274,21 +304,31 @@ local function isRodCurrentlyCasted(rod)
     return false
 end
 
--- 1. Precision Auto Cast
+local function getActiveFarmTarget()
+    if Config.AutoFarmFish and currentTargetFish then
+        return currentTargetFish
+    elseif Config.AutoFarmItem and currentTargetItem then
+        return currentTargetItem
+    elseif Config.AutoFarmSpot and currentBestSpot then
+        return currentBestSpot
+    end
+    return nil
+end
+
+local isCasting = false
+-- 1. Precision Auto Cast (Async Safe, 100% Water-Facing, Zero Heartbeat Lag)
 local function executeCast()
+    if isCasting then return end
     if not (Config.AutoCast or Config.AutoFarmFish or Config.AutoFarmItem or Config.AutoFarmSpot) then return end
     if getActiveReel() ~= nil then return end
     if isShakingActive() then return end
-    -- Flight Debounce (4.0s): Never cancel a flying bobber or cast halfway!
-    if tick() - lastCastTick < 4.0 then return end
+    if tick() - lastCastTick < 3.5 then return end
     if tick() - lastCatchTick < 1.0 then return end
 
     local rod = ensureRodEquipped()
     if not rod then return end
 
-    -- STRICT GUARD: If rod is already in the water or waiting for bite, NEVER recast!
     if isRodCurrentlyCasted(rod) then
-        -- Watchdog: If casted but stuck for over 30 seconds with no bite, reset rod cleanly
         if tick() - lastCastTick > 30 then
             pcall(function()
                 local net = require(ReplicatedStorage.packages.Net)
@@ -299,14 +339,25 @@ local function executeCast()
         return
     end
 
-    pcall(function()
-        local castPower = math.clamp(Config.CastPower or 100, 10, 100)
-        local net = require(ReplicatedStorage.packages.Net)
-        local castRf = net:RemoteFunction("FishingRod/Cast", -1)
-        if castRf then
-            lastCastTick = tick()
-            castRf:InvokeServer(castPower, true)
-        end
+    isCasting = true
+    task.spawn(function()
+        pcall(function()
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local target = getActiveFarmTarget()
+            if root and target and target.LookAt then
+                root.CFrame = CFrame.lookAt(root.Position, Vector3.new(target.LookAt.X, root.Position.Y, target.LookAt.Z))
+            end
+
+            local castPower = math.clamp(Config.CastPower or 100, 10, 100)
+            local net = require(ReplicatedStorage.packages.Net)
+            local castRf = net:RemoteFunction("FishingRod/Cast", -1)
+            if castRf then
+                lastCastTick = tick()
+                castRf:InvokeServer(castPower, true)
+            end
+        end)
+        isCasting = false
     end)
 end
 
@@ -399,13 +450,24 @@ RunService.Heartbeat:Connect(function()
 
             if isShaking then
                 processShakeMinigame()
-            else
-                if Config.AutoCast then
-                    executeCast()
-                end
             end
         end
     end)
+end)
+
+
+-- Dedicated Crash-Proof Auto-Cast Worker
+task.spawn(function()
+    while true do
+        task.wait(0.25)
+        if Config.AutoCast or Config.AutoFarmFish or Config.AutoFarmItem or Config.AutoFarmSpot then
+            pcall(function()
+                if not getActiveReel() and not isShakingActive() then
+                    executeCast()
+                end
+            end)
+        end
+    end
 end)
 
 --------------------------------------------------------------------------------
@@ -474,6 +536,13 @@ RunService.RenderStepped:Connect(function()
             local char = LocalPlayer.Character
             if char and char:FindFirstChild("Oxygen") then
                 char.Oxygen.Value = 100
+            end
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            if pg then
+                local lo = pg:FindFirstChild("LowOxygen")
+                if lo and lo.Enabled then
+                    lo.Enabled = false
+                end
             end
         end
     end)
@@ -863,46 +932,46 @@ end
 -- TARGET FARM REGISTRIES (Fish, Items & Best Farming Spots)
 --------------------------------------------------------------------------------
 local TargetFishRegistry = {
-    { Name = "Colossal Squid", Zone = "The Depths", Pos = Vector3.new(990, -710, 1215), Bait = "Squid", Rod = "Magma Rod" },
-    { Name = "Megalodon", Zone = "Ancient Isle Deep", Pos = Vector3.new(6000, 150, 400), Bait = "Fish Head", Rod = "Destiny Rod" },
-    { Name = "Whispering Eel", Zone = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), Bait = "Truffle Worm", Rod = "Nocturnal Rod" },
-    { Name = "Phantom Ray", Zone = "The Depths Cave", Pos = Vector3.new(1200, -710, 1300), Bait = "Super Flakes", Rod = "Mythical Rod" },
-    { Name = "Magma Fish", Zone = "Roslit Volcano", Pos = Vector3.new(-1900, 165, 300), Bait = "Instant Catch", Rod = "Magma Rod" },
-    { Name = "Obsidian Salmon", Zone = "Roslit Volcano", Pos = Vector3.new(-1900, 165, 300), Bait = "Maggot", Rod = "Magma Rod" },
-    { Name = "Sunken Golden Fish", Zone = "Sunstone Lighthouse", Pos = Vector3.new(-900, 230, -1200), Bait = "Rapid Catch", Rod = "Midas Rod" },
-    { Name = "Voidfin Mahi", Zone = "Vertigo Entrance", Pos = Vector3.new(-110, -515, 1060), Bait = "Weird Algae", Rod = "Nocturnal Rod" },
-    { Name = "Abyssal Shark", Zone = "Forsaken Shores Deep", Pos = Vector3.new(-2500, 135, 1550), Bait = "Fish Head", Rod = "Carbon Rod" },
-    { Name = "Golden Seahorse", Zone = "Moosewood Docks", Pos = Vector3.new(358, 132, 199), Bait = "Seaweed", Rod = "Steady Rod" },
-    { Name = "Glacier Salmon", Zone = "Snowcap Lake", Pos = Vector3.new(2620, 150, 2400), Bait = "Shrimp", Rod = "Fast Rod" },
-    { Name = "Alligator", Zone = "Mushgrove Swamp", Pos = Vector3.new(2450, 135, -700), Bait = "Fish Head", Rod = "Kings Rod" },
-    { Name = "Barracuda", Zone = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), Bait = "Shrimp", Rod = "Rapid Rod" },
-    { Name = "Anglerfish", Zone = "The Depths Floor", Pos = Vector3.new(1050, -710, 1180), Bait = "Glowworm", Rod = "Nocturnal Rod" },
-    { Name = "Ancient Serpent", Zone = "Atlantis Trench", Pos = Vector3.new(-4250, -650, 1900), Bait = "Truffle Worm", Rod = "Destiny Rod" },
-    { Name = "Whale Shark", Zone = "Ocean Open Sea", Pos = Vector3.new(1000, 135, -1250), Bait = "Fish Head", Rod = "Trident Rod" }
+    { Name = "Colossal Squid", Zone = "The Depths", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Bait = "Squid", Rod = "Magma Rod" },
+    { Name = "Megalodon", Zone = "Ancient Isle Deep", Pos = Vector3.new(5950, 140, 360), LookAt = Vector3.new(6020, 140, 360), Bait = "Fish Head", Rod = "Destiny Rod" },
+    { Name = "Whispering Eel", Zone = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), LookAt = Vector3.new(-140, -510, 1150), Bait = "Truffle Worm", Rod = "Nocturnal Rod" },
+    { Name = "Phantom Ray", Zone = "The Depths Cave", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Bait = "Super Flakes", Rod = "Mythical Rod" },
+    { Name = "Magma Fish", Zone = "Roslit Volcano", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Bait = "Instant Catch", Rod = "Magma Rod" },
+    { Name = "Obsidian Salmon", Zone = "Roslit Volcano", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Bait = "Maggot", Rod = "Magma Rod" },
+    { Name = "Sunken Golden Fish", Zone = "Sunstone Lighthouse", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Bait = "Rapid Catch", Rod = "Midas Rod" },
+    { Name = "Voidfin Mahi", Zone = "Vertigo Entrance", Pos = Vector3.new(-140, -510, 1090), LookAt = Vector3.new(-140, -510, 1150), Bait = "Weird Algae", Rod = "Nocturnal Rod" },
+    { Name = "Abyssal Shark", Zone = "Forsaken Shores Deep", Pos = Vector3.new(-2500, 135, 1550), LookAt = Vector3.new(-2560, 135, 1550), Bait = "Fish Head", Rod = "Carbon Rod" },
+    { Name = "Golden Seahorse", Zone = "Moosewood Docks", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Bait = "Seaweed", Rod = "Steady Rod" },
+    { Name = "Glacier Salmon", Zone = "Snowcap Lake", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Bait = "Shrimp", Rod = "Fast Rod" },
+    { Name = "Alligator", Zone = "Mushgrove Swamp", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Bait = "Fish Head", Rod = "Kings Rod" },
+    { Name = "Barracuda", Zone = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), LookAt = Vector3.new(-3620, 135, 450), Bait = "Shrimp", Rod = "Rapid Rod" },
+    { Name = "Anglerfish", Zone = "The Depths Floor", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Bait = "Glowworm", Rod = "Nocturnal Rod" },
+    { Name = "Ancient Serpent", Zone = "Atlantis Trench", Pos = Vector3.new(-4006, -694, 1012), LookAt = Vector3.new(-4080, -694, 1012), Bait = "Truffle Worm", Rod = "Destiny Rod" },
+    { Name = "Whale Shark", Zone = "Ocean Open Sea", Pos = Vector3.new(1000, 135, -1250), LookAt = Vector3.new(1000, 135, -1320), Bait = "Fish Head", Rod = "Trident Rod" }
 }
 
 local TargetItemRegistry = {
-    { Name = "Bait Crate", Pos = Vector3.new(358, 132, 199), Spot = "Moosewood Docks", RecommendedBait = "Magnet" },
-    { Name = "Quality Bait Crate", Pos = Vector3.new(2620, 150, 2400), Spot = "Snowcap Island", RecommendedBait = "Magnet" },
-    { Name = "Carbon Crate", Pos = Vector3.new(-1480, 135, 680), Spot = "Roslit Bay", RecommendedBait = "Magnet" },
-    { Name = "Volcanic Geode", Pos = Vector3.new(-1900, 165, 300), Spot = "Roslit Volcano", RecommendedBait = "Magnet" },
-    { Name = "Encrusted Geode", Pos = Vector3.new(990, -710, 1215), Spot = "The Depths", RecommendedBait = "Magnet" },
-    { Name = "Strange Relic", Pos = Vector3.new(6000, 150, 400), Spot = "Ancient Isle", RecommendedBait = "Super Flakes" },
-    { Name = "Sunken Treasure Chest", Pos = Vector3.new(-946, 131, -1117), Spot = "Sunstone Docks", RecommendedBait = "Magnet" },
-    { Name = "Prehistoric Fossil", Pos = Vector3.new(2450, 135, -700), Spot = "Mushgrove Swamp", RecommendedBait = "Magnet" }
+    { Name = "Bait Crate", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Spot = "Moosewood Docks", RecommendedBait = "Magnet" },
+    { Name = "Quality Bait Crate", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Spot = "Snowcap Lake", RecommendedBait = "Magnet" },
+    { Name = "Carbon Crate", Pos = Vector3.new(-1480, 133, 715), LookAt = Vector3.new(-1540, 133, 715), Spot = "Roslit Bay Pier", RecommendedBait = "Magnet" },
+    { Name = "Volcanic Geode", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Spot = "Roslit Volcano Ledge", RecommendedBait = "Magnet" },
+    { Name = "Encrusted Geode", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Spot = "The Depths Trench", RecommendedBait = "Magnet" },
+    { Name = "Strange Relic", Pos = Vector3.new(5950, 140, 360), LookAt = Vector3.new(6020, 140, 360), Spot = "Ancient Isle Shore", RecommendedBait = "Super Flakes" },
+    { Name = "Sunken Treasure Chest", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Spot = "Sunstone Docks", RecommendedBait = "Magnet" },
+    { Name = "Prehistoric Fossil", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Spot = "Mushgrove Swamp", RecommendedBait = "Magnet" }
 }
 
 local BestSpotsRegistry = {
-    { Name = "Moosewood Docks", Pos = Vector3.new(382, 134, 240), Description = "Fastest Starter Bite Rate & 100% Safe" },
-    { Name = "Sunstone Lighthouse Cliff", Pos = Vector3.new(-900, 230, -1200), Description = "Daylight Golden Variants" },
-    { Name = "Roslit Volcano Ledge", Pos = Vector3.new(-1900, 332, 300), Description = "Top C$ Magma Fish (Safe Upper Ledge)" },
-    { Name = "The Depths Trench", Pos = Vector3.new(990, -710, 1215), Description = "Colossal Squid & Abyssal Legendaries" },
-    { Name = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), Description = "Max Catch XP & Relics" },
-    { Name = "Ancient Isle Shore", Pos = Vector3.new(6000, 150, 400), Description = "Megalodon Apex Hotspot" },
-    { Name = "Snowcap Island Lake", Pos = Vector3.new(2620, 150, 2400), Description = "Glacial Catches & High Crates" },
-    { Name = "Brine Pool", Pos = Vector3.new(-1790, -143, -3400), Description = "Alchemical Catches" },
-    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), Description = "Tropical Exotics & Whale Shark" },
-    { Name = "Mushgrove Deep", Pos = Vector3.new(2450, 135, -700), Description = "Ancient Swamp Biome" }
+    { Name = "Moosewood Docks", Pos = Vector3.new(382, 134, 240), LookAt = Vector3.new(382, 134, 320), Description = "Fastest Starter Bite Rate & 100% Safe" },
+    { Name = "Sunstone Lighthouse Cliff", Pos = Vector3.new(-946, 133, -1117), LookAt = Vector3.new(-980, 133, -1180), Description = "Daylight Golden Variants & Sunken Chests" },
+    { Name = "Roslit Volcano Ledge", Pos = Vector3.new(-1910, 166, 310), LookAt = Vector3.new(-1950, 166, 350), Description = "Top C$ Magma Fish (Safe Upper Ledge)" },
+    { Name = "The Depths Trench", Pos = Vector3.new(990, -710, 1215), LookAt = Vector3.new(990, -710, 1280), Description = "Colossal Squid & Abyssal Legendaries" },
+    { Name = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), LookAt = Vector3.new(-140, -510, 1150), Description = "Max Catch XP & Relics" },
+    { Name = "Ancient Isle Shore", Pos = Vector3.new(5950, 140, 360), LookAt = Vector3.new(6020, 140, 360), Description = "Megalodon Apex Hotspot" },
+    { Name = "Snowcap Island Lake", Pos = Vector3.new(2620, 142, 2400), LookAt = Vector3.new(2620, 142, 2460), Description = "Glacial Catches & High Crates" },
+    { Name = "Brine Pool", Pos = Vector3.new(-1790, -143, -3400), LookAt = Vector3.new(-1790, -143, -3460), Description = "Alchemical Catches" },
+    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), LookAt = Vector3.new(-3620, 135, 450), Description = "Tropical Exotics & Whale Shark" },
+    { Name = "Mushgrove Deep", Pos = Vector3.new(2450, 134, -700), LookAt = Vector3.new(2450, 134, -760), Description = "Ancient Swamp Biome" }
 }
 
 local currentTargetFish = TargetFishRegistry[1]
@@ -923,7 +992,7 @@ local function equipBaitRemote(baitName)
     end)
 end
 
--- Autonomous Target Farm Anchor & Position Guardian
+-- Autonomous Target Farm Anchor & Position Guardian (Water-Oriented & Anti-Void)
 task.spawn(function()
     while true do
         task.wait(1)
@@ -932,47 +1001,40 @@ task.spawn(function()
             local root = char and char:FindFirstChild("HumanoidRootPart")
             if not root then return end
 
-            local activeTargetPos = nil
-            if Config.AutoFarmFish and currentTargetFish then
-                activeTargetPos = currentTargetFish.Pos
-            elseif Config.AutoFarmItem and currentTargetItem then
-                activeTargetPos = currentTargetItem.Pos
-            elseif Config.AutoFarmSpot and currentBestSpot then
-                activeTargetPos = currentBestSpot.Pos
-            end
-
-            if activeTargetPos then
-                local dist = (root.Position - activeTargetPos).Magnitude
-                if dist > 35 or root.Position.Y < activeTargetPos.Y - 15 then
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
-                    root.CFrame = CFrame.new(activeTargetPos + Vector3.new(0, 3.5, 0))
+            local target = getActiveFarmTarget()
+            if target and target.Pos then
+                local dist = (root.Position - target.Pos).Magnitude
+                if dist > 35 or root.Position.Y < target.Pos.Y - 15 then
+                    safeTeleport(target.Pos, target.LookAt)
                 end
             end
         end)
     end
 end)
 local IslandRegistry = {
-    { Name = "Moosewood", Pos = Vector3.new(380, 135, 230) },
-    { Name = "Roslit Bay", Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Sunstone Island", Pos = Vector3.new(-930, 220, -1120) },
-    { Name = "Terrapin Island", Pos = Vector3.new(-180, 140, 1950) },
-    { Name = "Snowcap Island", Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Vertigo (Depths Entrance)", Pos = Vector3.new(-110, -515, 1060) },
-    { Name = "The Depths", Pos = Vector3.new(990, -710, 1215) },
-    { Name = "Desolate Deep", Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "The Arch", Pos = Vector3.new(1000, 135, -1250) },
-    { Name = "Mushgrove Swamp", Pos = Vector3.new(2450, 135, -700) },
-    { Name = "Keepers Altar", Pos = Vector3.new(1300, -805, -250) },
-    { Name = "Brine Pool", Pos = Vector3.new(-1790, -143, -3400) },
-    { Name = "Forsaken Shores", Pos = Vector3.new(-2500, 135, 1550) },
-    { Name = "Ancient Isle", Pos = Vector3.new(6000, 150, 400) },
-    { Name = "Atlantis", Pos = Vector3.new(-4250, -650, 1900) },
-    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450) },
-    { Name = "Ethereal Abyss", Pos = Vector3.new(-1400, -1100, -3200) },
-    { Name = "Scoria Reach", Pos = Vector3.new(-1750, 175, 450) },
-    { Name = "Cursed Isle", Pos = Vector3.new(1450, 135, 3500) },
-    { Name = "Statue of Sovereign", Pos = Vector3.new(25, 135, -1000) }
+    { Name = "Moosewood", Pos = Vector3.new(467, 150, 230), LookAt = Vector3.new(382, 134, 240) },
+    { Name = "Roslit Bay", Pos = Vector3.new(-1460, 149, 701), LookAt = Vector3.new(-1480, 133, 715) },
+    { Name = "Sunstone Island", Pos = Vector3.new(-947, 135, -1120), LookAt = Vector3.new(-946, 133, -1117) },
+    { Name = "Terrapin Island", Pos = Vector3.new(57, 149, 1939), LookAt = Vector3.new(57, 135, 2000) },
+    { Name = "Snowcap Island", Pos = Vector3.new(2620, 150, 2400), LookAt = Vector3.new(2620, 142, 2460) },
+    { Name = "Mushgrove Swamp", Pos = Vector3.new(2697, 164, -757), LookAt = Vector3.new(2450, 134, -760) },
+    { Name = "Ancient Isle", Pos = Vector3.new(5942, 150, 338), LookAt = Vector3.new(6020, 140, 360) },
+    { Name = "Forsaken Shores", Pos = Vector3.new(-3017, 150, 1627), LookAt = Vector3.new(-2560, 135, 1550) },
+    { Name = "Brine Pool", Pos = Vector3.new(-1788, -119, -3385), LookAt = Vector3.new(-1790, -143, -3460) },
+    { Name = "Desolate Deep", Pos = Vector3.new(-1642, -182, -2843), LookAt = Vector3.new(-1642, -182, -2890) },
+    { Name = "The Depths", Pos = Vector3.new(999, -749, 1307), LookAt = Vector3.new(990, -710, 1280) },
+    { Name = "Vertigo (Depths Entrance)", Pos = Vector3.new(-46, -718, 1403), LookAt = Vector3.new(-140, -510, 1150) },
+    { Name = "Atlantis", Pos = Vector3.new(-4006, -694, 1012), LookAt = Vector3.new(-4080, -694, 1012) },
+    { Name = "Zeus's Sanctuary", Pos = Vector3.new(-4308, -621, 2716), LookAt = Vector3.new(-4308, -621, 2780) },
+    { Name = "Cursed Isle / Frightful Pool", Pos = Vector3.new(-15150, 263, -9340), LookAt = Vector3.new(-15150, 263, -9400) },
+    { Name = "Glacial Grotto", Pos = Vector3.new(19983, 1169, 5523), LookAt = Vector3.new(19983, 1169, 5580) },
+    { Name = "Boreal Pines", Pos = Vector3.new(21606, 478, 3996), LookAt = Vector3.new(21606, 478, 4050) },
+    { Name = "Volcanic Vents", Pos = Vector3.new(-2645, -2277, 817), LookAt = Vector3.new(-2645, -2277, 880) },
+    { Name = "The Arch", Pos = Vector3.new(1000, 135, -1250), LookAt = Vector3.new(1000, 135, -1320) },
+    { Name = "Statue of Sovereign", Pos = Vector3.new(25, 135, -1000), LookAt = Vector3.new(25, 135, -1060) },
+    { Name = "Scoria Reach", Pos = Vector3.new(-1750, 175, 450), LookAt = Vector3.new(-1750, 175, 510) },
+    { Name = "Keepers Altar", Pos = Vector3.new(1300, -805, -250), LookAt = Vector3.new(1300, -805, -310) },
+    { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), LookAt = Vector3.new(-3620, 135, 450) }
 }
 
 local NpcRegistry = {
@@ -1036,15 +1098,42 @@ local PoiRegistry = {
     { Name = "Vertigo Waterfall", Pos = Vector3.new(-140, -510, 1090) }
 }
 
-local function safeTeleport(pos)
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
+local function safeTeleport(pos, lookAt)
+    if not pos then return end
+    pcall(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
-        root.CFrame = CFrame.new(pos + Vector3.new(0, 3.5, 0))
-        Hub.Notify("Teleport", "Arrived at destination.", 2)
-    end
+        root.Anchored = true
+
+        if Workspace.StreamingEnabled then
+            pcall(function()
+                Workspace:RequestStreamAroundAsync(pos, 5)
+            end)
+        end
+
+        local targetCFrame
+        if lookAt then
+            targetCFrame = CFrame.lookAt(pos + Vector3.new(0, 3.5, 0), Vector3.new(lookAt.X, pos.Y + 3.5, lookAt.Z))
+        else
+            targetCFrame = CFrame.new(pos + Vector3.new(0, 3.5, 0))
+        end
+
+        root.CFrame = targetCFrame
+
+        task.delay(0.25, function()
+            if root and root.Parent then
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+                root.Anchored = false
+            end
+        end)
+
+        Hub.Notify("Teleport", "Arrived safely at destination.", 2)
+    end)
 end
 
 --------------------------------------------------------------------------------
@@ -1459,7 +1548,7 @@ Hub.CreateDropdown(tpTab, "Select Area", islandOptions, islandOptions[1], functi
 end)
 Hub.CreateButton(tpTab, "Teleport to Area", function()
     if selectedIsland then
-        safeTeleport(selectedIsland.Pos)
+        safeTeleport(selectedIsland.Pos, selectedIsland.LookAt)
     end
 end)
 
@@ -1501,7 +1590,7 @@ Hub.CreateDropdown(tpTab, "Select Point of Interest", poiOptions, poiOptions[1],
 end)
 Hub.CreateButton(tpTab, "Teleport to POI", function()
     if selectedPoi then
-        safeTeleport(selectedPoi.Pos)
+        safeTeleport(selectedPoi.Pos, selectedPoi.LookAt)
     end
 end)
 
