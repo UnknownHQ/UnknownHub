@@ -28,49 +28,61 @@ local LocalPlayer = Players.LocalPlayer
 -- 1. TIER-0 ANTI-CHEAT NEUTRALIZATION & DETECTION SHIELD
 --------------------------------------------------------------------------------
 local AntiCheatShield = {
-    BlockedRemotes = {
-        ["kick"] = true,
-        ["ban"] = true,
-        ["anticheat"] = true,
-        ["flag"] = true,
-        ["report"] = true,
-        ["teleport_detection"] = true,
-        ["walkspeed_detection"] = true,
-        ["speed_check"] = true,
-        ["security"] = true,
-        ["honeypot"] = true,
-        ["verify_player"] = true,
-        ["client_tamper"] = true
+    BlockedKeywords = {
+        "kick", "ban", "anticheat", "flag", "report", "teleport_detection",
+        "walkspeed_detection", "speed_check", "security", "honeypot",
+        "verify_player", "client_tamper", "gameanalyticserror", "gameanalyticsremoteconfigs"
     },
     OriginalWalkSpeed = 16,
     OriginalJumpPower = 50,
     SpoofedWalkSpeed = 16,
-    SpoofedJumpPower = 50
+    SpoofedJumpPower = 50,
+    Installed = false
 }
 
 local function setupAntiCheatBypass()
+    if AntiCheatShield.Installed then return end
     pcall(function()
         if not hookmetamethod or not getnamecallmethod then return end
 
         local oldNamecall = nil
         local oldIndex = nil
-        local oldNewIndex = nil
 
-        -- Detour 1: __namecall filter (blocks honeypot & telemetry remotes)
+        -- Detour 1: __namecall filter (blocks honeypot, AFK/idle detection telemetry, analytics & kick remotes)
         oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
-            if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+            local args = {...}
+
+            if (method == "FireServer" or method == "fireServer" or method == "InvokeServer" or method == "invokeServer") and typeof(self) == "Instance" then
                 local sName = self.Name:lower()
-                for blocked, _ in pairs(AntiCheatShield.BlockedRemotes) do
-                    if sName:find(blocked) then
-                        return nil
+
+                -- Intercept and drop Fisch idle / AFK reporting to prevent bot-detection flags
+                if self.Name == "idleReport" or sName == "idlereport" then
+                    if args[1] == true then return nil end
+                end
+                if self.Name == "afk" or sName == "afk" then
+                    if args[1] == true then return nil end
+                end
+
+                -- Intercept drowning damage telemetry
+                if self.Name == "drown" or sName == "drown" then
+                    if Config.InfiniteOxygen then return nil end
+                end
+
+                -- Honeypot and telemetry filter
+                if not checkcaller() then
+                    for _, kw in ipairs(AntiCheatShield.BlockedKeywords) do
+                        if sName:find(kw) then
+                            return nil
+                        end
                     end
                 end
             end
+
             return oldNamecall(self, ...)
         end))
 
-        -- Detour 2: __index filter (spoofs WalkSpeed/JumpPower so AC scans see 16/50)
+        -- Detour 2: __index filter (spoofs WalkSpeed/JumpPower so game AC controllers see vanilla 16/50)
         oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
             if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") then
                 if key == "WalkSpeed" then
@@ -81,6 +93,8 @@ local function setupAntiCheatBypass()
             end
             return oldIndex(self, key)
         end))
+
+        AntiCheatShield.Installed = true
     end)
 end
 
