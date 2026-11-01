@@ -1046,26 +1046,104 @@ return function(opts)
             selectTab(tabRecord)
         end
 
-        -- Component binding helpers on tab object
-        tabRecord.CreateSection = function(title) return createSection(pageScroll, title) end
-        tabRecord.CreateToggle = function(name, default, callback) return createToggle(pageScroll, name, default, callback) end
-        tabRecord.CreateSlider = function(name, min, max, default, suffix, callback) return createSlider(pageScroll, name, min, max, default, suffix, callback) end
-        tabRecord.CreateDropdown = function(name, options, default, callback) return createDropdown(pageScroll, name, options, default, callback) end
-        tabRecord.CreateMultiDropdown = function(name, options, default, callback) return createMultiDropdown(pageScroll, name, options, default, callback) end
-        tabRecord.CreateButton = function(name, callback) return createButton(pageScroll, name, callback) end
-        tabRecord.CreateTextBox = function(name, placeholder, callback) return createTextBox(pageScroll, name, placeholder, callback) end
-        tabRecord.CreateInput = tabRecord.CreateTextBox
-        tabRecord.CreateColorpicker = function(name, defaultColor, callback) return createColorPicker(pageScroll, name, defaultColor, callback) end
-        tabRecord.CreateColorPicker = tabRecord.CreateColorpicker
-        tabRecord.CreateList = function(name, items, height, expanded, selectionOptions, callback) return createList(pageScroll, name, items, height, expanded, selectionOptions, callback) end
+        local tabObj = {}
+        tabObj.Page = pageScroll
+        tabObj.Record = tabRecord
+        tabObj.Name = tabName
+        tabObj.Button = tabBtn
+        tabObj.Icon = iconLbl
+        tabObj.Title = tabTitle
+        tabObj.Indicator = activeIndicator
 
-        return pageScroll
+        tabObj.CreateSection = function(self, title)
+            local t = (type(self) == "string" and self) or title
+            return createSection(pageScroll, t)
+        end
+        tabObj.createSection = tabObj.CreateSection
+        tabObj.addSection = tabObj.CreateSection
+
+        tabObj.CreateToggle = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createToggle(pageScroll, unpack(a))
+        end
+        tabObj.createToggle = tabObj.CreateToggle
+
+        tabObj.CreateSlider = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createSlider(pageScroll, unpack(a))
+        end
+        tabObj.createSlider = tabObj.CreateSlider
+
+        tabObj.CreateDropdown = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createDropdown(pageScroll, unpack(a))
+        end
+        tabObj.createDropdown = tabObj.CreateDropdown
+
+        tabObj.CreateMultiDropdown = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createMultiDropdown(pageScroll, unpack(a))
+        end
+        tabObj.createMultiDropdown = tabObj.CreateMultiDropdown
+
+        tabObj.CreateButton = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createButton(pageScroll, unpack(a))
+        end
+        tabObj.createButton = tabObj.CreateButton
+
+        tabObj.CreateTextBox = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createTextBox(pageScroll, unpack(a))
+        end
+        tabObj.createTextBox = tabObj.CreateTextBox
+        tabObj.CreateInput = tabObj.CreateTextBox
+        tabObj.createInput = tabObj.CreateTextBox
+
+        tabObj.CreateColorPicker = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createColorPicker(pageScroll, unpack(a))
+        end
+        tabObj.createColorPicker = tabObj.CreateColorPicker
+        tabObj.CreateColorpicker = tabObj.CreateColorPicker
+        tabObj.createColorpicker = tabObj.CreateColorPicker
+
+        tabObj.CreateList = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createList(pageScroll, unpack(a))
+        end
+        tabObj.createList = tabObj.CreateList
+
+        setmetatable(tabObj, {
+            __index = function(_, k)
+                return pageScroll[k]
+            end,
+            __newindex = function(_, k, v)
+                pageScroll[k] = v
+            end
+        })
+
+        return tabObj
     end
 
     -- =========================================================================
     -- Component 1: Section Header (Clean & Subtle)
     -- =========================================================================
     createSection = function(parent, titleText)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
+
         local container = Instance.new("Frame")
         container.Name = "Section_" .. tostring(titleText)
         container.Size = UDim2.new(1, 0, 0, 22)
@@ -1109,6 +1187,13 @@ return function(opts)
     -- Component 2: Modern Toggle Switch (Clean Rounded Surfaces)
     -- =========================================================================
     createToggle = function(parent, titleText, defaultState, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = defaultState
+            defaultState = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local state = defaultState == true
         local cb = type(callback) == "function" and callback or function() end
 
@@ -1225,6 +1310,16 @@ return function(opts)
     -- Component 3: Precision Slider
     -- =========================================================================
     createSlider = function(parent, titleText, minVal, maxVal, defaultVal, suffixText, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = suffixText
+            suffixText = defaultVal
+            defaultVal = maxVal
+            maxVal = minVal
+            minVal = tonumber(titleText) or 0
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         if type(suffixText) == "function" and callback == nil then
             callback = suffixText
             suffixText = ""
@@ -1375,6 +1470,12 @@ return function(opts)
     -- Component 4: Modern Button
     -- =========================================================================
     createButton = function(parent, titleText, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local cb = type(callback) == "function" and callback or function() end
 
         local card = Instance.new("TextButton")
@@ -1416,7 +1517,28 @@ return function(opts)
     -- Component 5: Accordion Dropdown
     -- =========================================================================
     createDropdown = function(parent, titleText, optionsList, defaultChoice, callback)
-        local options = optionsList or {}
+        -- Table / TabObj parent unwrapping
+        if typeof(parent) == "table" and parent.Page then
+            parent = parent.Page
+        end
+        -- Omitted parent: called as createDropdown(title, options, default, cb)
+        if typeof(parent) == "string" then
+            callback = defaultChoice
+            defaultChoice = optionsList
+            optionsList = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
+        -- Dictionary argument: { Name = "...", Options = {...} }
+        if typeof(titleText) == "table" then
+            local cfg = titleText
+            titleText = cfg.Name or cfg.Title or "Dropdown"
+            optionsList = cfg.Options or cfg.options or {}
+            defaultChoice = cfg.Default or cfg.default or cfg.CurrentOption or optionsList[1]
+            callback = cfg.Callback or cfg.callback
+        end
+
+        local options = (type(optionsList) == "table" and optionsList) or {}
         local currentSelection = defaultChoice or options[1] or "None"
         local cb = type(callback) == "function" and callback or function() end
         local isExpanded = false
@@ -1635,6 +1757,14 @@ return function(opts)
     end
 
     createMultiDropdown = function(parent, titleText, optionsList, defaultSelected, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = defaultSelected
+            defaultSelected = optionsList
+            optionsList = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local options = optionsList or {}
         local selected = {}
         if type(defaultSelected) == "table" then
@@ -1847,6 +1977,13 @@ return function(opts)
     -- Component 6: Full Custom RGB Palette & ColorPicker
     -- =========================================================================
     createColorPicker = function(parent, titleText, defaultColor, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = defaultColor
+            defaultColor = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local curColor = defaultColor or primaryTheme
         local cb = type(callback) == "function" and callback or function() end
         local isExpanded = false
@@ -2115,6 +2252,13 @@ return function(opts)
     -- Component 7: TextBox / Input Card
     -- =========================================================================
     createTextBox = function(parent, titleText, placeholderText, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = placeholderText
+            placeholderText = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local cb = type(callback) == "function" and callback or function() end
 
         local card = Instance.new("Frame")
@@ -2185,6 +2329,17 @@ return function(opts)
     -- Component 8: List & Nested Lists (BeeSwarm & BloxFruits Compatible)
     -- =========================================================================
     createList = function(parent, titleText, itemsList, maxHeight, expandedState, selectionOptions, extraCallback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            extraCallback = selectionOptions
+            selectionOptions = expandedState
+            expandedState = maxHeight
+            maxHeight = itemsList
+            itemsList = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
+
         local items = itemsList or {}
         local isExpanded = (expandedState == true)
         local cb = type(extraCallback) == "function" and extraCallback or (type(selectionOptions) == "function" and selectionOptions or function() end)
@@ -2292,7 +2447,7 @@ return function(opts)
             if showSearch then
                 listScroll.Position = UDim2.new(0, 10, 0, 76)
             else
-                listScroll.Position = UDim2.new(0, 10, 0, 44)
+                listScroll.Position = UDim2.new(0, 10, 0, 42)
             end
 
             local visibleCount = 0
@@ -2374,6 +2529,249 @@ return function(opts)
 
         return listObj
     end
+
+    -- =========================================================================
+    -- Component 9: Loop Toggle (Game Automation Helper)
+    -- =========================================================================
+    local function createLoopToggle(parent, titleText, defaultState, loopFunc, loopInterval)
+        local interval = loopInterval or 0.1
+        local running = false
+        local loopThread = nil
+
+        local t = createToggle(parent, titleText, defaultState, function(enabled)
+            running = enabled
+            if running then
+                loopThread = task.spawn(function()
+                    while running do
+                        pcall(loopFunc)
+                        task.wait(interval)
+                    end
+                end)
+            else
+                if loopThread then
+                    pcall(function() task.cancel(loopThread) end)
+                    loopThread = nil
+                end
+            end
+        end)
+
+        table.insert(featureStoppers, function()
+            running = false
+            if loopThread then pcall(function() task.cancel(loopThread) end) end
+        end)
+
+        return t
+    end
+
+    -- =========================================================================
+    -- Component 10: Modal Warning Dialog
+    -- =========================================================================
+    local function showWarning(title, desc, btn1, btn2, onBtn1, onBtn2)
+        local modalOverlay = Instance.new("Frame")
+        modalOverlay.Name = "ModalOverlay"
+        modalOverlay.Size = UDim2.new(1, 0, 1, 0)
+        modalOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        modalOverlay.BackgroundTransparency = 0.5
+        modalOverlay.BorderSizePixel = 0
+        modalOverlay.ZIndex = 100
+        modalOverlay.Parent = screenGui
+
+        local modalBox = Instance.new("Frame")
+        modalBox.Name = "ModalBox"
+        modalBox.Size = UDim2.new(0, 360, 0, 180)
+        modalBox.Position = UDim2.new(0.5, -180, 0.5, -90)
+        modalBox.BackgroundColor3 = DEFAULT_THEME.Background
+        modalBox.BorderSizePixel = 0
+        modalBox.Parent = modalOverlay
+        applyCorner(modalBox, 10)
+        applyStroke(modalBox, DEFAULT_THEME.Stroke, 1, 0.2)
+
+        local mTitle = Instance.new("TextLabel")
+        mTitle.Size = UDim2.new(1, -28, 0, 24)
+        mTitle.Position = UDim2.new(0, 14, 0, 14)
+        mTitle.BackgroundTransparency = 1
+        mTitle.Font = Enum.Font.GothamBold
+        mTitle.Text = tostring(title or "Notice")
+        mTitle.TextColor3 = primaryTheme
+        mTitle.TextSize = 14
+        mTitle.TextXAlignment = Enum.TextXAlignment.Left
+        mTitle.Parent = modalBox
+
+        local mDesc = Instance.new("TextLabel")
+        mDesc.Size = UDim2.new(1, -28, 0, 60)
+        mDesc.Position = UDim2.new(0, 14, 0, 42)
+        mDesc.BackgroundTransparency = 1
+        mDesc.Font = Enum.Font.Gotham
+        mDesc.Text = tostring(desc or "")
+        mDesc.TextColor3 = DEFAULT_THEME.TextSecondary
+        mDesc.TextSize = 12
+        mDesc.TextWrapped = true
+        mDesc.TextXAlignment = Enum.TextXAlignment.Left
+        mDesc.Parent = modalBox
+
+        local b1 = Instance.new("TextButton")
+        b1.Size = UDim2.new(0.5, -18, 0, 32)
+        b1.Position = UDim2.new(0, 14, 1, -44)
+        b1.BackgroundColor3 = primaryTheme
+        b1.BorderSizePixel = 0
+        b1.Font = Enum.Font.Gotham
+        b1.Text = tostring(btn1 or "Confirm")
+        b1.TextColor3 = Color3.fromRGB(255, 255, 255)
+        b1.TextSize = 12
+        b1.Parent = modalBox
+        applyCorner(b1, 6)
+
+        local b2 = Instance.new("TextButton")
+        b2.Size = UDim2.new(0.5, -18, 0, 32)
+        b2.Position = UDim2.new(0.5, 4, 1, -44)
+        b2.BackgroundColor3 = DEFAULT_THEME.Card
+        b2.BorderSizePixel = 0
+        b2.Font = Enum.Font.Gotham
+        b2.Text = tostring(btn2 or "Cancel")
+        b2.TextColor3 = DEFAULT_THEME.TextSecondary
+        b2.TextSize = 12
+        b2.Parent = modalBox
+        applyCorner(b2, 6)
+
+        b1.MouseButton1Click:Connect(function()
+            pcall(onBtn1 or function() end)
+            modalOverlay:Destroy()
+        end)
+        b2.MouseButton1Click:Connect(function()
+            pcall(onBtn2 or function() end)
+            modalOverlay:Destroy()
+        end)
+    end
+
+    -- =========================================================================
+    -- Black Screen Performance Mode
+    -- =========================================================================
+    local blackScreenOverlay = nil
+    local function setBlackScreen(enabled)
+        pcall(function()
+            RunService:Set3dRenderingEnabled(not enabled)
+        end)
+        if enabled then
+            if not blackScreenOverlay or not blackScreenOverlay.Parent then
+                blackScreenOverlay = Instance.new("Frame")
+                blackScreenOverlay.Name = "Unknown_BlackScreenOverlay"
+                blackScreenOverlay.Size = UDim2.new(1, 0, 1, 0)
+                blackScreenOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                blackScreenOverlay.BorderSizePixel = 0
+                blackScreenOverlay.ZIndex = 999999
+                blackScreenOverlay.Parent = screenGui
+            end
+            blackScreenOverlay.Visible = true
+        else
+            if blackScreenOverlay and blackScreenOverlay.Parent then
+                blackScreenOverlay.Visible = false
+            end
+        end
+    end
+
+
+    -- =========================================================================
+    -- Public API Hub Interface
+    -- =========================================================================
+    local Hub = {}
+    Hub.ShowUpdateLog = showUpdateLogModal
+
+    -- Core GUI Elements
+    Hub.screenGui = screenGui
+    Hub.gui = screenGui
+    Hub.mainFrame = mainFrame
+    Hub.frame = mainFrame
+    Hub.content = contentArea
+
+    -- Config System & Control Registry
+    Hub.RegisteredFlags = registeredFlags
+    Hub.RegisteredElements = registeredElements
+
+    -- Universal Configuration Serializer (Profiles, Auto-Save & Auto-Load)
+    Hub.SaveConfig = function(configName)
+        configName = (configName and configName ~= "") and configName or "default"
+        local gameName = tostring(game.PlaceId)
+        local folder = "UnknownHub/Configs/" .. gameName
+        pcall(function()
+            if not isfolder("UnknownHub") then makefolder("UnknownHub") end
+            if not isfolder("UnknownHub/Configs") then makefolder("UnknownHub/Configs") end
+            if not isfolder(folder) then makefolder(folder) end
+        end)
+        local data = {}
+        for flagName, flagObj in pairs(registeredFlags) do
+            local ok, val = pcall(flagObj.Get)
+            if ok and val ~= nil then
+                data[flagName] = val
+            end
+        end
+        local encoded = HttpService:JSONEncode(data)
+        local path = folder .. "/" .. configName .. ".json"
+        local ok, err = pcall(function() writefile(path, encoded) end)
+        if ok then
+            sendNotification("Configuration", "Saved config '" .. configName .. "' successfully!", 2.5)
+        else
+            sendNotification("Config Error", "Failed to save: " .. tostring(err), 3)
+        end
+    end
+
+    Hub.LoadConfig = function(configName)
+        configName = (configName and configName ~= "") and configName or "default"
+        local gameName = tostring(game.PlaceId)
+        local path = "UnknownHub/Configs/" .. gameName .. "/" .. configName .. ".json"
+        local exists = false
+        pcall(function() exists = isfile(path) end)
+        if not exists then
+            sendNotification("Configuration", "Config '" .. configName .. "' not found.", 2.5)
+            return false
+        end
+        local content = readfile(path)
+        local ok, decoded = pcall(function() return HttpService:JSONDecode(content) end)
+        if not ok or type(decoded) ~= "table" then
+            sendNotification("Config Error", "Corrupt config file.", 2.5)
+            return false
+        end
+        for flagName, val in pairs(decoded) do
+            local flagObj = registeredFlags[flagName]
+            if flagObj and flagObj.Set then
+                pcall(flagObj.Set, val)
+            end
+        end
+        sendNotification("Configuration", "Loaded config '" .. configName .. "'!", 2.5)
+        return true
+    end
+
+    Hub.ListConfigs = function()
+        local gameName = tostring(game.PlaceId)
+        local folder = "UnknownHub/Configs/" .. gameName
+        local list = {}
+        pcall(function()
+            if isfolder(folder) then
+                for _, f in ipairs(listfiles(folder)) do
+                    local name = f:match("([^/\\]+)%.json$")
+                    if name then table.insert(list, name) end
+                end
+            end
+        end)
+        return list
+    end
+
+    -- Tab & Component Factories
+    Hub.CreateTab = createTab
+    Hub.createTab = createTab
+    Hub.CreatePage = createTab
+    Hub.createPage = createTab
+
+    Hub.CreateSection = createSection
+    Hub.createSection = createSection
+    Hub.addSection = createSection
+
+    Hub.CreateToggle = createToggle
+    Hub.createToggle = createToggle
+    Hub.CreateLoopToggle = createLoopToggle
+    Hub.createLoopToggle = createLoopToggle
+
+    Hub.CreateSlider = createSlider
+    Hub.createSlider = createSlider
 
     Hub.CreateDropdown = createDropdown
     Hub.createDropdown = createDropdown
