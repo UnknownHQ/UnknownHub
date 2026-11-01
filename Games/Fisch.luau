@@ -173,8 +173,8 @@ pcall(function()
             if Config.AutoShake then
                 for _, arg in ipairs(args) do
                     if typeof(arg) == "table" and (arg.seed ~= nil or arg.initialTimer ~= nil or arg.ButtonName ~= nil) then
-                        arg.ShakePower = 10
-                        arg.ShakeScale = 2.2
+                        arg.ShakePower = 9999
+                        arg.ShakeScale = 25
                         break
                     end
                 end
@@ -195,15 +195,33 @@ pcall(function()
                 for _, arg in ipairs(args) do
                     if typeof(arg) == "table" and (arg.fish ~= nil or arg.stats ~= nil) then
                         if arg.stats then
-                            arg.stats.StartingProgress = 85
-                            arg.stats.ProgressSpeed = 250
-                            arg.stats.Control = 1.0
+                            arg.stats.StartingProgress = 99
+                            arg.stats.ProgressSpeed = 9999
+                            arg.stats.Control = 10
+                            arg.stats.Resilience = 999
+                            arg.stats.Stability = 999
                         end
                         break
                     end
                 end
             end
             return origStartReel(...)
+        end
+
+        if ReelController.OnReelCreated and not ReelController._OnReelHooked then
+            ReelController._OnReelHooked = true
+            ReelController.OnReelCreated:Connect(function(reel)
+                if not Config.AutoReel then return end
+                pcall(function()
+                    if reel.core and reel.core.minigame then
+                        reel.core.minigame.NoFail = true
+                    end
+                    reel:AddModifier("barSize", "force", 10)
+                    reel:AddModifier("progressefficiency", "force", 999)
+                    reel:AddModifier("progressLossMultiplier", "force", 0)
+                    reel:AddProgress(100)
+                end)
+            end)
         end
     end
 end)
@@ -284,7 +302,7 @@ end
 
 -- 1. Precision Auto Cast
 local function executeCast()
-    if not Config.AutoCast then return end
+    if not (Config.AutoCast or Config.AutoFarmFish or Config.AutoFarmItem or Config.AutoFarmSpot) then return end
     if getActiveReel() ~= nil then return end
     if isShakingActive() then return end
     -- Flight Debounce (4.0s): Never cancel a flying bobber or cast halfway!
@@ -322,9 +340,6 @@ end
 local function processShakeMinigame()
     if not Config.AutoShake then return end
 
-    -- 0.10s rate: clears bubbles instantly with zero missed clicks
-    if tick() - lastShakeTick < 0.10 then return end
-
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
 
@@ -360,7 +375,7 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Ultra Fast & Smooth Reel Engine (100% Anti-Bug, Anti-Kick)
+-- 3. Maximum Speed Instant Reel Engine (Zero-Delay Finish & Anti-Kick)
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
 
@@ -370,23 +385,29 @@ local function processReelMinigame(activeReel)
     end
 
     pcall(function()
-        -- Lock bar perfectly onto the fish bubble & expand bar size
+        if activeReel.core and activeReel.core.minigame then
+            activeReel.core.minigame.NoFail = true
+            if activeReel.core.minigame._progressModifier then
+                activeReel.core.minigame._progressModifier.Value = 100
+            end
+        end
+
         activeReel.barSize = 10
         activeReel.barPosition = activeReel.fishPosition or 0.5
         activeReel.onbar = true
         activeReel.perfect = true
 
-        -- Advance progress smoothly inside minigame core
-        -- With starting progress at 85%, this completes the minigame in ~0.5s naturally!
-        if activeReel.core and activeReel.core.minigame and activeReel.core.minigame._progressModifier then
-            local p = activeReel.core.minigame._progressModifier
-            if p.Value < 98 then
-                local boost = 2.0
-                if Config.ReelMode == "Safe (~2s)" then
-                    boost = 0.5
-                end
-                p.Value = p.Value + boost
-            end
+        activeReel:AddModifier("barSize", "force", 10)
+        activeReel:AddModifier("progressLossMultiplier", "force", 0)
+        activeReel:AddProgress(100)
+
+        -- Complete minigame safely after 0.15s network handshake
+        local elapsed = tick() - reelStartTick
+        if elapsed >= 0.15 and not instantReelDispatched then
+            instantReelDispatched = true
+            pcall(function()
+                activeReel:EndMinigame(true)
+            end)
         end
     end)
 end
@@ -657,12 +678,19 @@ local function isStorePrompt(p)
     return false
 end
 
-local function purchaseItemAtLocation(targetPos, modelName)
+local function purchaseItemAtLocation(targetPos, modelName, itemType)
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not root then 
         Hub.Notify("Shop", "Character root not found.", 2)
         return false
+    end
+    
+    -- UNEQUIP ROD/TOOLS BEFORE BUYING (Fisch prompt silently drops if a fishing rod is held!)
+    if hum then
+        hum:UnequipTools()
+        task.wait(0.15)
     end
     
     Hub.Notify("Shop", "Purchasing " .. modelName .. "...", 2)
@@ -749,19 +777,23 @@ local function purchaseItemAtLocation(targetPos, modelName)
                 if string.find(infoTxt, "insufficient") then
                     Hub.Notify("Shop", "Insufficient funds to purchase " .. modelName .. ".", 3)
                     pcall(function()
-                        local conns = getconnections(promptFrame.confirm.MouseButton1Click)
-                        for _, c in ipairs(conns) do c:Fire() end
+                        local conns = getconnections and (getconnections(promptFrame.confirm.Activated) or getconnections(promptFrame.confirm.MouseButton1Click))
+                        if conns then for _, c in ipairs(conns) do c:Fire() end end
                     end)
                     break
                 end
-                task.wait(0.12)
+                task.wait(0.15)
                 local btn = promptFrame.confirm
-                local conns = getconnections(btn.MouseButton1Click)
-                if #conns > 0 then
-                    for _, c in ipairs(conns) do c:Fire() end
-                elseif firesignal then
-                    firesignal(btn.MouseButton1Click)
-                end
+                pcall(function()
+                    local conns = getconnections and (getconnections(btn.Activated) or getconnections(btn.MouseButton1Click))
+                    if conns and #conns > 0 then
+                        for _, c in ipairs(conns) do c:Fire() end
+                    end
+                    if firesignal then
+                        pcall(function() firesignal(btn.Activated) end)
+                        pcall(function() firesignal(btn.MouseButton1Click) end)
+                    end
+                end)
                 confirmed = true
                 break
             end
@@ -865,12 +897,12 @@ local TargetItemRegistry = {
 }
 
 local BestSpotsRegistry = {
-    { Name = "Roslit Volcano Crater", Pos = Vector3.new(-1900, 165, 300), Description = "Top C$ Magma Fish" },
+    { Name = "Moosewood Docks", Pos = Vector3.new(382, 134, 240), Description = "Fastest Starter Bite Rate & 100% Safe" },
+    { Name = "Sunstone Lighthouse Cliff", Pos = Vector3.new(-900, 230, -1200), Description = "Daylight Golden Variants" },
+    { Name = "Roslit Volcano Ledge", Pos = Vector3.new(-1900, 332, 300), Description = "Top C$ Magma Fish (Safe Upper Ledge)" },
     { Name = "The Depths Trench", Pos = Vector3.new(990, -710, 1215), Description = "Colossal Squid & Abyssal Legendaries" },
     { Name = "Vertigo Abyss", Pos = Vector3.new(-140, -510, 1090), Description = "Max Catch XP & Relics" },
     { Name = "Ancient Isle Shore", Pos = Vector3.new(6000, 150, 400), Description = "Megalodon Apex Hotspot" },
-    { Name = "Sunstone Lighthouse Cliff", Pos = Vector3.new(-900, 230, -1200), Description = "Daylight Golden Variants" },
-    { Name = "Moosewood Docks", Pos = Vector3.new(358, 132, 199), Description = "Fastest Starter Bite Rate" },
     { Name = "Snowcap Island Lake", Pos = Vector3.new(2620, 150, 2400), Description = "Glacial Catches & High Crates" },
     { Name = "Brine Pool", Pos = Vector3.new(-1790, -143, -3400), Description = "Alchemical Catches" },
     { Name = "Grand Reef", Pos = Vector3.new(-3550, 135, 450), Description = "Tropical Exotics & Whale Shark" },
@@ -1090,6 +1122,12 @@ Hub.CreateToggle(farmTab, "Auto Farm Fish", Config.AutoFarmFish, function(val)
             Hub.Notify("Target Fish", "Farming " .. currentTargetFish.Name .. " (" .. currentTargetFish.Zone .. ")", 3)
         end
     else
+        Config.AutoCast = false
+        Config.AutoShake = false
+        Config.AutoReel = false
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum:UnequipTools() end
         Hub.Notify("Target Fish", "Auto Farm Fish Disabled", 2)
     end
 end)
@@ -1150,6 +1188,12 @@ Hub.CreateToggle(farmTab, "Auto Farm Items", Config.AutoFarmItem, function(val)
             Hub.Notify("Target Item", "Farming " .. currentTargetItem.Name .. " at " .. currentTargetItem.Spot, 3)
         end
     else
+        Config.AutoCast = false
+        Config.AutoShake = false
+        Config.AutoReel = false
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum:UnequipTools() end
         Hub.Notify("Target Item", "Auto Farm Items Disabled", 2)
     end
 end)
@@ -1202,6 +1246,12 @@ Hub.CreateToggle(farmTab, "Auto Farm at Best Spot", Config.AutoFarmSpot, functio
             Hub.Notify("Spot Farm", "Farming at " .. currentBestSpot.Name, 3)
         end
     else
+        Config.AutoCast = false
+        Config.AutoShake = false
+        Config.AutoReel = false
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum:UnequipTools() end
         Hub.Notify("Spot Farm", "Auto Farm Spot Disabled", 2)
     end
 end)
