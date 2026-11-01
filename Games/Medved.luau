@@ -901,9 +901,15 @@ local function getBearLevitationTarget(bear)
     if name:find("grinder") or name:find("robo") then
         local head = bear:FindFirstChild("Hitbox_Head")
         local targetPos = head and head.Position or cf.Position
-        local targetY = cf.Position.Y + (sz.Y * 0.5) + 14.5
-        local distBehind = (sz.Z * 0.5) + 8.5
-        return targetPos, distBehind, targetY
+        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 3.5
+            local distBehind = (sz.Z * 0.5) + 3.0
+            return targetPos, distBehind, targetY
+        else
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 14.5
+            local distBehind = (sz.Z * 0.5) + 8.5
+            return targetPos, distBehind, targetY
+        end
     end
 
     -- Category 0.2: RangedBear & GrizzlyRangedBear (Spike Bear Blindspot)
@@ -1000,6 +1006,8 @@ local function getBearLevitationTarget(bear)
 
     return cf.Position, distBehind, targetY
 end
+
+local getBearSafeFlightPosition = getBearLevitationTarget
 
 local function getBearBottomRearPart(bear)
     if not bear then return nil end
@@ -1386,8 +1394,9 @@ local function getLoadedAmmoFromGUI(tool)
         end
     end
 
-    local ammo = currentGunAmmo[tool]
-    return ammo, (ammo <= 0)
+    local ammo = currentGunAmmo[tool] or 0
+    local isActivelyReloading = isReloading or (tick() < reloadEndTime)
+    return ammo, isActivelyReloading
 end
 
 -- Comprehensive Authoritative Gun Reload Trigger (Simulated Key + Server Remote + UI Trigger)
@@ -1736,10 +1745,10 @@ end
 
 local function isToolMatchingType(tool, weaponType)
     if not tool or not tool:IsA("Tool") then return false end
-    local isMelee = tool:FindFirstChild("MeleeScripts") ~= nil
     local isGun = (tool:FindFirstChild("GunScripts") ~= nil) or (tool:FindFirstChild("FlameRemote") ~= nil) or (tool.Name:lower():find("flame") ~= nil)
+    local isMelee = (tool:FindFirstChild("MeleeScripts") ~= nil) or (tool:FindFirstChild("MeleeRemote", true) ~= nil) or (not isGun and (tool:FindFirstChild("Damage") ~= nil or tool:FindFirstChild("Handle") ~= nil))
     if weaponType == "Melee" then
-        return isMelee
+        return isMelee and not isGun
     elseif weaponType == "Gun" then
         return isGun
     end
@@ -2311,7 +2320,7 @@ task.spawn(function()
             end
         else
             -- Bear Attack Mode: Ensure player is transformed into a bear!
-            local transformedBear = char:GetAttribute("TransformedToBear")
+            local transformedBear = char:GetAttribute("TransformedToBear") or char:GetAttribute("Stance")
             if not transformedBear then
                 pcall(function()
                     local RS = game:GetService("ReplicatedStorage")
@@ -2324,8 +2333,6 @@ task.spawn(function()
                         end
                     end
                 end)
-                task.wait(0.6)
-                continue
             end
             -- Autonomous Friendly Stance Enforcement: Attacks wild bears & player/turrets cannot damage user
             if char:GetAttribute("Stance") ~= "Friendly" then
@@ -2366,7 +2373,7 @@ task.spawn(function()
         activeFlightBear = bear
 
         -- Instant Direct Teleport to Target Bear Blindspot
-        local centerPos, distBehind, targetY = getBearSafeFlightPosition(bear)
+        local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
         local flatLook = Vector3.new(bearRoot.CFrame.LookVector.X, 0, bearRoot.CFrame.LookVector.Z)
         if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
         local snapPos = centerPos - (flatLook * distBehind)
@@ -2386,16 +2393,18 @@ task.spawn(function()
 
         -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved, Melee Reach Guaranteed & Flamethrower)
         if Config.FarmMethod == "Melee" then
-            local isMelee = bestTool:FindFirstChild("MeleeScripts")
-            if isMelee then
+            if bestTool then
                 applyWeaponMods(bestTool)
                 -- Execute melee swing from safe blindspot without stalling if bear turns
-                if tick() - lastMeleeSwing >= 0.22 then
+                if tick() - lastMeleeSwing >= 0.20 then
                     lastMeleeSwing = tick()
-                    bestTool:Activate()
+                    pcall(function()
+                        bestTool:Activate()
+                    end)
 
                     -- Direct authoritative network hit dispatch (Crown/Head priority)
-                    local meleeRemote = isMelee:FindFirstChild("MeleeRemote")
+                    local meleeRemote = bestTool:FindFirstChild("MeleeRemote", true)
+                        or (bestTool:FindFirstChild("MeleeScripts") and bestTool.MeleeScripts:FindFirstChild("MeleeRemote"))
                     local bName = bear.Name:lower()
                     local isRangedBear = bName:find("ranged") or bName:find("spike")
                     local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
@@ -2416,7 +2425,6 @@ task.spawn(function()
             end
         elseif Config.FarmMethod == "Gun" then
             local isFlame = bestTool:FindFirstChild("FlameRemote") or bestTool.Name == "Flamethrower"
-            local isGun = bestTool:FindFirstChild("GunScripts")
             if isFlame and bestTool then
                 applyWeaponMods(bestTool)
                 local flameRemote = bestTool:FindFirstChild("FlameRemote")
@@ -2428,7 +2436,7 @@ task.spawn(function()
                 elseif flameRemote then
                     flameRemote:FireServer("Stop")
                 end
-            elseif isGun and bestTool then
+            elseif bestTool then
                 applyWeaponMods(bestTool)
                 local currentAmmo, reloading = getLoadedAmmoFromGUI(bestTool)
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
@@ -2436,30 +2444,41 @@ task.spawn(function()
                 elseif not reloading and currentAmmo > 0 then
                     local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
                     shootTargetBear(bestTool, bear, targetPart)
+                elseif not reloading and currentAmmo <= 0 then
+                    triggerGunReload(bestTool)
                 end
             end
         elseif Config.FarmMethod == "Bear Attack" then
             local RS = game:GetService("ReplicatedStorage")
             local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
-            if bearAbility then
-                local bName = bear.Name:lower()
-                local isRangedBear = bName:find("ranged") or bName:find("spike")
-                local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
-                    or bear:FindFirstChild("Hitbox_Crown")
-                    or bear:FindFirstChild("Hitbox_Head")
-                    or bear:FindFirstChild("Head")
-                    or bear:FindFirstChild("BodyTop")
-                    or bear:FindFirstChild("Ears")
-                    or bear:FindFirstChild("Hitbox_Chest")
-                    or bear:FindFirstChild("Hitbox_Torso")
-                    or bearRoot
-                local aimPos = targetHitPart and targetHitPart.Position or bearRoot.Position
+            local bName = bear.Name:lower()
+            local isRangedBear = bName:find("ranged") or bName:find("spike")
+            local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
+                or bear:FindFirstChild("Hitbox_Crown")
+                or bear:FindFirstChild("Hitbox_Head")
+                or bear:FindFirstChild("Head")
+                or bear:FindFirstChild("BodyTop")
+                or bear:FindFirstChild("Ears")
+                or bear:FindFirstChild("Hitbox_Chest")
+                or bear:FindFirstChild("Hitbox_Torso")
+                or bearRoot
+            local aimPos = targetHitPart and targetHitPart.Position or bearRoot.Position
 
-                -- Authoritative Remote M1 Dispatch (Zero VIM mouse clicks, Esc menu safe)
-                if tick() - lastBearAttack >= 0.18 then
-                    lastBearAttack = tick()
+            -- Authoritative Remote M1 Dispatch + Tool Swing
+            if tick() - lastBearAttack >= 0.16 then
+                lastBearAttack = tick()
+                if bearAbility then
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", aimPos)
+                    end)
+                    pcall(function()
+                        bearAbility:FireServer("Use", "Attack", aimPos)
+                    end)
+                end
+                local bearTool = char:FindFirstChildOfClass("Tool")
+                if bearTool then
+                    pcall(function()
+                        bearTool:Activate()
                     end)
                 end
             end
