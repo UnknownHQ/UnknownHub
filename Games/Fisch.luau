@@ -161,24 +161,15 @@ local function ensureRodEquipped()
 end
 
 --------------------------------------------------------------------------------
--- 4.5. NATIVE CONTROLLER INJECTORS (FAST SHAKE & ULTRA SMOOTH FAST REEL)
+-- 4.5. NATIVE CONTROLLER INJECTORS (SAFE FAST SHAKE & FAST REEL)
 --------------------------------------------------------------------------------
 pcall(function()
     local LureShakeController = require(ReplicatedStorage.client.legacyControllers.LureShakeController)
     if LureShakeController and not LureShakeController._Hooked then
         LureShakeController._Hooked = true
+        -- Keep authentic parameters so client countdown and server shake counters stay 100% in sync
         local origStartMinigame = LureShakeController.StartMinigame
         LureShakeController.StartMinigame = function(...)
-            local args = {...}
-            if Config.AutoShake then
-                for _, arg in ipairs(args) do
-                    if typeof(arg) == "table" and (arg.seed ~= nil or arg.initialTimer ~= nil or arg.ButtonName ~= nil) then
-                        arg.ShakePower = 9999
-                        arg.ShakeScale = 25
-                        break
-                    end
-                end
-            end
             return origStartMinigame(...)
         end
     end
@@ -195,11 +186,9 @@ pcall(function()
                 for _, arg in ipairs(args) do
                     if typeof(arg) == "table" and (arg.fish ~= nil or arg.stats ~= nil) then
                         if arg.stats then
-                            arg.stats.StartingProgress = 99
-                            arg.stats.ProgressSpeed = 9999
-                            arg.stats.Control = 10
-                            arg.stats.Resilience = 999
-                            arg.stats.Stability = 999
+                            arg.stats.StartingProgress = 85
+                            arg.stats.ProgressSpeed = 350
+                            arg.stats.Control = 2.0
                         end
                         break
                     end
@@ -217,7 +206,7 @@ pcall(function()
                         reel.core.minigame.NoFail = true
                     end
                     reel:AddModifier("barSize", "force", 10)
-                    reel:AddModifier("progressefficiency", "force", 999)
+                    reel:AddModifier("progressefficiency", "force", 300)
                     reel:AddModifier("progressLossMultiplier", "force", 0)
                     reel:AddProgress(100)
                 end)
@@ -336,9 +325,13 @@ local function executeCast()
     end)
 end
 
--- 2. Maximum-Speed Precision Auto Shake Engine (<0.2s Total)
+-- 2. Maximum-Speed Precision Auto Shake Engine (Zero Drops, 100% Server Validated)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
+
+    -- Cadence Control (120ms): Fisch server enforces rate-limiting on LureShake/Shake.
+    -- 120ms allows each shake to register cleanly with the server without dropping the bite!
+    if tick() - lastShakeTick < 0.12 then return end
 
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
@@ -375,7 +368,7 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Maximum Speed Instant Reel Engine (Zero-Delay Finish & Anti-Kick)
+-- 3. Maximum Speed Safe Reel Engine (Zero-Delay Finish & Anti-Kick)
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
 
@@ -401,9 +394,9 @@ local function processReelMinigame(activeReel)
         activeReel:AddModifier("progressLossMultiplier", "force", 0)
         activeReel:AddProgress(100)
 
-        -- Complete minigame safely after 0.15s network handshake
+        -- Complete minigame safely after 0.35s network handshake
         local elapsed = tick() - reelStartTick
-        if elapsed >= 0.15 and not instantReelDispatched then
+        if elapsed >= 0.35 and not instantReelDispatched then
             instantReelDispatched = true
             pcall(function()
                 activeReel:EndMinigame(true)
@@ -527,95 +520,103 @@ end
 local RodRegistry = {
     { Name = "Flimsy Rod", Price = 0, Pos = Vector3.new(471, 148, 229) },
     { Name = "Training Rod", Price = 300, Pos = Vector3.new(457, 148, 230) },
-    { Name = "Plastic Rod", Price = 750, Pos = Vector3.new(453, 148, 229) },
+    { Name = "Plastic Rod", Price = 750, Pos = Vector3.new(454, 148, 229) },
     { Name = "Pool Noodle Rod", Price = 1000, Pos = Vector3.new(465, 148, 230) },
-    { Name = "Carbon Rod", Price = 2000, Pos = Vector3.new(448, 148, 228) },
-    { Name = "Decayed Rod", Price = 2000, Pos = Vector3.new(-110, -515, 1060) },
-    { Name = "Stone Rod", Price = 2000, Pos = Vector3.new(2450, 135, -700) },
-    { Name = "Long Rod", Price = 3000, Pos = Vector3.new(485, 148, 224) },
+    { Name = "Carbon Rod", Price = 2000, Pos = Vector3.new(454, 150, 225) },
+    { Name = "Decayed Rod", Price = 2000, Pos = Vector3.new(-2624, -274, -2444) },
+    { Name = "Stone Rod", Price = 2000, Pos = Vector3.new(5942, 327, 338) },
+    { Name = "Long Rod", Price = 3000, Pos = Vector3.new(485, 171, 145) },
     { Name = "Fast Rod", Price = 4000, Pos = Vector3.new(447, 148, 220) },
     { Name = "Lucky Rod", Price = 4500, Pos = Vector3.new(446, 148, 222) },
     { Name = "Steady Rod", Price = 7000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Firefly Rod", Price = 9500, Pos = Vector3.new(2450, 135, -700) },
-    { Name = "Fortune Rod", Price = 11000, Pos = Vector3.new(-1490, 135, 690) },
-    { Name = "Frog Rod", Price = 12000, Pos = Vector3.new(2450, 135, -700) },
-    { Name = "Rapid Rod", Price = 12000, Pos = Vector3.new(-1500, 135, 700) },
-    { Name = "Magnet Rod", Price = 15000, Pos = Vector3.new(-180, 140, 1950) },
-    { Name = "Nocturnal Rod", Price = 15000, Pos = Vector3.new(-110, -515, 1060) },
-    { Name = "Reinforced Rod", Price = 20000, Pos = Vector3.new(-930, 220, -1120) },
-    { Name = "Merchant Rod", Price = 20000, Pos = Vector3.new(380, 135, 230) },
-    { Name = "Arctic Rod", Price = 25000, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Coral Rod", Price = 30000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Avalanche Rod", Price = 35000, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Crystalized Rod", Price = 35000, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Artisan Rod", Price = 40000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Boreal Rod", Price = 42000, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Carrot Rod", Price = 45000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Midas Rod", Price = 55000, Pos = Vector3.new(380, 135, 230) },
-    { Name = "Ice Warpers Rod", Price = 65000, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Aurora Rod", Price = 70000, Pos = Vector3.new(-1790, -143, -3400) },
-    { Name = "Champions Rod", Price = 90000, Pos = Vector3.new(380, 135, 230) },
-    { Name = "Mythical Rod", Price = 90000, Pos = Vector3.new(380, 135, 230) },
+    { Name = "Firefly Rod", Price = 9500, Pos = Vector3.new(2697, 164, -757) },
+    { Name = "Fortune Rod", Price = 11000, Pos = Vector3.new(-1460, 149, 701) },
+    { Name = "Frog Rod", Price = 12000, Pos = Vector3.new(2697, 164, -757) },
+    { Name = "Rapid Rod", Price = 12000, Pos = Vector3.new(-1460, 149, 701) },
+    { Name = "Magnet Rod", Price = 15000, Pos = Vector3.new(57, 149, 1939) },
+    { Name = "Wildflower Rod", Price = 40000, Pos = Vector3.new(57, 149, 1939) },
+    { Name = "Nocturnal Rod", Price = 15000, Pos = Vector3.new(-46, -718, 1403) },
+    { Name = "Reinforced Rod", Price = 20000, Pos = Vector3.new(-947, -567, -1319) },
+    { Name = "Merchant Rod", Price = 20000, Pos = Vector3.new(466, 151, 224) },
+    { Name = "Arctic Rod", Price = 25000, Pos = Vector3.new(19902, 323, 5292) },
+    { Name = "Coral Rod", Price = 30000, Pos = Vector3.new(2493, -1033, 843) },
+    { Name = "Avalanche Rod", Price = 35000, Pos = Vector3.new(21606, 478, 3996) },
+    { Name = "Crystalized Rod", Price = 35000, Pos = Vector3.new(19902, 323, 5292) },
+    { Name = "Artisan Rod", Price = 40000, Pos = Vector3.new(-1460, 149, 701) },
+    { Name = "Boreal Rod", Price = 42000, Pos = Vector3.new(21606, 478, 3996) },
+    { Name = "Carrot Rod", Price = 45000, Pos = Vector3.new(3709, -1081, -1095) },
+    { Name = "Midas Rod", Price = 55000, Pos = Vector3.new(466, 151, 224) },
+    { Name = "Ice Warpers Rod", Price = 65000, Pos = Vector3.new(21606, 478, 3996) },
+    { Name = "Aurora Rod", Price = 70000, Pos = Vector3.new(-1788, -119, -3385) },
+    { Name = "Brine-Infused Rod", Price = 75000, Pos = Vector3.new(-1788, -119, -3385) },
+    { Name = "Champions Rod", Price = 90000, Pos = Vector3.new(466, 151, 224) },
+    { Name = "Mythical Rod", Price = 90000, Pos = Vector3.new(466, 151, 224) },
     { Name = "Kings Rod", Price = 100000, Pos = Vector3.new(1300, -805, -250) },
-    { Name = "Trident Rod", Price = 150000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Volcanic Rod", Price = 150000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Fallen Rod", Price = 175000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Free Spirit Rod", Price = 200000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Heaven's Rod", Price = 800000, Pos = Vector3.new(1000, 135, -1250) },
-    { Name = "Rod Of The Depths", Price = 750000, Pos = Vector3.new(990, -710, 1215) },
-    { Name = "Zeus Rod", Price = 500000, Pos = Vector3.new(1000, 135, -1250) }
+    { Name = "Trident Rod", Price = 150000, Pos = Vector3.new(-1482, -214, -2219) },
+    { Name = "Volcanic Rod", Price = 150000, Pos = Vector3.new(-2645, -2277, 817) },
+    { Name = "Fallen Rod", Price = 175000, Pos = Vector3.new(3692, -1092, 950) },
+    { Name = "Free Spirit Rod", Price = 200000, Pos = Vector3.new(-478, -808, -139) },
+    { Name = "Poseidon Rod", Price = 450000, Pos = Vector3.new(-4026, -539, 899) },
+    { Name = "Depthseeker Rod", Price = 40000, Pos = Vector3.new(-4006, -694, 1012) },
+    { Name = "Tempest Rod", Price = 100000, Pos = Vector3.new(-4006, -694, 1012) },
+    { Name = "Kraken Rod", Price = 950000, Pos = Vector3.new(-4006, -694, 1012) },
+    { Name = "Zeus Rod", Price = 500000, Pos = Vector3.new(-4308, -621, 2716) },
+    { Name = "Heaven's Rod", Price = 800000, Pos = Vector3.new(19983, 1169, 5523) },
+    { Name = "Rod Of The Depths", Price = 750000, Pos = Vector3.new(999, -749, 1307) },
+    { Name = "Rod Of The Zenith", Price = 700000, Pos = Vector3.new(-12933, -11005, 108) },
+    { Name = "Moonlit Rod", Price = 150000, Pos = Vector3.new(-2921, -971, 6038) }
 }
 
 local TotemRegistry = {
-    { Name = "Enchant Relic", Price = 11000, Pos = Vector3.new(-950, 222, -991) },
-    { Name = "Clearcast Totem", Price = 1000, Pos = Vector3.new(418, 148, 235) },
+    { Name = "Enchant Relic", Price = 11000, Pos = Vector3.new(-947, -567, -1319) },
+    { Name = "Clearcast Totem", Price = 1000, Pos = Vector3.new(701, 250, 304) },
     { Name = "Sundial Totem", Price = 2000, Pos = Vector3.new(-1145, 135, -1075) },
     { Name = "Windset Totem", Price = 2000, Pos = Vector3.new(2840, 178, 2700) },
     { Name = "Tempest Totem", Price = 2000, Pos = Vector3.new(-190, 155, 1960) },
-    { Name = "Smokescreen Totem", Price = 2000, Pos = Vector3.new(2490, 131, -730) },
-    { Name = "Meteor Totem", Price = 75000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Avalanche Totem", Price = 150000, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Blizzard Totem", Price = 150000, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Poseidon Wrath Totem", Price = 150000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Zeus Storm Totem", Price = 150000, Pos = Vector3.new(1000, 135, -1250) },
-    { Name = "Eclipse Totem", Price = 200000, Pos = Vector3.new(-110, -515, 1060) },
-    { Name = "Aurora Totem", Price = 500000, Pos = Vector3.new(-1810, -143, -3405) },
-    { Name = "Blue Moon Totem", Price = 1200000, Pos = Vector3.new(380, 135, 230) },
-    { Name = "Dripstone Collapse Totem", Price = 7500000, Pos = Vector3.new(-1650, -230, -2850) }
+    { Name = "Smokescreen Totem", Price = 2000, Pos = Vector3.new(2697, 164, -757) },
+    { Name = "Meteor Totem", Price = 75000, Pos = Vector3.new(-1685, 338, 439) },
+    { Name = "Avalanche Totem", Price = 150000, Pos = Vector3.new(21606, 478, 3996) },
+    { Name = "Blizzard Totem", Price = 150000, Pos = Vector3.new(21606, 478, 3996) },
+    { Name = "Poseidon Wrath Totem", Price = 150000, Pos = Vector3.new(-4026, -539, 899) },
+    { Name = "Zeus Storm Totem", Price = 150000, Pos = Vector3.new(-4308, -621, 2716) },
+    { Name = "Eclipse Totem", Price = 200000, Pos = Vector3.new(-46, -718, 1403) },
+    { Name = "Aurora Totem", Price = 500000, Pos = Vector3.new(-1788, -119, -3385) },
+    { Name = "Blue Moon Totem", Price = 1200000, Pos = Vector3.new(2716, 117, 2538) },
+    { Name = "Dripstone Collapse Totem", Price = 7500000, Pos = Vector3.new(-1482, -214, -2219) }
 }
 
 local GearRegistry = {
-    { Name = "Basic Oxygen Tank", Price = 1000, Pos = Vector3.new(515, 151, 235) },
-    { Name = "Basic Diving Gear", Price = 3000, Pos = Vector3.new(515, 151, 238) },
-    { Name = "Beginner Oxygen Tank", Price = 3500, Pos = Vector3.new(515, 151, 235) },
-    { Name = "Intermediate Oxygen Tank", Price = 10000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Advanced Diving Gear", Price = 15000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Advanced Oxygen Tank", Price = 25000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Flippers", Price = 9000, Pos = Vector3.new(515, 151, 235) },
-    { Name = "Super Flippers", Price = 30000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Winter Cloak", Price = 7500, Pos = Vector3.new(2620, 150, 2400) },
-    { Name = "Glimmerfin Suit Lvl 1", Price = 7500, Pos = Vector3.new(515, 151, 235) },
-    { Name = "Glimmerfin Suit Lvl 2", Price = 7500, Pos = Vector3.new(515, 151, 235) },
-    { Name = "Glimmerfin Suit Lvl 3", Price = 7500, Pos = Vector3.new(515, 151, 235) },
-    { Name = "Dunehaven Wraps", Price = 40000, Pos = Vector3.new(-930, 220, -1120) },
-    { Name = "Scoria Armor", Price = 75000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Gas Mask", Price = 75000, Pos = Vector3.new(-1650, -230, -2850) }
+    { Name = "Basic Oxygen Tank", Price = 1000, Pos = Vector3.new(369, 132, 249) },
+    { Name = "Basic Diving Gear", Price = 3000, Pos = Vector3.new(369, 132, 249) },
+    { Name = "Beginner Oxygen Tank", Price = 3500, Pos = Vector3.new(369, 132, 249) },
+    { Name = "Flippers", Price = 9000, Pos = Vector3.new(369, 132, 249) },
+    { Name = "Intermediate Oxygen Tank", Price = 10000, Pos = Vector3.new(-1642, -182, -2843) },
+    { Name = "Advanced Diving Gear", Price = 15000, Pos = Vector3.new(-1642, -182, -2843) },
+    { Name = "Advanced Oxygen Tank", Price = 25000, Pos = Vector3.new(-1642, -182, -2843) },
+    { Name = "Super Flippers", Price = 30000, Pos = Vector3.new(-1642, -182, -2843) },
+    { Name = "Winter Cloak", Price = 7500, Pos = Vector3.new(21606, 478, 3996) },
+    { Name = "Glimmerfin Suit Lvl 1", Price = 7500, Pos = Vector3.new(369, 132, 249) },
+    { Name = "Glimmerfin Suit Lvl 2", Price = 7500, Pos = Vector3.new(369, 132, 249) },
+    { Name = "Glimmerfin Suit Lvl 3", Price = 7500, Pos = Vector3.new(369, 132, 249) },
+    { Name = "Dunehaven Wraps", Price = 40000, Pos = Vector3.new(-6544, 240, -1833) },
+    { Name = "Scoria Armor", Price = 75000, Pos = Vector3.new(-5219, 391, -1520) },
+    { Name = "Gas Mask", Price = 75000, Pos = Vector3.new(-1642, -182, -2843) }
 }
 
 local UtilityRegistry = {
-    { Name = "Crab Cage", Price = 45, Pos = Vector3.new(474, 149, 236) },
-    { Name = "GPS", Price = 100, Pos = Vector3.new(515, 151, 235) },
-    { Name = "Glider", Price = 900, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Reinforced Crab Cage", Price = 1000, Pos = Vector3.new(-930, 220, -1120) },
-    { Name = "Coral Crab Cage", Price = 1500, Pos = Vector3.new(1000, 135, -1250) },
-    { Name = "Relic Crab Cage", Price = 2000, Pos = Vector3.new(-930, 220, -1120) },
-    { Name = "Pickaxe", Price = 5000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Fish Radar", Price = 8000, Pos = Vector3.new(510, 151, 240) },
-    { Name = "Advanced Glider", Price = 10000, Pos = Vector3.new(-1480, 135, 680) },
-    { Name = "Golden Crab Cage", Price = 25000, Pos = Vector3.new(-110, -515, 1060) },
-    { Name = "Tidebreaker", Price = 40000, Pos = Vector3.new(-1650, -230, -2850) },
-    { Name = "Magic Mirror", Price = 50000, Pos = Vector3.new(-930, 220, -1120) },
-    { Name = "Traveler's Whistle", Price = 25000, Pos = Vector3.new(380, 135, 230) }
+    { Name = "Crab Cage", Price = 45, Pos = Vector3.new(475, 150, 230) },
+    { Name = "GPS", Price = 100, Pos = Vector3.new(517, 149, 284) },
+    { Name = "Glider", Price = 900, Pos = Vector3.new(-1460, 149, 701) },
+    { Name = "Reinforced Crab Cage", Price = 1000, Pos = Vector3.new(-947, -567, -1319) },
+    { Name = "Coral Crab Cage", Price = 1500, Pos = Vector3.new(-4006, -694, 1012) },
+    { Name = "Relic Crab Cage", Price = 2000, Pos = Vector3.new(-947, -567, -1319) },
+    { Name = "Pickaxe", Price = 5000, Pos = Vector3.new(-1460, 149, 701) },
+    { Name = "Fish Radar", Price = 8000, Pos = Vector3.new(365, 134, 274) },
+    { Name = "Advanced Glider", Price = 10000, Pos = Vector3.new(-1460, 149, 701) },
+    { Name = "Golden Crab Cage", Price = 25000, Pos = Vector3.new(-46, -718, 1403) },
+    { Name = "Tidebreaker", Price = 40000, Pos = Vector3.new(-1482, -214, -2219) },
+    { Name = "Magic Mirror", Price = 50000, Pos = Vector3.new(-947, -567, -1319) },
+    { Name = "Traveler's Whistle", Price = 25000, Pos = Vector3.new(466, 151, 224) }
 }
 
 local BaitRegistry = {
@@ -696,20 +697,34 @@ local function purchaseItemAtLocation(targetPos, modelName, itemType)
     Hub.Notify("Shop", "Purchasing " .. modelName .. "...", 2)
     local originalCFrame = root.CFrame
     
-    local function findPrompt(maxDistFromTarget)
+    local function findPrompt(maxDist, centerPos)
+        local cleanTarget = string.lower(modelName):gsub("[%s%p]+", "")
+        -- 1. Check direct interactables folder
         local interactables = Workspace:FindFirstChild("world") and Workspace.world:FindFirstChild("interactables")
-        if interactables and interactables:FindFirstChild(modelName) then
-            local model = interactables[modelName]
-            local p = model:FindFirstChildOfClass("ProximityPrompt") or model:FindFirstChild("PromptTemplate")
-            if p and isStorePrompt(p) then return p end
+        if interactables then
+            for _, m in ipairs(interactables:GetChildren()) do
+                local cleanM = string.lower(m.Name):gsub("[%s%p]+", "")
+                if string.find(cleanM, cleanTarget, 1, true) or string.find(cleanTarget, cleanM, 1, true) then
+                    local p = m:FindFirstChildOfClass("ProximityPrompt") or m:FindFirstChild("PromptTemplate") or m:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if p and isStorePrompt(p) then return p end
+                end
+            end
         end
+
+        -- 2. Check full Workspace descendants
         for _, p in ipairs(Workspace:GetDescendants()) do
             if p:IsA("ProximityPrompt") and isStorePrompt(p) then
                 local obj = p.ObjectText ~= "" and p.ObjectText or (p.Parent and p.Parent.Name or "")
-                if string.lower(obj) == string.lower(modelName) or string.find(string.lower(obj), string.lower(modelName), 1, true) then
-                    if maxDistFromTarget and targetPos then
+                local act = p.ActionText or ""
+                local cleanObj = string.lower(obj):gsub("[%s%p]+", "")
+                local cleanAct = string.lower(act):gsub("[%s%p]+", "")
+                
+                if string.find(cleanObj, cleanTarget, 1, true) 
+                   or string.find(cleanTarget, cleanObj, 1, true) 
+                   or string.find(cleanAct, cleanTarget, 1, true) then
+                    if maxDist and centerPos then
                         local pPos = p.Parent:IsA("BasePart") and p.Parent.Position or p.Parent:GetPivot().Position
-                        if (pPos - targetPos).Magnitude <= maxDistFromTarget then
+                        if (pPos - centerPos).Magnitude <= maxDist then
                             return p
                         end
                     else
@@ -721,37 +736,48 @@ local function purchaseItemAtLocation(targetPos, modelName, itemType)
         return nil
     end
 
-    local prompt = findPrompt(25)
-    if not prompt or (root.Position - prompt.Parent:GetPivot().Position).Magnitude > 15 then
-        if targetPos then
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-            root.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-            
-            local start = tick()
-            while tick() - start < 3.5 do
-                prompt = findPrompt(25)
-                if prompt then break end
-                task.wait(0.2)
-            end
+    -- Step 1: Check if prompt is already loaded anywhere in workspace
+    local prompt = findPrompt(nil, nil)
+
+    -- Step 2: If not loaded yet or far away, teleport to target position and stream around it
+    if not prompt and targetPos then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CFrame = CFrame.new(targetPos + Vector3.new(0, 4, 0))
+        
+        -- Request streaming for this area
+        pcall(function()
+            Workspace:RequestStreamAroundAsync(targetPos)
+        end)
+        
+        -- Poll up to 4.5 seconds with a generous 400-stud radius around targetPos
+        local start = tick()
+        while tick() - start < 4.5 do
+            prompt = findPrompt(400, targetPos)
+            if prompt then break end
+            task.wait(0.2)
+        end
+        
+        -- Fallback: check workspace again now that streaming has completed
+        if not prompt then
+            prompt = findPrompt(nil, nil)
         end
     end
-    
+
     if not prompt then
-        prompt = findPrompt(nil)
-    end
-    
-    if not prompt then
+        root.AssemblyLinearVelocity = Vector3.zero
         root.CFrame = originalCFrame
         Hub.Notify("Shop", "Could not locate " .. modelName .. " store.", 3)
         return false
     end
-    
+
+    -- Step 3: Teleport DIRECTLY in front of the prompt!
     local promptPos = prompt.Parent:IsA("BasePart") and prompt.Parent.Position or prompt.Parent:GetPivot().Position
     root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
     root.CFrame = CFrame.new(promptPos + Vector3.new(0, 1.5, 3), promptPos)
-    task.wait(0.45)
-    
+    task.wait(0.4)
+
     pcall(function()
         fireproximityprompt(prompt, 0)
     end)
