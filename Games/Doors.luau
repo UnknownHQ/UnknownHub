@@ -2441,7 +2441,9 @@ local syncServerSlide
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
     local function primeHidingGrace(prompt, player)
-        if player == LocalPlayer and prompt then
+        if prompt and prompt:IsA("ProximityPrompt") then
+            -- Note: On client, ProximityPromptService events pass ONLY (prompt), player is nil!
+            if player ~= nil and player ~= LocalPlayer then return end
             local act = (prompt.ActionText or ""):lower()
             local obj = (prompt.ObjectText or ""):lower()
             local pName = prompt.Parent and prompt.Parent.Name:lower() or ""
@@ -2451,20 +2453,19 @@ pcall(function()
                or obj:find("closet") or obj:find("wardrobe") or obj:find("locker") or obj:find("bed")
                or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or pName:find("bed")
                or mName:find("closet") or mName:find("wardrobe") or mName:find("locker") or mName:find("bed") then
-                unhideGraceUntil = os.clock() + 4.0
+                unhideGraceUntil = os.clock() + 6.0
                 lastForwardPos = nil
                 lastForwardCFrame = nil
                 table.clear(trailHistory)
                 wasMoving = false
                 if syncServerSlide then syncServerSlide(false, false) end
 
-                -- Force instant server position reconciliation to wardrobe prompt part
+                -- Zero velocities so server position reconciliation to wardrobe succeeds instantly
                 task.spawn(function()
                     local r = getRoot()
-                    local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart") or (prompt.Parent:IsA("Model") and prompt.Parent.PrimaryPart)
-                    if r and pPart then
-                        local toPart = (pPart.Position - r.Position)
-                        r.AssemblyLinearVelocity = if toPart.Magnitude > 0.1 then toPart.Unit * 1.5 else Vector3.new(0, 0.1, 0)
+                    if r then
+                        r.AssemblyLinearVelocity = Vector3.zero
+                        r.AssemblyAngularVelocity = Vector3.zero
                     end
                 end)
             end
@@ -4654,12 +4655,11 @@ local function applyPromptModifications(prompt)
 
     if isHidingSpot then
         -- Wardrobe & Closet Interaction Assurance:
-        -- Keep within native 9.5 studs, disable LOS, and guarantee prompt is enabled!
+        -- Expand reach to 12.0 studs so prompt NEVER flickers or disappears when walking up!
         local origDist = prompt:GetAttribute("OrigMaxDist") or 9.5
-        prompt.MaxActivationDistance = math.clamp(origDist, 8.0, 10.5)
-        -- PRESERVE DELIBERATE HOLD DURATION: Never 0-hold hiding spots so looting drawers never pulls player into closet!
-        local origHold = prompt:GetAttribute("OrigHold") or 0.6
-        prompt.HoldDuration = math.max(origHold, 0.45)
+        prompt.MaxActivationDistance = math.max(origDist, 12.0)
+        -- Snappy 0.25s hold duration: fast and responsive to click E, yet deliberate enough to prevent accidental looting triggers!
+        prompt.HoldDuration = 0.25
         prompt.RequiresLineOfSight = false
         if not prompt.Enabled then prompt.Enabled = true end
     elseif isDoorPrompt then
@@ -5222,21 +5222,37 @@ local function applyAdditionalDefenses()
         end
     end
 
-    -- 2. Anti-Seek Hands & Obstructions: Strips touch on SeekHands and disables collisions on fallen debris while crouching
-    if State.Anti_Seek or State.WalkSpeed_Enabled then
+    -- 2. Anti-Seek Hands, Obstructions & Seek Moving Entity Defusal: Completely neutralizes Seek hands, SeekMoving, and falling debris!
+    if State.Anti_Seek or State.WalkSpeed_Enabled or State.Noclip then
         local char = getChar()
         local r = getRoot()
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         for _, desc in ipairs(curRooms:GetDescendants()) do
             local nl = desc.Name:lower()
-            if (nl:find("seekhand") or nl:find("hand") or nl:find("chandelier")) and desc:IsA("BasePart") and desc.CanTouch then
-                desc.CanTouch = false
-            end
-            if (nl:find("obstruction") or nl:find("fallen") or nl:find("bookshelf") or nl:find("chandelier") or nl:find("debris")) and desc:IsA("BasePart") then
-                if isCrouching or (r and desc.Position.Y > (r.Position.Y + 1.2)) then
-                    desc.CanCollide = false
+            local pName = desc.Parent and desc.Parent.Name:lower() or ""
+            local isSeekThreat = nl:find("seek") or pName:find("seek") or nl:find("arm") or nl:find("hand") or nl:find("animatorpart")
+            if isSeekThreat then
+                if desc:IsA("BasePart") then
+                    if desc.CanTouch then desc.CanTouch = false end
+                    if desc.CanCollide then desc.CanCollide = false end
+                elseif desc:IsA("TouchTransmitter") then
+                    pcall(function() desc:Destroy() end)
                 end
+            end
+            if (nl:find("obstruction") or nl:find("fallen") or nl:find("bookshelf") or nl:find("chandelier") or nl:find("debris") or nl:find("fire")) and desc:IsA("BasePart") then
+                if isCrouching or State.Noclip or (r and desc.Position.Y > (r.Position.Y + 1.2)) then
+                    desc.CanCollide = false
+                    desc.CanTouch = false
+                end
+            end
+        end
+
+        -- Ensure Seek himself (SeekMoving / SeekRig) in Workspace is defused immediately
+        for _, obj in ipairs(Workspace:GetChildren()) do
+            local oLower = obj.Name:lower()
+            if oLower:find("seek") then
+                defuseLethalEntity(obj)
             end
         end
     end
@@ -5391,8 +5407,8 @@ end
 Workspace.ChildAdded:Connect(function(child)
     local cName = child.Name
     local lower = cName:lower()
-    local isLethal = lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120")
-    if isLethal and (State.Noclip or State.Anti_Rush or isPlayerOutOfMap()) then
+    local isLethal = lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120") or lower:find("seek") or lower:find("figure") or lower:find("grumble") or lower:find("giggle") or lower:find("gloombat")
+    if isLethal and (State.Noclip or State.Anti_Rush or State.Anti_Seek or isPlayerOutOfMap()) then
         defuseLethalEntity(child)
     end
     for _, ent in ipairs({"Rush", "Ambush", "Eyes", "Seek", "Figure", "Halt", "A60", "A90", "A120", "Giggle", "Gloombat", "Grumble", "Dread", "Blitz", "Lookman"}) do
@@ -7234,7 +7250,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             for _, container in ipairs(searchContainers) do
                 for _, p in ipairs(container:GetDescendants()) do
                     if p:IsA("ProximityPrompt") and p.Enabled then
-                        -- STRICT SAFETY CHECK: NEVER FAST-TRIGGER HIDING SPOTS!
                         local prName = p.Name:lower()
                         local pAct = (p.ActionText or ""):lower()
                         local pObj = (p.ObjectText or ""):lower()
@@ -7243,7 +7258,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                             or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("bed") or pObj:find("locker")
                             or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("bed") or parentName:find("locker")
 
-                        if not isHiding then
+                        if isHiding then
+                            -- Prime grace immediately when looking near a hiding spot so server wardrobe teleport is 100% permitted
+                            local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
+                            if pPart and (pPart.Position - rPos).Magnitude <= 12.0 then
+                                unhideGraceUntil = os.clock() + 6.0
+                            end
+                        else
                             local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
                             if pPart then
                                 local toPart = (pPart.Position - rPos)
