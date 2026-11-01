@@ -358,6 +358,7 @@ local isLethalEntityIncoming
 local defuseLethalEntity
 local getExactFloorPos
 local solveLibraryCode
+local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
 
 
 -- =========================================================================
@@ -3257,6 +3258,33 @@ local function initGodModeImmunity()
             end
         end
     end)
+    -- Defuse Jack jumpscares: Silences scream sounds and deletes Jack popups from wardrobes
+    pcall(function()
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        local function defuseJack(inst)
+            if not inst then return end
+            local n = inst.Name:lower()
+            if n:find("jack") then
+                for _, d in ipairs(inst:GetDescendants()) do
+                    if d:IsA("Sound") then
+                        d.Volume = 0
+                        d:Stop()
+                    elseif d:IsA("Decal") or d:IsA("ImageLabel") or d:IsA("Texture") then
+                        d.Transparency = 1
+                    end
+                end
+                if inst:IsA("Model") or inst:IsA("BasePart") then
+                    pcall(function() inst:Destroy() end)
+                end
+            end
+        end
+        if curRooms then
+            for _, d in ipairs(curRooms:GetDescendants()) do defuseJack(d) end
+            curRooms.DescendantAdded:Connect(defuseJack)
+        end
+        Workspace.DescendantAdded:Connect(defuseJack)
+    end)
+
     -- Intercept PlayerDied to eradicate ReviveRift effect spam and ghost-death desync
     pcall(function()
         local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
@@ -3555,7 +3583,7 @@ local function neutralizeServerTeleported()
                         local isHidingNow = isPlayerHiding(char, mgTable)
                         local isChaseActive = (mgTable and mgTable.chase == true)
 
-                        if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening) then
+                        if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening and not State.WalkSpeed_Enabled) then
                             return rawFn(p1, p2, p3, p4)
                         end
 
@@ -3606,7 +3634,7 @@ local function neutralizeServerTeleported()
                                 local isHidingNow = isPlayerHiding(char, mgTable)
                                 local isChaseActive = (mgTable and mgTable.chase == true)
 
-                                if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening) then
+                                if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening and not State.WalkSpeed_Enabled) then
                                     return fn(pTarget, ...)
                                 end
 
@@ -4794,45 +4822,17 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-        applyTeflonGlide(char)
         syncServerSlide(true, isSlidingActive)
 
+        -- Native DOORS Speed Boost Integration: Sets SpeedBoostExtra attribute so Movement's own updatespeed()
+        -- calculates native walkspeed smoothly with synchronized animation speed & camera FOV!
         local targetSpeed = isCrouching and math.clamp(State.WalkSpeed_Value * 0.60, 14, 25) or State.WalkSpeed_Value
+        local boostAmt = math.max(0, targetSpeed - (isCrouching and 10 or 15))
+        if char:GetAttribute("SpeedBoostExtra") ~= boostAmt then
+            pcall(function() char:SetAttribute("SpeedBoostExtra", boostAmt) end)
+        end
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
-        end
-
-        -- Instant Responsive Movement (No Slip / Zero Acceleration Drift):
-        if State.Instant_Movement and not isSlidingActive then
-            local moveDir = hum.MoveDirection
-            local curY = root.AssemblyLinearVelocity.Y
-            if moveDir.Magnitude > 0.05 then
-                local rayParams = RaycastParams.new()
-                rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                rayParams.RespectCanCollide = true
-
-                local rayOrigin = root.Position + Vector3.new(0, isCrouching and -0.8 or 0.4, 0)
-                local hit = workspace:Raycast(rayOrigin, moveDir * 1.5, rayParams)
-                if hit and hit.Instance and hit.Instance.CanCollide then
-                    local n = hit.Normal
-                    local hNormal = Vector3.new(n.X, 0, n.Z)
-                    if hNormal.Magnitude > 0.1 then
-                        hNormal = hNormal.Unit
-                        local dot = moveDir:Dot(hNormal)
-                        if dot < 0 then
-                            local deflected = (moveDir - hNormal * dot)
-                            if deflected.Magnitude > 0.05 then
-                                moveDir = deflected.Unit
-                            end
-                        end
-                    end
-                end
-
-                root.AssemblyLinearVelocity = Vector3.new(moveDir.X * targetSpeed, curY, moveDir.Z * targetSpeed)
-            else
-                root.AssemblyLinearVelocity = Vector3.new(0, curY, 0)
-            end
         end
 
         -- Ensure opened doors across all active rooms remain 100% collision-free
@@ -4996,10 +4996,26 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         -- TouchPlayer (Rush, Ambush, Seek hitboxes) CANNOT collide with NoPlayer!
         -- Meanwhile CanTouch & CanQuery remain true so doors and prompts work flawlessly!
         if char then
+            local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
+            local targetGroup = isCrouching and "PlayerCrouching" or "NoPlayer"
+            local coll = char:FindFirstChild("Collision")
+            local cc = coll and coll:FindFirstChild("CollisionCrouch")
+            local cp = char:FindFirstChild("CollisionPart")
+
+            if isCrouching then
+                if coll and coll.CanCollide then coll.CanCollide = false end
+                if cc and not cc.CanCollide then cc.CanCollide = true end
+                if cp and cp.CanCollide then cp.CanCollide = false end
+            else
+                if coll and not coll.CanCollide then coll.CanCollide = true end
+                if cc and cc.CanCollide then cc.CanCollide = false end
+                if cp and cp.CanCollide then cp.CanCollide = false end
+            end
+
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if p.CollisionGroup ~= "NoPlayer" then
-                        p.CollisionGroup = "NoPlayer"
+                    if p.CollisionGroup ~= targetGroup then
+                        pcall(function() p.CollisionGroup = targetGroup end)
                     end
                     if not p.CanTouch then p.CanTouch = true end
                     if not p.CanQuery then p.CanQuery = true end
@@ -5010,9 +5026,6 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
     -- Continuous Body & First-Person Head Alignment (Camera follows head; no torso clipping!):
     if char and not hiding then
-        if char:GetAttribute("Hiding") == true then
-            char:SetAttribute("Hiding", nil)
-        end
 
 
 
@@ -5219,19 +5232,15 @@ local jumpConn; jumpConn = UserInputService.JumpRequest:Connect(function()
     if jumpConn then trackConn(jumpConn) end
     if State.Enable_Jumping then
         local char = getChar()
-        local root = getRoot()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if hum and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead then
             if not hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
                 hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
             end
             hum.UseJumpPower = true
-            hum.JumpPower = 52
-            hum.JumpHeight = 7.5
+            hum.JumpPower = 38
+            hum.JumpHeight = 4.2
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            if root and math.abs(root.AssemblyLinearVelocity.Y) < 2.0 then
-                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 52, root.AssemblyLinearVelocity.Z)
-            end
         end
     end
 end)
@@ -5809,26 +5818,16 @@ task.spawn(function()
                         end
                     end
 
-                    -- 2. Check Side Doors (Touch-based swing open for DoorNormal)
+                    -- 2. Check All Doors (Main Doors, Side Doors, Hallway Doors)
                     if State.AutoInteract_Doors and not (State.AutoInteract_Excludes and State.AutoInteract_Excludes["Side Room Doors"]) then
-                        for _, child in ipairs(container:GetChildren()) do
-                            local cName = child.Name:lower()
-                            if cName:find("doornormal") or cName:find("sidedoor") then
-                                local hidden = child:FindFirstChild("Hidden")
-                                if hidden and hidden:IsA("BasePart") then
-                                    local dist = (rootPos - hidden.Position).Magnitude
-                                    if dist <= maxDist then
-                                        if not promptDebounce[hidden] or now >= promptDebounce[hidden] then
-                                            promptDebounce[hidden] = now + 0.8
-                                            task.spawn(function()
-                                                pcall(function()
-                                                    hidden.CanTouch = true
-                                                    firetouchinterest(root, hidden, 0)
-                                                    task.wait()
-                                                    firetouchinterest(root, hidden, 1)
-                                                end)
-                                            end)
-                                        end
+                        for _, child in ipairs(container:GetDescendants()) do
+                            if child:IsA("Model") and (child.Name == "Door" or child.Name:lower():find("door")) then
+                                local dPart = child:FindFirstChild("Door") or child:FindFirstChild("Hidden") or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+                                if dPart then
+                                    local dist = (rootPos - dPart.Position).Magnitude
+                                    if dist <= (maxDist + 4) then
+                                        processNearbyDoors(rootPos, maxDist + 4)
+                                        break
                                     end
                                 end
                             end
@@ -5923,19 +5922,19 @@ end
 local function executeItemDupeDrop(tool)
     if not tool or isDroppingAndRetrieving then return end
     local now = os.clock()
-    if now - lastDupeTime < 0.20 then return end
+    if now - lastDupeTime < 0.25 then return end
     lastDupeTime = now
     isDroppingAndRetrieving = true
 
     local toolName = tool.Name
-    local dropRemote = remotesFolder and remotesFolder:FindFirstChild("DropItem")
+    local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+    local dropRemote = rf and rf:FindFirstChild("DropItem")
     if dropRemote then
         pcall(function() dropRemote:FireServer(tool) end)
-        pcall(function() dropRemote:FireServer() end)
     end
 
-    retrieveDroppedTool(toolName, 1.8)
-    task.delay(0.2, function()
+    retrieveDroppedTool(toolName, 2.0)
+    task.delay(0.25, function()
         isDroppingAndRetrieving = false
     end)
 end
