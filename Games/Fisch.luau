@@ -106,9 +106,9 @@ local Config = {
     AutoCast = false,
     CastPower = 100,
     AutoShake = false,
-    ShakeMode = "Blazing (0.05s)", -- "Blazing (0.05s)", "Fast (0.12s)", "Humanized"
+    ShakeMode = "Blazing (0.08s)", -- "Blazing (0.08s)", "Fast (0.12s)", "Humanized"
     AutoReel = false,
-    ReelMode = "Near Instant (~0.05s)", -- "Near Instant (~0.05s)", "Hyper Fast (~0.5s)", "Safe (~2s)"
+    ReelMode = "Near Instant (~0.25s)", -- "Near Instant (~0.25s)", "Fast (~1s)", "Safe (~2s)"
     InstantReelDelay = 0.25, -- Handshake delay waiting for server Reeling attribute
     AutoEquipRod = true,
 
@@ -183,9 +183,9 @@ pcall(function()
             local args = {...}
             local cfg = (typeof(args[1]) == "table" and args[1].ShakePower ~= nil) and args[1] or args[2]
             if Config.AutoShake and typeof(cfg) == "table" then
-                -- Massive 35x Shake Power & 6.0 Scale slashes internal click cooldown to 0.04s
-                cfg.ShakePower = 35
-                cfg.ShakeScale = 6.0
+                -- 25x Shake Power & 2.8x Scale cuts internal cooldown to ~0.08s without breaking UI layout
+                cfg.ShakePower = 25
+                cfg.ShakeScale = 2.8
             end
             return origStartMinigame(...)
         end
@@ -201,9 +201,9 @@ pcall(function()
             local args = {...}
             local a1 = (typeof(args[1]) == "table" and args[1].stats ~= nil) and args[1] or args[2]
             if Config.AutoReel and typeof(a1) == "table" and a1.stats then
-                -- Near-Instant 96% Starting Progress: minigame completes in 1-2 frames naturally!
-                a1.stats.StartingProgress = 96
-                a1.stats.ProgressSpeed = 350
+                -- 90% Starting Progress: completes in ~0.25s naturally while preserving 100% catch rate!
+                a1.stats.StartingProgress = 90
+                a1.stats.ProgressSpeed = 300
                 a1.stats.Control = 1.0
             end
             return origStartReel(...)
@@ -291,7 +291,7 @@ local function executeCast()
     if getActiveReel() ~= nil then return end
     if isShakingActive() then return end
     if tick() - lastCastTick < 2.0 then return end
-    if tick() - lastCatchTick < 0.4 then return end
+    if tick() - lastCatchTick < 0.5 then return end
 
     local rod = ensureRodEquipped()
     if not rod then return end
@@ -320,11 +320,11 @@ local function executeCast()
     end)
 end
 
--- 2. Blazing Fast Auto Shake Engine (<0.1s Pop)
+-- 2. Blazing Fast Auto Shake Engine (~0.08s Multi-Pop)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
 
-    local interval = 0.045
+    local interval = 0.08
     if Config.ShakeMode == "Fast (0.12s)" then
         interval = 0.12
     elseif Config.ShakeMode == "Humanized" then
@@ -389,11 +389,11 @@ local function processReelMinigame(activeReel)
         activeReel.perfect = true
 
         -- Advance progress smoothly inside minigame core
-        -- With starting progress at 96%, this completes the minigame in 1-2 frames (~0.05s) naturally!
+        -- With starting progress at 90%, this completes the minigame in ~0.25s naturally!
         if activeReel.core and activeReel.core.minigame and activeReel.core.minigame._progressModifier then
             local p = activeReel.core.minigame._progressModifier
             if p.Value < 98 then
-                local boost = 3.5
+                local boost = 2.5
                 if Config.ReelMode == "Safe (~2s)" then
                     boost = 0.5
                 end
@@ -560,7 +560,7 @@ Hub.CreateToggle(farmTab, "Auto Shake (Bubble Pop)", Config.AutoShake, function(
     Hub.Notify("Auto Shake", val and "Auto Shake: ACTIVE" or "Auto Shake: OFF", 2)
 end)
 
-Hub.CreateDropdown(farmTab, "Shake Speed", {"Blazing (0.05s)", "Fast (0.12s)", "Humanized"}, Config.ShakeMode, function(val)
+Hub.CreateDropdown(farmTab, "Shake Speed", {"Blazing (0.08s)", "Fast (0.12s)", "Humanized"}, Config.ShakeMode, function(val)
     Config.ShakeMode = val
 end)
 
@@ -569,7 +569,7 @@ Hub.CreateToggle(farmTab, "Auto Reel (Fish Bubble)", Config.AutoReel, function(v
     Hub.Notify("Auto Reel", val and "Auto Reel: ACTIVE" or "Auto Reel: OFF", 2)
 end)
 
-Hub.CreateDropdown(farmTab, "Reel Speed", {"Near Instant (~0.05s)", "Hyper Fast (~0.5s)", "Safe (~2s)"}, Config.ReelMode, function(val)
+Hub.CreateDropdown(farmTab, "Reel Speed", {"Near Instant (~0.25s)", "Fast (~1s)", "Safe (~2s)"}, Config.ReelMode, function(val)
     Config.ReelMode = val
     Hub.Notify("Reel Speed", "Reel Speed set to: " .. val, 2)
 end)
