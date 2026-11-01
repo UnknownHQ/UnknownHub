@@ -2157,46 +2157,11 @@ RunService.Heartbeat:Connect(function(dt)
     local isWall = bearNameLower:find("wall") ~= nil
     local isRanged = bearNameLower:find("ranged") ~= nil or bearNameLower:find("spike") ~= nil
 
+    local desiredCF = nil
     if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
-        local targetPos = centerPos - (flatLook * distBehind)
-        local y = targetY
-        if isWall then
-            -- WallBear topple immunity: stay elevated clear of forward topple sweep
-            if activeFlightEvading then
-                y = y + 7.5
-            end
-        elseif isLaser then
-            -- Roboo-800 laser evasion: vault high above forward laser eye and DeathRay line-of-fire!
-            if activeFlightEvading or bearRoot.AssemblyLinearVelocity.Magnitude > 12 then
-                y = y + 6.0
-            end
-        elseif isRanged then
-            -- Spike / Ranged Bear in melee mode: stay clear of needle spray
-            if activeFlightEvading then
-                y = y + 3.8
-            end
-        elseif isBoss then
-            if activeFlightEvading or bearRoot.AssemblyLinearVelocity.Magnitude > 16 then
-                y = y + 4.2
-            end
-        else
-            -- Standard bears (including BooBoo) in Melee: vault +3.2 studs above bite/slash reach when bear turns!
-            if activeFlightEvading then
-                y = y + 3.2
-            end
-        end
-
-        -- Dynamic Threat Ceiling & Third-Party AOE Deflector (clamped in Melee to prevent range drop)
-        local threatCeiling, repelVec = getNearbyThreatCeiling(root.Position, bear)
-        if threatCeiling > 0 and (threatCeiling + 2.0) > y then
-            y = math.min(threatCeiling + 2.0, targetY + 2.5)
-        end
-        if repelVec.Magnitude > 0 then
-            targetPos = targetPos + (repelVec.Unit * math.min(repelVec.Magnitude, 2.5))
-        end
-
-        targetPos = Vector3.new(targetPos.X, y, targetPos.Z)
-        root.CFrame = CFrame.lookAt(targetPos, centerPos)
+        -- Hover directly above bear apex blindspot: zero horizontal orbiting, safe from all frontal claws/bites
+        local hoverPos = Vector3.new(centerPos.X, targetY, centerPos.Z)
+        desiredCF = CFrame.lookAt(hoverPos, centerPos)
     elseif Config.FarmMethod == "Gun" then
         local cf, bbSize = bear:GetBoundingBox()
         local isShotgunEquipped = false
@@ -2205,27 +2170,23 @@ RunService.Heartbeat:Connect(function(dt)
             isShotgunEquipped = true
         end
 
-        -- Shotgun lethal point-blank lock (8-10 studs distance): prevents pellet drop and 100% damage falloff!
-        local distBehindGun = isShotgunEquipped and math.clamp(bbSize.Z * 0.5 + 3.5, 6.0, 10.0)
-            or ((isBoss or isWall) and 38.0 or math.max(8.5, bbSize.Z * 0.75 + 4.0))
-        local heightAboveGun = isShotgunEquipped and math.clamp(bbSize.Y * 0.5 + 2.5, 4.5, 8.0)
-            or ((isBoss or isWall) and (bbSize.Y * 0.5 + 26.0) or math.max(7.5, bbSize.Y * 0.6 + 4.0))
-        local hoverPos = centerPos - (flatLook * distBehindGun) + Vector3.new(0, heightAboveGun, 0)
+        -- Stable apex hovering directly above bear (eliminates erratic circle flying and teleport stutter)
+        local heightAboveGun = isShotgunEquipped and math.clamp(bbSize.Y * 0.5 + 3.5, 5.0, 8.0)
+            or ((isBoss or isWall) and (bbSize.Y * 0.5 + 18.0) or math.max(11.0, bbSize.Y * 0.6 + 5.0))
+        local hoverPos = Vector3.new(centerPos.X, centerPos.Y + heightAboveGun, centerPos.Z)
+        desiredCF = CFrame.lookAt(hoverPos, centerPos)
+    end
 
-        if not isShotgunEquipped and (activeFlightEvading or (isBoss and bearRoot.AssemblyLinearVelocity.Magnitude > 18)) then
-            hoverPos = hoverPos + Vector3.new(0, 14.0, 0)
+    if desiredCF then
+        local distToTarget = (root.Position - desiredCF.Position).Magnitude
+        if distToTarget > 80 then
+            -- Long-range target transition
+            root.CFrame = desiredCF
+        else
+            -- 60 FPS butter-smooth gliding lerp: zero terrifying snapping or teleport stutter
+            local alpha = math.clamp(dt * 14, 0.16, 0.55)
+            root.CFrame = root.CFrame:Lerp(desiredCF, alpha)
         end
-
-        -- Dynamic Threat Ceiling & Third-Party AOE Deflector in Gun mode
-        local threatCeiling, repelVec = getNearbyThreatCeiling(root.Position, bear)
-        if threatCeiling > 0 and (threatCeiling + 3.0) > hoverPos.Y then
-            hoverPos = Vector3.new(hoverPos.X, threatCeiling + 3.0, hoverPos.Z)
-        end
-        if repelVec.Magnitude > 0 then
-            hoverPos = hoverPos + repelVec
-        end
-
-        root.CFrame = CFrame.lookAt(hoverPos, centerPos)
     end
 
     root.AssemblyLinearVelocity = Vector3.zero
@@ -2372,24 +2333,14 @@ task.spawn(function()
 
         activeFlightBear = bear
 
-        -- Instant Direct Teleport to Target Bear Blindspot
+        -- Acquire target position and update active flight bear
         local centerPos, distBehind, targetY = getBearLevitationTarget(bear)
-        local flatLook = Vector3.new(bearRoot.CFrame.LookVector.X, 0, bearRoot.CFrame.LookVector.Z)
-        if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
-        local snapPos = centerPos - (flatLook * distBehind)
-        snapPos = Vector3.new(snapPos.X, targetY, snapPos.Z)
-
-        if (root.Position - snapPos).Magnitude > 8 then
-            root.CFrame = CFrame.lookAt(snapPos, centerPos)
+        if (root.Position - centerPos).Magnitude > 80 then
+            local initialPos = Vector3.new(centerPos.X, targetY, centerPos.Z)
+            root.CFrame = CFrame.lookAt(initialPos, centerPos)
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
         end
-
-        -- 4. Anti-Hit Predictive Check (detect bear turning)
-        local lookVec = bearRoot.CFrame.LookVector
-        local toPlayer = (root.Position - bearRoot.Position).Unit
-        local isBearFacing = lookVec:Dot(toPlayer) > 0.25
-        activeFlightEvading = isBearFacing
 
         -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved, Melee Reach Guaranteed & Flamethrower)
         if Config.FarmMethod == "Melee" then
