@@ -1236,12 +1236,12 @@ local function recoverFromRagdoll()
         end
     end
 
-    -- 4. Guarantee solid ground collision
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            p.CanCollide = true
-        end
-    end
+    -- 4. Guarantee solid ground collision on root and torso only (never limbs, to prevent walk freeze)
+    if root then root.CanCollide = true end
+    local ut = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+    if ut then ut.CanCollide = true end
+    local lt = char:FindFirstChild("LowerTorso")
+    if lt then lt.CanCollide = true end
 end
 
 -- Server-Synchronized Gun Reload & Live Ammo State Machine
@@ -2037,11 +2037,7 @@ RunService.Heartbeat:Connect(function(dt)
         if Config.AntiRagdoll then
             recoverFromRagdoll()
         else
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    p.CanCollide = true
-                end
-            end
+            if not root.CanCollide then root.CanCollide = true end
             return
         end
     end
@@ -2305,6 +2301,19 @@ task.spawn(function()
 
         activeFlightBear = bear
 
+        -- Instant Direct Teleport to Target Bear Blindspot
+        local centerPos, distBehind, targetY = getBearSafeFlightPosition(bear)
+        local flatLook = Vector3.new(bearRoot.CFrame.LookVector.X, 0, bearRoot.CFrame.LookVector.Z)
+        if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
+        local snapPos = centerPos - (flatLook * distBehind)
+        snapPos = Vector3.new(snapPos.X, targetY, snapPos.Z)
+
+        if (root.Position - snapPos).Magnitude > 8 then
+            root.CFrame = CFrame.lookAt(snapPos, centerPos)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+
         -- 4. Anti-Hit Predictive Check (detect bear turning)
         local lookVec = bearRoot.CFrame.LookVector
         local toPlayer = (root.Position - bearRoot.Position).Unit
@@ -2382,27 +2391,18 @@ task.spawn(function()
                     or bearRoot
                 local aimPos = targetHitPart and targetHitPart.Position or bearRoot.Position
 
-                -- Keep character facing target for authoritative claw swipe reach
-                root.CFrame = CFrame.lookAt(root.Position, aimPos)
-
-                if tick() - lastBearAttack >= 0.16 then
-                    lastBearAttack = tick()
-
-                    -- 1. Authoritative BearAbility M1 Dispatch ("Use", "Default", aimPos)
-                    pcall(function()
-                        bearAbility:FireServer("Use", "Default", aimPos)
-                    end)
-
-                    -- 2. Dispatch synthetic M1 mouse event via VirtualInputManager for seamless animation
-                    pcall(function()
-                        local VIM = game:GetService("VirtualInputManager")
-                        VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                        task.delay(0.03, function()
-                            pcall(function()
-                                VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-                            end)
+                -- Only attack when within valid attack reach (<= 14 studs), zero air spamming
+                local distToBear = (root.Position - aimPos).Magnitude
+                if distToBear <= 14 then
+                    if tick() - lastBearAttack >= 0.18 then
+                        lastBearAttack = tick()
+                        -- 100% Authoritative Remote Only:
+                        -- Completely eliminates VirtualInputManager mouse clicking so Esc menu is NEVER dismissed
+                        -- and mouse cursor / camera control is NEVER stolen!
+                        pcall(function()
+                            bearAbility:FireServer("Use", "Default", aimPos)
                         end)
-                    end)
+                    end
                 end
             end
         end
@@ -2524,9 +2524,24 @@ end
 local SpeedModifiersModule = ReplicatedStorage:FindFirstChild("SpeedModifiers")
 local SpeedModifiers = SpeedModifiersModule and require(SpeedModifiersModule)
 
+local currentAppliedSpeedMod = nil
 local function ensureSpeedModifier(char)
     if not char then return end
     local targetMod = (Config.CustomSpeed and Config.CustomSpeed > 14.1) and ((Config.CustomSpeed / 14.1) - 1) or 0
+    if targetMod == currentAppliedSpeedMod then return end
+    currentAppliedSpeedMod = targetMod
+
+    if targetMod <= 0 then
+        if SpeedModifiers then
+            pcall(function() SpeedModifiers.Remove(char, "UnknownSpeedMod") end)
+        else
+            local speedFolder = char:FindFirstChild("SpeedModifiers")
+            local speedMod = speedFolder and speedFolder:FindFirstChild("UnknownSpeedMod")
+            if speedMod then pcall(function() speedMod:Destroy() end) end
+        end
+        return
+    end
+
     if SpeedModifiers then
         pcall(function()
             SpeedModifiers.Set(char, "UnknownSpeedMod", targetMod)
@@ -2544,13 +2559,12 @@ local function ensureSpeedModifier(char)
             speedMod.Name = "UnknownSpeedMod"
             speedMod.Parent = speedFolder
         end
-        if math.abs(speedMod.Value - targetMod) > 0.005 then
-            speedMod.Value = targetMod
-        end
+        speedMod.Value = targetMod
     end
 end
 
 LocalPlayer.CharacterAdded:Connect(function(newChar)
+    currentAppliedSpeedMod = nil
     task.wait(0.1)
     ensureSpeedModifier(newChar)
     local hum = newChar:WaitForChild("Humanoid", 3)
