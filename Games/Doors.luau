@@ -2415,6 +2415,45 @@ task.spawn(function()
     end
 end)
 
+-- Defuse Seek Obstacles & Hand Hitboxes
+local function defuseSeekObstacles(room)
+    if not (State.Anti_Seek and room) then return end
+    pcall(function()
+        for _, desc in ipairs(room:GetDescendants()) do
+            local dName = desc.Name:lower()
+            if dName:find("seek_arm") or dName:find("seekarm") or dName:find("seekhand") or dName:find("seekslop") or dName:find("chande") then
+                for _, sub in ipairs(desc:GetDescendants()) do
+                    if sub:IsA("TouchTransmitter") then
+                        sub:Destroy()
+                    elseif sub:IsA("BasePart") then
+                        sub.CanTouch = false
+                    end
+                end
+                if desc:IsA("BasePart") then
+                    desc.CanTouch = false
+                end
+            end
+        end
+    end)
+end
+
+-- Defuse Figure Lethal Touch Hitbox
+local function defuseFigureHitbox(inst)
+    if not (State.Anti_Figure and inst) then return end
+    pcall(function()
+        local name = inst.Name:lower()
+        if name:find("figure") then
+            for _, sub in ipairs(inst:GetDescendants()) do
+                if sub:IsA("TouchTransmitter") then
+                    sub:Destroy()
+                elseif sub.Name:lower():find("hitbox") and sub:IsA("BasePart") then
+                    sub.CanTouch = false
+                end
+            end
+        end
+    end)
+end
+
 -- Full Room Parser
 local function scanSingleRoom(room)
     if not room or not room:IsA("Model") then return end
