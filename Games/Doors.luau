@@ -163,6 +163,8 @@ local State = {
     Anti_Halt = true,
     Anti_Seek = true,
     Anti_Rush = true,
+    Anti_Figure = true,
+    Anti_Dread = true,
 
     -- Anti-Cheat Bypass, Safe Teleports & Flight Subsystem
     Bypass_AntiCheat = true,
@@ -1643,6 +1645,66 @@ local function processGold(goldInstance)
     end
 end
 
+
+-- =========================================================================
+-- PERMANENT RIFT MODEL KEEPER & EMPTY CULLING BYPASS
+-- =========================================================================
+local function ensureRiftAlive(desc)
+    if not desc then return end
+    local isRiftSpawn = (desc.Name == "RiftSpawn") or desc:GetAttribute("RiftSpawn")
+    local isRiftModel = (desc.Name == "Rift") or desc:GetAttribute("IsRift")
+    
+    if isRiftSpawn or isRiftModel then
+        pcall(function()
+            desc:SetAttribute("ShowIfNoItem", true)
+            
+            if isRiftSpawn then
+                local existingRift = desc:FindFirstChild("Rift")
+                if not existingRift then
+                    local misc = game:GetService("ReplicatedStorage"):FindFirstChild("Misc")
+                    local templateRift = misc and misc:FindFirstChild("Rift")
+                    if templateRift then
+                        local clone = templateRift:Clone()
+                        clone.Name = "Rift"
+                        clone:PivotTo(desc.WorldPivot)
+                        clone.Parent = desc
+                        existingRift = clone
+                    end
+                end
+            end
+            
+            for _, p in ipairs(desc:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.Transparency = 0
+                elseif p:IsA("Light") then
+                    p.Brightness = 1
+                    p.Enabled = true
+                elseif p:IsA("ParticleEmitter") then
+                    p.Enabled = true
+                elseif p:IsA("ProximityPrompt") then
+                    p.Enabled = true
+                    p.MaxActivationDistance = math.max(p.MaxActivationDistance, 14)
+                end
+            end
+        end)
+    end
+end
+
+-- Active continuous scan to prevent DOORS client culling tweens
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        pcall(function()
+            for _, desc in ipairs(Workspace:GetDescendants()) do
+                if desc.Name == "RiftSpawn" or desc.Name == "Rift" then
+                    ensureRiftAlive(desc)
+                end
+            end
+        end)
+        task.wait(1.5)
+    end
+end)
+
 -- 7b. Dedicated Rift ESP: Brilliant Glowing Cyan Highlighter
 local function processRift(model)
     if not model then return end
@@ -2362,6 +2424,8 @@ local function scanSingleRoom(room)
         local cLower = child.Name:lower()
         if cLower:find("rift") and not cLower:find("fragment") then
             processRift(child)
+        if State.Anti_Seek then defuseSeekObstacles(child) end
+        if State.Anti_Figure then defuseFigureHitbox(child) end
         end
     end
 
@@ -2404,6 +2468,7 @@ local function scanSingleRoom(room)
                     processGold(desc)
                 elseif dName:find("snare") then
                     if State.Anti_Snare then defuseSnare(desc) end
+                if State.Anti_Figure then defuseFigureHitbox(desc) end
                     if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("giggle") then
                     if State.Anti_Giggle then defuseGiggle(desc) end
@@ -7186,6 +7251,24 @@ task.spawn(function()
     end
 end)
 
+
+-- =========================================================================
+-- AUTONOMOUS CLUTCH HEARTBEAT AUTO-WIN ENGINE (FIGURE / CLOSET DEFUSAL)
+-- =========================================================================
+local clutchRemote = remotesFolder and remotesFolder:FindFirstChild("ClutchHeartbeat")
+if clutchRemote and clutchRemote:IsA("RemoteEvent") then
+    clutchRemote.OnClientEvent:Connect(function(a1, a2)
+        if State.Auto_Heartbeat or State.Anti_Figure then
+            pcall(function()
+                if a2 then
+                    task.wait(0.05)
+                    clutchRemote:FireServer(a2, true)
+                end
+            end)
+        end
+    end)
+end
+
 -- Auto Heartbeat Minigame Solver
 task.spawn(function()
     while true do
@@ -7393,6 +7476,14 @@ if table.find(activeFloorEntities, "Halt") then
 end
 
 if table.find(activeFloorEntities, "Seek") then
+    Hub.CreateToggle(floorTab, "Anti Figure (Defusal & Clutch)", State.Anti_Figure, function(v)
+        State.Anti_Figure = v
+    end)
+
+    Hub.CreateToggle(floorTab, "Anti Dread (Darkness & Entity Defusal)", State.Anti_Dread, function(v)
+        State.Anti_Dread = v
+    end)
+
     Hub.CreateToggle(floorTab, "Anti Seek (Hands Deflector)", State.Anti_Seek, function(v)
         State.Anti_Seek = v
         Hub.Notify("Defense", v and "Anti Seek: Enabled" or "Anti Seek: Disabled", 2)
