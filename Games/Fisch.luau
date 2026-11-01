@@ -1,13 +1,11 @@
 --------------------------------------------------------------------------------
--- UNKNOWN HUB: FISCH (Stealth Clean Edition - Zero Ban & Zero Kick)
+-- UNKNOWN HUB: FISCH (Precision Automation Edition)
 -- PlaceId: 16732694052, 17910972410, 131716211654599 | GameId: 5750914919
 -- Architecture:
---   • 100% Pure Client Runtime (Zero risky metamethod detours to prevent Error 267)
---   • Auto Cast with customizable power and state validation
---   • Instant Auto Shake (clicks shake bubbles naturally)
---   • Safe Auto Reel (locks playerbar on the fish bubble with server duration guard)
---   • Auto Sell All Fish routine
---   • World Teleports & Movement Utilities
+--   • Exact Rod Resolver: Exclusively equips true fishing rods (never tool bags)
+--   • Misclick-Free Auto Shake: Uses Activated signals & Return key to prevent rod declines
+--   • Safe Auto Reel: Locks playerbar on fish bubble with minimum duration guard (zero bans)
+--   • 100% Pure Client Runtime: Zero dangerous metamethod hooks to prevent Error 267
 --------------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
@@ -108,7 +106,7 @@ local Config = {
     AutoCast = false,
     CastPower = 100,
     AutoShake = false,
-    ShakeSpeed = 0.12,
+    ShakeSpeed = 0.28,
     AutoReel = false,
     ReelDelay = 1.6, -- Minimum catch time to bypass server heuristics
     AutoEquipRod = true,
@@ -125,13 +123,23 @@ local Config = {
 }
 
 --------------------------------------------------------------------------------
--- 4. UTILITY HELPERS & FISHING ROD RESOLVER
+-- 4. PRECISION FISHING ROD RESOLVER
 --------------------------------------------------------------------------------
+local function isRodTool(tool)
+    if not tool or not tool:IsA("Tool") then return false end
+    if tool.Name:lower():find("rod") then return true end
+    local values = tool:FindFirstChild("values")
+    if values and (values:FindFirstChild("bobberzone") or values:FindFirstChild("casted")) then
+        return true
+    end
+    return false
+end
+
 local function getEquippedRod()
     local char = LocalPlayer.Character
     if char then
         for _, item in ipairs(char:GetChildren()) do
-            if item:IsA("Tool") and (item:FindFirstChild("events") or item:FindFirstChild("values") or item.Name:lower():find("rod")) then
+            if isRodTool(item) then
                 return item
             end
         end
@@ -150,11 +158,11 @@ local function ensureRodEquipped()
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
         for _, item in ipairs(bp:GetChildren()) do
-            if item:IsA("Tool") and (item:FindFirstChild("events") or item:FindFirstChild("values") or item.Name:lower():find("rod")) then
+            if isRodTool(item) then
                 pcall(function()
                     hum:EquipTool(item)
                 end)
-                task.wait(0.25)
+                task.wait(0.3)
                 return getEquippedRod()
             end
         end
@@ -163,16 +171,16 @@ local function ensureRodEquipped()
 end
 
 --------------------------------------------------------------------------------
--- 5. AUTO FISHING ENGINE (AUTO CAST, AUTO SHAKE & SAFE FISH BUBBLE REEL)
+-- 5. AUTO FISHING ENGINE (AUTO CAST, AUTO SHAKE & SAFE REEL)
 --------------------------------------------------------------------------------
 local lastCastTick = 0
 local lastShakeTick = 0
 local reelStartTime = 0
 
--- 1. Auto Cast
+-- 1. Auto Cast Routine
 local function executeCast()
     if not Config.AutoCast then return end
-    if tick() - lastCastTick < 1.2 then return end
+    if tick() - lastCastTick < 1.5 then return end
 
     local rod = ensureRodEquipped()
     if not rod then return end
@@ -183,39 +191,29 @@ local function executeCast()
         if casted and casted.Value == true then
             return -- Rod is already in the water
         end
+        local state = values:FindFirstChild("state")
+        if state and state.Value >= 4 and state.Value <= 8 then
+            return -- Rod is in casting / searching / luring / reeling state
+        end
     end
 
     pcall(function()
         local castPower = math.clamp(Config.CastPower or 100, 10, 100)
-        local castedSuccess = false
-
-        if rod:FindFirstChild("events") and rod.events:FindFirstChild("castAsync") then
-            rod.events.castAsync:InvokeServer(castPower, true)
-            castedSuccess = true
-        end
-
-        if not castedSuccess then
-            local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
-            if net then
-                local Net = require(net)
-                local castRf = Net:RemoteFunction("FishingRod/Cast", -1)
-                if castRf then
-                    castRf:InvokeServer(castPower, true)
-                    castedSuccess = true
-                end
+        local net = require(ReplicatedStorage.packages.Net)
+        local castRf = net:RemoteFunction("FishingRod/Cast", -1)
+        if castRf then
+            local success = castRf:InvokeServer(castPower, true)
+            if success then
+                lastCastTick = tick()
             end
-        end
-
-        if castedSuccess then
-            lastCastTick = tick()
         end
     end)
 end
 
--- 2. Auto Shake (Pops shake bubbles cleanly & naturally)
+-- 2. Misclick-Free Auto Shake (Pops shake bubbles cleanly & naturally)
 local function processShakeMinigame()
     if not Config.AutoShake then return end
-    if tick() - lastShakeTick < math.clamp(Config.ShakeSpeed or 0.12, 0.08, 0.3) then return end
+    if tick() - lastShakeTick < math.clamp(Config.ShakeSpeed or 0.28, 0.25, 0.5) then return end
 
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
@@ -227,29 +225,31 @@ local function processShakeMinigame()
         local safezone = shakeUI:FindFirstChild("safezone")
         if safezone then
             for _, btn in ipairs(safezone:GetChildren()) do
-                if btn:IsA("ImageButton") and btn.Visible and btn.UIScale.Scale > 0.1 then
+                if (btn:IsA("ImageButton") or btn:IsA("GuiButton")) and btn.Visible and btn.UIScale and btn.UIScale.Scale > 0.05 then
+                    -- Trigger via Activated signal to avoid screen misclick reset
                     if firesignal then
-                        firesignal(btn.MouseButton1Click)
+                        firesignal(btn.Activated)
+                    else
+                        -- Fallback: Use Return key bound by ContextActionService
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+                        task.wait(0.02)
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
                     end
-                    break
+                    lastShakeTick = tick()
+                    return
                 end
             end
         end
 
-        local net = ReplicatedStorage:FindFirstChild("packages") and ReplicatedStorage.packages:FindFirstChild("Net")
-        if net then
-            local Net = require(net)
-            local shakeEvent = Net:RemoteEvent("LureShake/Shake", -1)
-            if shakeEvent then
-                shakeEvent:FireServer()
-            end
-        end
-
+        -- Safe fallback: ContextActionService Return key
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
         lastShakeTick = tick()
     end)
 end
 
--- 3. Auto Fish / Auto Reel (Locks playerbar onto the fish bubble safely)
+-- 3. Safe Auto Reel (Locks playerbar onto the fish bubble safely)
 local function processReelMinigame()
     if not Config.AutoReel then return end
 
@@ -269,14 +269,13 @@ local function processReelMinigame()
                     reel.barPosition = reel.fishPosition
                     reel.onbar = true
 
-                    -- Enforce minimum human reaction delay to prevent server-side catch time bans
+                    -- Server catch time heuristics guard (Bypass instant-catch ban)
                     local elapsed = tick() - reelStartTime
                     if elapsed < (Config.ReelDelay or 1.6) then
-                        if reel.progress > 88 then
-                            reel.progress = 88
+                        if reel.progress > 85 then
+                            reel.progress = 85
                         end
                     end
-                    return
                 end
             end
         end
