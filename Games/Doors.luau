@@ -3213,8 +3213,59 @@ local function isHidingSpotNearPos(pos)
     return false
 end
 
+-- =========================================================================
+-- Universal Godmode & Client Death Interceptor (Protects Against ALL Entities)
+-- Eradicates all one-shot entity kill triggers across Rush, Ambush, A-60, Seek, etc.!
+-- =========================================================================
+local function initGodModeImmunity()
+    pcall(function()
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            if hum.Health < 100 then hum.Health = 100 end
+            if getconnections then
+                for _, c in ipairs(getconnections(hum.HealthChanged)) do
+                    local oldFn = c.Function
+                    if oldFn and hookfunction and not _G["HC_IMMUNE_" .. tostring(oldFn)] then
+                        _G["HC_IMMUNE_" .. tostring(oldFn)] = true
+                        hookfunction(oldFn, newcclosure(function(newHealth, ...)
+                            if (State.Anti_Rush or State.Noclip or isPlayerOutOfMap() or State.Auto_Complete_100 or State.Knobs_Farm_Active or State.Auto_Hide) and newHealth <= 0 then
+                                hum.Health = 100
+                                return -- Drop the death handler! DO NOT allow DOORS to trigger DIED!
+                            end
+                            return oldFn(newHealth, ...)
+                        end))
+                    end
+                end
+            end
+        end
+    end)
+    -- Intercept lethal jumpscares from RemotesFolder.Jumpscare
+    pcall(function()
+        local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local js = rf and rf:FindFirstChild("Jumpscare")
+        if js and getconnections then
+            for _, c in ipairs(getconnections(js.OnClientEvent)) do
+                local fn = c.Function
+                if fn and hookfunction and not _G["JS_IMMUNE_" .. tostring(fn)] then
+                    _G["JS_IMMUNE_" .. tostring(fn)] = true
+                    hookfunction(fn, newcclosure(function(jName, ...)
+                        if State.Anti_Rush or State.Noclip or isPlayerOutOfMap() or State.Auto_Complete_100 or State.Knobs_Farm_Active or State.Auto_Hide then
+                            Hub.Notify("Entity Shield", "Lethal jumpscare suppressed: " .. tostring(jName), 2)
+                            return
+                        end
+                        return fn(jName, ...)
+                    end))
+                end
+            end
+        end
+    end)
+end
+
 -- Absolute Glitch & Void Deflection Shield (Zero Glitch Invariant: Map & Noclip Immune)
 local function initAntiGlitchShield()
+    initGodModeImmunity()
     if not State.Deflect_Glitch then return end
 
     -- 1. Intercept UseEnemyModule: Drop Glitch & Void triggers before they ever reach client logic
@@ -3668,12 +3719,12 @@ end
 -- Character Interactivity & Collision Re-enabler: Restores full ProximityPrompt raycasting and room triggers
 local function restoreCharacterInteractivity(char)
     if not char then return end
+    -- NoPlayer CollisionGroup: TouchPlayer (monsters) CANNOT touch or damage you, while Default (doors/prompts) still collide & work!
     for _, p in ipairs(char:GetDescendants()) do
         if p:IsA("BasePart") then
             p.CanTouch = true
             p.CanQuery = true
-            local orig = p:GetAttribute("OrigCollisionGroup")
-            p.CollisionGroup = orig or "Player"
+            p.CollisionGroup = "NoPlayer"
         end
     end
     local coll = char:FindFirstChild("Collision")
@@ -3681,19 +3732,19 @@ local function restoreCharacterInteractivity(char)
     local root = char:FindFirstChild("HumanoidRootPart")
     if coll and coll:IsA("BasePart") then
         coll.CanCollide = true
-        coll.CollisionGroup = "Player"
+        coll.CollisionGroup = "NoPlayer"
         coll.CanTouch = true
         coll.CanQuery = true
     end
     if cp and cp:IsA("BasePart") then
         cp.CanCollide = false
-        cp.CollisionGroup = "Player"
+        cp.CollisionGroup = "NoPlayer"
         cp.CanTouch = true
         cp.CanQuery = true
     end
     if root and root:IsA("BasePart") then
         root.CanCollide = false
-        root.CollisionGroup = "Player"
+        root.CollisionGroup = "NoPlayer"
         root.CanTouch = true
         root.CanQuery = true
     end
@@ -4842,21 +4893,31 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
     -- UNIVERSAL ENTITY IMMUNITY SHIELD (Zero special-casing: protects against ALL entities!)
     -- Glitch, Rush, Glitch Rush, Ambush, A-60, A-120, Dread, Seek, Figure, Snare, Dupe, Halt, etc.
-    if State.Noclip or State.Anti_Rush or isPlayerOutOfMap() then
+    if State.Noclip or State.Anti_Rush or isPlayerOutOfMap() or State.Auto_Complete_100 or State.Knobs_Farm_Active or State.Auto_Hide then
         if mgTable then
             if mgTable.deathtick then mgTable.deathtick = tick() + 999999 end
             if mgTable.dead then mgTable.dead = false end
+            if mgTable.humdead then mgTable.humdead = false end
             if mgTable.stunned then mgTable.stunned = false end
         end
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum and hum.Health < 100 and hum.Health > 0 then
-            hum.Health = 100
+        if hum then
+            if hum:GetStateEnabled(Enum.HumanoidStateType.Dead) then
+                hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            end
+            if hum.Health < 100 then
+                hum.Health = 100
+            end
         end
-        -- UNIVERSAL INTERACTIVITY & TRIGGER RECEPTOR: Character parts MUST maintain CanTouch & CanQuery
-        -- Allows ProximityPrompts, doors, keys, and wardrobe triggers to function seamlessly!
+        -- UNIVERSAL INTERACTIVITY & TRIGGER RECEPTOR WITH NoPlayer COLLISION GROUP:
+        -- TouchPlayer (Rush, Ambush, Seek hitboxes) CANNOT collide with NoPlayer!
+        -- Meanwhile CanTouch & CanQuery remain true so doors and prompts work flawlessly!
         if char then
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
+                    if p.CollisionGroup ~= "NoPlayer" then
+                        p.CollisionGroup = "NoPlayer"
+                    end
                     if not p.CanTouch then p.CanTouch = true end
                     if not p.CanQuery then p.CanQuery = true end
                 end
@@ -4919,11 +4980,8 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
-                if part.CollisionGroup ~= "None" then
-                    if not part:GetAttribute("OrigCollisionGroup") then
-                        part:SetAttribute("OrigCollisionGroup", part.CollisionGroup)
-                    end
-                    part.CollisionGroup = "None"
+                if part.CollisionGroup ~= "NoPlayer" then
+                    part.CollisionGroup = "NoPlayer"
                 end
                 -- Always preserve CanTouch & CanQuery so wardrobes, drawers & doorway triggers never break!
                 if not part.CanTouch then part.CanTouch = true end
@@ -4931,12 +4989,11 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
             end
         end
     else
-        -- SOLID FLOOR GROUNDING: Instantly restore solid collisions the microsecond flight is disabled!
+        -- SOLID FLOOR GROUNDING: Instantly restore solid collisions with NoPlayer monster-immunity!
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
-                if part.CollisionGroup == "None" then
-                    local orig = part:GetAttribute("OrigCollisionGroup")
-                    part.CollisionGroup = orig or "Player"
+                if part.CollisionGroup ~= "NoPlayer" then
+                    part.CollisionGroup = "NoPlayer"
                 end
                 if not part.CanTouch then part.CanTouch = true end
                 if not part.CanQuery then part.CanQuery = true end
@@ -4945,7 +5002,7 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
         local coll = char:FindFirstChild("Collision")
         if coll and coll:IsA("BasePart") then
             if not coll.CanCollide then coll.CanCollide = true end
-            if coll.CollisionGroup ~= "Player" then coll.CollisionGroup = "Player" end
+            if coll.CollisionGroup ~= "NoPlayer" then coll.CollisionGroup = "NoPlayer" end
             coll.CanTouch = true
             coll.CanQuery = true
         end
@@ -5013,6 +5070,8 @@ end)
 -- Auto-reapply on respawn or revive
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(0.25)
+    initGodModeImmunity()
+    restoreCharacterInteractivity(char)
     if State.WalkSpeed_Enabled then
         applyTeflonGlide(char)
         local hum = char:WaitForChild("Humanoid", 5)
@@ -5947,11 +6006,12 @@ local function defuseLethalEntity(entity)
     end)
 end
 
-Workspace.ChildAdded:Connect(function(child)
+local function checkAndDefuseEntity(child)
+    if not child then return end
     local cName = child.Name
     local lower = cName:lower()
-    local isLethal = lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120") or lower:find("seek") or lower:find("figure") or lower:find("grumble") or lower:find("giggle") or lower:find("gloombat")
-    if isLethal and (State.Noclip or State.Anti_Rush or State.Anti_Seek or isPlayerOutOfMap()) then
+    local isLethal = lower:find("rush") or lower:find("ambush") or lower:find("a60") or lower:find("a120") or lower:find("seek") or lower:find("figure") or lower:find("grumble") or lower:find("giggle") or lower:find("gloombat") or lower:find("dread") or lower:find("blitz") or lower:find("lookman")
+    if isLethal then
         defuseLethalEntity(child)
     end
     for _, ent in ipairs({"Rush", "Ambush", "Eyes", "Seek", "Figure", "Halt", "A60", "A90", "A120", "Giggle", "Gloombat", "Grumble", "Dread", "Blitz", "Lookman"}) do
@@ -5959,6 +6019,14 @@ Workspace.ChildAdded:Connect(function(child)
             triggerEntityNotification(ent)
             break
         end
+    end
+end
+
+Workspace.ChildAdded:Connect(checkAndDefuseEntity)
+task.spawn(function()
+    local liveEnts = Workspace:WaitForChild("LiveEntities", 5)
+    if liveEnts then
+        liveEnts.ChildAdded:Connect(checkAndDefuseEntity)
     end
 end)
 
@@ -6109,49 +6177,70 @@ local function setupQueueOnTeleport()
     end
 end
 
--- Rush / Ambush / A-60 / A-120 Lethal Threat Detector
+-- Rush / Ambush / A-60 / A-120 / Seek / Dread / Blitz / Lookman / Figure Lethal Threat Detector
 local function isLethalEntityIncoming()
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    for _, name in ipairs({"RushMoving", "AmbushMoving", "A60", "A120", "SeekMoving", "Dread", "Blitz", "FigureRig"}) do
-        if (curRooms and curRooms:FindFirstChild(name, true)) or Workspace:FindFirstChild(name, true) then
-            return true, name
+    local checkList = {"rush", "ambush", "a60", "a120", "seek", "dread", "blitz", "lookman", "halt", "figure"}
+    
+    local function scan(container)
+        if not container then return nil end
+        for _, child in ipairs(container:GetChildren()) do
+            local lower = child.Name:lower()
+            for _, threat in ipairs(checkList) do
+                if lower:find(threat) then
+                    return child.Name
+                end
+            end
         end
+        return nil
     end
+
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local liveEnts = Workspace:FindFirstChild("LiveEntities")
+    local threat = scan(curRooms) or scan(liveEnts) or scan(Workspace)
+    if threat then return true, threat end
     return false, nil
 end
 
 -- =========================================================================
 -- Autonomous Rush & Ambush Safe Phase Daemon (Vertical Safe Altitude Shield)
--- When Rush or Ambush approaches, safely elevates flight to +35 studs until threat passes!
+-- When Rush, Ambush, or any entity approaches, safely elevates flight to +160 studs until threat passes!
 -- =========================================================================
 local isSafePhased = false
-local prePhaseY = nil
+local prePhaseCF = nil
 
 task.spawn(function()
     while _G.DOORS_SESSION == currentSession do
-        task.wait(0.1)
-        if State.Anti_Rush or State.Noclip then
+        task.wait(0.08)
+        if State.Anti_Rush or State.Noclip or State.Auto_Hide or State.Auto_RoofEvacuate then
             local incoming, entName = isLethalEntityIncoming()
             local root = getRoot()
+            local char = getChar()
             local mgTable = getMainGameTable()
-            if incoming and root and mgTable and not isPlayerHiding(getChar(), mgTable) then
+            if incoming and root and not isPlayerHiding(char, mgTable) then
                 if not isSafePhased then
                     isSafePhased = true
-                    prePhaseY = root.Position.Y
-                    Hub.Notify("Anti-Rush", entName .. " incoming! Phasing to Safe Altitude (+35 Studs)...", 2)
+                    prePhaseCF = root.CFrame
+                    Hub.Notify("Anti-Threat", "?? " .. tostring(entName) .. " detected! Phasing to Sky Sanctum (+160 Studs)...", 3)
                 end
-                -- Elevate above ground-level kill sphere cleanly
-                if root then
-                    root.CFrame = CFrame.new(root.Position.X, prePhaseY + 35, root.Position.Z) * root.CFrame.Rotation
+                -- Elevate far beyond any entity's kill sphere / raycast range (160+ studs above floor)
+                if root and prePhaseCF then
+                    local safeY = math.max(prePhaseCF.Position.Y + 160, 200)
+                    root.CFrame = CFrame.new(prePhaseCF.Position.X, safeY, prePhaseCF.Position.Z) * prePhaseCF.Rotation
                     root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
                 end
             elseif isSafePhased and not incoming then
-                isSafePhased = false
-                if prePhaseY and root then
-                    root.CFrame = CFrame.new(root.Position.X, prePhaseY, root.Position.Z) * root.CFrame.Rotation
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    prePhaseY = nil
-                    Hub.Notify("Anti-Rush", "Threat cleared! Returned to flight level.", 2)
+                task.wait(2.2) -- Post-despawn safety buffer
+                local stillIncoming = isLethalEntityIncoming()
+                if not stillIncoming then
+                    isSafePhased = false
+                    if prePhaseCF and root then
+                        root.CFrame = prePhaseCF
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                        prePhaseCF = nil
+                        Hub.Notify("Anti-Threat", "?? Threat neutralized! Returned safely to flight coordinates.", 2)
+                    end
                 end
             end
         end
@@ -6170,9 +6259,11 @@ farmGlideTo = function(targetPos, speedVal, maxTime)
     local startTime = os.clock()
     local arrived = false
 
-    -- Ensure Noclip & Anti-Cheat Bypass are actively running
+    -- Ensure Core Protections & Noclip are actively running
     if not State.Noclip then State.Noclip = true end
     if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
+    if not State.Auto_Hide then State.Auto_Hide = true; State.Auto_RoofEvacuate = true end
+    if not State.Deflect_Glitch then State.Deflect_Glitch = true end
 
     isAutoFlying = true
 
@@ -6775,6 +6866,7 @@ end
 -- =========================================================================
 
 -- Tab 1: MAIN TAB (Movement, Speed Changer, Test Suite)
+do
 local mainTab = Hub.CreateTab("Main", { 
     Icon = "⚡", 
     Size = 18, 
@@ -6789,6 +6881,11 @@ Hub.CreateSection(mainTab, "Autonomous 1-100 Doors Completer")
         if v then
             State.Noclip = true
             State.Bypass_AntiCheat = true
+            State.Auto_Hide = true
+            State.Auto_RoofEvacuate = true
+            State.Deflect_Glitch = true
+            neutralizeServerTeleported()
+            initAntiGlitchShield()
             Hub.Notify("Completer", "Autonomous 1-100 Completer Active! Hands-free game completion running.", 4)
         else
             Hub.Notify("Completer", "Autonomous 1-100 Completer Paused.", 2)
@@ -7108,6 +7205,11 @@ Hub.CreateToggle(mainTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, funct
         setupQueueOnTeleport()
         State.Noclip = true
         State.Bypass_AntiCheat = true
+        State.Auto_Hide = true
+        State.Auto_RoofEvacuate = true
+        State.Deflect_Glitch = true
+        neutralizeServerTeleported()
+        initAntiGlitchShield()
         Hub.Notify("Knobs Farm", "⚡ Autopilot activated! Autonomous farming running.", 3)
     else
         Hub.Notify("Knobs Farm", "Autopilot paused.", 2)
@@ -7636,8 +7738,11 @@ end)
 -- Tab 2: FLOOR SPECIFIC TAB (Dynamic Floor Entities & Modifiers)
 -- =========================================================================
 local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and game.ReplicatedStorage.GameData:FindFirstChild("Floor") and game.ReplicatedStorage.GameData.Floor.Value) or "Hotel"
+end
+
 local floorTabName = "Floor (" .. detectedFloor .. ")"
 
+do
 local floorTab = Hub.CreateTab(floorTabName, {
     Icon = "🏨",
     Size = 18,
@@ -7782,8 +7887,11 @@ if isHotel then
 end
 
 -- =========================================================================
+end
+
 -- Tab 3: VISUALS TAB
 -- =========================================================================
+do
 local espTab = Hub.CreateTab("Visuals", {
     Icon = "👁️",
     Size = 18,
@@ -8016,36 +8124,17 @@ Hub.CreateButton(espTab, "Refresh ESP", function()
 end)
 
 -- =========================================================================
+end
+
 -- Tab 4: DIAGNOSTICS & TELEMETRY ROUTINES
 -- =========================================================================
+do
 local diagTab = Hub.CreateTab("Diagnostics", {
     Icon = "⚙️",
     Size = 18,
     Color = Color3.fromRGB(150, 150, 160),
     ActiveColor = Color3.fromRGB(220, 220, 230)
 })
-
-Hub.CreateSection(diagTab, "Core Protections")
-
-Hub.CreateToggle(diagTab, "Anti-Cheat Bypass Core", State.Bypass_AntiCheat, function(v)
-    State.Bypass_AntiCheat = v
-    if v then
-        neutralizeServerTeleported()
-        if syncServerSlide then syncServerSlide(true, true) end
-    end
-    Hub.Notify("Anti-Cheat", v and "Anti-Cheat Core: Active" or "Anti-Cheat Core: Inactive", 2)
-end)
-
-Hub.CreateToggle(diagTab, "Void & Glitch Deflector", State.Deflect_Glitch, function(v)
-    State.Deflect_Glitch = v
-    if v then initAntiGlitchShield() end
-    Hub.Notify("Protection", v and "Glitch Deflector: Active" or "Glitch Deflector: Inactive", 2)
-end)
-
-Hub.CreateToggle(diagTab, "Safe Roof Station", State.Safe_Roof_Station, function(v)
-    State.Safe_Roof_Station = v
-    Hub.Notify("Movement", v and "Safe Roof Station: Enabled" or "Safe Roof Station: Disabled", 2)
-end)
 
 Hub.CreateSection(diagTab, "Live Telemetry")
 
@@ -8080,6 +8169,8 @@ Hub.CreateButton(diagTab, "Full World Re-scan", function()
     refreshAllPrompts()
     Hub.Notify("Diagnostics", "World ESP and prompts fully re-indexed!", 2)
 end)
+
+end
 
 -- Initial Startup Scan
 pcall(function()
