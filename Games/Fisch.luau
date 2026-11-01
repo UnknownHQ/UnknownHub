@@ -1,11 +1,11 @@
 --------------------------------------------------------------------------------
--- UNKNOWN HUB: FISCH (Continuous Precision Automation Edition)
+-- UNKNOWN HUB: FISCH (Precision Continuous Automation)
 -- PlaceId: 16732694052, 17910972410, 131716211654599 | GameId: 5750914919
 -- Architecture:
---   • Continuous Auto Cast: Automatic re-casting loop with zero stall
---   • Misclick-Free Auto Shake: Pops bubbles cleanly via Activated signals & Return key
---   • Natural Auto-Detect Reel: Tracks fish bubble legitimately with auto-calculated duration
---   • 100% Pure Client Runtime: Zero dangerous metamethod detours (No Error 267)
+--   • Single-Cast Guard: Strictly checks values.casted and bobber to eliminate recast decline loops
+--   • Misclick-Free Auto Shake: Pops shake bubbles cleanly via Activated & Return key
+--   • Natural Auto-Detect Reel: Direct fish bubble tracking with native game progress calculation
+--   • 100% Pure Client Runtime: Zero risky metamethod detours (No Error 267)
 --------------------------------------------------------------------------------
 
 local Players = game:GetService("Players")
@@ -170,14 +170,14 @@ local function ensureRodEquipped()
 end
 
 --------------------------------------------------------------------------------
--- 5. CONTINUOUS FISHING AUTOMATION ENGINE
+-- 5. CONTINUOUS AUTO FISHING PIPELINE
 --------------------------------------------------------------------------------
 local lastCastTick = 0
 local lastShakeTick = 0
 local lastCatchTick = 0
 local hadActiveReel = false
 
--- Helper: Retrieve active ReelController object if minigame is currently running
+-- Helper: Retrieve active ReelController object
 local function getActiveReel()
     local ok, rc = pcall(function()
         return require(ReplicatedStorage.client.legacyControllers.ReelController)
@@ -195,27 +195,61 @@ local function isShakingActive()
     return shakeUI and shakeUI.Enabled == true
 end
 
--- 1. Precision Auto Cast (Runs continuously whenever rod is idle)
+-- Helper: Check if rod is currently in active cast / water / minigame state
+local function isRodCurrentlyCasted(rod)
+    if not rod then return false end
+
+    -- Check physical bobber
+    if rod:FindFirstChild("bobber") ~= nil then
+        return true
+    end
+
+    -- Check character attribute
+    local char = LocalPlayer.Character
+    if char and char:GetAttribute("Fishing") == true then
+        return true
+    end
+
+    -- Check internal rod values
+    local values = rod:FindFirstChild("values")
+    if values then
+        local casted = values:FindFirstChild("casted")
+        if casted and casted.Value == true then
+            return true
+        end
+
+        local state = values:FindFirstChild("state")
+        -- States: 4=Casting, 5=Searching, 6=Luring, 7=PreReel, 8=Reeling
+        if state and state.Value >= 4 and state.Value <= 8 then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- 1. Precision Auto Cast (ONLY executes when rod is completely free & idle)
 local function executeCast()
     if not Config.AutoCast then return end
     if getActiveReel() ~= nil then return end
     if isShakingActive() then return end
-    if tick() - lastCastTick < 2.0 then return end
+    if tick() - lastCastTick < 2.5 then return end
     if tick() - lastCatchTick < 2.0 then return end
 
     local rod = ensureRodEquipped()
     if not rod then return end
 
-    -- If bobber is already in water waiting for a bite, do NOT re-cast!
-    if rod:FindFirstChild("bobber") then return end
-
-    local values = rod:FindFirstChild("values")
-    if values then
-        local state = values:FindFirstChild("state")
-        -- States: 4=Casting, 5=Searching, 6=Luring, 7=PreReel, 8=Reeling
-        if state and state.Value >= 4 and state.Value <= 8 then
-            return
+    -- STRICT GUARD: If rod is already in the water or waiting for bite, NEVER recast!
+    if isRodCurrentlyCasted(rod) then
+        -- Watchdog: If casted but stuck for over 30 seconds with no bite, reset rod cleanly
+        if tick() - lastCastTick > 30 then
+            pcall(function()
+                local net = require(ReplicatedStorage.packages.Net)
+                net:RemoteEvent("FishingRod/Reset", -1):FireServer()
+                lastCastTick = tick()
+            end)
         end
+        return
     end
 
     pcall(function()
@@ -265,7 +299,7 @@ local function processShakeMinigame()
     end)
 end
 
--- 3. Natural Auto-Detect Reel (Tracks fish bubble with native speed calculation)
+-- 3. Natural Auto-Detect Reel (Locks playerbar onto fish bubble with native game progress)
 local function processReelMinigame(activeReel)
     if not Config.AutoReel or not activeReel then return end
 
