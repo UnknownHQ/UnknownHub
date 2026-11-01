@@ -4576,11 +4576,6 @@ RunService.Heartbeat:Connect(function(dt)
         local cp = char:FindFirstChild("CollisionPart")
         if cp then cp.CFrame = newCF end
 
-        -- Synchronize native flight clipPos directly so first-person camera follows head seamlessly with zero jitter
-        if mgTable then
-            mgTable.clipPos = targetPos
-        end
-
         -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
         root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
         root.AssemblyAngularVelocity = Vector3.zero
@@ -4773,16 +4768,7 @@ RunService.Heartbeat:Connect(function(dt)
             char:SetAttribute("Hiding", nil)
         end
 
-        -- Synchronize character root to flight clipPos so body always travels exactly with the camera
-        if State.Noclip and mgTable and mgTable.clipPos then
-            local root = getRoot()
-            if root then
-                local lookYaw = mgTable.ax or 0
-                root.CFrame = CFrame.new(mgTable.clipPos) * CFrame.Angles(0, math.rad(lookYaw), 0)
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-            end
-        end
+
 
         -- First-Person Limb Guard: Arms and legs visible; head and upper torso transparent to local camera
         for _, p in ipairs(char:GetChildren()) do
@@ -6012,22 +5998,16 @@ task.spawn(function()
                     prePhaseY = root.Position.Y
                     Hub.Notify("Anti-Rush", entName .. " incoming! Phasing to Safe Altitude (+35 Studs)...", 2)
                 end
-                -- Elevate above ground-level kill sphere
-                if State.Noclip and mgTable.clipPos then
-                    mgTable.clipPos = Vector3.new(mgTable.clipPos.X, math.max(mgTable.clipPos.Y, prePhaseY + 35), mgTable.clipPos.Z)
-                else
+                -- Elevate above ground-level kill sphere cleanly
+                if root then
                     root.CFrame = CFrame.new(root.Position.X, prePhaseY + 35, root.Position.Z) * root.CFrame.Rotation
                     root.AssemblyLinearVelocity = Vector3.zero
                 end
             elseif isSafePhased and not incoming then
                 isSafePhased = false
-                if prePhaseY then
-                    if State.Noclip and mgTable and mgTable.clipPos then
-                        mgTable.clipPos = Vector3.new(mgTable.clipPos.X, prePhaseY, mgTable.clipPos.Z)
-                    elseif root then
-                        root.CFrame = CFrame.new(root.Position.X, prePhaseY, root.Position.Z) * root.CFrame.Rotation
-                        root.AssemblyLinearVelocity = Vector3.zero
-                    end
+                if prePhaseY and root then
+                    root.CFrame = CFrame.new(root.Position.X, prePhaseY, root.Position.Z) * root.CFrame.Rotation
+                    root.AssemblyLinearVelocity = Vector3.zero
                     prePhaseY = nil
                     Hub.Notify("Anti-Rush", "Threat cleared! Returned to flight level.", 2)
                 end
@@ -6529,50 +6509,33 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
 
-        lastNoclipDisableGrace = os.clock() + 2.0
+        lastNoclipDisableGrace = os.clock() + 3.5
 
         local r = getRoot()
         if r then
-            -- Immediate Solid Floor Grounding Raycast: Snaps whole character firmly onto solid floor
+            -- Floor Snap Raycast: If feet or waist are intersecting/below the floor on toggle off,
+            -- snap root cleanly 3.2 studs above floor to eradicate falling through floor / soft-lock!
             local rayParams = RaycastParams.new()
             rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 4, 0), Vector3.new(0, -35, 0), rayParams)
-            local hipHeight = hum and hum.HipHeight or 2.0
-            local rootOffset = hipHeight + 1.1
+            local downHit = workspace:Raycast(r.Position + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), rayParams)
             if downHit and downHit.Position then
                 local floorY = downHit.Position.Y
-                char:PivotTo(CFrame.new(r.Position.X, floorY + rootOffset, r.Position.Z) * r.CFrame.Rotation)
-            else
-                local safePos = getSafeLandingPosition()
-                if safePos then
-                    char:PivotTo(CFrame.new(safePos) * r.CFrame.Rotation)
+                if r.Position.Y < (floorY + 2.5) then
+                    r.CFrame = CFrame.new(r.Position.X, floorY + 3.2, r.Position.Z) * r.CFrame.Rotation
                 end
             end
             r.AssemblyLinearVelocity = Vector3.zero
             r.AssemblyAngularVelocity = Vector3.zero
 
-            local coll = char:FindFirstChild("Collision")
-            if coll then
-                coll.CanCollide = true
-                coll.CanTouch = true
-                coll.CanQuery = true
-                coll.AssemblyLinearVelocity = Vector3.zero
-                coll.AssemblyAngularVelocity = Vector3.zero
-            end
-
-            local cp = char:FindFirstChild("CollisionPart")
-            if cp then
-                cp.AssemblyLinearVelocity = Vector3.zero
-                cp.AssemblyAngularVelocity = Vector3.zero
-            end
-
-            -- Replicate position packet to server with instant clean reset
+            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
             task.spawn(function()
                 if crouchRemote then
                     pcall(function() crouchRemote:FireServer(false, true) end)
-                    task.wait(0.05)
-                    pcall(function() crouchRemote:FireServer(false, false) end)
+                end
+                task.wait(0.2)
+                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
+                    syncServerSlide(false, false)
                 end
             end)
         end
