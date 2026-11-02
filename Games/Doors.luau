@@ -214,6 +214,10 @@ local State = {
     Infinite_Crucifix = true,
     Infinite_Consumables = true,
 
+    -- Entity Path Nodes & Safe Zones ESP
+    ESP_Entity_Nodes = false,
+    ESP_Safe_Zones = false,
+
     -- World & Visual Enhancements
     No_Fog = true,
     SemiTransparent_Closet = true,
@@ -4920,6 +4924,57 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         processNearbyDoors(root.Position, doorReach)
     end
 
+    -- God-Mode & Hitbox Immunity Engine: Eradicates all monster contact damage
+    if State.God_Mode then
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then
+            if hum:GetStateEnabled(Enum.HumanoidStateType.Dead) then
+                pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
+            end
+        end
+
+        local cp = char and char:FindFirstChild("CollisionPart")
+        if cp then
+            if cp.CanTouch then cp.CanTouch = false end
+            if cp.CanCollide then cp.CanCollide = false end
+        end
+
+        local lethalNames = {"rush", "ambush", "a60", "a-60", "a120", "a-120", "seek", "figure", "grumble", "giggle", "gloombat", "dread", "blitz", "lookman"}
+        local live = Workspace:FindFirstChild("LiveEntities")
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        local scanTargets = {Workspace, live, curRooms}
+
+        for _, container in ipairs(scanTargets) do
+            if container then
+                for _, ent in ipairs(container:GetChildren()) do
+                    local el = ent.Name:lower()
+                    local isLethal = false
+                    for _, ln in ipairs(lethalNames) do
+                        if el:find(ln) then isLethal = true; break end
+                    end
+                    if isLethal then
+                        defuseLethalEntity(ent)
+                        if el:find("figure") then
+                            local fHit = ent:FindFirstChild("Hitbox", true)
+                            if fHit and fHit:IsA("BasePart") then
+                                fHit.CanTouch = false
+                                fHit.CanCollide = false
+                                fHit.CFrame = CFrame.new(0, -500, 0)
+                            end
+                        end
+                        if (el:find("rush") or el:find("ambush") or el:find("a60") or el:find("a120")) and root and cp then
+                            local dist = (ent:GetPivot().Position - root.Position).Magnitude
+                            if dist < 22 then
+                                cp.CFrame = CFrame.new(0, -500, 0)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- Continuous Glitch / Void Shield Deflector: Strictly active ONLY when Glitch is attacking!
     -- Never resets stopcam or unanchors root during closet/bed entry or exit, preserving natural cutscenes & unhiding animations
     local isGlitchActive = false
@@ -5857,15 +5912,31 @@ local function safeInstantFirePrompt(prompt)
     local obj = (prompt.ObjectText or ""):lower()
     local act = (prompt.ActionText or ""):lower()
     local isUnlock = pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock")
+    local usedTool = nil
     if isUnlock then
         local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
-        if tool and not isEq then
-            local char = getChar()
-            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-            if hum and tool.Parent == LocalPlayer:FindFirstChild("Backpack") then
-                hum:EquipTool(tool)
-                task.wait(0.06)
+        if tool then
+            usedTool = tool
+            if not isEq then
+                local char = getChar()
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                if hum and tool.Parent == LocalPlayer:FindFirstChild("Backpack") then
+                    hum:EquipTool(tool)
+                    task.wait(0.04)
+                end
             end
+        end
+    end
+
+    if usedTool and State.Infinite_Items and State.Infinite_Lockpicks then
+        local tn = usedTool.Name:lower()
+        if tn:find("lockpick") or tn:find("skeleton") then
+            local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+            local dropRemote = rf and rf:FindFirstChild("DropItem")
+            if dropRemote and usedTool and usedTool.Parent then
+                pcall(function() dropRemote:FireServer(usedTool) end)
+            end
+            retrieveDroppedTool(usedTool.Name, 3.5)
         end
     end
 
@@ -7398,10 +7469,403 @@ end
 
 local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and game.ReplicatedStorage.GameData:FindFirstChild("Floor") and game.ReplicatedStorage.GameData.Floor.Value) or "Hotel"
 
+-- =========================================================================
+-- Entity Path Nodes & Rush/Ambush Safe Zones Visualization Subsystems
+-- =========================================================================
+local activeNodeVisuals = {}
+local activeSafeZoneVisuals = {}
+local rushSafeHUD = nil
+
+local function getOrderedRoomNodes()
+    local nodes = {}
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return nodes end
+
+    local roomList = {}
+    for _, rm in ipairs(curRooms:GetChildren()) do
+        local num = tonumber(rm.Name)
+        if num ~= nil then
+            table.insert(roomList, { Room = rm, Number = num })
+        end
+    end
+    table.sort(roomList, function(a, b) return a.Number < b.Number end)
+
+    for _, rData in ipairs(roomList) do
+        local rm = rData.Room
+        local rNum = rData.Number
+        local entrance = rm:FindFirstChild("RoomEntrance")
+        local exit = rm:FindFirstChild("RoomExit")
+
+        if entrance and entrance:IsA("BasePart") then
+            table.insert(nodes, { Pos = entrance.Position, RoomNum = rNum, Name = "Entrance", Part = entrance })
+        end
+
+        local intermediate = rm:FindFirstChild("Nodes") or rm:FindFirstChild("Waypoints") or rm:FindFirstChild("PathfindNodes")
+        if intermediate then
+            local interList = {}
+            for _, child in ipairs(intermediate:GetChildren()) do
+                if child:IsA("BasePart") then
+                    table.insert(interList, child)
+                end
+            end
+            table.sort(interList, function(a, b)
+                return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0)
+            end)
+            for i, p in ipairs(interList) do
+                table.insert(nodes, { Pos = p.Position, RoomNum = rNum, Name = "Node " .. tostring(i), Part = p })
+            end
+        elseif entrance and exit and entrance:IsA("BasePart") and exit:IsA("BasePart") then
+            local midPos = (entrance.Position + exit.Position) * 0.5
+            table.insert(nodes, { Pos = midPos, RoomNum = rNum, Name = "Mid", Part = nil })
+        end
+
+        if exit and exit:IsA("BasePart") then
+            table.insert(nodes, { Pos = exit.Position, RoomNum = rNum, Name = "Exit", Part = exit })
+        end
+    end
+
+    return nodes
+end
+
+local function clearNodeVisuals()
+    for _, vis in ipairs(activeNodeVisuals) do
+        pcall(function() vis:Destroy() end)
+    end
+    activeNodeVisuals = {}
+end
+
+local function clearSafeZoneVisuals()
+    for _, vis in ipairs(activeSafeZoneVisuals) do
+        pcall(function() vis:Destroy() end)
+    end
+    activeSafeZoneVisuals = {}
+end
+
+local function updateRushSafeHUD(isSafe, statusText)
+    if not State.ESP_Safe_Zones then
+        if rushSafeHUD then rushSafeHUD.Enabled = false end
+        return
+    end
+
+    if not rushSafeHUD or not rushSafeHUD.Parent then
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local host = (gethui and gethui()) or pGui or CoreGui
+        rushSafeHUD = Instance.new("ScreenGui")
+        rushSafeHUD.Name = "Unknown_RushSafeHUD"
+        rushSafeHUD.ResetOnSpawn = false
+        rushSafeHUD.DisplayOrder = 100
+
+        local pill = Instance.new("Frame")
+        pill.Name = "Pill"
+        pill.Size = UDim2.new(0, 310, 0, 36)
+        pill.Position = UDim2.new(0.5, -155, 0, 24)
+        pill.BackgroundColor3 = Color3.fromRGB(15, 20, 28)
+        pill.BorderSizePixel = 0
+        pill.Parent = rushSafeHUD
+
+        local uic = Instance.new("UICorner")
+        uic.CornerRadius = UDim.new(0, 18)
+        uic.Parent = pill
+
+        local uis = Instance.new("UIStroke")
+        uis.Name = "Stroke"
+        uis.Thickness = 1.5
+        uis.Color = Color3.fromRGB(0, 255, 120)
+        uis.Parent = pill
+
+        local label = Instance.new("TextLabel")
+        label.Name = "Status"
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 13
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.Text = "RUSH SAFETY: INITIALIZING..."
+        label.Parent = pill
+
+        rushSafeHUD.Parent = host
+    end
+
+    rushSafeHUD.Enabled = true
+    local pill = rushSafeHUD:FindFirstChild("Pill")
+    if pill then
+        local stroke = pill:FindFirstChild("Stroke")
+        local label = pill:FindFirstChild("Status")
+        if isSafe then
+            if stroke then stroke.Color = Color3.fromRGB(0, 255, 120) end
+            pill.BackgroundColor3 = Color3.fromRGB(12, 45, 25)
+            if label then
+                label.Text = statusText or "🛡️ SAFE ZONE: SHIELDED FROM RUSH/AMBUSH"
+                label.TextColor3 = Color3.fromRGB(80, 255, 160)
+            end
+        else
+            if stroke then stroke.Color = Color3.fromRGB(255, 45, 45) end
+            pill.BackgroundColor3 = Color3.fromRGB(55, 15, 15)
+            if label then
+                label.Text = statusText or "⚠️ DANGER: DIRECT RUSH / AMBUSH LINE OF SIGHT"
+                label.TextColor3 = Color3.fromRGB(255, 90, 90)
+            end
+        end
+    end
+end
+
+local function refreshEntityNodesVisuals()
+    clearNodeVisuals()
+    if not State.ESP_Entity_Nodes then return end
+
+    local nodes = getOrderedRoomNodes()
+    local isRushIncoming = isLethalEntityIncoming()
+    local nodeColor = isRushIncoming and Color3.fromRGB(255, 45, 45) or Color3.fromRGB(0, 215, 255)
+
+    local folder = Instance.new("Folder")
+    folder.Name = "Unknown_EntityNodesVisuals"
+    folder.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+    table.insert(activeNodeVisuals, folder)
+
+    for i, node in ipairs(nodes) do
+        local nodePart = Instance.new("Part")
+        nodePart.Name = "NodePart_" .. i
+        nodePart.Size = Vector3.new(0.5, 0.5, 0.5)
+        nodePart.CFrame = CFrame.new(node.Pos + Vector3.new(0, 1.5, 0))
+        nodePart.Anchored = true
+        nodePart.CanCollide = false
+        nodePart.CanTouch = false
+        nodePart.CanQuery = false
+        nodePart.Transparency = 1
+        nodePart.Parent = folder
+        table.insert(activeNodeVisuals, nodePart)
+
+        local adorn = Instance.new("SphereHandleAdornment")
+        adorn.Name = "Adorn"
+        adorn.Radius = 1.1
+        adorn.Color3 = nodeColor
+        adorn.Transparency = 0.25
+        adorn.AlwaysOnTop = true
+        adorn.ZIndex = 8
+        adorn.Adornee = nodePart
+        adorn.Parent = nodePart
+        table.insert(activeNodeVisuals, adorn)
+
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "Label"
+        bb.Size = UDim2.new(0, 90, 0, 22)
+        bb.StudsOffset = Vector3.new(0, 1.6, 0)
+        bb.AlwaysOnTop = true
+        bb.Adornee = nodePart
+        bb.Parent = nodePart
+        table.insert(activeNodeVisuals, bb)
+
+        local tl = Instance.new("TextLabel")
+        tl.Size = UDim2.new(1, 0, 1, 0)
+        tl.BackgroundTransparency = 1
+        tl.Font = Enum.Font.GothamBold
+        tl.TextSize = 12
+        tl.TextColor3 = nodeColor
+        tl.TextStrokeTransparency = 0.2
+        tl.Text = string.format("Node %d (R%d)", i, node.RoomNum)
+        tl.Parent = bb
+
+        -- Connect line to next node
+        if i < #nodes then
+            local nextNode = nodes[i + 1]
+            local p1 = node.Pos + Vector3.new(0, 1.5, 0)
+            local p2 = nextNode.Pos + Vector3.new(0, 1.5, 0)
+            local dist = (p2 - p1).Magnitude
+            if dist < 85 then
+                local linePart = Instance.new("Part")
+                linePart.Name = "LinePart_" .. i
+                linePart.Size = Vector3.new(0.2, 0.2, dist)
+                linePart.CFrame = CFrame.new((p1 + p2) * 0.5, p2)
+                linePart.Anchored = true
+                linePart.CanCollide = false
+                linePart.CanTouch = false
+                linePart.CanQuery = false
+                linePart.Material = Enum.Material.Neon
+                linePart.Color = nodeColor
+                linePart.Transparency = 0.4
+                linePart.Parent = folder
+                table.insert(activeNodeVisuals, linePart)
+            end
+        end
+    end
+end
+
+local function refreshSafeZonesVisuals()
+    clearSafeZoneVisuals()
+    if not State.ESP_Safe_Zones then
+        updateRushSafeHUD(false, nil)
+        return
+    end
+
+    local nodes = getOrderedRoomNodes()
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms or #nodes == 0 then return end
+
+    local folder = Instance.new("Folder")
+    folder.Name = "Unknown_SafeZonesVisuals"
+    folder.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+    table.insert(activeSafeZoneVisuals, folder)
+
+    local curRoomNum = getCurrentRoomNumber()
+    local checkedPoints = {}
+
+    -- Find safe locations in current and adjacent rooms
+    for _, rm in ipairs(curRooms:GetChildren()) do
+        local rNum = tonumber(rm.Name)
+        if rNum and math.abs(rNum - curRoomNum) <= 1 then
+            -- Collect hiding spots as guaranteed safe points
+            for _, desc in ipairs(rm:GetDescendants()) do
+                local dName = desc.Name:lower()
+                local isHiding = dName:find("wardrobe") or dName:find("closet") or dName:find("bed") or dName:find("locker")
+                if isHiding and (desc:IsA("Model") or desc:IsA("BasePart")) then
+                    local pPos = desc:GetPivot().Position
+                    table.insert(checkedPoints, { Pos = pPos, Name = "Closet/Bed" })
+                end
+            end
+
+            -- Collect side room alcoves / corners
+            local assets = rm:FindFirstChild("Assets")
+            if assets then
+                for _, a in ipairs(assets:GetChildren()) do
+                    if a:IsA("Model") and (a.Name:lower():find("bookshelf") or a.Name:lower():find("dresser") or a.Name:lower():find("desk")) then
+                        local aPos = a:GetPivot().Position
+                        table.insert(checkedPoints, { Pos = aPos, Name = "Alcove" })
+                    end
+                end
+            end
+        end
+    end
+
+    -- Filter points that have blocked line-of-sight to Rush path
+    local safePoints = {}
+    for _, pt in ipairs(checkedPoints) do
+        local pPos = pt.Pos
+        local nearestDist = math.huge
+        local nearestNode = nil
+        for _, n in ipairs(nodes) do
+            local d = (n.Pos - pPos).Magnitude
+            if d < nearestDist then
+                nearestDist = d
+                nearestNode = n
+            end
+        end
+
+        if nearestNode then
+            local isBlocked = false
+            if nearestDist > 20 then
+                isBlocked = true
+            else
+                local rayParams = RaycastParams.new()
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.FilterDescendantsInstances = {getChar(), Workspace:FindFirstChild("Drops") or getChar()}
+                local hit = Workspace:Raycast(pPos + Vector3.new(0, 2.5, 0), (nearestNode.Pos - pPos).Unit * (nearestDist * 0.95), rayParams)
+                if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
+                    isBlocked = true
+                end
+            end
+
+            if isBlocked then
+                table.insert(safePoints, { Pos = pPos, Label = pt.Name })
+            end
+        end
+    end
+
+    for i, sp in ipairs(safePoints) do
+        local spPart = Instance.new("Part")
+        spPart.Name = "SafePart_" .. i
+        spPart.Size = Vector3.new(0.5, 0.5, 0.5)
+        spPart.CFrame = CFrame.new(sp.Pos)
+        spPart.Anchored = true
+        spPart.CanCollide = false
+        spPart.CanTouch = false
+        spPart.CanQuery = false
+        spPart.Transparency = 1
+        spPart.Parent = folder
+        table.insert(activeSafeZoneVisuals, spPart)
+
+        local adorn = Instance.new("CylinderHandleAdornment")
+        adorn.Name = "SafeZoneDisc"
+        adorn.Radius = 2.4
+        adorn.Height = 0.2
+        adorn.Color3 = Color3.fromRGB(0, 255, 120)
+        adorn.Transparency = 0.45
+        adorn.AlwaysOnTop = true
+        adorn.ZIndex = 8
+        adorn.Adornee = spPart
+        adorn.CFrame = CFrame.Angles(math.pi/2, 0, 0)
+        adorn.Parent = spPart
+        table.insert(activeSafeZoneVisuals, adorn)
+
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "SafeLabel"
+        bb.Size = UDim2.new(0, 110, 0, 22)
+        bb.StudsOffset = Vector3.new(0, 2.2, 0)
+        bb.AlwaysOnTop = true
+        bb.Adornee = spPart
+        bb.Parent = spPart
+        table.insert(activeSafeZoneVisuals, bb)
+
+        local tl = Instance.new("TextLabel")
+        tl.Size = UDim2.new(1, 0, 1, 0)
+        tl.BackgroundTransparency = 1
+        tl.Font = Enum.Font.GothamBold
+        tl.TextSize = 12
+        tl.TextColor3 = Color3.fromRGB(0, 255, 120)
+        tl.TextStrokeTransparency = 0.2
+        tl.Text = "SAFE SPOT"
+        tl.Parent = bb
+    end
+
+    -- Real-Time Player Safety Check
+    local r = getRoot()
+    if r then
+        local rPos = r.Position
+        local nearestDist = math.huge
+        local nearestNode = nil
+        for _, n in ipairs(nodes) do
+            local d = (n.Pos - rPos).Magnitude
+            if d < nearestDist then
+                nearestDist = d
+                nearestNode = n
+            end
+        end
+
+        local playerSafe = false
+        if nearestNode then
+            if nearestDist > 20 then
+                playerSafe = true
+            else
+                local rayParams = RaycastParams.new()
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.FilterDescendantsInstances = {getChar(), Workspace:FindFirstChild("Drops") or getChar()}
+                local hit = Workspace:Raycast(rPos + Vector3.new(0, 2.5, 0), (nearestNode.Pos - rPos).Unit * (nearestDist * 0.95), rayParams)
+                if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
+                    playerSafe = true
+                end
+            end
+        end
+        updateRushSafeHUD(playerSafe, playerSafe and "🛡️ SAFE ZONE: SHIELDED FROM RUSH/AMBUSH" or "⚠️ DANGER: DIRECT RUSH / AMBUSH LINE OF SIGHT")
+    end
+end
+
+-- Continuous Refresh Loop for Nodes & Safe Zones
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.ESP_Entity_Nodes then
+            pcall(refreshEntityNodesVisuals)
+        end
+        if State.ESP_Safe_Zones then
+            pcall(refreshSafeZonesVisuals)
+        end
+        task.wait(0.6)
+    end
+end)
+
 -- Tab 1: MAIN TAB (Movement, Speed Changer, Test Suite)
 do
 local mainTab = Hub.CreateTab("Main", { 
-    Icon = "⚡", 
+    Icon = "🏠", 
     Size = 18, 
     Color = Color3.fromRGB(240, 150, 25), 
     ActiveColor = Color3.fromRGB(255, 185, 30) 
@@ -7409,207 +7873,23 @@ local mainTab = Hub.CreateTab("Main", {
 
 Hub.CreateSection(mainTab, "Autonomous 1-100 Doors Completer")
 
-    -- God Mode UI toggle removed per daddy's instruction
-
-    Hub.CreateToggle(mainTab, "Anti Figure Hearing", State.Anti_Figure_Hearing, function(v)
-        State.Anti_Figure_Hearing = v
-        Hub.Notify("Stealth", v and "Anti Figure Hearing: Enabled (Silent Stealth)" or "Anti Figure Hearing: Disabled", 2)
-    end)
-
-    Hub.CreateToggle(mainTab, "Auto Complete 100 Doors", State.Auto_Complete_100, function(v)
-        State.Auto_Complete_100 = v
-        if v then
-            State.Noclip = true
-            State.Bypass_AntiCheat = true
-            State.Auto_Hide = true
-            State.Auto_RoofEvacuate = true
-            State.Deflect_Glitch = true
-            neutralizeServerTeleported()
-            initAntiGlitchShield()
-            Hub.Notify("Completer", "Autonomous 1-100 Completer Active! Hands-free game completion running.", 4)
-        else
-            Hub.Notify("Completer", "Autonomous 1-100 Completer Paused.", 2)
-        end
-    end)
-
-
-    Hub.CreateSection(mainTab, "Movement")
-
-Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
-    if v and not State.Bypass_AntiCheat then
+Hub.CreateToggle(mainTab, "Auto Complete 100 Doors", State.Auto_Complete_100, function(v)
+    State.Auto_Complete_100 = v
+    if v then
+        State.Noclip = true
         State.Bypass_AntiCheat = true
+        State.Auto_Hide = true
+        State.Auto_RoofEvacuate = true
+        State.Deflect_Glitch = true
         neutralizeServerTeleported()
         initAntiGlitchShield()
-        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly Noclip!", 2)
-    end
-    State.Noclip = v
-    local mg = getMainGameTable()
-    if mg then
-        mg.noclip = v
-    end
-    if v then
-        syncNativeFlightSpeed(State.Noclip_Speed or 45)
-    end
-    local char = getChar()
-
-    if not v and char then
-        -- Cleanly restore standard Roblox character collision & friction (eliminates sliding backwards & stumbles!)
-        restoreCharacterInteractivity(char)
-        restoreDefaultFriction(char)
-
-        local hum = char:FindFirstChildWhichIsA("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-
-        lastNoclipDisableGrace = os.clock() + 3.5
-
-        local r = getRoot()
-        if r then
-            -- Floor Snap & Ground Transition: If player is hovering in air, descending from roof,
-            -- or intersecting the floor, snap root cleanly 3.2 studs above exact room floor (zero sky freezes!)
-            local targetFloorPos = getExactFloorPos(r.Position)
-            if targetFloorPos then
-                r.CFrame = CFrame.new(r.Position.X, targetFloorPos.Y + 3.2, r.Position.Z) * r.CFrame.Rotation
-            end
-            r.AssemblyLinearVelocity = Vector3.zero
-            r.AssemblyAngularVelocity = Vector3.zero
-
-            local cp = char:FindFirstChild("CollisionPart")
-            if cp and cp:IsA("BasePart") then
-                cp.CFrame = r.CFrame
-                cp.CanCollide = true
-                pcall(function() cp.CollisionGroup = "NoPlayer" end)
-                cp.CanTouch = true
-                cp.CanQuery = true
-            end
-
-            local mg = getMainGameTable()
-            if mg then
-                mg.noclip = false
-                mg.clipPos = r.Position
-                mg.inAir = false
-                if mg.stopcam then mg.stopcam = false end
-            end
-
-            -- Replicate position packet to server so server spatial index commits player's new room coordinates!
-            task.spawn(function()
-                if crouchRemote then
-                    pcall(function() crouchRemote:FireServer(false, true) end)
-                end
-                task.wait(0.2)
-                if not State.Noclip and not State.WalkSpeed_Enabled and not State.Enable_Sliding then
-                    syncServerSlide(false, false)
-                end
-            end)
-            syncServerRoomBoundary()
-        end
-    end
-    Hub.Notify("Movement", v and "Fly: Enabled" or "Fly: Disabled", 2)
-end)
-
-Hub.CreateSlider(mainTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", function(v)
-    State.Noclip_Speed = v
-    syncNativeFlightSpeed(v)
-end)
-
--- Auto Hide toggle removed
-
-Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
-    State.WalkSpeed_Enabled = v
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if char then
-        pcall(function() char:SetAttribute("SpeedBoostExtra", nil) end)
-    end
-    if not v then
-        syncServerSlide(false)
-        restoreDefaultFriction(char)
-        if hum then hum.WalkSpeed = 15 end
-        Hub.Notify("WalkSpeed", "WalkSpeed: Reset (15)", 2)
+        Hub.Notify("Completer", "Autonomous 1-100 Completer Active! Hands-free game completion running.", 4)
     else
-        syncServerSlide(true)
-        applyTeflonGlide(char)
-        local targetSpeed = State.WalkSpeed_Value or 45
-        if hum then hum.WalkSpeed = targetSpeed end
-        Hub.Notify("WalkSpeed", string.format("WalkSpeed: %d studs/s", targetSpeed), 2)
+        Hub.Notify("Completer", "Autonomous 1-100 Completer Paused.", 2)
     end
 end)
 
-Hub.CreateSlider(mainTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s", function(v)
-    State.WalkSpeed_Value = v
-    if State.WalkSpeed_Enabled then
-        local char = getChar()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then hum.WalkSpeed = v end
-    end
-end)
-
-Hub.CreateToggle(mainTab, "Instant Acceleration", State.Instant_Movement, function(v)
-    State.Instant_Movement = v
-    Hub.Notify("Movement", v and "Instant Acceleration: Enabled" or "Instant Acceleration: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Enable Jump", State.Enable_Jumping, function(v)
-    State.Enable_Jumping = v
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then
-        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, v)
-        hum.UseJumpPower = true
-        hum.JumpPower = v and 52 or 0
-        hum.JumpHeight = v and 7.5 or 0
-    end
-    Hub.Notify("Movement", v and "Jump: Enabled" or "Jump: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Enable Slide", State.Enable_Sliding, function(v)
-    State.Enable_Sliding = v
-    if not v and isSlidingActive then
-        stopSlide()
-    end
-    local char = getChar()
-    if v then
-        applyTeflonGlide(char)
-        syncServerSlide(true, false)
-    else
-        if not State.WalkSpeed_Enabled and not State.Noclip then
-            restoreDefaultFriction(char)
-            syncServerSlide(false, false)
-        end
-    end
-    Hub.Notify("Movement", v and "Slide: Enabled" or "Slide: Disabled", 2)
-end)
-
-
-Hub.CreateSection(mainTab, "Interaction")
-
-Hub.CreateToggle(mainTab, "Instant Interact", State.Instant_Interact, function(v)
-    State.Instant_Interact = v
-    refreshAllPrompts()
-    Hub.Notify("Interaction", v and "Instant Interact: Enabled" or "Instant Interact: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Wall Interact", State.Noclip_Interact, function(v)
-    State.Noclip_Interact = v
-    refreshAllPrompts()
-    Hub.Notify("Interaction", v and "Wall Interact: Enabled" or "Wall Interact: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Interact Reach", State.Range_Interact, function(v)
-    State.Range_Interact = v
-    refreshAllPrompts()
-    Hub.Notify("Interaction", v and string.format("Interact Reach: %d studs", State.Interact_MaxRange) or "Interact Reach: Disabled", 2)
-end)
-
-Hub.CreateSlider(mainTab, "Reach Distance", 6, 14, State.Interact_MaxRange, " studs", function(v)
-    State.Interact_MaxRange = v
-    if State.Range_Interact then
-        refreshAllPrompts()
-    end
-end)
+Hub.CreateSection(mainTab, "Automation & Auto-Interact")
 
 Hub.CreateToggle(mainTab, "Auto Interact", State.Auto_Interact, function(v)
     State.Auto_Interact = v
@@ -7644,36 +7924,6 @@ Hub.CreateToggle(mainTab, "Auto Books / Breakers", State.AutoInteract_Books, fun
     State.AutoInteract_Books = v
 end)
 
-Hub.CreateSection(mainTab, "Item Exploits")
-
-Hub.CreateToggle(mainTab, "Infinite Items", State.Infinite_Items, function(v)
-    State.Infinite_Items = v
-    Hub.Notify("Exploit", v and "Infinite Items: Enabled" or "Infinite Items: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Retain Lockpicks & Keys", State.Infinite_Lockpicks, function(v)
-    State.Infinite_Lockpicks = v
-end)
-
-Hub.CreateToggle(mainTab, "Retain Crucifix", State.Infinite_Crucifix, function(v)
-    State.Infinite_Crucifix = v
-end)
-
-Hub.CreateToggle(mainTab, "Retain Consumables", State.Infinite_Consumables, function(v)
-    State.Infinite_Consumables = v
-end)
-
-Hub.CreateButton(mainTab, "Quick Dupe Held Tool", function()
-    local char = getChar()
-    local tool = char and char:FindFirstChildWhichIsA("Tool")
-    if tool then
-        executeItemDupeDrop(tool)
-        Hub.Notify("Dupe", "Held tool dropped & retrieved!", 2)
-    else
-        Hub.Notify("Dupe", "Equip a tool first to dupe!", 2)
-    end
-end)
-
 Hub.CreateSection(mainTab, "Autonomous Knobs & Death Farm")
 
 Hub.CreateButton(mainTab, "Copy Auto Death Farm Script", function()
@@ -7696,89 +7946,57 @@ pcall(function()
     end
 end)
 
-if game.PlaceId == PLACE_LOBBY then
-    task.spawn(function()
-        while _G.DOORS_SESSION == currentSession do
-            task.wait(1.5)
-            local char = LocalPlayer.Character
-            local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
-            if root then
-                local elevators = Workspace:FindFirstChild("Elevators") or Workspace:FindFirstChild("LobbyElevators")
-                local targetElevator = nil
-                if elevators then
-                    for _, el in ipairs(elevators:GetChildren()) do
-                        if not (el:GetAttribute("Closed") or false) then targetElevator = el break end
-                    end
-                end
-                if targetElevator then
-                    local elPart = targetElevator:FindFirstChildWhichIsA("BasePart", true)
-                    if elPart then root.CFrame = elPart.CFrame + Vector3.new(0, 2, 0) task.wait(3.0) end
-                end
-            end
-        end
-    end)
-elseif game.PlaceId == PLACE_GAME then
-    task.spawn(function()
-        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        repeat task.wait(0.5) until Workspace:FindFirstChild("CurrentRooms")
-        task.wait(2.5)
-        local root = char:WaitForChild("HumanoidRootPart", 10) or char.PrimaryPart
-        local hum = char:WaitForChild("Humanoid", 10)
-        if hum and root then
-            root.CFrame = CFrame.new(root.Position.X, -250, root.Position.Z)
-            root.AssemblyLinearVelocity = Vector3.new(0, -100, 0)
-            pcall(function() hum.Health = 0 end)
-        end
-        local pGui = LocalPlayer:WaitForChild("PlayerGui")
-        local mainUI = pGui:WaitForChild("MainUI", 15)
-        local deathPanel = mainUI and mainUI:WaitForChild("DeathPanel", 15)
-        local playAgainBtn = deathPanel and (deathPanel:FindFirstChild("PlayAgain") or deathPanel:FindFirstChild("BattlePlayAgain"))
-        local retries = 0
-        while retries < 40 do
-            task.wait(0.5)
-            retries = retries + 1
-            if playAgainBtn and playAgainBtn.Visible then
-                pcall(function()
-                    for _, c in ipairs(getconnections(playAgainBtn.MouseButton1Down)) do
-                        if c.Fire then c:Fire() elseif c.Function then c.Function() end
-                    end
-                end)
-                break
-            end
-            local remotes = ReplicatedStorage:FindFirstChild("RemotesFolder")
-            local playAgainRemote = remotes and remotes:FindFirstChild("PlayAgain")
-            if playAgainRemote then pcall(function() playAgainRemote:FireServer() end) end
-        end
-        task.wait(6.0)
-        pcall(function() TeleportService:Teleport(PLACE_GAME, LocalPlayer) end)
-    end)
-end]]
+local function log(msg) print("[DeathFarm] " .. tostring(msg)) end
 
-    pcall(function()
-        if setclipboard then
-            setclipboard(deathFarmCode)
-        elseif toclipboard then
-            toclipboard(deathFarmCode)
-        end
-    end)
-    Hub.Notify("Death Farm", "Copied Auto Death Farm script to clipboard! (Also placed in autoexec)", 4)
+local function queueReplay()
+    if syn and syn.queue_on_teleport then
+        syn.queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/Doors.luau"))
+    elseif queue_on_teleport then
+        queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/Doors.luau"))
+    end
+end
+
+if game.PlaceId == PLACE_LOBBY then
+    log("Lobby reached. Joining elevator...")
+    task.wait(2)
+    local curElevator = Workspace:FindFirstChild("LobbyElevator") or Workspace:FindFirstChild("Elevator")
+    if curElevator then
+        local prompt = curElevator:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then fireproximityprompt(prompt) end
+    end
+    queueReplay()
+elseif game.PlaceId == PLACE_GAME then
+    log("In Game. Starting farm run...")
+    queueReplay()
+end
+]]
+    if setclipboard then
+        setclipboard(deathFarmCode)
+        Hub.Notify("Copied", "Standalone Death Farm Script copied to clipboard!", 3)
+    else
+        Hub.Notify("Error", "Clipboard API unavailable on this executor", 3)
+    end
 end)
 
 Hub.CreateToggle(mainTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, function(v)
     State.Knobs_Farm_Active = v
-    getgenv().Doors_KnobsFarm_AutoResume = v
     if v then
-        setupQueueOnTeleport()
         State.Noclip = true
         State.Bypass_AntiCheat = true
-        State.Auto_Hide = true
         State.Auto_RoofEvacuate = true
         State.Deflect_Glitch = true
         neutralizeServerTeleported()
         initAntiGlitchShield()
-        Hub.Notify("Knobs Farm", "⚡ Autopilot activated! Autonomous farming running.", 3)
+        task.spawn(function()
+            while State.Knobs_Farm_Active and _G.DOORS_SESSION == currentSession do
+                local ok, err = pcall(processKnobsFarmStep)
+                if not ok then warn("[Knobs Farm Error]", err) end
+                task.wait(0.2)
+            end
+        end)
+        Hub.Notify("Farm Active", "Autonomous Knobs Farm running! Sit back and collect knobs.", 3)
     else
-        Hub.Notify("Knobs Farm", "Autopilot paused.", 2)
+        Hub.Notify("Farm Paused", "Autonomous Knobs Farm disabled.", 2)
     end
 end)
 
@@ -7803,563 +8021,241 @@ Hub.CreateToggle(mainTab, "Roof Haven on Rush/Ambush", State.Knobs_Farm_RoofEvac
 end)
 
 Hub.CreateButton(mainTab, "Force Match Reset & Play Again", function()
-    setupQueueOnTeleport()
-    getgenv().Doors_KnobsFarm_AutoResume = true
+    local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+    local playAgainRemote = rf and rf:FindFirstChild("PlayAgain")
+    if playAgainRemote and playAgainRemote:IsA("RemoteEvent") then
+        playAgainRemote:FireServer()
+        Hub.Notify("Match Reset", "PlayAgain signal dispatched to server!", 2)
+    else
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.Health = 0 end
+        Hub.Notify("Match Reset", "Resetting character to trigger Play Again UI...", 2)
+    end
+end)
+end
+
+-- =========================================================================
+-- Tab 2: EXPLOITS TAB (Defense, God-Mode, Movement, Interaction & Item Exploits)
+-- =========================================================================
+do
+local exploitsTab = Hub.CreateTab("Exploits", { 
+    Icon = "⚡", 
+    Size = 18, 
+    Color = Color3.fromRGB(255, 60, 60), 
+    ActiveColor = Color3.fromRGB(255, 100, 100) 
+})
+
+Hub.CreateSection(exploitsTab, "Defense & God-Mode")
+
+Hub.CreateToggle(exploitsTab, "God-Mode (Universal Immunity)", State.God_Mode, function(v)
+    State.God_Mode = v
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if char then pcall(function() char:BreakJoints() end) end
-    if hum then pcall(function() hum.Health = 0 end) end
-    task.delay(6.0, function()
-        local pa = remotesFolder and remotesFolder:FindFirstChild("PlayAgain")
-        if pa then pcall(function() pa:FireServer() end) end
-    end)
-    Hub.Notify("Knobs Farm", "Resetting match & cashing in Knobs...", 3)
+    if hum then
+        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, not v) end)
+    end
+    local cp = char and char:FindFirstChild("CollisionPart")
+    if cp then
+        cp.CanTouch = not v
+        cp.CanCollide = not v
+    end
+    Hub.Notify("God-Mode", v and "God-Mode: Enabled (Immune to Rush, Ambush, Figure, Seek)" or "God-Mode: Disabled", 2)
 end)
 
-local excludeCategories = {
-    { Name = "Paintings & Pictures", Desc = "Wall canvas, portraits & frames" },
-    { Name = "Fake Doors (Dupe)", Desc = "Dupe traps & wrong numbered doors" },
-    { Name = "Wall Clocks & Bells", Desc = "Decorative bells and desk bells" },
-    { Name = "Light Switches & Lamps", Desc = "Table lamps & light toggles" },
-    { Name = "Normal Exit Doors", Desc = "Main progression numbered doors" },
-    { Name = "Side Room Doors", Desc = "Side closet/room touch doors" },
-    { Name = "Drawers & Desks", Desc = "Dressers, tables & loot drawers" },
-    { Name = "Gold & Coins", Desc = "Gold piles, coin stacks & starlight" },
-    { Name = "Keys & Skeleton Keys", Desc = "Room keys & skeleton keys" },
-    { Name = "Levers & Breakers", Desc = "Gate levers & circuit switches" },
-    { Name = "Books & Papers", Desc = "Room 50 library hint books" },
-    { Name = "Crucifix & Defense Items", Desc = "Crucifix, candles & holy items" },
-    { Name = "Lighters & Flashlights", Desc = "Light sources & batteries" },
-    { Name = "Health & Bandages", Desc = "Bandages, vitamins & herbs" },
-    { Name = "Lockpicks & Shears", Desc = "Lockpicks, shears & tool pickups" },
-    { Name = "Glitch Fragments", Desc = "Glitch cubes & rift fragments" },
-}
-
-local excludeList = Hub.CreateList(mainTab, "Auto Interact Filter", excludeCategories, 180, false, { MultiSelect = true })
-
-local defaultExcluded = {}
-for name, isExcluded in pairs(State.AutoInteract_Excludes) do
-    if isExcluded then
-        table.insert(defaultExcluded, name)
-    end
-end
-if excludeList and excludeList.SetSelectedItems then
-    excludeList.SetSelectedItems(defaultExcluded)
-end
-
-if excludeList then
-    excludeList.OnSelect = function(name, entryData)
-        local isSelected = false
-        for _, item in ipairs(excludeList.SelectedItems) do
-            if item == entryData or item.Name == name or item == name then
-                isSelected = true
-                break
-            end
-        end
-        State.AutoInteract_Excludes[name] = isSelected
-        Hub.Notify("Filter", (isSelected and "Excluded: " or "Allowed: ") .. tostring(name), 2)
-    end
-end
-
-Hub.CreateInput(mainTab, "Exclude Keyword", "", "Type keyword to exclude...", function(text)
-    if text and #text > 0 then
-        local trimmed = text:match("^%s*(.-)%s*$")
-        if #trimmed > 0 then
-            table.insert(State.AutoInteract_CustomKeywords, trimmed)
-            if excludeList and excludeList.AddItem then
-                local row, entryData = excludeList.AddItem({ Name = trimmed, Desc = "Custom Keyword Exclude" })
-                if excludeList.ToggleSelected then
-                    excludeList.ToggleSelected(entryData)
-                end
-            end
-            Hub.Notify("Filter", "Excluded: " .. trimmed, 2)
-        end
-    end
+Hub.CreateToggle(exploitsTab, "Anti Figure Hearing", State.Anti_Figure_Hearing, function(v)
+    State.Anti_Figure_Hearing = v
+    Hub.Notify("Stealth", v and "Anti Figure Hearing: Enabled (Silent Stealth)" or "Anti Figure Hearing: Disabled", 2)
 end)
 
-local function updateFloorNativeToggles()
-    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
-    if gd then
-        if gd:FindFirstChild("EntityDisableScreech") then
-            gd.EntityDisableScreech.Value = State.Anti_Screech
-        end
-        if gd:FindFirstChild("EntityDisableEyes") then
-            gd.EntityDisableEyes.Value = State.Anti_Eyes
-        end
-        if gd:FindFirstChild("EntityDisableDupe") then
-            gd.EntityDisableDupe.Value = State.Anti_Dupe
-        end
+Hub.CreateSection(exploitsTab, "Movement Exploits")
+
+Hub.CreateToggle(exploitsTab, "Fly Noclip", State.Noclip, function(v)
+    if v and not State.Bypass_AntiCheat then
+        State.Bypass_AntiCheat = true
+        neutralizeServerTeleported()
+        initAntiGlitchShield()
+        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly Noclip!", 2)
     end
-end
-
--- Eyes detection helper (returns active Eyes model if present in workspace)
-local function isEyesPresent()
-    local e = Workspace:FindFirstChild("Eyes") or Workspace:FindFirstChild("Lookman")
-    if e and e:IsA("Model") then return e end
-    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
-    if currentRooms then
-        for _, r in ipairs(currentRooms:GetChildren()) do
-            local eyesInRoom = r:FindFirstChild("Eyes") or r:FindFirstChild("Lookman")
-            if eyesInRoom and eyesInRoom:IsA("Model") then
-                return eyesInRoom
-            end
-        end
-    end
-    for _, child in ipairs(Workspace:GetChildren()) do
-        local n = child.Name:lower()
-        if (n:find("eyes") or n:find("lookman")) and child:IsA("Model") then
-            return child
-        end
-    end
-    return nil
-end
-
--- Hook Remotes for Eyes pitch spoofing (-899 = looking straight down) and A90 movement spoofing
-local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
-local crouchRemote = remotesFolder and remotesFolder:WaitForChild("Crouch", 5)
-local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
-local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
-
--- Hook UserInputService.IsKeyDown: PERMANENTLY REMOVE Q AND E FROM DOORS MOVEMENT
-if hookfunction and UserInputService.IsKeyDown and not _G.__ISKEYDOWN_HOOKED then
-    _G.__ISKEYDOWN_HOOKED = true
-    local rawIsKeyDown
-    rawIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, kc)
-        if not checkcaller() then
-            -- Block KeyCode.Q everywhere in DOORS
-            if kc == Enum.KeyCode.Q then
-                return false
-            end
-            -- If called by DOORS Movement script, NEVER allow KeyCode.E so elevation up movement is dead permanently!
-            if kc == Enum.KeyCode.E then
-                local caller = getcallingscript and getcallingscript()
-                if caller and (caller.Name == "Movement" or tostring(caller):find("Movement")) then
-                    return false
-                end
-            end
-        end
-        return rawIsKeyDown(self, kc)
-    end))
-end
-
-if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
-    _G.__UNIFIED_NAMECALL_HOOKED = true
-    local rawNamecall
-    rawNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-        local activeState = _G.State or State
-        local method = getnamecallmethod()
-        if not checkcaller() then
-            -- Intercept ShadeResult (Halt Anti-Damage)
-            if self.Name == "ShadeResult" and activeState.Anti_Halt then
-                local args = {...}
-                if args[1] == true then return nil end
-            end
-            -- Intercept IsKeyDown call via namecall to permanently kill Q/E elevation in DOORS Movement
-            if (method == "IsKeyDown" or method == "isKeyDown") then
-                local args = {...}
-                local kc = args[1]
-                if kc == Enum.KeyCode.Q or kc == Enum.KeyCode.E then
-                    local caller = getcallingscript and getcallingscript()
-                    if not caller or caller.Name == "Movement" or tostring(caller):find("Movement") then
-                        return false -- Completely prevents DOORS Movement from treating KeyCode.E as fly UP!
-                    end
-                end
-            end
-            if (method == "BreakJoints" or method == "breakJoints") then
-                local char = getChar()
-                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                if hum and hum.Health > 0 then
-                    if self == char or (char and self:IsDescendantOf(char)) then
-                        return nil
-                    end
-                end
-            end
-            if (method == "PivotTo" or method == "pivotTo") then
-                local char = getChar()
-                local mgTable = getMainGameTable()
-                local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
-                if not hiding and (isTeleportTweening or State.Noclip or State.Bypass_AntiCheat or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
-                    local isLocalChar = (self == char) or (char and (self == char.PrimaryPart or self:IsDescendantOf(char))) or (self.Name == LocalPlayer.Name)
-                    if isLocalChar then
-                        return -- Block anticheat rollback PivotTo dead in its tracks; allow wardrobe hiding and door entry!
-                    end
-                end
-            end
-            if method == "FireServer" then
-                -- Intercept Crouch remote calls from DOORS Movement script: enforce sliding = true on server
-                if (self.Name == "Crouch" or self == crouchRemote) and not checkcaller() then
-                    if activeState.WalkSpeed_Enabled or activeState.Enable_Sliding or activeState.Noclip then
-                        local args = {...}
-                        args[2] = true -- Always authorize sliding on the DOORS server so crouching never lowers speed limit!
-                        return rawNamecall(self, unpack(args))
-                    end
-                end
-                if (self.Name == "Footstep" or self.Name == "FootstepRemoteThatWeNeed") and (activeState.Anti_Figure_Hearing or activeState.Anti_Figure) then
-                    return nil -- Drop footstep packets completely from reaching server and alerting Figure!
-                end
-                if self == motorRemote and State.Anti_Eyes and isEyesPresent() then
-                    local args = {...}
-                    args[1] = -899
-                    return rawNamecall(self, unpack(args))
-                elseif self == a90Remote and State.Anti_A90 then
-                    local args = {...}
-                    if args[1] == "moved" then
-                        args[1] = "didnt"
-                    end
-                    return rawNamecall(self, unpack(args))
-                end
-            end
-        end
-        return rawNamecall(self, ...)
-    end))
-end
-
-if hookfunction then
-    local footstepRemote = remotesFolder and remotesFolder:FindFirstChild("Footstep")
-    if footstepRemote and footstepRemote.FireServer then
-        local rawFsFire
-        rawFsFire = hookfunction(footstepRemote.FireServer, newcclosure(function(self, ...)
-            if not checkcaller() and (State.Anti_Figure_Hearing or State.Anti_Figure) then
-                return nil
-            end
-            return rawFsFire(self, ...)
-        end))
-    end
-    local footstepNeedRemote = remotesFolder and remotesFolder:FindFirstChild("FootstepRemoteThatWeNeed")
-    if footstepNeedRemote and footstepNeedRemote.FireServer then
-        local rawFsNFire
-        rawFsNFire = hookfunction(footstepNeedRemote.FireServer, newcclosure(function(self, ...)
-            if not checkcaller() and (State.Anti_Figure_Hearing or State.Anti_Figure) then
-                return nil
-            end
-            return rawFsNFire(self, ...)
-        end))
-    end
-    pcall(function()
-        local mc = game:GetService("ReplicatedStorage"):FindFirstChild("ModulesClient")
-        local fh = mc and mc:FindFirstChild("FootstepHandler")
-        if fh then
-            local rawFh = require(fh)
-            if type(rawFh) == "function" and not _G.__FH_HOOKED then
-                _G.__FH_HOOKED = true
-                local origFh
-                origFh = hookfunction(rawFh, newcclosure(function(...)
-                    if not checkcaller() and (State.Anti_Figure_Hearing or State.Anti_Figure) then
-                        return nil
-                    end
-                    return origFh(...)
-                end))
-            end
-        end
-    end)
-    if motorRemote and motorRemote.FireServer then
-        local rawMotorFire
-        rawMotorFire = hookfunction(motorRemote.FireServer, newcclosure(function(self, pitch, room, ...)
-            if not checkcaller() and State.Anti_Eyes and isEyesPresent() then
-                pitch = -899
-            end
-            return rawMotorFire(self, pitch, room, ...)
-        end))
-    end
-    if a90Remote and a90Remote.FireServer then
-        local rawA90Fire
-        rawA90Fire = hookfunction(a90Remote.FireServer, newcclosure(function(self, action, ...)
-            if not checkcaller() and State.Anti_A90 and action == "moved" then
-                action = "didnt"
-            end
-            return rawA90Fire(self, action, ...)
-        end))
-    end
-    if crouchRemote and crouchRemote.FireServer and not _G.__CROUCH_REMOTE_HOOKED then
-        _G.__CROUCH_REMOTE_HOOKED = true
-        local rawCrouchFire
-        rawCrouchFire = hookfunction(crouchRemote.FireServer, newcclosure(function(self, isCrouch, isSlide, ...)
-            if not checkcaller() and (State.WalkSpeed_Enabled or State.Enable_Sliding or State.Noclip) then
-                isSlide = true
-            end
-            return rawCrouchFire(self, isCrouch, isSlide, ...)
-        end))
-    end
-end
-
--- Intercept Ragdoll events to prevent unrequested ragdoll states in void or during transitions
-local ragdollRemote = remotesFolder and remotesFolder:FindFirstChild("Ragdoll")
-if getconnections and ragdollRemote and ragdollRemote:IsA("RemoteEvent") then
-    for _, conn in ipairs(getconnections(ragdollRemote.OnClientEvent)) do
-        local oldRag = conn.Function
-        if oldRag and hookfunction and not _G["CONN_RAG_" .. tostring(oldRag)] then
-            _G["CONN_RAG_" .. tostring(oldRag)] = true
-            hookfunction(oldRag, newcclosure(function(...)
-                local char = getChar()
-                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                -- If player is dead (Health <= 0), allow DOORS native death ragdoll and death animation to run!
-                if hum and hum.Health <= 0 then
-                    pcall(function()
-                        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
-                        hum:ChangeState(Enum.HumanoidStateType.Dead)
-                    end)
-                    return oldRag(...)
-                end
-                if hum then
-                    hum.PlatformStand = false
-                    pcall(function()
-                        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-                        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end)
-                end
-                return -- Drop remote ragdoll!
-            end))
-        end
-    end
-end
-
--- Camera listener: Instant Silent Defusal for Screech (0 Camera Movement, 0 Damage) & Timothy
-local cam = Workspace.CurrentCamera
-if cam then
-    cam.ChildAdded:Connect(function(child)
-        local cName = child.Name:lower()
-        if State.Anti_Screech and (cName:find("screech") or cName == "screechretro") then
-            -- 1. Synchronously register caught on server so player takes 0 bite damage
-            local remote = remotesFolder and remotesFolder:FindFirstChild("Screech")
-            if remote then
-                pcall(function() remote:FireServer(true) end)
-            end
-
-            -- 2. Immediately mute all screech audio on frame 0
-            pcall(function()
-                for _, desc in ipairs(child:GetDescendants()) do
-                    if desc:IsA("Sound") then
-                        desc.Volume = 0
-                        desc:Stop()
-                    end
-                end
-            end)
-
-            -- 3. Make all Screech parts invisible so DOORS Screech module loop completes cleanly without nil indexing
-            for _, desc in ipairs(child:GetDescendants()) do
-                if desc:IsA("BasePart") then
-                    desc.Transparency = 1
-                elseif desc:IsA("Decal") or desc:IsA("ImageLabel") then
-                    desc.Transparency = 1
-                end
-            end
-
-            task.delay(0.1, function()
+    State.Noclip = v
+    local mg = getMainGameTable()
+    if mg then
+        mg.noclip = v
+        syncNativeFlightSpeed(State.Noclip_Speed)
+        if not v then
+            local r = getRoot()
+            if r then
+                mg.clipPos = r.Position
+                mg.inAir = false
                 pcall(function()
-                    for i = 1, 100 do
-                        RunService:UnbindFromRenderStep("screechStuff" .. tostring(i))
-                    end
-                end)
-                pcall(function() child:Destroy() end)
-            end)
-
-            -- 4. Clean up any active screech state in DOORS Main_Game table
-            pcall(function()
-                local mg = getMainGameTable()
-                if mg and mg.screech then
-                    mg.screech = nil
-                end
-            end)
-
-            -- Defused silently without popup
-        elseif State.Anti_Timothy and (cName:find("spider") or cName == "spiderjumpscare") then
-            pcall(function()
-                for _, desc in ipairs(child:GetDescendants()) do
-                    if desc:IsA("Sound") then
-                        desc.Volume = 0
-                        desc:Stop()
-                    elseif desc:IsA("BasePart") then
-                        desc.Transparency = 1
-                    elseif desc:IsA("Decal") or desc:IsA("ImageLabel") then
-                        desc.Transparency = 1
-                    end
-                end
-            end)
-            -- Timothy silently defused with zero notification
-        end
-    end)
-end
-
--- Background watchdog for continuous Eyes pitch keep-alive, muting, A90 GUI, and Giggle
-task.spawn(function()
-    while true do
-        if _G.DOORS_SESSION ~= currentSession then break end
-
-        -- Anti-Eyes Active Pitch Keep-Alive & Volume Silence (leaves model completely intact!)
-        if State.Anti_Eyes then
-            local eyes = isEyesPresent()
-            if eyes then
-                pcall(function()
-                    if motorRemote then
-                        motorRemote:FireServer(-899, getCurrentRoomNumber() or 0)
-                    end
-                    for _, desc in ipairs(eyes:GetDescendants()) do
-                        if desc:IsA("Sound") and desc.Volume > 0 then
-                            desc.Volume = 0
-                        end
-                    end
+                    r.AssemblyLinearVelocity = Vector3.zero
+                    r.AssemblyAngularVelocity = Vector3.zero
                 end)
             end
         end
-
-        -- Anti-A90 GUI Auto-Dismiss
-        if State.Anti_A90 then
-            pcall(function()
-                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-                local mainUI = pGui and pGui:FindFirstChild("MainUI")
-                local jumpscare = mainUI and mainUI:FindFirstChild("Jumpscare")
-                local a90Gui = jumpscare and jumpscare:FindFirstChild("Jumpscare_A90")
-                if a90Gui and a90Gui.Visible then
-                    a90Gui.Visible = false
-                end
-            end)
-        end
-
-        -- Anti-Giggle Auto-Detach
-        if State.Anti_Giggle then
-            pcall(function()
-                local char = getChar()
-                if char and char:GetAttribute("Giggled") then
-                    char:SetAttribute("Giggled", nil)
-                end
-            end)
-        end
-
-        task.wait(0.2)
     end
-end)
-
-
--- =========================================================================
--- AUTONOMOUS CLUTCH HEARTBEAT AUTO-WIN ENGINE (FIGURE / CLOSET DEFUSAL)
--- =========================================================================
-local clutchRemote = remotesFolder and remotesFolder:FindFirstChild("ClutchHeartbeat")
-if clutchRemote and clutchRemote:IsA("RemoteEvent") then
-    clutchRemote.OnClientEvent:Connect(function(a1, a2)
-        if State.Auto_Heartbeat or State.Anti_Figure then
-            pcall(function()
-                if a2 then
-                    task.wait(0.05)
-                    clutchRemote:FireServer(a2, true)
-                end
-            end)
-        end
-    end)
-end
-
--- Auto Heartbeat Minigame Solver
-task.spawn(function()
-    while true do
-        if _G.DOORS_SESSION ~= currentSession then break end
-        if State.Auto_Heartbeat then
-            pcall(function()
-                local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-                local mainUI = pGui and pGui:FindFirstChild("MainUI")
-                local heart = mainUI and mainUI:FindFirstChild("MainFrame") and mainUI.MainFrame:FindFirstChild("Heartbeat") and mainUI.MainFrame.Heartbeat:FindFirstChild("Heart")
-                if heart and heart.Parent and heart.Parent.Visible then
-                    local liveHalf = heart:FindFirstChild("LiveHalf")
-                    if liveHalf and liveHalf.Visible then
-                        local vim = game:GetService("VirtualInputManager")
-                        if vim then
-                            vim:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
-                            task.wait(0.02)
-                            vim:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
-                            vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                            task.wait(0.02)
-                            vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-                        end
+    local char = getChar()
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanCollide = not v
+                if v then
+                    if p.CollisionGroup ~= "NoPlayer" then
+                        pcall(function() p.CollisionGroup = "NoPlayer" end)
                     end
                 end
-            end)
+                p.CanTouch = true
+                p.CanQuery = true
+            end
         end
-        task.wait(0.08)
     end
-end)
-
--- Room 50 Library Padlock Code Solver
-solveLibraryCode = function()
-    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local hints = pGui and pGui:FindFirstChild("PermUI") and pGui.PermUI:FindFirstChild("Hints")
-    
-    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
-    local room50 = currentRooms and currentRooms:FindFirstChild("50")
-    if not room50 then
-        return nil, "Room 50 not yet generated!"
-    end
-
-    local paper = Workspace:FindFirstChild("LibraryHintPaper", true)
-        or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("LibraryHintPaper"))
-        or (LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("LibraryHintPaper"))
-
-    -- Gather collected books from Hints GUI
-    local bookDigits = {}
-    if hints then
-        for _, hint in ipairs(hints:GetChildren()) do
-            if hint:IsA("ImageLabel") and hint.Name ~= "Template" then
-                local textLabel = hint:FindFirstChildWhichIsA("TextLabel")
-                local icon = hint.Image
-                if textLabel and textLabel.Text ~= "" then
-                    bookDigits[icon] = textLabel.Text
+    if not v then
+        local char = getChar()
+        local root = getRoot()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if char and root and hum then
+            local rayParams = RaycastParams.new()
+            rayParams.FilterType = Enum.RaycastFilterType.Include
+            local curRooms = Workspace:FindFirstChild("CurrentRooms")
+            if curRooms then rayParams.FilterDescendantsInstances = {curRooms} end
+            local hit = Workspace:Raycast(root.Position + Vector3.new(0, 2, 0), Vector3.new(0, -30, 0), rayParams)
+            if hit and hit.Position then
+                local floorY = hit.Position.Y + (hum.HipHeight or 2.0) + 1.0
+                if root.Position.Y > floorY + 1.5 then
+                    root.CFrame = CFrame.new(root.Position.X, floorY, root.Position.Z)
                 end
             end
+            pcall(function()
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end)
         end
     end
+    Hub.Notify("Movement", v and "Fly Noclip: Active (Native Engine Flight)" or "Fly Noclip: Disabled", 2)
+end)
 
-    -- Also inspect Room 50 books directly
-    for _, item in ipairs(room50:GetDescendants()) do
-        if item.Name == "LiveHintBook" or item.Name:lower():find("hintbook") then
-            local num = item:GetAttribute("Number") or item:GetAttribute("Digit")
-            local shape = item:GetAttribute("Shape")
-            if num and shape then
-                bookDigits[tostring(shape)] = tostring(num)
-            end
-        end
-    end
-
-    if not paper then
-        return nil, "Pick up the Hint Paper in Room 50 first!"
-    end
-
-    local code = {}
-    local paperGui = paper:FindFirstChildWhichIsA("SurfaceGui", true)
-    if paperGui then
-        local frames = {}
-        for _, desc in ipairs(paperGui:GetDescendants()) do
-            if desc:IsA("ImageLabel") and desc.Name ~= "Background" then
-                table.insert(frames, desc)
-            end
-        end
-        table.sort(frames, function(a, b) return (a.LayoutOrder or 0) < (b.LayoutOrder or 0) end)
-        for _, img in ipairs(frames) do
-            local digit = bookDigits[img.Image] or "_"
-            table.insert(code, digit)
-        end
-    end
-
-    if #code > 0 then
-        return table.concat(code, " "), "Solved"
-    end
-
-    return nil, "Gather more books in the Library!"
-end
-
--- Maintain native values & snares
-task.spawn(function()
-    while true do
-        if _G.DOORS_SESSION ~= currentSession then break end
-        updateFloorNativeToggles()
-        if State.Anti_Snare then defuseAllSnares() end
-        task.wait(1)
+Hub.CreateSlider(exploitsTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", function(v)
+    State.Noclip_Speed = v
+    if State.Noclip then
+        syncNativeFlightSpeed(v)
     end
 end)
 
--- =========================================================================
--- Tab 2: TELEPORT & MOVEMENT TAB (Anti-Cheat Safe Teleports & 3D Flight)
--- =========================================================================
--- Tab 2: FLOOR SPECIFIC TAB (Dynamic Floor Entities & Modifiers)
--- =========================================================================
+Hub.CreateToggle(exploitsTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
+    State.WalkSpeed_Enabled = v
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        if v then
+            syncServerSlide(true, true)
+            hum.WalkSpeed = State.WalkSpeed_Value or 45
+        else
+            syncServerSlide(false, false)
+            hum.WalkSpeed = 15
+            pcall(function() char:SetAttribute("SpeedBoostExtra", nil) end)
+        end
+    end
+    Hub.Notify("Movement", v and string.format("WalkSpeed: %d studs/s (Bypass Active)", State.WalkSpeed_Value) or "WalkSpeed: Restored (15 studs/s)", 2)
+end)
+
+Hub.CreateSlider(exploitsTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s", function(v)
+    State.WalkSpeed_Value = v
+    if State.WalkSpeed_Enabled then
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.WalkSpeed = v end
+    end
+end)
+
+Hub.CreateToggle(exploitsTab, "Instant Acceleration", State.Instant_Movement, function(v)
+    State.Instant_Movement = v
+    Hub.Notify("Movement", v and "Instant Acceleration: Enabled" or "Instant Acceleration: Disabled", 2)
+end)
+
+Hub.CreateToggle(exploitsTab, "Enable Jump", State.Enable_Jumping, function(v)
+    State.Enable_Jumping = v
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        hum.UseJumpPower = v
+        hum.JumpPower = v and 50 or 0
+    end
+    Hub.Notify("Movement", v and "Jump: Enabled" or "Jump: Disabled", 2)
+end)
+
+Hub.CreateToggle(exploitsTab, "Enable Slide", State.Enable_Sliding, function(v)
+    State.Enable_Sliding = v
+    if v then
+        syncServerSlide(true, true)
+    else
+        if not State.Noclip and not State.WalkSpeed_Enabled then
+            syncServerSlide(false, false)
+        end
+    end
+    Hub.Notify("Movement", v and "Slide: Enabled" or "Slide: Disabled", 2)
+end)
+
+Hub.CreateSection(exploitsTab, "Interaction Exploits")
+
+Hub.CreateToggle(exploitsTab, "Instant Interact", State.Instant_Interact, function(v)
+    State.Instant_Interact = v
+    refreshAllPrompts()
+    Hub.Notify("Interaction", v and "Instant Interact: Enabled" or "Instant Interact: Disabled", 2)
+end)
+
+Hub.CreateToggle(exploitsTab, "Wall Interact", State.Noclip_Interact, function(v)
+    State.Noclip_Interact = v
+    refreshAllPrompts()
+    Hub.Notify("Interaction", v and "Wall Interact: Enabled" or "Wall Interact: Disabled", 2)
+end)
+
+Hub.CreateToggle(exploitsTab, "Interact Reach", State.Range_Interact, function(v)
+    State.Range_Interact = v
+    refreshAllPrompts()
+    Hub.Notify("Interaction", v and string.format("Interact Reach: %d studs", State.Interact_MaxRange) or "Interact Reach: Disabled", 2)
+end)
+
+Hub.CreateSlider(exploitsTab, "Reach Distance", 6, 14, State.Interact_MaxRange, " studs", function(v)
+    State.Interact_MaxRange = v
+    if State.Range_Interact then
+        refreshAllPrompts()
+    end
+end)
+
+Hub.CreateSection(exploitsTab, "Item Exploits")
+
+Hub.CreateToggle(exploitsTab, "Infinite Items", State.Infinite_Items, function(v)
+    State.Infinite_Items = v
+    Hub.Notify("Exploit", v and "Infinite Items: Enabled" or "Infinite Items: Disabled", 2)
+end)
+
+Hub.CreateToggle(exploitsTab, "Retain Lockpicks & Keys", State.Infinite_Lockpicks, function(v)
+    State.Infinite_Lockpicks = v
+end)
+
+Hub.CreateToggle(exploitsTab, "Retain Crucifix", State.Infinite_Crucifix, function(v)
+    State.Infinite_Crucifix = v
+end)
+
+Hub.CreateToggle(exploitsTab, "Retain Consumables", State.Infinite_Consumables, function(v)
+    State.Infinite_Consumables = v
+end)
+
+Hub.CreateButton(exploitsTab, "Quick Dupe Held Tool", function()
+    local char = getChar()
+    local tool = char and char:FindFirstChildWhichIsA("Tool")
+    if tool then
+        executeItemDupeDrop(tool, 0)
+        Hub.Notify("Dupe", "Held tool dropped & retrieved!", 2)
+    else
+        Hub.Notify("Dupe", "Equip a tool first to dupe!", 2)
+    end
+end)
+
+Hub.CreateToggle(exploitsTab, "Semi-Transparent Closets", State.SemiTransparent_Closet, function(v)
+    State.SemiTransparent_Closet = v
+    Hub.Notify("Visuals", v and "Semi-Transparent Closets: Enabled" or "Semi-Transparent Closets: Disabled", 2)
+end)
 end
 
 local floorTabName = "Floor (" .. tostring(detectedFloor) .. ")"
@@ -8525,6 +8421,20 @@ local espTab = Hub.CreateTab("Visuals", {
     Color = Color3.fromRGB(170, 185, 210),
     ActiveColor = Color3.fromRGB(0, 215, 255)
 })
+
+Hub.CreateSection(espTab, "Pathfinding & Entity Safe Zones")
+
+Hub.CreateToggle(espTab, "Show Entity Path Nodes", State.ESP_Entity_Nodes, function(v)
+    State.ESP_Entity_Nodes = v
+    refreshEntityNodesVisuals()
+    Hub.Notify("Visuals", v and "Entity Nodes: Visible (Rush/Ambush Waypoints)" or "Entity Nodes: Hidden", 2)
+end)
+
+Hub.CreateToggle(espTab, "Show Safe Zones (Rush/Ambush)", State.ESP_Safe_Zones, function(v)
+    State.ESP_Safe_Zones = v
+    refreshSafeZonesVisuals()
+    Hub.Notify("Visuals", v and "Safe Zones: Visible (Shielded from Rush/Ambush)" or "Safe Zones: Hidden", 2)
+end)
 
 Hub.CreateSection(espTab, "Master")
 
