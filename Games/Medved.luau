@@ -2178,12 +2178,12 @@ RunService.Heartbeat:Connect(function(dt)
         local targetCF = activeFlightTargetCF
         local dist = (currentCF.Position - targetCF.Position).Magnitude
 
-        if dist > 14.0 then
-            -- Traveling to another bear: TELEPORT IMMEDIATELY!
+        if dist > 10.0 then
+            -- Traveling to another bear (or target lunged): TELEPORT IMMEDIATELY!
             root.CFrame = targetCF
         else
-            -- At the bear: FLY smoothly around the bear at 60 FPS while attacking!
-            local alpha = math.clamp(dt * 18, 0.25, 0.75)
+            -- At the bear: FLY smoothly around the bear at 60 FPS with responsive real-time tracking!
+            local alpha = math.clamp(dt * 36, 0.50, 0.90)
             root.CFrame = currentCF:Lerp(targetCF, alpha)
         end
 
@@ -2204,6 +2204,9 @@ local abilityCooldowns = {}
 local bearVariantIndex = 0
 local lastBearAttack = 0
 local lastDefaultM1Attack = 0
+local lastDamageTime = 0
+local damageElevationBoost = 0
+local lastObservedHealth = nil
 
 -- Connect to server ability cooldown broadcasts
 pcall(function()
@@ -2483,8 +2486,8 @@ task.spawn(function()
         end
 
         -- 3. Dynamic Player-Size & Target-Size Anatomical Apex Blindspot Engine
-        -- Positioned directly above and behind the wild bear's spine:
-        -- 100% immune from all ground swipes, bites, and touch collisions (above swipe ceiling),
+        -- Positioned strictly above and behind the wild bear's swipe ceiling:
+        -- 100% immune from all ground swipes, bites, and touch collisions (feet strictly above swipe ceiling),
         -- while keeping downward paws/weapons directly in range for 100% hit connection!
         local myBearName = (char:GetAttribute("TransformedToBear") or ""):lower()
         local amBooBoo = myBearName:find("boo") ~= nil or myBearName:find("ball") ~= nil
@@ -2497,30 +2500,52 @@ task.spawn(function()
             or myBearName:find("grizzly") ~= nil 
             or myBearName:find("medved") ~= nil
 
-        local bearTopY = cf.Position.Y + (sz.Y * 0.5)
-        local standoff, hoverElevation
+        -- Measure player's lower body hang (distance from HumanoidRootPart to bottom of feet)
+        local playerLegHang = 3.0
+        local charMinY = root.Position.Y
+        for _, p in ipairs(char:GetChildren()) do
+            if p:IsA("BasePart") then
+                local pBottom = p.Position.Y - (p.Size.Y * 0.5)
+                if pBottom < charMinY then charMinY = pBottom end
+            end
+        end
+        playerLegHang = math.clamp(root.Position.Y - charMinY, 1.8, 5.5)
+
+        -- Reactive Damage Elevation Reflex: If hit, immediately elevate +2 studs
+        if lastObservedHealth and hum.Health < lastObservedHealth then
+            lastDamageTime = tick()
+            damageElevationBoost = 2.0
+        end
+        lastObservedHealth = hum.Health
+        if tick() - lastDamageTime > 2.5 then
+            damageElevationBoost = 0
+        end
+
+        -- Target Bear Swipe Ceiling & Standoff Calibration (Exact Anatomy Hitbox Limits)
+        local bName = bear.Name:lower()
+        local swipeCeiling = 5.0
+        local standoff = 1.5
 
         if isBooBoo then
-            -- Wild Boo-Boo: Small baby bear (height ~3.5 studs, reach 6.5 studs).
-            -- Target HumanoidRootPart or Hitbox_Head directly (never Hitbox_Body which is deep in dirt).
-            -- Tight 2.4-stud standoff behind Boo-Boo's spine guarantees 100% reach while Boo-Boo forward swipe whiffs!
-            standoff = 1.6
-            local targetY = bearRoot.Position.Y + 1.8
+            -- Boo-Boo: Swipe ceiling is root.Y + 3.0. Boo-Boo reaches forward, 0.0 behind.
+            swipeCeiling = 3.0
+            standoff = 1.3
+            targetHitPart = bear:FindFirstChild("HumanoidRootPart")
+                or bear:FindFirstChild("Hitbox_Head")
+                or bear:FindFirstChild("RootPart")
+                or bearRoot
+            local targetY = bearRoot.Position.Y + 3.8 + math.max(0, playerLegHang - 2.8) + damageElevationBoost
             targetPos = Vector3.new(
                 bearRoot.Position.X + (rearDir.X * standoff),
                 targetY,
                 bearRoot.Position.Z + (rearDir.Z * standoff)
             )
-            targetHitPart = bear:FindFirstChild("HumanoidRootPart")
-                or bear:FindFirstChild("Hitbox_Head")
-                or bear:FindFirstChild("RootPart")
-                or bearRoot
         elseif isTallBear then
             -- Tall Bear: 19.5 studs tall; anchor behind hips/pelvis (proven 100% safe)
             standoff = 3.2
             targetPos = Vector3.new(
                 rearPart.Position.X + (rearDir.X * standoff),
-                rearPart.Position.Y + 1.2,
+                rearPart.Position.Y + 1.2 + damageElevationBoost,
                 rearPart.Position.Z + (rearDir.Z * standoff)
             )
             targetHitPart = bear:FindFirstChild("Hitbox_Hips")
@@ -2528,12 +2553,13 @@ task.spawn(function()
                 or bear:FindFirstChild("Hitbox_Body")
                 or bearRoot
         else
+            -- Large/Medium Quadruped Bears: Medved, Grizzly, ThinBear, ClassicBear, etc.
             local rearCandidates = {
+                bear:FindFirstChild("Hitbox_Chest"),
+                bear:FindFirstChild("Hitbox_Head"),
                 bear:FindFirstChild("Hitbox_Hips"),
                 bear:FindFirstChild("Hitbox_Pelvis"),
                 bear:FindFirstChild("Hitbox_Body"),
-                bear:FindFirstChild("Hitbox_Wheel"),
-                bear:FindFirstChild("Hitbox_Chest"),
                 bear:FindFirstChild("HumanoidRootPart"),
                 bearRoot
             }
@@ -2543,28 +2569,32 @@ task.spawn(function()
                     break
                 end
             end
-            if not targetHitPart then targetHitPart = rearPart end
+            if not targetHitPart then targetHitPart = bearRoot end
 
-            if isGrinderBear then
-                hoverElevation = 2.4
+            if isThinBear then
+                swipeCeiling = 4.0
+                standoff = 1.6
+            elseif isGrinderBear then
+                swipeCeiling = 6.0
                 standoff = 3.0
             elseif isWallBear then
-                hoverElevation = 2.2
-                standoff = 2.5
-            elseif isRangedBear then
-                hoverElevation = 2.0
-                standoff = 2.5
+                swipeCeiling = 5.5
+                standoff = 2.4
+            elseif bName:find("grizzly") or bName:find("radioactive") then
+                swipeCeiling = 6.5
+                standoff = 1.8
+            elseif bName:find("golden") then
+                swipeCeiling = 5.5
+                standoff = 1.7
             else
-                -- Wild Medved, GrizzlyMedved, ThinBear, ClassicBear, etc.
-                -- Tight apex positioning behind rear spine/pelvis:
-                -- Elevation 1.2 studs above pelvis/hips; standoff 2.0 - 2.8 studs behind rear spine.
-                -- Total 3D distance is ~2.6 - 3.2 studs (well within 6.5 - 8.5 stud swipe reach)!
-                -- 100% immune from front bites/swipes, 100% hit registration on every attack!
-                hoverElevation = 1.2
-                standoff = math.clamp((sz.Z * 0.22) + 0.8, 1.8, 2.8)
+                -- Medved, ClassicBear
+                swipeCeiling = 5.0
+                standoff = 1.5
             end
 
-            local targetY = targetHitPart.Position.Y + hoverElevation
+            -- Dorsal Apex: Elevated such that the player's lowest feet are strictly 0.7 studs ABOVE the enemy bear's swipe ceiling!
+            local safeElevation = swipeCeiling + playerLegHang + 0.7 + damageElevationBoost
+            local targetY = bearRoot.Position.Y + safeElevation
             targetPos = Vector3.new(
                 targetHitPart.Position.X + (rearDir.X * standoff),
                 targetY,
@@ -2618,7 +2648,7 @@ task.spawn(function()
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
         -- Range Guard: Only execute attacks when flight has brought the player into true combat range!
         local distToEnemy = (root.Position - targetHitPart.Position).Magnitude
-        local maxReach = amBooBoo and 5.5 or (isBigPlayerBear and 7.5 or 6.8)
+        local maxReach = amBooBoo and 6.6 or (isBigPlayerBear and 8.6 or 7.6)
         if Config.FarmMethod == "Melee" then maxReach = 7.0 end
         local canStrike = distToEnemy <= maxReach
         if not canStrike then
