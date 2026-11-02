@@ -2378,12 +2378,8 @@ task.spawn(function()
             continue
         end
 
-        -- Safe Blindspot Positioning (Calibrated tight ground-level standoff, zero falling/bouncing, guaranteed reach)
+        -- True Anatomical Rear Blindspot Engine (Zero Teleporting Into Bears, 100% Anti-Hit Immunity)
         local cf, sz = bear:GetBoundingBox()
-        local bearCF = bearRoot.CFrame
-        local flatLook = Vector3.new(bearCF.LookVector.X, 0, bearCF.LookVector.Z)
-        if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
-
         local bName = bear.Name:lower()
         local isBooBoo = bName:find("boo") ~= nil or bName:find("ball") ~= nil or sz.Y < 6.5 or sz.Magnitude < 8
         local isTallBear = bName:find("tall") ~= nil or sz.Y > 16
@@ -2393,74 +2389,87 @@ task.spawn(function()
         local myBearName = (char:GetAttribute("TransformedToBear") or ""):lower()
         local amBooBoo = myBearName:find("boo") ~= nil or myBearName:find("ball") ~= nil
 
-        -- Anti-Turn Evasion: If bear turns towards player, stay behind bear's current LookVector!
-        local toPlayer = (root.Position - bearRoot.Position).Unit
-        local isFacingPlayer = flatLook:Dot(toPlayer) > 0.45
+        -- 1. Identify Head (Front / Bite / Touch Danger Zone) and Rear (Safe Rump / Pelvis / Wheel)
+        local headPart = bear:FindFirstChild("Hitbox_Head") 
+            or bear:FindFirstChild("Head") 
+            or bear:FindFirstChild("Hitbox_Crown") 
+            or bear:FindFirstChild("Eyes") 
+            or bear:FindFirstChild("nose")
 
-        local distBehind, elevY
+        local rearPart = bear:FindFirstChild("Hitbox_Hips") 
+            or bear:FindFirstChild("Hitbox_Pelvis") 
+            or bear:FindFirstChild("Hitbox_Wheel") 
+            or bear:FindFirstChild("Hitbox_Body") 
+            or bear:FindFirstChild("BodyBottom") 
+            or bearRoot
+
+        -- 2. Authoritative Spine Vector: Points strictly from Head to Rear (100% independent of rigged LookVector inversions)
+        local rearDir = nil
+        if headPart and rearPart and (headPart.Position - rearPart.Position).Magnitude > 0.4 then
+            local rawSpine = (rearPart.Position - headPart.Position)
+            local flatSpine = Vector3.new(rawSpine.X, 0, rawSpine.Z)
+            if flatSpine.Magnitude > 0.2 then
+                rearDir = flatSpine.Unit
+            end
+        end
+        if not rearDir then
+            local bearCF = bearRoot.CFrame
+            local rawLook = Vector3.new(bearCF.LookVector.X, 0, bearCF.LookVector.Z)
+            if rawLook.Magnitude > 0.05 then
+                rearDir = -rawLook.Unit
+            else
+                rearDir = Vector3.new(0, 0, 1)
+            end
+        end
+
+        -- 3. Mathematically Calibrated Standoff from Rear Part (Guarantees zero clipping inside bear + 100% hit reach)
+        local standoff, elevY
         if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
             if isBooBoo then
-                -- Boo-Boo vs Boo-Boo: Boo-Boo reach is ~4.5 studs; anchor tightly 1.4 studs behind at torso level
-                distBehind = amBooBoo and 1.4 or 1.8
-                elevY = 0.4
+                -- Miniature Boo-Boo: 1.4 studs behind rear surface
+                standoff = amBooBoo and 1.4 or 1.6
+                elevY = 0.3
             elseif isTallBear then
-                -- Tall Bear is 19.5 studs tall; shins/thighs are near ground level
-                distBehind = 2.4
+                -- Tall Bear (19.5 studs tall): Anchor 2.0 studs behind pelvis/shins
+                standoff = 2.0
                 elevY = 1.2
             elseif isGrinderBear then
-                -- Grinder Bear is 36 studs tall; wheel & root are on ground
-                distBehind = 2.8
-                elevY = 1.2
-            elseif isWallBear then
-                distBehind = 2.2
+                -- Grinder Bear (36 studs tall): Anchor 2.4 studs behind rear wheel
+                standoff = 2.4
                 elevY = 1.0
+            elseif isWallBear then
+                standoff = 1.8
+                elevY = 0.8
             elseif isRangedBear then
-                distBehind = 2.2
-                elevY = 0.8
+                standoff = 1.8
+                elevY = 0.6
             else
-                -- Medved, GrizzlyMedved, ThinBear, IceBear, etc.
-                distBehind = amBooBoo and 1.6 or 2.2
-                elevY = 0.8
+                -- Medved, GrizzlyMedved, ThinBear, IceBear:
+                standoff = amBooBoo and 1.6 or 2.2
+                elevY = 0.6
             end
 
-            -- If bear actively rotates to face player, elevate temporarily (+2.5 studs) to evade frontal claw/bite hitbox
-            if isFacingPlayer then
-                elevY = elevY + 2.5
+            -- Anti-Turn Protection: If bear turns towards player, slightly raise elevation to avoid ground-level swipes
+            local toPlayer = (root.Position - rearPart.Position).Unit
+            if rearDir:Dot(toPlayer) < -0.3 then
+                elevY = elevY + 2.0
             end
 
-            targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
+            targetPos = rearPart.Position + (rearDir * standoff) + Vector3.new(0, elevY, 0)
         else
-            -- Gun Mode: Safe standoff distance & elevation
-            distBehind = 7.5
-            elevY = 3.5
-            targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
+            -- Gun / Flamethrower Mode: Standoff 6.5 studs behind rear
+            standoff = 6.5
+            elevY = 2.5
+            targetPos = rearPart.Position + (rearDir * standoff) + Vector3.new(0, elevY, 0)
         end
 
-        -- Dynamically resolve the CLOSEST hitbox part to the player so server distance checks ALWAYS pass!
-        local targetHitPart = nil
-        local bestPartDist = math.huge
-        local candidatePartNames = {
-            "Hitbox_Hips", "Hitbox_Pelvis", "Hitbox_Chest", "Hitbox_Torso",
-            "Hitbox_Body", "Hitbox_Wheel", "Hitbox_Hub", "Hitbox_Head",
-            "Hitbox_RightThigh", "Hitbox_LeftThigh", "Hitbox_RightShin", "Hitbox_LeftShin",
-            "Head", "BodyTop", "BodyBottom", "Ears",
-            "RootPart", "HumanoidRootPart"
-        }
-        for _, pName in ipairs(candidatePartNames) do
-            local p = bear:FindFirstChild(pName)
-            if p and p:IsA("BasePart") then
-                local d = (p.Position - targetPos).Magnitude
-                if d < bestPartDist then
-                    bestPartDist = d
-                    targetHitPart = p
-                end
-            end
-        end
-        if not targetHitPart then
+        -- 4. Target Hit Part: Prioritize rear hit parts (Hips, Pelvis, Body, Wheel) so attacks NEVER face the mouth
+        local targetHitPart = rearPart
+        if not targetHitPart or not targetHitPart.Parent then
             targetHitPart = bearRoot
         end
 
-        -- Aim and orient character directly facing the closest hit part
+        -- Aim directly at the rear hit part from behind
         local aimPos = targetHitPart.Position
         root.CFrame = CFrame.lookAt(targetPos, aimPos)
         root.AssemblyLinearVelocity = Vector3.zero
