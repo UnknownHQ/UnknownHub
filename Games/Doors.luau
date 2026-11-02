@@ -4788,9 +4788,9 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         applyTeflonGlide(char)
-        syncServerSlide(true, isSlidingActive)
+        syncServerSlide(true, true)
 
-        local targetSpeed = isCrouching and math.clamp(State.WalkSpeed_Value * 0.60, 14, 25) or State.WalkSpeed_Value
+        local targetSpeed = State.WalkSpeed_Value or 45
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
@@ -4940,29 +4940,48 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     if char and not hiding then
 
 
-
-        -- Precision First-Person Camera & Viewmodel Integrity Shield:
-        -- In DOORS native first-person view, the player's physical character body (Head, Decals, Torso, Arms, Legs, Accessories)
-        -- MUST have LocalTransparencyModifier = 1 so no black torso dome or floating limbs EVER clip into the camera!
-        -- DOORS natively renders and animates the viewmodel (cam.BaseRig) with held items, textures, and proper hand placement.
+        -- Character Body, Buddy & Decal Integrity Shield (Zero Decal Destruction, Zero Body Mutilation):
+        local isFlying = State.Noclip or State.Fly_Enabled
         for _, p in ipairs(char:GetChildren()) do
             if p:IsA("BasePart") then
-                p.LocalTransparencyModifier = 1
                 local pLower = p.Name:lower()
-                if pLower == "head" then
-                    for _, d in ipairs(p:GetChildren()) do
-                        if d:IsA("Decal") then d.Transparency = 1 end
-                    end
-                elseif pLower:find("collision") or pLower == "humanoidrootpart" then
-                    p.Transparency = 1
-                end
-            elseif p:IsA("Accessory") then
-                for _, accPart in ipairs(p:GetDescendants()) do
-                    if accPart:IsA("BasePart") then
-                        accPart.LocalTransparencyModifier = 1
+                if pLower:find("collision") or pLower == "humanoidrootpart" then
+                    if p.Transparency < 1 then p.Transparency = 1 end
+                elseif pLower == "head" or pLower == "uppertorso" then
+                    -- Only during active flight/noclip do we hide head/upper collar locally so camera never sees bald head
+                    if isFlying then
+                        p.LocalTransparencyModifier = 1
+                    elseif p.LocalTransparencyModifier > 0 then
+                        p.LocalTransparencyModifier = 0
                     end
                 end
             end
+        end
+    end
+end)
+
+-- First-Person Dynamic Eye-Level Camera Shield (Eradicates Black Dome clipping when looking down without hiding character body):
+local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(function()
+    if cameraPitchConn then trackConn(cameraPitchConn) end
+    if _G.DOORS_SESSION ~= currentSession then return end
+    local cam = Workspace.CurrentCamera
+    if not cam or cam.CameraType ~= Enum.CameraType.Scriptable then return end
+    if State.Noclip or isTeleportTweening then return end
+
+    local char = getChar()
+    local mgTable = getMainGameTable()
+    if isPlayerHiding(char, mgTable) then return end
+
+    local look = cam.CFrame.LookVector
+    -- When tilting down to look at floor, drawers, or feet (look.Y < -0.15):
+    -- Dynamically translate camera slightly forward (+0.0 to +0.38 studs) along horizontal gaze.
+    -- This brings the camera's near clipping plane completely clear of the character's upper collar/chest!
+    if look.Y < -0.15 then
+        local downFactor = math.clamp((-look.Y - 0.15) / 0.85, 0, 1)
+        local hLook = Vector3.new(look.X, 0, look.Z)
+        if hLook.Magnitude > 0.001 then
+            local fwdOffset = hLook.Unit * (downFactor * 0.38)
+            cam.CFrame = cam.CFrame + fwdOffset
         end
     end
 end)
