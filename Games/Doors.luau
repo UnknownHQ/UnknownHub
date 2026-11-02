@@ -1757,7 +1757,7 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
     local inner = math.max(s - 2 * r, 0.5)
     local d = 2 * r
 
-    -- Central core block
+    -- Central core block with AlwaysOnTop through-wall adornment
     local core = Instance.new("Part")
     core.Name = "Core"
     core.Size = Vector3.new(inner, inner, inner)
@@ -1772,6 +1772,17 @@ local function createRoundedCubeModel(targetPart, size, radius, color)
     core.Anchored = true
     core.CFrame = targetPart.CFrame
     core.Parent = model
+
+    -- Guaranteed AlwaysOnTop Adornment: Cube shines through walls even if Highlight cap is reached!
+    local boxAdorn = Instance.new("BoxHandleAdornment")
+    boxAdorn.Name = "Unknown_ESP_CubeAdornment"
+    boxAdorn.Adornee = core
+    boxAdorn.Size = Vector3.new(s, s, s)
+    boxAdorn.Color3 = color
+    boxAdorn.Transparency = 0.55
+    boxAdorn.AlwaysOnTop = true
+    boxAdorn.ZIndex = 10
+    boxAdorn.Parent = core
 
     -- 6 Face slabs: extending from inner core to outer faces
     local faceConfigs = {
@@ -1965,15 +1976,13 @@ local function processEntity(entity)
         end
     end
 
-    -- 6. CurrentRooms Descendant Check:
-    -- Roaming monsters in DOORS do NOT spawn as static children of room furniture or rooms.
-    -- If an object is inside CurrentRooms, it can ONLY be an entity if it is explicitly Snare, Giggle, FigureRig, Grumble, Seek, or Sally.
-    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
-    if currentRooms and entity:IsDescendantOf(currentRooms) then
-        local isRoomMonster = eLower:find("snare") or eLower:find("giggle") or eLower:find("figure") or eLower:find("grumble") or eLower:find("seek") or eLower:find("sally")
-        if not isRoomMonster then
-            return
-        end
+    -- Strict Furniture, Lighting & Prop Rejection Filter (Eliminates all random furniture highlights!):
+    if eLower:find("carpet") or eLower:find("rug") or eLower:find("shelf") or eLower:find("shelves") or eLower:find("table")
+        or eLower:find("chair") or eLower:find("desk") or eLower:find("lamp") or eLower:find("lightstand") or eLower:find("chandelier")
+        or eLower:find("plant") or eLower:find("potted") or eLower:find("pot") or eLower:find("flower") or eLower:find("leaf")
+        or eLower:find("painting") or eLower:find("frame") or eLower:find("canvas") or eLower:find("drawer") or eLower:find("door")
+        or eLower:find("curtain") or eLower:find("elevator") or eLower:find("clock") or eLower:find("pillar") or eLower:find("wall") then
+        return
     end
 
     -- Real DOORS monsters are always Models (except floor Snare traps)
@@ -1981,57 +1990,147 @@ local function processEntity(entity)
         return
     end
 
-    -- 7. Strict Entity Identification against verified monsters only
+    -- Strict Entity Identification against verified monsters (Hotel, Floor 2 Mines, Modifiers & Admin Panel):
     local cfg = nil
-    if eLower == "rush" or eLower:find("rushmoving") or eLower:find("rushnew") or (eLower:find("rush") and entity:IsA("Model")) then
+    local is2D = false
+    local isBramble = false
+
+    -- Check Blitz FIRST before Rush so Blitz is NEVER misidentified as Rush!
+    if eLower == "blitz" or eLower:find("^blitz") or eLower:find("blitzmoving") then
+        cfg = { Name = "Blitz", Category = "Other" }
+        is2D = true
+    elseif eLower == "rush" or eLower:find("rushmoving") or eLower:find("rushnew") or (eLower:find("^rush") and entity:IsA("Model")) then
         cfg = { Name = "Rush", Category = "Rush" }
-    elseif eLower == "ambush" or eLower:find("ambushmoving") or (eLower:find("ambush") and entity:IsA("Model")) then
+        is2D = true
+    elseif eLower == "ambush" or eLower:find("ambushmoving") or (eLower:find("^ambush") and entity:IsA("Model")) then
         cfg = { Name = "Ambush", Category = "Ambush" }
-    elseif eLower:find("figure") then
-        cfg = { Name = "Figure", Category = "Figure" }
-    elseif eLower == "seek" or eLower:find("^seek") or eLower:find("seekmoving") or eLower:find("seekrig") then
-        cfg = { Name = "Seek", Category = "Seek" }
-    elseif eLower == "eyes" or eLower:find("^eyes") or eLower:find("lookman") or eLower:find("eyesretro") then
+        is2D = true
+    elseif eLower:find("lookman") or eLower:find("^lookman") then
+        cfg = { Name = "Lookman", Category = "Eyes" }
+        is2D = true
+    elseif eLower == "eyes" or eLower:find("^eyes") or eLower:find("eyesretro") then
         cfg = { Name = "Eyes (Don't Look!)", Category = "Eyes" }
-    elseif eLower == "halt" or eLower:find("^halt") or eLower == "shade" then
-        cfg = { Name = "Halt", Category = "Halt" }
+        is2D = true
     elseif eLower:find("screech") then
         cfg = { Name = "Screech", Category = "Screech" }
+        is2D = false -- 3D tentacle monster
+    elseif eLower == "halt" or eLower:find("^halt") or eLower == "shade" then
+        cfg = { Name = "Halt", Category = "Halt" }
+        is2D = true
     elseif eLower == "dread" then
         cfg = { Name = "Dread", Category = "Dread" }
-    elseif eLower == "timothy" or eLower:find("spiderjumpscare") or eLower == "spider" then
-        cfg = { Name = "Timothy", Category = "Timothy" }
-    elseif eLower:find("snare") then
-        cfg = { Name = "Snare Trap", Category = "Snare" }
-    elseif eLower:find("giggle") then
-        cfg = { Name = "Giggle", Category = "Giggle" }
-    elseif eLower:find("grumble") or eLower == "queen" or eLower == "grumblequeen" then
-        cfg = { Name = (eLower:find("queen") and "Grumble Queen" or "Grumble"), Category = "Grumble" }
+        is2D = true
+    elseif eLower:find("figure") then
+        cfg = { Name = "Figure", Category = "Figure" }
+        is2D = false
+    elseif eLower == "seek" or eLower:find("^seek") or eLower:find("seekmoving") or eLower:find("seekrig") then
+        cfg = { Name = "Seek", Category = "Seek" }
+        is2D = false
     elseif eLower:find("gloombat") then
         cfg = { Name = "Gloombats", Category = "Gloombats" }
-    elseif eLower == "a60" or eLower == "a-60" or eLower:find("^a%-?60") then
-        cfg = { Name = "A-60", Category = "Rooms" }
-    elseif eLower == "a90" or eLower == "a-90" or eLower:find("^a%-?90") then
-        cfg = { Name = "A-90", Category = "Rooms" }
-    elseif eLower == "a120" or eLower == "a-120" or eLower:find("^a%-?120") then
-        cfg = { Name = "A-120", Category = "Rooms" }
-    elseif eLower == "glitch" or eLower:find("^glitch") then
-        cfg = { Name = "Glitch", Category = "Other" }
-    elseif eLower == "void" then
-        cfg = { Name = "Void", Category = "Other" }
-    elseif (eLower == "sally" or eLower == "sallyrig" or eLower:find("^sally")) and entity:IsA("Model") then
-        cfg = { Name = "Sally", Category = "Other" }
+        is2D = false -- swarm of 3D bat models
+    elseif eLower:find("giggle") then
+        cfg = { Name = "Giggle", Category = "Giggle" }
+        is2D = false
+    elseif eLower:find("grumble") or eLower == "queen" or eLower == "grumblequeen" then
+        cfg = { Name = (eLower:find("queen") and "Grumble Queen" or "Grumble"), Category = "Grumble" }
+        is2D = false
+    elseif eLower:find("snare") then
+        cfg = { Name = "Snare Trap", Category = "Snare" }
+        is2D = false
+    elseif eLower == "timothy" or eLower:find("spiderjumpscare") or eLower == "spider" then
+        cfg = { Name = "Timothy", Category = "Timothy" }
+        is2D = false
     elseif eLower == "jack" and entity:IsA("Model") then
         cfg = { Name = "Jack", Category = "Other" }
+        is2D = false
+    elseif (eLower == "sally" or eLower == "sallyrig" or eLower:find("^sally")) and entity:IsA("Model") then
+        cfg = { Name = "Sally", Category = "Other" }
+        is2D = false
+    elseif (eLower:find("jeff") and eLower:find("killer")) or eLower == "jeffthekiller" then
+        -- Strict Jeff The Killer check: NEVER match Jeff the shopkeeper!
+        if not eLower:find("shop") and not (entity.Parent and entity.Parent.Name:lower():find("shop")) then
+            cfg = { Name = "Jeff The Killer", Category = "Other" }
+            is2D = false
+        end
+    elseif eLower:find("surge") and (eLower:find("fake") or eLower:find("decoy")) then
+        cfg = { Name = "Surge (Fake)", Category = "Other" }
+        is2D = true
+    elseif eLower == "surge" or eLower:find("^surge") then
+        cfg = { Name = "Surge", Category = "Other" }
+        is2D = true
+    elseif eLower == "bramble" or eLower:find("^bramble") then
+        cfg = { Name = "Bramble", Category = "Other" }
+        is2D = false
+        isBramble = true
+    elseif eLower == "groundskeeper" or eLower:find("^groundskeeper") then
+        cfg = { Name = "Groundskeeper", Category = "Other" }
+        is2D = false
+    elseif eLower == "monument" or eLower:find("^monument") then
+        cfg = { Name = "Monument", Category = "Other" }
+        is2D = false
+    elseif eLower == "alma" or eLower:find("^alma") then
+        cfg = { Name = "Alma", Category = "Other" }
+        is2D = false
+    elseif eLower:find("drone") and eLower:find("stampede") then
+        cfg = { Name = "Drone Stampede", Category = "Other" }
+        is2D = false
+    elseif eLower == "drone" or eLower:find("^drone") then
+        cfg = { Name = "Drone", Category = "Other" }
+        is2D = false
+    elseif eLower == "teller" or eLower:find("^teller") then
+        cfg = { Name = "Teller", Category = "Other" }
+        is2D = false
+    elseif eLower == "bash" or eLower:find("^bash") then
+        cfg = { Name = "Bash", Category = "Other" }
+        is2D = false
+    elseif eLower == "scribbles" or eLower:find("^scribble") then
+        cfg = { Name = "Scribbles", Category = "Other" }
+        is2D = false
+    elseif eLower == "socker" or eLower:find("^socker") then
+        cfg = { Name = "Socker", Category = "Other" }
+        is2D = false
+    elseif eLower == "creak" or eLower:find("^creak") then
+        cfg = { Name = "Creak", Category = "Other" }
+        is2D = false
+    elseif eLower == "meld" or eLower:find("^meld") then
+        cfg = { Name = "Meld", Category = "Other" }
+        is2D = false
+    elseif eLower == "stem" or eLower:find("^stem") then
+        -- Strict Stem match: ensure it is not a plant prop
+        if not eLower:find("leaf") and not eLower:find("flower") and not eLower:find("pot") and not eLower:find("plant") then
+            cfg = { Name = "Stem", Category = "Other" }
+            is2D = false
+        end
+    elseif eLower == "noise" or eLower:find("^noise") then
+        cfg = { Name = "Noise", Category = "Other" }
+        is2D = false
+    elseif eLower == "weaveling" or eLower:find("^weaveling") then
+        cfg = { Name = "Weaveling", Category = "Other" }
+        is2D = false
+    elseif eLower == "a60" or eLower == "a-60" or eLower:find("^a%-?60") then
+        cfg = { Name = "A-60", Category = "Rooms" }
+        is2D = true
+    elseif eLower == "a90" or eLower == "a-90" or eLower:find("^a%-?90") then
+        cfg = { Name = "A-90", Category = "Rooms" }
+        is2D = true
+    elseif eLower == "a120" or eLower == "a-120" or eLower:find("^a%-?120") then
+        cfg = { Name = "A-120", Category = "Rooms" }
+        is2D = true
+    elseif eLower == "glitch" or eLower:find("^glitch") then
+        cfg = { Name = "Glitch", Category = "Other" }
+        is2D = true
+    elseif eLower == "void" then
+        cfg = { Name = "Void", Category = "Other" }
+        is2D = true
     elseif eLower:find("nextbot") then
         cfg = { Name = entity.Name, Category = "Other" }
+        is2D = true
     end
 
     if not cfg then
         return
     end
-
-    -- [Auto-Evacuate / Auto-Hide Completely Eradicated per Daddy's Orders]
 
     -- 8. Check Entity Filter / Exclude List (Multi-Choice Dynamic Filter)
     if State.Entity_ESP_Filters and cfg.Category and State.Entity_ESP_Filters[cfg.Category] == false then
@@ -2052,46 +2151,37 @@ local function processEntity(entity)
         local extraVisuals = {}
         local entityColor = State.ESP_Color_Entities or Color3.fromRGB(255, 35, 35)
 
-        -- Exclusively target ALL verified 2D sprite/billboard entities (Rush, Eyes, Lookman, Screech, Ambush, Halt, A-60, A-90, A-120, Dread, etc.)
-        local is2D = (cfg.Category == "Rooms")
-            or (cfg.Category == "Rush")
-            or (cfg.Category == "Ambush")
-            or (cfg.Category == "Eyes")
-            or (cfg.Category == "Screech")
-            or (cfg.Category == "Halt")
-            or (cfg.Category == "Dread")
-            or (cfg.Name == "Eyes")
-            or (cfg.Name == "Retro Eyes")
-            or (cfg.Name == "Lookman")
-            or (cfg.Name == "Screech")
-            or (cfg.Name == "Retro Screech")
-            or (cfg.Name == "Halt")
-            or (cfg.Name == "Glitch")
-            or (cfg.Name == "Void")
-            or (cfg.Name == "Depth")
-            or (cfg.Name == "Silence")
-            or (cfg.Name == "Greed")
-            or (cfg.Name == "Blitz")
-            or (cfg.Name == "Vacuum")
-            or (cfg.Name == "Surge")
-            or eLower:find("nextbot")
-            or eLower:find("lookman")
-            or (not entity:FindFirstChildOfClass("Humanoid") and not entity:FindFirstChild("Body") and not eLower:find("figure") and not eLower:find("seek") and not eLower:find("grumble"))
+        if isBramble then
+            -- Bramble Spikes Exclusion: Strictly highlight ONLY main Bramble body, NEVER spikes or thorns!
+            local brambleParts = {}
+            for _, p in ipairs(entity:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    local pName = p.Name:lower()
+                    if not pName:find("spike") and not pName:find("thorn") then
+                        table.insert(brambleParts, p)
+                    end
+                end
+            end
+            if #brambleParts > 0 then
+                highlightTarget = brambleParts
+            end
+        elseif cfg.Name == "Gloombats" then
+            -- Gloombats Full Swarm Highlighting: Highlight ALL flying bats in the swarm, not just the center point!
+            highlightTarget = entity
+        end
 
         if is2D then
-            -- Procedural 3D Cube with smooth rounded corners and rounded edges
+            -- Procedural 3D Cube with through-wall visibility exclusively for 2D billboard/sprite entities!
             local roundedCube = createRoundedCubeModel(targetPart, 5.0, 0.85, entityColor)
             if roundedCube then
                 table.insert(extraVisuals, roundedCube)
                 highlightTarget = roundedCube
             end
         else
-            -- 3D / BasePart Entity: Add guaranteed AlwaysOnTop BoxHandleAdornment so it shines through walls even on single parts
-            if targetPart:IsA("BasePart") then
-                local box = createBoxAdornment(targetPart, entityColor)
-                if box then
-                    table.insert(extraVisuals, box)
-                end
+            -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, etc.):
+            -- Highlight the actual 3D model/parts directly! ZERO cubes!
+            if not isBramble and cfg.Name ~= "Gloombats" then
+                highlightTarget = entity
             end
         end
 
@@ -3108,28 +3198,30 @@ local function processNearbyDoors(currentPos, maxReach)
                         end
                     end
 
-                    -- 2. Check for Lock and auto-unlock if Key available (0s hold, no line of sight needed)
+                    -- 2. Check for Lock and auto-unlock ONLY if Auto_Interact and AutoInteract_Keys are enabled!
                     local lock = d:FindFirstChild("Lock")
                     local isLocked = false
                     if lock and lock.Parent then
                         local up = lock:FindFirstChild("UnlockPrompt", true) or lock:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if up and up.Enabled then
                             isLocked = true
-                            up.HoldDuration = 0
-                            up.RequiresLineOfSight = false
-                            up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 14)
-                            local now = os.clock()
-                            if (now - lastDoorKeyEquip >= 0.15) then
-                                lastDoorKeyEquip = now
-                                task.spawn(function()
-                                    local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (char and char:FindFirstChild("Key"))
-                                    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                                    if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
-                                        hum:EquipTool(keyTool)
-                                        task.wait(0.02)
-                                    end
-                                    pcall(function() fireproximityprompt(up) end)
-                                end)
+                            if State.Auto_Interact and State.AutoInteract_Keys then
+                                up.HoldDuration = 0
+                                up.RequiresLineOfSight = false
+                                up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 14)
+                                local now = os.clock()
+                                if (now - lastDoorKeyEquip >= 0.15) then
+                                    lastDoorKeyEquip = now
+                                    task.spawn(function()
+                                        local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (char and char:FindFirstChild("Key"))
+                                        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                                        if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
+                                            hum:EquipTool(keyTool)
+                                            task.wait(0.02)
+                                        end
+                                        pcall(function() fireproximityprompt(up) end)
+                                    end)
+                                end
                             end
                         end
                     end
@@ -5022,22 +5114,29 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
             end
         end
     else
-        -- SOLID FLOOR GROUNDING: Instantly restore solid collisions with NoPlayer monster-immunity!
+        -- SOLID FLOOR GROUNDING & CROUCH HOLE PASSAGE:
+        local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
+        local targetGroup = isCrouching and "PlayerCrouching" or "NoPlayer"
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
-                if part.CollisionGroup ~= "NoPlayer" then
-                    part.CollisionGroup = "NoPlayer"
+                if part.CollisionGroup ~= targetGroup then
+                    pcall(function() part.CollisionGroup = targetGroup end)
                 end
                 if not part.CanTouch then part.CanTouch = true end
                 if not part.CanQuery then part.CanQuery = true end
             end
         end
-        local coll = char:FindFirstChild("CollisionPart") or char:FindFirstChild("Collision")
-        if coll and coll:IsA("BasePart") then
-            if not coll.CanCollide then coll.CanCollide = true end
-            if coll.CollisionGroup ~= "NoPlayer" then coll.CollisionGroup = "NoPlayer" end
-            coll.CanTouch = true
-            coll.CanQuery = true
+        local coll = char:FindFirstChild("Collision")
+        local cc = coll and coll:FindFirstChild("CollisionCrouch")
+        local cp = char:FindFirstChild("CollisionPart")
+        if isCrouching then
+            if coll and coll.CanCollide then coll.CanCollide = false end
+            if cc and not cc.CanCollide then cc.CanCollide = true end
+            if cp and cp.CanCollide then cp.CanCollide = false end
+        else
+            if coll and not coll.CanCollide then coll.CanCollide = true end
+            if cc and cc.CanCollide then cc.CanCollide = false end
+            if cp and cp.CanCollide then cp.CanCollide = false end
         end
     end
 end)
@@ -5257,9 +5356,14 @@ local function applyPromptModifications(prompt)
 
     if isHidingSpot then
         -- Wardrobe & Closet Interaction Assurance:
-        -- Ensure 14.0 studs reach and responsive 0.2s hold duration so prompt is always accessible!
+        -- Natural instant click (HoldDuration = 0) with zero annoying hold bar!
         prompt.MaxActivationDistance = 14.0
-        prompt.HoldDuration = 0.2
+        if State.Instant_Interact then
+            prompt.HoldDuration = 0
+        else
+            local origHold = prompt:GetAttribute("OrigHold") or 0
+            prompt.HoldDuration = origHold
+        end
         prompt.RequiresLineOfSight = false
         if not prompt.Enabled and (not prompt.Parent or not prompt.Parent:GetAttribute("HiddenPlayer")) then
             prompt.Enabled = true
@@ -5880,6 +5984,19 @@ end
 -- Hook ProximityPromptService for instant item retain on lockpick / skeleton key / key usage
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
+    local activePromptTool = nil
+
+    -- Snapshot the held/inventory tool as soon as the user starts interacting with a lock/chest
+    pps.PromptButtonHoldBegan:Connect(function(prompt, player)
+        if player and player ~= LocalPlayer then return end
+        local pName = prompt.Name:lower()
+        local obj = (prompt.ObjectText or ""):lower()
+        local act = (prompt.ActionText or ""):lower()
+        if pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock") then
+            activePromptTool = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
+        end
+    end)
+
     local function onPromptInteract(prompt, player)
         if not State.Infinite_Items or not State.Infinite_Lockpicks then return end
         if player and player ~= LocalPlayer then return end
@@ -5888,7 +6005,7 @@ pcall(function()
         local act = (prompt.ActionText or ""):lower()
 
         if pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock") then
-            local tool = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
+            local tool = activePromptTool or getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
             if tool then
                 task.spawn(function()
                     executeItemDupeDrop(tool)
@@ -5896,8 +6013,14 @@ pcall(function()
             end
         end
     end
-    -- Trigger ONLY on actual unlock completion so player never drops lockpick while holding!
+
     pps.PromptTriggered:Connect(onPromptInteract)
+    pps.PromptButtonHoldEnded:Connect(function(prompt, player)
+        if player and player ~= LocalPlayer then return end
+        task.delay(0.3, function()
+            activePromptTool = nil
+        end)
+    end)
 end)
 
 -- Crucifix Auto-Retain Watcher (Drops right as entity attack begins & reclaims)
@@ -6136,9 +6259,20 @@ local function checkAndDefuseEntity(child)
     if isLethal then
         defuseLethalEntity(child)
     end
-    for _, ent in ipairs({"Rush", "Ambush", "Eyes", "Seek", "Figure", "Halt", "A60", "A90", "A120", "Giggle", "Gloombat", "Grumble", "Dread", "Blitz", "Lookman"}) do
+    local entityNotifOrder = {
+        "Blitz", "Ambush", "Rush", "Lookman", "Eyes", "Seek", "Figure", "Halt",
+        "A60", "A90", "A120", "Giggle", "Gloombat", "Grumble", "Dread",
+        "Surge", "Bramble", "Groundskeeper", "Monument", "Alma", "Drone", "Teller",
+        "Bash", "Scribbles", "Socker", "Creak", "Meld", "Stem", "Noise", "Weaveling"
+    }
+    for _, ent in ipairs(entityNotifOrder) do
         if lower:find(ent:lower()) then
-            triggerEntityNotification(ent)
+            -- If Rush matched but model is Blitz, prioritize Blitz notification!
+            if ent == "Rush" and lower:find("blitz") then
+                triggerEntityNotification("Blitz")
+            else
+                triggerEntityNotification(ent)
+            end
             break
         end
     end
