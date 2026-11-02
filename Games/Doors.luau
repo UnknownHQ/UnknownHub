@@ -716,14 +716,9 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     hl.OutlineColor = color
     hl.OutlineTransparency = outlineTrans
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    -- CRITICAL: Highlight must be parented in 3D world (adornee or Camera or Workspace) to render through walls.
-    -- Parenting to CoreGui causes Roblox engine to ignore it for 3D world space rendering!
-    if adornee:IsA("Instance") and adornee.Parent then
-        pcall(function() hl.Parent = adornee end)
-    end
-    if not hl.Parent then
-        hl.Parent = Workspace.CurrentCamera or Workspace
-    end
+    -- Reliable World Parenting: Parenting to gethui or Workspace.Terrain ensures Roblox 3D rendering pipeline draws highlights cleanly without culling BaseParts
+    local targetParent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+    hl.Parent = targetParent
     return hl
 end
 
@@ -1116,7 +1111,7 @@ task.spawn(function()
                                     vis.Visible = shouldShow
                                 elseif vis:IsA("Highlight") then
                                     vis.Enabled = shouldShow and budgetAllowed
-                                    vis.Adornee = (shouldShow and budgetAllowed) and ((record.HighlightMap and record.HighlightMap[vis]) or record.Owner) or nil
+                                    vis.Adornee = (shouldShow and budgetAllowed) and ((record.HighlightMap and record.HighlightMap[vis]) or record.Adornee) or nil
                                 end
                             end
                         end
@@ -1852,6 +1847,22 @@ local ENTITY_REGISTRY = {
 }
 
 -- Sleek, Lightweight Bounding Box Adornment for 2D Sprite/Billboard Entities (Zero physical Workspace parts!)
+local cachedRoundedMeshModel = nil
+local function getRoundedMeshTemplate()
+    if cachedRoundedMeshModel then return cachedRoundedMeshModel:Clone() end
+    local s, res = pcall(function()
+        local objs = game:GetObjects("rbxassetid://14731807321")
+        if objs and #objs > 0 then
+            return objs[1]
+        end
+    end)
+    if s and res then
+        cachedRoundedMeshModel = res
+        return cachedRoundedMeshModel:Clone()
+    end
+    return nil
+end
+
 local function createEntityBoundingBox(targetPart, size, color)
     if not targetPart or not targetPart.Parent then return nil end
     local folder = Instance.new("Folder")
@@ -1861,27 +1872,96 @@ local function createEntityBoundingBox(targetPart, size, color)
     if typeof(s) == "number" then
         s = Vector3.new(s, s, s)
     end
+    local boxColor = color or Color3.fromRGB(255, 35, 35)
 
-    local boxAdorn = Instance.new("BoxHandleAdornment")
-    boxAdorn.Name = "Unknown_ESP_BoxAdornment"
-    boxAdorn.Adornee = targetPart
-    boxAdorn.Size = s
-    boxAdorn.Color3 = color or Color3.fromRGB(255, 35, 35)
-    boxAdorn.Transparency = 0.65
-    boxAdorn.AlwaysOnTop = true
-    boxAdorn.ZIndex = 10
-    boxAdorn.Parent = folder
+    -- Rounded cube with asset ID 14731807321
+    local roundedModel = getRoundedMeshTemplate()
+    if roundedModel then
+        local primary = roundedModel:IsA("BasePart") and roundedModel or (roundedModel.PrimaryPart or roundedModel:FindFirstChildWhichIsA("BasePart", true))
+        if primary then
+            for _, p in ipairs(roundedModel:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = false
+                    p.CanTouch = false
+                    p.CanQuery = false
+                    p.CastShadow = false
+                    p.Color = boxColor
+                    p.Transparency = 0.45
+                    p.Material = Enum.Material.ForceField
+                end
+            end
+            if roundedModel:IsA("Model") then
+                roundedModel:ScaleTo(s.Magnitude / 5.0)
+                roundedModel:PivotTo(targetPart.CFrame)
+            elseif roundedModel:IsA("BasePart") then
+                roundedModel.Size = s
+                roundedModel.CFrame = targetPart.CFrame
+            end
 
-    local selBox = Instance.new("SelectionBox")
-    selBox.Name = "Unknown_ESP_SelectionBox"
-    selBox.Adornee = targetPart
-    selBox.Color3 = color or Color3.fromRGB(255, 35, 35)
-    selBox.LineThickness = 0.05
-    selBox.SurfaceColor3 = color or Color3.fromRGB(255, 35, 35)
-    selBox.SurfaceTransparency = 0.88
-    selBox.Parent = folder
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = primary
+            weld.Part1 = targetPart
+            weld.Parent = primary
 
-    folder.Parent = targetPart
+            primary.Anchored = false
+            roundedModel.Parent = folder
+
+            local hl = Instance.new("Highlight")
+            hl.Name = "RoundedHighlight"
+            hl.Adornee = roundedModel
+            hl.FillColor = boxColor
+            hl.FillTransparency = 0.45
+            hl.OutlineColor = boxColor
+            hl.OutlineTransparency = 0
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Parent = folder
+        else
+            roundedModel:Destroy()
+            roundedModel = nil
+        end
+    end
+
+    -- Fallback: SpecialMesh with FileMesh id 14731807321
+    if not roundedModel then
+        local roundedPart = Instance.new("Part")
+        roundedPart.Name = "RoundedBlock"
+        roundedPart.Size = s
+        roundedPart.CFrame = targetPart.CFrame
+        roundedPart.CanCollide = false
+        roundedPart.CanTouch = false
+        roundedPart.CanQuery = false
+        roundedPart.CastShadow = false
+        roundedPart.Color = boxColor
+        roundedPart.Transparency = 0.45
+        roundedPart.Material = Enum.Material.ForceField
+
+        local mesh = Instance.new("SpecialMesh")
+        mesh.MeshType = Enum.MeshType.FileMesh
+        mesh.MeshId = "rbxassetid://14731807321"
+        mesh.Scale = s
+        mesh.Parent = roundedPart
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = roundedPart
+        weld.Part1 = targetPart
+        weld.Parent = roundedPart
+
+        roundedPart.Anchored = false
+        roundedPart.Parent = folder
+
+        local hl = Instance.new("Highlight")
+        hl.Name = "RoundedHighlight"
+        hl.Adornee = roundedPart
+        hl.FillColor = boxColor
+        hl.FillTransparency = 0.45
+        hl.OutlineColor = boxColor
+        hl.OutlineTransparency = 0
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent = folder
+    end
+
+    local targetParent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+    folder.Parent = targetParent
     return folder
 end
 
@@ -3043,11 +3123,13 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     if not crouchRemote then return end
 
     local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     local mgTable = getMainGameTable()
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-    -- Crucial: When WalkSpeed is enabled OR when the player is actively sliding, sliding MUST be authorized on the DOORS server (arg 2 = true).
-    -- This raises the server's anti-cheat speed threshold and eliminates door/room transition rubberbanding, including when crouching!
-    local isSliding = (shouldAuthorize == true) and (State.WalkSpeed_Enabled or (isActuallySliding == true))
+    local isMoving = (char and hum and hum.MoveDirection.Magnitude > 0.05) or false
+    -- Crucial: When WalkSpeed is enabled AND player is moving, OR when actively sliding, slide state is authorized on server.
+    -- When STANDING STILL (isMoving == false), isSliding MUST BE FALSE to prevent server slide physics from pushing player backwards!
+    local isSliding = (shouldAuthorize == true) and isMoving and (State.WalkSpeed_Enabled or (isActuallySliding == true))
     local now = os.clock()
 
     if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
@@ -3196,6 +3278,16 @@ getEquippedOrInventoryTool = function(matchNames)
 end
 
 -- Infallible Dropped Tool Pickup Engine: Aggressively searches Workspace.Drops and CurrentRooms for the specific dropped tool
+local function matchesToolName(dropName, targetName)
+    local d = dropName:lower()
+    local t = targetName:lower()
+    if d:find(t) or t:find(d) then return true end
+    local dRoot = d:gsub("s$", "")
+    local tRoot = t:gsub("s$", "")
+    if d:find(tRoot) or t:find(dRoot) then return true end
+    return false
+end
+
 retrieveDroppedTool = function(toolName, maxWait)
     local targetName = toolName:lower()
     local start = os.clock()
@@ -3203,51 +3295,58 @@ retrieveDroppedTool = function(toolName, maxWait)
     task.spawn(function()
         local reclaimed = false
         while os.clock() < deadline and not reclaimed do
-            -- Check if tool is already back in character or backpack
+            -- 1. Check if tool is already back in character or backpack
             local char = getChar()
             local bp = LocalPlayer:FindFirstChild("Backpack")
-            if (char and char:FindFirstChild(toolName)) or (bp and bp:FindFirstChild(toolName)) then
-                reclaimed = true
-                Hub.Notify("Infinite Items", toolName .. " retained successfully!", 2)
-                break
+            for _, item in ipairs(char and char:GetChildren() or {}) do
+                if item:IsA("Tool") and matchesToolName(item.Name, targetName) then
+                    reclaimed = true
+                    break
+                end
             end
-
-            local drops = Workspace:FindFirstChild("Drops")
-            local targetDrop = nil
-            if drops then
-                for _, d in ipairs(drops:GetChildren()) do
-                    if d.Name:lower():find(targetName) then
-                        targetDrop = d
+            if not reclaimed and bp then
+                for _, item in ipairs(bp:GetChildren()) do
+                    if item:IsA("Tool") and matchesToolName(item.Name, targetName) then
+                        reclaimed = true
                         break
                     end
                 end
             end
+            if reclaimed then
+                Hub.Notify("Infinite Items", toolName .. " retained successfully!", 2)
+                break
+            end
 
-            if not targetDrop then
-                local cr = Workspace:FindFirstChild("CurrentRooms")
-                if cr then
-                    for _, rm in ipairs(cr:GetChildren()) do
-                        for _, item in ipairs(rm:GetChildren()) do
-                            if (item:IsA("Tool") or item:IsA("Model")) and item.Name:lower():find(targetName) then
-                                local p = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                if p and p.Enabled then
-                                    targetDrop = item
-                                    break
-                                end
-                            end
-                        end
-                        if targetDrop then break end
+            -- 2. Search all potential drop locations (Workspace.Drops, CurrentRooms, and Workspace descendants)
+            local candidateDrops = {}
+            local drops = Workspace:FindFirstChild("Drops")
+            if drops then
+                for _, d in ipairs(drops:GetDescendants()) do
+                    if (d:IsA("Tool") or d:IsA("Model") or d:IsA("BasePart")) and matchesToolName(d.Name, targetName) then
+                        table.insert(candidateDrops, d)
                     end
                 end
             end
 
-            if targetDrop and targetDrop.Parent then
-                local r = getRoot()
-                local prompt = targetDrop:FindFirstChildWhichIsA("ProximityPrompt", true)
-                local handle = targetDrop:IsA("BasePart") and targetDrop or (targetDrop.PrimaryPart or targetDrop:FindFirstChildWhichIsA("BasePart", true))
+            local cr = Workspace:FindFirstChild("CurrentRooms")
+            if cr then
+                for _, d in ipairs(cr:GetDescendants()) do
+                    if (d:IsA("Tool") or d:IsA("Model")) and matchesToolName(d.Name, targetName) then
+                        table.insert(candidateDrops, d)
+                    end
+                end
+            end
+
+            local r = getRoot()
+            for _, drop in ipairs(candidateDrops) do
+                local prompt = drop:FindFirstChildWhichIsA("ProximityPrompt", true)
+                local handle = drop:IsA("BasePart") and drop or (drop:FindFirstChild("Handle") or drop:FindFirstChildWhichIsA("BasePart", true))
 
                 if handle and r then
-                    pcall(function() handle.CFrame = r.CFrame end)
+                    pcall(function()
+                        handle.CFrame = r.CFrame
+                        handle.CanCollide = false
+                    end)
                 end
 
                 if prompt and prompt.Parent then
@@ -3263,6 +3362,28 @@ retrieveDroppedTool = function(toolName, maxWait)
                         firetouchinterest(r, handle, 0)
                         firetouchinterest(r, handle, 1)
                     end)
+                end
+            end
+
+            -- Also scan any ProximityPrompt whose ObjectText or ActionText mentions the tool
+            if #candidateDrops == 0 then
+                local searchContainers = { Workspace:FindFirstChild("Drops"), Workspace:FindFirstChild("CurrentRooms") }
+                for _, c in ipairs(searchContainers) do
+                    if c then
+                        for _, prompt in ipairs(c:GetDescendants()) do
+                            if prompt:IsA("ProximityPrompt") then
+                                local obj = (prompt.ObjectText or ""):lower()
+                                local act = (prompt.ActionText or ""):lower()
+                                if matchesToolName(obj, targetName) or matchesToolName(act, targetName) then
+                                    prompt.Enabled = true
+                                    prompt.HoldDuration = 0
+                                    prompt.RequiresLineOfSight = false
+                                    prompt.MaxActivationDistance = 45
+                                    pcall(function() fireproximityprompt(prompt) end)
+                                end
+                            end
+                        end
+                    end
                 end
             end
 
@@ -4023,6 +4144,23 @@ getExactFloorPos = function(pos, fallbackOffset)
 end
 
 -- Character Interactivity & Collision Re-enabler: Restores full ProximityPrompt raycasting and room triggers
+local function restoreCharacterVisibility(char)
+    if not char then return end
+    local mg = mgTable or getMainGameTable()
+    if mg and mg.hideplayers and mg.hideplayers < 0 then
+        mg.hideplayers = 0
+    end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") or p:IsA("Decal") then
+            local pLower = p.Name:lower()
+            local isHeadAcc = (pLower == "head" or pLower:find("face") or pLower:find("hair") or pLower:find("lash") or pLower:find("brow") or pLower:find("hat"))
+            if not isHeadAcc and not pLower:find("collision") and pLower ~= "humanoidrootpart" then
+                p.LocalTransparencyModifier = 0
+            end
+        end
+    end
+end
+
 local function restoreCharacterInteractivity(char)
     if not char then return end
     local function applyPartImmunity(p)
@@ -4032,7 +4170,6 @@ local function restoreCharacterInteractivity(char)
             pcall(function() p.CollisionGroup = "NoPlayer" end)
         end
     end
-    -- NoPlayer CollisionGroup: TouchPlayer (monsters) CANNOT touch or damage you, while Default (doors/prompts) still collide & work!
     for _, p in ipairs(char:GetDescendants()) do
         applyPartImmunity(p)
     end
@@ -4044,13 +4181,13 @@ local function restoreCharacterInteractivity(char)
     local cp = char:FindFirstChild("CollisionPart")
     local root = char:FindFirstChild("HumanoidRootPart")
     if coll and coll:IsA("BasePart") then
-        coll.CanCollide = true
+        -- During Noclip, Collision MUST be CanCollide = false so player does not bounce off walls!
+        coll.CanCollide = not State.Noclip
         pcall(function() coll.CollisionGroup = "NoPlayer" end)
         coll.CanTouch = true
         coll.CanQuery = true
     end
     if cp and cp:IsA("BasePart") then
-        -- CollisionPart MUST be CanCollide = true when not flying so player stands firmly on the floor without void-falling!
         cp.CanCollide = not State.Noclip
         pcall(function() cp.CollisionGroup = "NoPlayer" end)
         cp.CanTouch = true
@@ -4062,6 +4199,7 @@ local function restoreCharacterInteractivity(char)
         root.CanTouch = true
         root.CanQuery = true
     end
+    restoreCharacterVisibility(char)
 end
 
 -- Safe Overhead Clearance Calculator: Stays strictly BELOW the room ceiling to prevent out-of-bounds void Glitch!
@@ -5264,7 +5402,13 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         local cc = coll and coll:FindFirstChild("CollisionCrouch")
         local cp = char:FindFirstChild("CollisionPart")
 
-        if isCrouching then
+        if State.Noclip then
+            -- When Fly Noclip is active: ALL collision geometry is intangible so player glides cleanly through walls!
+            -- Eliminates server collision bounce / forward-back teleporting desync!
+            if coll and coll.CanCollide then coll.CanCollide = false end
+            if cc and cc.CanCollide then cc.CanCollide = false end
+            if cp and cp.CanCollide then cp.CanCollide = false end
+        elseif isCrouching then
             if coll and coll.CanCollide then coll.CanCollide = false end
             if cc and not cc.CanCollide then cc.CanCollide = true end
             if cp and cp.CanCollide then cp.CanCollide = false end
@@ -7476,6 +7620,8 @@ local activeNodeVisuals = {}
 local activeSafeZoneVisuals = {}
 local rushSafeHUD = nil
 
+local cachedRoomPathNodes = {}
+
 local function getOrderedRoomNodes()
     local nodes = {}
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -7493,33 +7639,53 @@ local function getOrderedRoomNodes()
     for _, rData in ipairs(roomList) do
         local rm = rData.Room
         local rNum = rData.Number
-        local entrance = rm:FindFirstChild("RoomEntrance")
-        local exit = rm:FindFirstChild("RoomExit")
 
-        if entrance and entrance:IsA("BasePart") then
-            table.insert(nodes, { Pos = entrance.Position, RoomNum = rNum, Name = "Entrance", Part = entrance })
-        end
+        -- If not yet cached, or if room has PathfindNodes right now, update persistent room cache:
+        local intermediate = rm:FindFirstChild("PathfindNodes") or rm:FindFirstChild("Nodes") or rm:FindFirstChild("Waypoints")
+        if intermediate or not cachedRoomPathNodes[rNum] then
+            local roomNodes = {}
+            local entrance = rm:FindFirstChild("RoomEntrance")
+            local exit = rm:FindFirstChild("RoomExit")
 
-        local intermediate = rm:FindFirstChild("Nodes") or rm:FindFirstChild("Waypoints") or rm:FindFirstChild("PathfindNodes")
-        if intermediate then
-            local interList = {}
-            for _, child in ipairs(intermediate:GetChildren()) do
-                if child:IsA("BasePart") then
-                    table.insert(interList, child)
+            if entrance and entrance:IsA("BasePart") then
+                table.insert(roomNodes, { Pos = entrance.Position, RoomNum = rNum, Name = "Entrance", Part = entrance })
+            end
+
+            if intermediate then
+                local interList = {}
+                for _, child in ipairs(intermediate:GetChildren()) do
+                    if child:IsA("BasePart") then
+                        table.insert(interList, child)
+                    end
+                end
+                table.sort(interList, function(a, b)
+                    local na = tonumber(a.Name:match("%d+")) or 0
+                    local nb = tonumber(b.Name:match("%d+")) or 0
+                    return na < nb
+                end)
+                for i, p in ipairs(interList) do
+                    table.insert(roomNodes, { Pos = p.Position, RoomNum = rNum, Name = "Node " .. tostring(i), Part = p })
                 end
             end
-            table.sort(interList, function(a, b)
-                local na = tonumber(a.Name:match("%d+")) or 0
-                local nb = tonumber(b.Name:match("%d+")) or 0
-                return na < nb
-            end)
-            for i, p in ipairs(interList) do
-                table.insert(nodes, { Pos = p.Position, RoomNum = rNum, Name = "Node " .. tostring(i), Part = p })
+
+            if exit and exit:IsA("BasePart") then
+                table.insert(roomNodes, { Pos = exit.Position, RoomNum = rNum, Name = "Exit", Part = exit })
+            end
+
+            if #roomNodes > 0 then
+                -- Only overwrite cache if new scan has intermediate nodes or cache didn't exist
+                if intermediate or not cachedRoomPathNodes[rNum] or #cachedRoomPathNodes[rNum] <= 2 then
+                    cachedRoomPathNodes[rNum] = roomNodes
+                end
             end
         end
 
-        if exit and exit:IsA("BasePart") then
-            table.insert(nodes, { Pos = exit.Position, RoomNum = rNum, Name = "Exit", Part = exit })
+        -- Append cached nodes for this room (they NEVER disappear when room is opened!)
+        local rNodes = cachedRoomPathNodes[rNum]
+        if rNodes then
+            for _, n in ipairs(rNodes) do
+                table.insert(nodes, n)
+            end
         end
     end
 
