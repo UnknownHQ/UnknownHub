@@ -360,6 +360,7 @@ local getExactFloorPos
 local solveLibraryCode
 -- lastNoclipDisableGrace hoisted
 local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
+local crouchRemote = remotesFolder and remotesFolder:WaitForChild("Crouch", 5)
 
 
 -- =========================================================================
@@ -2986,7 +2987,7 @@ local lastForwardCFrame = nil
 local lastForwardPos = nil
 local lastMoveVector = Vector3.new(0, 0, 0)
 local wasMoving = false
-local crouchRemote = nil
+local crouchRemote = remotesFolder and remotesFolder:FindFirstChild("Crouch")
 local isServerSlideActive = false
 local lastSentCrouchState = nil
 local lastSentSlideState = nil
@@ -3054,8 +3055,8 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     local mgTable = getMainGameTable()
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
     -- Crucial: When WalkSpeed is enabled OR when the player is actively sliding, sliding MUST be authorized on the DOORS server (arg 2 = true).
-    -- This raises the server's anti-cheat speed threshold and eliminates door/room transition rubberbanding!
-    local isSliding = (shouldAuthorize == true) and (not isCrouching) and (State.WalkSpeed_Enabled or (isActuallySliding == true))
+    -- This raises the server's anti-cheat speed threshold and eliminates door/room transition rubberbanding, including when crouching!
+    local isSliding = (shouldAuthorize == true) and (State.WalkSpeed_Enabled or (isActuallySliding == true))
     local now = os.clock()
 
     if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
@@ -3647,7 +3648,11 @@ local function neutralizeServerTeleported()
                                     rRoot.AssemblyLinearVelocity = Vector3.zero
                                     rRoot.AssemblyAngularVelocity = Vector3.zero
                                     task.wait(0.03)
-                                    pcall(function() crouchRemote:FireServer(false, false) end)
+                                    if State.WalkSpeed_Enabled or State.Noclip or State.Enable_Sliding then
+                                        syncServerSlide(true, true)
+                                    else
+                                        pcall(function() crouchRemote:FireServer(false, false) end)
+                                    end
                                 end
                             end)
                             return
@@ -3698,7 +3703,11 @@ local function neutralizeServerTeleported()
                                             rRoot.AssemblyLinearVelocity = Vector3.zero
                                             rRoot.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
-                                            pcall(function() crouchRemote:FireServer(false, false) end)
+                                            if State.WalkSpeed_Enabled or State.Noclip or State.Enable_Sliding then
+                                                syncServerSlide(true, true)
+                                            else
+                                                pcall(function() crouchRemote:FireServer(false, false) end)
+                                            end
                                         end
                                     end)
                                     return
@@ -3745,7 +3754,11 @@ local function neutralizeServerTeleported()
                                             rRoot.AssemblyLinearVelocity = Vector3.zero
                                             rRoot.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
-                                            pcall(function() crouchRemote:FireServer(false, false) end)
+                                            if State.WalkSpeed_Enabled or State.Noclip or State.Enable_Sliding then
+                                                syncServerSlide(true, true)
+                                            else
+                                                pcall(function() crouchRemote:FireServer(false, false) end)
+                                            end
                                         end
                                     end)
                                     if mgTable and mgTable.SETNEWCF then
@@ -4913,6 +4926,20 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
+    -- Instant Acceleration & Directional Vector Response Engine:
+    -- Bypasses humanoid acceleration ramp-up and eradicates TeflonGlide inertial sliding / ice skating!
+    if State.Instant_Movement and not State.Noclip and not hiding and not isTeleportTweening and not isSlidingActive and not hum.Sit then
+        local moveDir = hum.MoveDirection
+        if moveDir.Magnitude > 0.05 then
+            local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 45) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
+            local targetVel = moveDir.Unit * speed
+            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, root.AssemblyLinearVelocity.Y, targetVel.Z)
+        else
+            -- Instant Dead-Stop Braking: stops the player on a dime with zero ice drift!
+            root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+        end
+    end
+
     -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
     if isSlidingActive and not hiding then
         local elapsed = os.clock() - slideStartTime
@@ -5002,7 +5029,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     -- Character Collision & Prompt Interactivity Receptors:
     if char then
         local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
-        local targetGroup = isCrouching and "PlayerCrouching" or "NoPlayer"
+        local targetGroup = "NoPlayer" -- Invariant: CollisionGroup = "NoPlayer" must ALWAYS remain active both when flying and when walking/crouching on the floor!
         local coll = char:FindFirstChild("Collision")
         local cc = coll and coll:FindFirstChild("CollisionCrouch")
         local cp = char:FindFirstChild("CollisionPart")
@@ -7619,6 +7646,7 @@ end
 
 -- Hook Remotes for Eyes pitch spoofing (-899 = looking straight down) and A90 movement spoofing
 local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
+local crouchRemote = remotesFolder and remotesFolder:WaitForChild("Crouch", 5)
 local motorRemote = remotesFolder and remotesFolder:FindFirstChild("MotorReplication")
 local a90Remote = remotesFolder and remotesFolder:FindFirstChild("A90")
 
@@ -7692,6 +7720,14 @@ if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
                 end
             end
             if method == "FireServer" then
+                -- Intercept Crouch remote calls from DOORS Movement script: enforce sliding = true on server
+                if (self.Name == "Crouch" or self == crouchRemote) and not checkcaller() then
+                    if activeState.WalkSpeed_Enabled or activeState.Enable_Sliding or activeState.Noclip then
+                        local args = {...}
+                        args[2] = true -- Always authorize sliding on the DOORS server so crouching never lowers speed limit!
+                        return rawNamecall(self, unpack(args))
+                    end
+                end
                 if (self.Name == "Footstep" or self.Name == "FootstepRemoteThatWeNeed") and (activeState.Anti_Figure_Hearing or activeState.Anti_Figure) then
                     return nil -- Drop footstep packets completely from reaching server and alerting Figure!
                 end
@@ -7766,6 +7802,16 @@ if hookfunction then
                 action = "didnt"
             end
             return rawA90Fire(self, action, ...)
+        end))
+    end
+    if crouchRemote and crouchRemote.FireServer and not _G.__CROUCH_REMOTE_HOOKED then
+        _G.__CROUCH_REMOTE_HOOKED = true
+        local rawCrouchFire
+        rawCrouchFire = hookfunction(crouchRemote.FireServer, newcclosure(function(self, isCrouch, isSlide, ...)
+            if not checkcaller() and (State.WalkSpeed_Enabled or State.Enable_Sliding or State.Noclip) then
+                isSlide = true
+            end
+            return rawCrouchFire(self, isCrouch, isSlide, ...)
         end))
     end
 end
