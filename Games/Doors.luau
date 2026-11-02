@@ -227,7 +227,6 @@ local State = {
 
     -- God Mode & Anti Figure Hearing Defenses
     God_Mode = false,
-    Anti_Figure_Hearing = true,
 
     -- Additional Defenses
     Anti_Gloombat = true,
@@ -235,7 +234,6 @@ local State = {
     Anti_Halt = true,
     Anti_Seek = true,
     Anti_Rush = false,
-    Anti_Figure = true,
     Anti_Dread = true,
 
     -- Anti-Cheat Bypass, Safe Teleports & Flight Subsystem
@@ -716,8 +714,8 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     hl.OutlineColor = color
     hl.OutlineTransparency = outlineTrans
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    -- Reliable World Parenting: Parenting to gethui or Workspace.Terrain ensures Roblox 3D rendering pipeline draws highlights cleanly without culling BaseParts
-    local targetParent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+    -- Reliable World Parenting: Highlights MUST be parented to Workspace/Terrain to render depth-stencil pass in Roblox 3D pipeline
+    local targetParent = Workspace:FindFirstChild("Terrain") or Workspace
     hl.Parent = targetParent
     return hl
 end
@@ -1873,6 +1871,12 @@ local function createEntityBoundingBox(targetPart, size, color)
         s = Vector3.new(s, s, s)
     end
     local boxColor = color or Color3.fromRGB(255, 35, 35)
+    -- Lighter, glowing pastel fill tint
+    local lightColor = Color3.fromRGB(
+        math.clamp(math.floor(boxColor.R * 255 * 0.45 + 140), 0, 255),
+        math.clamp(math.floor(boxColor.G * 255 * 0.45 + 140), 0, 255),
+        math.clamp(math.floor(boxColor.B * 255 * 0.45 + 140), 0, 255)
+    )
 
     -- Rounded cube with asset ID 14731807321
     local roundedModel = getRoundedMeshTemplate()
@@ -1885,8 +1889,8 @@ local function createEntityBoundingBox(targetPart, size, color)
                     p.CanTouch = false
                     p.CanQuery = false
                     p.CastShadow = false
-                    p.Color = boxColor
-                    p.Transparency = 0.45
+                    p.Color = lightColor
+                    p.Transparency = 0.4
                     p.Material = Enum.Material.ForceField
                 end
             end
@@ -1904,17 +1908,28 @@ local function createEntityBoundingBox(targetPart, size, color)
             weld.Parent = primary
 
             primary.Anchored = false
-            roundedModel.Parent = folder
+            roundedModel.Parent = targetPart -- Locked inside Workspace part so physics/welds follow perfectly!
 
             local hl = Instance.new("Highlight")
             hl.Name = "RoundedHighlight"
             hl.Adornee = roundedModel
-            hl.FillColor = boxColor
-            hl.FillTransparency = 0.45
-            hl.OutlineColor = boxColor
+            hl.FillColor = lightColor
+            hl.FillTransparency = 0.4
+            hl.OutlineColor = Color3.fromRGB(255, 255, 255) -- Prominent, crisp white outline!
             hl.OutlineTransparency = 0
             hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Parent = folder
+            hl.Parent = Workspace:FindFirstChild("Terrain") or Workspace
+
+            local sbox = Instance.new("SelectionBox")
+            sbox.Name = "RoundedOutlineBox"
+            sbox.Adornee = primary
+            sbox.Color3 = Color3.fromRGB(255, 255, 255)
+            sbox.LineThickness = 0.04
+            sbox.SurfaceTransparency = 1
+            sbox.AlwaysOnTop = true
+            sbox.Parent = Workspace:FindFirstChild("Terrain") or Workspace
+
+            table.insert(activeSafeZoneVisuals, sbox)
         else
             roundedModel:Destroy()
             roundedModel = nil
@@ -1931,14 +1946,14 @@ local function createEntityBoundingBox(targetPart, size, color)
         roundedPart.CanTouch = false
         roundedPart.CanQuery = false
         roundedPart.CastShadow = false
-        roundedPart.Color = boxColor
-        roundedPart.Transparency = 0.45
+        roundedPart.Color = lightColor
+        roundedPart.Transparency = 0.4
         roundedPart.Material = Enum.Material.ForceField
 
         local mesh = Instance.new("SpecialMesh")
         mesh.MeshType = Enum.MeshType.FileMesh
         mesh.MeshId = "rbxassetid://14731807321"
-        mesh.Scale = s
+        mesh.Scale = Vector3.new(1, 1, 1)
         mesh.Parent = roundedPart
 
         local weld = Instance.new("WeldConstraint")
@@ -1947,20 +1962,31 @@ local function createEntityBoundingBox(targetPart, size, color)
         weld.Parent = roundedPart
 
         roundedPart.Anchored = false
-        roundedPart.Parent = folder
+        roundedPart.Parent = targetPart -- Locked inside targetPart in Workspace so weld moves seamlessly!
 
         local hl = Instance.new("Highlight")
         hl.Name = "RoundedHighlight"
         hl.Adornee = roundedPart
-        hl.FillColor = boxColor
-        hl.FillTransparency = 0.45
-        hl.OutlineColor = boxColor
+        hl.FillColor = lightColor
+        hl.FillTransparency = 0.4
+        hl.OutlineColor = Color3.fromRGB(255, 255, 255) -- Prominent, crisp white outline!
         hl.OutlineTransparency = 0
         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Parent = folder
+        hl.Parent = Workspace:FindFirstChild("Terrain") or Workspace
+
+        local sbox = Instance.new("SelectionBox")
+        sbox.Name = "RoundedOutlineBox"
+        sbox.Adornee = roundedPart
+        sbox.Color3 = Color3.fromRGB(255, 255, 255)
+        sbox.LineThickness = 0.04
+        sbox.SurfaceTransparency = 1
+        sbox.AlwaysOnTop = true
+        sbox.Parent = Workspace:FindFirstChild("Terrain") or Workspace
+
+        table.insert(activeSafeZoneVisuals, sbox)
     end
 
-    local targetParent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+    local targetParent = Workspace:FindFirstChild("Terrain") or Workspace
     folder.Parent = targetParent
     return folder
 end
@@ -2191,7 +2217,39 @@ local function processEntity(entity)
     end
 
     if not cfg then
-        return
+        -- Unknown / Custom Entity Detection & ESP Guardian (Custom Rush, Floor Mod Spawns, Sally seating, uncataloged entities)
+        local isHumanoid = entity:FindFirstChildOfClass("Humanoid") ~= nil
+        local hasAnim = entity:FindFirstChildOfClass("AnimationController") ~= nil
+        local inLive = entity.Parent and (entity.Parent.Name:lower():find("live") or entity.Parent.Name:lower():find("entity"))
+        local isModel = entity:IsA("Model")
+        local isMovingThreat = false
+
+        if isModel then
+            local pName = entity.Name:lower()
+            -- Reject static environment models
+            local isStaticRoomProp = pName:find("wall") or pName:find("floor") or pName:find("ceiling") or pName:find("door") 
+                or pName:find("carpet") or pName:find("light") or pName:find("chandelier") or pName:find("desk") 
+                or pName:find("table") or pName:find("chair") or pName:find("wardrobe") or pName:find("bed") 
+                or pName:find("chest") or pName:find("drawer") or pName:find("shelf") or pName:find("plant")
+                or pName:find("pillar") or pName:find("column") or pName:find("painting") or pName:find("frame")
+
+            if not isStaticRoomProp and (isHumanoid or hasAnim or inLive or #entity:GetChildren() >= 2) then
+                isMovingThreat = true
+            end
+        end
+
+        if isMovingThreat then
+            local cleanName = entity.Name:gsub("^%s+", ""):gsub("%s+$", "")
+            if #cleanName == 0 or cleanName == "Model" then
+                cleanName = "Unknown Entity"
+            else
+                cleanName = "Unknown Entity (" .. cleanName .. ")"
+            end
+            cfg = { Name = cleanName, Category = "Other" }
+            is2D = false
+        else
+            return
+        end
     end
 
     -- 8. Check Entity Filter / Exclude List (Multi-Choice Dynamic Filter)
@@ -2592,7 +2650,7 @@ local function scanSingleRoom(room)
         if cLower:find("rift") and not cLower:find("fragment") then
             processRift(child)
         if State.Anti_Seek then defuseSeekObstacles(child) end
-        if State.Anti_Figure then defuseFigureHitbox(child) end
+        -- Anti Figure removed
         end
     end
 
@@ -2640,7 +2698,7 @@ local function scanSingleRoom(room)
                     if State.Anti_Giggle then defuseGiggle(desc) end
                     if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("figure") then
-                    if State.Anti_Figure then defuseFigureHitbox(desc) end
+                    -- Anti Figure removed
                     if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("sally") or dName:find("princess") or desc:GetAttribute("SallyHolding") or desc:FindFirstChild("SallyHolding", true) then
                     if State.Entities_ESP then processEntity(desc) end
@@ -5062,7 +5120,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         processNearbyDoors(root.Position, doorReach)
     end
 
-    -- God-Mode & Hitbox Immunity Engine: Eradicates all monster contact damage
+    -- God-Mode & Hitbox Immunity Engine: Eradicates all monster contact damage (Intangible Hitbox, Zero Teleport)
     if State.God_Mode then
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -5070,12 +5128,21 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             if hum:GetStateEnabled(Enum.HumanoidStateType.Dead) then
                 pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
             end
+            if hum.Health < 100 and hum.Health > 0 then
+                hum.Health = 100
+            end
         end
 
-        local cp = char and char:FindFirstChild("CollisionPart")
-        if cp then
-            if cp.CanTouch then cp.CanTouch = false end
-            if cp.CanCollide then cp.CanCollide = false end
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanTouch = false
+                    p.CanQuery = false
+                    if p.CollisionGroup ~= "NoPlayer" then
+                        pcall(function() p.CollisionGroup = "NoPlayer" end)
+                    end
+                end
+            end
         end
 
         local lethalNames = {"rush", "ambush", "a60", "a-60", "a120", "a-120", "seek", "figure", "grumble", "giggle", "gloombat", "dread", "blitz", "lookman"}
@@ -5098,13 +5165,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                             if fHit and fHit:IsA("BasePart") then
                                 fHit.CanTouch = false
                                 fHit.CanCollide = false
-                                fHit.CFrame = CFrame.new(0, -500, 0)
-                            end
-                        end
-                        if (el:find("rush") or el:find("ambush") or el:find("a60") or el:find("a120")) and root and cp then
-                            local dist = (ent:GetPivot().Position - root.Position).Magnitude
-                            if dist < 22 then
-                                cp.CFrame = CFrame.new(0, -500, 0)
+                                fHit.CanQuery = false
                             end
                         end
                     end
@@ -5118,16 +5179,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     local isGlitchActive = false
     if Workspace:FindFirstChild("Glitch") then
         isGlitchActive = true
-    else
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        local mainUI = pGui and pGui:FindFirstChild("MainUI")
-        local mainFrame = mainUI and mainUI:FindFirstChild("MainFrame")
-        if mainFrame then
-            local gs = mainFrame:FindFirstChild("GlitchScreen")
-            if gs and gs.Visible then isGlitchActive = true end
-            local ge = mainFrame:FindFirstChild("GlitchEffect")
-            if ge and ge.Visible then isGlitchActive = true end
-            if isGlitchActive then
+    end
+    if isGlitchActive then
                 if gs and gs.Visible then gs.Visible = false end
                 if ge and ge.Visible then ge.Visible = false end
             end
@@ -5348,25 +5401,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         syncNativeFlightSpeed(State.Noclip_Speed or 45)
     end
 
-    -- Anti Figure Hearing & Silent Stealth Enforcement (Figure AI Radar Invisibility):
-    if State.Anti_Figure_Hearing or State.Anti_Figure then
-        if char and not char:GetAttribute("Crouching") then
-            char:SetAttribute("Crouching", true)
-        end
-        local r = getRoot()
-        if r then
-            for _, s in ipairs(r:GetChildren()) do
-                if s:IsA("Sound") and (s.Name == "Footsteps" or s.Name:lower():find("step") or s.Name:lower():find("run") or s.Name:lower():find("walk")) then
-                    if s.Volume > 0 then s.Volume = 0 end
-                end
-            end
-        end
-        local nowTick = os.clock()
-        if crouchRemote and (nowTick - lastCrouchStealthTick >= 2.0) then
-            lastCrouchStealthTick = nowTick
-            pcall(function() crouchRemote:FireServer(true, true) end)
-        end
-    end
+    -- Natural crouching preserved without synthetic forced attribute locks
 
     -- Continuous FOV synchronization
     if State.FieldOfView and State.FieldOfView ~= 70 then
@@ -6220,6 +6255,22 @@ local function isPromptSafeToAutoInteract(prompt)
         end
     end
 
+    -- Chests & Strongboxes (Open & Unlock Chests):
+    if pName:find("chest") or mName:find("chest") or obj:find("chest") or (act:find("unlock") and (obj:find("chest") or pName:find("chest") or mName:find("chest"))) then
+        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Chests"] then
+            return false
+        end
+        -- Auto-equip lockpick or skeleton key if locked
+        if act:find("unlock") then
+            local lockpick = getEquippedOrInventoryTool({"lockpick", "skeleton"})
+            if lockpick and lockpick.Parent == LocalPlayer.Backpack then
+                local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
+                if hum then hum:EquipTool(lockpick) end
+            end
+        end
+        return State.AutoInteract_Drawers or State.AutoInteract_Items or true
+    end
+
     -- Drawers & Desks (Containers & Drawer Knobs):
     if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") or obj:find("drawer") or pName:find("knob") then
         if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Drawers & Desks"] then
@@ -6483,6 +6534,61 @@ pcall(function()
     end)
 end)
 
+-- =========================================================================
+-- Infinite Items: Activation Hook for Consumables & Crucifix (Vitamins & Exorcism)
+-- =========================================================================
+local function bindInfiniteTool(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    if tool:GetAttribute("InfiniteTool_Bound") then return end
+    tool:SetAttribute("InfiniteTool_Bound", true)
+
+    tool.Activated:Connect(function()
+        if not State.Infinite_Items then return end
+        local tName = tool.Name:lower()
+        if tName:find("vitamin") or tName:find("potion") or tName:find("herb") or tName:find("bandaid") or tName:find("bandage") then
+            -- Consumable activation: drop & duplicate before server depletes durability!
+            executeItemDupeDrop(tool, 0.04)
+        elseif tName:find("crucifix") then
+            -- Crucifix activation / held against monster: drop instantly before entity consumes it!
+            executeItemDupeDrop(tool, 0.05)
+        end
+    end)
+end
+
+local function hookBackpackAndCharTools()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") then bindInfiniteTool(t) end
+        end
+        bp.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                task.wait(0.05)
+                bindInfiniteTool(child)
+            end
+        end)
+    end
+
+    local char = getChar()
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") then bindInfiniteTool(t) end
+        end
+        char.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                task.wait(0.05)
+                bindInfiniteTool(child)
+            end
+        end)
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    hookBackpackAndCharTools()
+end)
+hookBackpackAndCharTools()
+
 -- Crucifix Auto-Retain Watcher (Triggers during active exorcism, drops at 0.6s & reclaims)
 task.spawn(function()
     local isRetainingCrucifix = false
@@ -6538,7 +6644,7 @@ task.spawn(function()
                     isRetainingCrucifix = true
                     task.spawn(function()
                         -- Calibrated delay: wait 0.6 seconds so server chains bind entity
-                        task.wait(0.6)
+                        task.wait(0.05)
                         executeItemDupeDrop(crucifix, 0)
                         Hub.Notify("Infinite Crucifix", "Crucifix dropped & ready for re-grab!", 3)
                         task.wait(4.0)
@@ -6668,19 +6774,24 @@ task.spawn(function()
                     local curRooms = Workspace:FindFirstChild("CurrentRooms")
                     if curRooms then
                         for _, rm in ipairs(curRooms:GetChildren()) do
-                            for _, desc in ipairs(rm:GetChildren()) do
-                                local nl = desc.Name:lower()
-                                if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
-                                    if (desc:GetPivot().Position - refPos).Magnitude <= 7.0 then
-                                        lastHidingModel = desc
-                                        lastHidingOriginalTrans = {}
-                                        for _, p in ipairs(desc:GetDescendants()) do
-                                            if p:IsA("BasePart") then
-                                                lastHidingOriginalTrans[p] = p.Transparency
-                                                p.Transparency = 0.65
+                            -- DOORS wardrobes and beds reside in rm.Assets: full GetDescendants scan
+                            for _, desc in ipairs(rm:GetDescendants()) do
+                                if desc:IsA("Model") then
+                                    local nl = desc.Name:lower()
+                                    if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
+                                        if (desc:GetPivot().Position - refPos).Magnitude <= 8.5 then
+                                            lastHidingModel = desc
+                                            lastHidingOriginalTrans = {}
+                                            for _, p in ipairs(desc:GetDescendants()) do
+                                                if p:IsA("BasePart") then
+                                                    lastHidingOriginalTrans[p] = p.Transparency
+                                                    p.Transparency = 0.75
+                                                elseif p:IsA("Decal") then
+                                                    p.Transparency = 0.75
+                                                end
                                             end
+                                            break
                                         end
-                                        break
                                     end
                                 end
                             end
@@ -6688,6 +6799,14 @@ task.spawn(function()
                         end
                     end
                 end
+
+                -- Eradicate closet darkness vignette
+                pcall(function()
+                    local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+                    local mUI = pg and pg:FindFirstChild("MainUI")
+                    local hv = mUI and mUI:FindFirstChild("MainFrame") and mUI.MainFrame:FindFirstChild("HideVignette")
+                    if hv then hv.ImageTransparency = 1 end
+                end)
             else
                 if lastHidingModel then
                     for p, orig in pairs(lastHidingOriginalTrans) do
@@ -6701,6 +6820,94 @@ task.spawn(function()
             end
         end
         task.wait(0.1)
+    end
+end)
+
+-- =========================================================================
+-- Infallible Anti-Dread Subsystem (Darkness & Entity Defusal)
+-- =========================================================================
+local function enforceAntiDread()
+    if not State.Anti_Dread then return end
+    pcall(function()
+        -- 1. Eliminate LiveSanity ColorCorrection in Camera & Lighting
+        local cam = Workspace.CurrentCamera
+        if cam then
+            local liveSanity = cam:FindFirstChild("LiveSanity")
+            if liveSanity then liveSanity:Destroy() end
+        end
+        local lightSanity = game:GetService("Lighting"):FindFirstChild("LiveSanity")
+        if lightSanity then lightSanity:Destroy() end
+
+        -- 2. Eradicate Dread Vignette & Tendrils from Screen (Image 1 Fix)
+        local lp = LocalPlayer or Players.LocalPlayer
+        local pg = lp and lp:FindFirstChild("PlayerGui")
+        local mainUI = pg and pg:FindFirstChild("MainUI")
+        local mainFrame = mainUI and mainUI:FindFirstChild("MainFrame")
+        if mainFrame then
+            local dv = mainFrame:FindFirstChild("DreadVignette")
+            if dv and dv.Visible then
+                dv.Visible = false
+                dv.ImageColor3 = Color3.new(0, 0, 0)
+                dv.Size = UDim2.new(0, 0, 0, 0)
+                for _, child in ipairs(dv:GetChildren()) do
+                    if child:IsA("Frame") then child.Visible = false end
+                end
+            end
+        end
+
+        -- 3. Unbind Dread RenderStep Effect
+        pcall(function()
+            RunService:UnbindFromRenderStep("dreadfx")
+        end)
+
+        -- 4. Destroy Sanity Audio Equalizer & Muffle
+        local soundMain = game:GetService("SoundService"):FindFirstChild("Main")
+        if soundMain then
+            local eq = soundMain:FindFirstChild("SanityEqualizerLive")
+            if eq then eq:Destroy() end
+        end
+
+        -- 5. Defuse Any Spawned Dread Entity
+        local dreadModel = Workspace:FindFirstChild("Dread") 
+            or (Workspace:FindFirstChild("CurrentRooms") and Workspace.CurrentRooms:FindFirstChild("Dread", true))
+        if dreadModel then
+            for _, p in ipairs(dreadModel:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanTouch = false
+                    p.CanCollide = false
+                    p.CanQuery = false
+                end
+            end
+            if dreadModel:IsA("Model") and dreadModel.PrimaryPart then
+                dreadModel.PrimaryPart.CFrame = CFrame.new(0, -500, 0)
+            end
+        end
+    end)
+end
+
+-- Active Watchdog Loop for Anti-Dread
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Anti_Dread then
+            enforceAntiDread()
+        end
+        task.wait(0.2)
+    end
+end)
+
+-- Intercept RemotesFolder.Dread remote
+pcall(function()
+    local rf = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
+    if rf then
+        local dreadRemote = rf:FindFirstChild("Dread")
+        if dreadRemote and dreadRemote:IsA("RemoteEvent") then
+            dreadRemote.OnClientEvent:Connect(function()
+                if State.Anti_Dread then
+                    task.defer(enforceAntiDread)
+                end
+            end)
+        end
     end
 end)
 
@@ -6731,6 +6938,7 @@ defuseLethalEntity = function(entity)
             if p:IsA("BasePart") then
                 p.CanTouch = false
                 p.CanCollide = false
+                p.CanQuery = false
             elseif p:IsA("TouchTransmitter") then
                 p:Destroy()
             end
@@ -6738,6 +6946,7 @@ defuseLethalEntity = function(entity)
         if entity:IsA("BasePart") then
             entity.CanTouch = false
             entity.CanCollide = false
+            entity.CanQuery = false
         end
     end)
     entity.DescendantAdded:Connect(function(desc)
@@ -6745,6 +6954,7 @@ defuseLethalEntity = function(entity)
             if desc:IsA("BasePart") then
                 desc.CanTouch = false
                 desc.CanCollide = false
+                desc.CanQuery = false
             elseif desc:IsA("TouchTransmitter") then
                 desc:Destroy()
             end
@@ -7997,24 +8207,44 @@ local function evaluateRushSafety(testPos, segments, char)
     local targetElev = testPos + Vector3.new(0, 2.5, 0)
     local directLineOfSight = false
 
-    for _, sPt in ipairs(samplePoints) do
-        local origin = sPt + Vector3.new(0, 3.2, 0)
+    -- Multi-Point Trajectory Raycast: Sample points along all room segments within 28 studs
+    local nearbyTrajectoryPoints = {}
+    for _, seg in ipairs(segments) do
+        local _, sDist = getClosestPointOnSegment(testPos, seg.A, seg.B)
+        if sDist <= 28 then
+            table.insert(nearbyTrajectoryPoints, seg.A)
+            table.insert(nearbyTrajectoryPoints, (seg.A + seg.B) * 0.5)
+            table.insert(nearbyTrajectoryPoints, seg.B)
+        end
+    end
+
+    if #nearbyTrajectoryPoints == 0 then
+        table.insert(nearbyTrajectoryPoints, closestPathPoint or testPos)
+    end
+
+    local blockedCount = 0
+    local totalRays = 0
+
+    for _, pt in ipairs(nearbyTrajectoryPoints) do
+        local origin = pt + Vector3.new(0, 3.2, 0)
         local diff = targetElev - origin
         local dist = diff.Magnitude
-        if dist > 0.2 then
+        if dist > 0.5 then
+            totalRays = totalRays + 1
             local hit = Workspace:Raycast(origin, diff.Unit * (dist * 0.98), rayParams)
-            -- If ray didn't hit a solid wall blocking the view, or hit a door in the main path
-            if not hit or not hit.Instance or not hit.Instance.CanCollide or hit.Instance.Name:lower():find("door") then
+            if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
+                blockedCount = blockedCount + 1
+            else
                 directLineOfSight = true
-                break
             end
         end
     end
 
-    if directLineOfSight then
+    -- If all nearby path rays within lethal range are obstructed by solid wall/pillar cover:
+    if directLineOfSight and minSegmentDist < 16 and (totalRays > 0 and (blockedCount / totalRays) < 0.6) then
         return false, "⚠️ DANGER: DIRECT RUSH / AMBUSH LINE OF SIGHT"
     else
-        return true, "🛡️ SAFE ZONE: SHIELDED BY WALL COVER"
+        return true, "🛡️ SAFE: BEHIND COVER (RUSH CANNOT SEE YOU)"
     end
 end
 
@@ -8204,7 +8434,7 @@ task.spawn(function()
     end
 end)
 
--- Tab 1: MAIN TAB (Movement, Speed Changer, Test Suite)
+-- Tab 1: MAIN TAB (Movement, Interaction, Speed Changer & Automation)
 do
 local mainTab = Hub.CreateTab("Main", { 
     Icon = "🏠", 
@@ -8213,206 +8443,9 @@ local mainTab = Hub.CreateTab("Main", {
     ActiveColor = Color3.fromRGB(255, 185, 30) 
 })
 
-Hub.CreateSection(mainTab, "Autonomous 1-100 Doors Completer")
+Hub.CreateSection(mainTab, "Movement")
 
-Hub.CreateToggle(mainTab, "Auto Complete 100 Doors", State.Auto_Complete_100, function(v)
-    State.Auto_Complete_100 = v
-    if v then
-        State.Noclip = true
-        State.Bypass_AntiCheat = true
-        State.Auto_Hide = true
-        State.Auto_RoofEvacuate = true
-        State.Deflect_Glitch = true
-        neutralizeServerTeleported()
-        initAntiGlitchShield()
-        Hub.Notify("Completer", "Autonomous 1-100 Completer Active! Hands-free game completion running.", 4)
-    else
-        Hub.Notify("Completer", "Autonomous 1-100 Completer Paused.", 2)
-    end
-end)
-
-Hub.CreateSection(mainTab, "Automation & Auto-Interact")
-
-Hub.CreateToggle(mainTab, "Auto Interact", State.Auto_Interact, function(v)
-    State.Auto_Interact = v
-    Hub.Notify("Auto Interact", v and "Auto Interact: Enabled" or "Auto Interact: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Auto Doors", State.AutoInteract_Doors, function(v)
-    State.AutoInteract_Doors = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Keys", State.AutoInteract_Keys, function(v)
-    State.AutoInteract_Keys = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Items", State.AutoInteract_Items, function(v)
-    State.AutoInteract_Items = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Gold", State.AutoInteract_Gold, function(v)
-    State.AutoInteract_Gold = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Drawers", State.AutoInteract_Drawers, function(v)
-    State.AutoInteract_Drawers = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Levers", State.AutoInteract_Levers, function(v)
-    State.AutoInteract_Levers = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Books / Breakers", State.AutoInteract_Books, function(v)
-    State.AutoInteract_Books = v
-end)
-
-Hub.CreateSection(mainTab, "Autonomous Knobs & Death Farm")
-
-Hub.CreateButton(mainTab, "Copy Auto Death Farm Script", function()
-    local deathFarmCode = [[-- UnknownHub DOORS Autonomous Death Farm (Auto-Exec Standalone)
-repeat task.wait() until game:IsLoaded()
-local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer = Players.LocalPlayer
-repeat task.wait() until LocalPlayer
-
-local PLACE_LOBBY = 6516141723
-local PLACE_GAME = 6839171747
-
-pcall(function()
-    if getconnections then
-        for _, conn in ipairs(getconnections(LocalPlayer.Idled)) do
-            if conn.Disable then conn:Disable() elseif conn.Disconnect then conn:Disconnect() end
-        end
-    end
-end)
-
-local function log(msg) print("[DeathFarm] " .. tostring(msg)) end
-
-local function queueReplay()
-    if syn and syn.queue_on_teleport then
-        syn.queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/Doors.luau"))
-    elseif queue_on_teleport then
-        queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/Doors.luau"))
-    end
-end
-
-if game.PlaceId == PLACE_LOBBY then
-    log("Lobby reached. Joining elevator...")
-    task.wait(2)
-    local curElevator = Workspace:FindFirstChild("LobbyElevator") or Workspace:FindFirstChild("Elevator")
-    if curElevator then
-        local prompt = curElevator:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt then fireproximityprompt(prompt) end
-    end
-    queueReplay()
-elseif game.PlaceId == PLACE_GAME then
-    log("In Game. Starting farm run...")
-    queueReplay()
-end
-]]
-    if setclipboard then
-        setclipboard(deathFarmCode)
-        Hub.Notify("Copied", "Standalone Death Farm Script copied to clipboard!", 3)
-    else
-        Hub.Notify("Error", "Clipboard API unavailable on this executor", 3)
-    end
-end)
-
-Hub.CreateToggle(mainTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, function(v)
-    State.Knobs_Farm_Active = v
-    if v then
-        State.Noclip = true
-        State.Bypass_AntiCheat = true
-        State.Auto_RoofEvacuate = true
-        State.Deflect_Glitch = true
-        neutralizeServerTeleported()
-        initAntiGlitchShield()
-        task.spawn(function()
-            while State.Knobs_Farm_Active and _G.DOORS_SESSION == currentSession do
-                local ok, err = pcall(processKnobsFarmStep)
-                if not ok then warn("[Knobs Farm Error]", err) end
-                task.wait(0.2)
-            end
-        end)
-        Hub.Notify("Farm Active", "Autonomous Knobs Farm running! Sit back and collect knobs.", 3)
-    else
-        Hub.Notify("Farm Paused", "Autonomous Knobs Farm disabled.", 2)
-    end
-end)
-
-Hub.CreateSlider(mainTab, "Max Gold Quota", 1000, 5000, State.Knobs_Farm_MaxGold or 3500, " gold", function(v)
-    State.Knobs_Farm_MaxGold = v
-end)
-
-Hub.CreateSlider(mainTab, "Max Door Quota", 40, 95, State.Knobs_Farm_MaxDoors or 85, " doors", function(v)
-    State.Knobs_Farm_MaxDoors = v
-end)
-
-Hub.CreateToggle(mainTab, "Loot Drawers & Desks", State.Knobs_Farm_LootDrawers, function(v)
-    State.Knobs_Farm_LootDrawers = v
-end)
-
-Hub.CreateToggle(mainTab, "Unlock Chests (Lockpick)", State.Knobs_Farm_LootChests, function(v)
-    State.Knobs_Farm_LootChests = v
-end)
-
-Hub.CreateToggle(mainTab, "Roof Haven on Rush/Ambush", State.Knobs_Farm_RoofEvacuation, function(v)
-    State.Knobs_Farm_RoofEvacuation = v
-end)
-
-Hub.CreateButton(mainTab, "Force Match Reset & Play Again", function()
-    local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-    local playAgainRemote = rf and rf:FindFirstChild("PlayAgain")
-    if playAgainRemote and playAgainRemote:IsA("RemoteEvent") then
-        playAgainRemote:FireServer()
-        Hub.Notify("Match Reset", "PlayAgain signal dispatched to server!", 2)
-    else
-        local char = getChar()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if hum then hum.Health = 0 end
-        Hub.Notify("Match Reset", "Resetting character to trigger Play Again UI...", 2)
-    end
-end)
-end
-
--- =========================================================================
--- Tab 2: EXPLOITS TAB (Defense, God-Mode, Movement, Interaction & Item Exploits)
--- =========================================================================
-do
-local exploitsTab = Hub.CreateTab("Exploits", { 
-    Icon = "⚡", 
-    Size = 18, 
-    Color = Color3.fromRGB(255, 60, 60), 
-    ActiveColor = Color3.fromRGB(255, 100, 100) 
-})
-
-Hub.CreateSection(exploitsTab, "Defense & God-Mode")
-
-Hub.CreateToggle(exploitsTab, "God-Mode (Universal Immunity)", State.God_Mode, function(v)
-    State.God_Mode = v
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then
-        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, not v) end)
-    end
-    local cp = char and char:FindFirstChild("CollisionPart")
-    if cp then
-        cp.CanTouch = not v
-        cp.CanCollide = not v
-    end
-    Hub.Notify("God-Mode", v and "God-Mode: Enabled (Immune to Rush, Ambush, Figure, Seek)" or "God-Mode: Disabled", 2)
-end)
-
-Hub.CreateToggle(exploitsTab, "Anti Figure Hearing", State.Anti_Figure_Hearing, function(v)
-    State.Anti_Figure_Hearing = v
-    Hub.Notify("Stealth", v and "Anti Figure Hearing: Enabled (Silent Stealth)" or "Anti Figure Hearing: Disabled", 2)
-end)
-
-Hub.CreateSection(exploitsTab, "Movement Exploits")
-
-Hub.CreateToggle(exploitsTab, "Fly Noclip", State.Noclip, function(v)
+Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     if v and not State.Bypass_AntiCheat then
         State.Bypass_AntiCheat = true
         neutralizeServerTeleported()
@@ -8476,14 +8509,14 @@ Hub.CreateToggle(exploitsTab, "Fly Noclip", State.Noclip, function(v)
     Hub.Notify("Movement", v and "Fly Noclip: Active (Native Engine Flight)" or "Fly Noclip: Disabled", 2)
 end)
 
-Hub.CreateSlider(exploitsTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", function(v)
     State.Noclip_Speed = v
     if State.Noclip then
         syncNativeFlightSpeed(v)
     end
 end)
 
-Hub.CreateToggle(exploitsTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
+Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -8500,7 +8533,7 @@ Hub.CreateToggle(exploitsTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
     Hub.Notify("Movement", v and string.format("WalkSpeed: %d studs/s (Bypass Active)", State.WalkSpeed_Value) or "WalkSpeed: Restored (15 studs/s)", 2)
 end)
 
-Hub.CreateSlider(exploitsTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s", function(v)
+Hub.CreateSlider(mainTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s", function(v)
     State.WalkSpeed_Value = v
     if State.WalkSpeed_Enabled then
         local char = getChar()
@@ -8509,12 +8542,12 @@ Hub.CreateSlider(exploitsTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s
     end
 end)
 
-Hub.CreateToggle(exploitsTab, "Instant Acceleration", State.Instant_Movement, function(v)
+Hub.CreateToggle(mainTab, "Instant Acceleration", State.Instant_Movement, function(v)
     State.Instant_Movement = v
     Hub.Notify("Movement", v and "Instant Acceleration: Enabled" or "Instant Acceleration: Disabled", 2)
 end)
 
-Hub.CreateToggle(exploitsTab, "Enable Jump", State.Enable_Jumping, function(v)
+Hub.CreateToggle(mainTab, "Enable Jump", State.Enable_Jumping, function(v)
     State.Enable_Jumping = v
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -8525,7 +8558,7 @@ Hub.CreateToggle(exploitsTab, "Enable Jump", State.Enable_Jumping, function(v)
     Hub.Notify("Movement", v and "Jump: Enabled" or "Jump: Disabled", 2)
 end)
 
-Hub.CreateToggle(exploitsTab, "Enable Slide", State.Enable_Sliding, function(v)
+Hub.CreateToggle(mainTab, "Enable Slide", State.Enable_Sliding, function(v)
     State.Enable_Sliding = v
     if v then
         syncServerSlide(true, true)
@@ -8537,31 +8570,229 @@ Hub.CreateToggle(exploitsTab, "Enable Slide", State.Enable_Sliding, function(v)
     Hub.Notify("Movement", v and "Slide: Enabled" or "Slide: Disabled", 2)
 end)
 
-Hub.CreateSection(exploitsTab, "Interaction Exploits")
+Hub.CreateSection(mainTab, "Interaction")
 
-Hub.CreateToggle(exploitsTab, "Instant Interact", State.Instant_Interact, function(v)
+Hub.CreateToggle(mainTab, "Instant Interact", State.Instant_Interact, function(v)
     State.Instant_Interact = v
     refreshAllPrompts()
     Hub.Notify("Interaction", v and "Instant Interact: Enabled" or "Instant Interact: Disabled", 2)
 end)
 
-Hub.CreateToggle(exploitsTab, "Wall Interact", State.Noclip_Interact, function(v)
+Hub.CreateToggle(mainTab, "Wall Interact", State.Noclip_Interact, function(v)
     State.Noclip_Interact = v
     refreshAllPrompts()
     Hub.Notify("Interaction", v and "Wall Interact: Enabled" or "Wall Interact: Disabled", 2)
 end)
 
-Hub.CreateToggle(exploitsTab, "Interact Reach", State.Range_Interact, function(v)
+Hub.CreateToggle(mainTab, "Interact Reach", State.Range_Interact, function(v)
     State.Range_Interact = v
     refreshAllPrompts()
     Hub.Notify("Interaction", v and string.format("Interact Reach: %d studs", State.Interact_MaxRange) or "Interact Reach: Disabled", 2)
 end)
 
-Hub.CreateSlider(exploitsTab, "Reach Distance", 6, 14, State.Interact_MaxRange, " studs", function(v)
+Hub.CreateSlider(mainTab, "Reach Distance", 6, 14, State.Interact_MaxRange, " studs", function(v)
     State.Interact_MaxRange = v
     if State.Range_Interact then
         refreshAllPrompts()
     end
+end)
+
+Hub.CreateSection(mainTab, "Automation & Auto-Interact")
+
+Hub.CreateToggle(mainTab, "Auto Interact", State.Auto_Interact, function(v)
+    State.Auto_Interact = v
+    Hub.Notify("Auto Interact", v and "Auto Interact: Enabled" or "Auto Interact: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Auto Doors", State.AutoInteract_Doors, function(v)
+    State.AutoInteract_Doors = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Keys", State.AutoInteract_Keys, function(v)
+    State.AutoInteract_Keys = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Items", State.AutoInteract_Items, function(v)
+    State.AutoInteract_Items = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Gold", State.AutoInteract_Gold, function(v)
+    State.AutoInteract_Gold = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Drawers", State.AutoInteract_Drawers, function(v)
+    State.AutoInteract_Drawers = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Levers", State.AutoInteract_Levers, function(v)
+    State.AutoInteract_Levers = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto Books / Breakers", State.AutoInteract_Books, function(v)
+    State.AutoInteract_Books = v
+end)
+end
+
+-- =========================================================================
+-- Tab 2: EXPLOITS TAB (Autonomous 1-100 Completer, Knobs Farm, God-Mode & Item Exploits)
+-- =========================================================================
+do
+local exploitsTab = Hub.CreateTab("Exploits", { 
+    Icon = "⚡", 
+    Size = 18, 
+    Color = Color3.fromRGB(255, 60, 60), 
+    ActiveColor = Color3.fromRGB(255, 100, 100) 
+})
+
+Hub.CreateSection(exploitsTab, "Autonomous 1-100 Doors Completer")
+
+Hub.CreateToggle(exploitsTab, "Auto Complete 100 Doors", State.Auto_Complete_100, function(v)
+    State.Auto_Complete_100 = v
+    if v then
+        State.Noclip = true
+        State.Bypass_AntiCheat = true
+        State.Auto_Hide = true
+        State.Auto_RoofEvacuate = true
+        State.Deflect_Glitch = true
+        neutralizeServerTeleported()
+        initAntiGlitchShield()
+        Hub.Notify("Completer", "Autonomous 1-100 Completer Active! Hands-free game completion running.", 4)
+    else
+        Hub.Notify("Completer", "Autonomous 1-100 Completer Paused.", 2)
+    end
+end)
+
+Hub.CreateSection(exploitsTab, "Autonomous Knobs & Death Farm")
+
+Hub.CreateButton(exploitsTab, "Copy Auto Death Farm Script", function()
+    local deathFarmCode = [[-- UnknownHub DOORS Autonomous Death Farm (Auto-Exec Standalone)
+repeat task.wait() until game:IsLoaded()
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+repeat task.wait() until LocalPlayer
+
+local PLACE_LOBBY = 6516141723
+local PLACE_GAME = 6839171747
+
+pcall(function()
+    if getconnections then
+        for _, conn in ipairs(getconnections(LocalPlayer.Idled)) do
+            if conn.Disable then conn:Disable() elseif conn.Disconnect then conn:Disconnect() end
+        end
+    end
+end)
+
+local function log(msg) print("[DeathFarm] " .. tostring(msg)) end
+
+local function queueReplay()
+    if syn and syn.queue_on_teleport then
+        syn.queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/Doors.luau"))
+    elseif queue_on_teleport then
+        queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/Doors.luau"))
+    end
+end
+
+if game.PlaceId == PLACE_LOBBY then
+    log("Lobby reached. Joining elevator...")
+    task.wait(2)
+    local curElevator = Workspace:FindFirstChild("LobbyElevator") or Workspace:FindFirstChild("Elevator")
+    if curElevator then
+        local prompt = curElevator:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then fireproximityprompt(prompt) end
+    end
+    queueReplay()
+elseif game.PlaceId == PLACE_GAME then
+    log("In Game. Starting farm run...")
+    queueReplay()
+end
+]]
+    if setclipboard then
+        setclipboard(deathFarmCode)
+        Hub.Notify("Copied", "Standalone Death Farm Script copied to clipboard!", 3)
+    else
+        Hub.Notify("Error", "Clipboard API unavailable on this executor", 3)
+    end
+end)
+
+Hub.CreateToggle(exploitsTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, function(v)
+    State.Knobs_Farm_Active = v
+    if v then
+        State.Noclip = true
+        State.Bypass_AntiCheat = true
+        State.Auto_RoofEvacuate = true
+        State.Deflect_Glitch = true
+        neutralizeServerTeleported()
+        initAntiGlitchShield()
+        task.spawn(function()
+            while State.Knobs_Farm_Active and _G.DOORS_SESSION == currentSession do
+                local ok, err = pcall(processKnobsFarmStep)
+                if not ok then warn("[Knobs Farm Error]", err) end
+                task.wait(0.2)
+            end
+        end)
+        Hub.Notify("Farm Active", "Autonomous Knobs Farm running! Sit back and collect knobs.", 3)
+    else
+        Hub.Notify("Farm Paused", "Autonomous Knobs Farm disabled.", 2)
+    end
+end)
+
+Hub.CreateSlider(exploitsTab, "Max Gold Quota", 1000, 5000, State.Knobs_Farm_MaxGold or 3500, " gold", function(v)
+    State.Knobs_Farm_MaxGold = v
+end)
+
+Hub.CreateSlider(exploitsTab, "Max Door Quota", 40, 95, State.Knobs_Farm_MaxDoors or 85, " doors", function(v)
+    State.Knobs_Farm_MaxDoors = v
+end)
+
+Hub.CreateToggle(exploitsTab, "Loot Drawers & Desks", State.Knobs_Farm_LootDrawers, function(v)
+    State.Knobs_Farm_LootDrawers = v
+end)
+
+Hub.CreateToggle(exploitsTab, "Unlock Chests (Lockpick)", State.Knobs_Farm_LootChests, function(v)
+    State.Knobs_Farm_LootChests = v
+end)
+
+Hub.CreateToggle(exploitsTab, "Roof Haven on Rush/Ambush", State.Knobs_Farm_RoofEvacuation, function(v)
+    State.Knobs_Farm_RoofEvacuation = v
+end)
+
+Hub.CreateButton(exploitsTab, "Force Match Reset & Play Again", function()
+    local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+    local playAgainRemote = rf and rf:FindFirstChild("PlayAgain")
+    if playAgainRemote and playAgainRemote:IsA("RemoteEvent") then
+        playAgainRemote:FireServer()
+        Hub.Notify("Match Reset", "PlayAgain signal dispatched to server!", 2)
+    else
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.Health = 0 end
+        Hub.Notify("Match Reset", "Resetting character to trigger Play Again UI...", 2)
+    end
+end)
+
+Hub.CreateSection(exploitsTab, "Defense & God-Mode")
+
+Hub.CreateToggle(exploitsTab, "God-Mode (Universal Immunity)", State.God_Mode, function(v)
+    State.God_Mode = v
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, not v) end)
+    end
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanTouch = not v
+                p.CanQuery = not v
+                if v then
+                    pcall(function() p.CollisionGroup = "NoPlayer" end)
+                end
+            end
+        end
+    end
+    Hub.Notify("God-Mode", v and "God-Mode: Enabled (Intangible Hitbox Active)" or "God-Mode: Disabled", 2)
 end)
 
 Hub.CreateSection(exploitsTab, "Item Exploits")
@@ -8593,14 +8824,9 @@ Hub.CreateButton(exploitsTab, "Quick Dupe Held Tool", function()
         Hub.Notify("Dupe", "Equip a tool first to dupe!", 2)
     end
 end)
-
-Hub.CreateToggle(exploitsTab, "Semi-Transparent Closets", State.SemiTransparent_Closet, function(v)
-    State.SemiTransparent_Closet = v
-    Hub.Notify("Visuals", v and "Semi-Transparent Closets: Enabled" or "Semi-Transparent Closets: Disabled", 2)
-end)
 end
 
-local floorTabName = "Floor (" .. tostring(detectedFloor) .. ")"
+local floorTabName = "Floor (" .. tostring(detectedFloor) .. ")" 
 
 do
 local floorTab = Hub.CreateTab(floorTabName, {
@@ -8970,9 +9196,9 @@ Hub.CreateToggle(espTab, "No Fog (Clear Atmosphere)", State.No_Fog, function(v)
     Hub.Notify("Visuals", v and "No Fog: Enabled" or "No Fog: Disabled", 2)
 end)
 
-Hub.CreateToggle(espTab, "Semi-Transparent Closet", State.SemiTransparent_Closet, function(v)
+Hub.CreateToggle(espTab, "Semi-Transparent Closets", State.SemiTransparent_Closet, function(v)
     State.SemiTransparent_Closet = v
-    Hub.Notify("Visuals", v and "Semi-Transparent Closet: Enabled" or "Semi-Transparent Closet: Disabled", 2)
+    Hub.Notify("Visuals", v and "Semi-Transparent Closets: Enabled" or "Semi-Transparent Closets: Disabled", 2)
 end)
 
 Hub.CreateToggle(espTab, "Entity Spawn Notifier", State.Notify_EntitySpawn, function(v)
