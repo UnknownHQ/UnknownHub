@@ -2329,7 +2329,7 @@ task.spawn(function()
             continue
         end
 
-        -- Safe Blindspot Positioning (Elevated Blindspot: Completely evades horizontal ground swipes, bites & AOE)
+        -- Safe Blindspot Positioning (Tight & Elevated: 100% Reach for Melee & Bear Attack while evading front swipes)
         local cf, sz = bear:GetBoundingBox()
         local bearCF = bearRoot.CFrame
         local flatLook = Vector3.new(bearCF.LookVector.X, 0, bearCF.LookVector.Z)
@@ -2337,80 +2337,76 @@ task.spawn(function()
 
         local bName = bear.Name:lower()
         local isBooBoo = bName:find("boo") ~= nil or bName:find("ball") ~= nil or sz.Y < 6.5 or sz.Magnitude < 8
+        local isTallBear = bName:find("tall") ~= nil or sz.Y > 16
         local isRangedBear = bName:find("ranged") or bName:find("spike")
         local isWallBear = bName:find("wall") ~= nil
         local isGrinderBear = bName:find("grinder") or bName:find("robo")
 
-        local targetPos, distBehind, targetY
+        local targetPos, distBehind, elevY
         if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
-            local isBearAttack = Config.FarmMethod == "Bear Attack"
-            
             if isBooBoo then
-                -- Boo-Boo & Ball Bear: Hover 2.2 studs above spine, 2.4 studs behind
-                targetY = cf.Position.Y + (sz.Y * 0.5) + 2.2
-                distBehind = 2.4
-            elseif isGrinderBear then
-                targetY = cf.Position.Y + (sz.Y * 0.5) + 4.5
-                distBehind = (sz.Z * 0.5) + 3.2
-            elseif isWallBear then
-                targetY = cf.Position.Y + (sz.Y * 0.5) + 5.5
-                distBehind = 5.5
-            elseif isRangedBear then
-                targetY = cf.Position.Y + (sz.Y * 0.5) + 3.5
+                distBehind = 2.2
+                elevY = 1.6
+            elseif isTallBear then
                 distBehind = 3.2
+                elevY = 3.6
+            elseif isGrinderBear then
+                distBehind = 3.6
+                elevY = 3.5
+            elseif isWallBear then
+                distBehind = 3.5
+                elevY = 3.0
+            elseif isRangedBear then
+                distBehind = 3.0
+                elevY = 2.2
             else
-                -- Universal standard bears (Medved, Grizzly, ThinBear, IceBear, etc.)
-                -- Elevated +3.2 studs above spine: wild bear horizontal ground swipes completely whiff!
-                targetY = cf.Position.Y + (sz.Y * 0.5) + (isBearAttack and 3.2 or 2.5)
-                distBehind = (sz.Z * 0.5) + 2.5
+                -- Medved, GrizzlyMedved, ThinBear, IceBear, WormBear, ClassicBear, etc.
+                distBehind = 3.0
+                elevY = 2.2
             end
 
-            targetPos = bearRoot.Position - (flatLook * distBehind)
-            targetPos = Vector3.new(targetPos.X, targetY, targetPos.Z)
-            
-            -- Pitch down directly towards the center of the bear
-            root.CFrame = CFrame.lookAt(targetPos, cf.Position)
+            targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
         else
             -- Gun Mode: Safe standoff distance & elevation
             distBehind = 9.0
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 8.0
-            targetPos = bearRoot.Position - (flatLook * distBehind)
-            targetPos = Vector3.new(targetPos.X, targetY, targetPos.Z)
-            root.CFrame = CFrame.lookAt(targetPos, cf.Position)
+            elevY = 6.0
+            targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
         end
+
+        -- Dynamically resolve the CLOSEST hitbox part to the player so server distance checks ALWAYS pass!
+        local targetHitPart = nil
+        local bestPartDist = math.huge
+        local candidatePartNames = {
+            "Hitbox_Hips", "Hitbox_Pelvis", "Hitbox_Chest", "Hitbox_Torso",
+            "Hitbox_Head", "Hitbox_Crown", "Head", "BodyTop", "Ears",
+            "Hitbox_Body", "RootPart", "HumanoidRootPart"
+        }
+        for _, pName in ipairs(candidatePartNames) do
+            local p = bear:FindFirstChild(pName)
+            if p and p:IsA("BasePart") then
+                local d = (p.Position - targetPos).Magnitude
+                if d < bestPartDist then
+                    bestPartDist = d
+                    targetHitPart = p
+                end
+            end
+        end
+        if not targetHitPart then
+            targetHitPart = bearRoot
+        end
+
+        -- Aim and orient character directly facing the closest hit part
+        local aimPos = targetHitPart.Position
+        root.CFrame = CFrame.lookAt(targetPos, aimPos)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
-
-        -- Direct authoritative network hit dispatch (Crown/Head priority with Boo-Boo & custom hitboxes)
-        local targetHitPart
-        if isBooBoo then
-            targetHitPart = bear:FindFirstChild("HumanoidRootPart")
-                or bear:FindFirstChild("RootPart")
-                or bear:FindFirstChild("Hitbox_Head")
-                or bear:FindFirstChild("Hitbox_Body")
-                or bear:FindFirstChild("Cube")
-                or bearRoot
-        elseif isRangedBear then
-            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bearRoot
-        else
-            targetHitPart = bear:FindFirstChild("Hitbox_Crown")
-                or bear:FindFirstChild("Hitbox_Head")
-                or bear:FindFirstChild("Head")
-                or bear:FindFirstChild("BodyTop")
-                or bear:FindFirstChild("Ears")
-                or bear:FindFirstChild("Hitbox_Chest")
-                or bear:FindFirstChild("Hitbox_Torso")
-                or bearRoot
-        end
-
-        local aimPos = targetHitPart and (targetHitPart.Position + Vector3.new(0, 0.4, 0)) or (cf.Position + Vector3.new(0, 0.4, 0))
 
         -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved, Melee Reach Guaranteed & Flamethrower)
         if Config.FarmMethod == "Melee" then
             if bestTool then
                 applyWeaponMods(bestTool)
-                -- Execute melee swing from safe blindspot without stalling if bear turns
-                if tick() - lastMeleeSwing >= 0.20 then
+                -- Execute melee swing from tight blindspot with dual network dispatch
+                if tick() - lastMeleeSwing >= 0.16 then
                     lastMeleeSwing = tick()
                     pcall(function()
                         bestTool:Activate()
@@ -2422,13 +2418,10 @@ task.spawn(function()
                         pcall(function()
                             meleeRemote:FireServer("Hit", targetHitPart)
                         end)
-                        if isBooBoo then
-                            local altPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("RootPart")
-                            if altPart and altPart ~= targetHitPart then
-                                pcall(function()
-                                    meleeRemote:FireServer("Hit", altPart)
-                                end)
-                            end
+                        if bearRoot and bearRoot ~= targetHitPart then
+                            pcall(function()
+                                meleeRemote:FireServer("Hit", bearRoot)
+                            end)
                         end
                     end
                 end
