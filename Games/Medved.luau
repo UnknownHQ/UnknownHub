@@ -2293,15 +2293,9 @@ task.spawn(function()
                     end
                 end)
             end
-            -- Autonomous Friendly Stance Enforcement: Attacks wild bears & player/turrets cannot damage user
+            -- Autonomous Friendly Stance Enforcement (Guarded against toggle-cancel)
             if char:GetAttribute("Stance") ~= "Friendly" then
-                pcall(function()
-                    local RS = game:GetService("ReplicatedStorage")
-                    local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
-                    if bearAbility then
-                        bearAbility:FireServer("Stance")
-                    end
-                end)
+                ensureFriendlyStance(char)
             end
         end
 
@@ -2329,7 +2323,7 @@ task.spawn(function()
             continue
         end
 
-        -- Safe Blindspot Positioning (Tight & Elevated: 100% Reach for Melee & Bear Attack while evading front swipes)
+        -- Safe Blindspot Positioning (Mathematically calibrated tight elevations for 100% hit reach on all bears)
         local cf, sz = bear:GetBoundingBox()
         local bearCF = bearRoot.CFrame
         local flatLook = Vector3.new(bearCF.LookVector.X, 0, bearCF.LookVector.Z)
@@ -2341,23 +2335,29 @@ task.spawn(function()
         local isRangedBear = bName:find("ranged") or bName:find("spike")
         local isWallBear = bName:find("wall") ~= nil
         local isGrinderBear = bName:find("grinder") or bName:find("robo")
+        local myBearName = (char:GetAttribute("TransformedToBear") or ""):lower()
+        local amBooBoo = myBearName:find("boo") ~= nil or myBearName:find("ball") ~= nil
 
         local targetPos, distBehind, elevY
         if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
             if isBooBoo then
-                distBehind = 2.2
-                elevY = 1.6
+                -- When attacking Boo-Boo (especially Boo-Boo vs Boo-Boo):
+                -- Miniature 0.56 scale bears have shorter swipe radius; position tightly at 1.8 studs behind, 1.2 studs elevation
+                distBehind = amBooBoo and 1.8 or 2.2
+                elevY = amBooBoo and 1.2 or 1.5
             elseif isTallBear then
+                -- Tall Bear is 21 studs tall; anchor directly behind pelvis at Y +3.8
                 distBehind = 3.2
-                elevY = 3.6
+                elevY = 3.8
             elseif isGrinderBear then
-                distBehind = 3.6
+                -- Grinder is 36 studs tall; anchor behind torso hub below shoulder cannons
+                distBehind = 3.5
                 elevY = 3.5
             elseif isWallBear then
-                distBehind = 3.5
-                elevY = 3.0
+                distBehind = 3.2
+                elevY = 2.5
             elseif isRangedBear then
-                distBehind = 3.0
+                distBehind = 2.8
                 elevY = 2.2
             else
                 -- Medved, GrizzlyMedved, ThinBear, IceBear, WormBear, ClassicBear, etc.
@@ -2366,6 +2366,12 @@ task.spawn(function()
             end
 
             targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
+        else
+            -- Gun Mode: Safe standoff distance & elevation
+            distBehind = 9.0
+            elevY = 6.0
+            targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
+        end
         else
             -- Gun Mode: Safe standoff distance & elevation
             distBehind = 9.0
@@ -2501,31 +2507,53 @@ end)
 
 -- =========================================================================
 -- Autonomous Bear Friendly Stance Daemon
--- Ensures player bear remains in Friendly stance at all times (attacks wild bears & immune to players/turrets)
--- =========================================================================
+-- Ensures player bear transitions cleanly to Friendly stance without rapid toggle cancellation
+local lastStanceRequest = 0
+local function ensureFriendlyStance(char)
+    if not char then return end
+    if not char:GetAttribute("TransformedToBear") then return end
+    if char:GetAttribute("Stance") == "Friendly" then return end
+
+    local RS = game:GetService("ReplicatedStorage")
+    local bs = RS:FindFirstChild("BearStance")
+    if bs then
+        local ok, mod = pcall(require, bs)
+        if ok and mod then
+            -- If already actively switching, DO NOT fire again; allow the 5-second countdown to finish!
+            if mod.Switching and mod.Switching(char) then
+                return
+            end
+            if mod.CanGoFriendly and not mod.CanGoFriendly(char) then
+                return
+            end
+        end
+    end
+
+    if tick() - lastStanceRequest >= 6.0 then
+        lastStanceRequest = tick()
+        pcall(function()
+            local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
+            local bearAbility = pb and pb:FindFirstChild("BearAbility")
+            if bearAbility then
+                bearAbility:FireServer("Stance")
+            end
+        end)
+    end
+end
+
 task.spawn(function()
     while true do
-        task.wait(0.4)
+        task.wait(0.5)
         if Config.AutoFriendlyBear or (Config.AutoFarmBears and Config.FarmMethod == "Bear Attack") then
             local char = LocalPlayer.Character
             if char and char:GetAttribute("TransformedToBear") then
-                local stance = char:GetAttribute("Stance")
-                if stance ~= "Friendly" then
-                    pcall(function()
-                        local RS = game:GetService("ReplicatedStorage")
-                        local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
-                        if bearAbility then
-                            bearAbility:FireServer("Stance")
-                        end
-                    end)
-                end
+                ensureFriendlyStance(char)
             end
         end
     end
 end)
 
--- =========================================================================
--- Native Fly-Noclip Engine (Bypass Physics Collisions & Anti-Cheat Safe)
+-- Native Fly-Noclip Engine-- Native Fly-Noclip Engine (Bypass Physics Collisions & Anti-Cheat Safe)
 -- =========================================================================
 local flyConnection = nil
 local noclipConnection = nil
