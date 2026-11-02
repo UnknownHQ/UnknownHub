@@ -134,7 +134,7 @@ local Config = {
     AutoFarmBears = false,
     FarmMethod = "Gun", -- "Gun", "Melee", or "Bear Attack"
     SpawnAsBear = "booboo",
-    AutoFriendlyBear = true,
+    AutoFriendlyBear = false,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -2156,36 +2156,48 @@ RunService.Heartbeat:Connect(function(dt)
     local isRagdolled = char:FindFirstChild("RagdollTag") ~= nil
         or hum:GetState() == Enum.HumanoidStateType.Physics
         or hum:GetState() == Enum.HumanoidStateType.Ragdoll
-        or hum.PlatformStanding
-        or char:GetAttribute("BoneRagdolled") ~= nil
+        or (hum.PlatformStand == true)
+        or (char.GetAttribute and char:GetAttribute("BoneRagdolled") ~= nil)
 
     if isRagdolled then
         if Config.AntiRagdoll then
             recoverFromRagdoll()
-        else
+        elseif not Config.AutoFarmBears then
             if not root.CanCollide then root.CanCollide = true end
             return
         end
     end
 
     -- Butter-Smooth 60 FPS Levitation Flight (Auto Farm Bears)
-    -- Continuous aerodynamic gliding without teleport snapping or physics desync
+    -- Continuous aerodynamic gliding across the map and tight orbiting around the bear
     if Config.AutoFarmBears and not isFleeingLowHP and activeFlightTargetCF then
         local currentCF = root.CFrame
         local targetCF = activeFlightTargetCF
         local dist = (currentCF.Position - targetCF.Position).Magnitude
 
-        if dist > 85 then
-            -- Initial transition for far targets across the map
+        if dist > 350 then
+            -- Extreme boundary map transition
             root.CFrame = targetCF
         else
-            -- 60 FPS continuous smooth lerp flight: glides seamlessly through the air
-            local alpha = math.clamp(dt * 15, 0.18, 0.55)
-            root.CFrame = currentCF:Lerp(targetCF, alpha)
+            -- Continuous high-speed flight glide straight to and orbiting around the bear
+            local flightSpeed = Config.FlySpeed or 85
+            local stepDist = flightSpeed * dt
+            if dist > stepDist then
+                local moveDir = (targetCF.Position - currentCF.Position).Unit
+                local newPos = currentCF.Position + (moveDir * stepDist)
+                local targetLook = targetCF.LookVector
+                local alpha = math.clamp(dt * 14, 0.15, 0.55)
+                local newLook = currentCF.LookVector:Lerp(targetLook, alpha)
+                root.CFrame = CFrame.lookAt(newPos, newPos + newLook)
+            else
+                local alpha = math.clamp(dt * 18, 0.25, 0.70)
+                root.CFrame = currentCF:Lerp(targetCF, alpha)
+            end
         end
 
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
+        if root.CanCollide then root.CanCollide = false end
     else
         if not Config.FlyNoclip and not root.CanCollide then
             root.CanCollide = true
@@ -2262,6 +2274,7 @@ end
 -- Ensures player bear transitions cleanly to Friendly stance without rapid toggle cancellation
 local lastStanceRequest = 0
 local function ensureFriendlyStance(char)
+    if not Config.AutoFriendlyBear or not Config.AutoFarmBears then return end
     if not char then return end
     if not char:GetAttribute("TransformedToBear") then return end
     if char:GetAttribute("Stance") == "Friendly" then return end
@@ -2578,6 +2591,13 @@ task.spawn(function()
         activeFlightBear = bear
 
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
+        -- Range Guard: Only execute attacks when flight has brought the player into combat range!
+        local currentDistToTarget = (root.Position - targetPos).Magnitude
+        local canStrike = currentDistToTarget <= (isBigPlayerBear and 16.0 or 11.0)
+        if not canStrike then
+            task.wait(0.04)
+            continue
+        end
         if Config.FarmMethod == "Melee" then
             if lastEngagedBear ~= bear then
                 lastEngagedBear = bear
@@ -2689,8 +2709,9 @@ task.spawn(function()
                 end
 
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Primary Fire)
-                -- If no variant was fired this frame, fire Default M1 immediately on frame 0!
-                if not dispatchedVariant and isAbilityReady("Default") and tick() - lastDefaultM1Attack >= 0.16 then
+                -- Cadence matched to actual attack animation to eliminate manic spamming
+                local m1Cadence = amBooBoo and 1.65 or (isBigPlayerBear and 1.45 or 1.35)
+                if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= m1Cadence or lastDefaultM1Attack == 0) then
                     lastDefaultM1Attack = tick()
                     if bearAim and targetHitPart then
                         pcall(function()
@@ -2700,15 +2721,7 @@ task.spawn(function()
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", aimPos)
                     end)
-                    local defaultCd = 1.5
-                    if amBooBoo then
-                        defaultCd = 1.7
-                    elseif isBigPlayerBear then
-                        defaultCd = 1.5
-                    else
-                        defaultCd = 1.4
-                    end
-                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + defaultCd
+                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + m1Cadence
                 end
 
                 -- 4. Also activate tool if held
@@ -2728,7 +2741,7 @@ end)
 task.spawn(function()
     while true do
         task.wait(0.5)
-        if Config.AutoFriendlyBear or (Config.AutoFarmBears and Config.FarmMethod == "Bear Attack") then
+        if Config.AutoFriendlyBear and Config.AutoFarmBears then
             local char = LocalPlayer.Character
             if char and char:GetAttribute("TransformedToBear") then
                 ensureFriendlyStance(char)
@@ -3205,11 +3218,6 @@ Hub.CreateDropdown(farmTab, "Spawn as", getPlayableBearsList(), Config.SpawnAsBe
             end
             if s then
                 Hub.Notify("Bear Spawn", "Spawned as " .. val .. "!", 3)
-                task.wait(0.25)
-                local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
-                if bearAbility then
-                    bearAbility:FireServer("Stance")
-                end
             else
                 Hub.Notify("Bear Spawn", "Could not spawn as " .. val .. ": " .. tostring(err), 3)
             end
