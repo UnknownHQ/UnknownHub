@@ -2191,6 +2191,42 @@ local function getBearAttackVariants(char)
     return variants
 end
 
+-- =========================================================================
+-- Autonomous Bear Friendly Stance Daemon
+-- Ensures player bear transitions cleanly to Friendly stance without rapid toggle cancellation
+local lastStanceRequest = 0
+local function ensureFriendlyStance(char)
+    if not char then return end
+    if not char:GetAttribute("TransformedToBear") then return end
+    if char:GetAttribute("Stance") == "Friendly" then return end
+
+    local RS = game:GetService("ReplicatedStorage")
+    local bs = RS:FindFirstChild("BearStance")
+    if bs then
+        local ok, mod = pcall(require, bs)
+        if ok and mod then
+            -- If already actively switching, DO NOT fire again; allow the 5-second countdown to finish!
+            if mod.Switching and mod.Switching(char) then
+                return
+            end
+            if mod.CanGoFriendly and not mod.CanGoFriendly(char) then
+                return
+            end
+        end
+    end
+
+    if tick() - lastStanceRequest >= 6.0 then
+        lastStanceRequest = tick()
+        pcall(function()
+            local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
+            local bearAbility = pb and pb:FindFirstChild("BearAbility")
+            if bearAbility then
+                bearAbility:FireServer("Stance")
+            end
+        end)
+    end
+end
+
 -- Pipeline 2: Autonomous Combat & Target Acquisition Loop
 task.spawn(function()
     while true do
@@ -2499,41 +2535,7 @@ task.spawn(function()
     end
 end)
 
--- =========================================================================
--- Autonomous Bear Friendly Stance Daemon
--- Ensures player bear transitions cleanly to Friendly stance without rapid toggle cancellation
-local lastStanceRequest = 0
-local function ensureFriendlyStance(char)
-    if not char then return end
-    if not char:GetAttribute("TransformedToBear") then return end
-    if char:GetAttribute("Stance") == "Friendly" then return end
 
-    local RS = game:GetService("ReplicatedStorage")
-    local bs = RS:FindFirstChild("BearStance")
-    if bs then
-        local ok, mod = pcall(require, bs)
-        if ok and mod then
-            -- If already actively switching, DO NOT fire again; allow the 5-second countdown to finish!
-            if mod.Switching and mod.Switching(char) then
-                return
-            end
-            if mod.CanGoFriendly and not mod.CanGoFriendly(char) then
-                return
-            end
-        end
-    end
-
-    if tick() - lastStanceRequest >= 6.0 then
-        lastStanceRequest = tick()
-        pcall(function()
-            local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
-            local bearAbility = pb and pb:FindFirstChild("BearAbility")
-            if bearAbility then
-                bearAbility:FireServer("Stance")
-            end
-        end)
-    end
-end
 
 task.spawn(function()
     while true do
