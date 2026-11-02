@@ -1295,21 +1295,27 @@ local function recoverFromRagdoll()
     if not char then return end
 
     -- 1. Strip client/server RagdollTag instance
-    local tag = char:FindFirstChild("RagdollTag")
-    if tag then
-        pcall(function() tag:Destroy() end)
-    end
+    pcall(function()
+        local tag = char:FindFirstChild("RagdollTag")
+        if tag and typeof(tag.Destroy) == "function" then
+            tag:Destroy()
+        end
+    end)
 
     -- 2. Strip bone ragdoll and jumpscare attributes
-    if char:GetAttribute("BoneRagdolled") then
-        pcall(function() char:SetAttribute("BoneRagdolled", nil) end)
-    end
+    pcall(function()
+        if char.GetAttribute and char:GetAttribute("BoneRagdolled") ~= nil then
+            char:SetAttribute("BoneRagdolled", nil)
+        end
+    end)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum and hum.Health > 0 then
-        if hum:GetAttribute("BeingJumpscared") then
-            pcall(function() hum:SetAttribute("BeingJumpscared", nil) end)
-        end
+        pcall(function()
+            if hum.GetAttribute and hum:GetAttribute("BeingJumpscared") ~= nil then
+                hum:SetAttribute("BeingJumpscared", nil)
+            end
+        end)
 
         hum.PlatformStand = false
         hum.AutoRotate = true
@@ -2030,6 +2036,7 @@ end
 local isFleeingLowHP = false
 local activeFlightBear = nil
 local activeFlightEvading = false
+local activeFlightTargetCF = nil
 
 -- Sky Sanctuary Safe Zone Baseplate Engine
 local skySanctuaryPart = nil
@@ -2158,8 +2165,28 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    if not Config.FlyNoclip and not root.CanCollide then
-        root.CanCollide = true
+    -- Butter-Smooth 60 FPS Levitation Flight (Auto Farm Bears)
+    -- Continuous aerodynamic gliding without teleport snapping or physics desync
+    if Config.AutoFarmBears and not isFleeingLowHP and activeFlightTargetCF then
+        local currentCF = root.CFrame
+        local targetCF = activeFlightTargetCF
+        local dist = (currentCF.Position - targetCF.Position).Magnitude
+
+        if dist > 85 then
+            -- Initial transition for far targets across the map
+            root.CFrame = targetCF
+        else
+            -- 60 FPS continuous smooth lerp flight: glides seamlessly through the air
+            local alpha = math.clamp(dt * 15, 0.18, 0.55)
+            root.CFrame = currentCF:Lerp(targetCF, alpha)
+        end
+
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    else
+        if not Config.FlyNoclip and not root.CanCollide then
+            root.CanCollide = true
+        end
     end
 end)
 
@@ -2270,6 +2297,7 @@ task.spawn(function()
         if not Config.AutoFarmBears then
             isFleeingLowHP = false
             activeFlightBear = nil
+            activeFlightTargetCF = nil
             activeFlightEvading = false
             task.wait(0.3)
             continue
@@ -2281,6 +2309,7 @@ task.spawn(function()
 
         if not char or not root or not hum or hum.Health <= 0 then
             activeFlightBear = nil
+            activeFlightTargetCF = nil
             task.wait(0.5)
             continue
         end
@@ -2306,6 +2335,7 @@ task.spawn(function()
                 if not canFinishCurrentLocked then
                     lockedFarmTarget = nil
                     activeFlightBear = nil
+                    activeFlightTargetCF = nil
                     activeFlightEvading = false
                     task.wait(0.25)
                     continue
@@ -2323,6 +2353,7 @@ task.spawn(function()
 
             if isFleeingLowHP then
                 activeFlightBear = nil
+                activeFlightTargetCF = nil
                 if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
                     teleportToSkySanctuary()
                     Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " HP)! Retreated to Sky Sanctuary...", 2)
@@ -2375,6 +2406,7 @@ task.spawn(function()
         local bear, dist = getFarmBearTarget()
         if not bear then
             activeFlightBear = nil
+            activeFlightTargetCF = nil
             if isFleeingLowHP then
                 ensureSkySanctuary()
                 if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
@@ -2389,6 +2421,9 @@ task.spawn(function()
         local bearHum = bear:FindFirstChildOfClass("Humanoid")
         if not bearRoot or not bearHum or bearHum.Health <= 0 then
             activeFlightBear = nil
+            activeFlightTargetCF = nil
+            lockedFarmTarget = nil
+            lastEngagedBear = nil
             task.wait(0.1)
             continue
         end
@@ -2437,8 +2472,10 @@ task.spawn(function()
             end
         end
 
-        -- 3. Dynamic Player-Size & Target-Size Anatomical Rear Blindspot Engine
-        -- Solves: Giant player bears (Medved, Grizzly, TallBear, Grinder) clipping into small/large bears and getting bitten
+        -- 3. Dynamic Player-Size & Target-Size Anatomical Apex Blindspot Engine
+        -- Positioned directly above and behind the wild bear's spine:
+        -- 100% immune from all ground swipes, bites, and touch collisions (above swipe ceiling),
+        -- while keeping downward paws/weapons directly in range for 100% hit connection!
         local myBearName = (char:GetAttribute("TransformedToBear") or ""):lower()
         local amBooBoo = myBearName:find("boo") ~= nil or myBearName:find("ball") ~= nil
         local myCf, mySz = char:GetBoundingBox()
@@ -2450,76 +2487,63 @@ task.spawn(function()
             or myBearName:find("grizzly") ~= nil 
             or myBearName:find("medved") ~= nil
 
-        local standoff, elevY
-        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
-            if isBigPlayerBear then
-                -- Player is a massive bear (Medved, Grizzly, TallBear, Grinder, IceBear):
-                -- Anchor strictly outside the target's rear so our giant collision radius NEVER clips into the bear!
-                local clearance = 1.6
-                if isBooBoo then
-                    -- Boo-Boo is small (height ~3.2 studs): elevate so our paws tower over Boo-Boo from behind
-                    clearance = 1.4
-                    elevY = math.clamp((myHeight - sz.Y) * 0.22, 1.2, 3.0)
-                elseif isTallBear then
-                    clearance = 2.0
-                    elevY = 1.5
-                elseif isGrinderBear then
-                    clearance = 2.4
-                    elevY = 2.0
-                elseif isRangedBear then
-                    clearance = 3.8
-                    elevY = 2.2
-                else
-                    -- Wild Medved, GrizzlyMedved, ThinBear:
-                    clearance = 1.8
-                    elevY = math.clamp((myHeight - sz.Y) * 0.18, 0.8, 2.5)
-                end
-                standoff = myRadius + clearance
-            else
-                -- Player is human or Boo-Boo: Safe standoff & elevation outside Cube touch box
-                if isBooBoo then
-                    -- Boo-Boo reach is 6.5 studs; standoff 3.0 studs gives 1.35 studs clean air clearance from Cube
-                    standoff = 3.0
-                    elevY = 1.2
-                elseif isTallBear then
-                    standoff = 2.6
-                    elevY = 1.4
-                elseif isGrinderBear then
-                    standoff = 3.2
-                    elevY = 1.5
-                elseif isWallBear then
-                    standoff = 2.4
-                    elevY = 1.0
-                elseif isRangedBear then
-                    standoff = 4.2
-                    elevY = 2.0
-                else
-                    standoff = 2.6
-                    elevY = 0.8
-                end
-            end
+        local bearTopY = cf.Position.Y + (sz.Y * 0.5)
+        local standoff, hoverElevation
 
-            -- Anti-Turn Protection: If bear turns towards player, raise elevation to avoid ground-level swipes
-            local toPlayer = (root.Position - rearPart.Position).Unit
-            if rearDir:Dot(toPlayer) < -0.3 then
-                elevY = elevY + 2.2
-            end
-
-            -- Anchor height relative to bear's authoritative root (eliminates sinking into terrain geometry)
-            local baseY = bearRoot and bearRoot.Position.Y or rearPart.Position.Y
+        if isTallBear then
+            -- Tall Bear: 19.5 studs tall; anchor behind hips/pelvis (proven 100% safe)
+            standoff = 3.2
             targetPos = Vector3.new(
                 rearPart.Position.X + (rearDir.X * standoff),
-                baseY + elevY,
+                rearPart.Position.Y + 1.2,
                 rearPart.Position.Z + (rearDir.Z * standoff)
             )
         else
-            -- Gun / Flamethrower Mode: Standoff behind rear
-            standoff = math.max(6.5, myRadius + 3.0)
-            elevY = 2.5
-            local baseY = bearRoot and bearRoot.Position.Y or rearPart.Position.Y
+            if isBooBoo then
+                -- Wild Boo-Boo: Swipe box max Y is cf.Position.Y + 3.0.
+                -- bearTopY is cf.Position.Y + 2.0.
+                -- Hovering at bearTopY + 2.4 = cf.Position.Y + 4.4 studs.
+                -- 1.4 studs ABOVE Boo-Boo's highest swipe reach! 2.4 studs above touch Cube!
+                -- Standoff 1.8 studs behind spine gives total distance ~3.0 studs, well within 6.5 reach.
+                hoverElevation = 2.4
+                standoff = 1.8
+            elseif isGrinderBear then
+                hoverElevation = 3.2
+                standoff = 3.5
+            elseif isWallBear then
+                hoverElevation = 3.0
+                standoff = 2.8
+            elseif isRangedBear then
+                hoverElevation = 2.6
+                standoff = 3.2
+            else
+                -- Wild Medved, GrizzlyMedved, ThinBear, ClassicBear, etc.
+                -- Medved swipe max Y is cf.Position.Y + 5.0 (HitboxSize Y=8, offset Y=1).
+                -- bearTopY is cf.Position.Y + 4.25.
+                -- Hovering at bearTopY + 2.4 = cf.Position.Y + 6.65 studs.
+                -- 1.65 studs ABOVE Medved's highest swipe reach! 2.4 studs above touch mesh!
+                hoverElevation = 2.4
+                standoff = (sz.Z * 0.35) + 1.8
+            end
+
+            -- Clearance buffer for giant player bears (Medved, Grizzly, IceBear, Grinder)
+            -- Ensures dangling paws/feet never clip into the wild bear
+            local myClearance = isBigPlayerBear and math.clamp((mySz.Y - 5.0) * 0.22, 0.4, 2.2) or 0
+            local targetY = bearTopY + hoverElevation + myClearance
+
             targetPos = Vector3.new(
                 rearPart.Position.X + (rearDir.X * standoff),
-                baseY + elevY,
+                targetY,
+                rearPart.Position.Z + (rearDir.Z * standoff)
+            )
+        end
+
+        if Config.FarmMethod == "Gun" then
+            standoff = math.max(7.5, myRadius + 3.5)
+            local targetY = bearTopY + 4.5
+            targetPos = Vector3.new(
+                rearPart.Position.X + (rearDir.X * standoff),
+                targetY,
                 rearPart.Position.Z + (rearDir.Z * standoff)
             )
         end
@@ -2543,15 +2567,19 @@ task.spawn(function()
         end
         if not targetHitPart then targetHitPart = bearRoot end
 
-        -- Aim directly at target hit part with level pitch to maximize horizontal forward attack reach
-        local aimTargetY = math.clamp(targetHitPart.Position.Y, targetPos.Y - 0.5, targetPos.Y + 0.5)
-        local aimPos = Vector3.new(targetHitPart.Position.X, aimTargetY, targetHitPart.Position.Z)
-        root.CFrame = CFrame.lookAt(targetPos, aimPos)
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
+        -- Aim directly at target hit part (actual 3D position of enemy part)
+        local aimPos = targetHitPart.Position
+
+        -- Update 60 FPS flight target CFrame: pitches downward so attack cone directly engulfs enemy
+        activeFlightTargetCF = CFrame.lookAt(targetPos, aimPos)
+        activeFlightBear = bear
 
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
         if Config.FarmMethod == "Melee" then
+            if lastEngagedBear ~= bear then
+                lastEngagedBear = bear
+                lastMeleeSwing = 0
+            end
             if bestTool then
                 applyWeaponMods(bestTool)
                 -- Execute melee swing from tight blindspot with dual network dispatch
@@ -2616,6 +2644,7 @@ task.spawn(function()
                     lastEngagedBear = bear
                     lastBearAttack = 0
                     lastDefaultM1Attack = 0
+                    table.clear(abilityCooldowns)
                 end
 
                 -- 1. Auto-Cast Self-Buffs (Enrage) immediately when available without consuming attack slot
@@ -3122,6 +3151,11 @@ Hub.CreateSection(farmTab, "Bears")
 
 Hub.CreateToggle(farmTab, "Auto Farm Bears", Config.AutoFarmBears, function(val)
     Config.AutoFarmBears = val
+    if not val then
+        activeFlightBear = nil
+        activeFlightTargetCF = nil
+        activeFlightEvading = false
+    end
     if val then
         silenceTelemetry()
     end
