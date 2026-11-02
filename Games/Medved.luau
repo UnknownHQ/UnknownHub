@@ -2194,7 +2194,7 @@ end)
 local function isAbilityReady(slot)
     local cd = abilityCooldowns[tostring(slot)] or abilityCooldowns[slot]
     if not cd then return true end
-    return workspace:GetServerTimeNow() >= (cd - 0.05)
+    return workspace:GetServerTimeNow() >= cd
 end
 
 -- Universal Bear Ability Variant Discovery: Returns ordered list of active/unlocked hotbar numeric slots (1..N)
@@ -2476,50 +2476,76 @@ task.spawn(function()
                 end
                 standoff = myRadius + clearance
             else
-                -- Player is human or Boo-Boo: Tight calibrated blindspot
+                -- Player is human or Boo-Boo: Safe standoff & elevation outside Cube touch box
                 if isBooBoo then
-                    standoff = amBooBoo and 1.4 or 1.8
-                    elevY = 0.3
-                elseif isTallBear then
-                    standoff = 2.2
+                    -- Boo-Boo reach is 6.5 studs; standoff 3.0 studs gives 1.35 studs clean air clearance from Cube
+                    standoff = 3.0
                     elevY = 1.2
-                elseif isGrinderBear then
+                elseif isTallBear then
                     standoff = 2.6
-                    elevY = 1.0
+                    elevY = 1.4
+                elseif isGrinderBear then
+                    standoff = 3.2
+                    elevY = 1.5
                 elseif isWallBear then
-                    standoff = 1.8
-                    elevY = 0.8
+                    standoff = 2.4
+                    elevY = 1.0
                 elseif isRangedBear then
-                    standoff = 3.8
-                    elevY = 1.6
+                    standoff = 4.2
+                    elevY = 2.0
                 else
-                    standoff = amBooBoo and 1.6 or 2.2
-                    elevY = 0.6
+                    standoff = 2.6
+                    elevY = 0.8
                 end
             end
 
-            -- Anti-Turn Protection: If bear turns towards player, slightly raise elevation to avoid ground-level swipes
+            -- Anti-Turn Protection: If bear turns towards player, raise elevation to avoid ground-level swipes
             local toPlayer = (root.Position - rearPart.Position).Unit
             if rearDir:Dot(toPlayer) < -0.3 then
-                elevY = elevY + 2.0
+                elevY = elevY + 2.2
             end
 
-            targetPos = rearPart.Position + (rearDir * standoff) + Vector3.new(0, elevY, 0)
+            -- Anchor height relative to bear's authoritative root (eliminates sinking into terrain geometry)
+            local baseY = bearRoot and bearRoot.Position.Y or rearPart.Position.Y
+            targetPos = Vector3.new(
+                rearPart.Position.X + (rearDir.X * standoff),
+                baseY + elevY,
+                rearPart.Position.Z + (rearDir.Z * standoff)
+            )
         else
             -- Gun / Flamethrower Mode: Standoff behind rear
             standoff = math.max(6.5, myRadius + 3.0)
             elevY = 2.5
-            targetPos = rearPart.Position + (rearDir * standoff) + Vector3.new(0, elevY, 0)
+            local baseY = bearRoot and bearRoot.Position.Y or rearPart.Position.Y
+            targetPos = Vector3.new(
+                rearPart.Position.X + (rearDir.X * standoff),
+                baseY + elevY,
+                rearPart.Position.Z + (rearDir.Z * standoff)
+            )
         end
 
-        -- 4. Target Hit Part: Prioritize rear hit parts (Hips, Pelvis, Body, Wheel) so attacks NEVER face the mouth
-        local targetHitPart = rearPart
-        if not targetHitPart or not targetHitPart.Parent then
-            targetHitPart = bearRoot
+        -- 4. Target Hit Part: Prioritize verified queryable rear hit parts so attacks NEVER face the mouth
+        local targetHitPart = nil
+        local rearCandidates = {
+            bear:FindFirstChild("Hitbox_Hips"),
+            bear:FindFirstChild("Hitbox_Pelvis"),
+            bear:FindFirstChild("Hitbox_Body"),
+            bear:FindFirstChild("Hitbox_Wheel"),
+            bear:FindFirstChild("Hitbox_Chest"),
+            bear:FindFirstChild("HumanoidRootPart"),
+            bearRoot
+        }
+        for _, part in ipairs(rearCandidates) do
+            if part and part:IsA("BasePart") and part.Parent and part.CanQuery then
+                targetHitPart = part
+                break
+            end
         end
+        if not targetHitPart then targetHitPart = bearRoot end
 
-        -- Aim directly at the rear hit part from behind
-        local aimPos = targetHitPart.Position
+        -- Aim directly at target hit part with level pitch to maximize horizontal forward attack reach
+        local aimTargetY = math.clamp(targetHitPart.Position.Y, targetPos.Y - 0.5, targetPos.Y + 0.5)
+        local aimPos = Vector3.new(targetHitPart.Position.X, aimTargetY, targetHitPart.Position.Z)
         root.CFrame = CFrame.lookAt(targetPos, aimPos)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
@@ -2642,7 +2668,14 @@ task.spawn(function()
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", aimPos)
                     end)
-                    local defaultCd = isBigPlayerBear and 1.2 or 0.9
+                    local defaultCd = 1.5
+                    if amBooBoo then
+                        defaultCd = 1.7
+                    elseif isBigPlayerBear then
+                        defaultCd = 1.5
+                    else
+                        defaultCd = 1.4
+                    end
                     abilityCooldowns["Default"] = workspace:GetServerTimeNow() + defaultCd
                 end
 
