@@ -1039,6 +1039,11 @@ local function getBearBottomRearPart(bear)
     return hrp or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
 end
 
+local function normalizeBearName(s)
+    if not s or type(s) ~= "string" then return "" end
+    return s:lower():gsub("[%s%-_]", "")
+end
+
 local function isFriendlyBearOrPlayer(b)
     if not b or not b.Parent then return true end
     if b == LocalPlayer.Character or b.Name == LocalPlayer.Name then return true end
@@ -1050,15 +1055,11 @@ local function isFriendlyBearOrPlayer(b)
         return true
     end
 
-    -- Explicit friendly stance flag
-    if b:GetAttribute("Stance") == "Friendly" then
-        return true
-    end
-
-    -- Player bears with friendly / peaceful mode active
+    -- Player bears with friendly / peaceful mode active (only check on player characters)
     local plr = Players:GetPlayerFromCharacter(b)
     if plr then
-        if plr:GetAttribute("Friendly") == true or plr:GetAttribute("FriendlyMode") == true
+        if b:GetAttribute("Stance") == "Friendly"
+            or plr:GetAttribute("Friendly") == true or plr:GetAttribute("FriendlyMode") == true
             or plr:GetAttribute("Peaceful") == true or plr:GetAttribute("Peace") == true
             or plr:GetAttribute("PvP") == false or plr:GetAttribute("PVP") == false
             or b:GetAttribute("Friendly") == true or b:GetAttribute("FriendlyMode") == true
@@ -1120,8 +1121,7 @@ local function isBearTargetable(b)
         return false
     end
 
-    -- 2. Friendly Bear / Player in Friendly Mode Protection:
-    -- Attacks ALL hostile wild bears & non-friendly player bears, but STRICTLY protects friendly ones!
+    -- 2. Friendly Bear / Player in Friendly Mode Protection
     if isFriendlyBearOrPlayer(b) then
         return false
     end
@@ -1135,16 +1135,48 @@ local function isBearTargetable(b)
     return true
 end
 
--- Authoritative Bear Multi-Selection Validator
+-- Authoritative Bear Multi-Selection Validator (Ultra-Resilient Fuzzy & Multi-Select)
 local function isBearTargetSelected(b)
     if not b or not isBearTargetable(b) then return false end
 
-    -- Check Multi-Select state dict
+    -- Check Multi-Select state dict / array
     if Config.SelectedBears and type(Config.SelectedBears) == "table" then
-        if Config.SelectedBears["All"] then
+        if Config.SelectedBears["All"] == true or Config.SelectedBears[1] == "All" then
             return true
         end
-        return Config.SelectedBears[b.Name] == true
+
+        local bNameNorm = normalizeBearName(b.Name)
+
+        -- 1. Direct dictionary match
+        if Config.SelectedBears[b.Name] == true then
+            return true
+        end
+
+        -- 2. Normalized key / value match
+        local hasAnySelection = false
+        for k, v in pairs(Config.SelectedBears) do
+            if v == true then
+                hasAnySelection = true
+                local kNorm = normalizeBearName(k)
+                if kNorm == bNameNorm or bNameNorm:find(kNorm) or kNorm:find(bNameNorm) then
+                    return true
+                end
+            elseif type(k) == "number" and type(v) == "string" then
+                hasAnySelection = true
+                local vNorm = normalizeBearName(v)
+                if vNorm == bNameNorm or bNameNorm:find(vNorm) or vNorm:find(bNameNorm) then
+                    return true
+                end
+            end
+        end
+
+        -- If specific bears are selected and this doesn't match, return false
+        if hasAnySelection then
+            return false
+        end
+
+        -- Fallback: If empty selection dictionary, default to targeting all valid bears
+        return true
     end
 
     -- Legacy single dropdown fallback
@@ -1152,7 +1184,9 @@ local function isBearTargetSelected(b)
         if Config.SelectedBearTarget == "All" then
             return true
         end
-        return Config.SelectedBearTarget == b.Name
+        local tgtNorm = normalizeBearName(Config.SelectedBearTarget)
+        local bNorm = normalizeBearName(b.Name)
+        return tgtNorm == bNorm or bNorm:find(tgtNorm) or tgtNorm:find(bNorm)
     end
 
     return true
@@ -2125,6 +2159,7 @@ end)
 local abilityCooldowns = {}
 local bearVariantIndex = 0
 local lastBearAttack = 0
+local lastDefaultM1Attack = 0
 
 -- Connect to server ability cooldown broadcasts
 pcall(function()
@@ -2133,58 +2168,44 @@ pcall(function()
     local bearAbility = pb and pb:FindFirstChild("BearAbility")
     if bearAbility and bearAbility:IsA("RemoteEvent") then
         bearAbility.OnClientEvent:Connect(function(action, slot, cooldownTimestamp)
-            if action == "Cooldown" and cooldownTimestamp then
-                abilityCooldowns[tostring(slot)] = cooldownTimestamp
+            if typeof(cooldownTimestamp) == "number" then
+                if action == "Cooldown" or action == "Retry" then
+                    abilityCooldowns[tostring(slot)] = cooldownTimestamp
+                    abilityCooldowns[slot] = cooldownTimestamp
+                elseif action == "Frozen" then
+                    abilityCooldowns[tostring(slot)] = math.huge
+                    abilityCooldowns[slot] = math.huge
+                end
             end
         end)
     end
 end)
 
 local function isAbilityReady(slot)
-    local cd = abilityCooldowns[tostring(slot)]
+    local cd = abilityCooldowns[tostring(slot)] or abilityCooldowns[slot]
     if not cd then return true end
     return workspace:GetServerTimeNow() >= (cd - 0.05)
 end
 
--- Universal Bear Ability Variant Discovery: Returns ordered list of active/unlocked abilities
+-- Universal Bear Ability Variant Discovery: Returns ordered list of active/unlocked hotbar numeric slots (1..N)
 local function getBearAttackVariants(char)
-    if not char then return {"Default"} end
-    local transformedBear = char:GetAttribute("TransformedToBear") or ""
+    if not char then return {} end
     local bearLevel = char:GetAttribute("BearLevel") or 1
     
-    local RS = game:GetService("ReplicatedStorage")
-    local bearIconsMod = RS:FindFirstChild("BearIcons")
-    local iconData = nil
-    if bearIconsMod then
-        pcall(function()
-            local bi = require(bearIconsMod)
-            if bi and bi.PlayerBear then
-                iconData = bi.PlayerBear(transformedBear)
-            end
-        end)
-    end
-
     local variants = {}
-    table.insert(variants, "Default")
-
+    local hotbarStr = char:GetAttribute("BearHotbar") or ""
     local unlockStr = char:GetAttribute("BearHotbarUnlock") or ""
-    local unlockLevels = {}
-    for seg in string.gmatch(unlockStr, "[^,]+") do
-        table.insert(unlockLevels, tonumber(seg) or 1)
-    end
+    
+    local hotbarSkills = string.split(hotbarStr, ",")
+    local unlockLevels = string.split(unlockStr, ",")
 
-    local numHotbarSlots = 0
-    if iconData and iconData.Hotbar then
-        numHotbarSlots = #iconData.Hotbar
-    else
-        local tbLower = transformedBear:lower()
-        numHotbarSlots = (tbLower:find("grinder") or tbLower:find("ice")) and 6 or 2
-    end
-
-    for slotIdx = 1, numHotbarSlots do
-        local requiredLvl = unlockLevels[slotIdx] or 1
-        if bearLevel >= requiredLvl then
-            table.insert(variants, slotIdx)
+    for slotIdx = 1, #hotbarSkills do
+        local skillName = hotbarSkills[slotIdx]
+        if skillName and skillName ~= "" then
+            local reqLvl = tonumber(unlockLevels[slotIdx]) or 1
+            if bearLevel >= reqLvl then
+                table.insert(variants, slotIdx)
+            end
         end
     end
 
@@ -2339,15 +2360,13 @@ task.spawn(function()
         local bear, dist = getFarmBearTarget()
         if not bear then
             activeFlightBear = nil
-            ensureSkySanctuary()
-            if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
-                teleportToSkySanctuary()
-                if tick() - lastSanctuaryNotify >= 8 then
-                    lastSanctuaryNotify = tick()
-                    Hub.Notify("Safe Zone", "All target bears cleared! Resting in Sky Sanctuary...", 2.5)
+            if isFleeingLowHP then
+                ensureSkySanctuary()
+                if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
+                    teleportToSkySanctuary()
                 end
             end
-            task.wait(0.4)
+            task.wait(0.3)
             continue
         end
 
@@ -2359,7 +2378,7 @@ task.spawn(function()
             continue
         end
 
-        -- Safe Blindspot Positioning (Mathematically calibrated tight elevations for 100% hit reach on all bears)
+        -- Safe Blindspot Positioning (Calibrated tight ground-level standoff, zero falling/bouncing, guaranteed reach)
         local cf, sz = bear:GetBoundingBox()
         local bearCF = bearRoot.CFrame
         local flatLook = Vector3.new(bearCF.LookVector.X, 0, bearCF.LookVector.Z)
@@ -2370,42 +2389,50 @@ task.spawn(function()
         local isTallBear = bName:find("tall") ~= nil or sz.Y > 16
         local isRangedBear = bName:find("ranged") or bName:find("spike")
         local isWallBear = bName:find("wall") ~= nil
-        local isGrinderBear = bName:find("grinder") or bName:find("robo")
+        local isGrinderBear = bName:find("grinder") or bName:find("robo") or sz.Y > 30
         local myBearName = (char:GetAttribute("TransformedToBear") or ""):lower()
         local amBooBoo = myBearName:find("boo") ~= nil or myBearName:find("ball") ~= nil
 
-        local targetPos, distBehind, elevY
+        -- Anti-Turn Evasion: If bear turns towards player, stay behind bear's current LookVector!
+        local toPlayer = (root.Position - bearRoot.Position).Unit
+        local isFacingPlayer = flatLook:Dot(toPlayer) > 0.45
+
+        local distBehind, elevY
         if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
             if isBooBoo then
-                -- When attacking Boo-Boo (especially Boo-Boo vs Boo-Boo):
-                -- Miniature 0.56 scale bears have shorter swipe radius; position tightly at 1.8 studs behind, 1.2 studs elevation
-                distBehind = amBooBoo and 1.8 or 2.2
-                elevY = amBooBoo and 1.2 or 1.5
+                -- Boo-Boo vs Boo-Boo: Boo-Boo reach is ~4.5 studs; anchor tightly 1.4 studs behind at torso level
+                distBehind = amBooBoo and 1.4 or 1.8
+                elevY = 0.4
             elseif isTallBear then
-                -- Tall Bear is 21 studs tall; anchor directly behind pelvis at Y +3.8
-                distBehind = 3.2
-                elevY = 3.8
+                -- Tall Bear is 19.5 studs tall; shins/thighs are near ground level
+                distBehind = 2.4
+                elevY = 1.2
             elseif isGrinderBear then
-                -- Grinder is 36 studs tall; anchor behind torso hub below shoulder cannons
-                distBehind = 3.5
-                elevY = 3.5
-            elseif isWallBear then
-                distBehind = 3.2
-                elevY = 2.5
-            elseif isRangedBear then
+                -- Grinder Bear is 36 studs tall; wheel & root are on ground
                 distBehind = 2.8
-                elevY = 2.2
+                elevY = 1.2
+            elseif isWallBear then
+                distBehind = 2.2
+                elevY = 1.0
+            elseif isRangedBear then
+                distBehind = 2.2
+                elevY = 0.8
             else
-                -- Medved, GrizzlyMedved, ThinBear, IceBear, WormBear, ClassicBear, etc.
-                distBehind = 3.0
-                elevY = 2.2
+                -- Medved, GrizzlyMedved, ThinBear, IceBear, etc.
+                distBehind = amBooBoo and 1.6 or 2.2
+                elevY = 0.8
+            end
+
+            -- If bear actively rotates to face player, elevate temporarily (+2.5 studs) to evade frontal claw/bite hitbox
+            if isFacingPlayer then
+                elevY = elevY + 2.5
             end
 
             targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
         else
             -- Gun Mode: Safe standoff distance & elevation
-            distBehind = 9.0
-            elevY = 6.0
+            distBehind = 7.5
+            elevY = 3.5
             targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
         end
 
@@ -2414,8 +2441,10 @@ task.spawn(function()
         local bestPartDist = math.huge
         local candidatePartNames = {
             "Hitbox_Hips", "Hitbox_Pelvis", "Hitbox_Chest", "Hitbox_Torso",
-            "Hitbox_Head", "Hitbox_Crown", "Head", "BodyTop", "Ears",
-            "Hitbox_Body", "RootPart", "HumanoidRootPart"
+            "Hitbox_Body", "Hitbox_Wheel", "Hitbox_Hub", "Hitbox_Head",
+            "Hitbox_RightThigh", "Hitbox_LeftThigh", "Hitbox_RightShin", "Hitbox_LeftShin",
+            "Head", "BodyTop", "BodyBottom", "Ears",
+            "RootPart", "HumanoidRootPart"
         }
         for _, pName in ipairs(candidatePartNames) do
             local p = bear:FindFirstChild(pName)
@@ -2437,7 +2466,7 @@ task.spawn(function()
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
 
-        -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved, Melee Reach Guaranteed & Flamethrower)
+        -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
         if Config.FarmMethod == "Melee" then
             if bestTool then
                 applyWeaponMods(bestTool)
@@ -2492,38 +2521,37 @@ task.spawn(function()
             local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
             local bearAbility = pb and pb:FindFirstChild("BearAbility")
 
-            -- Authoritative Remote Ability Variant Dispatch (Seamless Grinder & Multi-Skill Rotation)
-            if tick() - lastBearAttack >= 0.12 then
-                lastBearAttack = tick()
-                
-                if bearAbility then
-                    local variants = getBearAttackVariants(char)
-                    if #variants > 0 then
-                        local fired = false
-                        for step = 1, #variants do
-                            bearVariantIndex = (bearVariantIndex % #variants) + 1
-                            local candidateVariant = variants[bearVariantIndex]
-                            if isAbilityReady(candidateVariant) then
+            if bearAbility then
+                -- 1. Rotate & Dispatch Available Hotbar Variant Skills (Minigun, Rockets, Flamethrower, Shotgun, Charge, Spin, etc.)
+                if tick() - lastBearAttack >= 0.12 then
+                    lastBearAttack = tick()
+                    local hotbarSlots = getBearAttackVariants(char)
+                    if #hotbarSlots > 0 then
+                        for step = 1, #hotbarSlots do
+                            bearVariantIndex = (bearVariantIndex % #hotbarSlots) + 1
+                            local candidateSlot = hotbarSlots[bearVariantIndex]
+                            if isAbilityReady(candidateSlot) then
                                 pcall(function()
-                                    bearAbility:FireServer("Use", candidateVariant, aimPos)
+                                    bearAbility:FireServer("Use", candidateSlot, aimPos)
                                 end)
-                                abilityCooldowns[tostring(candidateVariant)] = workspace:GetServerTimeNow() + 0.35
-                                fired = true
+                                abilityCooldowns[tostring(candidateSlot)] = workspace:GetServerTimeNow() + 0.35
+                                abilityCooldowns[candidateSlot] = abilityCooldowns[tostring(candidateSlot)]
                                 break
                             end
                         end
-                        if not fired then
-                            pcall(function()
-                                bearAbility:FireServer("Use", "Default", aimPos)
-                            end)
-                        end
-                    else
-                        pcall(function()
-                            bearAbility:FireServer("Use", "Default", aimPos)
-                        end)
                     end
                 end
 
+                -- 2. Dispatch Default M1 Skill (Sonic Scream, Slam, GrinderFireWeapon, Laser Shot, Spike Shot)
+                if tick() - lastDefaultM1Attack >= 0.16 and isAbilityReady("Default") then
+                    lastDefaultM1Attack = tick()
+                    pcall(function()
+                        bearAbility:FireServer("Use", "Default", aimPos)
+                    end)
+                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + 0.25
+                end
+
+                -- 3. Also activate tool if held
                 local bearTool = char:FindFirstChildOfClass("Tool")
                 if bearTool then
                     pcall(function()
