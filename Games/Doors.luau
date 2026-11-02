@@ -994,10 +994,15 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         LastDist = -1
     }
 
-    -- Auto-cleanup on destroy
+    -- Auto-cleanup on destroy or parent removal
     pcall(function()
         owner.Destroying:Connect(function()
             removeEspFor(owner)
+        end)
+        owner.AncestryChanged:Connect(function(_, parent)
+            if not parent or (not owner:IsDescendantOf(Workspace) and not owner:IsDescendantOf(Camera)) then
+                removeEspFor(owner)
+            end
         end)
     end)
 end
@@ -1041,6 +1046,31 @@ task.spawn(function()
                 if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
                     removeEspFor(owner)
                 else
+                    -- Entity Despawn / Bramble Ghost Filter
+                    if record.Category == "Entities" then
+                        local ent = record.Owner
+                        local isDeadOrGone = false
+                        if not ent or not ent.Parent then
+                            isDeadOrGone = true
+                        elseif ent:GetAttribute("Despawned") == true or ent:GetAttribute("Dead") == true or ent:GetAttribute("Hidden") == true then
+                            isDeadOrGone = true
+                        elseif ent.Name:lower():find("bramble") then
+                            local visiblePartCount = 0
+                            for _, p in ipairs(ent:GetDescendants()) do
+                                if p:IsA("BasePart") and p.Transparency < 0.9 then
+                                    visiblePartCount = visiblePartCount + 1
+                                end
+                            end
+                            if visiblePartCount == 0 then
+                                isDeadOrGone = true
+                            end
+                        end
+                        if isDeadOrGone then
+                            removeEspFor(owner)
+                            continue
+                        end
+                    end
+
                     -- 1. Room Visibility Filter (Exclusively show doors and closets in current room only!)
                     if record.Category == "Doors" then
                         local shouldShow = State.Doors_ESP
@@ -1069,21 +1099,20 @@ task.spawn(function()
                             end
                         end
 
-                        if record.CurrentlyVisible ~= shouldShow then
-                            record.CurrentlyVisible = shouldShow
-                            if record.Visuals then
-                                for _, vis in ipairs(record.Visuals) do
-                                    if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
-                                        vis.Enabled = shouldShow
-                                    elseif vis:IsA("Highlight") then
-                                        local budgetAllowed = (allowedHighlights and allowedHighlights[record]) == true
-                                        vis.Enabled = shouldShow and budgetAllowed
-                                        if not (shouldShow and budgetAllowed) then
-                                            vis.Adornee = nil
-                                        else
-                                            vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
-                                        end
-                                    end
+                        record.CurrentlyVisible = shouldShow
+                        if record.Visuals then
+                            local budgetAllowed = (allowedHighlights and allowedHighlights[record]) == true
+                            for _, vis in ipairs(record.Visuals) do
+                                if vis:IsA("BillboardGui") then
+                                    vis.Enabled = shouldShow
+                                elseif vis:IsA("SelectionBox") then
+                                    vis.Enabled = shouldShow
+                                    vis.Adornee = shouldShow and ((record.HighlightMap and record.HighlightMap[vis]) or record.Adornee) or nil
+                                elseif vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") then
+                                    vis.Enabled = shouldShow
+                                elseif vis:IsA("Highlight") then
+                                    vis.Enabled = shouldShow and budgetAllowed
+                                    vis.Adornee = (shouldShow and budgetAllowed) and ((record.HighlightMap and record.HighlightMap[vis]) or record.Owner) or nil
                                 end
                             end
                         end
@@ -1161,8 +1190,20 @@ local function processDoor(room, doorModel)
     if doorModel:IsA("BasePart") then
         local doorMesh = doorModel
         local baseText = "Dupe Door"
-        local color = Color3.fromRGB(255, 35, 35)
-        registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNumber)
+        local color = State.ESP_Color_Dupe or Color3.fromRGB(255, 35, 35)
+        local extraVisuals = {}
+        local selBox = Instance.new("SelectionBox")
+        selBox.Name = "Unknown_DoorSelectionBox"
+        selBox.Adornee = doorMesh
+        selBox.Color3 = color
+        selBox.LineThickness = 0.04
+        selBox.SurfaceColor3 = color
+        selBox.SurfaceTransparency = 0.82
+        selBox.AlwaysOnTop = true
+        selBox.Parent = doorMesh
+        table.insert(extraVisuals, selBox)
+        registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
+        if State.Anti_Dupe then secureDupeDoor(doorModel) end
         return
     end
 
@@ -1258,8 +1299,23 @@ local function processDoor(room, doorModel)
         or (doorModel:FindFirstChild("Sign") and doorModel.Sign:IsA("BasePart") and doorModel.Sign)
         or doorMesh
 
-    -- Clean Unified Door Highlight: Highlighting the Model outlines the complete solid door leaf, sign, and padlock without internal wireframe cuts
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorModel, Vector3.new(0, 1.2, 0), roomNum)
+    -- Infallible Door Visuals: Clean SelectionBox on doorMesh (bypasses 31-highlight cap) + direct mesh Highlight
+    local extraVisuals = {}
+    local selBox = Instance.new("SelectionBox")
+    selBox.Name = "Unknown_DoorSelectionBox"
+    selBox.Adornee = doorMesh
+    selBox.Color3 = color
+    selBox.LineThickness = 0.04
+    selBox.SurfaceColor3 = color
+    selBox.SurfaceTransparency = 0.82
+    selBox.AlwaysOnTop = true
+    selBox.Parent = doorMesh
+    table.insert(extraVisuals, selBox)
+
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNum, extraVisuals)
+    if isDupe and State.Anti_Dupe then
+        secureDupeDoor(doorModel)
+    end
 
     -- Lifecycle listener: automatically update if lock is removed or room scripts finish loading
     if not doorModel:GetAttribute("ESP_Hooked") then
@@ -1748,192 +1804,39 @@ local ENTITY_REGISTRY = {
     ["greed"]          = { Name = "Greed",              Category = "Other" },
 }
 
-local function createRoundedCubeModel(targetPart, size, radius, color)
+-- Sleek, Lightweight Bounding Box Adornment for 2D Sprite/Billboard Entities (Zero physical Workspace parts!)
+local function createEntityBoundingBox(targetPart, size, color)
     if not targetPart or not targetPart.Parent then return nil end
-    local model = Instance.new("Model")
-    model.Name = "Unknown_RoundedCube"
+    local folder = Instance.new("Folder")
+    folder.Name = "Unknown_EntityBox"
 
-    local s = size or 5.0
-    local r = radius or 0.85
-    local inner = math.max(s - 2 * r, 0.5)
-    local d = 2 * r
+    local s = size or Vector3.new(4.5, 5.5, 4.5)
+    if typeof(s) == "number" then
+        s = Vector3.new(s, s, s)
+    end
 
-    -- Central core block with AlwaysOnTop through-wall adornment
-    local core = Instance.new("Part")
-    core.Name = "Core"
-    core.Size = Vector3.new(inner, inner, inner)
-    core.Color = color
-    core.Transparency = 0.45
-    core.Material = Enum.Material.SmoothPlastic
-    core.CanCollide = false
-    core.CanTouch = false
-    core.CanQuery = false
-    core.Massless = true
-    core.CastShadow = false
-    core.Anchored = true
-    core.CFrame = targetPart.CFrame
-    core.Parent = model
-
-    -- Guaranteed AlwaysOnTop Adornment: Cube shines through walls even if Highlight cap is reached!
     local boxAdorn = Instance.new("BoxHandleAdornment")
-    boxAdorn.Name = "Unknown_ESP_CubeAdornment"
-    boxAdorn.Adornee = core
-    boxAdorn.Size = Vector3.new(s, s, s)
-    boxAdorn.Color3 = color
-    boxAdorn.Transparency = 0.55
+    boxAdorn.Name = "Unknown_ESP_BoxAdornment"
+    boxAdorn.Adornee = targetPart
+    boxAdorn.Size = s
+    boxAdorn.Color3 = color or Color3.fromRGB(255, 35, 35)
+    boxAdorn.Transparency = 0.65
     boxAdorn.AlwaysOnTop = true
     boxAdorn.ZIndex = 10
-    boxAdorn.Parent = core
+    boxAdorn.Parent = folder
 
-    -- 6 Face slabs: extending from inner core to outer faces
-    local faceConfigs = {
-        { size = Vector3.new(inner, inner, r), offset = Vector3.new(0, 0, inner/2 + r/2) },
-        { size = Vector3.new(inner, inner, r), offset = Vector3.new(0, 0, -(inner/2 + r/2)) },
-        { size = Vector3.new(inner, r, inner), offset = Vector3.new(0, inner/2 + r/2, 0) },
-        { size = Vector3.new(inner, r, inner), offset = Vector3.new(0, -(inner/2 + r/2), 0) },
-        { size = Vector3.new(r, inner, inner), offset = Vector3.new(inner/2 + r/2, 0, 0) },
-        { size = Vector3.new(r, inner, inner), offset = Vector3.new(-(inner/2 + r/2), 0, 0) },
-    }
-    for i, cfg in ipairs(faceConfigs) do
-        local face = Instance.new("Part")
-        face.Name = "Face_" .. i
-        face.Size = cfg.size
-        face.Color = color
-        face.Transparency = 0.45
-        face.Material = Enum.Material.SmoothPlastic
-        face.CanCollide = false
-        face.CanTouch = false
-        face.CanQuery = false
-        face.Massless = true
-        face.CastShadow = false
-        face.Anchored = true
-        face.CFrame = core.CFrame * CFrame.new(cfg.offset)
-        face.Parent = model
-    end
+    local selBox = Instance.new("SelectionBox")
+    selBox.Name = "Unknown_ESP_SelectionBox"
+    selBox.Adornee = targetPart
+    selBox.Color3 = color or Color3.fromRGB(255, 35, 35)
+    selBox.LineThickness = 0.05
+    selBox.SurfaceColor3 = color or Color3.fromRGB(255, 35, 35)
+    selBox.SurfaceTransparency = 0.88
+    selBox.AlwaysOnTop = true
+    selBox.Parent = folder
 
-    -- 8 Corner Spheres
-    local signs = {-1, 1}
-    for _, sx in ipairs(signs) do
-        for _, sy in ipairs(signs) do
-            for _, sz in ipairs(signs) do
-                local sphere = Instance.new("Part")
-                sphere.Name = "CornerSphere"
-                sphere.Shape = Enum.PartType.Ball
-                sphere.Size = Vector3.new(d, d, d)
-                sphere.Color = color
-                sphere.Transparency = 0.45
-                sphere.Material = Enum.Material.SmoothPlastic
-                sphere.CanCollide = false
-                sphere.CanTouch = false
-                sphere.CanQuery = false
-                sphere.Massless = true
-                sphere.CastShadow = false
-                sphere.Anchored = true
-                sphere.CFrame = core.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), sz * (inner/2))
-                sphere.Parent = model
-            end
-        end
-    end
-
-    -- 12 Edge Cylinders
-    -- X-axis edges (4): length along X
-    for _, sy in ipairs(signs) do
-        for _, sz in ipairs(signs) do
-            local cyl = Instance.new("Part")
-            cyl.Name = "EdgeCyl_X"
-            cyl.Shape = Enum.PartType.Cylinder
-            cyl.Size = Vector3.new(inner, d, d)
-            cyl.Color = color
-            cyl.Transparency = 0.45
-            cyl.Material = Enum.Material.SmoothPlastic
-            cyl.CanCollide = false
-            cyl.CanTouch = false
-            cyl.CanQuery = false
-            cyl.Massless = true
-            cyl.CastShadow = false
-            cyl.Anchored = true
-            cyl.CFrame = core.CFrame * CFrame.new(0, sy * (inner/2), sz * (inner/2))
-            cyl.Parent = model
-        end
-    end
-    -- Y-axis edges (4): length along Y (Cylinder X rotated to Y)
-    for _, sx in ipairs(signs) do
-        for _, sz in ipairs(signs) do
-            local cyl = Instance.new("Part")
-            cyl.Name = "EdgeCyl_Y"
-            cyl.Shape = Enum.PartType.Cylinder
-            cyl.Size = Vector3.new(inner, d, d)
-            cyl.Color = color
-            cyl.Transparency = 0.45
-            cyl.Material = Enum.Material.SmoothPlastic
-            cyl.CanCollide = false
-            cyl.CanTouch = false
-            cyl.CanQuery = false
-            cyl.Massless = true
-            cyl.CastShadow = false
-            cyl.Anchored = true
-            cyl.CFrame = core.CFrame * CFrame.new(sx * (inner/2), 0, sz * (inner/2)) * CFrame.Angles(0, 0, math.pi / 2)
-            cyl.Parent = model
-        end
-    end
-    -- Z-axis edges (4): length along Z (Cylinder X rotated to Z)
-    for _, sx in ipairs(signs) do
-        for _, sy in ipairs(signs) do
-            local cyl = Instance.new("Part")
-            cyl.Name = "EdgeCyl_Z"
-            cyl.Shape = Enum.PartType.Cylinder
-            cyl.Size = Vector3.new(inner, d, d)
-            cyl.Color = color
-            cyl.Transparency = 0.45
-            cyl.Material = Enum.Material.SmoothPlastic
-            cyl.CanCollide = false
-            cyl.CanTouch = false
-            cyl.CanQuery = false
-            cyl.Massless = true
-            cyl.CastShadow = false
-            cyl.Anchored = true
-            cyl.CFrame = core.CFrame * CFrame.new(sx * (inner/2), sy * (inner/2), 0) * CFrame.Angles(0, math.pi / 2, 0)
-            cyl.Parent = model
-        end
-    end
-
-    model.PrimaryPart = core
-    -- Weld Core directly to targetPart for zero-latency C++ physics synchronization
-    local coreWeld = Instance.new("WeldConstraint")
-    coreWeld.Part0 = core
-    coreWeld.Part1 = targetPart
-    coreWeld.Parent = core
-
-    for _, desc in ipairs(model:GetDescendants()) do
-        if desc:IsA("BasePart") and desc ~= core then
-            desc.Anchored = false
-            local w = Instance.new("WeldConstraint")
-            w.Part0 = desc
-            w.Part1 = core
-            w.Parent = desc
-        end
-    end
-    core.Anchored = false
-
-    model.Parent = Workspace
-
-    -- Active RenderStepped tracking backup: keeps rounded cube 100% aligned even across instant teleportation or CFrame snaps
-    local followConn
-    followConn = RunService.RenderStepped:Connect(function()
-        if not targetPart or not targetPart.Parent or not model.Parent then
-            if followConn then followConn:Disconnect() end
-            return
-        end
-        if (core.Position - targetPart.Position).Magnitude > 0.5 then
-            model:PivotTo(targetPart.CFrame)
-        end
-    end)
-    trackConn(followConn)
-    model.Destroying:Connect(function()
-        if followConn then followConn:Disconnect() end
-    end)
-
-    return model
+    folder.Parent = targetPart
+    return folder
 end
 
 local function processEntity(entity)
@@ -2061,6 +1964,32 @@ local function processEntity(entity)
         cfg = { Name = "Surge", Category = "Other" }
         is2D = true
     elseif eLower == "bramble" or eLower:find("^bramble") then
+        -- Strict Bramble despawn / decor filter
+        if entity:GetAttribute("Despawned") == true or entity:GetAttribute("Dead") == true or entity:GetAttribute("Hidden") == true then
+            removeEspFor(entity)
+            return
+        end
+        if entity.Parent and entity.Parent.Name:lower() == "assets" then
+            return
+        end
+        local hasVisibleParts = false
+        for _, p in ipairs(entity:GetDescendants()) do
+            if p:IsA("BasePart") and p.Transparency < 0.9 then
+                hasVisibleParts = true
+                break
+            end
+        end
+        if not hasVisibleParts then
+            removeEspFor(entity)
+            return
+        end
+        pcall(function()
+            entity:GetAttributeChangedSignal("Despawned"):Connect(function()
+                if entity:GetAttribute("Despawned") == true then
+                    removeEspFor(entity)
+                end
+            end)
+        end)
         cfg = { Name = "Bramble", Category = "Other" }
         is2D = false
         isBramble = true
@@ -2072,22 +2001,22 @@ local function processEntity(entity)
         is2D = false
     elseif eLower == "alma" or eLower:find("^alma") then
         cfg = { Name = "Alma", Category = "Other" }
-        is2D = false
+        is2D = true
     elseif eLower:find("drone") and eLower:find("stampede") then
         cfg = { Name = "Drone Stampede", Category = "Other" }
-        is2D = false
+        is2D = true
     elseif eLower == "drone" or eLower:find("^drone") then
         cfg = { Name = "Drone", Category = "Other" }
-        is2D = false
+        is2D = true
     elseif eLower == "teller" or eLower:find("^teller") then
         cfg = { Name = "Teller", Category = "Other" }
         is2D = false
     elseif eLower == "bash" or eLower:find("^bash") then
         cfg = { Name = "Bash", Category = "Other" }
-        is2D = false
+        is2D = true
     elseif eLower == "scribbles" or eLower:find("^scribble") then
         cfg = { Name = "Scribbles", Category = "Other" }
-        is2D = false
+        is2D = true
     elseif eLower == "socker" or eLower:find("^socker") then
         cfg = { Name = "Socker", Category = "Other" }
         is2D = false
@@ -2108,7 +2037,7 @@ local function processEntity(entity)
         is2D = false
     elseif eLower == "weaveling" or eLower:find("^weaveling") then
         cfg = { Name = "Weaveling", Category = "Other" }
-        is2D = false
+        is2D = true
     elseif eLower == "a60" or eLower == "a-60" or eLower:find("^a%-?60") then
         cfg = { Name = "A-60", Category = "Rooms" }
         is2D = true
@@ -2172,12 +2101,12 @@ local function processEntity(entity)
         end
 
         if is2D then
-            -- Procedural 3D Cube with through-wall visibility exclusively for 2D billboard/sprite entities!
-            local roundedCube = createRoundedCubeModel(targetPart, 5.0, 0.85, entityColor)
-            if roundedCube then
-                table.insert(extraVisuals, roundedCube)
-                highlightTarget = roundedCube
+            -- Sleek Bounding Box Adornment with guaranteed through-wall visibility for 2D entities!
+            local bbox = createEntityBoundingBox(targetPart, Vector3.new(4.5, 5.5, 4.5), entityColor)
+            if bbox then
+                table.insert(extraVisuals, bbox)
             end
+            highlightTarget = nil -- Adornments handle through-wall rendering without consuming Highlight slots!
         else
             -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, etc.):
             -- Highlight the actual 3D model/parts directly! ZERO cubes!
@@ -2220,18 +2149,48 @@ local function defuseAllSnares()
     end
 end
 
+local function isDupeDoor(doorModel, room)
+    if not doorModel then return false end
+    local dName = doorModel.Name:lower()
+    if dName == "doorfake" or dName:find("fake") or dName:find("dupe") then
+        return true
+    end
+    if doorModel:GetAttribute("DupeRoom") == true or doorModel:GetAttribute("Fake") == true then
+        return true
+    end
+    if doorModel.Parent and doorModel.Parent.Name:lower():find("dupe") then
+        return true
+    end
+    local signPart = doorModel:FindFirstChild("Sign")
+    local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+    local signText = signLabel and signLabel.Text or nil
+    local signNum = tonumber(signText)
+    local roomNum = (room and tonumber(room.Name)) or getCurrentRoomNumber()
+    if roomNum and signNum and signNum ~= (roomNum + 1) then
+        return true
+    end
+    return false
+end
+
 local function secureDupeDoor(doorModel)
     if not doorModel then return end
     pcall(function()
         for _, p in ipairs(doorModel:GetDescendants()) do
             if p:IsA("ProximityPrompt") then
                 p.Enabled = false
+                p.MaxActivationDistance = 0
             elseif p:IsA("BasePart") then
                 p.CanTouch = false
+                p.CanCollide = true
+                p.Anchored = true
+            elseif p:IsA("RemoteEvent") and p.Name == "ClientOpen" then
+                p:Destroy()
             end
         end
         if doorModel:IsA("BasePart") then
             doorModel.CanTouch = false
+            doorModel.CanCollide = true
+            doorModel.Anchored = true
         end
     end)
 end
@@ -2557,7 +2516,7 @@ local function scanSingleRoom(room)
             if desc:IsA("Model") or desc:IsA("Tool") then
                 if desc.Name == "Door" or desc.Name == "DoorFake" then
                     processDoor(room, desc)
-                    if desc.Name == "DoorFake" and State.Anti_Dupe then
+                    if (desc.Name == "DoorFake" or isDupeDoor(desc, room)) and State.Anti_Dupe then
                         secureDupeDoor(desc)
                     end
                 elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
@@ -2712,7 +2671,7 @@ pcall(function()
                 if isModel or isTool then
                     if desc.Name == "Door" or desc.Name == "DoorFake" then
                         processDoor(newRoom, desc)
-                        if desc.Name == "DoorFake" and State.Anti_Dupe then
+                        if (desc.Name == "DoorFake" or isDupeDoor(desc, newRoom)) and State.Anti_Dupe then
                             secureDupeDoor(desc)
                         end
                     elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
@@ -3190,6 +3149,13 @@ local function processNearbyDoors(currentPos, maxReach)
     for _, rm in ipairs(curRooms:GetChildren()) do
         for _, d in ipairs(rm:GetDescendants()) do
             if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name:lower():find("door")) then
+                -- Anti-Dupe Protection: NEVER strip collisions, open, or interact with Dupe doors!
+                if isDupeDoor(d, rm) then
+                    if State.Anti_Dupe then
+                        secureDupeDoor(d)
+                    end
+                    continue
+                end
                 local dPart = d:FindFirstChild("Door") or d:FindFirstChild("Hidden") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                 if dPart and (currentPos - dPart.Position).Magnitude <= reach then
                     -- 1. Strip CanCollide locally on all door parts so character never hits physical barrier
@@ -5055,23 +5021,44 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Continuous Body & First-Person Head Alignment (Camera follows head; no torso clipping!):
-    if char and not hiding then
-
-
-        -- Character Body, Buddy & Decal Integrity Shield (Zero Decal Destruction, Zero Body Mutilation):
-        local isFlying = State.Noclip or State.Fly_Enabled
-        for _, p in ipairs(char:GetChildren()) do
-            if p:IsA("BasePart") then
-                local pLower = p.Name:lower()
-                if pLower:find("collision") or pLower == "humanoidrootpart" then
-                    if p.Transparency < 1 then p.Transparency = 1 end
-                elseif pLower == "head" or pLower == "uppertorso" then
-                    -- Only during active flight/noclip do we hide head/upper collar locally so camera never sees bald head
-                    if isFlying then
+    -- Continuous Body & First-Person Head Alignment:
+    if char then
+        if hiding or (os.clock() < unhideGraceUntil) then
+            -- When entering, resting in, or exiting hiding spots:
+            -- Fully hide character locally so daddy's camera never sees his body tweening to the void or back up!
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") or p:IsA("Decal") then
+                    p.LocalTransparencyModifier = 1
+                end
+            end
+        else
+            -- When walking or flying:
+            for _, p in ipairs(char:GetChildren()) do
+                if p:IsA("BasePart") then
+                    local pLower = p.Name:lower()
+                    if pLower:find("collision") or pLower == "humanoidrootpart" then
+                        if p.Transparency < 1 then p.Transparency = 1 end
+                    elseif pLower == "head" then
+                        -- Enforce Head invisibility locally in first person so camera never sees inside head/face
                         p.LocalTransparencyModifier = 1
-                    elseif p.LocalTransparencyModifier > 0 then
-                        p.LocalTransparencyModifier = 0
+                    end
+                end
+            end
+            -- Enforce LocalTransparencyModifier = 1 on all Head-attached accessories (hair, face, eyelashes, eyebrows, hats)
+            for _, acc in ipairs(char:GetChildren()) do
+                if acc:IsA("Accessory") then
+                    local h = acc:FindFirstChild("Handle")
+                    if h and h:IsA("BasePart") then
+                        local att = h:FindFirstChildWhichIsA("Attachment")
+                        local attName = att and att.Name:lower() or ""
+                        local accType = acc.AccessoryType
+                        local isHeadAcc = attName:find("face") or attName:find("hair") or attName:find("hat") or attName:find("head")
+                            or accType == Enum.AccessoryType.Hat or accType == Enum.AccessoryType.Hair
+                            or accType == Enum.AccessoryType.Face or accType == Enum.AccessoryType.Eyebrow
+                            or accType == Enum.AccessoryType.Eyelash
+                        if isHeadAcc then
+                            h.LocalTransparencyModifier = 1
+                        end
                     end
                 end
             end
@@ -5667,10 +5654,8 @@ local function isPromptSafeToAutoInteract(prompt)
 
     -- Fake Doors / Dupe
     if mName:find("fake") or mName:find("dupe") or pName:find("fake") or pName:find("dupe")
-        or (model and (model:GetAttribute("Fake") or model:GetAttribute("DupeRoom"))) then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Fake Doors (Dupe)"] ~= false then
-            return false
-        end
+        or (model and (model:GetAttribute("Fake") or model:GetAttribute("DupeRoom") or isDupeDoor(model))) then
+        return false
     end
 
     -- Wall Clocks & Bells
@@ -6317,7 +6302,9 @@ if remotesFolder then
     local screechRemote = remotesFolder:FindFirstChild("Screech")
     if screechRemote and screechRemote:IsA("RemoteEvent") then
         screechRemote.OnClientEvent:Connect(function()
-            triggerEntityNotification("Screech")
+            if not State.Anti_Screech then
+                triggerEntityNotification("Screech")
+            end
         end)
     end
     local a90Remote = remotesFolder:FindFirstChild("A90")
@@ -7695,17 +7682,13 @@ if hookmetamethod and not _G.__UNIFIED_NAMECALL_HOOKED then
                     end
                 end
             end
-            if (method == "TakeDamage" or method == "takeDamage") then
-                local char = getChar()
-                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                if self == hum then
-                    return nil
-                end
-            end
             if (method == "BreakJoints" or method == "breakJoints") then
                 local char = getChar()
-                if self == char or (char and self:IsDescendantOf(char)) then
-                    return nil
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                if hum and hum.Health > 0 then
+                    if self == char or (char and self:IsDescendantOf(char)) then
+                        return nil
+                    end
                 end
             end
             if (method == "PivotTo" or method == "pivotTo") then
@@ -7826,6 +7809,14 @@ if getconnections and ragdollRemote and ragdollRemote:IsA("RemoteEvent") then
             hookfunction(oldRag, newcclosure(function(...)
                 local char = getChar()
                 local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                -- If player is dead (Health <= 0), allow DOORS native death ragdoll and death animation to run!
+                if hum and hum.Health <= 0 then
+                    pcall(function()
+                        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+                        hum:ChangeState(Enum.HumanoidStateType.Dead)
+                    end)
+                    return oldRag(...)
+                end
                 if hum then
                     hum.PlatformStand = false
                     pcall(function()
@@ -7889,7 +7880,7 @@ if cam then
                 end
             end)
 
-            Hub.Notify("Anti-Screech", "🦇 Screech defused silently! (0 damage, camera undisturbed)", 2)
+            -- Defused silently without popup
         elseif State.Anti_Timothy and (cName:find("spider") or cName == "spiderjumpscare") then
             pcall(function()
                 for _, desc in ipairs(child:GetDescendants()) do
