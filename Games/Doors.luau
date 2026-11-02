@@ -1254,15 +1254,8 @@ local function processDoor(room, doorModel)
         local baseText = "Dupe Door"
         local color = State.ESP_Color_Dupe or Color3.fromRGB(255, 35, 35)
         local extraVisuals = {}
-        local selBox = Instance.new("SelectionBox")
-        selBox.Name = "Unknown_DoorSelectionBox"
-        selBox.Adornee = doorMesh
-        selBox.Color3 = color
-        selBox.LineThickness = 0.04
-        selBox.SurfaceColor3 = color
-        selBox.SurfaceTransparency = 0.82
-        selBox.Parent = doorMesh
-        table.insert(extraVisuals, selBox)
+        -- Native Highlight cleanly renders without distorted polygon wireframes
+        -- Door SelectionBox eradicated permanently to match clean aesthetic
         registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
         if State.Anti_Dupe then secureDupeDoor(doorModel) end
         return
@@ -1358,17 +1351,9 @@ local function processDoor(room, doorModel)
         or (doorModel:FindFirstChild("Sign") and doorModel.Sign:IsA("BasePart") and doorModel.Sign)
         or doorMesh
 
-    -- Infallible Door Visuals: Clean SelectionBox on doorMesh (bypasses 31-highlight cap) + direct mesh Highlight
+    -- Clean Native Door Highlight: Direct Highlight on doorMesh produces smooth, solid outlines (Image 2)
+    -- Redundant SelectionBox permanently removed to eradicate trapezoid/polygon cutout distortions (Image 3)
     local extraVisuals = {}
-    local selBox = Instance.new("SelectionBox")
-    selBox.Name = "Unknown_DoorSelectionBox"
-    selBox.Adornee = doorMesh
-    selBox.Color3 = color
-    selBox.LineThickness = 0.02
-    selBox.SurfaceTransparency = 1.0 -- Clean outline only; never covers wooden door with solid cyan brick!
-    selBox.Visible = true
-    selBox.Parent = doorMesh
-    table.insert(extraVisuals, selBox)
 
     registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNum, extraVisuals)
     if isDupe and State.Anti_Dupe then
@@ -2000,6 +1985,12 @@ local function processEntity(entity)
         cfg = { Name = "Snare Trap", Category = "Snare" }
         is2D = false
     elseif eLower == "timothy" or eLower:find("spiderjumpscare") or eLower == "spider" then
+        -- Strict Timothy Distance & Out-of-Bounds Filter: Discard off-map and distant drawer spiders (> 45 studs)
+        local r = getRoot()
+        local entPos = entity:GetPivot().Position
+        if r and (entPos - r.Position).Magnitude > 45 then
+            return
+        end
         cfg = { Name = "Timothy", Category = "Timothy" }
         is2D = false
     elseif eLower == "jack" and entity:IsA("Model") then
@@ -2155,6 +2146,24 @@ local function processEntity(entity)
         elseif cfg.Name == "Gloombats" then
             -- Gloombats Full Swarm Highlighting: Highlight ALL flying bats in the swarm, not just the center point!
             highlightTarget = entity
+        elseif cfg.Name == "Sally" then
+            -- Sally Visibility Guardian: Force mesh transparency to 0 and add visible adornment box
+            for _, p in ipairs(entity:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    if p.Transparency >= 0.95 then p.Transparency = 0 end
+                    p.LocalTransparencyModifier = 0
+                end
+            end
+            pcall(function()
+                entity.DescendantAdded:Connect(function(d)
+                    if d:IsA("BasePart") then
+                        d.Transparency = 0
+                        d.LocalTransparencyModifier = 0
+                    end
+                end)
+            end)
+            local bbox = createEntityBoundingBox(targetPart, Vector3.new(2.5, 3.5, 2.5), entityColor)
+            if bbox then table.insert(extraVisuals, bbox) end
         end
 
         if is2D then
@@ -3233,7 +3242,12 @@ retrieveDroppedTool = function(toolName, maxWait)
                 local prompt = targetDrop:FindFirstChildWhichIsA("ProximityPrompt", true)
                 local handle = targetDrop:IsA("BasePart") and targetDrop or (targetDrop.PrimaryPart or targetDrop:FindFirstChildWhichIsA("BasePart", true))
 
+                if handle and r then
+                    pcall(function() handle.CFrame = r.CFrame end)
+                end
+
                 if prompt and prompt.Parent then
+                    prompt.Enabled = true
                     prompt.HoldDuration = 0
                     prompt.RequiresLineOfSight = false
                     prompt.MaxActivationDistance = 45
@@ -4906,22 +4920,33 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         processNearbyDoors(root.Position, doorReach)
     end
 
-    -- Continuous Glitch / Void Shield Deflector: Eradicates all screen freezes, camera locks & fog spikes
-    if not hiding and (State.Noclip or State.Deflect_Glitch or State.Bypass_AntiCheat) then
-        if mgTable then
-            if mgTable.stopcam then mgTable.stopcam = false end
-        end
-        if root and root.Anchored then
-            root.Anchored = false
-        end
+    -- Continuous Glitch / Void Shield Deflector: Strictly active ONLY when Glitch is attacking!
+    -- Never resets stopcam or unanchors root during closet/bed entry or exit, preserving natural cutscenes & unhiding animations
+    local isGlitchActive = false
+    if Workspace:FindFirstChild("Glitch") then
+        isGlitchActive = true
+    else
         local pGui = LocalPlayer:FindFirstChild("PlayerGui")
         local mainUI = pGui and pGui:FindFirstChild("MainUI")
         local mainFrame = mainUI and mainUI:FindFirstChild("MainFrame")
         if mainFrame then
             local gs = mainFrame:FindFirstChild("GlitchScreen")
-            if gs and gs.Visible then gs.Visible = false end
+            if gs and gs.Visible then isGlitchActive = true end
             local ge = mainFrame:FindFirstChild("GlitchEffect")
-            if ge and ge.Visible then ge.Visible = false end
+            if ge and ge.Visible then isGlitchActive = true end
+            if isGlitchActive then
+                if gs and gs.Visible then gs.Visible = false end
+                if ge and ge.Visible then ge.Visible = false end
+            end
+        end
+    end
+
+    if isGlitchActive and (State.Deflect_Glitch or State.Bypass_AntiCheat) then
+        if mgTable and mgTable.stopcam then
+            mgTable.stopcam = false
+        end
+        if root and root.Anchored and not hiding and (os.clock() >= unhideGraceUntil) then
+            root.Anchored = false
         end
         local lt = game:GetService("Lighting")
         if lt and lt.FogEnd < 200 then
@@ -5076,24 +5101,11 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 45) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
             local targetVel = moveDir.Unit * speed
 
-            -- Anti-Wall Launch Guard: Prevent collision normal solver from converting horizontal speed into vertical super-jumps
-            local rayParams = RaycastParams.new()
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            rayParams.FilterDescendantsInstances = {char, Workspace:FindFirstChild("Drops") or char}
-            local wallHit = Workspace:Raycast(root.Position - Vector3.new(0, 0.5, 0), moveDir.Unit * 2.2, rayParams)
-
+            -- Anti-Wall Launch Guard: Clamp vertical velocity to zero on ground to stop wall super-jumps
+            -- Forward raycast removed so crouching into vents, crawlspaces, and low openings is 100% unimpeded!
             local curY = root.AssemblyLinearVelocity.Y
             if hum.FloorMaterial ~= Enum.Material.Air and curY > 0.5 and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
                 curY = 0
-            end
-
-            if wallHit and wallHit.Normal and wallHit.Normal.Y < 0.7 then
-                local normal = wallHit.Normal
-                local normalH = Vector3.new(normal.X, 0, normal.Z).Unit
-                local dot = targetVel:Dot(normalH)
-                if dot < 0 then
-                    targetVel = targetVel - normalH * dot
-                end
             end
 
             root.AssemblyLinearVelocity = Vector3.new(targetVel.X, curY, targetVel.Z)
@@ -5297,15 +5309,67 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
--- First-Person Dynamic Eye-Level Camera Shield (Eradicates Black Dome clipping when looking down without hiding character body):
+-- First-Person Dynamic Eye-Level Camera Shield & 3D Head/Face Mesh Clip Eradication:
 local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(function()
     if cameraPitchConn then trackConn(cameraPitchConn) end
     if _G.DOORS_SESSION ~= currentSession then return end
+
+    local char = getChar()
+    if char then
+        -- Enforce LocalTransparencyModifier = 1 in RenderStepped right before rasterization!
+        -- Roblox animation engine runs between Stepped and RenderStepped; setting it here prevents animation from restoring visibility!
+        -- Eradicates 3D face, eyelashes, hair ribbons, and black spike lines across daddy's screen
+        local head = char:FindFirstChild("Head")
+        if head and head:IsA("BasePart") then
+            head.LocalTransparencyModifier = 1
+            for _, desc in ipairs(head:GetDescendants()) do
+                if desc:IsA("BasePart") or desc:IsA("Decal") then
+                    desc.LocalTransparencyModifier = 1
+                end
+            end
+        end
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("Accessory") then
+                local isHeadAcc = false
+                local accType = child.AccessoryType
+                if accType == Enum.AccessoryType.Hat or accType == Enum.AccessoryType.Hair
+                    or accType == Enum.AccessoryType.Face or accType == Enum.AccessoryType.Eyebrow
+                    or accType == Enum.AccessoryType.Eyelash then
+                    isHeadAcc = true
+                end
+                local h = child:FindFirstChild("Handle")
+                if h and h:IsA("BasePart") then
+                    for _, att in ipairs(h:GetChildren()) do
+                        if att:IsA("Attachment") then
+                            local an = att.Name:lower()
+                            if an:find("head") or an:find("face") or an:find("hair") or an:find("hat") then
+                                isHeadAcc = true
+                                break
+                            end
+                        end
+                    end
+                    if isHeadAcc or child.Name:lower():find("hair") or child.Name:lower():find("face") or child.Name:lower():find("hat") or child.Name:lower():find("lash") then
+                        h.LocalTransparencyModifier = 1
+                        for _, hd in ipairs(h:GetDescendants()) do
+                            if hd:IsA("BasePart") or hd:IsA("Decal") then
+                                hd.LocalTransparencyModifier = 1
+                            end
+                        end
+                    end
+                end
+            elseif child:IsA("BasePart") then
+                local cName = child.Name:lower()
+                if cName:find("face") or cName:find("lash") or cName:find("brow") or cName:find("hair") then
+                    child.LocalTransparencyModifier = 1
+                end
+            end
+        end
+    end
+
     local cam = Workspace.CurrentCamera
     if not cam or cam.CameraType ~= Enum.CameraType.Scriptable then return end
     if State.Noclip or isTeleportTweening then return end
 
-    local char = getChar()
     local mgTable = getMainGameTable()
     if isPlayerHiding(char, mgTable) then return end
 
@@ -6272,38 +6336,8 @@ task.spawn(function()
     end
 end)
 
--- Consumables Auto-Retain Watcher (Vitamins, Smoothie, Bandage)
-task.spawn(function()
-    local isRetainingConsumable = false
-
-    -- Direct Click / Tap Listener: DOORS uses custom input handlers so Tool.Activated never fires!
-    -- This intercepts eating/drinking on MouseButton1 / Touch / R2
-    UserInputService.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        local uType = input.UserInputType
-        if uType ~= Enum.UserInputType.MouseButton1 and uType ~= Enum.UserInputType.Touch and input.KeyCode ~= Enum.KeyCode.ButtonR2 then return end
-        if not State.Infinite_Items or not State.Infinite_Consumables or isRetainingConsumable then return end
-
-        local char = getChar()
-        if not char then return end
-        local tool = char:FindFirstChildWhichIsA("Tool")
-        if not tool then return end
-        local tn = tool.Name:lower()
-        if tn:find("vitamin") or tn:find("smoothie") or tn:find("bandage") or tn:find("starvial") then
-            isRetainingConsumable = true
-            task.spawn(function()
-                -- Calibrated window: wait 0.28s for eating audio & server speed/heal buff to register
-                task.wait(0.28)
-                if tool and tool.Parent then
-                    executeItemDupeDrop(tool, 0)
-                    Hub.Notify("Infinite Items", tool.Name .. " consumed & retained!", 2)
-                end
-                task.wait(1.5)
-                isRetainingConsumable = false
-            end)
-        end
-    end)
-end)
+-- Consumables Retain Engine: Vitamins, Smoothies & Bandages are duplicated safely via Quick Dupe button
+-- Destructive drop-while-eating hook removed so eating vitamins never makes the bottle disappear from hands!
 
 -- Additional Anti-Entity Defenses (Gloombats, Seek Hands, Halt Reversal, Grumble Radar)
 local function applyAdditionalDefenses()
@@ -8143,7 +8177,7 @@ if cam then
                     end
                 end
             end)
-            Hub.Notify("Anti-Timothy", "🕷️ Timothy spider silenced & hidden!", 1.5)
+            -- Timothy silently defused with zero notification
         end
     end)
 end
@@ -8779,79 +8813,5 @@ end)
 scanAllRooms()
 Hub.Notify("Unknown Hub", "DOORS Precision ESP Loaded", 3)
 
--- Frame-0 ProximityPrompt Fast Trigger: Bypasses native engine input polling delays on KeyCode.E
-local inputConn2; inputConn2 = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if inputConn2 then trackConn(inputConn2) end
-    if input.KeyCode == Enum.KeyCode.E and not UserInputService:GetFocusedTextBox() then
-        if not State.Instant_Interact then return end -- Strictly disabled if Instant Interact toggle is OFF!
-        local r = getRoot()
-        local cam = Workspace.CurrentCamera
-        if r and cam then
-            -- Wardrobe Gaze Guard: If looking directly at a closet/wardrobe/bed, let native prompt interact so focus is NEVER stolen!
-            local rayParams = RaycastParams.new()
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            rayParams.FilterDescendantsInstances = {getChar(), Workspace:FindFirstChild("Drops") or getChar()}
-            local hit = Workspace:Raycast(cam.CFrame.Position, cam.CFrame.LookVector * 15, rayParams)
-            if hit and hit.Instance then
-                local hName = hit.Instance.Name:lower()
-                local hpName = hit.Instance.Parent and hit.Instance.Parent.Name:lower() or ""
-                local hppName = hit.Instance.Parent and hit.Instance.Parent.Parent and hit.Instance.Parent.Parent.Name:lower() or ""
-                if hName:find("wardrobe") or hName:find("closet") or hName:find("bed") or hName:find("locker")
-                    or hpName:find("wardrobe") or hpName:find("closet") or hpName:find("bed") or hpName:find("locker")
-                    or hppName:find("wardrobe") or hppName:find("closet") or hppName:find("bed") or hppName:find("locker") then
-                    return
-                end
-            end
-            local rPos = r.Position
-            local lookVec = cam.CFrame.LookVector
-            local bestPrompt = nil
-            local bestScore = math.huge
-
-            local searchContainers = {}
-            local curRooms = Workspace:FindFirstChild("CurrentRooms")
-            if curRooms then table.insert(searchContainers, curRooms) end
-            local drops = Workspace:FindFirstChild("Drops")
-            if drops then table.insert(searchContainers, drops) end
-
-            for _, container in ipairs(searchContainers) do
-                for _, p in ipairs(container:GetDescendants()) do
-                    if p:IsA("ProximityPrompt") and p.Enabled then
-                        local prName = p.Name:lower()
-                        local pAct = (p.ActionText or ""):lower()
-                        local pObj = (p.ObjectText or ""):lower()
-                        local parentName = p.Parent and p.Parent.Name:lower() or ""
-                        local isHiding = prName:find("hide") or pAct:find("hide") or pAct:find("enter")
-                            or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("bed") or pObj:find("locker")
-                            or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("bed") or parentName:find("locker")
-
-                        if not isHiding then
-                            local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
-                            if pPart then
-                                local toPart = (pPart.Position - rPos)
-                                local dist = toPart.Magnitude
-                                local isDrawerPrompt = pObj:find("drawer") or pObj:find("desk") or parentName:find("knob")
-                                local maxReach = isDrawerPrompt and 6.5 or 9.0 -- Strictly enforce 6.5 studs for drawers to match server range!
-                                if dist <= maxReach then
-                                    local dir = toPart.Unit
-                                    local dot = lookVec:Dot(dir)
-                                    if dot > 0.65 or dist <= 4.0 then
-                                        local score = dist - dot * 5.0
-                                        if score < bestScore then
-                                            bestScore = score
-                                            bestPrompt = p
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-
-            if bestPrompt and State.Instant_Interact then
-                bestPrompt.RequiresLineOfSight = false
-                safeInstantFirePrompt(bestPrompt)
-            end
-        end
-    end
-end)
+-- Native ProximityPrompt engine handles KeyCode.E with zero interference;
+-- HoldDuration = 0 triggers instantly while preserving exact crosshair focus across wardrobe drawers.
