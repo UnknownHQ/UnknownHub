@@ -2372,12 +2372,6 @@ task.spawn(function()
             elevY = 6.0
             targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
         end
-        else
-            -- Gun Mode: Safe standoff distance & elevation
-            distBehind = 9.0
-            elevY = 6.0
-            targetPos = bearRoot.Position - (flatLook * distBehind) + Vector3.new(0, elevY, 0)
-        end
 
         -- Dynamically resolve the CLOSEST hitbox part to the player so server distance checks ALWAYS pass!
         local targetHitPart = nil
