@@ -1302,7 +1302,7 @@ local function recoverFromRagdoll()
     end
 
     -- 4. Guarantee solid ground collision on root and torso only (never limbs, to prevent walk freeze)
-    local root = getRoot()
+    local root = char and char:FindFirstChild("HumanoidRootPart")
     if root then root.CanCollide = true end
     local ut = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
     if ut then ut.CanCollide = true end
