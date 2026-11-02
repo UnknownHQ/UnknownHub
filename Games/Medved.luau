@@ -204,7 +204,7 @@ end
 
 -- Dynamic Landmark Resolver: finds the real physical ground parts of every location
 local locationRegistry = {
-    { name = "Main Base (Spawn)", target = "TheBase", fallback = Vector3.new(52, -137, -144) },
+    { name = "Main Base (Spawn)", target = "TheBase", fallback = Vector3.new(52.0, -143.0, -25.0) },
     { name = "Old Statue (Lenin)", target = "LeninStatue", fallback = Vector3.new(-398.5, -124.0, -685.0) },
     { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-626, -114, 443) },
     { name = "The Maze (Entrance)", target = "TheMazeEntrance", fallback = Vector3.new(20, -130, -185) },
@@ -219,7 +219,10 @@ local locationRegistry = {
 }
 
 local function resolveLocationPosition(item)
-    if item.target == "TheMazeEntrance" then
+    if item.target == "TheBase" then
+        -- Open Base Courtyard: In front of Bear Statue and Base stairs (Z = -25), completely clear of fences and forcefields!
+        return Vector3.new(52.0, -143.0, -25.0)
+    elseif item.target == "TheMazeEntrance" then
         local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("TheMaze")
         if poi then
             return poi:GetPivot().Position + Vector3.new(0, 3.5, 0)
@@ -2525,29 +2528,6 @@ task.spawn(function()
                 or bear:FindFirstChild("Hitbox_Body")
                 or bearRoot
         else
-            if isGrinderBear then
-                hoverElevation = 3.2
-                standoff = 3.5
-            elseif isWallBear then
-                hoverElevation = 3.0
-                standoff = 2.8
-            elseif isRangedBear then
-                hoverElevation = 2.6
-                standoff = 3.2
-            else
-                -- Wild Medved, GrizzlyMedved, ThinBear, ClassicBear, etc.
-                hoverElevation = 2.2
-                standoff = (sz.Z * 0.35) + 1.8
-            end
-
-            local myClearance = isBigPlayerBear and math.clamp((mySz.Y - 5.0) * 0.22, 0.4, 2.2) or 0
-            local targetY = bearTopY + hoverElevation + myClearance
-
-            targetPos = Vector3.new(
-                rearPart.Position.X + (rearDir.X * standoff),
-                targetY,
-                rearPart.Position.Z + (rearDir.Z * standoff)
-            )
             local rearCandidates = {
                 bear:FindFirstChild("Hitbox_Hips"),
                 bear:FindFirstChild("Hitbox_Pelvis"),
@@ -2563,6 +2543,33 @@ task.spawn(function()
                     break
                 end
             end
+            if not targetHitPart then targetHitPart = rearPart end
+
+            if isGrinderBear then
+                hoverElevation = 2.4
+                standoff = 3.0
+            elseif isWallBear then
+                hoverElevation = 2.2
+                standoff = 2.5
+            elseif isRangedBear then
+                hoverElevation = 2.0
+                standoff = 2.5
+            else
+                -- Wild Medved, GrizzlyMedved, ThinBear, ClassicBear, etc.
+                -- Tight apex positioning behind rear spine/pelvis:
+                -- Elevation 1.2 studs above pelvis/hips; standoff 2.0 - 2.8 studs behind rear spine.
+                -- Total 3D distance is ~2.6 - 3.2 studs (well within 6.5 - 8.5 stud swipe reach)!
+                -- 100% immune from front bites/swipes, 100% hit registration on every attack!
+                hoverElevation = 1.2
+                standoff = math.clamp((sz.Z * 0.22) + 0.8, 1.8, 2.8)
+            end
+
+            local targetY = targetHitPart.Position.Y + hoverElevation
+            targetPos = Vector3.new(
+                targetHitPart.Position.X + (rearDir.X * standoff),
+                targetY,
+                targetHitPart.Position.Z + (rearDir.Z * standoff)
+            )
         end
 
         if Config.FarmMethod == "Gun" then
@@ -2578,6 +2585,19 @@ task.spawn(function()
 
         -- Aim directly at target hit part (actual 3D position of enemy part)
         local aimPos = targetHitPart.Position
+
+        -- Synchronize authoritative local aim on character
+        pcall(function()
+            char:SetAttribute("LocalAim", aimPos)
+        end)
+
+        -- Align camera facing so BearFacing smoothly tracks the enemy bear
+        pcall(function()
+            local cam = Workspace.CurrentCamera
+            if cam then
+                cam.CFrame = CFrame.lookAt(cam.CFrame.Position, aimPos)
+            end
+        end)
 
         -- Update 60 FPS flight target CFrame: pitches downward so attack cone directly engulfs enemy
         activeFlightTargetCF = CFrame.lookAt(targetPos, aimPos)
@@ -2596,9 +2616,11 @@ task.spawn(function()
         end
 
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
-        -- Range Guard: Only execute attacks when flight has brought the player into combat range!
-        local currentDistToTarget = (root.Position - targetPos).Magnitude
-        local canStrike = currentDistToTarget <= (isBigPlayerBear and 16.0 or 11.0)
+        -- Range Guard: Only execute attacks when flight has brought the player into true combat range!
+        local distToEnemy = (root.Position - targetHitPart.Position).Magnitude
+        local maxReach = amBooBoo and 5.5 or (isBigPlayerBear and 7.5 or 6.8)
+        if Config.FarmMethod == "Melee" then maxReach = 7.0 end
+        local canStrike = distToEnemy <= maxReach
         if not canStrike then
             task.wait(0.04)
             continue
