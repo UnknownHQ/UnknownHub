@@ -1543,8 +1543,17 @@ local function shootTargetBear(tool, bear, bearPart)
     local muzzle = tool:FindFirstChild("Handle") and tool.Handle:FindFirstChild("Muzzle")
     local muzzlePos = muzzle and muzzle.WorldCFrame.Position or (root.Position + Vector3.new(0, 1.5, 0))
 
-    -- Target verified hitbox part (head or chest/torso) for 100% damage registration
-    local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearPart
+    -- Target verified hitbox part directly facing player from rear standoff
+    local targetPart = bearPart 
+        or bear:FindFirstChild("Hitbox_Hips") 
+        or bear:FindFirstChild("Hitbox_Pelvis") 
+        or bear:FindFirstChild("Hitbox_Wheel") 
+        or bear:FindFirstChild("Hitbox_Body") 
+        or bear:FindFirstChild("Hitbox_Chest") 
+        or bear:FindFirstChild("Hitbox_Head") 
+        or bear.PrimaryPart 
+        or bear:FindFirstChildOfClass("BasePart")
+    if not targetPart then return end
     local hitPos = targetPart.Position
 
     -- Check if target is alive
@@ -1574,13 +1583,13 @@ local function shootTargetBear(tool, bear, bearPart)
 
     local hitData = {}
     if isShotgun or numBullets > 1 then
-        -- Target verified critical hitboxes (Head, Chest, Crown, Torso, BodyTop)
+        -- Target verified critical hitboxes directly reachable from rear angle
         local targetParts = {
-            bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Head"),
-            bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso"),
-            bear:FindFirstChild("Hitbox_Crown") or bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears"),
             targetPart,
-            bearPart
+            bearPart or targetPart,
+            bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or targetPart,
+            bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("Hitbox_Wheel") or targetPart,
+            bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or targetPart
         }
         local validParts = {}
         for _, p in ipairs(targetParts) do
@@ -2441,8 +2450,8 @@ task.spawn(function()
                 standoff = 1.8
                 elevY = 0.8
             elseif isRangedBear then
-                standoff = 1.8
-                elevY = 0.6
+                standoff = 3.8
+                elevY = 1.6
             else
                 -- Medved, GrizzlyMedved, ThinBear, IceBear:
                 standoff = amBooBoo and 1.6 or 2.2
@@ -2519,8 +2528,7 @@ task.spawn(function()
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
                     triggerGunReload(bestTool)
                 elseif not reloading and currentAmmo > 0 then
-                    local targetPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("Ears") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Torso") or bearRoot
-                    shootTargetBear(bestTool, bear, targetPart)
+                    shootTargetBear(bestTool, bear, targetHitPart)
                 elseif not reloading and currentAmmo <= 0 then
                     triggerGunReload(bestTool)
                 end
@@ -2529,6 +2537,12 @@ task.spawn(function()
             local RS = game:GetService("ReplicatedStorage")
             local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
             local bearAbility = pb and pb:FindFirstChild("BearAbility")
+            local bearAim = pb and pb:FindFirstChild("BearAim")
+
+            -- Synchronize authoritative local aim on character
+            pcall(function()
+                char:SetAttribute("LocalAim", aimPos)
+            end)
 
             if bearAbility then
                 -- 1. Rotate & Dispatch Available Hotbar Variant Skills (Minigun, Rockets, Flamethrower, Shotgun, Charge, Spin, etc.)
@@ -2540,6 +2554,11 @@ task.spawn(function()
                             bearVariantIndex = (bearVariantIndex % #hotbarSlots) + 1
                             local candidateSlot = hotbarSlots[bearVariantIndex]
                             if isAbilityReady(candidateSlot) then
+                                if bearAim and targetHitPart then
+                                    pcall(function()
+                                        bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
+                                    end)
+                                end
                                 pcall(function()
                                     bearAbility:FireServer("Use", candidateSlot, aimPos)
                                 end)
@@ -2554,6 +2573,11 @@ task.spawn(function()
                 -- 2. Dispatch Default M1 Skill (Sonic Scream, Slam, GrinderFireWeapon, Laser Shot, Spike Shot)
                 if tick() - lastDefaultM1Attack >= 0.16 and isAbilityReady("Default") then
                     lastDefaultM1Attack = tick()
+                    if bearAim and targetHitPart then
+                        pcall(function()
+                            bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
+                        end)
+                    end
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", aimPos)
                     end)
