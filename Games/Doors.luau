@@ -2949,6 +2949,8 @@ local lastSlideSyncTime = 0
 local pendingCrouchState = nil
 local unhideGraceUntil = 0
 local wasHidingState = false
+local justExitedHiding = false
+local getEquippedOrInventoryTool, executeItemDupeDrop, retrieveDroppedTool
 
 -- isPlayerHiding defined above near top of script (line 472)
 
@@ -3127,6 +3129,150 @@ local function isTeleportImmune()
     return isTeleportTweening or isAtRoof or (os.clock() < teleportImmunityUntil)
 end
 
+-- =========================================================================
+-- Universal Tool Inspection, Auto-Equip & Infinite Items Dupe Engine
+-- =========================================================================
+getEquippedOrInventoryTool = function(matchNames)
+    local char = getChar()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    -- Priority 1: Check if already equipped in Character
+    if char then
+        for _, m in ipairs(matchNames) do
+            local ml = m:lower()
+            for _, t in ipairs(char:GetChildren()) do
+                if t:IsA("Tool") and t.Name:lower():find(ml) then
+                    return t, true -- tool, isEquipped
+                end
+            end
+        end
+    end
+    -- Priority 2: Check Backpack
+    if bp then
+        for _, m in ipairs(matchNames) do
+            local ml = m:lower()
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") and t.Name:lower():find(ml) then
+                    return t, false -- tool, isEquipped
+                end
+            end
+        end
+    end
+    return nil, false
+end
+
+-- Infallible Dropped Tool Pickup Engine: Aggressively searches Workspace.Drops and CurrentRooms for the specific dropped tool
+retrieveDroppedTool = function(toolName, maxWait)
+    local targetName = toolName:lower()
+    local start = os.clock()
+    local deadline = start + (maxWait or 3.5)
+    task.spawn(function()
+        local reclaimed = false
+        while os.clock() < deadline and not reclaimed do
+            -- Check if tool is already back in character or backpack
+            local char = getChar()
+            local bp = LocalPlayer:FindFirstChild("Backpack")
+            if (char and char:FindFirstChild(toolName)) or (bp and bp:FindFirstChild(toolName)) then
+                reclaimed = true
+                Hub.Notify("Infinite Items", toolName .. " retained successfully!", 2)
+                break
+            end
+
+            local drops = Workspace:FindFirstChild("Drops")
+            local targetDrop = nil
+            if drops then
+                for _, d in ipairs(drops:GetChildren()) do
+                    if d.Name:lower():find(targetName) then
+                        targetDrop = d
+                        break
+                    end
+                end
+            end
+
+            if not targetDrop then
+                local cr = Workspace:FindFirstChild("CurrentRooms")
+                if cr then
+                    for _, rm in ipairs(cr:GetChildren()) do
+                        for _, item in ipairs(rm:GetChildren()) do
+                            if (item:IsA("Tool") or item:IsA("Model")) and item.Name:lower():find(targetName) then
+                                local p = item:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                if p and p.Enabled then
+                                    targetDrop = item
+                                    break
+                                end
+                            end
+                        end
+                        if targetDrop then break end
+                    end
+                end
+            end
+
+            if targetDrop and targetDrop.Parent then
+                local r = getRoot()
+                local prompt = targetDrop:FindFirstChildWhichIsA("ProximityPrompt", true)
+                local handle = targetDrop:IsA("BasePart") and targetDrop or (targetDrop.PrimaryPart or targetDrop:FindFirstChildWhichIsA("BasePart", true))
+
+                if prompt and prompt.Parent then
+                    prompt.HoldDuration = 0
+                    prompt.RequiresLineOfSight = false
+                    prompt.MaxActivationDistance = 45
+                    pcall(function() fireproximityprompt(prompt) end)
+                end
+
+                if r and handle and firetouchinterest then
+                    pcall(function()
+                        firetouchinterest(r, handle, 0)
+                        firetouchinterest(r, handle, 1)
+                    end)
+                end
+            end
+
+            task.wait(0.04)
+        end
+    end)
+end
+
+local isDroppingAndRetrieving = false
+local lastDupeTime = 0
+
+executeItemDupeDrop = function(tool, delaySeconds)
+    if not tool or not State.Infinite_Items then return end
+    local now = os.clock()
+    if isDroppingAndRetrieving and (now - lastDupeTime < 0.3) then return end
+    lastDupeTime = now
+    isDroppingAndRetrieving = true
+
+    local toolName = tool.Name
+    local char = getChar()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+
+    task.spawn(function()
+        -- Ensure tool is equipped in Character so DropItem remote accepts it
+        if tool.Parent == bp and hum then
+            hum:EquipTool(tool)
+            task.wait(0.06)
+        end
+
+        -- Calibrated Delay: Allows server to validate unlock / consumption before drop executes
+        if delaySeconds and delaySeconds > 0 then
+            task.wait(delaySeconds)
+        end
+
+        local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local dropRemote = rf and rf:FindFirstChild("DropItem")
+        if dropRemote and tool and tool.Parent then
+            pcall(function() dropRemote:FireServer(tool) end)
+        end
+
+        -- Aggressive multi-frame retrieval
+        retrieveDroppedTool(toolName, 3.5)
+
+        task.delay(0.35, function()
+            isDroppingAndRetrieving = false
+        end)
+    end)
+end
+
 -- Active Proximity Sentry: Automatically solves locks & opens doors on approach (Zero Yield / Full Descendants)
 local openedDoors = {}
 local lastDoorKeyEquip = 0
@@ -3172,16 +3318,19 @@ local function processNearbyDoors(currentPos, maxReach)
                                 up.RequiresLineOfSight = false
                                 up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 14)
                                 local now = os.clock()
-                                if (now - lastDoorKeyEquip >= 0.15) then
+                                if (now - (lastDoorKeyEquip or 0) >= 0.25) then
                                     lastDoorKeyEquip = now
                                     task.spawn(function()
-                                        local keyTool = LocalPlayer.Backpack:FindFirstChild("Key") or (char and char:FindFirstChild("Key"))
+                                        local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
                                         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                                        if keyTool and keyTool.Parent == LocalPlayer.Backpack and hum then
-                                            hum:EquipTool(keyTool)
-                                            task.wait(0.02)
+                                        if tool and not isEq and hum and tool.Parent == LocalPlayer.Backpack then
+                                            hum:EquipTool(tool)
+                                            task.wait(0.08)
                                         end
                                         pcall(function() fireproximityprompt(up) end)
+                                        if tool and State.Infinite_Items and State.Infinite_Lockpicks then
+                                            executeItemDupeDrop(tool, 0.09)
+                                        end
                                     end)
                                 end
                             end
@@ -4710,6 +4859,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     if wasHidingState and not isInsideHiding then
         -- Player just exited hiding spot: instantly clear grace and restore full control/responsiveness
         unhideGraceUntil = 0
+        justExitedHiding = true
     end
     wasHidingState = isInsideHiding
     local hiding = isInsideHiding or (os.clock() < unhideGraceUntil)
@@ -5022,7 +5172,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Continuous Body & First-Person Head Alignment:
+    -- Continuous Body & First-Person Transparency Alignment:
     if char then
         if isInsideHiding then
             -- When sitting inside hiding spots (wardrobes/beds):
@@ -5033,39 +5183,67 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                 end
             end
         else
-            -- When walking, flying, or playing closet exit animations:
-            -- Restore all body parts to 0 so character & animations are 100% visible
-            for _, p in ipairs(char:GetChildren()) do
-                if p:IsA("BasePart") then
-                    local pLower = p.Name:lower()
-                    if pLower:find("collision") or pLower == "humanoidrootpart" then
-                        if p.Transparency < 1 then p.Transparency = 1 end
-                    elseif pLower == "head" then
-                        -- Enforce Head invisibility locally in first person so camera never sees inside head/face
-                        p.LocalTransparencyModifier = 1
-                    else
-                        p.LocalTransparencyModifier = 0
+            -- When NOT hiding:
+            -- 1. If we just transitioned out of hiding, reset body parts to 0 ONE TIME so exit animation is visible
+            if justExitedHiding then
+                justExitedHiding = false
+                for _, p in ipairs(char:GetChildren()) do
+                    if p:IsA("BasePart") then
+                        local pLower = p.Name:lower()
+                        if not (pLower == "head" or pLower:find("collision") or pLower == "humanoidrootpart") then
+                            p.LocalTransparencyModifier = 0
+                        end
                     end
                 end
             end
-            -- Enforce LocalTransparencyModifier = 1 on Head-attached accessories (hair, face, eyelashes, eyebrows, hats)
-            -- while keeping non-head accessories visible
-            for _, acc in ipairs(char:GetChildren()) do
-                if acc:IsA("Accessory") then
-                    local h = acc:FindFirstChild("Handle")
+
+            -- 2. Permanently enforce LocalTransparencyModifier = 1 on Head, face, hair, eyelashes, eyebrows, hats
+            -- so they NEVER clip into first-person camera or render as black lines/distortions!
+            local head = char:FindFirstChild("Head")
+            if head and head:IsA("BasePart") then
+                head.LocalTransparencyModifier = 1
+                for _, desc in ipairs(head:GetDescendants()) do
+                    if desc:IsA("BasePart") or desc:IsA("Decal") then
+                        desc.LocalTransparencyModifier = 1
+                    end
+                end
+            end
+
+            for _, child in ipairs(char:GetChildren()) do
+                if child:IsA("Accessory") then
+                    local isHeadAcc = false
+                    local accType = child.AccessoryType
+                    if accType == Enum.AccessoryType.Hat or accType == Enum.AccessoryType.Hair
+                        or accType == Enum.AccessoryType.Face or accType == Enum.AccessoryType.Eyebrow
+                        or accType == Enum.AccessoryType.Eyelash then
+                        isHeadAcc = true
+                    end
+                    local h = child:FindFirstChild("Handle")
                     if h and h:IsA("BasePart") then
-                        local att = h:FindFirstChildWhichIsA("Attachment")
-                        local attName = att and att.Name:lower() or ""
-                        local accType = acc.AccessoryType
-                        local isHeadAcc = attName:find("face") or attName:find("hair") or attName:find("hat") or attName:find("head")
-                            or accType == Enum.AccessoryType.Hat or accType == Enum.AccessoryType.Hair
-                            or accType == Enum.AccessoryType.Face or accType == Enum.AccessoryType.Eyebrow
-                            or accType == Enum.AccessoryType.Eyelash
-                        if isHeadAcc then
-                            h.LocalTransparencyModifier = 1
-                        else
-                            h.LocalTransparencyModifier = 0
+                        for _, att in ipairs(h:GetChildren()) do
+                            if att:IsA("Attachment") then
+                                local an = att.Name:lower()
+                                if an:find("head") or an:find("face") or an:find("hair") or an:find("hat") then
+                                    isHeadAcc = true
+                                    break
+                                end
+                            end
                         end
+                        if isHeadAcc or child.Name:lower():find("hair") or child.Name:lower():find("face") or child.Name:lower():find("hat") or child.Name:lower():find("lash") then
+                            h.LocalTransparencyModifier = 1
+                            for _, hd in ipairs(h:GetDescendants()) do
+                                if hd:IsA("BasePart") or hd:IsA("Decal") then
+                                    hd.LocalTransparencyModifier = 1
+                                end
+                            end
+                        end
+                    end
+                elseif child:IsA("BasePart") then
+                    local cName = child.Name:lower()
+                    if cName:find("collision") or cName == "humanoidrootpart" then
+                        if child.Transparency < 1 then child.Transparency = 1 end
+                    elseif cName:find("face") or cName:find("lash") or cName:find("brow") or cName:find("hair") then
+                        child.LocalTransparencyModifier = 1
                     end
                 end
             end
@@ -5563,6 +5741,24 @@ local function safeInstantFirePrompt(prompt)
     if lastPromptFiredObj == prompt and (now - lastPromptFiredTick < 0.25) then return end
     lastPromptFiredObj = prompt
     lastPromptFiredTick = now
+
+    -- Auto-equip tool if this is an unlock prompt so interaction is never empty-handed!
+    local pName = prompt.Name:lower()
+    local obj = (prompt.ObjectText or ""):lower()
+    local act = (prompt.ActionText or ""):lower()
+    local isUnlock = pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock")
+    if isUnlock then
+        local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
+        if tool and not isEq then
+            local char = getChar()
+            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hum and tool.Parent == LocalPlayer:FindFirstChild("Backpack") then
+                hum:EquipTool(tool)
+                task.wait(0.06)
+            end
+        end
+    end
+
     pcall(function()
         if fireproximityprompt then
             fireproximityprompt(prompt)
@@ -5902,117 +6098,34 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- Infinite Items & Retain-on-Use Exploits Engine (Lockpicks, Skeleton Keys, Crucifix)
+-- Prompt Listeners, Crucifix Exorcism Retain & Consumables Auto-Retain Engines
 -- =========================================================================
-local isDroppingAndRetrieving = false
-local lastDupeTime = 0
 
-local function getEquippedOrInventoryTool(matchNames)
-    local char = getChar()
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    if char then
-        for _, t in ipairs(char:GetChildren()) do
-            if t:IsA("Tool") then
-                local tn = t.Name:lower()
-                for _, m in ipairs(matchNames) do
-                    if tn:find(m:lower()) then return t end
-                end
-            end
-        end
-    end
-    if bp then
-        for _, t in ipairs(bp:GetChildren()) do
-            if t:IsA("Tool") then
-                local tn = t.Name:lower()
-                for _, m in ipairs(matchNames) do
-                    if tn:find(m:lower()) then return t end
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function retrieveDroppedTool(toolName, maxWait)
-    local start = os.clock()
-    local deadline = start + (maxWait or 1.5)
-    task.spawn(function()
-        while os.clock() < deadline do
-            local drops = Workspace:FindFirstChild("Drops")
-            local targetDrop = nil
-            if drops then
-                for _, d in ipairs(drops:GetChildren()) do
-                    if d.Name:lower():find(toolName:lower()) or (d:IsA("Model") and d:FindFirstChildWhichIsA("ProximityPrompt", true)) then
-                        targetDrop = d
-                        break
-                    end
-                end
-            end
-            if not targetDrop then
-                local cr = Workspace:FindFirstChild("CurrentRooms")
-                if cr then
-                    for _, rm in ipairs(cr:GetChildren()) do
-                        for _, item in ipairs(rm:GetChildren()) do
-                            if item:IsA("Tool") or (item:IsA("Model") and item.Name:lower():find(toolName:lower())) then
-                                local p = item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                if p and p.Enabled then
-                                    targetDrop = item
-                                    break
-                                end
-                            end
-                        end
-                        if targetDrop then break end
-                    end
-                end
-            end
-
-            if targetDrop then
-                local prompt = targetDrop:FindFirstChildWhichIsA("ProximityPrompt", true)
-                if prompt and prompt.Enabled then
-                    prompt.HoldDuration = 0
-                    prompt.RequiresLineOfSight = false
-                    pcall(function() fireproximityprompt(prompt) end)
-                    break
-                end
-            end
-            task.wait(0.04)
-        end
-    end)
-end
-
-local function executeItemDupeDrop(tool)
-    if not tool or isDroppingAndRetrieving then return end
-    local now = os.clock()
-    if now - lastDupeTime < 0.25 then return end
-    lastDupeTime = now
-    isDroppingAndRetrieving = true
-
-    local toolName = tool.Name
-    local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-    local dropRemote = rf and rf:FindFirstChild("DropItem")
-    if dropRemote then
-        pcall(function() dropRemote:FireServer(tool) end)
-    end
-
-    retrieveDroppedTool(toolName, 2.0)
-    task.delay(0.25, function()
-        isDroppingAndRetrieving = false
-    end)
-end
-
--- Hook ProximityPromptService for instant item retain on lockpick / skeleton key / key usage
+-- Hook ProximityPromptService for calibrated item retain on lockpick / skeleton key / key usage
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
     local activePromptTool = nil
 
-    -- Snapshot the held/inventory tool as soon as the user starts interacting with a lock/chest
+    -- When daddy begins holding or focusing an unlock prompt:
+    -- Automatically equip lockpick/key so hands are NEVER empty!
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player and player ~= LocalPlayer then return end
         local pName = prompt.Name:lower()
         local obj = (prompt.ObjectText or ""):lower()
         local act = (prompt.ActionText or ""):lower()
-        if pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock") then
-            activePromptTool = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
+        local isUnlock = pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock")
+        if isUnlock then
+            local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
+            if tool then
+                activePromptTool = tool
+                if not isEq then
+                    local char = getChar()
+                    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                    if hum and tool.Parent == LocalPlayer:FindFirstChild("Backpack") then
+                        hum:EquipTool(tool)
+                    end
+                end
+            end
         end
     end)
 
@@ -6022,13 +6135,13 @@ pcall(function()
         local pName = prompt.Name:lower()
         local obj = (prompt.ObjectText or ""):lower()
         local act = (prompt.ActionText or ""):lower()
+        local isUnlock = pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock")
 
-        if pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock") then
+        if isUnlock then
             local tool = activePromptTool or getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
             if tool then
-                task.spawn(function()
-                    executeItemDupeDrop(tool)
-                end)
+                -- Calibrated timing: 0.09s after PromptTriggered allows server to register unlock before drop executes
+                executeItemDupeDrop(tool, 0.09)
             end
         end
     end
@@ -6042,33 +6155,112 @@ pcall(function()
     end)
 end)
 
--- Crucifix Auto-Retain Watcher (Drops right as entity attack begins & reclaims)
+-- Crucifix Auto-Retain Watcher (Triggers during active exorcism, drops at 0.6s & reclaims)
 task.spawn(function()
+    local isRetainingCrucifix = false
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
-        if State.Infinite_Items and State.Infinite_Crucifix then
+        if State.Infinite_Items and State.Infinite_Crucifix and not isRetainingCrucifix then
             local char = getChar()
             local crucifix = char and char:FindFirstChild("Crucifix")
             if crucifix then
-                local r = getRoot()
-                if r then
-                    local lethalNames = {"RushMoving", "AmbushMoving", "Eyes", "Screech", "Halt", "SeekMoving", "FigureRig", "Grumble", "A60", "A120"}
-                    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-                    for _, name in ipairs(lethalNames) do
-                        local inst = (curRooms and curRooms:FindFirstChild(name, true)) or Workspace:FindFirstChild(name, true)
-                        if inst then
-                            local pos = inst:GetPivot().Position
-                            if (pos - r.Position).Magnitude <= 32 then
-                                executeItemDupeDrop(crucifix)
-                                Hub.Notify("Infinite Crucifix", "Crucifix dropped & ready for re-grab!", 2)
+                local handle = crucifix:FindFirstChild("Handle")
+                local isExorcising = false
+
+                -- Detection 1: Attribute or Effect instance
+                if crucifix:GetAttribute("Active") == true or char:GetAttribute("CrucifixActive") == true then
+                    isExorcising = true
+                elseif crucifix:FindFirstChild("Chain") or crucifix:FindFirstChild("Chains") or crucifix:FindFirstChild("Effect") or crucifix:FindFirstChild("CrucifixEffect") then
+                    isExorcising = true
+                end
+
+                -- Detection 2: Exorcism audio playing in handle
+                if not isExorcising and handle then
+                    for _, snd in ipairs(handle:GetChildren()) do
+                        if snd:IsA("Sound") and snd.IsPlaying and snd.TimePosition > 0.1 then
+                            local sn = snd.Name:lower()
+                            if sn:find("hold") or sn:find("chain") or sn:find("scream") or sn:find("exorc") or sn:find("impact") then
+                                isExorcising = true
                                 break
                             end
                         end
                     end
                 end
+
+                -- Detection 3: Close entity proximity (< 14 studs) while holding Crucifix
+                if not isExorcising then
+                    local r = getRoot()
+                    if r then
+                        local lethalNames = {"RushMoving", "AmbushMoving", "Eyes", "Screech", "Halt", "SeekMoving", "FigureRig", "Grumble", "A60", "A120"}
+                        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                        for _, name in ipairs(lethalNames) do
+                            local inst = (curRooms and curRooms:FindFirstChild(name, true)) or Workspace:FindFirstChild(name, true)
+                            if inst then
+                                local pos = inst:GetPivot().Position
+                                if (pos - r.Position).Magnitude <= 14 then
+                                    isExorcising = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if isExorcising then
+                    isRetainingCrucifix = true
+                    task.spawn(function()
+                        -- Calibrated delay: wait 0.6 seconds so server chains bind entity
+                        task.wait(0.6)
+                        executeItemDupeDrop(crucifix, 0)
+                        Hub.Notify("Infinite Crucifix", "Crucifix dropped & ready for re-grab!", 3)
+                        task.wait(4.0)
+                        isRetainingCrucifix = false
+                    end)
+                end
             end
         end
-        task.wait(0.12)
+        task.wait(0.1)
+    end
+end)
+
+-- Consumables Auto-Retain Watcher (Vitamins, Smoothie, Bandage)
+task.spawn(function()
+    local hookedTools = {}
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Infinite_Items and State.Infinite_Consumables then
+            local char = getChar()
+            local bp = LocalPlayer:FindFirstChild("Backpack")
+            local consumableNames = {"vitamins", "smoothie", "bandage"}
+            local list = {}
+            if char then
+                for _, t in ipairs(char:GetChildren()) do if t:IsA("Tool") then table.insert(list, t) end end
+            end
+            if bp then
+                for _, t in ipairs(bp:GetChildren()) do if t:IsA("Tool") then table.insert(list, t) end end
+            end
+
+            for _, tool in ipairs(list) do
+                local tn = tool.Name:lower()
+                local isConsumable = false
+                for _, cn in ipairs(consumableNames) do
+                    if tn:find(cn) then isConsumable = true; break end
+                end
+
+                if isConsumable and not hookedTools[tool] then
+                    hookedTools[tool] = true
+                    tool.Activated:Connect(function()
+                        if not State.Infinite_Items or not State.Infinite_Consumables then return end
+                        task.spawn(function()
+                            -- Wait 0.22s so server processes consumption/buff
+                            task.wait(0.22)
+                            executeItemDupeDrop(tool, 0)
+                        end)
+                    end)
+                end
+            end
+        end
+        task.wait(0.5)
     end
 end)
 
@@ -6855,10 +7047,16 @@ processKnobsFarmStep = function()
                 end
 
                 -- If locked chest, trigger Infinite Items dupe-drop with lockpick
+                local usedTool = nil
                 if target.IsChest then
-                    local lockpick = getEquippedOrInventoryTool({"lockpick", "skeleton"})
+                    local lockpick, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton"})
                     if lockpick then
-                        executeItemDupeDrop(lockpick)
+                        usedTool = lockpick
+                        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                        if not isEq and hum and lockpick.Parent == LocalPlayer.Backpack then
+                            hum:EquipTool(lockpick)
+                            task.wait(0.08)
+                        end
                     end
                 end
 
@@ -6866,6 +7064,9 @@ processKnobsFarmStep = function()
                 p.RequiresLineOfSight = false
                 lootedContainersThisRun[p] = true
                 pcall(function() fireproximityprompt(p) end)
+                if usedTool and State.Infinite_Items and State.Infinite_Lockpicks then
+                    executeItemDupeDrop(usedTool, 0.09)
+                end
                 task.wait(0.12)
             end
         end
