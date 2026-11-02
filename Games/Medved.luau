@@ -166,6 +166,9 @@ local Config = {
     AutoPrestigeOn32 = false,
     AntiRagdoll = false
 }
+getgenv().MedvedConfig = Config
+getgenv().UnknownHub = Hub
+
 
 local activeESP = {}
 local activeBearESP = {}
