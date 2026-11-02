@@ -1199,7 +1199,6 @@ local function processDoor(room, doorModel)
         selBox.LineThickness = 0.04
         selBox.SurfaceColor3 = color
         selBox.SurfaceTransparency = 0.82
-        selBox.AlwaysOnTop = true
         selBox.Parent = doorMesh
         table.insert(extraVisuals, selBox)
         registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
@@ -1308,7 +1307,6 @@ local function processDoor(room, doorModel)
     selBox.LineThickness = 0.04
     selBox.SurfaceColor3 = color
     selBox.SurfaceTransparency = 0.82
-    selBox.AlwaysOnTop = true
     selBox.Parent = doorMesh
     table.insert(extraVisuals, selBox)
 
@@ -1832,7 +1830,6 @@ local function createEntityBoundingBox(targetPart, size, color)
     selBox.LineThickness = 0.05
     selBox.SurfaceColor3 = color or Color3.fromRGB(255, 35, 35)
     selBox.SurfaceTransparency = 0.88
-    selBox.AlwaysOnTop = true
     selBox.Parent = folder
 
     folder.Parent = targetPart
