@@ -7484,7 +7484,7 @@ local function getOrderedRoomNodes()
     local roomList = {}
     for _, rm in ipairs(curRooms:GetChildren()) do
         local num = tonumber(rm.Name)
-        if num ~= nil then
+        if num ~= nil and rm:IsA("Model") then
             table.insert(roomList, { Room = rm, Number = num })
         end
     end
@@ -7509,14 +7509,13 @@ local function getOrderedRoomNodes()
                 end
             end
             table.sort(interList, function(a, b)
-                return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0)
+                local na = tonumber(a.Name:match("%d+")) or 0
+                local nb = tonumber(b.Name:match("%d+")) or 0
+                return na < nb
             end)
             for i, p in ipairs(interList) do
                 table.insert(nodes, { Pos = p.Position, RoomNum = rNum, Name = "Node " .. tostring(i), Part = p })
             end
-        elseif entrance and exit and entrance:IsA("BasePart") and exit:IsA("BasePart") then
-            local midPos = (entrance.Position + exit.Position) * 0.5
-            table.insert(nodes, { Pos = midPos, RoomNum = rNum, Name = "Mid", Part = nil })
         end
 
         if exit and exit:IsA("BasePart") then
@@ -7525,6 +7524,41 @@ local function getOrderedRoomNodes()
     end
 
     return nodes
+end
+
+local function getRushPathSegments()
+    local nodes = getOrderedRoomNodes()
+    local segments = {}
+    if #nodes < 2 then return segments end
+
+    for i = 1, #nodes - 1 do
+        local n1 = nodes[i]
+        local n2 = nodes[i + 1]
+        local dist = (n2.Pos - n1.Pos).Magnitude
+        if dist > 0.5 and dist < 120 then
+            table.insert(segments, {
+                A = n1.Pos,
+                B = n2.Pos,
+                Room1 = n1.RoomNum,
+                Room2 = n2.RoomNum,
+                Length = dist
+            })
+        end
+    end
+    return segments
+end
+
+local function getClosestPointOnSegment(p, a, b)
+    local ab = b - a
+    local abLenSq = ab.X * ab.X + ab.Y * ab.Y + ab.Z * ab.Z
+    if abLenSq < 0.0001 then
+        return a, (p - a).Magnitude
+    end
+    local ap = p - a
+    local t = (ap.X * ab.X + ap.Y * ab.Y + ap.Z * ab.Z) / abLenSq
+    if t < 0 then t = 0 elseif t > 1 then t = 1 end
+    local closest = a + ab * t
+    return closest, (p - closest).Magnitude
 end
 
 local function clearNodeVisuals()
@@ -7557,8 +7591,8 @@ local function updateRushSafeHUD(isSafe, statusText)
 
         local pill = Instance.new("Frame")
         pill.Name = "Pill"
-        pill.Size = UDim2.new(0, 310, 0, 36)
-        pill.Position = UDim2.new(0.5, -155, 0, 24)
+        pill.Size = UDim2.new(0, 320, 0, 36)
+        pill.Position = UDim2.new(0.5, -160, 0, 24)
         pill.BackgroundColor3 = Color3.fromRGB(15, 20, 28)
         pill.BorderSizePixel = 0
         pill.Parent = rushSafeHUD
@@ -7690,6 +7724,134 @@ local function refreshEntityNodesVisuals()
     end
 end
 
+local function checkWalkableFloor(candidatePos, ignoreList)
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    local filter = {getChar()}
+    if ignoreList then
+        for _, item in ipairs(ignoreList) do table.insert(filter, item) end
+    end
+    local drops = Workspace:FindFirstChild("Drops")
+    if drops then table.insert(filter, drops) end
+    for _, vis in ipairs(activeSafeZoneVisuals) do table.insert(filter, vis) end
+    for _, vis in ipairs(activeNodeVisuals) do table.insert(filter, vis) end
+    rayParams.FilterDescendantsInstances = filter
+
+    -- 1. Downward Raycast to locate real floor surface
+    local downHit = Workspace:Raycast(candidatePos + Vector3.new(0, 3.5, 0), Vector3.new(0, -9.0, 0), rayParams)
+    if not downHit or not downHit.Instance or not downHit.Instance.CanCollide then
+        return nil
+    end
+
+    -- Normal must face predominantly upwards (walkable floor, not wall or steep angle)
+    if downHit.Normal.Y < 0.72 then
+        return nil
+    end
+
+    local floorPos = downHit.Position
+
+    -- 2. Upward Headroom Raycast (4.2 studs standing clearance)
+    local upHit = Workspace:Raycast(floorPos + Vector3.new(0, 0.4, 0), Vector3.new(0, 4.2, 0), rayParams)
+    if upHit and upHit.Instance and upHit.Instance.CanCollide then
+        return nil
+    end
+
+    -- 3. 4-way horizontal clearance check (1.2 studs radius) to prevent clipping in bookshelves/walls
+    local waistPos = floorPos + Vector3.new(0, 2.0, 0)
+    local radialOffsets = {
+        Vector3.new(1.2, 0, 0),
+        Vector3.new(-1.2, 0, 0),
+        Vector3.new(0, 0, 1.2),
+        Vector3.new(0, 0, -1.2)
+    }
+    for _, off in ipairs(radialOffsets) do
+        local sideHit = Workspace:Raycast(waistPos, off, rayParams)
+        if sideHit and sideHit.Instance and sideHit.Instance.CanCollide then
+            return nil
+        end
+    end
+
+    return floorPos
+end
+
+local function evaluateRushSafety(testPos, segments, char)
+    if State.God_Mode then
+        return true, "⚡ GOD-MODE ACTIVE: ENTITIES CANNOT DAMAGE"
+    end
+    if isHidingState() then
+        return true, "🛡️ SAFE: HIDDEN IN CLOSET/BED"
+    end
+
+    if not segments or #segments == 0 then
+        return true, "🛡️ SAFE: NO ACTIVE THREAT DETECTED"
+    end
+
+    local charInst = char or getChar()
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    local filter = {charInst}
+    local drops = Workspace:FindFirstChild("Drops")
+    if drops then table.insert(filter, drops) end
+    for _, vis in ipairs(activeSafeZoneVisuals) do table.insert(filter, vis) end
+    for _, vis in ipairs(activeNodeVisuals) do table.insert(filter, vis) end
+    rayParams.FilterDescendantsInstances = filter
+
+    local minSegmentDist = math.huge
+    local closestPathPoint = nil
+    local closestSeg = nil
+
+    for _, seg in ipairs(segments) do
+        local cPoint, dist = getClosestPointOnSegment(testPos, seg.A, seg.B)
+        if dist < minSegmentDist then
+            minSegmentDist = dist
+            closestPathPoint = cPoint
+            closestSeg = seg
+        end
+    end
+
+    -- If player is completely beyond lethal path radius (> 22 studs from all segments)
+    if minSegmentDist > 22 then
+        return true, "🛡️ SAFE ZONE: OUT OF RUSH PATH RANGE"
+    end
+
+    -- Within 22 studs: Rush CAN kill here unless blocked by solid wall cover!
+    -- Check Line of Sight from nearby path trajectory points
+    local samplePoints = {}
+    if closestPathPoint then
+        table.insert(samplePoints, closestPathPoint)
+        if closestSeg and closestSeg.Length > 8 then
+            local dir = (closestSeg.B - closestSeg.A).Unit
+            local pAhead, _ = getClosestPointOnSegment(closestPathPoint + dir * 6, closestSeg.A, closestSeg.B)
+            local pBehind, _ = getClosestPointOnSegment(closestPathPoint - dir * 6, closestSeg.A, closestSeg.B)
+            table.insert(samplePoints, pAhead)
+            table.insert(samplePoints, pBehind)
+        end
+    end
+
+    local targetElev = testPos + Vector3.new(0, 2.5, 0)
+    local directLineOfSight = false
+
+    for _, sPt in ipairs(samplePoints) do
+        local origin = sPt + Vector3.new(0, 3.2, 0)
+        local diff = targetElev - origin
+        local dist = diff.Magnitude
+        if dist > 0.2 then
+            local hit = Workspace:Raycast(origin, diff.Unit * (dist * 0.98), rayParams)
+            -- If ray didn't hit a solid wall blocking the view, or hit a door in the main path
+            if not hit or not hit.Instance or not hit.Instance.CanCollide or hit.Instance.Name:lower():find("door") then
+                directLineOfSight = true
+                break
+            end
+        end
+    end
+
+    if directLineOfSight then
+        return false, "⚠️ DANGER: DIRECT RUSH / AMBUSH LINE OF SIGHT"
+    else
+        return true, "🛡️ SAFE ZONE: SHIELDED BY WALL COVER"
+    end
+end
+
 local function refreshSafeZonesVisuals()
     clearSafeZoneVisuals()
     if not State.ESP_Safe_Zones then
@@ -7697,84 +7859,104 @@ local function refreshSafeZonesVisuals()
         return
     end
 
-    local nodes = getOrderedRoomNodes()
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if not curRooms or #nodes == 0 then return end
+    if not curRooms then return end
 
+    local segments = getRushPathSegments()
+    local char = getChar()
     local folder = Instance.new("Folder")
     folder.Name = "Unknown_SafeZonesVisuals"
     folder.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
     table.insert(activeSafeZoneVisuals, folder)
 
     local curRoomNum = getCurrentRoomNumber()
-    local checkedPoints = {}
+    local acceptedSpots = {}
 
-    -- Find safe locations in current and adjacent rooms
+    local function isDuplicate(pos, minDist)
+        minDist = minDist or 6.5
+        for _, s in ipairs(acceptedSpots) do
+            if (s.Pos - pos).Magnitude < minDist then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Process current room and adjacent rooms (+/- 1)
     for _, rm in ipairs(curRooms:GetChildren()) do
         local rNum = tonumber(rm.Name)
-        if rNum and math.abs(rNum - curRoomNum) <= 1 then
-            -- Collect hiding spots as guaranteed safe points
+        if rNum and math.abs(rNum - curRoomNum) <= 1 and rm:IsA("Model") then
+            -- 1. Hiding Spots (Closets, Wardrobes, Lockers, Beds)
             for _, desc in ipairs(rm:GetDescendants()) do
-                local dName = desc.Name:lower()
-                local isHiding = dName:find("wardrobe") or dName:find("closet") or dName:find("bed") or dName:find("locker")
-                if isHiding and (desc:IsA("Model") or desc:IsA("BasePart")) then
-                    local pPos = desc:GetPivot().Position
-                    table.insert(checkedPoints, { Pos = pPos, Name = "Closet/Bed" })
+                if desc:IsA("Model") or desc:IsA("BasePart") then
+                    local dName = desc.Name:lower()
+                    local isWardrobe = dName:find("wardrobe") or dName:find("closet") or dName:find("locker")
+                    local isBed = dName:find("bed")
+
+                    if isWardrobe then
+                        local cf = desc:GetPivot()
+                        -- Try standing spot 2.8 studs in front of wardrobe
+                        local cand1 = cf.Position + cf.LookVector * 2.8
+                        local cand2 = cf.Position - cf.LookVector * 2.8
+                        local floor1 = checkWalkableFloor(cand1, {desc})
+                        local floor2 = checkWalkableFloor(cand2, {desc})
+                        local chosen = floor1 or floor2
+                        if chosen and not isDuplicate(chosen, 5.0) then
+                            table.insert(acceptedSpots, { Pos = chosen, Label = "HIDE: WARDROBE" })
+                        end
+                    elseif isBed then
+                        local cf = desc:GetPivot()
+                        -- Try standing spot 2.5 studs to the side of the bed
+                        local cand1 = cf.Position + cf.RightVector * 2.5
+                        local cand2 = cf.Position - cf.RightVector * 2.5
+                        local floor1 = checkWalkableFloor(cand1, {desc})
+                        local floor2 = checkWalkableFloor(cand2, {desc})
+                        local chosen = floor1 or floor2
+                        if chosen and not isDuplicate(chosen, 5.0) then
+                            table.insert(acceptedSpots, { Pos = chosen, Label = "HIDE: BED" })
+                        end
+                    end
                 end
             end
 
-            -- Collect side room alcoves / corners
-            local assets = rm:FindFirstChild("Assets")
-            if assets then
-                for _, a in ipairs(assets:GetChildren()) do
-                    if a:IsA("Model") and (a.Name:lower():find("bookshelf") or a.Name:lower():find("dresser") or a.Name:lower():find("desk")) then
-                        local aPos = a:GetPivot().Position
-                        table.insert(checkedPoints, { Pos = aPos, Name = "Alcove" })
+            -- 2. True Safe Cover / Wall Shielded Standing Spots (NO FURNITURE PIVOTS!)
+            -- Sample actual walkable floor parts in the room
+            local roomCoverCount = 0
+            for _, p in ipairs(rm:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide and roomCoverCount < 3 then
+                    local pName = p.Name:lower()
+                    if pName:find("floor") or pName:find("carpet") then
+                        -- Test candidate points on the floor part
+                        local cands = {
+                            p.Position,
+                            p.Position + p.CFrame.RightVector * (p.Size.X * 0.35),
+                            p.Position - p.CFrame.RightVector * (p.Size.X * 0.35),
+                            p.Position + p.CFrame.LookVector * (p.Size.Z * 0.35),
+                            p.Position - p.CFrame.LookVector * (p.Size.Z * 0.35),
+                        }
+                        for _, cand in ipairs(cands) do
+                            if roomCoverCount >= 3 then break end
+                            local floor = checkWalkableFloor(cand)
+                            if floor and not isDuplicate(floor, 7.5) then
+                                local safe, _ = evaluateRushSafety(floor, segments, char)
+                                if safe then
+                                    table.insert(acceptedSpots, { Pos = floor, Label = "SAFE COVER" })
+                                    roomCoverCount = roomCoverCount + 1
+                                end
+                            end
+                        end
                     end
                 end
             end
         end
     end
 
-    -- Filter points that have blocked line-of-sight to Rush path
-    local safePoints = {}
-    for _, pt in ipairs(checkedPoints) do
-        local pPos = pt.Pos
-        local nearestDist = math.huge
-        local nearestNode = nil
-        for _, n in ipairs(nodes) do
-            local d = (n.Pos - pPos).Magnitude
-            if d < nearestDist then
-                nearestDist = d
-                nearestNode = n
-            end
-        end
-
-        if nearestNode then
-            local isBlocked = false
-            if nearestDist > 20 then
-                isBlocked = true
-            else
-                local rayParams = RaycastParams.new()
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                rayParams.FilterDescendantsInstances = {getChar(), Workspace:FindFirstChild("Drops") or getChar()}
-                local hit = Workspace:Raycast(pPos + Vector3.new(0, 2.5, 0), (nearestNode.Pos - pPos).Unit * (nearestDist * 0.95), rayParams)
-                if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
-                    isBlocked = true
-                end
-            end
-
-            if isBlocked then
-                table.insert(safePoints, { Pos = pPos, Label = pt.Name })
-            end
-        end
-    end
-
-    for i, sp in ipairs(safePoints) do
+    -- Render clean visual discs flat on the floor
+    for i, sp in ipairs(acceptedSpots) do
         local spPart = Instance.new("Part")
         spPart.Name = "SafePart_" .. i
-        spPart.Size = Vector3.new(0.5, 0.5, 0.5)
-        spPart.CFrame = CFrame.new(sp.Pos)
+        spPart.Size = Vector3.new(0.5, 0.1, 0.5)
+        spPart.CFrame = CFrame.new(sp.Pos + Vector3.new(0, 0.05, 0))
         spPart.Anchored = true
         spPart.CanCollide = false
         spPart.CanTouch = false
@@ -7785,21 +7967,21 @@ local function refreshSafeZonesVisuals()
 
         local adorn = Instance.new("CylinderHandleAdornment")
         adorn.Name = "SafeZoneDisc"
-        adorn.Radius = 2.4
-        adorn.Height = 0.2
+        adorn.Radius = 2.0
+        adorn.Height = 0.08
         adorn.Color3 = Color3.fromRGB(0, 255, 120)
-        adorn.Transparency = 0.45
-        adorn.AlwaysOnTop = true
+        adorn.Transparency = 0.4
+        adorn.AlwaysOnTop = false
         adorn.ZIndex = 8
         adorn.Adornee = spPart
-        adorn.CFrame = CFrame.Angles(math.pi/2, 0, 0)
+        adorn.CFrame = CFrame.Angles(math.pi / 2, 0, 0)
         adorn.Parent = spPart
         table.insert(activeSafeZoneVisuals, adorn)
 
         local bb = Instance.new("BillboardGui")
         bb.Name = "SafeLabel"
         bb.Size = UDim2.new(0, 110, 0, 22)
-        bb.StudsOffset = Vector3.new(0, 2.2, 0)
+        bb.StudsOffset = Vector3.new(0, 1.8, 0)
         bb.AlwaysOnTop = true
         bb.Adornee = spPart
         bb.Parent = spPart
@@ -7810,55 +7992,49 @@ local function refreshSafeZonesVisuals()
         tl.BackgroundTransparency = 1
         tl.Font = Enum.Font.GothamBold
         tl.TextSize = 12
-        tl.TextColor3 = Color3.fromRGB(0, 255, 120)
+        tl.TextColor3 = Color3.fromRGB(0, 255, 130)
         tl.TextStrokeTransparency = 0.2
-        tl.Text = "SAFE SPOT"
+        tl.Text = sp.Label
         tl.Parent = bb
-    end
-
-    -- Real-Time Player Safety Check
-    local r = getRoot()
-    if r then
-        local rPos = r.Position
-        local nearestDist = math.huge
-        local nearestNode = nil
-        for _, n in ipairs(nodes) do
-            local d = (n.Pos - rPos).Magnitude
-            if d < nearestDist then
-                nearestDist = d
-                nearestNode = n
-            end
-        end
-
-        local playerSafe = false
-        if nearestNode then
-            if nearestDist > 20 then
-                playerSafe = true
-            else
-                local rayParams = RaycastParams.new()
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                rayParams.FilterDescendantsInstances = {getChar(), Workspace:FindFirstChild("Drops") or getChar()}
-                local hit = Workspace:Raycast(rPos + Vector3.new(0, 2.5, 0), (nearestNode.Pos - rPos).Unit * (nearestDist * 0.95), rayParams)
-                if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
-                    playerSafe = true
-                end
-            end
-        end
-        updateRushSafeHUD(playerSafe, playerSafe and "🛡️ SAFE ZONE: SHIELDED FROM RUSH/AMBUSH" or "⚠️ DANGER: DIRECT RUSH / AMBUSH LINE OF SIGHT")
+        table.insert(activeSafeZoneVisuals, tl)
     end
 end
 
--- Continuous Refresh Loop for Nodes & Safe Zones
+-- Fast Real-Time Safety Evaluation Loop (0.12s)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
+        if State.ESP_Safe_Zones then
+            local char = getChar()
+            local root = getRoot()
+            if root and char then
+                local segments = getRushPathSegments()
+                local isSafe, statusText = evaluateRushSafety(root.Position, segments, char)
+                updateRushSafeHUD(isSafe, statusText)
+            end
+        else
+            updateRushSafeHUD(false, nil)
+        end
+        task.wait(0.12)
+    end
+end)
+
+-- Background Refresh Loop for World Discs and Node Visuals (1.5s)
+task.spawn(function()
+    local lastCheckedRoom = -999
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.ESP_Safe_Zones then
+            local curRoom = getCurrentRoomNumber()
+            if curRoom ~= lastCheckedRoom or #activeSafeZoneVisuals == 0 then
+                lastCheckedRoom = curRoom
+                pcall(refreshSafeZonesVisuals)
+            end
+        end
         if State.ESP_Entity_Nodes then
             pcall(refreshEntityNodesVisuals)
         end
-        if State.ESP_Safe_Zones then
-            pcall(refreshSafeZonesVisuals)
-        end
-        task.wait(0.6)
+        task.wait(1.5)
     end
 end)
 
