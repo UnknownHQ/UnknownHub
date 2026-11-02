@@ -966,8 +966,10 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
             initiallyVisible = true
         end
         for _, vis in ipairs(visuals) do
-            if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
+            if vis:IsA("BillboardGui") then
                 vis.Enabled = initiallyVisible
+            elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
+                vis.Visible = initiallyVisible
             elseif vis:IsA("Highlight") then
                 vis.Enabled = initiallyVisible
                 if not initiallyVisible then
@@ -1104,10 +1106,10 @@ task.spawn(function()
                                 if vis:IsA("BillboardGui") then
                                     vis.Enabled = shouldShow
                                 elseif vis:IsA("SelectionBox") then
-                                    vis.Enabled = shouldShow
+                                    vis.Visible = shouldShow
                                     vis.Adornee = shouldShow and ((record.HighlightMap and record.HighlightMap[vis]) or record.Adornee) or nil
-                                elseif vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") then
-                                    vis.Enabled = shouldShow
+                                elseif vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
+                                    vis.Visible = shouldShow
                                 elseif vis:IsA("Highlight") then
                                     vis.Enabled = shouldShow and budgetAllowed
                                     vis.Adornee = (shouldShow and budgetAllowed) and ((record.HighlightMap and record.HighlightMap[vis]) or record.Owner) or nil
@@ -1138,8 +1140,10 @@ task.spawn(function()
                             record.CurrentlyVisible = shouldShow
                             if record.Visuals then
                                 for _, vis in ipairs(record.Visuals) do
-                                    if vis:IsA("BillboardGui") or vis:IsA("SphereHandleAdornment") then
+                                    if vis:IsA("BillboardGui") then
                                         vis.Enabled = shouldShow
+                                    elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
+                                        vis.Visible = shouldShow
                                     elseif vis:IsA("Highlight") then
                                         local budgetAllowed = (allowedHighlights and allowedHighlights[record]) == true
                                         vis.Enabled = shouldShow and budgetAllowed
@@ -1173,6 +1177,66 @@ end)
 -- =========================================================================
 -- Precision Scanners (Doors, Keys, Items, Books, Breakers, Monsters)
 -- =========================================================================
+
+-- =========================================================================
+-- Dupe Door Identification & Hard Anti-Dupe Locking Subsystem
+-- =========================================================================
+local function isDupeDoor(doorModel, room)
+    if not doorModel then return false end
+    local dName = doorModel.Name:lower()
+    if dName == "doorfake" or dName:find("fake") or dName:find("dupe") then
+        return true
+    end
+    if doorModel:GetAttribute("DupeRoom") == true or doorModel:GetAttribute("Fake") == true or doorModel:GetAttribute("Dupe") == true then
+        return true
+    end
+    if doorModel.Parent and (doorModel.Parent.Name:lower():find("dupe") or doorModel.Parent.Name:lower():find("fake")) then
+        return true
+    end
+
+    -- Recursive Sign search: detects signs on nested door models
+    local signPart = doorModel:FindFirstChild("Sign", true)
+    local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+    local signText = signLabel and signLabel.Text or nil
+    local signNum = tonumber(signText)
+
+    local roomNum = (room and tonumber(room.Name))
+    if not roomNum then
+        local p = doorModel.Parent
+        while p and p ~= workspace do
+            if tonumber(p.Name) then roomNum = tonumber(p.Name); break end
+            p = p.Parent
+        end
+    end
+    roomNum = roomNum or getCurrentRoomNumber()
+    if roomNum and signNum and signNum ~= (roomNum + 1) then
+        return true
+    end
+    return false
+end
+
+local function secureDupeDoor(doorModel)
+    if not doorModel then return end
+    pcall(function()
+        for _, p in ipairs(doorModel:GetDescendants()) do
+            if p:IsA("ProximityPrompt") then
+                p.Enabled = false
+                p.MaxActivationDistance = 0
+            elseif p:IsA("BasePart") then
+                p.CanTouch = false
+                p.CanCollide = true
+                p.Anchored = true
+            elseif p:IsA("RemoteEvent") and p.Name == "ClientOpen" then
+                p:Destroy()
+            end
+        end
+        if doorModel:IsA("BasePart") then
+            doorModel.CanTouch = false
+            doorModel.CanCollide = true
+            doorModel.Anchored = true
+        end
+    end)
+end
 
 -- 1. Precision Door Scanner (Highlights clean door leaf & verified padlock only)
 local function processDoor(room, doorModel)
@@ -1225,9 +1289,11 @@ local function processDoor(room, doorModel)
     end
     if not doorMesh then return end
 
-    -- Verify door has real interactable open components (excludes fake room decor doors)
-    local isFake = doorModel.Name == "DoorFake" or dName:find("fake") or (doorModel.Parent and doorModel.Parent.Name:lower():find("dupe"))
-    if not isFake and not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint") or doorModel:GetAttribute("ESP_Hooked") or doorModel:GetAttribute("Opened") or doorModel:FindFirstChild("Open")) then
+    -- Dupe Check: Verified early so fake doors are NEVER discarded by decor filters
+    local isDupe = isDupeDoor(doorModel, room)
+
+    -- Verify door has real interactable open components (excludes non-dupe room decor)
+    if not isDupe and not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint") or doorModel:GetAttribute("ESP_Hooked") or doorModel:GetAttribute("Opened") or doorModel:FindFirstChild("Open")) then
         removeEspFor(doorModel)
         return
     end
@@ -1246,17 +1312,13 @@ local function processDoor(room, doorModel)
     end
 
     -- Check for Dupe (Fake Door)
-    local isDupe = isFake or doorModel:GetAttribute("DupeRoom") or doorModel:GetAttribute("Fake") or dName:find("fake") or dName:find("dupe")
+    if not isDupe then
+        isDupe = isDupeDoor(doorModel, room)
+    end
 
-    local signPart = doorModel:FindFirstChild("Sign")
+    local signPart = doorModel:FindFirstChild("Sign", true)
     local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
     local signText = signLabel and signLabel.Text or nil
-
-    local roomNum = tonumber(room.Name)
-    local signNum = tonumber(signText)
-    if roomNum and signNum and signNum ~= (roomNum + 1) then
-        isDupe = true
-    end
 
     -- Door Passability & Collision Smoothing:
     -- When a door opens or is unlocked, disable collisions on the swinging door leaf and collision barrier
@@ -1302,9 +1364,9 @@ local function processDoor(room, doorModel)
     selBox.Name = "Unknown_DoorSelectionBox"
     selBox.Adornee = doorMesh
     selBox.Color3 = color
-    selBox.LineThickness = 0.04
-    selBox.SurfaceColor3 = color
-    selBox.SurfaceTransparency = 0.82
+    selBox.LineThickness = 0.02
+    selBox.SurfaceTransparency = 1.0 -- Clean outline only; never covers wooden door with solid cyan brick!
+    selBox.Visible = true
     selBox.Parent = doorMesh
     table.insert(extraVisuals, selBox)
 
@@ -1943,7 +2005,7 @@ local function processEntity(entity)
     elseif eLower == "jack" and entity:IsA("Model") then
         cfg = { Name = "Jack", Category = "Other" }
         is2D = false
-    elseif (eLower == "sally" or eLower == "sallyrig" or eLower:find("^sally")) and entity:IsA("Model") then
+    elseif (eLower:find("sally") or eLower:find("princess") or entity:GetAttribute("SallyHolding") or entity:FindFirstChild("SallyHolding", true)) and (entity:IsA("Model") or entity:IsA("BasePart")) then
         cfg = { Name = "Sally", Category = "Other" }
         is2D = false
     elseif (eLower:find("jeff") and eLower:find("killer")) or eLower == "jeffthekiller" then
@@ -2144,51 +2206,7 @@ local function defuseAllSnares()
     end
 end
 
-local function isDupeDoor(doorModel, room)
-    if not doorModel then return false end
-    local dName = doorModel.Name:lower()
-    if dName == "doorfake" or dName:find("fake") or dName:find("dupe") then
-        return true
-    end
-    if doorModel:GetAttribute("DupeRoom") == true or doorModel:GetAttribute("Fake") == true then
-        return true
-    end
-    if doorModel.Parent and doorModel.Parent.Name:lower():find("dupe") then
-        return true
-    end
-    local signPart = doorModel:FindFirstChild("Sign")
-    local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
-    local signText = signLabel and signLabel.Text or nil
-    local signNum = tonumber(signText)
-    local roomNum = (room and tonumber(room.Name)) or getCurrentRoomNumber()
-    if roomNum and signNum and signNum ~= (roomNum + 1) then
-        return true
-    end
-    return false
-end
-
-local function secureDupeDoor(doorModel)
-    if not doorModel then return end
-    pcall(function()
-        for _, p in ipairs(doorModel:GetDescendants()) do
-            if p:IsA("ProximityPrompt") then
-                p.Enabled = false
-                p.MaxActivationDistance = 0
-            elseif p:IsA("BasePart") then
-                p.CanTouch = false
-                p.CanCollide = true
-                p.Anchored = true
-            elseif p:IsA("RemoteEvent") and p.Name == "ClientOpen" then
-                p:Destroy()
-            end
-        end
-        if doorModel:IsA("BasePart") then
-            doorModel.CanTouch = false
-            doorModel.CanCollide = true
-            doorModel.Anchored = true
-        end
-    end)
-end
+-- isDupeDoor and secureDupeDoor defined above processDoor
 
 local function defuseGiggle(giggleModel)
     if not giggleModel then return end
@@ -2524,12 +2542,16 @@ local function scanSingleRoom(room)
                     processGold(desc)
                 elseif dName:find("snare") then
                     if State.Anti_Snare then defuseSnare(desc) end
-                if State.Anti_Figure then defuseFigureHitbox(desc) end
                     if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("giggle") then
                     if State.Anti_Giggle then defuseGiggle(desc) end
                     if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("figure") then
+                    if State.Anti_Figure then defuseFigureHitbox(desc) end
+                    if State.Entities_ESP then processEntity(desc) end
+                elseif dName:find("sally") or dName:find("princess") or desc:GetAttribute("SallyHolding") or desc:FindFirstChild("SallyHolding", true) then
+                    if State.Entities_ESP then processEntity(desc) end
+                elseif dName:find("bramble") or dName:find("grumble") or dName:find("monument") or dName:find("groundskeeper") or dName:find("jack") then
                     if State.Entities_ESP then processEntity(desc) end
                 else
                     processItem(desc)
@@ -3329,7 +3351,10 @@ local function processNearbyDoors(currentPos, maxReach)
                                         end
                                         pcall(function() fireproximityprompt(up) end)
                                         if tool and State.Infinite_Items and State.Infinite_Lockpicks then
-                                            executeItemDupeDrop(tool, 0.09)
+                                            local tn = tool.Name:lower()
+                                            if tn:find("lockpick") or tn:find("skeleton") then
+                                                executeItemDupeDrop(tool, 0.09)
+                                            end
                                         end
                                     end)
                                 end
@@ -5050,7 +5075,28 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         if moveDir.Magnitude > 0.05 then
             local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 45) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
             local targetVel = moveDir.Unit * speed
-            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, root.AssemblyLinearVelocity.Y, targetVel.Z)
+
+            -- Anti-Wall Launch Guard: Prevent collision normal solver from converting horizontal speed into vertical super-jumps
+            local rayParams = RaycastParams.new()
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            rayParams.FilterDescendantsInstances = {char, Workspace:FindFirstChild("Drops") or char}
+            local wallHit = Workspace:Raycast(root.Position - Vector3.new(0, 0.5, 0), moveDir.Unit * 2.2, rayParams)
+
+            local curY = root.AssemblyLinearVelocity.Y
+            if hum.FloorMaterial ~= Enum.Material.Air and curY > 0.5 and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                curY = 0
+            end
+
+            if wallHit and wallHit.Normal and wallHit.Normal.Y < 0.7 then
+                local normal = wallHit.Normal
+                local normalH = Vector3.new(normal.X, 0, normal.Z).Unit
+                local dot = targetVel:Dot(normalH)
+                if dot < 0 then
+                    targetVel = targetVel - normalH * dot
+                end
+            end
+
+            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, curY, targetVel.Z)
         else
             -- Instant Dead-Stop Braking: stops the player on a dime with zero ice drift!
             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
@@ -5770,7 +5816,7 @@ end
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
-        if (player == nil or player == LocalPlayer) and (State.Instant_Interact or State.Noclip) then
+        if (player == nil or player == LocalPlayer) and State.Instant_Interact then
             safeInstantFirePrompt(prompt)
         end
     end)
@@ -6093,7 +6139,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.15) -- Smooth 6.6Hz loop: instant looting without choking manual ProximityPromptService
+        task.wait(0.04) -- Hyper-responsive 25Hz loop: instant looting the millisecond you get close
     end
 end)
 
@@ -6140,8 +6186,11 @@ pcall(function()
         if isUnlock then
             local tool = activePromptTool or getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
             if tool then
-                -- Calibrated timing: 0.09s after PromptTriggered allows server to register unlock before drop executes
-                executeItemDupeDrop(tool, 0.09)
+                local tn = tool.Name:lower()
+                -- Strictly retain multi-use tools (lockpicks & skeleton keys). Normal room keys open doors natively without dupe clutter!
+                if tn:find("lockpick") or tn:find("skeleton") then
+                    executeItemDupeDrop(tool, 0.09)
+                end
             end
         end
     end
@@ -6225,43 +6274,35 @@ end)
 
 -- Consumables Auto-Retain Watcher (Vitamins, Smoothie, Bandage)
 task.spawn(function()
-    local hookedTools = {}
-    while true do
-        if _G.DOORS_SESSION ~= currentSession then break end
-        if State.Infinite_Items and State.Infinite_Consumables then
-            local char = getChar()
-            local bp = LocalPlayer:FindFirstChild("Backpack")
-            local consumableNames = {"vitamins", "smoothie", "bandage"}
-            local list = {}
-            if char then
-                for _, t in ipairs(char:GetChildren()) do if t:IsA("Tool") then table.insert(list, t) end end
-            end
-            if bp then
-                for _, t in ipairs(bp:GetChildren()) do if t:IsA("Tool") then table.insert(list, t) end end
-            end
+    local isRetainingConsumable = false
 
-            for _, tool in ipairs(list) do
-                local tn = tool.Name:lower()
-                local isConsumable = false
-                for _, cn in ipairs(consumableNames) do
-                    if tn:find(cn) then isConsumable = true; break end
-                end
+    -- Direct Click / Tap Listener: DOORS uses custom input handlers so Tool.Activated never fires!
+    -- This intercepts eating/drinking on MouseButton1 / Touch / R2
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        local uType = input.UserInputType
+        if uType ~= Enum.UserInputType.MouseButton1 and uType ~= Enum.UserInputType.Touch and input.KeyCode ~= Enum.KeyCode.ButtonR2 then return end
+        if not State.Infinite_Items or not State.Infinite_Consumables or isRetainingConsumable then return end
 
-                if isConsumable and not hookedTools[tool] then
-                    hookedTools[tool] = true
-                    tool.Activated:Connect(function()
-                        if not State.Infinite_Items or not State.Infinite_Consumables then return end
-                        task.spawn(function()
-                            -- Wait 0.22s so server processes consumption/buff
-                            task.wait(0.22)
-                            executeItemDupeDrop(tool, 0)
-                        end)
-                    end)
+        local char = getChar()
+        if not char then return end
+        local tool = char:FindFirstChildWhichIsA("Tool")
+        if not tool then return end
+        local tn = tool.Name:lower()
+        if tn:find("vitamin") or tn:find("smoothie") or tn:find("bandage") or tn:find("starvial") then
+            isRetainingConsumable = true
+            task.spawn(function()
+                -- Calibrated window: wait 0.28s for eating audio & server speed/heal buff to register
+                task.wait(0.28)
+                if tool and tool.Parent then
+                    executeItemDupeDrop(tool, 0)
+                    Hub.Notify("Infinite Items", tool.Name .. " consumed & retained!", 2)
                 end
-            end
+                task.wait(1.5)
+                isRetainingConsumable = false
+            end)
         end
-        task.wait(0.5)
-    end
+    end)
 end)
 
 -- Additional Anti-Entity Defenses (Gloombats, Seek Hands, Halt Reversal, Grumble Radar)
@@ -8742,9 +8783,25 @@ Hub.Notify("Unknown Hub", "DOORS Precision ESP Loaded", 3)
 local inputConn2; inputConn2 = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if inputConn2 then trackConn(inputConn2) end
     if input.KeyCode == Enum.KeyCode.E and not UserInputService:GetFocusedTextBox() then
+        if not State.Instant_Interact then return end -- Strictly disabled if Instant Interact toggle is OFF!
         local r = getRoot()
         local cam = Workspace.CurrentCamera
         if r and cam then
+            -- Wardrobe Gaze Guard: If looking directly at a closet/wardrobe/bed, let native prompt interact so focus is NEVER stolen!
+            local rayParams = RaycastParams.new()
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            rayParams.FilterDescendantsInstances = {getChar(), Workspace:FindFirstChild("Drops") or getChar()}
+            local hit = Workspace:Raycast(cam.CFrame.Position, cam.CFrame.LookVector * 15, rayParams)
+            if hit and hit.Instance then
+                local hName = hit.Instance.Name:lower()
+                local hpName = hit.Instance.Parent and hit.Instance.Parent.Name:lower() or ""
+                local hppName = hit.Instance.Parent and hit.Instance.Parent.Parent and hit.Instance.Parent.Parent.Name:lower() or ""
+                if hName:find("wardrobe") or hName:find("closet") or hName:find("bed") or hName:find("locker")
+                    or hpName:find("wardrobe") or hpName:find("closet") or hpName:find("bed") or hpName:find("locker")
+                    or hppName:find("wardrobe") or hppName:find("closet") or hppName:find("bed") or hppName:find("locker") then
+                    return
+                end
+            end
             local rPos = r.Position
             local lookVec = cam.CFrame.LookVector
             local bestPrompt = nil
