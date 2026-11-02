@@ -516,13 +516,11 @@ pcall(function()
     local pps = game:GetService("ProximityPromptService")
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player == LocalPlayer then
-            unhideGraceUntil = os.clock() + 10.0
             initPromptGateImmunity()
         end
     end)
     pps.PromptTriggered:Connect(function(prompt, player)
         if player == LocalPlayer then
-            unhideGraceUntil = os.clock() + 10.0
             initPromptGateImmunity()
         end
     end)
@@ -2972,7 +2970,7 @@ pcall(function()
                or obj:find("closet") or obj:find("wardrobe") or obj:find("locker") or obj:find("bed")
                or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or pName:find("bed")
                or mName:find("closet") or mName:find("wardrobe") or mName:find("locker") or mName:find("bed") then
-                unhideGraceUntil = os.clock() + 6.0
+                unhideGraceUntil = os.clock() + 1.0
                 lastForwardPos = nil
                 lastForwardCFrame = nil
                 table.clear(trailHistory)
@@ -4708,7 +4706,13 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     if not hum or not hum.Parent or not root then return end
 
     local mgTable = getMainGameTable()
-    local hiding = isPlayerHiding(char, mgTable) or (os.clock() < unhideGraceUntil)
+    local isInsideHiding = (char:GetAttribute("Hiding") == true) or (mgTable and mgTable.hiding == true)
+    if wasHidingState and not isInsideHiding then
+        -- Player just exited hiding spot: instantly clear grace and restore full control/responsiveness
+        unhideGraceUntil = 0
+    end
+    wasHidingState = isInsideHiding
+    local hiding = isInsideHiding or (os.clock() < unhideGraceUntil)
 
     -- Auto-disable Noclip if Bypass Anti-Cheat Core is disabled
     if State.Noclip and not State.Bypass_AntiCheat then
@@ -5020,16 +5024,17 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
     -- Continuous Body & First-Person Head Alignment:
     if char then
-        if hiding or (os.clock() < unhideGraceUntil) then
-            -- When entering, resting in, or exiting hiding spots:
-            -- Fully hide character locally so daddy's camera never sees his body tweening to the void or back up!
+        if isInsideHiding then
+            -- When sitting inside hiding spots (wardrobes/beds):
+            -- Fully hide character locally so daddy's camera never sees his body beneath the floor through semi-transparent closet
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") or p:IsA("Decal") then
                     p.LocalTransparencyModifier = 1
                 end
             end
         else
-            -- When walking or flying:
+            -- When walking, flying, or playing closet exit animations:
+            -- Restore all body parts to 0 so character & animations are 100% visible
             for _, p in ipairs(char:GetChildren()) do
                 if p:IsA("BasePart") then
                     local pLower = p.Name:lower()
@@ -5038,10 +5043,13 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                     elseif pLower == "head" then
                         -- Enforce Head invisibility locally in first person so camera never sees inside head/face
                         p.LocalTransparencyModifier = 1
+                    else
+                        p.LocalTransparencyModifier = 0
                     end
                 end
             end
-            -- Enforce LocalTransparencyModifier = 1 on all Head-attached accessories (hair, face, eyelashes, eyebrows, hats)
+            -- Enforce LocalTransparencyModifier = 1 on Head-attached accessories (hair, face, eyelashes, eyebrows, hats)
+            -- while keeping non-head accessories visible
             for _, acc in ipairs(char:GetChildren()) do
                 if acc:IsA("Accessory") then
                     local h = acc:FindFirstChild("Handle")
@@ -5055,6 +5063,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                             or accType == Enum.AccessoryType.Eyelash
                         if isHeadAcc then
                             h.LocalTransparencyModifier = 1
+                        else
+                            h.LocalTransparencyModifier = 0
                         end
                     end
                 end
@@ -8556,13 +8566,7 @@ local inputConn2; inputConn2 = UserInputService.InputBegan:Connect(function(inpu
                             or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("bed") or pObj:find("locker")
                             or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("bed") or parentName:find("locker")
 
-                        if isHiding then
-                            -- Prime grace immediately when looking near a hiding spot so server wardrobe teleport is 100% permitted
-                            local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
-                            if pPart and (pPart.Position - rPos).Magnitude <= 12.0 then
-                                unhideGraceUntil = os.clock() + 6.0
-                            end
-                        else
+                        if not isHiding then
                             local pPart = p.Parent:IsA("BasePart") and p.Parent or (p.Parent:IsA("Attachment") and p.Parent.Parent:IsA("BasePart") and p.Parent.Parent) or (p.Parent:IsA("Model") and (p.Parent.PrimaryPart or p.Parent:FindFirstChildWhichIsA("BasePart")))
                             if pPart then
                                 local toPart = (pPart.Position - rPos)
