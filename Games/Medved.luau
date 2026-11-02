@@ -1927,6 +1927,7 @@ pcall(function()
 end)
 
 local lockedFarmTarget = nil
+local lastEngagedBear = nil
 
 local function getFarmBearTarget()
     local char = LocalPlayer.Character
@@ -2213,7 +2214,12 @@ local function getBearAttackVariants(char)
         if skillName and skillName ~= "" then
             local reqLvl = tonumber(unlockLevels[slotIdx]) or 1
             if bearLevel >= reqLvl then
-                table.insert(variants, slotIdx)
+                local sLower = skillName:lower()
+                -- Filter out charges, lunges, and dashes (prevent self-flinging into enemy mouth)
+                -- and Enrage (which is handled separately as a self-buff)
+                if not sLower:find("charge") and not sLower:find("lunge") and not sLower:find("dash") and not sLower:find("enrage") then
+                    table.insert(variants, slotIdx)
+                end
             end
         end
     end
@@ -2431,31 +2437,65 @@ task.spawn(function()
             end
         end
 
-        -- 3. Mathematically Calibrated Standoff from Rear Part (Guarantees zero clipping inside bear + 100% hit reach)
+        -- 3. Dynamic Player-Size & Target-Size Anatomical Rear Blindspot Engine
+        -- Solves: Giant player bears (Medved, Grizzly, TallBear, Grinder) clipping into small/large bears and getting bitten
+        local myBearName = (char:GetAttribute("TransformedToBear") or ""):lower()
+        local amBooBoo = myBearName:find("boo") ~= nil or myBearName:find("ball") ~= nil
+        local myCf, mySz = char:GetBoundingBox()
+        local myRadius = math.clamp(math.max(mySz.X, mySz.Z) * 0.5, 1.2, 8.5)
+        local myHeight = mySz.Y
+        local isBigPlayerBear = myRadius > 2.8 or myHeight > 10.0 
+            or myBearName:find("grinder") ~= nil 
+            or myBearName:find("tall") ~= nil 
+            or myBearName:find("grizzly") ~= nil 
+            or myBearName:find("medved") ~= nil
+
         local standoff, elevY
         if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
-            if isBooBoo then
-                -- Miniature Boo-Boo: 1.4 studs behind rear surface
-                standoff = amBooBoo and 1.4 or 1.6
-                elevY = 0.3
-            elseif isTallBear then
-                -- Tall Bear (19.5 studs tall): Anchor 2.0 studs behind pelvis/shins
-                standoff = 2.0
-                elevY = 1.2
-            elseif isGrinderBear then
-                -- Grinder Bear (36 studs tall): Anchor 2.4 studs behind rear wheel
-                standoff = 2.4
-                elevY = 1.0
-            elseif isWallBear then
-                standoff = 1.8
-                elevY = 0.8
-            elseif isRangedBear then
-                standoff = 3.8
-                elevY = 1.6
+            if isBigPlayerBear then
+                -- Player is a massive bear (Medved, Grizzly, TallBear, Grinder, IceBear):
+                -- Anchor strictly outside the target's rear so our giant collision radius NEVER clips into the bear!
+                local clearance = 1.6
+                if isBooBoo then
+                    -- Boo-Boo is small (height ~3.2 studs): elevate so our paws tower over Boo-Boo from behind
+                    clearance = 1.4
+                    elevY = math.clamp((myHeight - sz.Y) * 0.22, 1.2, 3.0)
+                elseif isTallBear then
+                    clearance = 2.0
+                    elevY = 1.5
+                elseif isGrinderBear then
+                    clearance = 2.4
+                    elevY = 2.0
+                elseif isRangedBear then
+                    clearance = 3.8
+                    elevY = 2.2
+                else
+                    -- Wild Medved, GrizzlyMedved, ThinBear:
+                    clearance = 1.8
+                    elevY = math.clamp((myHeight - sz.Y) * 0.18, 0.8, 2.5)
+                end
+                standoff = myRadius + clearance
             else
-                -- Medved, GrizzlyMedved, ThinBear, IceBear:
-                standoff = amBooBoo and 1.6 or 2.2
-                elevY = 0.6
+                -- Player is human or Boo-Boo: Tight calibrated blindspot
+                if isBooBoo then
+                    standoff = amBooBoo and 1.4 or 1.8
+                    elevY = 0.3
+                elseif isTallBear then
+                    standoff = 2.2
+                    elevY = 1.2
+                elseif isGrinderBear then
+                    standoff = 2.6
+                    elevY = 1.0
+                elseif isWallBear then
+                    standoff = 1.8
+                    elevY = 0.8
+                elseif isRangedBear then
+                    standoff = 3.8
+                    elevY = 1.6
+                else
+                    standoff = amBooBoo and 1.6 or 2.2
+                    elevY = 0.6
+                end
             end
 
             -- Anti-Turn Protection: If bear turns towards player, slightly raise elevation to avoid ground-level swipes
@@ -2466,8 +2506,8 @@ task.spawn(function()
 
             targetPos = rearPart.Position + (rearDir * standoff) + Vector3.new(0, elevY, 0)
         else
-            -- Gun / Flamethrower Mode: Standoff 6.5 studs behind rear
-            standoff = 6.5
+            -- Gun / Flamethrower Mode: Standoff behind rear
+            standoff = math.max(6.5, myRadius + 3.0)
             elevY = 2.5
             targetPos = rearPart.Position + (rearDir * standoff) + Vector3.new(0, elevY, 0)
         end
@@ -2545,33 +2585,54 @@ task.spawn(function()
             end)
 
             if bearAbility then
-                -- 1. Rotate & Dispatch Available Hotbar Variant Skills (Minigun, Rockets, Flamethrower, Shotgun, Charge, Spin, etc.)
-                if tick() - lastBearAttack >= 0.12 then
-                    lastBearAttack = tick()
-                    local hotbarSlots = getBearAttackVariants(char)
-                    if #hotbarSlots > 0 then
-                        for step = 1, #hotbarSlots do
-                            bearVariantIndex = (bearVariantIndex % #hotbarSlots) + 1
-                            local candidateSlot = hotbarSlots[bearVariantIndex]
-                            if isAbilityReady(candidateSlot) then
-                                if bearAim and targetHitPart then
-                                    pcall(function()
-                                        bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
-                                    end)
-                                end
+                -- Target Switch Immediate Hit: If we locked onto a new bear, reset cooldown so hit 1 strikes immediately!
+                if lastEngagedBear ~= bear then
+                    lastEngagedBear = bear
+                    lastBearAttack = 0
+                    lastDefaultM1Attack = 0
+                end
+
+                -- 1. Auto-Cast Self-Buffs (Enrage) immediately when available without consuming attack slot
+                local hotbarSkills = string.split(char:GetAttribute("BearHotbar") or "", ",")
+                for sIdx, sName in ipairs(hotbarSkills) do
+                    if sName and sName:lower():find("enrage") and isAbilityReady(sIdx) then
+                        pcall(function()
+                            bearAbility:FireServer("Use", sIdx, aimPos)
+                        end)
+                        abilityCooldowns[tostring(sIdx)] = workspace:GetServerTimeNow() + 15.0
+                        abilityCooldowns[sIdx] = abilityCooldowns[tostring(sIdx)]
+                        break
+                    end
+                end
+
+                -- 2. Dispatch Damaging Variant Skills (Minigun, Rockets, Flamethrower, Shotgun, Spin, Laser, etc.)
+                local hotbarSlots = getBearAttackVariants(char)
+                local dispatchedVariant = false
+                if #hotbarSlots > 0 and tick() - lastBearAttack >= 0.12 then
+                    for step = 1, #hotbarSlots do
+                        bearVariantIndex = (bearVariantIndex % #hotbarSlots) + 1
+                        local candidateSlot = hotbarSlots[bearVariantIndex]
+                        if isAbilityReady(candidateSlot) then
+                            lastBearAttack = tick()
+                            if bearAim and targetHitPart then
                                 pcall(function()
-                                    bearAbility:FireServer("Use", candidateSlot, aimPos)
+                                    bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
                                 end)
-                                abilityCooldowns[tostring(candidateSlot)] = workspace:GetServerTimeNow() + 0.35
-                                abilityCooldowns[candidateSlot] = abilityCooldowns[tostring(candidateSlot)]
-                                break
                             end
+                            pcall(function()
+                                bearAbility:FireServer("Use", candidateSlot, aimPos)
+                            end)
+                            abilityCooldowns[tostring(candidateSlot)] = workspace:GetServerTimeNow() + 0.85
+                            abilityCooldowns[candidateSlot] = abilityCooldowns[tostring(candidateSlot)]
+                            dispatchedVariant = true
+                            break
                         end
                     end
                 end
 
-                -- 2. Dispatch Default M1 Skill (Sonic Scream, Slam, GrinderFireWeapon, Laser Shot, Spike Shot)
-                if tick() - lastDefaultM1Attack >= 0.16 and isAbilityReady("Default") then
+                -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Primary Fire)
+                -- If no variant was fired this frame, fire Default M1 immediately on frame 0!
+                if not dispatchedVariant and isAbilityReady("Default") and tick() - lastDefaultM1Attack >= 0.16 then
                     lastDefaultM1Attack = tick()
                     if bearAim and targetHitPart then
                         pcall(function()
@@ -2581,10 +2642,11 @@ task.spawn(function()
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", aimPos)
                     end)
-                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + 0.25
+                    local defaultCd = isBigPlayerBear and 1.2 or 0.9
+                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + defaultCd
                 end
 
-                -- 3. Also activate tool if held
+                -- 4. Also activate tool if held
                 local bearTool = char:FindFirstChildOfClass("Tool")
                 if bearTool then
                     pcall(function()
