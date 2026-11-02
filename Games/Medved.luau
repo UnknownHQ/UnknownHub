@@ -2119,6 +2119,78 @@ RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
+-- =========================================================================
+-- Intelligent Multi-Variant Ability Rotator & Dynamic Cooldown Tracker
+-- =========================================================================
+local abilityCooldowns = {}
+local bearVariantIndex = 0
+local lastBearAttack = 0
+
+-- Connect to server ability cooldown broadcasts
+pcall(function()
+    local RS = game:GetService("ReplicatedStorage")
+    local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
+    local bearAbility = pb and pb:FindFirstChild("BearAbility")
+    if bearAbility and bearAbility:IsA("RemoteEvent") then
+        bearAbility.OnClientEvent:Connect(function(action, slot, cooldownTimestamp)
+            if action == "Cooldown" and cooldownTimestamp then
+                abilityCooldowns[tostring(slot)] = cooldownTimestamp
+            end
+        end)
+    end
+end)
+
+local function isAbilityReady(slot)
+    local cd = abilityCooldowns[tostring(slot)]
+    if not cd then return true end
+    return workspace:GetServerTimeNow() >= (cd - 0.05)
+end
+
+-- Universal Bear Ability Variant Discovery: Returns ordered list of active/unlocked abilities
+local function getBearAttackVariants(char)
+    if not char then return {"Default"} end
+    local transformedBear = char:GetAttribute("TransformedToBear") or ""
+    local bearLevel = char:GetAttribute("BearLevel") or 1
+    
+    local RS = game:GetService("ReplicatedStorage")
+    local bearIconsMod = RS:FindFirstChild("BearIcons")
+    local iconData = nil
+    if bearIconsMod then
+        pcall(function()
+            local bi = require(bearIconsMod)
+            if bi and bi.PlayerBear then
+                iconData = bi.PlayerBear(transformedBear)
+            end
+        end)
+    end
+
+    local variants = {}
+    table.insert(variants, "Default")
+
+    local unlockStr = char:GetAttribute("BearHotbarUnlock") or ""
+    local unlockLevels = {}
+    for seg in string.gmatch(unlockStr, "[^,]+") do
+        table.insert(unlockLevels, tonumber(seg) or 1)
+    end
+
+    local numHotbarSlots = 0
+    if iconData and iconData.Hotbar then
+        numHotbarSlots = #iconData.Hotbar
+    else
+        local tbLower = transformedBear:lower()
+        numHotbarSlots = (tbLower:find("grinder") or tbLower:find("ice")) and 6 or 2
+    end
+
+    for slotIdx = 1, numHotbarSlots do
+        local requiredLvl = unlockLevels[slotIdx] or 1
+        if bearLevel >= requiredLvl then
+            table.insert(variants, slotIdx)
+        end
+    end
+
+    return variants
+end
+
 -- Pipeline 2: Autonomous Combat & Target Acquisition Loop
 task.spawn(function()
     while true do
@@ -2257,19 +2329,81 @@ task.spawn(function()
             continue
         end
 
-        -- Grounded Blindspot Positioning: Stay behind the bear at ground level (ZERO flying in the air)
+        -- Safe Blindspot Positioning (Elevated Blindspot: Completely evades horizontal ground swipes, bites & AOE)
+        local cf, sz = bear:GetBoundingBox()
         local bearCF = bearRoot.CFrame
         local flatLook = Vector3.new(bearCF.LookVector.X, 0, bearCF.LookVector.Z)
         if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
 
-        local distBehind = (Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack") and 3.5 or 9.0
-        local targetPos = bearRoot.Position - (flatLook * distBehind)
-        targetPos = Vector3.new(targetPos.X, bearRoot.Position.Y, targetPos.Z)
+        local bName = bear.Name:lower()
+        local isBooBoo = bName:find("boo") ~= nil or bName:find("ball") ~= nil or sz.Y < 6.5 or sz.Magnitude < 8
+        local isRangedBear = bName:find("ranged") or bName:find("spike")
+        local isWallBear = bName:find("wall") ~= nil
+        local isGrinderBear = bName:find("grinder") or bName:find("robo")
 
-        -- Keep character completely upright (pitch = 0) looking at the bear
-        root.CFrame = CFrame.lookAt(targetPos, Vector3.new(bearRoot.Position.X, targetPos.Y, bearRoot.Position.Z))
+        local targetPos, distBehind, targetY
+        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
+            local isBearAttack = Config.FarmMethod == "Bear Attack"
+            
+            if isBooBoo then
+                -- Boo-Boo & Ball Bear: Hover 2.2 studs above spine, 2.4 studs behind
+                targetY = cf.Position.Y + (sz.Y * 0.5) + 2.2
+                distBehind = 2.4
+            elseif isGrinderBear then
+                targetY = cf.Position.Y + (sz.Y * 0.5) + 4.5
+                distBehind = (sz.Z * 0.5) + 3.2
+            elseif isWallBear then
+                targetY = cf.Position.Y + (sz.Y * 0.5) + 5.5
+                distBehind = 5.5
+            elseif isRangedBear then
+                targetY = cf.Position.Y + (sz.Y * 0.5) + 3.5
+                distBehind = 3.2
+            else
+                -- Universal standard bears (Medved, Grizzly, ThinBear, IceBear, etc.)
+                -- Elevated +3.2 studs above spine: wild bear horizontal ground swipes completely whiff!
+                targetY = cf.Position.Y + (sz.Y * 0.5) + (isBearAttack and 3.2 or 2.5)
+                distBehind = (sz.Z * 0.5) + 2.5
+            end
+
+            targetPos = bearRoot.Position - (flatLook * distBehind)
+            targetPos = Vector3.new(targetPos.X, targetY, targetPos.Z)
+            
+            -- Pitch down directly towards the center of the bear
+            root.CFrame = CFrame.lookAt(targetPos, cf.Position)
+        else
+            -- Gun Mode: Safe standoff distance & elevation
+            distBehind = 9.0
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 8.0
+            targetPos = bearRoot.Position - (flatLook * distBehind)
+            targetPos = Vector3.new(targetPos.X, targetY, targetPos.Z)
+            root.CFrame = CFrame.lookAt(targetPos, cf.Position)
+        end
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
+
+        -- Direct authoritative network hit dispatch (Crown/Head priority with Boo-Boo & custom hitboxes)
+        local targetHitPart
+        if isBooBoo then
+            targetHitPart = bear:FindFirstChild("HumanoidRootPart")
+                or bear:FindFirstChild("RootPart")
+                or bear:FindFirstChild("Hitbox_Head")
+                or bear:FindFirstChild("Hitbox_Body")
+                or bear:FindFirstChild("Cube")
+                or bearRoot
+        elseif isRangedBear then
+            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bearRoot
+        else
+            targetHitPart = bear:FindFirstChild("Hitbox_Crown")
+                or bear:FindFirstChild("Hitbox_Head")
+                or bear:FindFirstChild("Head")
+                or bear:FindFirstChild("BodyTop")
+                or bear:FindFirstChild("Ears")
+                or bear:FindFirstChild("Hitbox_Chest")
+                or bear:FindFirstChild("Hitbox_Torso")
+                or bearRoot
+        end
+
+        local aimPos = targetHitPart and (targetHitPart.Position + Vector3.new(0, 0.4, 0)) or (cf.Position + Vector3.new(0, 0.4, 0))
 
         -- 5. Attack Execution (Zero Stutter / Smooth Flight Preserved, Melee Reach Guaranteed & Flamethrower)
         if Config.FarmMethod == "Melee" then
@@ -2282,24 +2416,20 @@ task.spawn(function()
                         bestTool:Activate()
                     end)
 
-                    -- Direct authoritative network hit dispatch (Crown/Head priority)
                     local meleeRemote = bestTool:FindFirstChild("MeleeRemote", true)
                         or (bestTool:FindFirstChild("MeleeScripts") and bestTool.MeleeScripts:FindFirstChild("MeleeRemote"))
-                    local bName = bear.Name:lower()
-                    local isRangedBear = bName:find("ranged") or bName:find("spike")
-                    local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
-                        or bear:FindFirstChild("Hitbox_Crown")
-                        or bear:FindFirstChild("Hitbox_Head")
-                        or bear:FindFirstChild("Head")
-                        or bear:FindFirstChild("BodyTop")
-                        or bear:FindFirstChild("Ears")
-                        or bear:FindFirstChild("Hitbox_Chest")
-                        or bear:FindFirstChild("Hitbox_Torso")
-                        or bearRoot
                     if meleeRemote and targetHitPart then
                         pcall(function()
                             meleeRemote:FireServer("Hit", targetHitPart)
                         end)
+                        if isBooBoo then
+                            local altPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("RootPart")
+                            if altPart and altPart ~= targetHitPart then
+                                pcall(function()
+                                    meleeRemote:FireServer("Hit", altPart)
+                                end)
+                            end
+                        end
                     end
                 end
             end
@@ -2330,31 +2460,41 @@ task.spawn(function()
             end
         elseif Config.FarmMethod == "Bear Attack" then
             local RS = game:GetService("ReplicatedStorage")
-            local bearAbility = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearAbility")
-            local bName = bear.Name:lower()
-            local isRangedBear = bName:find("ranged") or bName:find("spike")
-            local targetHitPart = (isRangedBear and (bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest")))
-                or bear:FindFirstChild("Hitbox_Crown")
-                or bear:FindFirstChild("Hitbox_Head")
-                or bear:FindFirstChild("Head")
-                or bear:FindFirstChild("BodyTop")
-                or bear:FindFirstChild("Ears")
-                or bear:FindFirstChild("Hitbox_Chest")
-                or bear:FindFirstChild("Hitbox_Torso")
-                or bearRoot
-            local aimPos = targetHitPart and targetHitPart.Position or bearRoot.Position
+            local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
+            local bearAbility = pb and pb:FindFirstChild("BearAbility")
 
-            -- Authoritative Remote M1 Dispatch + Tool Swing
-            if tick() - lastBearAttack >= 0.16 then
+            -- Authoritative Remote Ability Variant Dispatch (Seamless Grinder & Multi-Skill Rotation)
+            if tick() - lastBearAttack >= 0.12 then
                 lastBearAttack = tick()
+                
                 if bearAbility then
-                    pcall(function()
-                        bearAbility:FireServer("Use", "Default", aimPos)
-                    end)
-                    pcall(function()
-                        bearAbility:FireServer("Use", "Attack", aimPos)
-                    end)
+                    local variants = getBearAttackVariants(char)
+                    if #variants > 0 then
+                        local fired = false
+                        for step = 1, #variants do
+                            bearVariantIndex = (bearVariantIndex % #variants) + 1
+                            local candidateVariant = variants[bearVariantIndex]
+                            if isAbilityReady(candidateVariant) then
+                                pcall(function()
+                                    bearAbility:FireServer("Use", candidateVariant, aimPos)
+                                end)
+                                abilityCooldowns[tostring(candidateVariant)] = workspace:GetServerTimeNow() + 0.35
+                                fired = true
+                                break
+                            end
+                        end
+                        if not fired then
+                            pcall(function()
+                                bearAbility:FireServer("Use", "Default", aimPos)
+                            end)
+                        end
+                    else
+                        pcall(function()
+                            bearAbility:FireServer("Use", "Default", aimPos)
+                        end)
+                    end
                 end
+
                 local bearTool = char:FindFirstChildOfClass("Tool")
                 if bearTool then
                     pcall(function()
