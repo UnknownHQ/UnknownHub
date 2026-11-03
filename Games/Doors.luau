@@ -1302,7 +1302,6 @@ local function processDoor(room, doorModel)
         doorOutline.Color3 = color
         doorOutline.LineThickness = 0.025
         doorOutline.SurfaceTransparency = 1
-        doorOutline.AlwaysOnTop = true
         doorOutline.Parent = (gethui and gethui()) or CoreGui
         table.insert(extraVisuals, doorOutline)
 
@@ -1411,7 +1410,6 @@ local function processDoor(room, doorModel)
     doorOutline.Color3 = color
     doorOutline.LineThickness = 0.025 -- Sleek, razor-sharp perimeter outline
     doorOutline.SurfaceTransparency = 1
-    doorOutline.AlwaysOnTop = true
     doorOutline.Parent = (gethui and gethui()) or CoreGui
     table.insert(extraVisuals, doorOutline)
 
@@ -1939,7 +1937,6 @@ local function createEntityBoundingBox(targetPart, size, color)
     sbox.Color3 = boxColor
     sbox.LineThickness = 0.03
     sbox.SurfaceTransparency = 1
-    sbox.AlwaysOnTop = true
     sbox.Parent = folder
 
     folder.Parent = (gethui and gethui()) or CoreGui
