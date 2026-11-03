@@ -139,7 +139,7 @@ local Config = {
     AutoFarmBears = false,
     FarmMethod = "Bear Attack", -- "Gun", "Melee", or "Bear Attack"
     SpawnAsBear = "booboo",
-    AutoFriendlyBear = true,
+    AutoFriendlyBear = false,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -2349,7 +2349,7 @@ end
 -- Ensures player bear transitions cleanly to Friendly stance without rapid toggle cancellation
 local lastStanceRequest = 0
 local function ensureFriendlyStance(char)
-    if not Config.AutoFriendlyBear and not (Config.AutoFarmBears and Config.FarmMethod == "Bear Attack") then
+    if not Config.AutoFriendlyBear or (Config.AutoFarmBears and Config.FarmMethod == "Bear Attack") then
         return
     end
     if not char then return end
