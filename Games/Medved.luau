@@ -36,19 +36,24 @@ local function silenceTelemetry()
                 local Packet = require(packetModule)
                 if not Packet.__ORIGINAL_WRITE then
                     Packet.__ORIGINAL_WRITE = Packet.Write
-                    Packet.Write = function(p14, p15, p16, p17, ...)
-                        if p17 and typeof(p17) == "table" and p17.Reports then
-                            table.clear(p17.Reports)
+                    Packet.Write = function(...)
+                        local args = { ... }
+                        for _, a in ipairs(args) do
+                            if typeof(a) == "table" and a.Reports then
+                                table.clear(a.Reports)
+                            end
                         end
-                        return Packet.__ORIGINAL_WRITE(p14, p15, p16, p17, ...)
+                        return Packet.__ORIGINAL_WRITE(unpack(args))
                     end
                 end
             end
 
-            local event = clientInterface:FindFirstChild("Event")
-            if event and event:IsA("BindableEvent") then
-                for _, conn in ipairs(getconnections(event.Event)) do
-                    pcall(function() conn:Disable() end)
+            -- Neutralize all BindableEvents inside ClientInterface
+            for _, d in ipairs(clientInterface:GetDescendants()) do
+                if d:IsA("BindableEvent") then
+                    for _, conn in ipairs(getconnections(d.Event)) do
+                        pcall(function() conn:Disable() end)
+                    end
                 end
             end
         end
@@ -2498,23 +2503,15 @@ task.spawn(function()
                 continue
             end
 
-            -- Stance Verification Gate: Player MUST be in Friendly Stance to damage wild bears!
-            -- In Aggressive stance, PlayerBearCanHurt(player, npcBear) is FALSE (0 damage / 100% ghost hits).
-            local currentStance = char:GetAttribute("Stance")
-            local RS = game:GetService("ReplicatedStorage")
-            local BearStance = nil
-            pcall(function() BearStance = require(RS:FindFirstChild("BearStance")) end)
-            local isSwitching = BearStance and BearStance.Switching and BearStance.Switching(char)
-
-            if currentStance ~= "Friendly" then
-                -- ZERO TOP-WARPING: Never teleport up to the sky on start! Stay right where player is until Friendly!
-                activeFlightBear = nil
-                activeFlightOffset = nil
-                activeFlightTargetCF = nil
-
-                if not isSwitching and tick() - lastStanceRequest >= 5.5 then
+            if Config.FarmMethod == "Bear Attack" then
+                -- AGGRESSIVE STANCE ENFORCEMENT:
+                -- In Friendly stance, server blocks 100% of bear attack damage (0 DMG ghost hits).
+                -- To deal damage to enemy bears, player bear MUST be in Aggressive stance!
+                local currentStance = char:GetAttribute("Stance")
+                if currentStance == "Friendly" and (tick() - lastStanceRequest >= 5.5) then
                     lastStanceRequest = tick()
                     pcall(function()
+                        local RS = game:GetService("ReplicatedStorage")
                         local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
                         local bearAbility = pb and pb:FindFirstChild("BearAbility")
                         if bearAbility then
@@ -2522,8 +2519,6 @@ task.spawn(function()
                         end
                     end)
                 end
-                task.wait(0.15)
-                continue
             end
         end
 
@@ -2669,11 +2664,18 @@ task.spawn(function()
             standoff = 4.2
             elevation = 6.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
-        elseif isGrinderBear or isWallBear then
-            -- GRINDER / WALL: Mech turret guns point strictly forward; hover behind rear exhaust!
+        elseif isWallBear then
+            -- WALL BEAR: 15.5-stud tall concrete slab. Faces -Z, topples forward.
+            -- Safe rear blindspot: Hover behind (+Z) with standoff 3.2 studs.
+            -- Elevation 8.8 places feet safely above the wall top (+7.74).
+            standoff = 3.2
+            elevation = 8.8 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
+        elseif isGrinderBear then
+            -- GRINDER: Mech turret guns point strictly forward; hover behind rear exhaust!
             standoff = 6.5
             elevation = 10.5 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("BodyTop") or bearRoot
         elseif isRangedBear then
             -- RANGED BEAR: Spike quills
             standoff = 4.2
@@ -2766,9 +2768,8 @@ task.spawn(function()
         elseif Config.FarmMethod == "Melee" then
             canStrike = distToTargetPart <= 8.5
         elseif Config.FarmMethod == "Bear Attack" then
-            -- Screams penetrate wide 6x6 cone; fire immediately when within 12 studs!
-            -- Eliminates all false stalls/waiting while bears jump or rotate!
-            canStrike = distToTargetPart <= 12.0 or distToRoot <= 12.0
+            -- Screams penetrate wide cone; fire when within engagement volume
+            canStrike = distToTargetPart <= 16.0 or distToRoot <= 16.0 or (bear:FindFirstChild("BodyTop") and (root.Position - bear.BodyTop.Position).Magnitude <= 14.0)
         end
         if not canStrike then
             task.wait(0.02)
@@ -2874,8 +2875,8 @@ task.spawn(function()
                 end
 
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream)
-                -- ZERO DELAY: Fires THE EXACT MILLISECOND cooldown expires on the server!
-                if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= 0.08) then
+                -- Authoritative server cooldown tracking with 1.25s predictive floor
+                if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= 0.15) then
                     lastDefaultM1Attack = tick()
                     if bearAim and targetHitPart then
                         pcall(function()
@@ -2885,8 +2886,9 @@ task.spawn(function()
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", aimPos)
                     end)
-                    -- Set minimal 100ms local guard so packets aren't spammed before server cooldown packet arrives
-                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + 0.10
+                    -- Enforce predictive cooldown floor (1.25s) until server Cooldown packet arrives
+                    local sTime = workspace:GetServerTimeNow()
+                    abilityCooldowns["Default"] = math.max(abilityCooldowns["Default"] or 0, sTime + 1.25)
                 end
 
                 -- 4. Also activate tool if held
