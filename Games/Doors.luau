@@ -404,7 +404,36 @@ task.spawn(function()
     end
 end)
 
--- Instant defusal of Screech when parented to Camera
+-- Infallible Anti-Screech Hook: Detours Client RemoteListener Screech Module (Eliminates Screech at the root!)
+local function initAntiScreechHook()
+    pcall(function()
+        local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
+        if rl and rl:FindFirstChild("Modules") then
+            local scMod = rl.Modules:FindFirstChild("Screech", true)
+            if scMod and not _G.SC_FN_HOOKED then
+                _G.SC_FN_HOOKED = true
+                local rawFn = require(scMod)
+                if type(rawFn) == "function" and hookfunction then
+                    hookfunction(rawFn, newcclosure(function(a1, a2, a3)
+                        if State.Anti_Screech then
+                            pcall(function()
+                                local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                                local sRemote = rf and rf:FindFirstChild("Screech")
+                                if sRemote then sRemote:FireServer(true) end
+                            end)
+                            return -- Drop Screech invocation completely: 0 sound, 0 model, 0 jumpscare!
+                        end
+                        return rawFn(a1, a2, a3)
+                    end))
+                end
+            end
+        end
+    end)
+end
+pcall(initAntiScreechHook)
+
+-- Fallback Camera ChildAdded defusal for custom admin panels or standalone screech instances
 pcall(function()
     local cam = Workspace.CurrentCamera or Workspace:WaitForChild("Camera")
     cam.ChildAdded:Connect(function(child)
@@ -418,6 +447,7 @@ pcall(function()
                 if d:IsA("Sound") then d.Volume = 0 d:Stop() end
                 if d:IsA("ParticleEmitter") then d.Enabled = false end
             end
+            task.delay(0.05, function() pcall(function() child:Destroy() end) end)
         end
     end)
 end)
@@ -2147,14 +2177,24 @@ local function processEntity(entity)
 
         if isModel then
             local pName = entity.Name:lower()
-            -- Reject static environment models
+            -- Reject static environment models, items, pickups, and fragments
             local isStaticRoomProp = pName:find("wall") or pName:find("floor") or pName:find("ceiling") or pName:find("door") 
                 or pName:find("carpet") or pName:find("light") or pName:find("chandelier") or pName:find("desk") 
                 or pName:find("table") or pName:find("chair") or pName:find("wardrobe") or pName:find("bed") 
                 or pName:find("chest") or pName:find("drawer") or pName:find("shelf") or pName:find("plant")
                 or pName:find("pillar") or pName:find("column") or pName:find("painting") or pName:find("frame")
+                or pName:find("fragment") or pName:find("glitch") or pName:find("rift") or pName:find("tool")
+                or pName:find("item") or pName:find("pickup") or pName:find("drop") or pName:find("gold")
 
-            if not isStaticRoomProp and (isHumanoid or hasAnim or inLive or #entity:GetChildren() >= 2) then
+            local isItemOrTool = entity:IsA("Tool") or entity:FindFirstChildWhichIsA("Tool") 
+                or entity:FindFirstChild("Handle") or entity:FindFirstChildWhichIsA("ProximityPrompt", true)
+
+            local char = getChar()
+            local isHeldByPlayer = char and (entity == char or entity:IsDescendantOf(char))
+
+            -- Strictly require living entity traits (Humanoid, AnimationController, or in LiveEntities container)
+            -- NEVER classify generic multi-part items or held tools as entities!
+            if not isStaticRoomProp and not isItemOrTool and not isHeldByPlayer and (isHumanoid or hasAnim or inLive) then
                 isMovingThreat = true
             end
         end
@@ -2882,7 +2922,7 @@ pcall(function()
     end
 end)
 
--- Continuous 20Hz Entity Defusal Daemon: Guarantees zero entities can kill player inside or outside the map!
+-- Continuous Entity Defusal Daemon (Optimized 5Hz: zero micro-freezes, instant defusal)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -2899,7 +2939,7 @@ task.spawn(function()
                 end
             end
         end)
-        task.wait(0.05)
+        task.wait(0.2)
     end
 end)
 
@@ -3843,23 +3883,44 @@ local function initAntiGlitchShield()
 end
 
 local cachedMovSpeedFn = nil
-local function syncNativeFlightSpeed(speed)
-    pcall(function()
-        if not cachedMovSpeedFn and getgc then
-            local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-            local mov = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("Movement")
-            if mov then
-                for _, fn in ipairs(getgc(false)) do
-                    if type(fn) == "function" and getfenv(fn).script == mov and debug.info(fn, "l") == 1491 then
-                        cachedMovSpeedFn = fn
-                        break
-                    end
+local cachedSpeedIdx = nil
+local cachedLerpIdx = nil
+
+local function getNativeMovementSpeedFunction()
+    if cachedMovSpeedFn and cachedSpeedIdx then
+        return cachedMovSpeedFn, cachedSpeedIdx, cachedLerpIdx
+    end
+    local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+    local mov = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("Movement")
+    if mov and getgc then
+        for _, fn in ipairs(getgc(false)) do
+            if type(fn) == "function" and getfenv(fn).script == mov then
+                local uvs = debug.getupvalues(fn)
+                local hasCP, hasUIS, uisIdx = false, false, nil
+                for i, u in ipairs(uvs) do
+                    if typeof(u) == "Instance" and u.Name == "CollisionPart" then hasCP = true end
+                    if typeof(u) == "Instance" and u:IsA("UserInputService") then hasUIS = true; uisIdx = i end
+                end
+                if hasCP and hasUIS and uisIdx then
+                    cachedMovSpeedFn = fn
+                    cachedSpeedIdx = uisIdx - 1
+                    cachedLerpIdx = uisIdx + 2
+                    return cachedMovSpeedFn, cachedSpeedIdx, cachedLerpIdx
                 end
             end
         end
-        if cachedMovSpeedFn and debug.setupvalue then
-            debug.setupvalue(cachedMovSpeedFn, 22, speed)
-            debug.setupvalue(cachedMovSpeedFn, 25, 12)
+    end
+    return nil, nil, nil
+end
+
+local function syncNativeFlightSpeed(speed)
+    pcall(function()
+        local fn, sIdx, lIdx = getNativeMovementSpeedFunction()
+        if fn and sIdx and debug.setupvalue then
+            debug.setupvalue(fn, sIdx, speed)
+            if lIdx then
+                debug.setupvalue(fn, lIdx, 12)
+            end
         end
     end)
 end
@@ -6357,7 +6418,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.04) -- Hyper-responsive 25Hz loop: instant looting the millisecond you get close
+        task.wait(0.12) -- Smooth 8Hz loop: instant looting without CPU frame spikes or micro-freezes
     end
 end)
 
@@ -8410,13 +8471,17 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     end
     local char = getChar()
     if char then
+        local coll = char:FindFirstChild("Collision")
+        if coll and coll:IsA("BasePart") then
+            coll.CanCollide = not v
+        end
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
-                p.CanCollide = not v
-                if v then
-                    if p.CollisionGroup ~= "NoPlayer" then
-                        pcall(function() p.CollisionGroup = "NoPlayer" end)
-                    end
+                if p.Name ~= "Collision" then
+                    p.CanCollide = false -- Limbs permanently CanCollide = false: eradicates floor catch / 'small stones' and allows smooth door approach
+                end
+                if p.CollisionGroup ~= "NoPlayer" then
+                    pcall(function() p.CollisionGroup = "NoPlayer" end)
                 end
                 p.CanTouch = true
                 p.CanQuery = true
