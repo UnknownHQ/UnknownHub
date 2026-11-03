@@ -2599,9 +2599,13 @@ local function scanSingleRoom(room)
         end
     end
 
-    -- 2. Scan Room Descendants
+    -- 2. Scan Room Descendants & Defuse Void/Boundary Anti-Cheat Triggers
     for _, desc in ipairs(room:GetDescendants()) do
         local dName = desc.Name:lower()
+        if desc:IsA("BasePart") and (dName:find("voidcollision") or dName == "playercollision") then
+            desc.CanTouch = false
+            desc.CanCollide = false
+        end
 
         -- Skip internal Dupe sideroom decorations/models (only DoorFake is tracked as a door)
         if not (desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake") then
@@ -3902,20 +3906,6 @@ local function neutralizeServerTeleported()
                         -- When Noclip, Walk Noclip, Anti-Cheat, Tweening, or Speed is active:
                         -- Drop ALL server-side anti-cheat rollback teleports!
                         if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                            task.spawn(function()
-                                local rRoot = getRoot()
-                                if rRoot and crouchRemote then
-                                    pcall(function() crouchRemote:FireServer(false, true) end)
-                                    rRoot.AssemblyLinearVelocity = Vector3.zero
-                                    rRoot.AssemblyAngularVelocity = Vector3.zero
-                                    task.wait(0.03)
-                                    if State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or State.Enable_Sliding then
-                                        syncServerSlide(true, true)
-                                    else
-                                        pcall(function() crouchRemote:FireServer(false, false) end)
-                                    end
-                                end
-                            end)
                             if mgTable and mgTable.SETNEWCF then
                                 mgTable.SETNEWCF = nil
                             end
@@ -3957,20 +3947,6 @@ local function neutralizeServerTeleported()
                                 end
 
                                 if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                                    task.spawn(function()
-                                        local rRoot = getRoot()
-                                        if rRoot and crouchRemote then
-                                            pcall(function() crouchRemote:FireServer(false, true) end)
-                                            rRoot.AssemblyLinearVelocity = Vector3.zero
-                                            rRoot.AssemblyAngularVelocity = Vector3.zero
-                                            task.wait(0.03)
-                                            if State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or State.Enable_Sliding then
-                                                syncServerSlide(true, true)
-                                            else
-                                                pcall(function() crouchRemote:FireServer(false, false) end)
-                                            end
-                                        end
-                                    end)
                                     return
                                 end
                                 return fn(pTarget, ...)
@@ -4005,20 +3981,6 @@ local function neutralizeServerTeleported()
                                 end
 
                                 if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                                    task.spawn(function()
-                                        local rRoot = getRoot()
-                                        if rRoot and crouchRemote then
-                                            pcall(function() crouchRemote:FireServer(false, true) end)
-                                            rRoot.AssemblyLinearVelocity = Vector3.zero
-                                            rRoot.AssemblyAngularVelocity = Vector3.zero
-                                            task.wait(0.03)
-                                            if State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or State.Enable_Sliding then
-                                                syncServerSlide(true, true)
-                                            else
-                                                pcall(function() crouchRemote:FireServer(false, false) end)
-                                            end
-                                        end
-                                    end)
                                     if mgTable and mgTable.SETNEWCF then
                                         mgTable.SETNEWCF = nil
                                     end
@@ -5221,7 +5183,18 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             mgTable.clipPos = root.Position
             if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
         end
-        -- Walk Noclip preserves pure native Humanoid ground walking physics without synthetic sliding
+        -- Sub-frame Micro-Phase (Smoothly phases across walls in 1 frame so server solver never detects penetration)
+        if hum and hum.MoveDirection.Magnitude > 0.1 and root then
+            local moveUnit = hum.MoveDirection.Unit
+            local phaseParams = RaycastParams.new()
+            phaseParams.FilterType = Enum.RaycastFilterType.Exclude
+            phaseParams.FilterDescendantsInstances = { char }
+            local hit = Workspace:Raycast(root.Position, moveUnit * 1.6, phaseParams)
+            if hit and hit.Instance and hit.Instance:IsA("BasePart") and not hit.Instance.Name:lower():find("floor") then
+                root.CFrame = root.CFrame + moveUnit * 2.2
+                if mgTable then mgTable.clipPos = root.Position end
+            end
+        end
     elseif State.WalkSpeed_Enabled and not hiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
@@ -5350,7 +5323,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     -- Character Collision & Prompt Interactivity Receptors:
     if char then
         local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
-        local targetGroup = "NoPlayer" -- Invariant: CollisionGroup = "NoPlayer" must ALWAYS remain active both when flying and when walking/crouching on the floor!
+        local targetGroup = (State.Noclip or State.Walk_Noclip) and "None" or "NoPlayer" 
         local coll = char:FindFirstChild("Collision")
         local cc = coll and coll:FindFirstChild("CollisionCrouch")
         local cp = char:FindFirstChild("CollisionPart")
@@ -5562,12 +5535,12 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
     end
 
     if State.Noclip or State.Walk_Noclip or State.Fly_Enabled or TeleportState.isTweening then
-        -- Strip CanCollide only during ACTIVE flight/noclip so walls/doors can be flown through smoothly
+        -- Strip CanCollide and set CollisionGroup = "None" so server solver ignores wall collisions
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
-                if part.CollisionGroup ~= "NoPlayer" then
-                    part.CollisionGroup = "NoPlayer"
+                if part.CollisionGroup ~= "None" then
+                    pcall(function() part.CollisionGroup = "None" end)
                 end
                 -- Always preserve CanTouch & CanQuery so wardrobes, drawers & doorway triggers never break!
                 if not part.CanTouch then part.CanTouch = true end
