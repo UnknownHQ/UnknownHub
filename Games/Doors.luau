@@ -1017,7 +1017,10 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
             removeEspFor(owner)
         end)
         owner.AncestryChanged:Connect(function(_, parent)
-            if not parent or (not owner:IsDescendantOf(Workspace) and not owner:IsDescendantOf(Camera)) then
+            local char = getChar()
+            local inChar = char and (owner == char or owner:IsDescendantOf(char))
+            local inBackpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack") and owner:IsDescendantOf(LocalPlayer.Backpack)
+            if not parent or inChar or inBackpack or (not owner:IsDescendantOf(Workspace) and not owner:IsDescendantOf(Camera)) then
                 removeEspFor(owner)
             end
         end)
@@ -1060,7 +1063,10 @@ task.spawn(function()
             end
 
             for owner, record in pairs(activeEspRecords) do
-                if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
+                local char = getChar()
+                local inChar = char and (owner == char or owner:IsDescendantOf(char))
+                local inBackpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack") and owner:IsDescendantOf(LocalPlayer.Backpack)
+                if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent or inChar or inBackpack then
                     removeEspFor(owner)
                 else
                     -- Entity Despawn / Bramble Ghost Filter
@@ -1088,31 +1094,49 @@ task.spawn(function()
                         end
                     end
 
-                    -- 1. Room Visibility Filter (Exclusively show doors and closets in current room only!)
+                    -- 1. Precision Door Visibility Filter: ONLY show the NEXT UNOPENED EXIT DOOR & Current Dupe Doors!
                     if record.Category == "Doors" then
                         local shouldShow = State.Doors_ESP
                         if shouldShow then
-                            if curRoom ~= nil and record.RoomNumber ~= nil then
-                                -- Strict Door Visibility: Completely HIDE previous doors (already passed)!
-                                -- ONLY highlight the Next Door and current room door!
-                                if record.RoomNumber < curRoom then
-                                    shouldShow = false
-                                elseif record.RoomNumber > (curRoom + 1) then
-                                    shouldShow = false
-                                else
-                                    shouldShow = true
-                                    if record.Label then
-                                        local isLocked = record.Owner and (record.Owner:GetAttribute("Locked") == true or (record.Owner:FindFirstChild("Lock") and record.Owner.Lock:FindFirstChildWhichIsA("ProximityPrompt", true)))
-                                        local isDupe = record.BaseText and record.BaseText:find("Dupe")
+                            local dModel = record.Owner
+                            local isDupe = (record.BaseText and record.BaseText:find("Dupe")) or (dModel and isDupeDoor(dModel, dModel.Parent))
+                            local isOpened = dModel and (dModel:GetAttribute("Opened") == true or dModel:GetAttribute("Open") == true or dModel:FindFirstChild("ClientOpen") ~= nil)
+
+                            -- Completely hide ANY door that is already opened!
+                            if isOpened and not isDupe then
+                                shouldShow = false
+                            else
+                                local doorRoom = record.RoomNumber
+                                if doorRoom == nil and dModel and dModel.Parent then
+                                    doorRoom = tonumber(dModel.Parent.Name)
+                                    if doorRoom then record.RoomNumber = doorRoom end
+                                end
+
+                                if curRoom ~= nil and doorRoom ~= nil then
+                                    -- Hide doors from previous rooms
+                                    if doorRoom < curRoom then
+                                        shouldShow = false
+                                    -- Hide doors in rooms far ahead
+                                    elseif doorRoom > (curRoom + 1) then
+                                        shouldShow = false
+                                    -- If door is in current room, only show if it is an active exit door
+                                    elseif doorRoom == curRoom then
+                                        shouldShow = not isOpened
+                                    elseif doorRoom == (curRoom + 1) then
+                                        shouldShow = not isOpened
+                                    end
+
+                                    if shouldShow and record.Label then
+                                        local isLocked = dModel and (dModel:GetAttribute("Locked") == true or (dModel:FindFirstChild("Lock") and dModel.Lock:FindFirstChildWhichIsA("ProximityPrompt", true)))
                                         if not isDupe then
-                                            local doorNum = record.RoomNumber + 1
-                                            local rolePrefix = (record.RoomNumber == curRoom) and "Current Door" or "Next Door"
+                                            local doorNum = doorRoom + 1
+                                            local rolePrefix = (doorRoom == curRoom) and "Exit Door" or "Next Door"
                                             record.BaseText = string.format("%s %d%s", rolePrefix, doorNum, isLocked and " [LOCKED]" or "")
                                         end
                                     end
+                                else
+                                    shouldShow = not isOpened
                                 end
-                            else
-                                shouldShow = true
                             end
                         end
 
@@ -1382,14 +1406,11 @@ local function processDoor(room, doorModel)
         color = State.ESP_Color_Doors
     end
 
-    local adorneePart = doorModel:FindFirstChild("SignPhysical") 
-        or (doorModel:FindFirstChild("Sign") and doorModel.Sign:IsA("BasePart") and doorModel.Sign)
-        or doorMesh
+    local adorneePart = doorMesh
 
     -- Clean Rectangular Door ESP Visuals (BoxHandleAdornment + SelectionBox):
     -- BoxHandleAdornment provides a smooth, solid uniform rectangular fill across the door leaf.
     -- SelectionBox provides a razor-sharp, flat rectangular outline around the door perimeter.
-    -- Completely eradicates Roblox's screen-space mesh chamfer cutout notches at distance (Images 2, 4, 6)!
     local extraVisuals = {}
 
     local doorBox = Instance.new("BoxHandleAdornment")
@@ -1400,7 +1421,7 @@ local function processDoor(room, doorModel)
     doorBox.Color3 = color
     doorBox.AlwaysOnTop = true
     doorBox.Transparency = 0.82 -- Clean, subtle translucent tint: door numbers, locks, and wood textures shine through!
-    doorBox.ZIndex = 5
+    doorBox.ZIndex = 1 -- Lowest ZIndex so text Billboard is ALWAYS layered on top, never behind!
     doorBox.Parent = (gethui and gethui()) or CoreGui
     table.insert(extraVisuals, doorBox)
 
@@ -1413,7 +1434,9 @@ local function processDoor(room, doorModel)
     doorOutline.Parent = (gethui and gethui()) or CoreGui
     table.insert(extraVisuals, doorOutline)
 
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", nil, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
+    -- Float text cleanly ABOVE the top door frame header (doorMesh.Size.Y / 2 + 0.85 studs) so it is NEVER behind the door!
+    local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.85, 0)
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", nil, doorHeaderOffset, roomNumber, extraVisuals)
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
@@ -3697,8 +3720,25 @@ local function initAntiGlitchShield()
                     _G["UEM_DETOURED_" .. tostring(fn)] = true
                     if hookfunction then
                         hookfunction(fn, newcclosure(function(enemyName, method, ...)
+                            if enemyName == "Glitch" then
+                                -- Glitch is DOORS' room catch-up teleporter when lagging behind or desynced!
+                                -- Reconcile position to valid room entrance so the server is satisfied and NEVER repeats 5 times!
+                                local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                                local curNum = getCurrentRoomNumber()
+                                local curRoom = curRooms and (curRooms:FindFirstChild(tostring(curNum)) or curRooms:GetChildren()[#curRooms:GetChildren()])
+                                if curRoom then
+                                    local rStart = curRoom:FindFirstChild("RoomStart") or curRoom:FindFirstChild("Door") or curRoom.PrimaryPart
+                                    local root = getRoot()
+                                    if root and rStart then
+                                        root.CFrame = rStart.CFrame + Vector3.new(0, 2, 0)
+                                        local mg = getMainGameTable()
+                                        if mg then mg.clipPos = root.Position end
+                                    end
+                                end
+                                return -- Handled cleanly! Server position is reconciled, 5-teleport spam eliminated!
+                            end
                             if State.Noclip or isPlayerOutOfMap() or State.Anti_Rush or State.Deflect_Glitch then
-                                return -- Universal Entity Immunity: Drop ALL enemy modules for ALL entities!
+                                return -- Universal Entity Immunity: Drop enemy modules for hostile entities!
                             end
                             return fn(enemyName, method, ...)
                         end))
