@@ -140,6 +140,7 @@ local Config = {
     FarmMethod = "Bear Attack", -- "Gun", "Melee", or "Bear Attack"
     SpawnAsBear = "booboo",
     AutoFriendlyBear = true,
+    ExcludeBooBoo = true,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -1204,6 +1205,14 @@ end
 -- Authoritative Bear Multi-Selection Validator (Ultra-Resilient Fuzzy & Multi-Select)
 local function isBearTargetSelected(b)
     if not b or not isBearTargetable(b) then return false end
+
+    -- Exclude Boo-Boo (Option 1: low $20 bounty, high speed, tiny hitbox)
+    if Config.ExcludeBooBoo then
+        local bLower = b.Name:lower()
+        if bLower:find("booboo") or bLower:find("boo") then
+            return false
+        end
+    end
 
     -- Check Multi-Select state dict / array
     if Config.SelectedBears and type(Config.SelectedBears) == "table" then
@@ -2706,22 +2715,22 @@ task.spawn(function()
             elevation = 2.0 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Cube") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrizzly then
-            -- GRIZZLY MEDVED: 1.3x scale quadruped
-            standoff = 4.0
-            elevation = 4.5 + damageElevationBoost
+            -- GRIZZLY MEDVED: 1.3x scale quadruped (swipe extends to Y = +6.5)
+            standoff = 3.6
+            elevation = 7.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         elseif isGolden then
             -- GOLDEN MEDVED: 900 HP quadruped
-            standoff = 4.0
-            elevation = 4.5 + damageElevationBoost
+            standoff = 3.6
+            elevation = 7.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         else
             -- STANDARD QUADRUPEDS (Medved, ClassicBear)
-            -- Medved swipe hitbox extends strictly FORWARD (-Z by 3.25 studs). Zero hitbox behind (+Z)!
-            -- Standoff 3.0 and elevation 3.2 positions Boo-Boo safely above Medved's spine and cleanly inside
-            -- the 6.5-stud scream reach. Eliminates 100% of misses while Medved is walking!
-            standoff = 3.0
-            elevation = 3.2 + damageElevationBoost
+            -- Medved swipe hitbox extends vertically Y in [-3.0, +5.0].
+            -- Standoff 3.2 and elevation 5.8 positions Boo-Boo safely above Medved's +5.0 claw swipe ceiling!
+            -- Zero damage taken from claws, while sonic scream (6.5-stud vertical reach) connects 100%.
+            standoff = 3.2
+            elevation = 5.8 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
@@ -3432,6 +3441,11 @@ Hub.CreateToggle(farmTab, "Auto Friendly Bear", Config.AutoFriendlyBear, functio
         end
     end
     Hub.Notify("Bear", val and "Auto Friendly Bear: ACTIVE" or "Auto Friendly Bear: OFF", 2)
+end)
+
+Hub.CreateToggle(farmTab, "Exclude Boo-Boo from Farm", Config.ExcludeBooBoo, function(val)
+    Config.ExcludeBooBoo = val
+    Hub.Notify("Bear Farm", val and "Boo-Boo Excluded (Higher Cash Yield)" or "Boo-Boo Included", 2)
 end)
 
 bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears", getAvailableBearTypes(), {"All"}, function(dict, arr)
