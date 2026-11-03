@@ -2737,12 +2737,12 @@ task.spawn(function()
         local elevation = 5.4 + damageElevationBoost
 
         if isBallBear then
-            -- BALL BEAR: 10.25-stud giant rolling sphere!
-            -- Standoff 4.2 behind rolling direction (+Z) ensures BallLunge (which jumps forward -Z with Up=34) rockets AWAY from player!
-            -- Elevation 10.2 keeps feet cleanly above the sphere surface (never crushed or touched!).
-            standoff = 4.2
-            elevation = 10.2 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("body") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
+            -- BALL BEAR: 9.9-stud diameter rolling sphere (radius 4.95 studs from center).
+            -- Standoff 5.6 behind rolling direction (+Z) places Boo-Boo cleanly outside sphere surface (0 roll/crush touch).
+            -- Elevation 6.8 is 1.85 studs above sphere top surface, bringing sonic scream distance to 3.85 studs (100% connect rate)!
+            standoff = 5.6
+            elevation = 6.8 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("body") or bearRoot
         elseif isWallBear then
             -- WALL BEAR: 15.5-stud tall concrete slab. Faces -Z, topples forward.
             -- Close rear blindspot (standoff 3.6, elevation 9.2 over BodyTop) keeps distance < 10 studs,
@@ -2787,10 +2787,10 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
             -- BOO-BOO / MINI BEARS: Height ~3.5 studs.
-            -- Standoff 1.8 and elevation 2.2 locks Boo-Boo directly in the center of the scream volume!
-            -- Fixed model LookVector inversion + 40ms velocity lead ensures 100% hits at full sprint!
-            standoff = 1.8
-            elevation = 2.2 + damageElevationBoost
+            -- Elevate to 3.6 studs (standoff 2.2) to float safely above Boo-Boo's 2.5-stud bite/tackle reach!
+            -- Zero damage taken when Boo-Boo turns to fight back, while sonic scream easily covers downward reach!
+            standoff = 2.2
+            elevation = 3.6 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Cube") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped (swipe extends to Y = +6.5)
