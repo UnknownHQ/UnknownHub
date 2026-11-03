@@ -5179,8 +5179,16 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     local isGlitchActive = false
     if Workspace:FindFirstChild("Glitch") then
         isGlitchActive = true
-    end
-    if isGlitchActive then
+    else
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainUI = pGui and pGui:FindFirstChild("MainUI")
+        local mainFrame = mainUI and mainUI:FindFirstChild("MainFrame")
+        if mainFrame then
+            local gs = mainFrame:FindFirstChild("GlitchScreen")
+            if gs and gs.Visible then isGlitchActive = true end
+            local ge = mainFrame:FindFirstChild("GlitchEffect")
+            if ge and ge.Visible then isGlitchActive = true end
+            if isGlitchActive then
                 if gs and gs.Visible then gs.Visible = false end
                 if ge and ge.Visible then ge.Visible = false end
             end
