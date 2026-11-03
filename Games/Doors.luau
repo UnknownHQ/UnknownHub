@@ -1107,7 +1107,7 @@ task.spawn(function()
                                     vis.Enabled = shouldShow
                                 elseif vis:IsA("SelectionBox") then
                                     vis.Visible = shouldShow
-                                    vis.Adornee = shouldShow and ((record.HighlightMap and record.HighlightMap[vis]) or record.Adornee) or nil
+                                    vis.Adornee = shouldShow and (vis.Adornee or (record.HighlightMap and record.HighlightMap[vis]) or record.Adornee) or nil
                                 elseif vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
                                     vis.Visible = shouldShow
                                 elseif vis:IsA("Highlight") then
@@ -1254,9 +1254,27 @@ local function processDoor(room, doorModel)
         local baseText = "Dupe Door"
         local color = State.ESP_Color_Dupe or Color3.fromRGB(255, 35, 35)
         local extraVisuals = {}
-        -- Native Highlight cleanly renders without distorted polygon wireframes
-        -- Door SelectionBox eradicated permanently to match clean aesthetic
-        registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
+        local doorBox = Instance.new("BoxHandleAdornment")
+        doorBox.Name = "Unknown_DoorBoxAdorn"
+        doorBox.Adornee = doorMesh
+        doorBox.Size = doorMesh.Size
+        doorBox.Color3 = color
+        doorBox.AlwaysOnTop = true
+        doorBox.Transparency = State.ESP_FillTransparency or 0.5
+        doorBox.ZIndex = 10
+        doorBox.Parent = (gethui and gethui()) or CoreGui
+        table.insert(extraVisuals, doorBox)
+
+        local doorOutline = Instance.new("SelectionBox")
+        doorOutline.Name = "Unknown_DoorOutlineBox"
+        doorOutline.Adornee = doorMesh
+        doorOutline.Color3 = color
+        doorOutline.LineThickness = 0.04
+        doorOutline.SurfaceTransparency = 1
+        doorOutline.Parent = (gethui and gethui()) or CoreGui
+        table.insert(extraVisuals, doorOutline)
+
+        registerEsp(doorModel, doorMesh, baseText, color, "Doors", nil, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
         if State.Anti_Dupe then secureDupeDoor(doorModel) end
         return
     end
@@ -1869,23 +1887,7 @@ local ENTITY_REGISTRY = {
     ["greed"]          = { Name = "Greed",              Category = "Other" },
 }
 
--- Sleek, Lightweight Bounding Box Adornment for 2D Sprite/Billboard Entities (Zero physical Workspace parts!)
-local cachedRoundedMeshModel = nil
-local function getRoundedMeshTemplate()
-    if cachedRoundedMeshModel then return cachedRoundedMeshModel:Clone() end
-    local s, res = pcall(function()
-        local objs = game:GetObjects("rbxassetid://14731807321")
-        if objs and #objs > 0 then
-            return objs[1]
-        end
-    end)
-    if s and res then
-        cachedRoundedMeshModel = res
-        return cachedRoundedMeshModel:Clone()
-    end
-    return nil
-end
-
+-- Sleek, Native Adornment Bounding Box for 2D Sprite/Billboard Entities (Zero physical Workspace parts!)
 local function createEntityBoundingBox(targetPart, size, color)
     if not targetPart or not targetPart.Parent then return nil end
     local folder = Instance.new("Folder")
@@ -1896,119 +1898,29 @@ local function createEntityBoundingBox(targetPart, size, color)
         s = Vector3.new(s, s, s)
     end
     local boxColor = color or Color3.fromRGB(255, 30, 30)
-    -- Vibrant crimson red fill (Zero pink wash)
-    local lightColor = boxColor
 
-    -- Rounded cube with asset ID 14731807321
-    local roundedModel = getRoundedMeshTemplate()
-    if roundedModel then
-        local primary = roundedModel:IsA("BasePart") and roundedModel or (roundedModel.PrimaryPart or roundedModel:FindFirstChildWhichIsA("BasePart", true))
-        if primary then
-            for _, p in ipairs(roundedModel:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    p.CanCollide = false
-                    p.CanTouch = false
-                    p.CanQuery = false
-                    p.CastShadow = false
-                    p.Color = lightColor
-                    p.Transparency = 0.4
-                    p.Material = Enum.Material.ForceField
-                end
-            end
-            if roundedModel:IsA("Model") then
-                roundedModel:ScaleTo(s.Magnitude / 5.0)
-                roundedModel:PivotTo(targetPart.CFrame)
-            elseif roundedModel:IsA("BasePart") then
-                roundedModel.Size = s
-                roundedModel.CFrame = targetPart.CFrame
-            end
+    -- Clean BoxHandleAdornment: smooth translucent fill centered on targetPart
+    local boxAdorn = Instance.new("BoxHandleAdornment")
+    boxAdorn.Name = "EntityBoxFill"
+    boxAdorn.Adornee = targetPart
+    boxAdorn.Size = s
+    boxAdorn.Color3 = boxColor
+    boxAdorn.Transparency = 0.45
+    boxAdorn.AlwaysOnTop = true
+    boxAdorn.ZIndex = 10
+    boxAdorn.Parent = folder
 
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = primary
-            weld.Part1 = targetPart
-            weld.Parent = primary
+    -- Sharp SelectionBox: razor-thin outer wireframe border in matching Crimson Red
+    local sbox = Instance.new("SelectionBox")
+    sbox.Name = "EntityBoxOutline"
+    sbox.Adornee = targetPart
+    sbox.Color3 = boxColor
+    sbox.LineThickness = 0.03
+    sbox.SurfaceTransparency = 1
+    sbox.AlwaysOnTop = true
+    sbox.Parent = folder
 
-            primary.Anchored = false
-            roundedModel.Parent = targetPart -- Locked inside Workspace part so physics/welds follow perfectly!
-
-            local hl = Instance.new("Highlight")
-            hl.Name = "RoundedHighlight"
-            hl.Adornee = roundedModel
-            hl.FillColor = lightColor
-            hl.FillTransparency = 0.4
-            hl.OutlineColor = Color3.fromRGB(255, 255, 255) -- Prominent, crisp white outline!
-            hl.OutlineTransparency = 0
-            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Parent = Workspace:FindFirstChild("Terrain") or Workspace
-
-            local sbox = Instance.new("SelectionBox")
-            sbox.Name = "RoundedOutlineBox"
-            sbox.Adornee = primary
-            sbox.Color3 = Color3.fromRGB(255, 255, 255)
-            sbox.LineThickness = 0.04
-            sbox.SurfaceTransparency = 1
-            sbox.AlwaysOnTop = true
-            sbox.Parent = Workspace:FindFirstChild("Terrain") or Workspace
-
-            table.insert(activeSafeZoneVisuals, sbox)
-        else
-            roundedModel:Destroy()
-            roundedModel = nil
-        end
-    end
-
-    -- Fallback: SpecialMesh with FileMesh id 14731807321
-    if not roundedModel then
-        local roundedPart = Instance.new("Part")
-        roundedPart.Name = "RoundedBlock"
-        roundedPart.Size = s
-        roundedPart.CFrame = targetPart.CFrame
-        roundedPart.CanCollide = false
-        roundedPart.CanTouch = false
-        roundedPart.CanQuery = false
-        roundedPart.CastShadow = false
-        roundedPart.Color = lightColor
-        roundedPart.Transparency = 0.4
-        roundedPart.Material = Enum.Material.ForceField
-
-        local mesh = Instance.new("SpecialMesh")
-        mesh.MeshType = Enum.MeshType.FileMesh
-        mesh.MeshId = "rbxassetid://14731807321"
-        mesh.Scale = Vector3.new(1, 1, 1)
-        mesh.Parent = roundedPart
-
-        local weld = Instance.new("WeldConstraint")
-        weld.Part0 = roundedPart
-        weld.Part1 = targetPart
-        weld.Parent = roundedPart
-
-        roundedPart.Anchored = false
-        roundedPart.Parent = targetPart -- Locked inside targetPart in Workspace so weld moves seamlessly!
-
-        local hl = Instance.new("Highlight")
-        hl.Name = "RoundedHighlight"
-        hl.Adornee = roundedPart
-        hl.FillColor = lightColor
-        hl.FillTransparency = 0.4
-        hl.OutlineColor = Color3.fromRGB(255, 255, 255) -- Prominent, crisp white outline!
-        hl.OutlineTransparency = 0
-        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Parent = Workspace:FindFirstChild("Terrain") or Workspace
-
-        local sbox = Instance.new("SelectionBox")
-        sbox.Name = "RoundedOutlineBox"
-        sbox.Adornee = roundedPart
-        sbox.Color3 = Color3.fromRGB(255, 255, 255)
-        sbox.LineThickness = 0.04
-        sbox.SurfaceTransparency = 1
-        sbox.AlwaysOnTop = true
-        sbox.Parent = Workspace:FindFirstChild("Terrain") or Workspace
-
-        table.insert(activeSafeZoneVisuals, sbox)
-    end
-
-    local targetParent = Workspace:FindFirstChild("Terrain") or Workspace
-    folder.Parent = targetParent
+    folder.Parent = (gethui and gethui()) or CoreGui
     return folder
 end
 
@@ -2310,20 +2222,28 @@ local function processEntity(entity)
             -- Gloombats Full Swarm Highlighting: Highlight ALL flying bats in the swarm, not just the center point!
             highlightTarget = entity
         elseif cfg.Name == "Sally" then
-            -- Sally Visibility Guardian: Force mesh transparency to 0 and render direct clean Highlight
-            for _, p in ipairs(entity:GetDescendants()) do
+            -- Sally Visibility Guardian: Permanently lock transparency to 0 against sitting animation hidden states
+            local function enforceSallyPart(p)
                 if p:IsA("BasePart") then
                     p.Transparency = 0
                     p.LocalTransparencyModifier = 0
+                    p:GetPropertyChangedSignal("LocalTransparencyModifier"):Connect(function()
+                        if p.LocalTransparencyModifier ~= 0 then
+                            p.LocalTransparencyModifier = 0
+                        end
+                    end)
+                    p:GetPropertyChangedSignal("Transparency"):Connect(function()
+                        if p.Transparency ~= 0 then
+                            p.Transparency = 0
+                        end
+                    end)
                 end
             end
+            for _, p in ipairs(entity:GetDescendants()) do
+                enforceSallyPart(p)
+            end
             pcall(function()
-                entity.DescendantAdded:Connect(function(d)
-                    if d:IsA("BasePart") then
-                        d.Transparency = 0
-                        d.LocalTransparencyModifier = 0
-                    end
-                end)
+                entity.DescendantAdded:Connect(enforceSallyPart)
             end)
             highlightTarget = entity -- Direct clean Highlight on Sally's 3D character model! NO cube!
         end
@@ -2882,6 +2802,8 @@ pcall(function()
                         if State.Anti_Giggle then defuseGiggle(desc) end
                         if State.Entities_ESP then processEntity(desc) end
                     elseif dName:find("figure") then
+                        if State.Entities_ESP then processEntity(desc) end
+                    elseif dName:find("sally") or dName:find("princess") or desc:GetAttribute("SallyHolding") or desc:FindFirstChild("SallyHolding", true) or dName:find("sitting") then
                         if State.Entities_ESP then processEntity(desc) end
                     else
                         processItem(desc)
@@ -3982,22 +3904,22 @@ local function neutralizeServerTeleported()
                 if type(rawFn) == "function" and hookfunction then
                     hookfunction(rawFn, newcclosure(function(p1, p2, p3, p4)
                         local char = getChar()
-                        local r = getRoot()
                         local mgTable = getMainGameTable()
                         local targetPos = (typeof(p2) == "Vector3") and p2 or ((typeof(p2) == "CFrame") and p2.Position or nil)
-                        local dist = (r and targetPos) and (targetPos - r.Position).Magnitude or 0
 
                         local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
-                        local isLocalTransition = dist < 25.0
                         local isGraceActive = (os.clock() < unhideGraceUntil)
                         local isHidingNow = isPlayerHiding(char, mgTable)
                         local isChaseActive = (mgTable and mgTable.chase == true)
 
-                        if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening and not State.WalkSpeed_Enabled) then
+                        -- Legitimate in-game hiding transitions (wardrobe / closet / bed) are preserved!
+                        if isNearHiding or isGraceActive or isHidingNow or isChaseActive then
                             return rawFn(p1, p2, p3, p4)
                         end
 
-                        if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                        -- When Noclip, Walk Noclip, Anti-Cheat, Tweening, or Speed is active:
+                        -- Drop ALL server-side anti-cheat rollback teleports!
+                        if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or isTeleportTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                             task.spawn(function()
                                 local rRoot = getRoot()
                                 if rRoot and crouchRemote then
@@ -4005,13 +3927,16 @@ local function neutralizeServerTeleported()
                                     rRoot.AssemblyLinearVelocity = Vector3.zero
                                     rRoot.AssemblyAngularVelocity = Vector3.zero
                                     task.wait(0.03)
-                                    if State.WalkSpeed_Enabled or State.Noclip or State.Enable_Sliding then
+                                    if State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or State.Enable_Sliding then
                                         syncServerSlide(true, true)
                                     else
                                         pcall(function() crouchRemote:FireServer(false, false) end)
                                     end
                                 end
                             end)
+                            if mgTable and mgTable.SETNEWCF then
+                                mgTable.SETNEWCF = nil
+                            end
                             return
                         end
                         return rawFn(p1, p2, p3, p4)
@@ -4037,22 +3962,19 @@ local function neutralizeServerTeleported()
                         if hookfunction then
                             hookfunction(fn, newcclosure(function(pTarget, ...)
                                 local char = getChar()
-                                local r = getRoot()
                                 local mgTable = getMainGameTable()
                                 local targetPos = (typeof(pTarget) == "Vector3") and pTarget or ((typeof(pTarget) == "CFrame") and pTarget.Position or nil)
-                                local dist = (r and targetPos) and (targetPos - r.Position).Magnitude or 0
 
                                 local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
-                                local isLocalTransition = dist < 25.0
                                 local isGraceActive = (os.clock() < unhideGraceUntil)
                                 local isHidingNow = isPlayerHiding(char, mgTable)
                                 local isChaseActive = (mgTable and mgTable.chase == true)
 
-                                if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening and not State.WalkSpeed_Enabled) then
+                                if isNearHiding or isGraceActive or isHidingNow or isChaseActive then
                                     return fn(pTarget, ...)
                                 end
 
-                                if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or isTeleportTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     task.spawn(function()
                                         local rRoot = getRoot()
                                         if rRoot and crouchRemote then
@@ -4060,7 +3982,7 @@ local function neutralizeServerTeleported()
                                             rRoot.AssemblyLinearVelocity = Vector3.zero
                                             rRoot.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
-                                            if State.WalkSpeed_Enabled or State.Noclip or State.Enable_Sliding then
+                                            if State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or State.Enable_Sliding then
                                                 syncServerSlide(true, true)
                                             else
                                                 pcall(function() crouchRemote:FireServer(false, false) end)
@@ -4088,22 +4010,19 @@ local function neutralizeServerTeleported()
                         if hookfunction then
                             hookfunction(fn, newcclosure(function(p1, p2, ...)
                                 local char = getChar()
-                                local r = getRoot()
                                 local mgTable = getMainGameTable()
                                 local targetPos = (typeof(p2) == "Vector3") and p2 or ((typeof(p2) == "CFrame") and p2.Position or ((typeof(p1) == "Vector3") and p1 or nil))
-                                local dist = (r and targetPos) and (targetPos - r.Position).Magnitude or 0
 
                                 local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
-                                local isLocalTransition = dist < 25.0
                                 local isGraceActive = (os.clock() < unhideGraceUntil)
                                 local isHidingNow = isPlayerHiding(char, mgTable)
                                 local isChaseActive = (mgTable and mgTable.chase == true)
 
-                                if isNearHiding or isLocalTransition or isGraceActive or isHidingNow or isChaseActive or (not State.Noclip and not isTeleportTweening) then
+                                if isNearHiding or isGraceActive or isHidingNow or isChaseActive then
                                     return fn(p1, p2, ...)
                                 end
 
-                                if State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or isTeleportTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     task.spawn(function()
                                         local rRoot = getRoot()
                                         if rRoot and crouchRemote then
@@ -4111,7 +4030,7 @@ local function neutralizeServerTeleported()
                                             rRoot.AssemblyLinearVelocity = Vector3.zero
                                             rRoot.AssemblyAngularVelocity = Vector3.zero
                                             task.wait(0.03)
-                                            if State.WalkSpeed_Enabled or State.Noclip or State.Enable_Sliding then
+                                            if State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or State.Enable_Sliding then
                                                 syncServerSlide(true, true)
                                             else
                                                 pcall(function() crouchRemote:FireServer(false, false) end)
