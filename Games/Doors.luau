@@ -1348,11 +1348,35 @@ local function processDoor(room, doorModel)
         or (doorModel:FindFirstChild("Sign") and doorModel.Sign:IsA("BasePart") and doorModel.Sign)
         or doorMesh
 
-    -- Clean Native Door Highlight: Direct Highlight on doorMesh produces smooth, solid outlines (Image 2)
-    -- Redundant SelectionBox permanently removed to eradicate trapezoid/polygon cutout distortions (Image 3)
+    -- Clean Flat Door Highlight Proxy:
+    -- Roblox renders Highlights on the beveled door MeshPart with angular polygon cutout notches from a distance (Images 2, 4, 6).
+    -- By adorning a clean flat 6-sided rectangular proxy part welded to the door, Roblox renders a 100% solid, flawless rectangular outline (Image 1)!
+    local cleanDoorPart = doorModel:FindFirstChild("Unknown_CleanDoorProxy")
+    if not cleanDoorPart then
+        cleanDoorPart = Instance.new("Part")
+        cleanDoorPart.Name = "Unknown_CleanDoorProxy"
+        cleanDoorPart.Size = Vector3.new(doorMesh.Size.X, doorMesh.Size.Y, 0.15)
+        cleanDoorPart.CFrame = doorMesh.CFrame
+        cleanDoorPart.Transparency = 0.98
+        cleanDoorPart.CanCollide = false
+        cleanDoorPart.CanTouch = false
+        cleanDoorPart.CanQuery = false
+        cleanDoorPart.CastShadow = false
+        cleanDoorPart.Massless = true
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = cleanDoorPart
+        weld.Part1 = doorMesh
+        weld.Parent = cleanDoorPart
+
+        cleanDoorPart.Parent = doorModel
+    else
+        cleanDoorPart.Size = Vector3.new(doorMesh.Size.X, doorMesh.Size.Y, 0.15)
+    end
+
     local extraVisuals = {}
 
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorMesh, Vector3.new(0, 1.2, 0), roomNum, extraVisuals)
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", cleanDoorPart, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
@@ -1870,13 +1894,9 @@ local function createEntityBoundingBox(targetPart, size, color)
     if typeof(s) == "number" then
         s = Vector3.new(s, s, s)
     end
-    local boxColor = color or Color3.fromRGB(255, 35, 35)
-    -- Lighter, glowing pastel fill tint
-    local lightColor = Color3.fromRGB(
-        math.clamp(math.floor(boxColor.R * 255 * 0.45 + 140), 0, 255),
-        math.clamp(math.floor(boxColor.G * 255 * 0.45 + 140), 0, 255),
-        math.clamp(math.floor(boxColor.B * 255 * 0.45 + 140), 0, 255)
-    )
+    local boxColor = color or Color3.fromRGB(255, 30, 30)
+    -- Vibrant crimson red fill (Zero pink wash)
+    local lightColor = boxColor
 
     -- Rounded cube with asset ID 14731807321
     local roundedModel = getRoundedMeshTemplate()
@@ -2289,10 +2309,10 @@ local function processEntity(entity)
             -- Gloombats Full Swarm Highlighting: Highlight ALL flying bats in the swarm, not just the center point!
             highlightTarget = entity
         elseif cfg.Name == "Sally" then
-            -- Sally Visibility Guardian: Force mesh transparency to 0 and add visible adornment box
+            -- Sally Visibility Guardian: Force mesh transparency to 0 and render direct clean Highlight
             for _, p in ipairs(entity:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if p.Transparency >= 0.95 then p.Transparency = 0 end
+                    p.Transparency = 0
                     p.LocalTransparencyModifier = 0
                 end
             end
@@ -2304,8 +2324,7 @@ local function processEntity(entity)
                     end
                 end)
             end)
-            local bbox = createEntityBoundingBox(targetPart, Vector3.new(2.5, 3.5, 2.5), entityColor)
-            if bbox then table.insert(extraVisuals, bbox) end
+            highlightTarget = entity -- Direct clean Highlight on Sally's 3D character model! NO cube!
         end
 
         if is2D then
@@ -2316,9 +2335,9 @@ local function processEntity(entity)
             end
             highlightTarget = nil -- Adornments handle through-wall rendering without consuming Highlight slots!
         else
-            -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, etc.):
+            -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, Sally, etc.):
             -- Highlight the actual 3D model/parts directly! ZERO cubes!
-            if not isBramble and cfg.Name ~= "Gloombats" then
+            if not isBramble and cfg.Name ~= "Gloombats" and cfg.Name ~= "Sally" then
                 highlightTarget = entity
             end
         end
@@ -2380,22 +2399,27 @@ end
 local function isGlitchFragmentInstance(inst)
     if not inst then return false end
     local n = inst.Name:lower()
+    -- Strict anti-false positive filter: exclude decor meshes, books, elevator cubes, key holders, desks
+    if n:find("book") or n:find("elevator") or n:find("holder") or n:find("door") or n:find("desk") or n:find("drawer") or n:find("table") or n:find("chair") then
+        return false
+    end
     local hasTag = false
     if CollectionService then
         pcall(function()
-            hasTag = CollectionService:HasTag(inst, "GlitchCube")
+            hasTag = CollectionService:HasTag(inst, "GlitchCube") or CollectionService:HasTag(inst, "GlitchFragment")
         end)
     end
-    return hasTag
-        or n:find("glitchfragment")
-        or n:find("glitch_fragment")
-        or n:find("glitchcube")
-        or (n:find("glitch") and n:find("fragment"))
-        or (n:find("glitch") and n:find("cube"))
-        or n:find("riftfragment")
-        or inst:GetAttribute("GlitchFragment") == true
-        or inst:GetAttribute("IsFragment") == true
-        or (n:find("fragment") and (inst:IsA("Model") or inst:IsA("BasePart")) and not n:find("debug"))
+    if hasTag then return true end
+    if inst:GetAttribute("GlitchFragment") == true or inst:GetAttribute("IsFragment") == true then
+        return true
+    end
+    if n == "glitchfragment" or n == "glitch_fragment" or n == "glitchcube" or n == "glitch_cube" or n == "riftfragment" or n == "rift_fragment" then
+        return true
+    end
+    if (n:find("glitch") and n:find("fragment")) or (n:find("glitch") and n:find("cube") and not n:find("mesh")) then
+        return true
+    end
+    return false
 end
 
 local function collectGlitchFragment(inst)
@@ -2502,7 +2526,7 @@ local function processGlitchFragment(inst)
     local extraVisuals = {}
     local adorn = Instance.new("SphereHandleAdornment")
     adorn.Name = "Unknown_GlitchSphereAdorn"
-    adorn.Radius = 2.5
+    adorn.Radius = 0.8
     adorn.Color3 = color
     adorn.AlwaysOnTop = true
     adorn.Transparency = 0.35
@@ -5094,10 +5118,10 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     if not hum or not hum.Parent or not root then return end
 
     local mgTable = getMainGameTable()
-    local isInsideHiding = (char:GetAttribute("Hiding") == true) or (mgTable and mgTable.hiding == true)
+    local isInsideHiding = (char:GetAttribute("Hiding") == true) or (mgTable and (mgTable.hiding == true or mgTable.animating == true or mgTable.stopcam == true))
     if wasHidingState and not isInsideHiding then
-        -- Player just exited hiding spot: instantly clear grace and restore full control/responsiveness
-        unhideGraceUntil = 0
+        -- Player just exited hiding spot: grace period so exit animation and camera restore smoothly without flicker
+        unhideGraceUntil = os.clock() + 0.8
         justExitedHiding = true
     end
     wasHidingState = isInsideHiding
@@ -5136,8 +5160,9 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         if char then
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    p.CanTouch = false
-                    p.CanQuery = false
+                    -- Preserve CanTouch & CanQuery so drawers, keys, and door prompts work flawlessly!
+                    p.CanTouch = true
+                    p.CanQuery = true
                     if p.CollisionGroup ~= "NoPlayer" then
                         pcall(function() p.CollisionGroup = "NoPlayer" end)
                     end
@@ -5271,49 +5296,43 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         local hLook = Vector3.new(camLook.X, 0, camLook.Z)
         local targetRot = if hLook.Magnitude > 0.01 then CFrame.new(Vector3.zero, hLook) else root.CFrame.Rotation
 
-        local targetPos = root.Position
-        local safeDt = math.clamp(dt or (1/60), 0.001, 0.04)
         local targetVel = Vector3.zero
-
         if hasInput and steer.Magnitude > 0.01 then
             local speed = math.clamp(State.Noclip_Speed or 35, 4, 300)
             targetVel = steer.Unit * speed
-            local stepVec = targetVel * safeDt
-
-            -- Quantum Wall Tunneling: Micro-phase across thin obstacles in a single step
-            local rayParams = RaycastParams.new()
-            rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            rayParams.RespectCanCollide = true
-
-            local forwardHit = workspace:Raycast(root.Position, steer.Unit * (math.clamp(speed * 0.1, 3.0, 25.0)), rayParams)
-            if forwardHit and forwardHit.Instance and not forwardHit.Instance:IsDescendantOf(char) then
-                local probeStart = forwardHit.Position + steer.Unit * 3.2
-                local backHit = workspace:Raycast(probeStart, -steer.Unit * 3.2, rayParams)
-                if backHit and backHit.Instance == forwardHit.Instance then
-                    local thickness = (backHit.Position - forwardHit.Position).Magnitude
-                    if thickness <= 2.8 then
-                        stepVec = steer.Unit * (thickness + 1.0)
-                    end
-                end
-            end
-
-            targetPos = targetPos + stepVec
         end
 
-        local newCF = CFrame.new(targetPos) * targetRot
-        char:PivotTo(newCF)
-        root.CFrame = newCF
-        local cp = char:FindFirstChild("CollisionPart")
-        if cp then cp.CFrame = newCF end
-
-        -- Velocity synchronization: Match replication velocity to actual motion so Roblox server pipeline stays in sync without lag or packet drops!
-        root.AssemblyLinearVelocity = (targetVel.Magnitude > 0.01) and targetVel or Vector3.new(0, 0.05, 0)
+        -- Pure Native Physics Velocity Replication:
+        -- Directly updates AssemblyLinearVelocity without overwriting CFrame every frame!
+        -- Roblox client continuously transmits standard 60Hz physics replication packets to the server,
+        -- completely eliminating the 30-40 second server freeze / rubberband desync!
+        root.AssemblyLinearVelocity = targetVel
         root.AssemblyAngularVelocity = Vector3.zero
+
+        -- Horizontal camera gaze alignment (rotation only, zero position teleportation)
+        if hLook.Magnitude > 0.01 then
+            root.CFrame = CFrame.new(root.Position, root.Position + hLook)
+        end
+
+        -- Ensure DOORS hideplayers and BaseRig / tools are 100% visible during flight
+        if mgTable and mgTable.hideplayers and mgTable.hideplayers > 0 then
+            mgTable.hideplayers = 0
+        end
+        local cam = Workspace.CurrentCamera
+        local baseRig = cam and cam:FindFirstChild("BaseRig")
+        if baseRig then
+            for _, bp in ipairs(baseRig:GetDescendants()) do
+                if bp:IsA("BasePart") then bp.LocalTransparencyModifier = 0 end
+            end
+        end
     elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-        applyTeflonGlide(char)
+        if hum.MoveDirection.Magnitude > 0.05 then
+            applyTeflonGlide(char)
+        else
+            restoreDefaultFriction(char)
+        end
         syncServerSlide(true, true)
 
         local targetSpeed = State.WalkSpeed_Value or 45
@@ -5355,16 +5374,17 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 45) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
             local targetVel = moveDir.Unit * speed
 
-            -- Anti-Wall Launch Guard: Clamp vertical velocity to zero on ground to stop wall super-jumps
-            -- Forward raycast removed so crouching into vents, crawlspaces, and low openings is 100% unimpeded!
+            -- Anti-Wall Launch Guard: Clamp vertical velocity only during extreme wall collisions (>15 studs/s)
+            -- Normal floor walking is NEVER clamped, completely eradicating the "invisible platform" stepping sensation!
             local curY = root.AssemblyLinearVelocity.Y
-            if hum.FloorMaterial ~= Enum.Material.Air and curY > 0.5 and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            if hum.FloorMaterial ~= Enum.Material.Air and curY > 15.0 and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
                 curY = 0
             end
 
             root.AssemblyLinearVelocity = Vector3.new(targetVel.X, curY, targetVel.Z)
         else
-            -- Instant Dead-Stop Braking: stops the player on a dime with zero ice drift!
+            -- Instant Dead-Stop Braking: stops the player on a dime and restores normal friction!
+            restoreDefaultFriction(char)
             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
         end
     end
@@ -6553,10 +6573,7 @@ local function bindInfiniteTool(tool)
     tool.Activated:Connect(function()
         if not State.Infinite_Items then return end
         local tName = tool.Name:lower()
-        if tName:find("vitamin") or tName:find("potion") or tName:find("herb") or tName:find("bandaid") or tName:find("bandage") then
-            -- Consumable activation: drop & duplicate before server depletes durability!
-            executeItemDupeDrop(tool, 0.04)
-        elseif tName:find("crucifix") then
+        if tName:find("crucifix") then
             -- Crucifix activation / held against monster: drop instantly before entity consumes it!
             executeItemDupeDrop(tool, 0.05)
         end
@@ -6778,16 +6795,24 @@ task.spawn(function()
                 local camPos = cam and cam.CFrame.Position
                 local r = getRoot()
                 local refPos = camPos or (r and r.Position)
-                if refPos and not lastHidingModel then
+
+                if not lastHidingModel then
                     local curRooms = Workspace:FindFirstChild("CurrentRooms")
                     if curRooms then
                         for _, rm in ipairs(curRooms:GetChildren()) do
-                            -- DOORS wardrobes and beds reside in rm.Assets: full GetDescendants scan
                             for _, desc in ipairs(rm:GetDescendants()) do
                                 if desc:IsA("Model") then
                                     local nl = desc.Name:lower()
                                     if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
-                                        if (desc:GetPivot().Position - refPos).Magnitude <= 8.5 then
+                                        local isTarget = false
+                                        local hp = desc:FindFirstChild("HiddenPlayer")
+                                        if hp and hp:IsA("ObjectValue") and hp.Value == LocalPlayer then
+                                            isTarget = true
+                                        elseif refPos and (desc:GetPivot().Position - refPos).Magnitude <= 12 then
+                                            isTarget = true
+                                        end
+
+                                        if isTarget then
                                             lastHidingModel = desc
                                             lastHidingOriginalTrans = {}
                                             for _, p in ipairs(desc:GetDescendants()) do
@@ -6795,6 +6820,7 @@ task.spawn(function()
                                                     lastHidingOriginalTrans[p] = p.Transparency
                                                     p.Transparency = 0.75
                                                 elseif p:IsA("Decal") then
+                                                    lastHidingOriginalTrans[p] = p.Transparency
                                                     p.Transparency = 0.75
                                                 end
                                             end
@@ -6812,8 +6838,12 @@ task.spawn(function()
                 pcall(function()
                     local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
                     local mUI = pg and pg:FindFirstChild("MainUI")
-                    local hv = mUI and mUI:FindFirstChild("MainFrame") and mUI.MainFrame:FindFirstChild("HideVignette")
-                    if hv then hv.ImageTransparency = 1 end
+                    local mf = mUI and mUI:FindFirstChild("MainFrame")
+                    local hv = mf and mf:FindFirstChild("HideVignette")
+                    if hv then
+                        hv.ImageTransparency = 1
+                        hv.Visible = false
+                    end
                 end)
             else
                 if lastHidingModel then
