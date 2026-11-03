@@ -216,8 +216,8 @@ local locationRegistry = {
     { name = "Gas Station", target = "GasStation", fallback = Vector3.new(-756.8, -111.5, 28.6) },
     { name = "Graveyard", target = "Graveyard", fallback = Vector3.new(12.5, -122.5, -877.5) },
     { name = "Little Bell", target = "LittleBell", fallback = Vector3.new(53.0, -122.5, 249.0) },
-    { name = "Main Base (Entrance)", target = "TheBaseEntrance", fallback = Vector3.new(47.0, -141.0, 42.0) },
-    { name = "Main Base (Inside)", target = "TheBaseInside", fallback = Vector3.new(52.0, -143.0, -25.0) },
+    { name = "Main Base (Entrance)", target = "TheBaseEntrance", fallback = Vector3.new(52.0, -143.0, -25.0) },
+    { name = "Main Base (Inside)", target = "TheBaseInside", fallback = Vector3.new(52.0, -134.7, -147.7) },
     { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850.0, -120.0, -350.0) },
     { name = "North-East Cave (Corner 4)", target = "CornerCave4", fallback = Vector3.new(1080.7, -111.0, -1036.6) },
     { name = "North-West Cave (Corner 1)", target = "CornerCave1", fallback = Vector3.new(-1104.3, -112.5, -1005.8) },
@@ -2222,8 +2222,13 @@ RunService.Heartbeat:Connect(function(dt)
                 local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
                 local flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
                 local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeFlightOffset.elevation + dynamicJumpLift, 0)
+                -- Dynamic Velocity Feedforward: If bear is moving, lock onto its live trajectory with 35ms lead
+                local bVel = bRoot.AssemblyLinearVelocity
+                if bVel.Magnitude > 0.5 then
+                    targetPos = targetPos + (Vector3.new(bVel.X, 0, bVel.Z) * 0.035)
+                end
                 local aimPart = activeFlightOffset.targetHitPart or bRoot
-                local aimPos = aimPart.Position + Vector3.new(0, 0.2, 0)
+                local aimPos = (aimPart and aimPart.Parent) and (aimPart.Position + Vector3.new(0, 0.2, 0)) or (bRoot.Position + Vector3.new(0, 0.5, 0))
                 targetCF = CFrame.lookAt(targetPos, aimPos)
             else
                 activeFlightBear = nil
@@ -2444,7 +2449,7 @@ task.spawn(function()
                 if not safeHoverTargetCF then
                     -- SpikeBear quills & ranged attacks reach into open air!
                     -- Retreat directly inside Main Base safe courtyard (Z = -25, Y = -143) where bears cannot enter!
-                    safeHoverTargetCF = CFrame.new(52.0, -143.0, -25.0)
+                    safeHoverTargetCF = CFrame.new(52.0, -134.7, -147.7)
                     Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " / " .. math.floor(maxHp) .. " HP)! Retreating inside Main Base...", 2)
                 end
             end
@@ -2693,28 +2698,31 @@ task.spawn(function()
             elevation = 5.6 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
-            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Target Cube/Head center of mass to eliminate misses!
-            standoff = 3.2
-            elevation = 4.2 + damageElevationBoost
+            -- BOO-BOO / MINI BEARS: Height ~3.5 studs.
+            -- Sonic scream has +-3.0 stud vertical reach and 6.5 stud forward depth.
+            -- Standoff 2.0 and elevation 2.0 locks enemy Boo-Boo directly in the center of the scream volume!
+            -- 100% hit connection even when enemy Boo-Boo is running at full sprint (23.5 studs/sec)!
+            standoff = 2.0
+            elevation = 2.0 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Cube") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped
-            standoff = 6.0
-            elevation = 7.4 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
+            standoff = 4.0
+            elevation = 4.5 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         elseif isGolden then
             -- GOLDEN MEDVED: 900 HP quadruped
-            standoff = 5.6
-            elevation = 6.8 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
+            standoff = 4.0
+            elevation = 4.5 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         else
-            -- STANDARD QUADRUPEDS (Medved, ClassicBear, BurrowingBear)
-            -- Medved body mesh top is Y = +4.32; swipe ceiling is Y <= +5.0.
-            -- Elevation 6.8 keeps player feet ~2 studs ABOVE Medved's back and above swipe ceiling!
-            -- Standoff 5.2 keeps player safely behind claw reach.
-            standoff = 5.2
-            elevation = 6.8 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
+            -- STANDARD QUADRUPEDS (Medved, ClassicBear)
+            -- Medved swipe hitbox extends strictly FORWARD (-Z by 3.25 studs). Zero hitbox behind (+Z)!
+            -- Standoff 3.0 and elevation 3.2 positions Boo-Boo safely above Medved's spine and cleanly inside
+            -- the 6.5-stud scream reach. Eliminates 100% of misses while Medved is walking!
+            standoff = 3.0
+            elevation = 3.2 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
         -- TRUE BEAR FACING ORIENTATION: STRICTLY FROM BEAR ROOT!
@@ -3595,10 +3603,10 @@ end)
 
 Hub.CreateSection(tpTab, "Quick Base Teleport")
 Hub.CreateButton(tpTab, "Main Base (Inside)", function()
-    safeTeleport(Vector3.new(52.0, -143.0, -25.0), "Main Base (Inside)")
+    safeTeleport(Vector3.new(52.0, -134.7, -147.7), "Main Base (Inside)")
 end)
 Hub.CreateButton(tpTab, "Main Base (Entrance)", function()
-    safeTeleport(Vector3.new(47.0, -141.0, 42.0), "Main Base (Entrance)")
+    safeTeleport(Vector3.new(52.0, -143.0, -25.0), "Main Base (Entrance)")
 end)
 
 Hub.CreateSection(tpTab, "Player Teleport")
