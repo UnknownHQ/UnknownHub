@@ -87,8 +87,7 @@ if game.PlaceId == 6524177990 then
 end
 
 
-local LIBRARY_LINK = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary"
-local LIBRARY_NAME = "Unknown_TabbedHub_UI"
+-- Unknown UI Library Loader
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -125,7 +124,7 @@ local function destroyOldGui()
         if parent then
             pcall(function()
                 for _, desc in ipairs(parent:GetDescendants()) do
-                    if desc.Name == LIBRARY_NAME or desc.Name:find("Unknown_ESP") or desc.Name:find("Unknown_") then
+                    if desc.Name == "Unknown_TabbedHub_UI" or desc.Name:find("Unknown_ESP") or desc.Name:find("Unknown_") then
                         pcall(function() desc:Destroy() end)
                     end
                 end
@@ -148,7 +147,7 @@ local ok, result = pcall(function()
     if not source or #source < 100 then
         local cacheBuster = "?t=" .. tostring(os.time() or tick()) .. "_" .. tostring(math.random(1000, 9999))
         local fetchSuccess, fetchedSource = pcall(function()
-            return game:HttpGet(LIBRARY_LINK .. cacheBuster)
+            return game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary" .. cacheBuster)
         end)
         if fetchSuccess and fetchedSource and #fetchedSource > 100 then
             source = fetchedSource
@@ -168,7 +167,7 @@ assert(ok and type(result) == "function", "UnknownLibrary failed to load: " .. t
 destroyOldGui()
 
 local Hub = result({
-    name = LIBRARY_NAME,
+    name = "Unknown_TabbedHub_UI",
     title = "UNKNOWN HUB",
     subTitle = "DOORS (Hotel & Mines)",
     parent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return CoreGui end) and CoreGui),
@@ -348,19 +347,7 @@ local State = {
 }
 
 -- Forward Declarations (Guarantees zero unscoped calls across all modules)
-local getMainGameTable
-local instantSolveBreakers
-local farmGlideTo
-local runAutoComplete100Step
-local processKnobsFarmStep
-local teleportToRoomKey
-local teleportToNextDoor
-local solveFigureLibraryRoom
-local handleFarmRoofEvacuation
-local isLethalEntityIncoming
-local defuseLethalEntity
-local getExactFloorPos
-local solveLibraryCode
+local getMainGameTable, farmGlideTo, defuseLethalEntity, getExactFloorPos
 -- lastNoclipDisableGrace hoisted
 local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
 local crouchRemote = remotesFolder and remotesFolder:WaitForChild("Crouch", 5)
@@ -3015,7 +3002,6 @@ end
 -- 4. Micro-Smooth Braking & Resting Anchor: 150ms cosinusoidal deceleration
 --    when keys are released, eliminating the 0.1s twitch.
 -- =========================================================================
-local zeroFriction = PhysicalProperties.new(0.5, 0.0, 0.0, 100, 100)
 local defaultCollProps = nil
 local defaultRootProps = nil
 
@@ -3026,20 +3012,20 @@ local function applyTeflonGlide(char)
     local root = char:FindFirstChild("HumanoidRootPart")
     if coll and coll:IsA("BasePart") then
         if not defaultCollProps then defaultCollProps = coll.CustomPhysicalProperties end
-        coll.CustomPhysicalProperties = zeroFriction
+        coll.CustomPhysicalProperties = PhysicalProperties.new(0.5, 0.0, 0.0, 100, 100)
     end
     if cp and cp:IsA("BasePart") then
-        cp.CustomPhysicalProperties = zeroFriction
+        cp.CustomPhysicalProperties = PhysicalProperties.new(0.5, 0.0, 0.0, 100, 100)
     end
     if root and root:IsA("BasePart") then
         if not defaultRootProps then defaultRootProps = root.CustomPhysicalProperties end
-        root.CustomPhysicalProperties = zeroFriction
+        root.CustomPhysicalProperties = PhysicalProperties.new(0.5, 0.0, 0.0, 100, 100)
     end
     -- Prevent character limbs from snagging on narrow door frames or tight openings
     for _, part in ipairs(char:GetChildren()) do
         if part:IsA("BasePart") and part.Name ~= "Collision" and part.Name ~= "HumanoidRootPart" then
             part.CanCollide = false
-            part.CustomPhysicalProperties = zeroFriction
+            part.CustomPhysicalProperties = PhysicalProperties.new(0.5, 0.0, 0.0, 100, 100)
         end
     end
 end
@@ -3061,7 +3047,7 @@ local lastForwardCFrame = nil
 local lastForwardPos = nil
 local lastMoveVector = Vector3.new(0, 0, 0)
 local wasMoving = false
-local crouchRemote = remotesFolder and remotesFolder:FindFirstChild("Crouch")
+crouchRemote = remotesFolder and remotesFolder:FindFirstChild("Crouch")
 local isServerSlideActive = false
 local lastSentCrouchState = nil
 local lastSentSlideState = nil
@@ -3243,12 +3229,10 @@ end
 -- =========================================================================
 -- DOORS Anti-Cheat Bypass Core & Safe Sub-Step Teleport/Flight Engine
 -- =========================================================================
-local isTeleportTweening = false
-local activeTweenToken = 0
-local teleportImmunityUntil = 0
+local TeleportState = { isTweening = false, activeToken = 0, immunityUntil = 0 }
 
 local function isTeleportImmune()
-    return isTeleportTweening or isAtRoof or (os.clock() < teleportImmunityUntil)
+    return TeleportState.isTweening or isAtRoof or (os.clock() < TeleportState.immunityUntil)
 end
 
 -- =========================================================================
@@ -3440,9 +3424,7 @@ executeItemDupeDrop = function(tool, delaySeconds)
 end
 
 -- Active Proximity Sentry: Automatically solves locks & opens doors on approach (Zero Yield / Full Descendants)
-local openedDoors = {}
-local lastDoorKeyEquip = 0
-local lastDoorSentryCheck = 0
+local openedDoors = { lastKeyEquip = 0, lastSentryCheck = 0 }
 
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -3484,8 +3466,8 @@ local function processNearbyDoors(currentPos, maxReach)
                                 up.RequiresLineOfSight = false
                                 up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 14)
                                 local now = os.clock()
-                                if (now - (lastDoorKeyEquip or 0) >= 0.25) then
-                                    lastDoorKeyEquip = now
+                                if (now - (openedDoors.lastKeyEquip or 0) >= 0.25) then
+                                    openedDoors.lastKeyEquip = now
                                     task.spawn(function()
                                         local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
                                         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -3919,7 +3901,7 @@ local function neutralizeServerTeleported()
 
                         -- When Noclip, Walk Noclip, Anti-Cheat, Tweening, or Speed is active:
                         -- Drop ALL server-side anti-cheat rollback teleports!
-                        if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or isTeleportTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                        if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                             task.spawn(function()
                                 local rRoot = getRoot()
                                 if rRoot and crouchRemote then
@@ -3974,7 +3956,7 @@ local function neutralizeServerTeleported()
                                     return fn(pTarget, ...)
                                 end
 
-                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or isTeleportTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     task.spawn(function()
                                         local rRoot = getRoot()
                                         if rRoot and crouchRemote then
@@ -4022,7 +4004,7 @@ local function neutralizeServerTeleported()
                                     return fn(p1, p2, ...)
                                 end
 
-                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or isTeleportTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     task.spawn(function()
                                         local rRoot = getRoot()
                                         if rRoot and crouchRemote then
@@ -4053,7 +4035,7 @@ local function neutralizeServerTeleported()
 
     -- 3. Clear SETNEWCF during active Noclip, Tweening, Anti-Cheat, or disable grace period
     local mgTable = getMainGameTable()
-    if mgTable and not isPlayerHiding(getChar(), mgTable) and (os.clock() >= unhideGraceUntil) and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or (os.clock() < lastNoclipDisableGrace)) then
+    if mgTable and not isPlayerHiding(getChar(), mgTable) and (os.clock() >= unhideGraceUntil) and (State.Bypass_AntiCheat or State.Noclip or TeleportState.isTweening or (os.clock() < lastNoclipDisableGrace)) then
         if mgTable.SETNEWCF then
             mgTable.SETNEWCF = nil
         end
@@ -4072,7 +4054,7 @@ task.spawn(function()
             if State.Deflect_Glitch then
                 initAntiGlitchShield()
             end
-            if State.Fly_Enabled or State.Noclip or isTeleportTweening or State.WalkSpeed_Enabled then
+            if State.Fly_Enabled or State.Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled then
                 if syncServerSlide then
                     syncServerSlide(true, true)
                 end
@@ -4318,7 +4300,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
     local totalDist = moveVec.Magnitude
     if totalDist < 0.5 then
         if isFinalDestination then
-            teleportImmunityUntil = os.clock() + 1.2
+            TeleportState.immunityUntil = os.clock() + 1.2
             restoreCharacterInteractivity(char)
         end
         if callback then callback() end
@@ -4329,9 +4311,9 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
     local duration = totalDist / speed
     local moveDir = (totalDist > 0.01) and (moveVec / totalDist) or Vector3.zero
     local token = tick() + math.random()
-    activeTweenToken = token
-    isTeleportTweening = true
-    teleportImmunityUntil = os.clock() + duration + 1.8
+    TeleportState.activeToken = token
+    TeleportState.isTweening = true
+    TeleportState.immunityUntil = os.clock() + duration + 1.8
 
     if syncServerSlide then syncServerSlide(true, true) end
 
@@ -4342,12 +4324,12 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
     local conn
     conn = RunService.Heartbeat:Connect(function()
         if conn then trackConn(conn) end
-        if activeTweenToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
+        if TeleportState.activeToken ~= token or _G.DOORS_SESSION ~= currentSession or not char or not root or hum.Health <= 0 then
             if conn then conn:Disconnect() end
-            if activeTweenToken == token then
-                isTeleportTweening = false
+            if TeleportState.activeToken == token then
+                TeleportState.isTweening = false
                 restoreCharacterInteractivity(char)
-                if isFinalDestination then teleportImmunityUntil = os.clock() + 1.2 end
+                if isFinalDestination then TeleportState.immunityUntil = os.clock() + 1.2 end
             end
             return
         end
@@ -4392,7 +4374,7 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
             -- Intermediate waypoints advance immediately without stopping in mid-air
             if not isFinalDestination then
                 if conn then conn:Disconnect() end
-                if activeTweenToken == token then isTeleportTweening = false end
+                if TeleportState.activeToken == token then TeleportState.isTweening = false end
                 local nextCF = CFrame.new(targetPos) * targetRot
                 char:PivotTo(nextCF)
                 root.CFrame = nextCF
@@ -4428,9 +4410,9 @@ local function safeTweenTeleport(targetCF, speedVal, autoDoorOpen, isFinalDestin
 
             if now - settleStartTime >= 0.15 then
                 if conn then conn:Disconnect() end
-                if activeTweenToken == token then
-                    isTeleportTweening = false
-                    teleportImmunityUntil = os.clock() + 1.2
+                if TeleportState.activeToken == token then
+                    TeleportState.isTweening = false
+                    TeleportState.immunityUntil = os.clock() + 1.2
                 end
 
                 restoreCharacterInteractivity(char)
@@ -4783,7 +4765,7 @@ teleportToNextDoor = function(callback)
             local throughPos = getExactFloorPos(rawThroughPos)
             local throughLook = throughPos - approachDir * 5
             safeTweenTeleport(CFrame.new(throughPos, throughLook), State.Teleport_Speed, false, true, function()
-                teleportImmunityUntil = os.clock() + 2.0
+                TeleportState.immunityUntil = os.clock() + 2.0
                 local nextVal = gd and gd.LatestRoom and gd.LatestRoom.Value or (lrVal + 1)
                 Hub.Notify("Teleport", "Entered Room " .. tostring(nextVal) .. "!", 2)
                 if callback then callback(true) end
@@ -5058,8 +5040,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
     -- Door Sentry: ONLY runs when Auto Doors is explicitly enabled or during Knobs Farm (NEVER auto-opens in manual flight!)
     local nowTime = os.clock()
-    if root and not hiding and (State.AutoInteract_Doors or State.Knobs_Farm_Active) and (nowTime - (lastDoorSentryCheck or 0) >= 0.15) then
-        lastDoorSentryCheck = nowTime
+    if root and not hiding and (State.AutoInteract_Doors or State.Knobs_Farm_Active) and (nowTime - (openedDoors.lastSentryCheck or 0) >= 0.15) then
+        openedDoors.lastSentryCheck = nowTime
         local doorReach = State.Knobs_Farm_Active and 35 or 16
         processNearbyDoors(root.Position, doorReach)
     end
@@ -5155,7 +5137,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
-    if State.Noclip and State.Bypass_AntiCheat and not hiding and not isTeleportTweening and not isAutoFlying and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
+    if State.Noclip and State.Bypass_AntiCheat and not hiding and not TeleportState.isTweening and not isAutoFlying and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
         -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
@@ -5205,50 +5187,27 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             hasInput = true
         end
 
-        -- Continuous slide authorization keep-alive (clean heartbeat every 1.5s, no toggling)
-        local now = os.clock()
-        if (now - lastFlySlidePulse >= 1.5) then
-            lastFlySlidePulse = now
-            if syncServerSlide then syncServerSlide(true, true) end
-        end
-    elseif State.Walk_Noclip and not hiding and not isTeleportTweening then
-        local mgTable = getMainGameTable()
-        if mgTable and root then
-            mgTable.clipPos = root.Position
-            if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
-        end
-        local now = os.clock()
-        if (now - lastFlySlidePulse >= 1.5) then
-            lastFlySlidePulse = now
-            if syncServerSlide then syncServerSlide(true, true) end
-        end
-
-        -- Rotate character body horizontally with camera so head is ALWAYS directly under the camera
-        local hLook = Vector3.new(camLook.X, 0, camLook.Z)
-        local targetRot = if hLook.Magnitude > 0.01 then CFrame.new(Vector3.zero, hLook) else root.CFrame.Rotation
-
-        local targetVel = Vector3.zero
-        if hasInput and steer.Magnitude > 0.01 then
-            local speed = math.clamp(State.Noclip_Speed or 35, 4, 300)
-            targetVel = steer.Unit * speed
-        end
-
-        -- Pure Native Physics Velocity Replication:
-        -- Directly updates AssemblyLinearVelocity without overwriting CFrame every frame!
-        -- Roblox client continuously transmits standard 60Hz physics replication packets to the server,
-        -- completely eliminating the 30-40 second server freeze / rubberband desync!
+        -- Pure Native Physics Velocity Replication (Active 60Hz Server Packet Transmission):
+        local speed = math.clamp(State.Noclip_Speed or 35, 4, 300)
+        local targetVel = if hasInput and steer.Magnitude > 0.01 then steer.Unit * speed else Vector3.zero
         root.AssemblyLinearVelocity = targetVel
         root.AssemblyAngularVelocity = Vector3.zero
 
         -- Horizontal camera gaze alignment (rotation only, zero position teleportation)
+        local hLook = Vector3.new(camLook.X, 0, camLook.Z)
         if hLook.Magnitude > 0.01 then
             root.CFrame = CFrame.new(root.Position, root.Position + hLook)
         end
 
-        -- Ensure DOORS hideplayers and BaseRig / tools are 100% visible during flight
-        if mgTable and mgTable.hideplayers and mgTable.hideplayers > 0 then
-            mgTable.hideplayers = 0
+        -- Retain DOORS native mgTable.clipPos synchronization and eradicate body/item invisibility
+        local mgTable = getMainGameTable()
+        if mgTable then
+            mgTable.clipPos = root.Position
+            if mgTable.hideplayers ~= 0 then mgTable.hideplayers = 0 end
+            if mgTable.__NOBASERIG then mgTable.__NOBASERIG = false end
+            if mgTable.canUseItems == false then mgTable.canUseItems = true end
         end
+
         local cam = Workspace.CurrentCamera
         local baseRig = cam and cam:FindFirstChild("BaseRig")
         if baseRig then
@@ -5256,7 +5215,14 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                 if bp:IsA("BasePart") then bp.LocalTransparencyModifier = 0 end
             end
         end
-    elseif State.WalkSpeed_Enabled and not hiding and not isTeleportTweening then
+    elseif State.Walk_Noclip and not hiding and not TeleportState.isTweening then
+        local mgTable = getMainGameTable()
+        if mgTable and root then
+            mgTable.clipPos = root.Position
+            if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
+        end
+        -- Walk Noclip preserves pure native Humanoid ground walking physics without synthetic sliding
+    elseif State.WalkSpeed_Enabled and not hiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         if hum.MoveDirection.Magnitude > 0.05 then
@@ -5299,24 +5265,17 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 
     -- Instant Acceleration & Directional Vector Response Engine:
     -- Bypasses humanoid acceleration ramp-up and eradicates TeflonGlide inertial sliding / ice skating!
-    if State.Instant_Movement and not State.Noclip and not hiding and not isTeleportTweening and not isSlidingActive and not hum.Sit then
+    if State.Instant_Movement and not State.Noclip and not hiding and not TeleportState.isTweening and not isSlidingActive and not hum.Sit then
         local moveDir = hum.MoveDirection
         if moveDir.Magnitude > 0.05 then
             local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 45) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
             local targetVel = moveDir.Unit * speed
 
-            -- Anti-Wall Launch Guard: Clamp vertical velocity only during extreme wall collisions (>15 studs/s)
-            -- Normal floor walking is NEVER clamped, completely eradicating the "invisible platform" stepping sensation!
+            -- Natural vertical floor adaptation without synthetic platform feeling
             local curY = root.AssemblyLinearVelocity.Y
-            if hum.FloorMaterial ~= Enum.Material.Air and curY > 15.0 and not UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                curY = 0
-            end
-
             root.AssemblyLinearVelocity = Vector3.new(targetVel.X, curY, targetVel.Z)
         else
-            -- Instant Dead-Stop Braking: stops the player on a dime and restores normal friction!
             restoreDefaultFriction(char)
-            root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
         end
     end
 
@@ -5342,7 +5301,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     -- Synchronizes DOORS native noclip flag without corrupting wardrobe or door transitions
     local mgTable = getMainGameTable()
     if mgTable then
-        if not hiding and (State.Bypass_AntiCheat or State.Noclip or isTeleportTweening or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
+        if not hiding and (State.Bypass_AntiCheat or State.Noclip or TeleportState.isTweening or isAtRoof or (os.clock() < lastNoclipDisableGrace)) then
             if mgTable.SETNEWCF then
                 mgTable.SETNEWCF = nil
             end
@@ -5561,7 +5520,7 @@ local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(functi
 
     local cam = Workspace.CurrentCamera
     if not cam or cam.CameraType ~= Enum.CameraType.Scriptable then return end
-    if State.Noclip or isTeleportTweening then return end
+    if State.Noclip or TeleportState.isTweening then return end
 
     local mgTable = getMainGameTable()
     if isPlayerHiding(char, mgTable) then return end
@@ -5602,7 +5561,7 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Walk_Noclip or State.Fly_Enabled or isTeleportTweening then
+    if State.Noclip or State.Walk_Noclip or State.Fly_Enabled or TeleportState.isTweening then
         -- Strip CanCollide only during ACTIVE flight/noclip so walls/doors can be flown through smoothly
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
@@ -7092,11 +7051,11 @@ end
 -- =========================================================================
 -- Autonomous Knobs Farm & Auto-Win Engine (Fly-Noclip, Anti-Entity, Quota Reset)
 -- =========================================================================
-local isKnobsFarmRunning = false
+isKnobsFarmRunning = false
 local currentFarmTarget = nil
 local lootedContainersThisRun = {}
 local lootedRoomsThisRun = {}
-local isEvacuatingRoof = false
+isEvacuatingRoof = false
 
 -- Persistent Auto Re-execution Setup (Runs across matches without auto-exec folder!)
 local function setupQueueOnTeleport()
@@ -8456,12 +8415,26 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
         if not v then
             local r = getRoot()
             if r then
-                mg.clipPos = r.Position
+                local rayParams = RaycastParams.new()
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.FilterDescendantsInstances = { getChar() }
+                local hit = Workspace:Raycast(r.Position, Vector3.new(0, -20, 0), rayParams)
+                if hit then
+                    r.CFrame = CFrame.new(hit.Position + Vector3.new(0, 3.2, 0), hit.Position + Vector3.new(0, 3.2, 0) + r.CFrame.LookVector)
+                    mg.clipPos = r.Position
+                else
+                    mg.clipPos = r.Position
+                end
                 mg.inAir = false
+                mg.hideplayers = 0
                 pcall(function()
                     r.AssemblyLinearVelocity = Vector3.zero
                     r.AssemblyAngularVelocity = Vector3.zero
                 end)
+                local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
+                if hum then
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
             end
         end
     end
