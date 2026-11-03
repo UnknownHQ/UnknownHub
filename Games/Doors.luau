@@ -1097,12 +1097,28 @@ task.spawn(function()
             end
 
             for owner, record in pairs(activeEspRecords) do
-                local char = getChar()
-                local inChar = char and (owner == char or owner:IsDescendantOf(char))
-                local inBackpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack") and owner:IsDescendantOf(LocalPlayer.Backpack)
-                if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent or inChar or inBackpack then
+                if not owner or typeof(owner) ~= "Instance" or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
                     removeEspFor(owner)
-                else
+                    continue
+                end
+
+                local char = getChar()
+                local inChar = false
+                local inBackpack = false
+                pcall(function()
+                    if char and (owner == char or owner:IsDescendantOf(char)) then
+                        inChar = true
+                    end
+                    local bp = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
+                    if bp and owner:IsDescendantOf(bp) then
+                        inBackpack = true
+                    end
+                end)
+
+                if inChar or inBackpack then
+                    removeEspFor(owner)
+                    continue
+                end
                     -- Entity Despawn / Bramble Ghost Filter
                     if record.Category == "Entities" then
                         local ent = record.Owner
@@ -1242,7 +1258,6 @@ task.spawn(function()
                             record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
                         end
                     end
-                end
             end
         end
         task.wait(0.15)
