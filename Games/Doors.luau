@@ -3858,8 +3858,24 @@ local function syncNativeFlightSpeed(speed)
         end
         if cachedMovSpeedFn and debug.setupvalue then
             debug.setupvalue(cachedMovSpeedFn, 22, speed)
+            debug.setupvalue(cachedMovSpeedFn, 25, 12)
         end
     end)
+end
+
+-- Decouple E and Q from DOORS native flight so interactions (drawers, doors, items) never cause vertical flight
+if hookfunction and not _G.DOORS_UIS_KEY_HOOKED then
+    _G.DOORS_UIS_KEY_HOOKED = true
+    local origIsKeyDown
+    origIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, key)
+        if State.Noclip and (key == Enum.KeyCode.E or key == Enum.KeyCode.Q) then
+            local caller = getcallingscript and getcallingscript()
+            if caller and caller.Name == "Movement" then
+                return false
+            end
+        end
+        return origIsKeyDown(self, key)
+    end))
 end
 
 
@@ -5098,7 +5114,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
+    -- Proven DOORS Native Flight & Invisibility Deflector (Zero Physics Fighting, Zero Camera Shaking):
     if State.Noclip and State.Bypass_AntiCheat and not hiding and not TeleportState.isTweening and not isAutoFlying and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
         -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
         for _, p in ipairs(char:GetDescendants()) do
@@ -5108,63 +5124,11 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                 p.CanQuery = true
             end
         end
-        if hum then hum:ChangeState(Enum.HumanoidStateType.Freefall) end
 
-        local cam = Workspace.CurrentCamera
-        local camLook = cam.CFrame.LookVector
-        local camRight = cam.CFrame.RightVector
-        local camUp = Vector3.new(0, 1, 0)
-
-        local steer = Vector3.zero
-        local hasInput = false
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            steer = steer + camLook
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            steer = steer - camLook
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            steer = steer + camRight
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            steer = steer - camRight
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            steer = steer + camUp
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            steer = steer - camUp
-            hasInput = true
-        end
-
-        -- Fallback to Humanoid.MoveDirection for gamepad thumbsticks or mobile touch controls
-        if hum.MoveDirection.Magnitude > 0.05 then
-            steer = steer + hum.MoveDirection
-            hasInput = true
-        end
-
-        -- Pure Native Physics Velocity Replication (Active 60Hz Server Packet Transmission):
-        local speed = math.clamp(State.Noclip_Speed or 35, 4, 300)
-        local targetVel = if hasInput and steer.Magnitude > 0.01 then steer.Unit * speed else Vector3.zero
-        root.AssemblyLinearVelocity = targetVel
-        root.AssemblyAngularVelocity = Vector3.zero
-
-        -- Horizontal camera gaze alignment (rotation only, zero position teleportation)
-        local hLook = Vector3.new(camLook.X, 0, camLook.Z)
-        if hLook.Magnitude > 0.01 then
-            root.CFrame = CFrame.new(root.Position, root.Position + hLook)
-        end
-
-        -- Retain DOORS native mgTable.clipPos synchronization and eradicate body/item invisibility
+        -- Retain DOORS native mgTable.clipPos and eradicate body/item invisibility
         local mgTable = getMainGameTable()
         if mgTable then
-            mgTable.clipPos = root.Position
+            if not mgTable.noclip then mgTable.noclip = true end
             if mgTable.hideplayers ~= 0 then mgTable.hideplayers = 0 end
             if mgTable.__NOBASERIG then mgTable.__NOBASERIG = false end
             if mgTable.canUseItems == false then mgTable.canUseItems = true end
@@ -5180,19 +5144,14 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     elseif State.Walk_Noclip and not hiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
         if mgTable and root then
-            mgTable.clipPos = root.Position
             if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
         end
-        -- Sub-frame Micro-Phase (Smoothly phases across walls in 1 frame so server solver never detects penetration)
-        if hum and hum.MoveDirection.Magnitude > 0.1 and root then
-            local moveUnit = hum.MoveDirection.Unit
-            local phaseParams = RaycastParams.new()
-            phaseParams.FilterType = Enum.RaycastFilterType.Exclude
-            phaseParams.FilterDescendantsInstances = { char }
-            local hit = Workspace:Raycast(root.Position, moveUnit * 1.6, phaseParams)
-            if hit and hit.Instance and hit.Instance:IsA("BasePart") and not hit.Instance.Name:lower():find("floor") then
-                root.CFrame = root.CFrame + moveUnit * 2.2
-                if mgTable then mgTable.clipPos = root.Position end
+        -- Walk Noclip preserves pure native Humanoid ground walking physics without synthetic 2.2-stud teleports
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                if p.CanCollide then p.CanCollide = false end
+                p.CanTouch = true
+                p.CanQuery = true
             end
         end
     elseif State.WalkSpeed_Enabled and not hiding and not TeleportState.isTweening then
@@ -5328,8 +5287,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         local cc = coll and coll:FindFirstChild("CollisionCrouch")
         local cp = char:FindFirstChild("CollisionPart")
 
-        if State.Noclip then
-            -- When Fly Noclip is active: ALL collision geometry is intangible so player glides cleanly through walls!
+        if State.Noclip or State.Walk_Noclip then
+            -- When Fly Noclip or Walk Noclip is active: ALL collision geometry is intangible so player glides cleanly through walls!
             -- Eliminates server collision bounce / forward-back teleporting desync!
             if coll and coll.CanCollide then coll.CanCollide = false end
             if cc and cc.CanCollide then cc.CanCollide = false end
@@ -5438,6 +5397,22 @@ end)
 local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(function()
     if cameraPitchConn then trackConn(cameraPitchConn) end
     if _G.DOORS_SESSION ~= currentSession then return end
+
+    if State.Noclip then
+        local mgTable = getMainGameTable()
+        if mgTable then
+            if mgTable.hideplayers ~= 0 then mgTable.hideplayers = 0 end
+            if mgTable.__NOBASERIG then mgTable.__NOBASERIG = false end
+            if mgTable.canUseItems == false then mgTable.canUseItems = true end
+        end
+        local cam = Workspace.CurrentCamera
+        local baseRig = cam and cam:FindFirstChild("BaseRig")
+        if baseRig then
+            for _, bp in ipairs(baseRig:GetDescendants()) do
+                if bp:IsA("BasePart") then bp.LocalTransparencyModifier = 0 end
+            end
+        end
+    end
 
     local char = getChar()
     if char then
