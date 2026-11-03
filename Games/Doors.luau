@@ -5323,7 +5323,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     -- Character Collision & Prompt Interactivity Receptors:
     if char then
         local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
-        local targetGroup = (State.Noclip or State.Walk_Noclip) and "None" or "NoPlayer" 
+        local targetGroup = "NoPlayer" -- Invariant: CollisionGroup = "NoPlayer" must ALWAYS remain active both when flying and when walking/crouching on the floor! 
         local coll = char:FindFirstChild("Collision")
         local cc = coll and coll:FindFirstChild("CollisionCrouch")
         local cp = char:FindFirstChild("CollisionPart")
@@ -5535,12 +5535,12 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
     end
 
     if State.Noclip or State.Walk_Noclip or State.Fly_Enabled or TeleportState.isTweening then
-        -- Strip CanCollide and set CollisionGroup = "None" so server solver ignores wall collisions
+        -- Strip CanCollide only during ACTIVE flight/noclip so walls/doors can be traversed smoothly
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CanCollide then part.CanCollide = false end
-                if part.CollisionGroup ~= "None" then
-                    pcall(function() part.CollisionGroup = "None" end)
+                if part.CollisionGroup ~= "NoPlayer" then
+                    pcall(function() part.CollisionGroup = "NoPlayer" end)
                 end
                 -- Always preserve CanTouch & CanQuery so wardrobes, drawers & doorway triggers never break!
                 if not part.CanTouch then part.CanTouch = true end
