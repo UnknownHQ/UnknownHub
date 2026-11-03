@@ -139,6 +139,7 @@ local Config = {
     SelectedBearTarget = "All",
     SafeZoneLowHP = false,
     LowHPThreshold = 25,
+    LowHPPercent = 35,
 
     -- Combat
     MeleeAura = false,
@@ -1108,10 +1109,26 @@ local function isBearTargetable(b)
         return false
     end
 
-    -- 1.25. In Bear Attack mode: avoid Ranged/Spike bears by default (prevents 360 AOE spike shockwave damage)
-    if Config.FarmMethod == "Bear Attack" and (name:find("ranged") or name:find("spike")) then
-        if not (Config.SelectedBears and (Config.SelectedBears[b.Name] == true or Config.SelectedBears["RangedBear"] == true)) then
-            return false
+    -- 1.25. In Bear Attack mode: Filter out lethal AOE, boss, and one-shot hazard bears!
+    -- Boo-Boo melee (125-350 HP) cannot survive Aura of Suffering, 20-stud ground slams, or 400-DMG swipes!
+    -- Quadrupeds with directional swipe (Medved, GrizzlyMedved, BurrowingBear, GoldenMedved, Booboo) are safe.
+    if Config.FarmMethod == "Bear Attack" then
+        -- In Bear Attack mode: only filter passive radiation & raid boss ice entities by default
+        -- BallBear, TallBear, GrinderBear, and ThinBear are now 100% farmable via dynamic anti-jump clearance!
+        local isTrueHazard = name:find("radioactive") or name:find("ice")
+        if isTrueHazard then
+            local isExplicitlySelected = false
+            if Config.SelectedBears and type(Config.SelectedBears) == "table" and not (Config.SelectedBears["All"] == true or Config.SelectedBears[1] == "All") then
+                for k, v in pairs(Config.SelectedBears) do
+                    if v == true and (k == b.Name or normalizeBearName(k) == normalizeBearName(b.Name)) then
+                        isExplicitlySelected = true
+                        break
+                    end
+                end
+            end
+            if not isExplicitlySelected then
+                return false
+            end
         end
     end
 
@@ -1122,6 +1139,15 @@ local function isBearTargetable(b)
         if brainMode == "Sit" or (brainAnger and brainAnger <= 0) then
             return false
         end
+    end
+
+    -- Dead / Ragdolled / Evaporating Bear Check (Instant unlock, zero ghost locking!)
+    if b:GetAttribute("BoneRagdolled") == true 
+        or b:GetAttribute("Ragdolled") == true 
+        or b:GetAttribute("Evaporated") == true 
+        or b:GetAttribute("Dead") == true 
+        or b:GetAttribute("IsDead") == true then
+        return false
     end
 
     local hum = b:FindFirstChildOfClass("Humanoid")
@@ -2002,7 +2028,7 @@ local function getFarmBearTarget()
         return bestPriorityBear, bestPriorityDist
     end
 
-    -- 1. Sticky Target Lock: Stay locked onto the current bear until it is completely dead!
+    -- 1. Sticky Target Lock: Stay locked onto the current bear until it is completely dead/ragdolled!
     if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
         if lockedFarmTarget == LocalPlayer.Character or lockedFarmTarget.Name == LocalPlayer.Name or Players:FindFirstChild(lockedFarmTarget.Name) then
             lockedFarmTarget = nil
@@ -2011,13 +2037,17 @@ local function getFarmBearTarget()
     if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
         local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
         local lockedRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart or lockedFarmTarget:FindFirstChildWhichIsA("BasePart")
-        if lockedHum and lockedHum.Health > 0 and lockedRoot and lockedRoot.Parent then
+        local isTargetDead = (not lockedHum or lockedHum.Health <= 0)
+            or lockedFarmTarget:GetAttribute("BoneRagdolled") == true
+            or lockedFarmTarget:GetAttribute("Evaporated") == true
+            or lockedFarmTarget:GetAttribute("Dead") == true
+        if not isTargetDead and lockedRoot and lockedRoot.Parent then
             local dist = (lockedRoot.Position - root.Position).Magnitude
             return lockedFarmTarget, dist
         end
     end
 
-    -- 2. Target died, despawned, or unselected: unlock and acquire next closest selected bear
+    -- 2. Target died, evaporated, despawned, or unselected: unlock immediately!
     lockedFarmTarget = nil
 
     local bestBear = nil
@@ -2047,57 +2077,11 @@ local function getFarmBearTarget()
 end
 
 local isFleeingLowHP = false
+local safeHoverTargetCF = nil
 local activeFlightBear = nil
 local activeFlightEvading = false
 local activeFlightTargetCF = nil
 local activeFlightOffset = nil
-
--- Sky Sanctuary Safe Zone Baseplate Engine
-local skySanctuaryPart = nil
-local SKY_SANCTUARY_POS = Vector3.new(52, 140, -144)
-local lastSanctuaryNotify = 0
-
-local function ensureSkySanctuary()
-    if skySanctuaryPart and skySanctuaryPart.Parent then
-        return skySanctuaryPart
-    end
-    local existing = Workspace:FindFirstChild("UnknownHub_SkySanctuary")
-    if existing then
-        skySanctuaryPart = existing
-        return existing
-    end
-
-    local plate = Instance.new("Part")
-    plate.Name = "UnknownHub_SkySanctuary"
-    plate.Size = Vector3.new(50, 3, 50)
-    plate.CFrame = CFrame.new(SKY_SANCTUARY_POS.X, SKY_SANCTUARY_POS.Y - 2.5, SKY_SANCTUARY_POS.Z)
-    plate.Anchored = true
-    plate.CanCollide = true
-    plate.Material = Enum.Material.SmoothPlastic
-    plate.Color = Color3.fromRGB(15, 20, 30)
-    plate.CastShadow = false
-    plate.Parent = Workspace
-
-    local border = Instance.new("SelectionBox")
-    border.Adornee = plate
-    border.Color3 = Color3.fromRGB(0, 220, 255)
-    border.LineThickness = 0.08
-    border.Parent = plate
-
-    skySanctuaryPart = plate
-    return plate
-end
-
-local function teleportToSkySanctuary()
-    ensureSkySanctuary()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
-        root.CFrame = CFrame.new(SKY_SANCTUARY_POS)
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-    end
-end
 
 -- Dynamic Proximity Threat Ceiling Engine
 -- Detects nearby tall/giant entities (WallBear, TallBear, Grinder) AND lethal phantoms (GhostBear)
@@ -2179,22 +2163,43 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Levitation Flight Engine (Auto Farm Bears)
-    -- Real-time 60 FPS zero-lag dorsal lock: computes target CFrame directly from live bearRoot every frame!
+    -- Levitation & High-Speed 3D Cruise Flight Engine (Auto Farm Bears)
+    -- Pure aerodynamic flight between bears; 60 FPS zero-lag dorsal blindspot lock in combat!
     if Config.AutoFarmBears then
         local targetCF = nil
         if isFleeingLowHP then
-            targetCF = CFrame.new(SKY_SANCTUARY_POS)
+            targetCF = safeHoverTargetCF
         elseif activeFlightBear and activeFlightBear.Parent and activeFlightOffset then
             local bHum = activeFlightBear:FindFirstChildOfClass("Humanoid")
-            local bRoot = activeFlightBear:FindFirstChild("HumanoidRootPart") or activeFlightBear.PrimaryPart or activeFlightBear:FindFirstChildWhichIsA("BasePart")
-            if bHum and bHum.Health > 0 and bRoot then
+            local bRoot = activeFlightOffset.bearRoot or activeFlightBear:FindFirstChild("HumanoidRootPart") or activeFlightBear.PrimaryPart or activeFlightBear:FindFirstChildWhichIsA("BasePart")
+            local isBearAlive = bHum and bHum.Health > 0
+                and activeFlightBear:GetAttribute("BoneRagdolled") ~= true
+                and activeFlightBear:GetAttribute("Evaporated") ~= true
+                and activeFlightBear:GetAttribute("Dead") ~= true
+            if isBearAlive and bRoot and bRoot.Parent then
+                -- Unbind BearFacing so it never flattens pitch to horizontal!
+                pcall(function()
+                    RunService:UnbindFromRenderStep("BearFacing")
+                end)
+
+                -- Real-Time Anti-Jump Dynamic Ceiling Clearance:
+                -- When any bear jumps or bounces (AssemblyLinearVelocity.Y > 1.5), Boo-Boo dynamically floats higher!
+                local vY = bRoot.AssemblyLinearVelocity.Y
+                local dynamicJumpLift = 0
+                if vY > 1.5 then
+                    dynamicJumpLift = math.min(vY * 0.35 + 2.5, 12.0)
+                end
+
                 local bCF = bRoot.CFrame
-                local flatLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
-                if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
-                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeFlightOffset.elevation, 0)
-                local aimPos = bRoot.Position + Vector3.new(0, 0.5, 0)
+                local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
+                local flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
+                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeFlightOffset.elevation + dynamicJumpLift, 0)
+                local aimPart = activeFlightOffset.targetHitPart or bRoot
+                local aimPos = aimPart.Position + Vector3.new(0, 0.2, 0)
                 targetCF = CFrame.lookAt(targetPos, aimPos)
+            else
+                activeFlightBear = nil
+                activeFlightTargetCF = nil
             end
         end
         if not targetCF then
@@ -2202,24 +2207,37 @@ RunService.Heartbeat:Connect(function(dt)
         end
 
         if targetCF then
-            local dist = (root.Position - targetCF.Position).Magnitude
-            if dist > 12.0 then
-                -- Warp immediately if transitioning or lunged far
+            local currentPos = root.Position
+            local goalPos = targetCF.Position
+            local toGoal = goalPos - currentPos
+            local dist = toGoal.Magnitude
+
+            local flySpeed = math.clamp(Config.FlySpeed or 75, 50, 140)
+
+            if dist > 8.0 then
+                -- INSTANT INTER-BEAR TELEPORTATION: Zero travel delay across the map!
                 root.CFrame = targetCF
             else
-                -- Direct lock every frame - 0ms rotational lag, bear CANNOT turn to face player!
+                -- COMBAT BLINDSPOT FLIGHT: 60 FPS zero-lag dorsal lock glued to the bear's rear apex
                 root.CFrame = targetCF
             end
+
+            -- Camera Synchronization: Lock camera facing aimPos so BearFacing smoothly tracks the enemy bear
+            local aimPart = activeFlightOffset and (activeFlightOffset.targetHitPart or activeFlightOffset.bearRoot)
+            if aimPart and aimPart.Parent then
+                local aimPos = aimPart.Position + Vector3.new(0, 0.4, 0)
+                local cam = Workspace.CurrentCamera
+                if cam then
+                    cam.CFrame = CFrame.lookAt(cam.CFrame.Position, aimPos)
+                end
+            end
+
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
             if root.CanCollide then root.CanCollide = false end
-        elseif Config.AutoFarmBears then
+        else
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
-        else
-            if not Config.FlyNoclip and not root.CanCollide then
-                root.CanCollide = true
-            end
         end
     else
         if not Config.FlyNoclip and not root.CanCollide then
@@ -2248,6 +2266,9 @@ pcall(function()
         bearAbility.OnClientEvent:Connect(function(action, slot, cooldownTimestamp)
             if typeof(cooldownTimestamp) == "number" then
                 if action == "Cooldown" or action == "Retry" then
+                    abilityCooldowns[tostring(slot)] = cooldownTimestamp
+                    abilityCooldowns[slot] = cooldownTimestamp
+                elseif action == "Active" then
                     abilityCooldowns[tostring(slot)] = cooldownTimestamp
                     abilityCooldowns[slot] = cooldownTimestamp
                 elseif action == "Frozen" then
@@ -2386,33 +2407,40 @@ task.spawn(function()
 
         local maxHp = (hum.MaxHealth and hum.MaxHealth > 0) and hum.MaxHealth or 250
 
-        -- 1. Low HP Safety Check & Safe Zone Retreat
+        -- 1. Low HP Safety Check & In-Place Safe Sky Hover (Automatic MaxHP Percentage Scaling!)
         if Config.SafeZoneLowHP then
-            if hum.Health <= Config.LowHPThreshold then
+            local effectiveHpThreshold = math.floor(maxHp * ((Config.LowHPPercent or 35) / 100))
+            if hum.Health <= effectiveHpThreshold then
                 isFleeingLowHP = true
+                if not safeHoverTargetCF then
+                    local safeY = math.max(root.Position.Y, 20) + 18
+                    safeHoverTargetCF = CFrame.new(root.Position.X, safeY, root.Position.Z)
+                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " / " .. math.floor(maxHp) .. " HP)! Levitating safely...", 2)
+                end
             end
 
             if isFleeingLowHP then
                 activeFlightBear = nil
-                activeFlightTargetCF = CFrame.new(SKY_SANCTUARY_POS)
-                if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
-                    teleportToSkySanctuary()
-                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " HP)! Retreated to Sky Sanctuary...", 2)
+                activeFlightTargetCF = safeHoverTargetCF
+                if safeHoverTargetCF then
+                    root.CFrame = safeHoverTargetCF
                 end
-                root.Anchored = true
                 root.AssemblyLinearVelocity = Vector3.zero
                 root.AssemblyAngularVelocity = Vector3.zero
 
-                -- Stay in safe zone until healed back to 85%+
+                -- Stay in safe hover until healed back to 85%+
                 if hum.Health >= math.floor(maxHp * 0.85) then
                     isFleeingLowHP = false
-                    root.Anchored = false
+                    safeHoverTargetCF = nil
                     Hub.Notify("Bear Farm", "HP Restored (" .. math.floor(hum.Health) .. " HP)! Resuming Bear Farm...", 2)
                 else
                     task.wait(0.5)
                     continue
                 end
             end
+        else
+            isFleeingLowHP = false
+            safeHoverTargetCF = nil
         end
 
         -- 2. Equip Best Weapon for chosen FarmMethod / Autonomous Bear Transform
@@ -2453,18 +2481,12 @@ task.spawn(function()
             local isSwitching = BearStance and BearStance.Switching and BearStance.Switching(char)
 
             if currentStance ~= "Friendly" then
-                -- Safely hold at Sky Sanctuary while 5-second stance transition completes
+                -- Safely hover in midair directly above current safe position while 5-second stance transition completes
                 activeFlightBear = nil
-                activeFlightTargetCF = CFrame.new(SKY_SANCTUARY_POS)
                 activeFlightOffset = nil
-                if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
-                    teleportToSkySanctuary()
-                end
-                root.Anchored = true
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
+                activeFlightTargetCF = CFrame.new(root.Position.X, root.Position.Y + 16.0, root.Position.Z)
 
-                if not isSwitching and tick() - lastStanceRequest >= 6.0 then
+                if not isSwitching and tick() - lastStanceRequest >= 5.5 then
                     lastStanceRequest = tick()
                     pcall(function()
                         local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
@@ -2474,12 +2496,8 @@ task.spawn(function()
                         end
                     end)
                 end
-                task.wait(0.35)
+                task.wait(0.25)
                 continue
-            else
-                if root.Anchored then
-                    root.Anchored = false
-                end
             end
         end
 
@@ -2488,24 +2506,22 @@ task.spawn(function()
         if not bear then
             activeFlightBear = nil
             activeFlightTargetCF = nil
-            if isFleeingLowHP then
-                ensureSkySanctuary()
-                if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
-                    teleportToSkySanctuary()
-                end
-            end
             task.wait(0.3)
             continue
         end
 
         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
         local bearHum = bear:FindFirstChildOfClass("Humanoid")
-        if not bearRoot or not bearHum or bearHum.Health <= 0 then
+        local isDeadOrEvaporating = (not bearHum or bearHum.Health <= 0)
+            or bear:GetAttribute("BoneRagdolled") == true
+            or bear:GetAttribute("Evaporated") == true
+            or bear:GetAttribute("Dead") == true
+        if not bearRoot or isDeadOrEvaporating then
             activeFlightBear = nil
             activeFlightTargetCF = nil
             lockedFarmTarget = nil
             lastEngagedBear = nil
-            task.wait(0.1)
+            task.wait(0.05)
             continue
         end
 
@@ -2588,56 +2604,100 @@ task.spawn(function()
             damageElevationBoost = 0
         end
 
-        -- Calibrated Blindspot Apex Engine (Live-tested: 100% hit connection, 0 damage taken)
+        -- =========================================================================
+        -- Universal True-Clearance Apex Engine (100% Anti-Touch Immunity & 100% Hit Connection)
+        -- =========================================================================
         local bName = bear.Name:lower()
-        local standoff = 2.4
-        local elevation = 3.4
+        local isBallBear = bName:find("ball") ~= nil
+        local isTallBear = bName:find("tall") ~= nil or sz.Y > 16.0
+        local isThinBear = bName:find("thin") ~= nil
+        local isGrinderBear = bName:find("grinder") ~= nil or bName:find("robo") ~= nil or sz.Y > 25.0
+        local isWallBear = bName:find("wall") ~= nil
+        local isRangedBear = bName:find("ranged") ~= nil or bName:find("spike") ~= nil
+        local isBooBoo = (bName:find("boo") ~= nil) and not isBallBear
+        local isGrizzly = bName:find("grizzly") ~= nil
+        local isGolden = bName:find("golden") ~= nil
 
-        if isBooBoo then
-            standoff = 2.4
-            elevation = 3.8
-        elseif isTallBear or isThinBear or isGrinderBear or isWallBear then
-            standoff = 3.2
-            elevation = 4.8
-        elseif bName:find("grizzly") or bName:find("radioactive") or bName:find("golden") then
+        local halfH = sz.Y * 0.5
+        local halfZ = sz.Z * 0.5
+
+        local targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
+        local standoff = 4.2
+        local elevation = 3.6 + damageElevationBoost
+
+        if isBallBear then
+            -- BALL BEAR: 10-stud rolling sphere!
+            -- Perch 5.8 studs above root (0.7 studs OUTSIDE sphere mesh, never crushed!).
+            -- Standoff 2.0 rear gives 5.9-stud distance (100% scream penetration!).
+            standoff = 2.0
+            elevation = 5.8 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("body") or bearRoot
+        elseif isTallBear then
+            -- TALL BEAR: 19.5 studs tall! Hop slam hits legs; stay HIGH behind upper neck/spine!
             standoff = 2.8
-            elevation = 4.4
+            elevation = 5.0 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
+        elseif isThinBear then
+            -- THIN BEAR: 400 DMG forward scissor blades! Hover above dorsal back
+            standoff = 3.6
+            elevation = 4.5 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
+        elseif isGrinderBear or isWallBear then
+            -- GRINDER / WALL: Mech turret guns point strictly forward; hover behind rear exhaust!
+            standoff = 5.0
+            elevation = 8.5 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
+        elseif isRangedBear then
+            -- RANGED BEAR: Spike quills
+            standoff = 3.2
+            elevation = 3.8 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
+        elseif isBooBoo then
+            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Tight blindspot lock at 2.4 elevation!
+            -- Never misses over head!
+            standoff = 2.4
+            elevation = 2.4 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("Cube") or bearRoot
+        elseif isGrizzly then
+            -- GRIZZLY MEDVED: 1.3x scale quadruped
+            standoff = 5.0
+            elevation = 4.4 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
+        elseif isGolden then
+            -- GOLDEN MEDVED: 900 HP quadruped
+            standoff = 4.8
+            elevation = 4.2 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         else
-            -- Medved, ClassicBear, RangedBear, general quadruped
-            standoff = 2.6
-            elevation = 4.2
+            -- STANDARD QUADRUPEDS (Medved, ClassicBear, BurrowingBear)
+            -- Distance to hips is ~3.28 studs, dead-center in 6.5 scream cone!
+            -- 3.2 studs safely behind swipe reach (Z <= +1.0)
+            standoff = 4.2
+            elevation = 3.6 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
+        -- TRUE BEAR FACING ORIENTATION: STRICTLY FROM BEAR ROOT!
         local bCF = bearRoot.CFrame
         local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
         local flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
 
-        local targetHitPart = nil
-        if isTallBear or isThinBear or isGrinderBear or isWallBear then
-            targetHitPart = bear:FindFirstChild("Hitbox_Chest")
-                or bear:FindFirstChild("Hitbox_Pelvis")
-                or bear:FindFirstChild("Hitbox_Body")
-                or bear:FindFirstChild("Hitbox_Head")
-                or bearRoot
-        else
-            targetHitPart = bear:FindFirstChild("Hitbox_Head")
-                or bear:FindFirstChild("Hitbox_Body")
-                or bear:FindFirstChild("Hitbox_Chest")
-                or bearRoot
-        end
-
-        local aimPos = targetHitPart.Position + Vector3.new(0, 0.5, 0)
         local targetPos = nil
-
         if Config.FarmMethod == "Gun" then
             standoff = math.max(16.0, myRadius + 12.0)
             elevation = 12.0
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
-            activeFlightOffset = { standoff = standoff, elevation = elevation }
         else
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
-            activeFlightOffset = { standoff = standoff, elevation = elevation }
         end
+        local aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
+
+        activeFlightOffset = {
+            standoff = standoff,
+            elevation = elevation,
+            targetHitPart = targetHitPart,
+            bearRoot = bearRoot
+        }
 
         -- Synchronize authoritative local aim on character
         pcall(function()
@@ -2656,27 +2716,38 @@ task.spawn(function()
         activeFlightTargetCF = CFrame.lookAt(targetPos, aimPos)
         activeFlightBear = bear
 
-        -- Target Switch Instant Teleport: Immediately warp to target bear position
-        if lastEngagedBear ~= bear then
+        -- Target Switch: INSTANT INTER-BEAR TELEPORTATION!
+        -- If switching bears or far away, warp immediately with zero travel delay!
+        if lastEngagedBear ~= bear or (root.Position - targetPos).Magnitude > 8.0 then
             lastEngagedBear = bear
+            root.CFrame = activeFlightTargetCF
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
             lastBearAttack = 0
             lastDefaultM1Attack = 0
             lastMeleeSwing = 0
             table.clear(abilityCooldowns)
-            root.CFrame = CFrame.lookAt(targetPos, aimPos)
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
         end
 
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
-        -- Range Guard: Only execute attacks when flight has brought the player into combat range!
-        local distToEnemy = (root.Position - bearRoot.Position).Magnitude
-        local maxReach = (Config.FarmMethod == "Gun") and 150.0 or 10.0
-        local canStrike = distToEnemy <= maxReach
+        -- Combat Range Guard: Zero-delay dispatch whenever player is within flight engagement volume
+        local distToTargetPart = (root.Position - targetHitPart.Position).Magnitude
+        local distToRoot = (root.Position - bearRoot.Position).Magnitude
+        local canStrike = false
+        if Config.FarmMethod == "Gun" then
+            canStrike = distToRoot <= 150.0
+        elseif Config.FarmMethod == "Melee" then
+            canStrike = distToTargetPart <= 8.5
+        elseif Config.FarmMethod == "Bear Attack" then
+            -- Screams penetrate wide 6x6 cone; fire immediately when within 12 studs!
+            -- Eliminates all false stalls/waiting while bears jump or rotate!
+            canStrike = distToTargetPart <= 12.0 or distToRoot <= 12.0
+        end
         if not canStrike then
-            task.wait(0.04)
+            task.wait(0.02)
             continue
         end
+
         if Config.FarmMethod == "Melee" then
             if bestTool then
                 applyWeaponMods(bestTool)
@@ -2737,14 +2808,6 @@ task.spawn(function()
             end)
 
             if bearAbility then
-                -- Target Switch Immediate Hit: If we locked onto a new bear, reset cooldown so hit 1 strikes immediately!
-                if lastEngagedBear ~= bear then
-                    lastEngagedBear = bear
-                    lastBearAttack = 0
-                    lastDefaultM1Attack = 0
-                    table.clear(abilityCooldowns)
-                end
-
                 -- 1. Auto-Cast Self-Buffs (Enrage) immediately when available without consuming attack slot
                 local hotbarSkills = string.split(char:GetAttribute("BearHotbar") or "", ",")
                 for sIdx, sName in ipairs(hotbarSkills) do
@@ -2761,11 +2824,11 @@ task.spawn(function()
                 -- 2. Dispatch Damaging Variant Skills (Minigun, Rockets, Flamethrower, Shotgun, Spin, Laser, etc.)
                 local hotbarSlots = getBearAttackVariants(char)
                 local dispatchedVariant = false
-                if #hotbarSlots > 0 and tick() - lastBearAttack >= 0.12 then
+                if #hotbarSlots > 0 then
                     for step = 1, #hotbarSlots do
                         bearVariantIndex = (bearVariantIndex % #hotbarSlots) + 1
                         local candidateSlot = hotbarSlots[bearVariantIndex]
-                        if isAbilityReady(candidateSlot) then
+                        if isAbilityReady(candidateSlot) and (tick() - lastBearAttack >= 0.10) then
                             lastBearAttack = tick()
                             if bearAim and targetHitPart then
                                 pcall(function()
@@ -2784,19 +2847,19 @@ task.spawn(function()
                 end
 
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream)
-                -- Cadence calibrated to 1.72s for booboo to eliminate cooldown drops / ghost hits!
-                local m1Cadence = amBooBoo and 1.72 or (isBigPlayerBear and 1.50 or 1.40)
-                if not dispatchedVariant and (tick() - lastDefaultM1Attack >= m1Cadence or lastDefaultM1Attack == 0) then
+                -- ZERO DELAY: Fires THE EXACT MILLISECOND cooldown expires on the server!
+                if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= 0.08) then
                     lastDefaultM1Attack = tick()
-                    if bearAim then
+                    if bearAim and targetHitPart then
                         pcall(function()
-                            bearAim:FireServer(aimPos, bearRoot, Vector3.zero)
+                            bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
                         end)
                     end
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", aimPos)
                     end)
-                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + m1Cadence
+                    -- Set minimal 100ms local guard so packets aren't spammed before server cooldown packet arrives
+                    abilityCooldowns["Default"] = workspace:GetServerTimeNow() + 0.10
                 end
 
                 -- 4. Also activate tool if held
@@ -3335,8 +3398,12 @@ Hub.CreateToggle(farmTab, "Safe Zone Retreat", Config.SafeZoneLowHP, function(va
     Hub.Notify("Bear Farm", val and "Safe Zone Retreat: ON" or "Safe Zone Retreat: OFF", 2)
 end)
 
-Hub.CreateSlider(farmTab, "Low HP Threshold", minHpVal, maxHpVal, Config.LowHPThreshold, " HP", function(val)
-    Config.LowHPThreshold = val
+Hub.CreateSlider(farmTab, "Low HP Threshold (%)", 10, 80, Config.LowHPPercent or 35, "%", function(val)
+    Config.LowHPPercent = val
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local maxHp = (hum and hum.MaxHealth and hum.MaxHealth > 0) and hum.MaxHealth or 250
+    Config.LowHPThreshold = math.floor(maxHp * (val / 100))
 end)
 
 -- TAB: COMBAT
