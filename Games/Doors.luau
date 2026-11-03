@@ -894,6 +894,40 @@ local function getCurrentRoomNumber()
     return lastKnownPlayerRoom or 0
 end
 
+isDupeDoor = function(doorModel, room)
+    if not doorModel then return false end
+    local dName = doorModel.Name:lower()
+    if dName == "doorfake" or dName:find("fake") or dName:find("dupe") then
+        return true
+    end
+    if doorModel:GetAttribute("DupeRoom") == true or doorModel:GetAttribute("Fake") == true or doorModel:GetAttribute("Dupe") == true then
+        return true
+    end
+    if doorModel.Parent and (doorModel.Parent.Name:lower():find("dupe") or doorModel.Parent.Name:lower():find("fake")) then
+        return true
+    end
+
+    -- Recursive Sign search: detects signs on nested door models
+    local signPart = doorModel:FindFirstChild("Sign", true)
+    local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+    local signText = signLabel and signLabel.Text or nil
+    local signNum = tonumber(signText)
+
+    local roomNum = (room and tonumber(room.Name))
+    if not roomNum then
+        local p = doorModel.Parent
+        while p and p ~= workspace do
+            if tonumber(p.Name) then roomNum = tonumber(p.Name); break end
+            p = p.Parent
+        end
+    end
+    roomNum = roomNum or getCurrentRoomNumber()
+    if roomNum and signNum and signNum ~= (roomNum + 1) then
+        return true
+    end
+    return false
+end
+
 local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber, extraVisuals, entityCategory)
     if not State.Master_ESP then return end
     if not adorneePart then return end
