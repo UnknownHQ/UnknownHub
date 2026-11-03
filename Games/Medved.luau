@@ -137,9 +137,9 @@ local Config = {
     AutoFriendlyBear = true,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
-    SafeZoneLowHP = false,
+    SafeZoneLowHP = true,
     LowHPThreshold = 25,
-    LowHPPercent = 35,
+    LowHPPercent = 25,
 
     -- Combat
     MeleeAura = false,
@@ -2079,6 +2079,7 @@ end
 local isFleeingLowHP = false
 local safeHoverTargetCF = nil
 local activeFlightBear = nil
+local lastMorphTime = 0
 local activeFlightEvading = false
 local activeFlightTargetCF = nil
 local activeFlightOffset = nil
@@ -2408,9 +2409,10 @@ task.spawn(function()
         local maxHp = (hum.MaxHealth and hum.MaxHealth > 0) and hum.MaxHealth or 250
 
         -- 1. Low HP Safety Check & In-Place Safe Sky Hover (Automatic MaxHP Percentage Scaling!)
-        if Config.SafeZoneLowHP then
-            local effectiveHpThreshold = math.floor(maxHp * ((Config.LowHPPercent or 35) / 100))
-            if hum.Health <= effectiveHpThreshold then
+        -- Morph Grace Period: Never falsely trigger low HP within 6 seconds of morphing or when uninjured!
+        if Config.SafeZoneLowHP and (tick() - lastMorphTime > 6.0) then
+            local effectiveHpThreshold = math.floor(maxHp * ((Config.LowHPPercent or 25) / 100))
+            if hum.Health <= effectiveHpThreshold and hum.Health < maxHp then
                 isFleeingLowHP = true
                 if not safeHoverTargetCF then
                     local safeY = math.max(root.Position.Y, 20) + 18
@@ -2466,6 +2468,7 @@ task.spawn(function()
                         if not s then
                             becomeRemote:InvokeServer(chosenBear, "OneTime")
                         end
+                        lastMorphTime = tick()
                     end
                 end)
                 task.wait(0.5)
@@ -2481,10 +2484,10 @@ task.spawn(function()
             local isSwitching = BearStance and BearStance.Switching and BearStance.Switching(char)
 
             if currentStance ~= "Friendly" then
-                -- Safely hover in midair directly above current safe position while 5-second stance transition completes
+                -- ZERO TOP-WARPING: Never teleport up to the sky on start! Stay right where player is until Friendly!
                 activeFlightBear = nil
                 activeFlightOffset = nil
-                activeFlightTargetCF = CFrame.new(root.Position.X, root.Position.Y + 16.0, root.Position.Z)
+                activeFlightTargetCF = nil
 
                 if not isSwitching and tick() - lastStanceRequest >= 5.5 then
                     lastStanceRequest = tick()
@@ -2496,7 +2499,7 @@ task.spawn(function()
                         end
                     end)
                 end
-                task.wait(0.25)
+                task.wait(0.15)
                 continue
             end
         end
@@ -2622,58 +2625,61 @@ task.spawn(function()
         local halfZ = sz.Z * 0.5
 
         local targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
-        local standoff = 4.2
-        local elevation = 3.6 + damageElevationBoost
+        local standoff = 4.8
+        local elevation = 5.4 + damageElevationBoost
 
         if isBallBear then
-            -- BALL BEAR: 10-stud rolling sphere!
-            -- Perch 5.8 studs above root (0.7 studs OUTSIDE sphere mesh, never crushed!).
-            -- Standoff 2.0 rear gives 5.9-stud distance (100% scream penetration!).
-            standoff = 2.0
-            elevation = 5.8 + damageElevationBoost
+            -- BALL BEAR: 10.25-stud giant rolling sphere!
+            -- Sphere radius is 5.125 studs in all directions.
+            -- Elevation 6.6 places player 1.48 studs safely ABOVE the sphere surface (never touched/crushed!).
+            -- Standoff 2.4 behind center gives 5.1-stud penetration into the sphere (100% scream hits!).
+            standoff = 2.4
+            elevation = 6.6 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("body") or bearRoot
         elseif isTallBear then
-            -- TALL BEAR: 19.5 studs tall! Hop slam hits legs; stay HIGH behind upper neck/spine!
-            standoff = 2.8
-            elevation = 5.0 + damageElevationBoost
+            -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay at Y = 16.5 studs in the sky!
+            standoff = 3.2
+            elevation = 6.5 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         elseif isThinBear then
             -- THIN BEAR: 400 DMG forward scissor blades! Hover above dorsal back
-            standoff = 3.6
-            elevation = 4.5 + damageElevationBoost
+            standoff = 4.0
+            elevation = 5.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrinderBear or isWallBear then
             -- GRINDER / WALL: Mech turret guns point strictly forward; hover behind rear exhaust!
-            standoff = 5.0
-            elevation = 8.5 + damageElevationBoost
+            standoff = 6.0
+            elevation = 9.5 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isRangedBear then
             -- RANGED BEAR: Spike quills
-            standoff = 3.2
-            elevation = 3.8 + damageElevationBoost
+            standoff = 3.6
+            elevation = 4.5 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
-            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Tight blindspot lock at 2.4 elevation!
-            -- Never misses over head!
-            standoff = 2.4
-            elevation = 2.4 + damageElevationBoost
+            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Safe apex lock at 3.6 elevation!
+            standoff = 2.8
+            elevation = 3.6 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("Cube") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped
-            standoff = 5.0
-            elevation = 4.4 + damageElevationBoost
+            -- Swipe ceiling is Y <= 6.5; elevation 6.4 + standoff 5.6 keeps player completely out of claw reach!
+            standoff = 5.6
+            elevation = 6.4 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         elseif isGolden then
             -- GOLDEN MEDVED: 900 HP quadruped
-            standoff = 4.8
-            elevation = 4.2 + damageElevationBoost
+            standoff = 5.2
+            elevation = 5.8 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         else
             -- STANDARD QUADRUPEDS (Medved, ClassicBear, BurrowingBear)
-            -- Distance to hips is ~3.28 studs, dead-center in 6.5 scream cone!
-            -- 3.2 studs safely behind swipe reach (Z <= +1.0)
-            standoff = 4.2
-            elevation = 3.6 + damageElevationBoost
+            -- Medved body mesh top is Y = +4.32; swipe ceiling is Y <= +5.0.
+            -- Elevation 5.4 keeps player 1.1 studs ABOVE Medved's back and above swipe ceiling!
+            -- Standoff 4.8 keeps player 3.8 studs BEHIND Medved's forward swipe reach (Z <= +1.0).
+            -- Distance to hips is sqrt((4.8 - 2.83)^2 + (5.4 - 0.62)^2) = 5.17 studs (100% within 6.5 scream reach!).
+            standoff = 4.8
+            elevation = 5.4 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
@@ -3398,7 +3404,7 @@ Hub.CreateToggle(farmTab, "Safe Zone Retreat", Config.SafeZoneLowHP, function(va
     Hub.Notify("Bear Farm", val and "Safe Zone Retreat: ON" or "Safe Zone Retreat: OFF", 2)
 end)
 
-Hub.CreateSlider(farmTab, "Low HP Threshold (%)", 10, 80, Config.LowHPPercent or 35, "%", function(val)
+Hub.CreateSlider(farmTab, "Low HP Threshold (%)", 10, 80, Config.LowHPPercent or 25, "%", function(val)
     Config.LowHPPercent = val
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
