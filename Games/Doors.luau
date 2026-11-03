@@ -190,7 +190,7 @@ local State = {
     Noclip = false,
     Walk_Noclip = false,
     Noclip_Speed = 35,
-    Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
+    Instant_Movement = false, -- Natural DOORS Humanoid walking physics (zero platform feeling / zero backward drift)
 
     -- Autonomous 1-100 Doors Master Completer Suite
     Auto_Complete_100 = false,
@@ -1244,11 +1244,11 @@ local function processDoor(room, doorModel)
         local doorBox = Instance.new("BoxHandleAdornment")
         doorBox.Name = "Unknown_DoorBoxAdorn"
         doorBox.Adornee = doorMesh
-        doorBox.Size = doorMesh.Size
+        doorBox.Size = Vector3.new(doorMesh.Size.X * 0.96, doorMesh.Size.Y * 0.98, 0.05)
         doorBox.Color3 = color
         doorBox.AlwaysOnTop = true
-        doorBox.Transparency = State.ESP_FillTransparency or 0.5
-        doorBox.ZIndex = 10
+        doorBox.Transparency = 0.82
+        doorBox.ZIndex = 5
         doorBox.Parent = (gethui and gethui()) or CoreGui
         table.insert(extraVisuals, doorBox)
 
@@ -1256,7 +1256,7 @@ local function processDoor(room, doorModel)
         doorOutline.Name = "Unknown_DoorOutlineBox"
         doorOutline.Adornee = doorMesh
         doorOutline.Color3 = color
-        doorOutline.LineThickness = 0.04
+        doorOutline.LineThickness = 0.02
         doorOutline.SurfaceTransparency = 1
         doorOutline.Parent = (gethui and gethui()) or CoreGui
         table.insert(extraVisuals, doorOutline)
@@ -1365,11 +1365,12 @@ local function processDoor(room, doorModel)
     local doorBox = Instance.new("BoxHandleAdornment")
     doorBox.Name = "Unknown_DoorBoxAdorn"
     doorBox.Adornee = doorMesh
-    doorBox.Size = doorMesh.Size
+    -- Ultra-thin face slab (0.05 studs) so it hugs the door leaf cleanly without projecting into the hallway
+    doorBox.Size = Vector3.new(doorMesh.Size.X * 0.96, doorMesh.Size.Y * 0.98, 0.05)
     doorBox.Color3 = color
     doorBox.AlwaysOnTop = true
-    doorBox.Transparency = State.ESP_FillTransparency or 0.5
-    doorBox.ZIndex = 10
+    doorBox.Transparency = 0.82 -- Clean, subtle translucent tint: door numbers, locks, and wood textures shine through!
+    doorBox.ZIndex = 5
     doorBox.Parent = (gethui and gethui()) or CoreGui
     table.insert(extraVisuals, doorBox)
 
@@ -1377,7 +1378,7 @@ local function processDoor(room, doorModel)
     doorOutline.Name = "Unknown_DoorOutlineBox"
     doorOutline.Adornee = doorMesh
     doorOutline.Color3 = color
-    doorOutline.LineThickness = 0.04
+    doorOutline.LineThickness = 0.02 -- Sleek, razor-sharp perimeter outline
     doorOutline.SurfaceTransparency = 1
     doorOutline.Parent = (gethui and gethui()) or CoreGui
     table.insert(extraVisuals, doorOutline)
@@ -3863,18 +3864,32 @@ local function syncNativeFlightSpeed(speed)
     end)
 end
 
--- Decouple E and Q from DOORS native flight so interactions (drawers, doors, items) never cause vertical flight
-if hookfunction and not _G.DOORS_UIS_KEY_HOOKED then
+-- Decouple E and Q from DOORS native flight via hookmetamethod so interactions never cause vertical flight
+if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
     _G.DOORS_UIS_KEY_HOOKED = true
-    local origIsKeyDown
-    origIsKeyDown = hookfunction(UserInputService.IsKeyDown, newcclosure(function(self, key)
-        if State.Noclip and (key == Enum.KeyCode.E or key == Enum.KeyCode.Q) then
-            local caller = getcallingscript and getcallingscript()
-            if caller and caller.Name == "Movement" then
+    local origNc
+    origNc = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if self == UserInputService and method == "IsKeyDown" then
+            local key = ...
+            if State.Noclip and (key == Enum.KeyCode.E or key == Enum.KeyCode.Q) then
                 return false
             end
         end
-        return origIsKeyDown(self, key)
+        return origNc(self, ...)
+    end))
+
+    local origIdx
+    origIdx = hookmetamethod(game, "__index", newcclosure(function(self, idx)
+        if self == UserInputService and idx == "IsKeyDown" then
+            return newcclosure(function(uis, key)
+                if State.Noclip and (key == Enum.KeyCode.E or key == Enum.KeyCode.Q) then
+                    return false
+                end
+                return origIdx(uis, "IsKeyDown")(uis, key)
+            end)
+        end
+        return origIdx(self, idx)
     end))
 end
 
@@ -5195,19 +5210,21 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Instant Acceleration & Directional Vector Response Engine:
-    -- Bypasses humanoid acceleration ramp-up and eradicates TeflonGlide inertial sliding / ice skating!
-    if State.Instant_Movement and not State.Noclip and not hiding and not TeleportState.isTweening and not isSlidingActive and not hum.Sit then
-        local moveDir = hum.MoveDirection
-        if moveDir.Magnitude > 0.05 then
+    -- Natural Walking Physics & Zero-Drift Stationary Lock:
+    -- Completely eradicates sliding/drifting backwards when standing still, with zero synthetic platform feeling!
+    if not State.Noclip and not hiding and not TeleportState.isTweening and not isSlidingActive and not isAtRoof then
+        if hum.MoveDirection.Magnitude <= 0.05 and root then
+            local curHoriz = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+            if curHoriz.Magnitude > 0.05 then
+                root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+            restoreDefaultFriction(char)
+        elseif State.Instant_Movement and not hum.Sit and root then
+            local moveDir = hum.MoveDirection
             local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 45) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
             local targetVel = moveDir.Unit * speed
-
-            -- Natural vertical floor adaptation without synthetic platform feeling
-            local curY = root.AssemblyLinearVelocity.Y
-            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, curY, targetVel.Z)
-        else
-            restoreDefaultFriction(char)
+            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, root.AssemblyLinearVelocity.Y, targetVel.Z)
         end
     end
 
@@ -5468,21 +5485,26 @@ local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(functi
 
     local cam = Workspace.CurrentCamera
     if not cam or cam.CameraType ~= Enum.CameraType.Scriptable then return end
-    if State.Noclip or TeleportState.isTweening then return end
+    if TeleportState.isTweening then return end
 
     local mgTable = getMainGameTable()
     if isPlayerHiding(char, mgTable) then return end
 
     local look = cam.CFrame.LookVector
-    -- When tilting down to look at floor, drawers, or feet (look.Y < -0.15):
-    -- Dynamically translate camera slightly forward (+0.0 to +0.38 studs) along horizontal gaze.
-    -- This brings the camera's near clipping plane completely clear of the character's upper collar/chest!
+    -- Dynamic Eye-Level Forward Offset & Torso Decoupling:
+    -- In flight or on foot, looking down pitches towards floor/torso.
+    -- We dynamically translate camera slightly forward (+0.0 to +0.45 studs) and hide UpperTorso locally
+    -- so the top of the torso never blocks the screen or appears bugged/headless!
     if look.Y < -0.15 then
         local downFactor = math.clamp((-look.Y - 0.15) / 0.85, 0, 1)
         local hLook = Vector3.new(look.X, 0, look.Z)
         if hLook.Magnitude > 0.001 then
-            local fwdOffset = hLook.Unit * (downFactor * 0.38)
+            local fwdOffset = hLook.Unit * (downFactor * 0.45)
             cam.CFrame = cam.CFrame + fwdOffset
+        end
+        local upperTorso = char:FindFirstChild("UpperTorso")
+        if upperTorso and upperTorso:IsA("BasePart") then
+            upperTorso.LocalTransparencyModifier = 1
         end
     end
 end)
