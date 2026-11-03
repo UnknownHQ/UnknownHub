@@ -139,7 +139,7 @@ local Config = {
     AutoFarmBears = false,
     FarmMethod = "Bear Attack", -- "Gun", "Melee", or "Bear Attack"
     SpawnAsBear = "booboo",
-    AutoFriendlyBear = false,
+    AutoFriendlyBear = true,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -2349,7 +2349,7 @@ end
 -- Ensures player bear transitions cleanly to Friendly stance without rapid toggle cancellation
 local lastStanceRequest = 0
 local function ensureFriendlyStance(char)
-    if not Config.AutoFriendlyBear or (Config.AutoFarmBears and Config.FarmMethod == "Bear Attack") then
+    if not Config.AutoFriendlyBear and not (Config.AutoFarmBears and Config.FarmMethod == "Bear Attack") then
         return
     end
     if not char then return end
@@ -2503,12 +2503,12 @@ task.spawn(function()
                 continue
             end
 
-            if Config.FarmMethod == "Bear Attack" then
-                -- AGGRESSIVE STANCE ENFORCEMENT:
-                -- In Friendly stance, server blocks 100% of bear attack damage (0 DMG ghost hits).
-                -- To deal damage to enemy bears, player bear MUST be in Aggressive stance!
+            if Config.AutoFriendlyBear or Config.FarmMethod == "Bear Attack" then
+                -- FRIENDLY STANCE ENFORCEMENT (PUBLIC SERVER IMMUNITY):
+                -- In Friendly stance, other players on public servers CANNOT shoot, hit, or kill you!
+                -- You deal 100% full damage against wild NPC bears while remaining immune to player PvP.
                 local currentStance = char:GetAttribute("Stance")
-                if currentStance == "Friendly" and (tick() - lastStanceRequest >= 5.5) then
+                if currentStance ~= "Friendly" and (tick() - lastStanceRequest >= 5.5) then
                     lastStanceRequest = tick()
                     pcall(function()
                         local RS = game:GetService("ReplicatedStorage")
@@ -2634,6 +2634,7 @@ task.spawn(function()
         local isThinBear = bName:find("thin") ~= nil
         local isGrinderBear = bName:find("grinder") ~= nil or bName:find("robo") ~= nil or sz.Y > 25.0
         local isWallBear = bName:find("wall") ~= nil
+        local isBurrowingBear = bName:find("burrow") ~= nil
         local isRangedBear = bName:find("ranged") ~= nil or bName:find("spike") ~= nil
         local isBooBoo = (bName:find("boo") ~= nil) and not isBallBear
         local isGrizzly = bName:find("grizzly") ~= nil
@@ -2648,12 +2649,29 @@ task.spawn(function()
 
         if isBallBear then
             -- BALL BEAR: 10.25-stud giant rolling sphere!
-            -- Sphere radius is 5.13 studs. Player leg hang is ~3.0 studs.
-            -- Elevation 9.6 keeps feet 1.5 studs safely ABOVE the sphere surface (never touched/crushed!).
-            -- Standoff 2.8 behind center gives 4.8-stud horizontal distance (100% scream hits!).
-            standoff = 2.8
-            elevation = 9.6 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("body") or bearRoot
+            -- Standoff 4.2 behind rolling direction (+Z) ensures BallLunge (which jumps forward -Z with Up=34) rockets AWAY from player!
+            -- Elevation 10.2 keeps feet cleanly above the sphere surface (never crushed or touched!).
+            standoff = 4.2
+            elevation = 10.2 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("body") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
+        elseif isWallBear then
+            -- WALL BEAR: 15.5-stud tall concrete slab. Faces -Z, topples forward.
+            -- Close rear blindspot (standoff 3.6, elevation 9.2 over BodyTop) keeps distance < 10 studs,
+            -- completely preventing WallSlam (MinRange 10) and WallSpin (MinRange 25) from ever triggering!
+            -- WallTopple falls forward away from player. Zero touch/damage taken.
+            standoff = 3.6
+            elevation = 9.2 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
+        elseif isBurrowingBear then
+            -- BURROWING BEAR: 500 HP aberrant burrower. 85 DMG swipe + 50 DMG / 45 Lift eruption.
+            -- When burrowing/tunneling underground, elevate to +18.0 studs to completely avoid the underground eruption!
+            -- When on surface, standoff 4.5 and elevation 8.0 places player safely above its downward swipe hitbox.
+            local isUnderground = bear:GetAttribute("Burrowing") == true 
+                or bear:GetAttribute("Tunneling") == true 
+                or (bearRoot and bearRoot.Position.Y < -155)
+            standoff = 4.5
+            elevation = (isUnderground and 18.0 or 8.0) + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isTallBear then
             -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay high at 7.5 elevation
             standoff = 3.6
@@ -2664,13 +2682,6 @@ task.spawn(function()
             standoff = 4.2
             elevation = 6.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
-        elseif isWallBear then
-            -- WALL BEAR: 15.5-stud tall concrete slab. Faces -Z, topples forward.
-            -- Safe rear blindspot: Hover behind (+Z) with standoff 3.2 studs.
-            -- Elevation 8.8 places feet safely above the wall top (+7.74).
-            standoff = 3.2
-            elevation = 8.8 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isGrinderBear then
             -- GRINDER: Mech turret guns point strictly forward; hover behind rear exhaust!
             standoff = 6.5
@@ -2682,10 +2693,10 @@ task.spawn(function()
             elevation = 5.6 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
-            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Safe apex lock at 4.2 elevation!
-            standoff = 3.0
+            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Target Cube/Head center of mass to eliminate misses!
+            standoff = 3.2
             elevation = 4.2 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("Cube") or bearRoot
+            targetHitPart = bear:FindFirstChild("Cube") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped
             standoff = 6.0
@@ -2770,6 +2781,10 @@ task.spawn(function()
         elseif Config.FarmMethod == "Bear Attack" then
             -- Screams penetrate wide cone; fire when within engagement volume
             canStrike = distToTargetPart <= 16.0 or distToRoot <= 16.0 or (bear:FindFirstChild("BodyTop") and (root.Position - bear.BodyTop.Position).Magnitude <= 14.0)
+            -- If BurrowingBear is underground, suspend attack until it emerges onto surface!
+            if isBurrowingBear and (bear:GetAttribute("Burrowing") == true or bear:GetAttribute("Tunneling") == true or (bearRoot and bearRoot.Position.Y < -155)) then
+                canStrike = false
+            end
         end
         if not canStrike then
             task.wait(0.02)
@@ -2875,16 +2890,18 @@ task.spawn(function()
                 end
 
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream)
-                -- Authoritative server cooldown tracking with 1.25s predictive floor
+                -- Authoritative server cooldown tracking with 1.25s predictive floor and zero-latency target lead
                 if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= 0.15) then
                     lastDefaultM1Attack = tick()
-                    if bearAim and targetHitPart then
+                    local currentAimPos = (targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.3, 0)) or aimPos
+                    local targetVel = (targetHitPart and targetHitPart.Parent and targetHitPart.AssemblyLinearVelocity) or Vector3.zero
+                    if bearAim and targetHitPart and targetHitPart.Parent then
                         pcall(function()
-                            bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
+                            bearAim:FireServer(currentAimPos, targetHitPart, targetVel)
                         end)
                     end
                     pcall(function()
-                        bearAbility:FireServer("Use", "Default", aimPos)
+                        bearAbility:FireServer("Use", "Default", currentAimPos)
                     end)
                     -- Enforce predictive cooldown floor (1.25s) until server Cooldown packet arrives
                     local sTime = workspace:GetServerTimeNow()
