@@ -189,6 +189,7 @@ local State = {
     Enable_Jumping = false,
     Enable_Sliding = false,
     Noclip = false,
+    Walk_Noclip = false,
     Noclip_Speed = 35,
     Instant_Movement = true, -- No acceleration / instant directional turning without slipping on floor
 
@@ -904,7 +905,9 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
                     if vis:IsA("Highlight") then
                         vis.FillColor = color
                         vis.OutlineColor = color
-                    elseif vis:IsA("SphereHandleAdornment") then
+                    elseif vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") then
+                        vis.Color3 = color
+                    elseif vis:IsA("SelectionBox") then
                         vis.Color3 = color
                     end
                 end
@@ -1348,35 +1351,33 @@ local function processDoor(room, doorModel)
         or (doorModel:FindFirstChild("Sign") and doorModel.Sign:IsA("BasePart") and doorModel.Sign)
         or doorMesh
 
-    -- Clean Flat Door Highlight Proxy:
-    -- Roblox renders Highlights on the beveled door MeshPart with angular polygon cutout notches from a distance (Images 2, 4, 6).
-    -- By adorning a clean flat 6-sided rectangular proxy part welded to the door, Roblox renders a 100% solid, flawless rectangular outline (Image 1)!
-    local cleanDoorPart = doorModel:FindFirstChild("Unknown_CleanDoorProxy")
-    if not cleanDoorPart then
-        cleanDoorPart = Instance.new("Part")
-        cleanDoorPart.Name = "Unknown_CleanDoorProxy"
-        cleanDoorPart.Size = Vector3.new(doorMesh.Size.X, doorMesh.Size.Y, 0.15)
-        cleanDoorPart.CFrame = doorMesh.CFrame
-        cleanDoorPart.Transparency = 0.98
-        cleanDoorPart.CanCollide = false
-        cleanDoorPart.CanTouch = false
-        cleanDoorPart.CanQuery = false
-        cleanDoorPart.CastShadow = false
-        cleanDoorPart.Massless = true
-
-        local weld = Instance.new("WeldConstraint")
-        weld.Part0 = cleanDoorPart
-        weld.Part1 = doorMesh
-        weld.Parent = cleanDoorPart
-
-        cleanDoorPart.Parent = doorModel
-    else
-        cleanDoorPart.Size = Vector3.new(doorMesh.Size.X, doorMesh.Size.Y, 0.15)
-    end
-
+    -- Clean Rectangular Door ESP Visuals (BoxHandleAdornment + SelectionBox):
+    -- BoxHandleAdornment provides a smooth, solid uniform rectangular fill across the door leaf.
+    -- SelectionBox provides a razor-sharp, flat rectangular outline around the door perimeter.
+    -- Completely eradicates Roblox's screen-space mesh chamfer cutout notches at distance (Images 2, 4, 6)!
     local extraVisuals = {}
 
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", cleanDoorPart, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
+    local doorBox = Instance.new("BoxHandleAdornment")
+    doorBox.Name = "Unknown_DoorBoxAdorn"
+    doorBox.Adornee = doorMesh
+    doorBox.Size = doorMesh.Size
+    doorBox.Color3 = color
+    doorBox.AlwaysOnTop = true
+    doorBox.Transparency = State.ESP_FillTransparency or 0.5
+    doorBox.ZIndex = 10
+    doorBox.Parent = (gethui and gethui()) or CoreGui
+    table.insert(extraVisuals, doorBox)
+
+    local doorOutline = Instance.new("SelectionBox")
+    doorOutline.Name = "Unknown_DoorOutlineBox"
+    doorOutline.Adornee = doorMesh
+    doorOutline.Color3 = color
+    doorOutline.LineThickness = 0.04
+    doorOutline.SurfaceTransparency = 1
+    doorOutline.Parent = (gethui and gethui()) or CoreGui
+    table.insert(extraVisuals, doorOutline)
+
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", nil, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
@@ -5291,6 +5292,17 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             lastFlySlidePulse = now
             if syncServerSlide then syncServerSlide(true, true) end
         end
+    elseif State.Walk_Noclip and not hiding and not isTeleportTweening then
+        local mgTable = getMainGameTable()
+        if mgTable and root then
+            mgTable.clipPos = root.Position
+            if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
+        end
+        local now = os.clock()
+        if (now - lastFlySlidePulse >= 1.5) then
+            lastFlySlidePulse = now
+            if syncServerSlide then syncServerSlide(true, true) end
+        end
 
         -- Rotate character body horizontally with camera so head is ALWAYS directly under the camera
         local hLook = Vector3.new(camLook.X, 0, camLook.Z)
@@ -5671,7 +5683,7 @@ local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
         end
     end
 
-    if State.Noclip or State.Fly_Enabled or isTeleportTweening then
+    if State.Noclip or State.Walk_Noclip or State.Fly_Enabled or isTeleportTweening then
         -- Strip CanCollide only during ACTIVE flight/noclip so walls/doors can be flown through smoothly
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
@@ -8483,6 +8495,33 @@ local mainTab = Hub.CreateTab("Main", {
 
 Hub.CreateSection(mainTab, "Movement")
 
+Hub.CreateToggle(mainTab, "Walk Noclip", State.Walk_Noclip, function(v)
+    State.Walk_Noclip = v
+    if v then
+        if not State.Bypass_AntiCheat then
+            State.Bypass_AntiCheat = true
+            neutralizeServerTeleported()
+            initAntiGlitchShield()
+            Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Walk Noclip!", 2)
+        end
+        local mg = getMainGameTable()
+        if mg then
+            local r = getRoot()
+            if r then mg.clipPos = r.Position end
+        end
+    else
+        local char = getChar()
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") and (p.Name == "Collision" or p.Name == "HumanoidRootPart") then
+                    p.CanCollide = true
+                end
+            end
+        end
+    end
+    Hub.Notify("Movement", v and "Walk Noclip: Active (Walk through walls without flying!)" or "Walk Noclip: Disabled", 2)
+end)
+
 Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
     if v and not State.Bypass_AntiCheat then
         State.Bypass_AntiCheat = true
@@ -8523,25 +8562,17 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
         end
     end
     if not v then
-        local char = getChar()
         local root = getRoot()
-        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-        if char and root and hum then
-            local rayParams = RaycastParams.new()
-            rayParams.FilterType = Enum.RaycastFilterType.Include
-            local curRooms = Workspace:FindFirstChild("CurrentRooms")
-            if curRooms then rayParams.FilterDescendantsInstances = {curRooms} end
-            local hit = Workspace:Raycast(root.Position + Vector3.new(0, 2, 0), Vector3.new(0, -30, 0), rayParams)
-            if hit and hit.Position then
-                local floorY = hit.Position.Y + (hum.HipHeight or 2.0) + 1.0
-                if root.Position.Y > floorY + 1.5 then
-                    root.CFrame = CFrame.new(root.Position.X, floorY, root.Position.Z)
-                end
-            end
+        if root then
             pcall(function()
                 root.AssemblyLinearVelocity = Vector3.zero
                 root.AssemblyAngularVelocity = Vector3.zero
             end)
+            local mg = getMainGameTable()
+            if mg then
+                mg.clipPos = root.Position
+                mg.inAir = false
+            end
         end
     end
     Hub.Notify("Movement", v and "Fly Noclip: Active (Native Engine Flight)" or "Fly Noclip: Disabled", 2)
