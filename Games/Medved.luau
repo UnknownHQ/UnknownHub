@@ -205,24 +205,42 @@ end
 
 -- Dynamic Landmark Resolver: finds the real physical ground parts of every location
 local locationRegistry = {
-    { name = "Main Base (Spawn)", target = "TheBase", fallback = Vector3.new(52.0, -143.0, -25.0) },
+    { name = "Bear Pillars", target = "BearPillars", fallback = Vector3.new(255.5, -122.5, 588.5) },
+    { name = "Crashed Plane", target = "CrashedPlane", fallback = Vector3.new(378.4, -111.5, -41.0) },
+    { name = "Frozen Lake", target = "FrozenLake", fallback = Vector3.new(615.4, -111.5, 1091.0) },
+    { name = "Gas Station", target = "GasStation", fallback = Vector3.new(-756.8, -111.5, 28.6) },
+    { name = "Graveyard", target = "Graveyard", fallback = Vector3.new(12.5, -122.5, -877.5) },
+    { name = "Little Bell", target = "LittleBell", fallback = Vector3.new(53.0, -122.5, 249.0) },
+    { name = "Main Base (Entrance)", target = "TheBaseEntrance", fallback = Vector3.new(47.0, -141.0, 42.0) },
+    { name = "Main Base (Inside)", target = "TheBaseInside", fallback = Vector3.new(52.0, -143.0, -25.0) },
+    { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850.0, -120.0, -350.0) },
+    { name = "North-East Cave (Corner 4)", target = "CornerCave4", fallback = Vector3.new(1080.7, -111.0, -1036.6) },
+    { name = "North-West Cave (Corner 1)", target = "CornerCave1", fallback = Vector3.new(-1104.3, -112.5, -1005.8) },
     { name = "Old Statue (Lenin)", target = "LeninStatue", fallback = Vector3.new(-398.5, -124.0, -685.0) },
-    { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-626, -114, 443) },
-    { name = "The Maze (Entrance)", target = "TheMazeEntrance", fallback = Vector3.new(20, -130, -185) },
+    { name = "Power Grid", target = "PowerGrid", fallback = Vector3.new(-555.5, -111.5, -270.0) },
+    { name = "Research Facility", target = "OutsideResearchFacility", fallback = Vector3.new(-17.0, -136.0, -396.0) },
+    { name = "Ruined Playground", target = "RuinedPlayground", fallback = Vector3.new(-1052.9, -111.5, 646.5) },
+    { name = "S.T.A.R. Labs", target = "STARLabs", fallback = Vector3.new(724.4, -111.5, 401.5) },
+    { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-650.1, -111.5, 444.0) },
+    { name = "Small Cave", target = "SmallCave", fallback = Vector3.new(-16.0, -139.5, 422.0) },
+    { name = "South-East Cave (Corner 2)", target = "CornerCave2", fallback = Vector3.new(1154.2, -111.0, 1167.2) },
+    { name = "South-West Cave (Corner 3)", target = "CornerCave3", fallback = Vector3.new(-866.6, -112.5, 1102.5) },
+    { name = "The Bridge", target = "TheBridge", fallback = Vector3.new(848.5, -109.0, -591.5) },
+    { name = "The Bunker", target = "TheBunker", fallback = Vector3.new(-698.5, -111.5, -664.0) },
+    { name = "The Hole", target = "TheHole", fallback = Vector3.new(-763.5, -111.5, -1198.5) },
+    { name = "The Maze (Entrance)", target = "TheMazeEntrance", fallback = Vector3.new(20.0, -130.0, -185.0) },
     { name = "The Maze (End)", target = "TheMazeEnd", fallback = Vector3.new(1140.9, -144.9, 73.1) },
-    { name = "Research Facility", target = "OutsideResearchFacility", fallback = Vector3.new(-17, -136, -396) },
-    { name = "Star Lab", target = "Star Lab", fallback = Vector3.new(-300, -112, 850) },
-    { name = "Plane Crash", target = "Plane", fallback = Vector3.new(325, -143, -63) },
-    { name = "The Bunker", target = "Bunker", fallback = Vector3.new(-699, -112, -664) },
-    { name = "Mineshaft", target = "Mineshaft", fallback = Vector3.new(-850, -120, -350) },
-    { name = "Main Cave Entrance", target = "Caves", fallback = Vector3.new(-28, -122, 397) },
-    { name = "Graveyard", target = "Graveyard", fallback = Vector3.new(12, -123, -878) }
+    { name = "The Tunnel", target = "TheTunnel", fallback = Vector3.new(-1161.5, -111.5, -45.5) }
 }
 
+-- Alphabetical sort guarantee
+table.sort(locationRegistry, function(a, b) return a.name:lower() < b.name:lower() end)
+
 local function resolveLocationPosition(item)
-    if item.target == "TheBase" then
-        -- Open Base Courtyard: In front of Bear Statue and Base stairs (Z = -25), completely clear of fences and forcefields!
+    if item.target == "TheBaseInside" then
         return Vector3.new(52.0, -143.0, -25.0)
+    elseif item.target == "TheBaseEntrance" then
+        return Vector3.new(47.0, -141.0, 42.0)
     elseif item.target == "TheMazeEntrance" then
         local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("TheMaze")
         if poi then
@@ -249,6 +267,12 @@ local function resolveLocationPosition(item)
             return poi.Position + Vector3.new(0, 2.0, 21.5)
         end
         return item.fallback + Vector3.new(0, 2.0, 0)
+    end
+
+    -- Dynamic check in TaggedAreas.PointsOfInterest
+    local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild(item.target)
+    if poi and poi:IsA("BasePart") then
+        return poi.Position + Vector3.new(0, 3.5, 0)
     end
 
     local map = Workspace:FindFirstChild("Map")
@@ -1141,10 +1165,8 @@ local function isBearTargetable(b)
         end
     end
 
-    -- Dead / Ragdolled / Evaporating Bear Check (Instant unlock, zero ghost locking!)
-    if b:GetAttribute("BoneRagdolled") == true 
-        or b:GetAttribute("Ragdolled") == true 
-        or b:GetAttribute("Evaporated") == true 
+    -- Dead / Evaporating Bear Check (Stunned / Ragdolled bears remain 100% targetable until 0 HP!)
+    if b:GetAttribute("Evaporated") == true 
         or b:GetAttribute("Dead") == true 
         or b:GetAttribute("IsDead") == true then
         return false
@@ -2038,9 +2060,9 @@ local function getFarmBearTarget()
         local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
         local lockedRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart or lockedFarmTarget:FindFirstChildWhichIsA("BasePart")
         local isTargetDead = (not lockedHum or lockedHum.Health <= 0)
-            or lockedFarmTarget:GetAttribute("BoneRagdolled") == true
             or lockedFarmTarget:GetAttribute("Evaporated") == true
             or lockedFarmTarget:GetAttribute("Dead") == true
+            or lockedFarmTarget:GetAttribute("IsDead") == true
         if not isTargetDead and lockedRoot and lockedRoot.Parent then
             local dist = (lockedRoot.Position - root.Position).Magnitude
             return lockedFarmTarget, dist
@@ -2142,8 +2164,8 @@ RunService.Heartbeat:Connect(function(dt)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return end
 
-    -- Anti-Void Failsafe: Catch character before dropping into void below map floor
-    if root.Position.Y < -170 then
+    -- Anti-Void Failsafe: Catch character before dropping into void below map floor (allows exploring deep caves/bunkers)
+    if root.Position.Y < -480 then
         root.AssemblyLinearVelocity = Vector3.zero
         root.CFrame = CFrame.new(root.Position.X, -132, root.Position.Z)
     end
@@ -2174,9 +2196,9 @@ RunService.Heartbeat:Connect(function(dt)
             local bHum = activeFlightBear:FindFirstChildOfClass("Humanoid")
             local bRoot = activeFlightOffset.bearRoot or activeFlightBear:FindFirstChild("HumanoidRootPart") or activeFlightBear.PrimaryPart or activeFlightBear:FindFirstChildWhichIsA("BasePart")
             local isBearAlive = bHum and bHum.Health > 0
-                and activeFlightBear:GetAttribute("BoneRagdolled") ~= true
                 and activeFlightBear:GetAttribute("Evaporated") ~= true
                 and activeFlightBear:GetAttribute("Dead") ~= true
+                and activeFlightBear:GetAttribute("IsDead") ~= true
             if isBearAlive and bRoot and bRoot.Parent then
                 -- Unbind BearFacing so it never flattens pitch to horizontal!
                 pcall(function()
@@ -2415,9 +2437,10 @@ task.spawn(function()
             if hum.Health <= effectiveHpThreshold and hum.Health < maxHp then
                 isFleeingLowHP = true
                 if not safeHoverTargetCF then
-                    local safeY = math.max(root.Position.Y, 20) + 18
-                    safeHoverTargetCF = CFrame.new(root.Position.X, safeY, root.Position.Z)
-                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " / " .. math.floor(maxHp) .. " HP)! Levitating safely...", 2)
+                    -- SpikeBear quills & ranged attacks reach into open air!
+                    -- Retreat directly inside Main Base safe courtyard (Z = -25, Y = -143) where bears cannot enter!
+                    safeHoverTargetCF = CFrame.new(52.0, -143.0, -25.0)
+                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " / " .. math.floor(maxHp) .. " HP)! Retreating inside Main Base...", 2)
                 end
             end
 
@@ -2516,9 +2539,9 @@ task.spawn(function()
         local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
         local bearHum = bear:FindFirstChildOfClass("Humanoid")
         local isDeadOrEvaporating = (not bearHum or bearHum.Health <= 0)
-            or bear:GetAttribute("BoneRagdolled") == true
             or bear:GetAttribute("Evaporated") == true
             or bear:GetAttribute("Dead") == true
+            or bear:GetAttribute("IsDead") == true
         if not bearRoot or isDeadOrEvaporating then
             activeFlightBear = nil
             activeFlightTargetCF = nil
@@ -2630,56 +2653,54 @@ task.spawn(function()
 
         if isBallBear then
             -- BALL BEAR: 10.25-stud giant rolling sphere!
-            -- Sphere radius is 5.125 studs in all directions.
-            -- Elevation 6.6 places player 1.48 studs safely ABOVE the sphere surface (never touched/crushed!).
-            -- Standoff 2.4 behind center gives 5.1-stud penetration into the sphere (100% scream hits!).
-            standoff = 2.4
-            elevation = 6.6 + damageElevationBoost
+            -- Sphere radius is 5.13 studs. Player leg hang is ~3.0 studs.
+            -- Elevation 9.6 keeps feet 1.5 studs safely ABOVE the sphere surface (never touched/crushed!).
+            -- Standoff 2.8 behind center gives 4.8-stud horizontal distance (100% scream hits!).
+            standoff = 2.8
+            elevation = 9.6 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("body") or bearRoot
         elseif isTallBear then
-            -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay at Y = 16.5 studs in the sky!
-            standoff = 3.2
-            elevation = 6.5 + damageElevationBoost
+            -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay high at 7.5 elevation
+            standoff = 3.6
+            elevation = 7.5 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         elseif isThinBear then
             -- THIN BEAR: 400 DMG forward scissor blades! Hover above dorsal back
-            standoff = 4.0
-            elevation = 5.2 + damageElevationBoost
+            standoff = 4.2
+            elevation = 6.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrinderBear or isWallBear then
             -- GRINDER / WALL: Mech turret guns point strictly forward; hover behind rear exhaust!
-            standoff = 6.0
-            elevation = 9.5 + damageElevationBoost
+            standoff = 6.5
+            elevation = 10.5 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isRangedBear then
             -- RANGED BEAR: Spike quills
-            standoff = 3.6
-            elevation = 4.5 + damageElevationBoost
+            standoff = 4.2
+            elevation = 5.6 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
-            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Safe apex lock at 3.6 elevation!
-            standoff = 2.8
-            elevation = 3.6 + damageElevationBoost
+            -- BOO-BOO / MINI BEARS: Height ~3.5 studs. Safe apex lock at 4.2 elevation!
+            standoff = 3.0
+            elevation = 4.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("Cube") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped
-            -- Swipe ceiling is Y <= 6.5; elevation 6.4 + standoff 5.6 keeps player completely out of claw reach!
-            standoff = 5.6
-            elevation = 6.4 + damageElevationBoost
+            standoff = 6.0
+            elevation = 7.4 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         elseif isGolden then
             -- GOLDEN MEDVED: 900 HP quadruped
-            standoff = 5.2
-            elevation = 5.8 + damageElevationBoost
+            standoff = 5.6
+            elevation = 6.8 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         else
             -- STANDARD QUADRUPEDS (Medved, ClassicBear, BurrowingBear)
             -- Medved body mesh top is Y = +4.32; swipe ceiling is Y <= +5.0.
-            -- Elevation 5.4 keeps player 1.1 studs ABOVE Medved's back and above swipe ceiling!
-            -- Standoff 4.8 keeps player 3.8 studs BEHIND Medved's forward swipe reach (Z <= +1.0).
-            -- Distance to hips is sqrt((4.8 - 2.83)^2 + (5.4 - 0.62)^2) = 5.17 studs (100% within 6.5 scream reach!).
-            standoff = 4.8
-            elevation = 5.4 + damageElevationBoost
+            -- Elevation 6.8 keeps player feet ~2 studs ABOVE Medved's back and above swipe ceiling!
+            -- Standoff 5.2 keeps player safely behind claw reach.
+            standoff = 5.2
+            elevation = 6.8 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
@@ -3517,7 +3538,9 @@ Hub.CreateToggle(visualTab, "Turrets ESP", Config.TurretsESP, function(val)
     end
 end)
 
+-- =========================================================================
 -- TAB: TELEPORTS
+-- =========================================================================
 local tpTab = Hub.CreateTab("Teleports", {
     Icon = "📍",
     Size = 18,
@@ -3525,15 +3548,182 @@ local tpTab = Hub.CreateTab("Teleports", {
     ActiveColor = Color3.fromRGB(255, 205, 50)
 })
 
+Hub.CreateSection(tpTab, "Location Teleport")
 
-Hub.CreateSection(tpTab, "Landmarks")
+-- Build sorted list of location names
+local locationNames = {}
+local locationMap = {}
+for _, loc in ipairs(locationRegistry) do
+    table.insert(locationNames, loc.name)
+    locationMap[loc.name] = loc
+end
+table.sort(locationNames, function(a, b) return a:lower() < b:lower() end)
 
-for _, locItem in ipairs(locationRegistry) do
-    Hub.CreateButton(tpTab, locItem.name, function()
-        local pos = resolveLocationPosition(locItem)
-        safeTeleport(pos, locItem.name)
+local selectedLocationName = locationNames[1] or "Main Base (Inside)"
+Hub.CreateDropdown(tpTab, "Select Location", locationNames, selectedLocationName, function(val)
+    selectedLocationName = val
+end)
+
+Hub.CreateButton(tpTab, "Teleport to Location", function()
+    local loc = locationMap[selectedLocationName]
+    if loc then
+        local pos = resolveLocationPosition(loc)
+        safeTeleport(pos, loc.name)
+    else
+        Hub.Notify("Teleport", "Please select a location first!", 2)
+    end
+end)
+
+Hub.CreateSection(tpTab, "Quick Base Teleport")
+Hub.CreateButton(tpTab, "Main Base (Inside)", function()
+    safeTeleport(Vector3.new(52.0, -143.0, -25.0), "Main Base (Inside)")
+end)
+Hub.CreateButton(tpTab, "Main Base (Entrance)", function()
+    safeTeleport(Vector3.new(47.0, -141.0, 42.0), "Main Base (Entrance)")
+end)
+
+Hub.CreateSection(tpTab, "Player Teleport")
+local function getPlayerList()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(list, p.DisplayName .. " (@" .. p.Name .. ")")
+        end
+    end
+    table.sort(list, function(a, b) return a:lower() < b:lower() end)
+    if #list == 0 then table.insert(list, "No other players") end
+    return list
+end
+
+local selectedPlayerString = getPlayerList()[1] or "No other players"
+local playerDropdown = Hub.CreateDropdown(tpTab, "Select Player", getPlayerList(), selectedPlayerString, function(val)
+    selectedPlayerString = val
+end)
+
+-- Auto-update player list when players join or leave
+local function updatePlayerDropdown()
+    task.delay(0.2, function()
+        if playerDropdown and playerDropdown.Refresh then
+            local newList = getPlayerList()
+            playerDropdown.Refresh(newList)
+            if not table.find(newList, selectedPlayerString) then
+                selectedPlayerString = newList[1] or "No other players"
+            end
+        end
     end)
 end
+Players.PlayerAdded:Connect(updatePlayerDropdown)
+Players.PlayerRemoving:Connect(updatePlayerDropdown)
+
+Hub.CreateButton(tpTab, "Teleport to Player", function()
+    if not selectedPlayerString or selectedPlayerString == "No other players" then
+        Hub.Notify("Teleport", "No other player selected!", 2)
+        return
+    end
+    local username = selectedPlayerString:match("%(@(.+)%)") or selectedPlayerString
+    local targetPlayer = Players:FindFirstChild(username)
+    if not targetPlayer then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.DisplayName == selectedPlayerString or p.Name == selectedPlayerString then
+                targetPlayer = p
+                break
+            end
+        end
+    end
+    if not targetPlayer then
+        Hub.Notify("Teleport", "Player not found!", 2)
+        return
+    end
+    local tChar = targetPlayer.Character
+    local tRoot = tChar and (tChar:FindFirstChild("HumanoidRootPart") or tChar.PrimaryPart or tChar:FindFirstChildWhichIsA("BasePart"))
+    if not tRoot then
+        Hub.Notify("Teleport", "Target player has no active character!", 2)
+        return
+    end
+    safeTeleport(tRoot.Position + Vector3.new(0, 2, 3), targetPlayer.DisplayName)
+end)
+
+Hub.CreateSection(tpTab, "Map Discovery")
+local isUnlockingLocations = false
+Hub.CreateButton(tpTab, "Auto Unlock All Locations", function()
+    if isUnlockingLocations then
+        Hub.Notify("Discovery", "Unlock process already running!", 2)
+        return
+    end
+    isUnlockingLocations = true
+    task.spawn(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not char or not root then
+            Hub.Notify("Discovery", "Character not spawned!", 2)
+            isUnlockingLocations = false
+            return
+        end
+
+        local NetworkClient = nil
+        pcall(function()
+            local RS = game:GetService("ReplicatedStorage")
+            NetworkClient = require(RS.Shared.Util.NetworkClient)
+        end)
+        if not NetworkClient then
+            Hub.Notify("Discovery", "NetworkClient not found!", 2)
+            isUnlockingLocations = false
+            return
+        end
+
+        local reqRemote = NetworkClient:GetRemoteFunction(NetworkClient.Shared.World.RequestDiscoveredLocations)
+        local discRemote = NetworkClient:GetRemoteFunction(NetworkClient.Shared.World.DiscoveredLocation)
+        discRemote:Declare("BasePart")
+
+        local discovered = {}
+        pcall(function()
+            local list = reqRemote:InvokeServer()
+            if typeof(list) == "table" then
+                for _, name in pairs(list) do
+                    discovered[name] = true
+                end
+            end
+        end)
+
+        local poiFolder = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest")
+        if not poiFolder then
+            Hub.Notify("Discovery", "PointsOfInterest not found!", 2)
+            isUnlockingLocations = false
+            return
+        end
+
+        local origCF = root.CFrame
+        local unlockedCount = 0
+        local totalPOIs = 0
+
+        Hub.Notify("Discovery", "Unlocking all map locations...", 2)
+
+        for _, poi in ipairs(poiFolder:GetChildren()) do
+            if poi:IsA("BasePart") and poi:GetAttribute("POI_DiscoverableRadius") then
+                totalPOIs = totalPOIs + 1
+                if not discovered[poi.Name] then
+                    silenceTelemetry()
+                    root.CFrame = poi.CFrame + Vector3.new(0, 3, 0)
+                    task.wait(0.18)
+                    local ok, res = pcall(function()
+                        return discRemote:InvokeServer(poi)
+                    end)
+                    if ok and res == true then
+                        unlockedCount = unlockedCount + 1
+                        discovered[poi.Name] = true
+                    end
+                end
+            end
+        end
+
+        silenceTelemetry()
+        root.CFrame = origCF
+        root.AssemblyLinearVelocity = Vector3.zero
+        isUnlockingLocations = false
+
+        Hub.Notify("Discovery", "Unlocked " .. unlockedCount .. " new locations! (" .. totalPOIs .. " total)", 3.5)
+    end)
+end)
 
 
 
