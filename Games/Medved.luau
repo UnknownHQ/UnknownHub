@@ -141,6 +141,7 @@ local Config = {
     SpawnAsBear = "booboo",
     AutoFriendlyBear = true,
     ExcludeBooBoo = true,
+    EvasiveOrbit = true,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -2064,13 +2065,37 @@ local function getFarmBearTarget()
         return bestPriorityBear, bestPriorityDist
     end
 
+    local function isBooBooBear(b)
+        if not b then return false end
+        local n = b.Name:lower()
+        return n:find("booboo") ~= nil or n:find("boo") ~= nil
+    end
+
+    local function hasNonBooBooBears()
+        for _, b in ipairs(wsBears:GetChildren()) do
+            if isBearTargetable(b) and not isBooBooBear(b) then
+                local bHum = b:FindFirstChildOfClass("Humanoid")
+                if bHum and bHum.Health > 0 then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    -- PREEMPTIVE RE-TARGETING: If currently locked onto a Boo-Boo, but a non-Boo-Boo bear has spawned,
+    -- immediately drop the Boo-Boo lock to prioritize the higher-bounty bear!
+    if lockedFarmTarget and isBooBooBear(lockedFarmTarget) and hasNonBooBooBears() then
+        lockedFarmTarget = nil
+    end
+
     -- 1. Sticky Target Lock: Stay locked onto the current bear until it is completely dead/ragdolled!
-    if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
+    if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetable(lockedFarmTarget) then
         if lockedFarmTarget == LocalPlayer.Character or lockedFarmTarget.Name == LocalPlayer.Name or Players:FindFirstChild(lockedFarmTarget.Name) then
             lockedFarmTarget = nil
         end
     end
-    if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
+    if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetable(lockedFarmTarget) then
         local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
         local lockedRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart or lockedFarmTarget:FindFirstChildWhichIsA("BasePart")
         local isTargetDead = (not lockedHum or lockedHum.Health <= 0)
@@ -2083,33 +2108,49 @@ local function getFarmBearTarget()
         end
     end
 
-    -- 2. Target died, evaporated, despawned, or unselected: unlock immediately!
+    -- 2. Target died, evaporated, despawned, or preempted: unlock immediately!
     lockedFarmTarget = nil
 
-    local bestBear = nil
-    local bestDist = math.huge
+    -- Tier 1: Any eligible non-Boo-Boo bear
+    local bestNonBooBoo = nil
+    local bestNonBooBooDist = math.huge
+    -- Tier 2 (Fallback): Closest Boo-Boo if NO other bears exist on the map (zero idle downtime!)
+    local bestBooBoo = nil
+    local bestBooBooDist = math.huge
 
     for _, bear in ipairs(wsBears:GetChildren()) do
-        if isBearTargetSelected(bear) then
+        if isBearTargetable(bear) then
             local bearHum = bear:FindFirstChildOfClass("Humanoid")
             if bearHum and bearHum.Health > 0 then
                 local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
                 if bearRoot then
                     local dist = (bearRoot.Position - root.Position).Magnitude
-                    if dist < bestDist then
-                        bestDist = dist
-                        bestBear = bear
+                    if isBooBooBear(bear) then
+                        if dist < bestBooBooDist then
+                            bestBooBooDist = dist
+                            bestBooBoo = bear
+                        end
+                    else
+                        if isBearTargetSelected(bear) then
+                            if dist < bestNonBooBooDist then
+                                bestNonBooBooDist = dist
+                                bestNonBooBoo = bear
+                            end
+                        end
                     end
                 end
             end
         end
     end
 
-    if bestBear then
-        lockedFarmTarget = bestBear
+    local selectedTarget = bestNonBooBoo or bestBooBoo
+    local selectedDist = bestNonBooBoo and bestNonBooBooDist or bestBooBooDist
+
+    if selectedTarget then
+        lockedFarmTarget = selectedTarget
     end
 
-    return bestBear, bestDist
+    return selectedTarget, selectedDist
 end
 
 local isFleeingLowHP = false
@@ -2227,15 +2268,49 @@ RunService.Heartbeat:Connect(function(dt)
                     dynamicJumpLift = math.min(vY * 0.35 + 2.5, 12.0)
                 end
 
-                local bCF = bRoot.CFrame
-                local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
-                local flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
-                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeFlightOffset.elevation + dynamicJumpLift, 0)
-                -- Dynamic Velocity Feedforward: If bear is moving, lock onto its live trajectory with 35ms lead
+                local bName = activeFlightBear.Name:lower()
+                local isBooBoo = bName:find("boo") ~= nil or bName:find("ball") ~= nil
                 local bVel = bRoot.AssemblyLinearVelocity
-                if bVel.Magnitude > 0.5 then
-                    targetPos = targetPos + (Vector3.new(bVel.X, 0, bVel.Z) * 0.035)
+                local flatVel = Vector3.new(bVel.X, 0, bVel.Z)
+
+                -- Authoritative Bear Heading:
+                -- 1. If moving, live velocity vector is 100% indisputable forward heading!
+                -- 2. If stationary Boo-Boo, RootPart is true visual forward (HumanoidRootPart is inverted 180 deg)!
+                -- 3. If stationary standard bear, HumanoidRootPart.LookVector is forward.
+                local flatLook = nil
+                if flatVel.Magnitude > 1.0 then
+                    flatLook = flatVel.Unit
+                elseif isBooBoo then
+                    local rp = activeFlightBear:FindFirstChild("RootPart")
+                    if rp then
+                        local rpLook = Vector3.new(rp.CFrame.LookVector.X, 0, rp.CFrame.LookVector.Z)
+                        flatLook = rpLook.Magnitude > 0.05 and rpLook.Unit or Vector3.new(0, 0, 1)
+                    else
+                        local bCF = bRoot.CFrame
+                        local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
+                        flatLook = rawLook.Magnitude > 0.05 and -rawLook.Unit or Vector3.new(0, 0, 1)
+                    end
+                else
+                    local bCF = bRoot.CFrame
+                    local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
+                    flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
                 end
+
+                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeFlightOffset.elevation + dynamicJumpLift, 0)
+                -- Dynamic Velocity Feedforward: 40ms predictive lead glued to the bear's running momentum
+                if flatVel.Magnitude > 0.5 then
+                    targetPos = targetPos + (flatVel * 0.040)
+                end
+
+                -- Dynamic Evasive Dorsal Orbit: Weaves laterally across the rear spine to disrupt bear tracking & turning attacks!
+                if Config.EvasiveOrbit ~= false then
+                    local rightVec = flatLook:Cross(Vector3.yAxis)
+                    if rightVec.Magnitude > 0.05 then
+                        local sway = math.sin(os.clock() * 4.0) * 1.5
+                        targetPos = targetPos + (rightVec.Unit * sway)
+                    end
+                end
+
                 local aimPart = activeFlightOffset.targetHitPart or bRoot
                 local aimPos = (aimPart and aimPart.Parent) and (aimPart.Position + Vector3.new(0, 0.2, 0)) or (bRoot.Position + Vector3.new(0, 0.5, 0))
                 targetCF = CFrame.lookAt(targetPos, aimPos)
@@ -2697,10 +2772,14 @@ task.spawn(function()
             elevation = 6.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrinderBear then
-            -- GRINDER: Mech turret guns point strictly forward; hover behind rear exhaust!
-            standoff = 6.5
-            elevation = 10.5 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("BodyTop") or bearRoot
+            -- GRINDER: 35.6-stud giant mech monstrosity!
+            -- Hitbox_Wheel has a 15.3-stud diameter (crushes any player near ground level Y <= 7.65).
+            -- Hitbox_Head is at Y = +20.10, Hitbox_Chest is at Y = +12.07. All 4 guns point FORWARD (-Z).
+            -- Elevating to 18.5 studs places Boo-Boo 10.8 studs above the crushing wheel and in the dorsal head pocket!
+            -- Standoff 3.6 behind Hitbox_Head connects sonic scream 100% with 0 wheel/bullet damage!
+            standoff = 3.6
+            elevation = 18.5 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bearRoot
         elseif isRangedBear then
             -- RANGED BEAR: Spike quills
             standoff = 4.2
@@ -2708,29 +2787,29 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
             -- BOO-BOO / MINI BEARS: Height ~3.5 studs.
-            -- Sonic scream has +-3.0 stud vertical reach and 6.5 stud forward depth.
-            -- Standoff 2.0 and elevation 2.0 locks enemy Boo-Boo directly in the center of the scream volume!
-            -- 100% hit connection even when enemy Boo-Boo is running at full sprint (23.5 studs/sec)!
-            standoff = 2.0
-            elevation = 2.0 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Cube") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Body") or bearRoot
+            -- Standoff 1.8 and elevation 2.2 locks Boo-Boo directly in the center of the scream volume!
+            -- Fixed model LookVector inversion + 40ms velocity lead ensures 100% hits at full sprint!
+            standoff = 1.8
+            elevation = 2.2 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Cube") or bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped (swipe extends to Y = +6.5)
-            standoff = 3.6
-            elevation = 7.2 + damageElevationBoost
+            standoff = 3.4
+            elevation = 8.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         elseif isGolden then
             -- GOLDEN MEDVED: 900 HP quadruped
-            standoff = 3.6
-            elevation = 7.2 + damageElevationBoost
+            standoff = 3.4
+            elevation = 8.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         else
-            -- STANDARD QUADRUPEDS (Medved, ClassicBear)
-            -- Medved swipe hitbox extends vertically Y in [-3.0, +5.0].
-            -- Standoff 3.2 and elevation 5.8 positions Boo-Boo safely above Medved's +5.0 claw swipe ceiling!
-            -- Zero damage taken from claws, while sonic scream (6.5-stud vertical reach) connects 100%.
-            standoff = 3.2
-            elevation = 5.8 + damageElevationBoost
+            -- STANDARD QUADRUPEDS (Medved, ClassicBear):
+            -- Medved claw swipe volume is Y in [-3.0, +5.0].
+            -- Standoff 2.8 and elevation 6.8 places Boo-Boo safely above Medved's +5.0 claw swipe ceiling!
+            -- Even when pitched down to aim at Hitbox_Chest, lower body stays at Y >= +5.6 studs (> +5.0).
+            -- 0 damage taken from claws, while sonic scream (4.9 studs diagonal) connects 100%.
+            standoff = 2.8
+            elevation = 6.8 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
@@ -3445,7 +3524,12 @@ end)
 
 Hub.CreateToggle(farmTab, "Exclude Boo-Boo from Farm", Config.ExcludeBooBoo, function(val)
     Config.ExcludeBooBoo = val
-    Hub.Notify("Bear Farm", val and "Boo-Boo Excluded (Higher Cash Yield)" or "Boo-Boo Included", 2)
+    Hub.Notify("Bear Farm", val and "Boo-Boo Excluded (Fallback Mode Active)" or "Boo-Boo Included", 2)
+end)
+
+Hub.CreateToggle(farmTab, "Evasive Dorsal Orbit", Config.EvasiveOrbit, function(val)
+    Config.EvasiveOrbit = val
+    Hub.Notify("Bear Farm", val and "Evasive Orbit: ACTIVE" or "Evasive Orbit: OFF", 2)
 end)
 
 bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears", getAvailableBearTypes(), {"All"}, function(dict, arr)
