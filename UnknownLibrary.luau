@@ -1196,6 +1196,7 @@ return function(opts)
         end
         local state = defaultState == true
         local cb = type(callback) == "function" and callback or function() end
+        local setToggle
 
         local card = Instance.new("Frame")
         card.Name = "ToggleCard_" .. tostring(titleText)
@@ -1273,7 +1274,7 @@ return function(opts)
             end
         end
 
-        local function setToggle(val)
+        setToggle = function(val)
             state = (val == true)
             updateVisuals()
             pcall(cb, state)

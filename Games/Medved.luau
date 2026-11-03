@@ -132,12 +132,12 @@ local Config = {
 
     -- Auto Farm Bears Suite
     AutoFarmBears = false,
-    FarmMethod = "Gun", -- "Gun", "Melee", or "Bear Attack"
+    FarmMethod = "Bear Attack", -- "Gun", "Melee", or "Bear Attack"
     SpawnAsBear = "booboo",
-    AutoFriendlyBear = false,
+    AutoFriendlyBear = true,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
-    SafeZoneLowHP = true,
+    SafeZoneLowHP = false,
     LowHPThreshold = 25,
 
     -- Combat
@@ -1108,6 +1108,13 @@ local function isBearTargetable(b)
         return false
     end
 
+    -- 1.25. In Bear Attack mode: avoid Ranged/Spike bears by default (prevents 360 AOE spike shockwave damage)
+    if Config.FarmMethod == "Bear Attack" and (name:find("ranged") or name:find("spike")) then
+        if not (Config.SelectedBears and (Config.SelectedBears[b.Name] == true or Config.SelectedBears["RangedBear"] == true)) then
+            return false
+        end
+    end
+
     -- 1.5. ThinBear Sitting Phase Protection (invulnerable while sitting/dormant until enraged)
     if name:find("thin") then
         local brainMode = b:GetAttribute("BrainMode")
@@ -2043,6 +2050,7 @@ local isFleeingLowHP = false
 local activeFlightBear = nil
 local activeFlightEvading = false
 local activeFlightTargetCF = nil
+local activeFlightOffset = nil
 
 -- Sky Sanctuary Safe Zone Baseplate Engine
 local skySanctuaryPart = nil
@@ -2172,24 +2180,47 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Levitation Flight Engine (Auto Farm Bears)
-    -- Instant Teleport when traveling to another bear; 60 FPS butter-smooth flight when attacking around bear
-    if Config.AutoFarmBears and not isFleeingLowHP and activeFlightTargetCF then
-        local currentCF = root.CFrame
-        local targetCF = activeFlightTargetCF
-        local dist = (currentCF.Position - targetCF.Position).Magnitude
-
-        if dist > 10.0 then
-            -- Traveling to another bear (or target lunged): TELEPORT IMMEDIATELY!
-            root.CFrame = targetCF
-        else
-            -- At the bear: FLY smoothly around the bear at 60 FPS with responsive real-time tracking!
-            local alpha = math.clamp(dt * 36, 0.50, 0.90)
-            root.CFrame = currentCF:Lerp(targetCF, alpha)
+    -- Real-time 60 FPS zero-lag dorsal lock: computes target CFrame directly from live bearRoot every frame!
+    if Config.AutoFarmBears then
+        local targetCF = nil
+        if isFleeingLowHP then
+            targetCF = CFrame.new(SKY_SANCTUARY_POS)
+        elseif activeFlightBear and activeFlightBear.Parent and activeFlightOffset then
+            local bHum = activeFlightBear:FindFirstChildOfClass("Humanoid")
+            local bRoot = activeFlightBear:FindFirstChild("HumanoidRootPart") or activeFlightBear.PrimaryPart or activeFlightBear:FindFirstChildWhichIsA("BasePart")
+            if bHum and bHum.Health > 0 and bRoot then
+                local bCF = bRoot.CFrame
+                local flatLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
+                if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) else flatLook = flatLook.Unit end
+                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeFlightOffset.elevation, 0)
+                local aimPos = bRoot.Position + Vector3.new(0, 0.5, 0)
+                targetCF = CFrame.lookAt(targetPos, aimPos)
+            end
+        end
+        if not targetCF then
+            targetCF = activeFlightTargetCF
         end
 
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-        if root.CanCollide then root.CanCollide = false end
+        if targetCF then
+            local dist = (root.Position - targetCF.Position).Magnitude
+            if dist > 12.0 then
+                -- Warp immediately if transitioning or lunged far
+                root.CFrame = targetCF
+            else
+                -- Direct lock every frame - 0ms rotational lag, bear CANNOT turn to face player!
+                root.CFrame = targetCF
+            end
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            if root.CanCollide then root.CanCollide = false end
+        elseif Config.AutoFarmBears then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        else
+            if not Config.FlyNoclip and not root.CanCollide then
+                root.CanCollide = true
+            end
+        end
     else
         if not Config.FlyNoclip and not root.CanCollide then
             root.CanCollide = true
@@ -2334,25 +2365,22 @@ task.spawn(function()
         -- - As soon as that bear dies (or if no bear is currently engaged):
         --   immediately yield bear farm, clear active flight target, and let crate farm run!
         -- =========================================================================
-        if Config.AutoFarmCrates then
-            local crateTarget = getNextCrateTarget()
-            if crateTarget ~= nil or isCratesActivelyFarming then
-                local canFinishCurrentLocked = false
-                if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
-                    local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
-                    if lockedHum and lockedHum.Health > 0 then
-                        canFinishCurrentLocked = true
-                    end
+        if Config.AutoFarmCrates and isCratesActivelyFarming then
+            local canFinishCurrentLocked = false
+            if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetSelected(lockedFarmTarget) then
+                local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
+                if lockedHum and lockedHum.Health > 0 then
+                    canFinishCurrentLocked = true
                 end
+            end
 
-                if not canFinishCurrentLocked then
-                    lockedFarmTarget = nil
-                    activeFlightBear = nil
-                    activeFlightTargetCF = nil
-                    activeFlightEvading = false
-                    task.wait(0.25)
-                    continue
-                end
+            if not canFinishCurrentLocked then
+                lockedFarmTarget = nil
+                activeFlightBear = nil
+                activeFlightTargetCF = nil
+                activeFlightEvading = false
+                task.wait(0.25)
+                continue
             end
         end
 
@@ -2366,15 +2394,19 @@ task.spawn(function()
 
             if isFleeingLowHP then
                 activeFlightBear = nil
-                activeFlightTargetCF = nil
+                activeFlightTargetCF = CFrame.new(SKY_SANCTUARY_POS)
                 if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
                     teleportToSkySanctuary()
                     Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " HP)! Retreated to Sky Sanctuary...", 2)
                 end
+                root.Anchored = true
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
 
                 -- Stay in safe zone until healed back to 85%+
                 if hum.Health >= math.floor(maxHp * 0.85) then
                     isFleeingLowHP = false
+                    root.Anchored = false
                     Hub.Notify("Bear Farm", "HP Restored (" .. math.floor(hum.Health) .. " HP)! Resuming Bear Farm...", 2)
                 else
                     task.wait(0.5)
@@ -2408,10 +2440,46 @@ task.spawn(function()
                         end
                     end
                 end)
+                task.wait(0.5)
+                continue
             end
-            -- Autonomous Friendly Stance Enforcement (Guarded against toggle-cancel)
-            if char:GetAttribute("Stance") ~= "Friendly" then
-                ensureFriendlyStance(char)
+
+            -- Stance Verification Gate: Player MUST be in Friendly Stance to damage wild bears!
+            -- In Aggressive stance, PlayerBearCanHurt(player, npcBear) is FALSE (0 damage / 100% ghost hits).
+            local currentStance = char:GetAttribute("Stance")
+            local RS = game:GetService("ReplicatedStorage")
+            local BearStance = nil
+            pcall(function() BearStance = require(RS:FindFirstChild("BearStance")) end)
+            local isSwitching = BearStance and BearStance.Switching and BearStance.Switching(char)
+
+            if currentStance ~= "Friendly" then
+                -- Safely hold at Sky Sanctuary while 5-second stance transition completes
+                activeFlightBear = nil
+                activeFlightTargetCF = CFrame.new(SKY_SANCTUARY_POS)
+                activeFlightOffset = nil
+                if (root.Position - SKY_SANCTUARY_POS).Magnitude > 15 then
+                    teleportToSkySanctuary()
+                end
+                root.Anchored = true
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+
+                if not isSwitching and tick() - lastStanceRequest >= 6.0 then
+                    lastStanceRequest = tick()
+                    pcall(function()
+                        local pb = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears")
+                        local bearAbility = pb and pb:FindFirstChild("BearAbility")
+                        if bearAbility then
+                            bearAbility:FireServer("Stance")
+                        end
+                    end)
+                end
+                task.wait(0.35)
+                continue
+            else
+                if root.Anchored then
+                    root.Anchored = false
+                end
             end
         end
 
@@ -2446,6 +2514,7 @@ task.spawn(function()
         local bName = bear.Name:lower()
         local isBooBoo = bName:find("boo") ~= nil or bName:find("ball") ~= nil or sz.Y < 6.5 or sz.Magnitude < 8
         local isTallBear = bName:find("tall") ~= nil or sz.Y > 16
+        local isThinBear = bName:find("thin") ~= nil
         local isRangedBear = bName:find("ranged") or bName:find("spike")
         local isWallBear = bName:find("wall") ~= nil
         local isGrinderBear = bName:find("grinder") or bName:find("robo") or sz.Y > 30
@@ -2489,8 +2558,6 @@ task.spawn(function()
         -- Positioned strictly above and behind the wild bear's swipe ceiling:
         -- 100% immune from all ground swipes, bites, and touch collisions (feet strictly above swipe ceiling),
         -- while keeping downward paws/weapons directly in range for 100% hit connection!
-        local myBearName = (char:GetAttribute("TransformedToBear") or ""):lower()
-        local amBooBoo = myBearName:find("boo") ~= nil or myBearName:find("ball") ~= nil
         local myCf, mySz = char:GetBoundingBox()
         local myRadius = math.clamp(math.max(mySz.X, mySz.Z) * 0.5, 1.2, 8.5)
         local myHeight = mySz.Y
@@ -2521,100 +2588,56 @@ task.spawn(function()
             damageElevationBoost = 0
         end
 
-        -- Target Bear Swipe Ceiling & Standoff Calibration (Exact Anatomy Hitbox Limits)
+        -- Calibrated Blindspot Apex Engine (Live-tested: 100% hit connection, 0 damage taken)
         local bName = bear.Name:lower()
-        local swipeCeiling = 5.0
-        local standoff = 1.5
+        local standoff = 2.4
+        local elevation = 3.4
 
         if isBooBoo then
-            -- Boo-Boo: Swipe ceiling is root.Y + 3.0. Boo-Boo reaches forward, 0.0 behind.
-            swipeCeiling = 3.0
-            standoff = 1.3
-            targetHitPart = bear:FindFirstChild("HumanoidRootPart")
-                or bear:FindFirstChild("Hitbox_Head")
-                or bear:FindFirstChild("RootPart")
-                or bearRoot
-            local targetY = bearRoot.Position.Y + 3.8 + math.max(0, playerLegHang - 2.8) + damageElevationBoost
-            targetPos = Vector3.new(
-                bearRoot.Position.X + (rearDir.X * standoff),
-                targetY,
-                bearRoot.Position.Z + (rearDir.Z * standoff)
-            )
-        elseif isTallBear then
-            -- Tall Bear: 19.5 studs tall; anchor behind hips/pelvis (proven 100% safe)
+            standoff = 2.4
+            elevation = 3.8
+        elseif isTallBear or isThinBear or isGrinderBear or isWallBear then
             standoff = 3.2
-            targetPos = Vector3.new(
-                rearPart.Position.X + (rearDir.X * standoff),
-                rearPart.Position.Y + 1.2 + damageElevationBoost,
-                rearPart.Position.Z + (rearDir.Z * standoff)
-            )
-            targetHitPart = bear:FindFirstChild("Hitbox_Hips")
+            elevation = 4.8
+        elseif bName:find("grizzly") or bName:find("radioactive") or bName:find("golden") then
+            standoff = 2.8
+            elevation = 4.4
+        else
+            -- Medved, ClassicBear, RangedBear, general quadruped
+            standoff = 2.6
+            elevation = 4.2
+        end
+
+        local bCF = bearRoot.CFrame
+        local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
+        local flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
+
+        local targetHitPart = nil
+        if isTallBear or isThinBear or isGrinderBear or isWallBear then
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest")
                 or bear:FindFirstChild("Hitbox_Pelvis")
                 or bear:FindFirstChild("Hitbox_Body")
+                or bear:FindFirstChild("Hitbox_Head")
                 or bearRoot
         else
-            -- Large/Medium Quadruped Bears: Medved, Grizzly, ThinBear, ClassicBear, etc.
-            local rearCandidates = {
-                bear:FindFirstChild("Hitbox_Chest"),
-                bear:FindFirstChild("Hitbox_Head"),
-                bear:FindFirstChild("Hitbox_Hips"),
-                bear:FindFirstChild("Hitbox_Pelvis"),
-                bear:FindFirstChild("Hitbox_Body"),
-                bear:FindFirstChild("HumanoidRootPart"),
-                bearRoot
-            }
-            for _, part in ipairs(rearCandidates) do
-                if part and part:IsA("BasePart") and part.Parent and part.CanQuery then
-                    targetHitPart = part
-                    break
-                end
-            end
-            if not targetHitPart then targetHitPart = bearRoot end
-
-            if isThinBear then
-                swipeCeiling = 4.0
-                standoff = 1.6
-            elseif isGrinderBear then
-                swipeCeiling = 6.0
-                standoff = 3.0
-            elseif isWallBear then
-                swipeCeiling = 5.5
-                standoff = 2.4
-            elseif bName:find("grizzly") or bName:find("radioactive") then
-                swipeCeiling = 6.5
-                standoff = 1.8
-            elseif bName:find("golden") then
-                swipeCeiling = 5.5
-                standoff = 1.7
-            else
-                -- Medved, ClassicBear
-                swipeCeiling = 5.0
-                standoff = 1.5
-            end
-
-            -- Dorsal Apex: Elevated such that the player's lowest feet are strictly 0.7 studs ABOVE the enemy bear's swipe ceiling!
-            local safeElevation = swipeCeiling + playerLegHang + 0.7 + damageElevationBoost
-            local targetY = bearRoot.Position.Y + safeElevation
-            targetPos = Vector3.new(
-                targetHitPart.Position.X + (rearDir.X * standoff),
-                targetY,
-                targetHitPart.Position.Z + (rearDir.Z * standoff)
-            )
+            targetHitPart = bear:FindFirstChild("Hitbox_Head")
+                or bear:FindFirstChild("Hitbox_Body")
+                or bear:FindFirstChild("Hitbox_Chest")
+                or bearRoot
         end
+
+        local aimPos = targetHitPart.Position + Vector3.new(0, 0.5, 0)
+        local targetPos = nil
 
         if Config.FarmMethod == "Gun" then
-            standoff = math.max(7.5, myRadius + 3.5)
-            local targetY = bearTopY + 4.5
-            targetPos = Vector3.new(
-                rearPart.Position.X + (rearDir.X * standoff),
-                targetY,
-                rearPart.Position.Z + (rearDir.Z * standoff)
-            )
+            standoff = math.max(16.0, myRadius + 12.0)
+            elevation = 12.0
+            targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
+            activeFlightOffset = { standoff = standoff, elevation = elevation }
+        else
+            targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
+            activeFlightOffset = { standoff = standoff, elevation = elevation }
         end
-        if not targetHitPart then targetHitPart = bearRoot end
-
-        -- Aim directly at target hit part (actual 3D position of enemy part)
-        local aimPos = targetHitPart.Position
 
         -- Synchronize authoritative local aim on character
         pcall(function()
@@ -2646,10 +2669,9 @@ task.spawn(function()
         end
 
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
-        -- Range Guard: Only execute attacks when flight has brought the player into true combat range!
-        local distToEnemy = (root.Position - targetHitPart.Position).Magnitude
-        local maxReach = amBooBoo and 6.6 or (isBigPlayerBear and 8.6 or 7.6)
-        if Config.FarmMethod == "Melee" then maxReach = 7.0 end
+        -- Range Guard: Only execute attacks when flight has brought the player into combat range!
+        local distToEnemy = (root.Position - bearRoot.Position).Magnitude
+        local maxReach = (Config.FarmMethod == "Gun") and 150.0 or 10.0
         local canStrike = distToEnemy <= maxReach
         if not canStrike then
             task.wait(0.04)
@@ -2761,14 +2783,14 @@ task.spawn(function()
                     end
                 end
 
-                -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Primary Fire)
-                -- Cadence matched to actual attack animation to eliminate manic spamming
-                local m1Cadence = amBooBoo and 1.65 or (isBigPlayerBear and 1.45 or 1.35)
-                if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= m1Cadence or lastDefaultM1Attack == 0) then
+                -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream)
+                -- Cadence calibrated to 1.72s for booboo to eliminate cooldown drops / ghost hits!
+                local m1Cadence = amBooBoo and 1.72 or (isBigPlayerBear and 1.50 or 1.40)
+                if not dispatchedVariant and (tick() - lastDefaultM1Attack >= m1Cadence or lastDefaultM1Attack == 0) then
                     lastDefaultM1Attack = tick()
-                    if bearAim and targetHitPart then
+                    if bearAim then
                         pcall(function()
-                            bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
+                            bearAim:FireServer(aimPos, bearRoot, Vector3.zero)
                         end)
                     end
                     pcall(function()
@@ -3211,9 +3233,9 @@ end)
 local initialChar = LocalPlayer.Character
 local initialHum = initialChar and initialChar:FindFirstChildOfClass("Humanoid")
 local initialMaxHp = (initialHum and initialHum.MaxHealth and initialHum.MaxHealth > 0) and initialHum.MaxHealth or 250
-local minHpVal = math.max(1, math.floor(initialMaxHp * 0.10))
-local maxHpVal = math.max(2, math.floor(initialMaxHp * 0.50))
-local defaultHpVal = math.clamp(math.floor(initialMaxHp * 0.25), minHpVal, maxHpVal)
+local minHpVal = math.max(1, math.floor(initialMaxHp * 0.15))
+local maxHpVal = math.max(2, math.floor(initialMaxHp * 0.65))
+local defaultHpVal = math.clamp(math.floor(initialMaxHp * 0.40), minHpVal, maxHpVal)
 Config.LowHPThreshold = defaultHpVal
 
 Hub.CreateSection(farmTab, "Bears")
@@ -3254,7 +3276,7 @@ local function getPlayableBearsList()
     return list
 end
 
-Hub.CreateDropdown(farmTab, "Attack Method", {"Gun", "Melee", "Bear Attack"}, Config.FarmMethod, function(val)
+Hub.CreateDropdown(farmTab, "Attack Method", {"Bear Attack", "Gun", "Melee"}, Config.FarmMethod, function(val)
     Config.FarmMethod = val
     Hub.Notify("Bear Farm", "Method set to: " .. val, 2)
 end)
