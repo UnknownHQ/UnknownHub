@@ -699,9 +699,9 @@ local function createBillboard(adorneePart, baseText, color, offset)
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
     label.TextColor3 = color
-    label.TextStrokeTransparency = 0.45
-    label.TextStrokeColor3 = Color3.fromRGB(15, 15, 20)
-    label.Font = Enum.Font.Gotham
+    label.TextStrokeTransparency = 0 -- Full solid black outline for razor-sharp readability!
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.Font = Enum.Font.GothamBold -- Bold font for instant visibility against any background
     label.TextSize = State.ESP_TextSize or 15
     label.Parent = bb
 
@@ -1295,27 +1295,19 @@ local function processDoor(room, doorModel)
         local baseText = "Dupe Door"
         local color = State.ESP_Color_Dupe or Color3.fromRGB(255, 35, 35)
         local extraVisuals = {}
-        local doorBox = Instance.new("BoxHandleAdornment")
-        doorBox.Name = "Unknown_DoorBoxAdorn"
-        doorBox.Adornee = doorMesh
-        doorBox.Size = Vector3.new(doorMesh.Size.X * 0.96, doorMesh.Size.Y * 0.98, 0.05)
-        doorBox.Color3 = color
-        doorBox.AlwaysOnTop = true
-        doorBox.Transparency = 0.82
-        doorBox.ZIndex = 5
-        doorBox.Parent = (gethui and gethui()) or CoreGui
-        table.insert(extraVisuals, doorBox)
 
         local doorOutline = Instance.new("SelectionBox")
         doorOutline.Name = "Unknown_DoorOutlineBox"
         doorOutline.Adornee = doorMesh
         doorOutline.Color3 = color
-        doorOutline.LineThickness = 0.02
+        doorOutline.LineThickness = 0.025
         doorOutline.SurfaceTransparency = 1
+        doorOutline.AlwaysOnTop = true
         doorOutline.Parent = (gethui and gethui()) or CoreGui
         table.insert(extraVisuals, doorOutline)
 
-        registerEsp(doorModel, doorMesh, baseText, color, "Doors", nil, Vector3.new(0, 1.2, 0), roomNumber, extraVisuals)
+        local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
+        registerEsp(doorModel, doorMesh, baseText, color, "Doors", nil, doorHeaderOffset, roomNumber, extraVisuals)
         if State.Anti_Dupe then secureDupeDoor(doorModel) end
         return
     end
@@ -1408,34 +1400,23 @@ local function processDoor(room, doorModel)
 
     local adorneePart = doorMesh
 
-    -- Clean Rectangular Door ESP Visuals (BoxHandleAdornment + SelectionBox):
-    -- BoxHandleAdornment provides a smooth, solid uniform rectangular fill across the door leaf.
-    -- SelectionBox provides a razor-sharp, flat rectangular outline around the door perimeter.
+    -- Clean Sleek Door ESP Visuals (SelectionBox + Elevated Floating Billboard Header):
+    -- SelectionBox provides a razor-sharp neon perimeter outline around the door leaf without covering the door!
+    -- Wood textures, door number plates, and padlocks remain 100% visible and un-obscured!
     local extraVisuals = {}
-
-    local doorBox = Instance.new("BoxHandleAdornment")
-    doorBox.Name = "Unknown_DoorBoxAdorn"
-    doorBox.Adornee = doorMesh
-    -- Ultra-thin face slab (0.05 studs) so it hugs the door leaf cleanly without projecting into the hallway
-    doorBox.Size = Vector3.new(doorMesh.Size.X * 0.96, doorMesh.Size.Y * 0.98, 0.05)
-    doorBox.Color3 = color
-    doorBox.AlwaysOnTop = true
-    doorBox.Transparency = 0.82 -- Clean, subtle translucent tint: door numbers, locks, and wood textures shine through!
-    doorBox.ZIndex = 1 -- Lowest ZIndex so text Billboard is ALWAYS layered on top, never behind!
-    doorBox.Parent = (gethui and gethui()) or CoreGui
-    table.insert(extraVisuals, doorBox)
 
     local doorOutline = Instance.new("SelectionBox")
     doorOutline.Name = "Unknown_DoorOutlineBox"
     doorOutline.Adornee = doorMesh
     doorOutline.Color3 = color
-    doorOutline.LineThickness = 0.02 -- Sleek, razor-sharp perimeter outline
+    doorOutline.LineThickness = 0.025 -- Sleek, razor-sharp perimeter outline
     doorOutline.SurfaceTransparency = 1
+    doorOutline.AlwaysOnTop = true
     doorOutline.Parent = (gethui and gethui()) or CoreGui
     table.insert(extraVisuals, doorOutline)
 
-    -- Float text cleanly ABOVE the top door frame header (doorMesh.Size.Y / 2 + 0.85 studs) so it is NEVER behind the door!
-    local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.85, 0)
+    -- Float text cleanly ABOVE the top door frame header (doorMesh.Size.Y / 2 + 0.95 studs) so it is NEVER behind or inside the door!
+    local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
     registerEsp(doorModel, adorneePart, baseText, color, "Doors", nil, doorHeaderOffset, roomNumber, extraVisuals)
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
@@ -4228,15 +4209,6 @@ local function restoreCharacterVisibility(char)
     if mg and mg.hideplayers and mg.hideplayers < 0 then
         mg.hideplayers = 0
     end
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") or p:IsA("Decal") then
-            local pLower = p.Name:lower()
-            local isHeadAcc = (pLower == "head" or pLower:find("face") or pLower:find("hair") or pLower:find("lash") or pLower:find("brow") or pLower:find("hat"))
-            if not isHeadAcc and not pLower:find("collision") and pLower ~= "humanoidrootpart" then
-                p.LocalTransparencyModifier = 0
-            end
-        end
-    end
 end
 
 local function restoreCharacterInteractivity(char)
@@ -5444,17 +5416,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             end
         else
             -- When NOT hiding:
-            -- 1. If we just transitioned out of hiding, reset body parts to 0 ONE TIME so exit animation is visible
             if justExitedHiding then
                 justExitedHiding = false
-                for _, p in ipairs(char:GetChildren()) do
-                    if p:IsA("BasePart") then
-                        local pLower = p.Name:lower()
-                        if not (pLower == "head" or pLower:find("collision") or pLower == "humanoidrootpart") then
-                            p.LocalTransparencyModifier = 0
-                        end
-                    end
-                end
             end
 
             -- 2. Permanently enforce LocalTransparencyModifier = 1 on Head, face, hair, eyelashes, eyebrows, hats
@@ -5511,7 +5474,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
--- First-Person Dynamic Eye-Level Camera Shield & 3D Head/Face Mesh Clip Eradication:
+-- First-Person Dynamic Eye-Level Camera Shield & Complete Body Clip Eradication:
 local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(function()
     if cameraPitchConn then trackConn(cameraPitchConn) end
     if _G.DOORS_SESSION ~= currentSession then return end
@@ -5523,89 +5486,30 @@ local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(functi
             if mgTable.__NOBASERIG then mgTable.__NOBASERIG = false end
             if mgTable.canUseItems == false then mgTable.canUseItems = true end
         end
-        local cam = Workspace.CurrentCamera
-        local baseRig = cam and cam:FindFirstChild("BaseRig")
-        if baseRig then
-            for _, bp in ipairs(baseRig:GetDescendants()) do
-                if bp:IsA("BasePart") then bp.LocalTransparencyModifier = 0 end
-            end
+    end
+
+    -- First-person viewmodel arms (cam.BaseRig) and held tools remain 100% visible!
+    local cam = Workspace.CurrentCamera
+    local baseRig = cam and cam:FindFirstChild("BaseRig")
+    if baseRig then
+        for _, bp in ipairs(baseRig:GetDescendants()) do
+            if bp:IsA("BasePart") then bp.LocalTransparencyModifier = 0 end
         end
     end
 
     local char = getChar()
     if char then
-        -- Enforce LocalTransparencyModifier = 1 in RenderStepped right before rasterization!
-        -- Roblox animation engine runs between Stepped and RenderStepped; setting it here prevents animation from restoring visibility!
-        -- Eradicates 3D face, eyelashes, hair ribbons, and black spike lines across daddy's screen
-        local head = char:FindFirstChild("Head")
-        if head and head:IsA("BasePart") then
-            head.LocalTransparencyModifier = 1
-            for _, desc in ipairs(head:GetDescendants()) do
-                if desc:IsA("BasePart") or desc:IsA("Decal") then
-                    desc.LocalTransparencyModifier = 1
-                end
+        -- Enforce LocalTransparencyModifier = 1 across ALL character parts and accessories in RenderStepped!
+        -- In DOORS (first-person engine), rendering any part of the character locally causes the torso and shoulders
+        -- to completely block the camera crosshair when looking down (as seen in Image 2).
+        -- Setting LocalTransparencyModifier = 1 ensures:
+        -- 1. Complete unobstructed view looking down at the floor, items, footsteps, and drawers.
+        -- 2. First-person viewmodel arms (cam.BaseRig) remain fully visible and holding items.
+        -- 3. Third-person view (server and friends) remains 100% normal with full animations, clothes, and skin.
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") or p:IsA("Decal") then
+                p.LocalTransparencyModifier = 1
             end
-        end
-        for _, child in ipairs(char:GetChildren()) do
-            if child:IsA("Accessory") then
-                local isHeadAcc = false
-                local accType = child.AccessoryType
-                if accType == Enum.AccessoryType.Hat or accType == Enum.AccessoryType.Hair
-                    or accType == Enum.AccessoryType.Face or accType == Enum.AccessoryType.Eyebrow
-                    or accType == Enum.AccessoryType.Eyelash then
-                    isHeadAcc = true
-                end
-                local h = child:FindFirstChild("Handle")
-                if h and h:IsA("BasePart") then
-                    for _, att in ipairs(h:GetChildren()) do
-                        if att:IsA("Attachment") then
-                            local an = att.Name:lower()
-                            if an:find("head") or an:find("face") or an:find("hair") or an:find("hat") then
-                                isHeadAcc = true
-                                break
-                            end
-                        end
-                    end
-                    if isHeadAcc or child.Name:lower():find("hair") or child.Name:lower():find("face") or child.Name:lower():find("hat") or child.Name:lower():find("lash") then
-                        h.LocalTransparencyModifier = 1
-                        for _, hd in ipairs(h:GetDescendants()) do
-                            if hd:IsA("BasePart") or hd:IsA("Decal") then
-                                hd.LocalTransparencyModifier = 1
-                            end
-                        end
-                    end
-                end
-            elseif child:IsA("BasePart") then
-                local cName = child.Name:lower()
-                if cName:find("face") or cName:find("lash") or cName:find("brow") or cName:find("hair") then
-                    child.LocalTransparencyModifier = 1
-                end
-            end
-        end
-    end
-
-    local cam = Workspace.CurrentCamera
-    if not cam or cam.CameraType ~= Enum.CameraType.Scriptable then return end
-    if TeleportState.isTweening then return end
-
-    local mgTable = getMainGameTable()
-    if isPlayerHiding(char, mgTable) then return end
-
-    local look = cam.CFrame.LookVector
-    -- Dynamic Eye-Level Forward Offset & Torso Decoupling:
-    -- In flight or on foot, looking down pitches towards floor/torso.
-    -- We dynamically translate camera slightly forward (+0.0 to +0.45 studs) and hide UpperTorso locally
-    -- so the top of the torso never blocks the screen or appears bugged/headless!
-    if look.Y < -0.15 then
-        local downFactor = math.clamp((-look.Y - 0.15) / 0.85, 0, 1)
-        local hLook = Vector3.new(look.X, 0, look.Z)
-        if hLook.Magnitude > 0.001 then
-            local fwdOffset = hLook.Unit * (downFactor * 0.45)
-            cam.CFrame = cam.CFrame + fwdOffset
-        end
-        local upperTorso = char:FindFirstChild("UpperTorso")
-        if upperTorso and upperTorso:IsA("BasePart") then
-            upperTorso.LocalTransparencyModifier = 1
         end
     end
 end)
