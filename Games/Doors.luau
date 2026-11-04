@@ -404,12 +404,13 @@ task.spawn(function()
     end
 end)
 
--- Infallible Anti-Screech Hook: Detours Client RemoteListener Screech Module (Eliminates Screech at the root!)
-local function initAntiScreechHook()
+-- Universal Anti-Entity Hook: Detours Screech, A-90, and Timothy at Client RemoteListener Root!
+local function initAntiEntityHooks()
     pcall(function()
         local pGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
         local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
         if rl and rl:FindFirstChild("Modules") then
+            -- 1. Anti Screech Hook
             local scMod = rl.Modules:FindFirstChild("Screech", true)
             if scMod and not _G.SC_FN_HOOKED then
                 _G.SC_FN_HOOKED = true
@@ -422,7 +423,42 @@ local function initAntiScreechHook()
                                 local sRemote = rf and rf:FindFirstChild("Screech")
                                 if sRemote then sRemote:FireServer(true) end
                             end)
-                            return -- Drop Screech invocation completely: 0 sound, 0 model, 0 jumpscare!
+                            return
+                        end
+                        return rawFn(a1, a2, a3)
+                    end))
+                end
+            end
+
+            -- 2. Anti A-90 Hook (Instant "didnt" pass & screen clear)
+            local a90Mod = rl.Modules:FindFirstChild("A90", true)
+            if a90Mod and not _G.A90_FN_HOOKED then
+                _G.A90_FN_HOOKED = true
+                local rawFn = require(a90Mod)
+                if type(rawFn) == "function" and hookfunction then
+                    hookfunction(rawFn, newcclosure(function(a1, a2)
+                        if State.Anti_A90 then
+                            pcall(function()
+                                local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                                local aRemote = rf and rf:FindFirstChild("A90")
+                                if aRemote then aRemote:FireServer("didnt") end
+                            end)
+                            return
+                        end
+                        return rawFn(a1, a2)
+                    end))
+                end
+            end
+
+            -- 3. Anti Timothy Hook (Suppresses spider jumpscare animation & sound)
+            local spMod = rl.Modules:FindFirstChild("SpiderJumpscare", true)
+            if spMod and not _G.SPIDER_FN_HOOKED then
+                _G.SPIDER_FN_HOOKED = true
+                local rawFn = require(spMod)
+                if type(rawFn) == "function" and hookfunction then
+                    hookfunction(rawFn, newcclosure(function(a1, a2, a3)
+                        if State.Anti_Timothy then
+                            return
                         end
                         return rawFn(a1, a2, a3)
                     end))
@@ -431,7 +467,7 @@ local function initAntiScreechHook()
         end
     end)
 end
-pcall(initAntiScreechHook)
+pcall(initAntiEntityHooks)
 
 -- Fallback Camera ChildAdded defusal for custom admin panels or standalone screech instances
 pcall(function()
@@ -1160,7 +1196,7 @@ task.spawn(function()
                         if shouldShow then
                             local dModel = record.Owner
                             local isDupe = (record.BaseText and record.BaseText:find("Dupe")) or (dModel and isDupeDoor(dModel, dModel.Parent))
-                            local isOpened = dModel and (dModel:GetAttribute("Opened") == true or dModel:GetAttribute("Open") == true or dModel:FindFirstChild("ClientOpen") ~= nil)
+                            local isOpened = dModel and (dModel:GetAttribute("Opened") == true or dModel:GetAttribute("Open") == true)
 
                             -- Completely hide ANY door that is already opened!
                             if isOpened and not isDupe then
@@ -1391,7 +1427,6 @@ local function processDoor(room, doorModel)
     -- When a door opens or is unlocked, disable collisions on the swinging door leaf and collision barrier
     -- so high-speed walking never clips the door edge or frame and causes physics rebound snaps.
     local isOpened = doorModel:GetAttribute("Opened") == true 
-        or doorModel:FindFirstChild("ClientOpen") ~= nil
         or doorModel:GetAttribute("Open") == true
 
     for _, ch in ipairs(doorModel:GetDescendants()) do
@@ -1439,7 +1474,7 @@ local function processDoor(room, doorModel)
 
     -- Float text cleanly ABOVE the top door frame header (doorMesh.Size.Y / 2 + 0.95 studs) so it is NEVER behind or inside the door!
     local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorMesh, doorHeaderOffset, roomNumber, extraVisuals)
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorModel, doorHeaderOffset, roomNumber, extraVisuals)
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
@@ -1452,7 +1487,6 @@ local function processDoor(room, doorModel)
                 task.wait(0.05)
                 if doorModel.Parent then
                     local nowOpened = doorModel:GetAttribute("Opened") == true 
-                        or doorModel:FindFirstChild("ClientOpen") ~= nil
                         or doorModel:GetAttribute("Open") == true
                     if nowOpened then
                         for _, ch in ipairs(doorModel:GetDescendants()) do
@@ -2302,6 +2336,36 @@ local function processEntity(entity)
         end
 
         if is2D then
+            -- 3D Mesh for 2D Entities (Asset ID 14731807321)
+            pcall(function()
+                local meshPart = Instance.new("Part")
+                meshPart.Name = "Unknown_2DEntityMesh"
+                meshPart.Size = Vector3.new(3.5, 4.5, 3.5)
+                meshPart.CanCollide = false
+                meshPart.CanTouch = false
+                meshPart.CanQuery = false
+                meshPart.Anchored = false
+                meshPart.Massless = true
+                meshPart.CastShadow = false
+                meshPart.Material = Enum.Material.Neon
+                meshPart.Color = entityColor
+
+                local sm = Instance.new("SpecialMesh")
+                sm.MeshType = Enum.MeshType.FileMesh
+                sm.MeshId = "rbxassetid://14731807321"
+                sm.Scale = Vector3.new(2.5, 2.5, 2.5)
+                sm.Parent = meshPart
+
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = meshPart
+                weld.Part1 = targetPart
+                weld.Parent = meshPart
+
+                meshPart.CFrame = targetPart.CFrame
+                meshPart.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+                table.insert(extraVisuals, meshPart)
+            end)
+
             -- Sleek Bounding Box Adornment with guaranteed through-wall visibility for 2D entities!
             local bbox = createEntityBoundingBox(targetPart, Vector3.new(4.5, 5.5, 4.5), entityColor)
             if bbox then
@@ -3968,7 +4032,32 @@ local function syncNativeFlightSpeed(speed)
     end)
 end
 
--- Decouple E and Q from DOORS native flight via hookmetamethod so interactions never cause vertical flight
+local function isEyesActive()
+    if not State.Anti_Eyes then return false end
+    if Workspace:FindFirstChild("Eyes") or Workspace:FindFirstChild("Lookman") or Workspace:FindFirstChild("EyesRetro") then
+        return true
+    end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if curRooms then
+        local cur = getCurrentRoomNumber and getCurrentRoomNumber()
+        if cur then
+            local r0 = curRooms:FindFirstChild(tostring(cur))
+            if r0 and (r0:FindFirstChild("Eyes") or r0:FindFirstChild("Lookman") or r0:FindFirstChild("EyesRetro")) then
+                return true
+            end
+            local r1 = curRooms:FindFirstChild(tostring(cur + 1))
+            if r1 and (r1:FindFirstChild("Eyes") or r1:FindFirstChild("Lookman") or r1:FindFirstChild("EyesRetro")) then
+                return true
+            end
+        end
+        if curRooms:FindFirstChild("Eyes", true) or curRooms:FindFirstChild("Lookman", true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Decouple E and Q from DOORS native flight + Anti-Eyes & Anti-A90 Hook
 if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
     _G.DOORS_UIS_KEY_HOOKED = true
     local origNc
@@ -3982,6 +4071,19 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 -- NEVER suppress E for prompt interactions, MainGame, or unidentified callers!
                 if caller and caller:IsA("LuaSourceContainer") and caller.Name == "Movement" and caller.Parent and caller.Parent.Name == "Main_Game" then
                     return false
+                end
+            end
+        elseif method == "FireServer" then
+            if self.Name == "MotorReplication" and State.Anti_Eyes then
+                if isEyesActive() then
+                    local args = {...}
+                    args[1] = -890 -- Spoof camera pitch to -89 degrees (staring at floor): 100% immune to Eyes & Lookman!
+                    return origNc(self, unpack(args))
+                end
+            elseif self.Name == "A90" and State.Anti_A90 then
+                local arg1 = ...
+                if arg1 == "moved" then
+                    return origNc(self, "didnt")
                 end
             end
         end
@@ -5524,21 +5626,7 @@ local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(functi
         end
     end
 
-    local char = getChar()
-    if char then
-        -- Enforce LocalTransparencyModifier = 1 across ALL character parts and accessories in RenderStepped!
-        -- In DOORS (first-person engine), rendering any part of the character locally causes the torso and shoulders
-        -- to completely block the camera crosshair when looking down (as seen in Image 2).
-        -- Setting LocalTransparencyModifier = 1 ensures:
-        -- 1. Complete unobstructed view looking down at the floor, items, footsteps, and drawers.
-        -- 2. First-person viewmodel arms (cam.BaseRig) remain fully visible and holding items.
-        -- 3. Third-person view (server and friends) remains 100% normal with full animations, clothes, and skin.
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") or p:IsA("Decal") then
-                p.LocalTransparencyModifier = 1
-            end
-        end
-    end
+    -- Native body visibility: Character body, clothes, animations, and skin remain 100% visible!
 end)
 
 -- Stepped Guard: Strips collisions & touch on character parts during Noclip
@@ -6047,23 +6135,25 @@ local function safeInstantFirePrompt(prompt)
         end
     end
 
-    if usedTool and State.Infinite_Items and State.Infinite_Lockpicks then
-        local tn = usedTool.Name:lower()
-        if tn:find("lockpick") or tn:find("skeleton") then
-            local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-            local dropRemote = rf and rf:FindFirstChild("DropItem")
-            if dropRemote and usedTool and usedTool.Parent then
-                pcall(function() dropRemote:FireServer(usedTool) end)
-            end
-            retrieveDroppedTool(usedTool.Name, 3.5)
-        end
-    end
-
     pcall(function()
         if fireproximityprompt then
             fireproximityprompt(prompt)
         end
     end)
+
+    if usedTool and State.Infinite_Items and State.Infinite_Lockpicks then
+        local tn = usedTool.Name:lower()
+        if tn:find("lockpick") or tn:find("skeleton") then
+            task.defer(function()
+                local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                local dropRemote = rf and rf:FindFirstChild("DropItem")
+                if dropRemote and usedTool and usedTool.Parent then
+                    pcall(function() dropRemote:FireServer(usedTool) end)
+                end
+                retrieveDroppedTool(usedTool.Name, 3.5)
+            end)
+        end
+    end
 end
 
 -- Frame-0 Immediate Prompt Trigger: Fires the exact millisecond KeyCode.E is pressed down without double-tap cancellation!
@@ -6459,7 +6549,9 @@ pcall(function()
                 local tn = tool.Name:lower()
                 -- Strictly retain multi-use tools (lockpicks & skeleton keys). Normal room keys open doors natively without dupe clutter!
                 if tn:find("lockpick") or tn:find("skeleton") then
-                    executeItemDupeDrop(tool, 0.09)
+                    task.defer(function()
+                        executeItemDupeDrop(tool, 0.02)
+                    end)
                 end
             end
         end
@@ -8100,6 +8192,41 @@ local function checkWalkableFloor(candidatePos, ignoreList)
     return floorPos
 end
 
+local function castRayThroughNonSolid(origin, targetPos, baseParams)
+    local diff = targetPos - origin
+    local totalDist = diff.Magnitude
+    if totalDist < 0.2 then return nil end
+    local curOrigin = origin
+    local remainingDist = totalDist * 0.99
+    local filterList = table.clone(baseParams.FilterDescendantsInstances)
+    local dirUnit = diff.Unit
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    while remainingDist > 0.4 do
+        rayParams.FilterDescendantsInstances = filterList
+        local hit = Workspace:Raycast(curOrigin, dirUnit * remainingDist, rayParams)
+        if not hit or not hit.Instance then
+            return nil -- Direct unobstructed LOS
+        end
+
+        local inst = hit.Instance
+        local instName = inst.Name:lower()
+        -- Solid Cover: Walls, Pillars, Wardrobes, Closets, Beds, Bookshelves, Furniture
+        if inst.CanCollide and inst.Transparency < 0.85 and not instName:find("door") and not instName:find("hidden") and not instName:find("trigger") then
+            return hit
+        end
+
+        -- Transparent / Non-collidable decor or door leaf: penetrate through
+        table.insert(filterList, inst)
+        local stepDist = (hit.Position - curOrigin).Magnitude
+        remainingDist = remainingDist - (stepDist + 0.1)
+        curOrigin = hit.Position + dirUnit * 0.1
+    end
+    return nil
+end
+
 local function evaluateRushSafety(testPos, segments, char)
     if State.God_Mode then
         return true, "⚡ GOD-MODE ACTIVE: ENTITIES CANNOT DAMAGE"
@@ -8124,39 +8251,35 @@ local function evaluateRushSafety(testPos, segments, char)
 
     local minSegmentDist = math.huge
     local closestPathPoint = nil
-    local closestSeg = nil
 
     for _, seg in ipairs(segments) do
         local cPoint, dist = getClosestPointOnSegment(testPos, seg.A, seg.B)
         if dist < minSegmentDist then
             minSegmentDist = dist
             closestPathPoint = cPoint
-            closestSeg = seg
         end
     end
 
-    -- If player is completely beyond lethal path radius (> 22 studs from all segments)
-    if minSegmentDist > 22 then
-        return true, "🛡️ SAFE ZONE: OUT OF RUSH PATH RANGE"
+    -- If player is completely beyond lethal path radius (> 20 studs from all segments)
+    if minSegmentDist > 20 then
+        return true, string.format("🛡️ SAFE ZONE: OUT OF RUSH PATH RANGE (%.1fm)", minSegmentDist)
     end
 
-    -- Within 22 studs: Rush CAN kill here unless blocked by solid wall/obstacle cover!
-    -- Multi-Level Elevation Test Points: Head (3.5 studs), Torso (2.0 studs), Feet (0.5 studs)
+    -- Within 20 studs: Rush CAN kill here unless blocked by solid cover!
+    -- Multi-Level Elevation Test Points: Head (3.5 studs), Torso (2.0 studs)
     local targetElevations = {
         testPos + Vector3.new(0, 3.5, 0),
-        testPos + Vector3.new(0, 2.0, 0),
-        testPos + Vector3.new(0, 0.5, 0)
+        testPos + Vector3.new(0, 2.0, 0)
     }
 
-    -- Multi-Point Trajectory Raycast: Sample points along all room segments within 28 studs
     local nearbyTrajectoryPoints = {}
     for _, seg in ipairs(segments) do
         local _, sDist = getClosestPointOnSegment(testPos, seg.A, seg.B)
-        if sDist <= 28 then
+        if sDist <= 24 then
             table.insert(nearbyTrajectoryPoints, seg.A)
             table.insert(nearbyTrajectoryPoints, (seg.A + seg.B) * 0.5)
             table.insert(nearbyTrajectoryPoints, seg.B)
-            if seg.Length > 12 then
+            if seg.Length > 10 then
                 table.insert(nearbyTrajectoryPoints, seg.A + (seg.B - seg.A) * 0.25)
                 table.insert(nearbyTrajectoryPoints, seg.A + (seg.B - seg.A) * 0.75)
             end
@@ -8167,34 +8290,27 @@ local function evaluateRushSafety(testPos, segments, char)
         table.insert(nearbyTrajectoryPoints, closestPathPoint or testPos)
     end
 
-    local blockedCount = 0
-    local totalRays = 0
     local directLineOfSight = false
-    local lastObstacle = "Cover"
+    local lastObstacle = "Solid Cover"
 
     for _, pt in ipairs(nearbyTrajectoryPoints) do
         local origin = pt + Vector3.new(0, 3.2, 0)
         for _, tPos in ipairs(targetElevations) do
-            local diff = tPos - origin
-            local dist = diff.Magnitude
-            if dist > 0.5 then
-                totalRays = totalRays + 1
-                local hit = Workspace:Raycast(origin, diff.Unit * (dist * 0.98), rayParams)
-                if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
-                    blockedCount = blockedCount + 1
-                    lastObstacle = hit.Instance.Name
-                else
-                    directLineOfSight = true
-                end
+            local solidHit = castRayThroughNonSolid(origin, tPos, rayParams)
+            if solidHit then
+                lastObstacle = solidHit.Instance.Name
+            else
+                directLineOfSight = true
+                break
             end
         end
+        if directLineOfSight then break end
     end
 
-    -- If raycast is obstructed by solid cover from all nearby trajectory rays (no LOS):
-    if not directLineOfSight or (totalRays > 0 and (blockedCount / totalRays) >= 0.7) then
-        return true, string.format("🛡️ SAFE: HIDDEN BEHIND %s (RUSH CANNOT SEE YOU)", lastObstacle)
+    if not directLineOfSight then
+        return true, string.format("🛡️ SAFE: SHIELDED BEHIND %s", lastObstacle)
     else
-        return false, string.format("⚠️ DANGER: DIRECT RUSH / AMBUSH LOS (%.1f STUDS)", minSegmentDist)
+        return false, string.format("⚠️ DANGER: DIRECT RUSH / AMBUSH LOS (%.1fm)", minSegmentDist)
     end
 end
 
