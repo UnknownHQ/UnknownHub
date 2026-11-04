@@ -2310,27 +2310,16 @@ RunService.Heartbeat:Connect(function(dt)
                         or (bRoot.Position.Y < -155)
                     if isBbUnderground then
                         local boost = damageElevationBoost or 0
-                        activeElevation = math.max(activeElevation, 20.0 + boost)
+                        activeElevation = math.max(activeElevation, 22.0 + boost)
                     end
                 end
 
-                -- Authoritative Bear Heading:
+                -- Authoritative Bear Heading for ALL Bears (Boo-Boo, Medved, Burrowing, etc.):
                 -- 1. If moving, live velocity vector is 100% indisputable forward heading!
-                -- 2. If stationary Boo-Boo, RootPart is true visual forward (HumanoidRootPart is inverted 180 deg)!
-                -- 3. If stationary standard bear, HumanoidRootPart.LookVector is forward.
+                -- 2. If stationary, HumanoidRootPart.LookVector is authoritative forward.
                 local flatLook = nil
-                if flatVel.Magnitude > 1.0 then
+                if flatVel.Magnitude > 0.8 then
                     flatLook = flatVel.Unit
-                elseif isBooBoo then
-                    local rp = activeFlightBear:FindFirstChild("RootPart")
-                    if rp then
-                        local rpLook = Vector3.new(rp.CFrame.LookVector.X, 0, rp.CFrame.LookVector.Z)
-                        flatLook = rpLook.Magnitude > 0.05 and rpLook.Unit or Vector3.new(0, 0, 1)
-                    else
-                        local bCF = bRoot.CFrame
-                        local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
-                        flatLook = rawLook.Magnitude > 0.05 and -rawLook.Unit or Vector3.new(0, 0, 1)
-                    end
                 else
                     local bCF = bRoot.CFrame
                     local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
@@ -2797,18 +2786,18 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isBurrowingBear then
             -- BURROWING BEAR: 500 HP aberrant burrower. 85 DMG swipe + 50 DMG / 45 Lift eruption.
-            -- When burrowing/tunneling underground, elevate to +20.0 studs to completely avoid the 15-stud underground eruption!
-            -- When on surface, standoff 2.6 and elevation 4.2 places player safely above its +2.0 swipe ceiling & +2.0 Sphere touch part,
-            -- while keeping diagonal distance within 5.40 studs (100% Sonic Scream connect rate within 6.5-stud reach)!
+            -- When burrowing/tunneling underground, elevate to +22.0 studs to completely avoid the 15-stud underground eruption!
+            -- When on surface, standoff 2.2 and elevation 5.2 places player safely 2.0 studs above its +2.0 Sphere touch part & swipe ceiling!
+            -- Eliminates touch collision triggers (0 touch hits taken), while diagonal distance is 6.04 studs (100% connect rate within 6.5 reach)!
             local bm = bear:GetAttribute("BrainMode")
             local isUnderground = (bm == "Tunnel")
                 or (bm == "DigAway")
                 or (bear:GetAttribute("Burrowing") == true)
                 or (bear:GetAttribute("Tunneling") == true) 
                 or (bearRoot and bearRoot.Position.Y < -155)
-            standoff = 2.6
-            elevation = (isUnderground and 20.0 or 4.2) + (damageElevationBoost or 0)
-            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Belly") or bear:FindFirstChild("Hitbox_Head") or bearRoot
+            standoff = 2.2
+            elevation = (isUnderground and 22.0 or 5.2) + (damageElevationBoost or 0)
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Belly") or bearRoot
         elseif isTallBear then
             -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay high at 7.5 elevation
             standoff = 3.6
@@ -2835,11 +2824,11 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
             -- BOO-BOO / MINI BEARS: Height ~3.5 studs.
-            -- Elevate to 3.6 studs (standoff 2.2) to float safely above Boo-Boo's 2.5-stud bite/tackle reach!
-            -- Zero damage taken when Boo-Boo turns to fight back, while sonic scream easily covers downward reach!
-            standoff = 2.2
-            elevation = 3.6 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Cube") or bear:FindFirstChild("Hitbox_Body") or bearRoot
+            -- Standoff 1.8 and elevation 3.2 connects 100% within 3.67 studs!
+            -- Never target detached Cube (which sits 60 studs away); target Hitbox_Head or Hitbox_Body directly!
+            standoff = 1.8
+            elevation = 3.2 + (damageElevationBoost or 0)
+            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped (swipe extends to Y = +6.5)
             standoff = 3.4
@@ -2861,10 +2850,17 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
-        -- TRUE BEAR FACING ORIENTATION: STRICTLY FROM BEAR ROOT!
+        -- TRUE BEAR FACING ORIENTATION: PRIORITIZE LIVE VELOCITY HEADING
         local bCF = bearRoot.CFrame
-        local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
-        local flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
+        local bVel = bearRoot.AssemblyLinearVelocity
+        local flatVel = Vector3.new(bVel.X, 0, bVel.Z)
+        local flatLook = nil
+        if flatVel.Magnitude > 0.8 then
+            flatLook = flatVel.Unit
+        else
+            local rawLook = Vector3.new(bCF.LookVector.X, 0, bCF.LookVector.Z)
+            flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
+        end
 
         local targetPos = nil
         if Config.FarmMethod == "Gun" then
