@@ -1326,7 +1326,7 @@ local function processDoor(room, doorModel)
         table.insert(extraVisuals, doorOutline)
 
         local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-        registerEsp(doorModel, doorMesh, baseText, color, "Doors", nil, doorHeaderOffset, roomNumber, extraVisuals)
+        registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, doorHeaderOffset, roomNumber, extraVisuals)
         if State.Anti_Dupe then secureDupeDoor(doorModel) end
         return
     end
@@ -1435,7 +1435,7 @@ local function processDoor(room, doorModel)
 
     -- Float text cleanly ABOVE the top door frame header (doorMesh.Size.Y / 2 + 0.95 studs) so it is NEVER behind or inside the door!
     local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", nil, doorHeaderOffset, roomNumber, extraVisuals)
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", doorMesh, doorHeaderOffset, roomNumber, extraVisuals)
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
@@ -3973,9 +3973,9 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
             local key = ...
             if State.Noclip and (key == Enum.KeyCode.E or key == Enum.KeyCode.Q) then
                 local caller = getcallingscript and getcallingscript()
-                if caller and (caller.Name:find("Movement") or caller.Name:find("MainGame")) then
-                    return false
-                elseif not caller then
+                -- Confine key suppression strictly to the internal flight vertical adjust in Movement script!
+                -- NEVER suppress E for prompt interactions, MainGame, or unidentified callers!
+                if caller and caller:IsA("LuaSourceContainer") and caller.Name == "Movement" and caller.Parent and caller.Parent.Name == "Main_Game" then
                     return false
                 end
             end
@@ -5630,17 +5630,37 @@ local function syncServerRoomBoundary()
             local cr = Workspace:FindFirstChild("CurrentRooms")
             local char = getChar()
             local coll = char and (char:FindFirstChild("Collision") or char:FindFirstChild("HumanoidRootPart"))
+            local root = getRoot()
             if cr and coll then
                 coll.CanTouch = true
                 for rIdx = curAttr, curSpatialRoom - 1 do
                     local rModel = cr:FindFirstChild(tostring(rIdx))
-                    -- Search recursively for doorway boundary trigger so Floor 1 and Floor 2 (The Mines) are 100% matched!
-                    local hidden = rModel and (rModel:FindFirstChild("Hidden", true) or (rModel:FindFirstChild("Door") and rModel.Door:FindFirstChild("Hidden")))
-                    if hidden and hidden:IsA("BasePart") then
-                        hidden.CanTouch = true
-                        firetouchinterest(coll, hidden, 0)
-                        task.wait(0.01)
-                        firetouchinterest(coll, hidden, 1)
+                    if rModel then
+                        -- 1. Main Exit Door (Door.ClientOpen & Door.Hidden)
+                        local exitDoor = rModel:FindFirstChild("Door")
+                        if exitDoor then
+                            local co = exitDoor:FindFirstChild("ClientOpen")
+                            if co and co:IsA("RemoteEvent") then
+                                pcall(function() co:FireServer() end)
+                            end
+                            local hidden = exitDoor:FindFirstChild("Hidden")
+                            if hidden and hidden:IsA("BasePart") then
+                                hidden.CanTouch = true
+                                firetouchinterest(coll, hidden, 0)
+                                if root and root ~= coll then firetouchinterest(root, hidden, 0) end
+                                task.wait(0.01)
+                                firetouchinterest(coll, hidden, 1)
+                                if root and root ~= coll then firetouchinterest(root, hidden, 1) end
+                            end
+                        end
+                        -- 2. Fallback check for any other doorway boundary
+                        local fallbackHidden = rModel:FindFirstChild("Hidden", true)
+                        if fallbackHidden and fallbackHidden:IsA("BasePart") and fallbackHidden ~= (exitDoor and exitDoor:FindFirstChild("Hidden")) then
+                            fallbackHidden.CanTouch = true
+                            firetouchinterest(coll, fallbackHidden, 0)
+                            task.wait(0.01)
+                            firetouchinterest(coll, fallbackHidden, 1)
+                        end
                     end
                 end
             end
@@ -8115,22 +8135,13 @@ local function evaluateRushSafety(testPos, segments, char)
         return true, "🛡️ SAFE ZONE: OUT OF RUSH PATH RANGE"
     end
 
-    -- Within 22 studs: Rush CAN kill here unless blocked by solid wall cover!
-    -- Check Line of Sight from nearby path trajectory points
-    local samplePoints = {}
-    if closestPathPoint then
-        table.insert(samplePoints, closestPathPoint)
-        if closestSeg and closestSeg.Length > 8 then
-            local dir = (closestSeg.B - closestSeg.A).Unit
-            local pAhead, _ = getClosestPointOnSegment(closestPathPoint + dir * 6, closestSeg.A, closestSeg.B)
-            local pBehind, _ = getClosestPointOnSegment(closestPathPoint - dir * 6, closestSeg.A, closestSeg.B)
-            table.insert(samplePoints, pAhead)
-            table.insert(samplePoints, pBehind)
-        end
-    end
-
-    local targetElev = testPos + Vector3.new(0, 2.5, 0)
-    local directLineOfSight = false
+    -- Within 22 studs: Rush CAN kill here unless blocked by solid wall/obstacle cover!
+    -- Multi-Level Elevation Test Points: Head (3.5 studs), Torso (2.0 studs), Feet (0.5 studs)
+    local targetElevations = {
+        testPos + Vector3.new(0, 3.5, 0),
+        testPos + Vector3.new(0, 2.0, 0),
+        testPos + Vector3.new(0, 0.5, 0)
+    }
 
     -- Multi-Point Trajectory Raycast: Sample points along all room segments within 28 studs
     local nearbyTrajectoryPoints = {}
@@ -8140,6 +8151,10 @@ local function evaluateRushSafety(testPos, segments, char)
             table.insert(nearbyTrajectoryPoints, seg.A)
             table.insert(nearbyTrajectoryPoints, (seg.A + seg.B) * 0.5)
             table.insert(nearbyTrajectoryPoints, seg.B)
+            if seg.Length > 12 then
+                table.insert(nearbyTrajectoryPoints, seg.A + (seg.B - seg.A) * 0.25)
+                table.insert(nearbyTrajectoryPoints, seg.A + (seg.B - seg.A) * 0.75)
+            end
         end
     end
 
@@ -8149,27 +8164,32 @@ local function evaluateRushSafety(testPos, segments, char)
 
     local blockedCount = 0
     local totalRays = 0
+    local directLineOfSight = false
+    local lastObstacle = "Cover"
 
     for _, pt in ipairs(nearbyTrajectoryPoints) do
         local origin = pt + Vector3.new(0, 3.2, 0)
-        local diff = targetElev - origin
-        local dist = diff.Magnitude
-        if dist > 0.5 then
-            totalRays = totalRays + 1
-            local hit = Workspace:Raycast(origin, diff.Unit * (dist * 0.98), rayParams)
-            if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
-                blockedCount = blockedCount + 1
-            else
-                directLineOfSight = true
+        for _, tPos in ipairs(targetElevations) do
+            local diff = tPos - origin
+            local dist = diff.Magnitude
+            if dist > 0.5 then
+                totalRays = totalRays + 1
+                local hit = Workspace:Raycast(origin, diff.Unit * (dist * 0.98), rayParams)
+                if hit and hit.Instance and hit.Instance.CanCollide and not hit.Instance.Name:lower():find("door") then
+                    blockedCount = blockedCount + 1
+                    lastObstacle = hit.Instance.Name
+                else
+                    directLineOfSight = true
+                end
             end
         end
     end
 
-    -- If all nearby path rays within lethal range are obstructed by solid wall/pillar cover:
-    if directLineOfSight and minSegmentDist < 16 and (totalRays > 0 and (blockedCount / totalRays) < 0.6) then
-        return false, "⚠️ DANGER: DIRECT RUSH / AMBUSH LINE OF SIGHT"
+    -- If raycast is obstructed by solid cover from all nearby trajectory rays (no LOS):
+    if not directLineOfSight or (totalRays > 0 and (blockedCount / totalRays) >= 0.7) then
+        return true, string.format("🛡️ SAFE: HIDDEN BEHIND %s (RUSH CANNOT SEE YOU)", lastObstacle)
     else
-        return true, "🛡️ SAFE: BEHIND COVER (RUSH CANNOT SEE YOU)"
+        return false, string.format("⚠️ DANGER: DIRECT RUSH / AMBUSH LOS (%.1f STUDS)", minSegmentDist)
     end
 end
 
@@ -8194,7 +8214,7 @@ local function refreshSafeZonesVisuals()
     local acceptedSpots = {}
 
     local function isDuplicate(pos, minDist)
-        minDist = minDist or 6.5
+        minDist = minDist or 5.0
         for _, s in ipairs(acceptedSpots) do
             if (s.Pos - pos).Magnitude < minDist then
                 return true
@@ -8216,7 +8236,6 @@ local function refreshSafeZonesVisuals()
 
                     if isWardrobe then
                         local cf = desc:GetPivot()
-                        -- Try standing spot 2.8 studs in front of wardrobe
                         local cand1 = cf.Position + cf.LookVector * 2.8
                         local cand2 = cf.Position - cf.LookVector * 2.8
                         local floor1 = checkWalkableFloor(cand1, {desc})
@@ -8227,7 +8246,6 @@ local function refreshSafeZonesVisuals()
                         end
                     elseif isBed then
                         local cf = desc:GetPivot()
-                        -- Try standing spot 2.5 studs to the side of the bed
                         local cand1 = cf.Position + cf.RightVector * 2.5
                         local cand2 = cf.Position - cf.RightVector * 2.5
                         local floor1 = checkWalkableFloor(cand1, {desc})
@@ -8240,33 +8258,47 @@ local function refreshSafeZonesVisuals()
                 end
             end
 
-            -- 2. True Safe Cover / Wall Shielded Standing Spots (NO FURNITURE PIVOTS!)
-            -- Sample actual walkable floor parts in the room
-            local roomCoverCount = 0
+            -- 2. Raycast Field Analyzer: Sample floor grid across walkable areas
+            local floorParts = {}
             for _, p in ipairs(rm:GetDescendants()) do
-                if p:IsA("BasePart") and p.CanCollide and roomCoverCount < 3 then
+                if p:IsA("BasePart") and p.CanCollide then
                     local pName = p.Name:lower()
                     if pName:find("floor") or pName:find("carpet") then
-                        -- Test candidate points on the floor part
-                        local cands = {
-                            p.Position,
-                            p.Position + p.CFrame.RightVector * (p.Size.X * 0.35),
-                            p.Position - p.CFrame.RightVector * (p.Size.X * 0.35),
-                            p.Position + p.CFrame.LookVector * (p.Size.Z * 0.35),
-                            p.Position - p.CFrame.LookVector * (p.Size.Z * 0.35),
-                        }
-                        for _, cand in ipairs(cands) do
-                            if roomCoverCount >= 3 then break end
-                            local floor = checkWalkableFloor(cand)
-                            if floor and not isDuplicate(floor, 7.5) then
-                                local safe, _ = evaluateRushSafety(floor, segments, char)
-                                if safe then
-                                    table.insert(acceptedSpots, { Pos = floor, Label = "SAFE COVER" })
-                                    roomCoverCount = roomCoverCount + 1
-                                end
+                        table.insert(floorParts, p)
+                    end
+                end
+            end
+
+            local maxPerRoom = 8
+            local roomCoverCount = 0
+            for _, floorPart in ipairs(floorParts) do
+                if roomCoverCount >= maxPerRoom then break end
+                local cf = floorPart.CFrame
+                local sz = floorPart.Size
+                local stepX = math.clamp(sz.X / 3, 5, 14)
+                local stepZ = math.clamp(sz.Z / 3, 5, 14)
+                
+                local halfX = sz.X * 0.35
+                local halfZ = sz.Z * 0.35
+                
+                local x = -halfX
+                while x <= halfX do
+                    if roomCoverCount >= maxPerRoom then break end
+                    local z = -halfZ
+                    while z <= halfZ do
+                        if roomCoverCount >= maxPerRoom then break end
+                        local candPos = cf:PointToWorldSpace(Vector3.new(x, 0.5, z))
+                        local floor = checkWalkableFloor(candPos)
+                        if floor and not isDuplicate(floor, 5.5) then
+                            local isSafe, status = evaluateRushSafety(floor, segments, char)
+                            if isSafe then
+                                table.insert(acceptedSpots, { Pos = floor, Label = "SAFE COVER" })
+                                roomCoverCount = roomCoverCount + 1
                             end
                         end
+                        z = z + stepZ
                     end
+                    x = x + stepX
                 end
             end
         end
@@ -8320,8 +8352,6 @@ local function refreshSafeZonesVisuals()
         table.insert(activeSafeZoneVisuals, tl)
     end
 end
-
--- Fast Real-Time Safety Evaluation Loop (0.12s)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -8432,6 +8462,8 @@ Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
                 if hum then
                     hum:ChangeState(Enum.HumanoidStateType.Running)
                 end
+                restoreCharacterInteractivity(getChar())
+                syncServerRoomBoundary()
             end
         end
     end
