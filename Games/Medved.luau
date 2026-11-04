@@ -2211,6 +2211,11 @@ local function getNearbyThreatCeiling(playerPos, currentTarget)
     return highestThreatY, pushRepelVector
 end
 
+-- Authoritative Combat Reflex Variables (declared before Heartbeat to prevent nil scope error)
+local lastDamageTime = 0
+local damageElevationBoost = 0
+local lastObservedHealth = nil
+
 -- Authoritative Combat Flight CFrame Constructor with Downward Pitch Clamp (22 deg max)
 -- Eliminates the 67-degree nose-down tilt that dips player legs into bear swipe arcs,
 -- while aligning sonic scream cone directly across the bear's upper body for 100% hit registration!
@@ -2304,7 +2309,8 @@ RunService.Heartbeat:Connect(function(dt)
                         or (activeFlightBear:GetAttribute("Tunneling") == true)
                         or (bRoot.Position.Y < -155)
                     if isBbUnderground then
-                        activeElevation = math.max(activeElevation, 20.0 + damageElevationBoost)
+                        local boost = damageElevationBoost or 0
+                        activeElevation = math.max(activeElevation, 20.0 + boost)
                     end
                 end
 
@@ -2405,9 +2411,6 @@ local abilityCooldowns = {}
 local bearVariantIndex = 0
 local lastBearAttack = 0
 local lastDefaultM1Attack = 0
-local lastDamageTime = 0
-local damageElevationBoost = 0
-local lastObservedHealth = nil
 
 -- Connect to server ability cooldown broadcasts
 pcall(function()
@@ -2789,16 +2792,16 @@ task.spawn(function()
         elseif isBurrowingBear then
             -- BURROWING BEAR: 500 HP aberrant burrower. 85 DMG swipe + 50 DMG / 45 Lift eruption.
             -- When burrowing/tunneling underground, elevate to +20.0 studs to completely avoid the 15-stud underground eruption!
-            -- When on surface, standoff 2.8 and elevation 4.4 places player safely above its +2.0 swipe ceiling & +2.0 Sphere touch part,
-            -- while keeping diagonal distance within 5.68 studs (100% Sonic Scream connect rate within 6.5-stud reach)!
+            -- When on surface, standoff 2.6 and elevation 4.2 places player safely above its +2.0 swipe ceiling & +2.0 Sphere touch part,
+            -- while keeping diagonal distance within 5.40 studs (100% Sonic Scream connect rate within 6.5-stud reach)!
             local bm = bear:GetAttribute("BrainMode")
             local isUnderground = (bm == "Tunnel")
                 or (bm == "DigAway")
                 or (bear:GetAttribute("Burrowing") == true)
                 or (bear:GetAttribute("Tunneling") == true) 
                 or (bearRoot and bearRoot.Position.Y < -155)
-            standoff = 2.8
-            elevation = (isUnderground and 20.0 or 4.4) + damageElevationBoost
+            standoff = 2.6
+            elevation = (isUnderground and 20.0 or 4.2) + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Belly") or bear:FindFirstChild("Hitbox_Head") or bearRoot
         elseif isTallBear then
             -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay high at 7.5 elevation
@@ -2844,11 +2847,11 @@ task.spawn(function()
         else
             -- STANDARD QUADRUPEDS (Medved, ClassicBear):
             -- Medved claw swipe volume is Y in [-3.0, +5.0].
-            -- Standoff 3.0 and elevation 7.2 places Boo-Boo 2.2 studs above Medved's +5.0 claw swipe ceiling!
-            -- With pitch clamp, lower body stays at Y >= +6.0 studs (> +5.0).
-            -- 0 damage taken from claws, while sonic scream (5.86 studs diagonal) connects 100% within 6.5-stud reach.
-            standoff = 3.0
-            elevation = 7.2 + damageElevationBoost
+            -- Standoff 2.8 and elevation 7.0 places Boo-Boo 2.0 studs above Medved's +5.0 claw swipe ceiling!
+            -- With pitch clamp, lower body stays at Y >= +5.8 studs (> +5.0).
+            -- 0 damage taken from claws, while sonic scream (5.32 studs diagonal) connects 100% within 6.5-stud reach.
+            standoff = 2.8
+            elevation = 7.0 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
