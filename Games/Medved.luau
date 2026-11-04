@@ -178,6 +178,7 @@ local Config = {
 
     -- Movement & Stamina
     InfiniteStamina = false,
+    InfiniteMana = true,
     CustomSpeed = 14.1,
     FlyNoclip = false,
     FlySpeed = 45,
@@ -3275,8 +3276,62 @@ local function ensureSpeedModifier(char)
     end
 end
 
+local function hookCharAttributes(targetChar)
+    if not targetChar then return end
+    pcall(function()
+        targetChar:GetAttributeChangedSignal("BearStamina"):Connect(function()
+            if Config.InfiniteStamina then
+                local s = targetChar:GetAttribute("BearStamina")
+                if s and s < 1 then
+                    targetChar:SetAttribute("BearStamina", 1)
+                end
+            end
+        end)
+        targetChar:GetAttributeChangedSignal("Mana"):Connect(function()
+            if Config.InfiniteMana then
+                local m = targetChar:GetAttribute("Mana")
+                if m and m < 100 then
+                    targetChar:SetAttribute("Mana", 100)
+                    if targetChar:GetAttribute("Recharging") == true then
+                        targetChar:SetAttribute("Recharging", false)
+                    end
+                    if targetChar:GetAttribute("OutOfMana") == true then
+                        targetChar:SetAttribute("OutOfMana", false)
+                    end
+                end
+            end
+        end)
+        targetChar.ChildAdded:Connect(function(child)
+            if child.Name == "Sprinting" then
+                child:GetAttributeChangedSignal("Stamina"):Connect(function()
+                    if Config.InfiniteStamina then
+                        local st = child:GetAttribute("Stamina")
+                        if st and st < 1 then child:SetAttribute("Stamina", 1) end
+                    end
+                end)
+                if Config.InfiniteStamina then child:SetAttribute("Stamina", 1) end
+            end
+        end)
+        local sp = targetChar:FindFirstChild("Sprinting")
+        if sp then
+            sp:GetAttributeChangedSignal("Stamina"):Connect(function()
+                if Config.InfiniteStamina then
+                    local st = sp:GetAttribute("Stamina")
+                    if st and st < 1 then sp:SetAttribute("Stamina", 1) end
+                end
+            end)
+            if Config.InfiniteStamina then sp:SetAttribute("Stamina", 1) end
+        end
+    end)
+end
+
+if LocalPlayer.Character then
+    hookCharAttributes(LocalPlayer.Character)
+end
+
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     currentAppliedSpeedMod = nil
+    hookCharAttributes(newChar)
     task.wait(0.1)
     ensureSpeedModifier(newChar)
     local hum = newChar:WaitForChild("Humanoid", 3)
@@ -3300,10 +3355,31 @@ miscHeartbeatConn = RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
 
-    -- 1. Infinite Stamina
-    local sprintScript = char:FindFirstChild("Sprinting")
-    if sprintScript and Config.InfiniteStamina then
-        sprintScript:SetAttribute("Stamina", 1)
+    -- 1. Infinite Stamina (Human & Bear)
+    if Config.InfiniteStamina then
+        local sprintScript = char:FindFirstChild("Sprinting")
+        if sprintScript then
+            sprintScript:SetAttribute("Stamina", 1)
+        end
+        if char:GetAttribute("BearStamina") ~= nil and char:GetAttribute("BearStamina") < 1 then
+            char:SetAttribute("BearStamina", 1)
+        end
+    end
+
+    -- 2. Infinite Mana / Magic (Ice Bear)
+    if Config.InfiniteMana then
+        if char:GetAttribute("Mana") ~= nil and char:GetAttribute("Mana") < 100 then
+            char:SetAttribute("Mana", 100)
+            if char:GetAttribute("Recharging") == true then
+                char:SetAttribute("Recharging", false)
+            end
+            if char:GetAttribute("OutOfMana") == true then
+                char:SetAttribute("OutOfMana", false)
+            end
+        end
+        if char:GetAttribute("IceMana") ~= nil and char:GetAttribute("IceMana") < 100 then
+            char:SetAttribute("IceMana", 100)
+        end
     end
 
     -- 2. WalkSpeed & SprintingSpeed Multiplier via Game's SpeedModifiers
@@ -3757,7 +3833,29 @@ end)
 
 Hub.CreateToggle(combatTab, "Infinite Stamina", Config.InfiniteStamina, function(val)
     Config.InfiniteStamina = val
-    Hub.Notify("Movement", val and "Infinite Stamina: ACTIVE" or "Infinite Stamina: OFF", 2)
+    if val then
+        local char = LocalPlayer.Character
+        if char then
+            local sp = char:FindFirstChild("Sprinting")
+            if sp then sp:SetAttribute("Stamina", 1) end
+            if char:GetAttribute("BearStamina") ~= nil then char:SetAttribute("BearStamina", 1) end
+        end
+    end
+    Hub.Notify("Movement", val and "Infinite Stamina (Human & Bear): ACTIVE" or "Infinite Stamina: OFF", 2)
+end)
+
+Hub.CreateToggle(combatTab, "Infinite Mana / Magic", Config.InfiniteMana, function(val)
+    Config.InfiniteMana = val
+    if val then
+        local char = LocalPlayer.Character
+        if char then
+            if char:GetAttribute("Mana") ~= nil then char:SetAttribute("Mana", 100) end
+            if char:GetAttribute("IceMana") ~= nil then char:SetAttribute("IceMana", 100) end
+            if char:GetAttribute("Recharging") == true then char:SetAttribute("Recharging", false) end
+            if char:GetAttribute("OutOfMana") == true then char:SetAttribute("OutOfMana", false) end
+        end
+    end
+    Hub.Notify("Combat", val and "Infinite Mana (Ice Bear): ACTIVE" or "Infinite Mana: OFF", 2)
 end)
 
 Hub.CreateSlider(combatTab, "Speed Modifier", 14.1, 45, Config.CustomSpeed, " spd", function(val)
@@ -3854,11 +3952,15 @@ Hub.CreateButton(tpTab, "Main Base (Entrance)", function()
 end)
 
 Hub.CreateSection(tpTab, "Player Teleport")
+local playerMap = {}
 local function getPlayerList()
     local list = {}
+    table.clear(playerMap)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer then
-            table.insert(list, p.DisplayName .. " (@" .. p.Name .. ")")
+            local entry = string.format("%s (@%s)", p.DisplayName, p.Name)
+            table.insert(list, entry)
+            playerMap[entry] = p
         end
     end
     table.sort(list, function(a, b) return a:lower() < b:lower() end)
@@ -3891,11 +3993,16 @@ Hub.CreateButton(tpTab, "Teleport to Player", function()
         Hub.Notify("Teleport", "No other player selected!", 2)
         return
     end
-    local username = selectedPlayerString:match("%(@(.+)%)") or selectedPlayerString
-    local targetPlayer = Players:FindFirstChild(username)
+    local targetPlayer = playerMap[selectedPlayerString]
+    if not targetPlayer then
+        local username = selectedPlayerString:match("%(@([^%)]+)%)")
+        if username then
+            targetPlayer = Players:FindFirstChild(username)
+        end
+    end
     if not targetPlayer then
         for _, p in ipairs(Players:GetPlayers()) do
-            if p.DisplayName == selectedPlayerString or p.Name == selectedPlayerString then
+            if p.DisplayName == selectedPlayerString or p.Name == selectedPlayerString or string.format("%s (@%s)", p.DisplayName, p.Name) == selectedPlayerString then
                 targetPlayer = p
                 break
             end
@@ -3906,12 +4013,138 @@ Hub.CreateButton(tpTab, "Teleport to Player", function()
         return
     end
     local tChar = targetPlayer.Character
-    local tRoot = tChar and (tChar:FindFirstChild("HumanoidRootPart") or tChar.PrimaryPart or tChar:FindFirstChildWhichIsA("BasePart"))
-    if not tRoot then
+        or workspace:FindFirstChild(targetPlayer.Name)
+        or (workspace:FindFirstChild("Bears") and workspace.Bears:FindFirstChild(targetPlayer.Name))
+    if not tChar then
         Hub.Notify("Teleport", "Target player has no active character!", 2)
         return
     end
-    safeTeleport(tRoot.Position + Vector3.new(0, 2, 3), targetPlayer.DisplayName)
+    local tRoot = tChar:FindFirstChild("HumanoidRootPart") or tChar.PrimaryPart or tChar:FindFirstChildWhichIsA("BasePart")
+    local targetPos = tRoot and tRoot.Position or tChar:GetPivot().Position
+    if not targetPos or targetPos.Magnitude < 1 then
+        Hub.Notify("Teleport", "Target position not resolved!", 2)
+        return
+    end
+    safeTeleport(targetPos + Vector3.new(0, 3, 0), targetPlayer.DisplayName)
+end)
+
+Hub.CreateSection(tpTab, "Bear Teleport")
+local bearMap = {}
+local function getLiveBearList()
+    local bearsFolder = workspace:FindFirstChild("Bears")
+    local char = LocalPlayer.Character
+    local counts = {}
+    local entries = {}
+    table.clear(bearMap)
+
+    if bearsFolder then
+        for _, b in ipairs(bearsFolder:GetChildren()) do
+            if b ~= char and b.Name ~= LocalPlayer.Name then
+                local isDead = b:GetAttribute("Dead") == true or b:GetAttribute("IsDead") == true or b:GetAttribute("Evaporated") == true
+                local hum = b:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health <= 0 then isDead = true end
+
+                if not isDead then
+                    local bName = b.Name
+                    local lvl = b:GetAttribute("BearLevel") or b:GetAttribute("Level") or 1
+                    local hpPct = 100
+                    if hum then
+                        hpPct = math.clamp(math.floor((hum.Health / math.max(hum.MaxHealth, 1)) * 100), 0, 100)
+                    end
+
+                    counts[bName] = (counts[bName] or 0) + 1
+                    table.insert(entries, {
+                        model = b,
+                        name = bName,
+                        lvl = lvl,
+                        hp = hpPct
+                    })
+                end
+            end
+        end
+    end
+
+    table.sort(entries, function(a, b)
+        if a.name == b.name then
+            return a.lvl > b.lvl
+        end
+        return a.name:lower() < b.name:lower()
+    end)
+
+    local nameTracker = {}
+    local list = {}
+    for _, entry in ipairs(entries) do
+        local bName = entry.name
+        local label
+        if counts[bName] > 1 then
+            nameTracker[bName] = (nameTracker[bName] or 0) + 1
+            label = string.format("%s #%d [Lvl %d, %d%%]", bName, nameTracker[bName], entry.lvl, entry.hp)
+        else
+            label = string.format("%s [Lvl %d, %d%%]", bName, entry.lvl, entry.hp)
+        end
+        table.insert(list, label)
+        bearMap[label] = entry.model
+    end
+
+    if #list == 0 then
+        table.insert(list, "No bears found")
+    end
+    return list
+end
+
+local initialBearList = getLiveBearList()
+local selectedBearString = initialBearList[1] or "No bears found"
+local bearDropdown = Hub.CreateDropdown(tpTab, "Select Bear", initialBearList, selectedBearString, function(val)
+    selectedBearString = val
+end)
+
+Hub.CreateButton(tpTab, "Teleport to Selected Bear", function()
+    if not selectedBearString or selectedBearString == "No bears found" then
+        Hub.Notify("Teleport", "No bear selected!", 2)
+        return
+    end
+    local targetBear = bearMap[selectedBearString]
+    if not targetBear or not targetBear.Parent then
+        local bName = selectedBearString:match("^([^#%[]+)")
+        if bName then
+            bName = bName:gsub("%s+$", "")
+            local bearsFolder = workspace:FindFirstChild("Bears")
+            if bearsFolder then
+                targetBear = bearsFolder:FindFirstChild(bName)
+            end
+        end
+    end
+    if not targetBear or not targetBear.Parent then
+        Hub.Notify("Teleport", "Selected bear no longer exists!", 2)
+        return
+    end
+    local bRoot = targetBear:FindFirstChild("HumanoidRootPart") or targetBear.PrimaryPart or targetBear:FindFirstChildWhichIsA("BasePart")
+    local targetPos = bRoot and bRoot.Position or targetBear:GetPivot().Position
+    if not targetPos or targetPos.Magnitude < 1 then
+        Hub.Notify("Teleport", "Unable to resolve bear position!", 2)
+        return
+    end
+    safeTeleport(targetPos + Vector3.new(0, 4, 0), selectedBearString)
+    Hub.Notify("Teleport", "Teleported to " .. selectedBearString, 2)
+end)
+
+-- Background loop: Auto-refresh live bear list every 1.0 second
+task.spawn(function()
+    while _G.MEDVED_SESSION == currentScriptSession do
+        task.wait(1.0)
+        if _G.MEDVED_SESSION ~= currentScriptSession then break end
+        if bearDropdown and bearDropdown.Refresh then
+            pcall(function()
+                local newList = getLiveBearList()
+                bearDropdown.Refresh(newList)
+                if selectedBearString and bearMap[selectedBearString] and bearMap[selectedBearString].Parent then
+                    -- Keep current active selection
+                else
+                    selectedBearString = newList[1] or "No bears found"
+                end
+            end)
+        end
+    end
 end)
 
 Hub.CreateSection(tpTab, "Map Discovery")
