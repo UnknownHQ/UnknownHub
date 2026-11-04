@@ -9348,7 +9348,7 @@ end
 
 -- Tab 4: DIAGNOSTICS & TELEMETRY ROUTINES
 -- =========================================================================
-do
+(function()
 local diagTab = Hub.CreateTab("Diagnostics", {
     Icon = "⚙️",
     Size = 18,
@@ -9390,7 +9390,7 @@ Hub.CreateButton(diagTab, "Full World Re-scan", function()
     Hub.Notify("Diagnostics", "World ESP and prompts fully re-indexed!", 2)
 end)
 
-end
+end)()
 
 -- Initial Startup Scan
 pcall(function()
