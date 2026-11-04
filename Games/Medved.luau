@@ -89,44 +89,45 @@ end)
 -- 2. LIBRARY INITIALIZATION
 --------------------------------------------------------------------------------
 local function getValidatedLibrary()
-    local lib = getgenv().UnknownLibrary
-    local isValid = false
-    if lib and typeof(lib) == "function" then
-        pcall(function()
-            local test = lib({ title = "_T", game = "_T" })
-            if test and test.CreateMultiDropdown then
-                isValid = true
-            end
-            if test and test.destroy then test.destroy() end
-            if test and test.screenGui then test.screenGui:Destroy() end
-        end)
-    end
-    if isValid then return lib end
+    local lib = nil
 
-    -- Try local file in Bunni/scripts
+    -- 1. Prioritize authoritative fresh UnknownLibrary from local disk
     pcall(function()
         if readfile then
-            local localSrc = readfile("UnknownLibrary.luau") or readfile("scripts/UnknownLibrary.luau")
-            if localSrc and localSrc ~= "" then
+            local localSrc = readfile("UnknownLibrary.luau") or readfile("scripts/UnknownLibrary.luau") or readfile("UnknownLibrary")
+            if localSrc and #localSrc > 100 then
                 local fn = loadstring(localSrc)
                 if fn then lib = fn() end
             end
         end
     end)
 
-    -- If still not valid, fetch fresh from GitHub
-    if not lib or typeof(lib) ~= "function" then
-        pcall(function()
-            local webSrc = game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau?t=" .. tick())
-            if webSrc and webSrc ~= "" then
-                local fn = loadstring(webSrc)
-                if fn then lib = fn() end
-            end
-        end)
+    if lib and typeof(lib) == "function" then
+        getgenv().UnknownLibrary = lib
+        return lib
     end
 
-    getgenv().UnknownLibrary = lib
-    return lib
+    -- 2. Fallback to cached getgenv().UnknownLibrary
+    local genvLib = getgenv().UnknownLibrary
+    if genvLib and typeof(genvLib) == "function" then
+        return genvLib
+    end
+
+    -- 3. If still not valid, fetch fresh from GitHub repository
+    pcall(function()
+        local webSrc = game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/UnknownLibrary.luau?t=" .. tick())
+        if webSrc and #webSrc > 100 then
+            local fn = loadstring(webSrc)
+            if fn then lib = fn() end
+        end
+    end)
+
+    if lib and typeof(lib) == "function" then
+        getgenv().UnknownLibrary = lib
+        return lib
+    end
+
+    return nil
 end
 
 local UnknownLibrary = getValidatedLibrary()
