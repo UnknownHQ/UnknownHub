@@ -2296,7 +2296,7 @@ RunService.Heartbeat:Connect(function(dt)
                 local flatVel = Vector3.new(bVel.X, 0, bVel.Z)
 
                 -- Real-Time Dynamic Anti-Jump & Elevation Clearance:
-                local activeElevation = activeFlightOffset.elevation + dynamicJumpLift
+                local activeElevation = (activeFlightOffset.elevation or 6.8) + dynamicJumpLift
 
                 -- Authoritative Bear Heading for ALL Bears (Boo-Boo, Medved, Burrowing, etc.):
                 -- 1. If moving, live velocity vector is 100% indisputable forward heading!
@@ -2311,7 +2311,7 @@ RunService.Heartbeat:Connect(function(dt)
                 end
 
                 -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 75ms feedforward
-                local curStandoff = activeFlightOffset.standoff
+                local curStandoff = activeFlightOffset.standoff or 2.4
                 if flatVel.Magnitude > 1.0 then
                     curStandoff = math.max(1.8, curStandoff - math.clamp(flatVel.Magnitude * 0.035, 0, 0.7))
                 end
