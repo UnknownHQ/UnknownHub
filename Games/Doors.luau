@@ -7874,6 +7874,22 @@ local rushSafeHUD = nil
 
 local cachedRoomPathNodes = {}
 
+local function isPlayerCrouching(char)
+    if not char then return false end
+    local collCrouch = char:FindFirstChild("CollisionCrouch")
+    if collCrouch and collCrouch:IsA("BasePart") and collCrouch.CanCollide then
+        return true
+    end
+    if char:GetAttribute("Crouching") == true then
+        return true
+    end
+    local mg = getMainGameTable and getMainGameTable()
+    if mg and mg.crouching == true then
+        return true
+    end
+    return false
+end
+
 local function getOrderedRoomNodes()
     local nodes = {}
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -7892,17 +7908,48 @@ local function getOrderedRoomNodes()
         local rm = rData.Room
         local rNum = rData.Number
 
-        -- If not yet cached, or if room has PathfindNodes right now, update persistent room cache:
         local intermediate = rm:FindFirstChild("PathfindNodes") or rm:FindFirstChild("Nodes") or rm:FindFirstChild("Waypoints")
         if intermediate or not cachedRoomPathNodes[rNum] then
             local roomNodes = {}
-            local entrance = rm:FindFirstChild("RoomEntrance")
-            local exit = rm:FindFirstChild("RoomExit")
-
-            if entrance and entrance:IsA("BasePart") then
-                table.insert(roomNodes, { Pos = entrance.Position, RoomNum = rNum, Name = "Entrance", Part = entrance })
+            
+            -- 1. Identify Entrance Position (RoomEntrance, Entrance, or previous room exit door)
+            local entPos = nil
+            local entPart = rm:FindFirstChild("RoomEntrance") or rm:FindFirstChild("Entrance") or rm:FindFirstChild("Start")
+            if entPart and entPart:IsA("BasePart") then
+                entPos = entPart.Position
+            elseif entPart and entPart:IsA("Model") then
+                entPos = entPart:GetPivot().Position
+            elseif rNum > 0 then
+                local prevRoom = curRooms:FindFirstChild(tostring(rNum - 1))
+                if prevRoom then
+                    local pDoor = prevRoom:FindFirstChild("Door")
+                    if pDoor then
+                        local pLeaf = pDoor:FindFirstChild("Door") or pDoor:FindFirstChild("Hidden")
+                        entPos = pLeaf and pLeaf.Position or pDoor:GetPivot().Position
+                    end
+                end
             end
 
+            -- 2. Identify Exit Position (RoomExit, Exit, or room exit Door)
+            local exitPos = nil
+            local exPart = rm:FindFirstChild("RoomExit") or rm:FindFirstChild("Exit") or rm:FindFirstChild("End")
+            if exPart and exPart:IsA("BasePart") then
+                exitPos = exPart.Position
+            elseif exPart and exPart:IsA("Model") then
+                exitPos = exPart:GetPivot().Position
+            else
+                local dModel = rm:FindFirstChild("Door")
+                if dModel then
+                    local dLeaf = dModel:FindFirstChild("Door") or dModel:FindFirstChild("Hidden")
+                    exitPos = dLeaf and dLeaf.Position or dModel:GetPivot().Position
+                end
+            end
+
+            if entPos then
+                table.insert(roomNodes, { Pos = entPos, RoomNum = rNum, Name = "Entrance" })
+            end
+
+            -- 3. Intermediate nodes if present, else continuous linear corridor interpolation
             if intermediate then
                 local interList = {}
                 for _, child in ipairs(intermediate:GetChildren()) do
@@ -7913,26 +7960,36 @@ local function getOrderedRoomNodes()
                 table.sort(interList, function(a, b)
                     local na = tonumber(a.Name:match("%d+")) or 0
                     local nb = tonumber(b.Name:match("%d+")) or 0
-                    return na < nb
+                    if na ~= nb then return na < nb end
+                    return a.Name < b.Name
                 end)
                 for i, p in ipairs(interList) do
-                    table.insert(roomNodes, { Pos = p.Position, RoomNum = rNum, Name = "Node " .. tostring(i), Part = p })
+                    table.insert(roomNodes, { Pos = p.Position, RoomNum = rNum, Name = "Node " .. tostring(i) })
+                end
+            elseif entPos and exitPos then
+                -- Room has no intermediate nodes: Interpolate smooth points along the corridor!
+                local dir = exitPos - entPos
+                local dLen = dir.Magnitude
+                if dLen > 6 then
+                    local count = math.floor(dLen / 4.5)
+                    for i = 1, count do
+                        local stepPos = entPos + dir * (i / (count + 1))
+                        table.insert(roomNodes, { Pos = stepPos, RoomNum = rNum, Name = "InterpNode " .. tostring(i) })
+                    end
                 end
             end
 
-            if exit and exit:IsA("BasePart") then
-                table.insert(roomNodes, { Pos = exit.Position, RoomNum = rNum, Name = "Exit", Part = exit })
+            if exitPos then
+                table.insert(roomNodes, { Pos = exitPos, RoomNum = rNum, Name = "Exit" })
             end
 
             if #roomNodes > 0 then
-                -- Only overwrite cache if new scan has intermediate nodes or cache didn't exist
                 if intermediate or not cachedRoomPathNodes[rNum] or #cachedRoomPathNodes[rNum] <= 2 then
                     cachedRoomPathNodes[rNum] = roomNodes
                 end
             end
         end
 
-        -- Append cached nodes for this room (they NEVER disappear when room is opened!)
         local rNodes = cachedRoomPathNodes[rNum]
         if rNodes then
             for _, n in ipairs(rNodes) do
@@ -8009,8 +8066,8 @@ local function updateRushSafeHUD(isSafe, statusText)
 
         local pill = Instance.new("Frame")
         pill.Name = "Pill"
-        pill.Size = UDim2.new(0, 320, 0, 36)
-        pill.Position = UDim2.new(0.5, -160, 0, 24)
+        pill.Size = UDim2.new(0, 340, 0, 36)
+        pill.Position = UDim2.new(0.5, -170, 0, 24)
         pill.BackgroundColor3 = Color3.fromRGB(15, 20, 28)
         pill.BorderSizePixel = 0
         pill.Parent = rushSafeHUD
@@ -8047,14 +8104,14 @@ local function updateRushSafeHUD(isSafe, statusText)
             if stroke then stroke.Color = Color3.fromRGB(0, 255, 120) end
             pill.BackgroundColor3 = Color3.fromRGB(12, 45, 25)
             if label then
-                label.Text = statusText or "🛡️ SAFE ZONE: SHIELDED FROM RUSH/AMBUSH"
+                label.Text = statusText or "🛡️ SAFE: SHIELDED FROM RUSH / AMBUSH"
                 label.TextColor3 = Color3.fromRGB(80, 255, 160)
             end
         else
             if stroke then stroke.Color = Color3.fromRGB(255, 45, 45) end
             pill.BackgroundColor3 = Color3.fromRGB(55, 15, 15)
             if label then
-                label.Text = statusText or "⚠️ DANGER: DIRECT RUSH / AMBUSH LINE OF SIGHT"
+                label.Text = statusText or "⚠️ DANGER: DIRECT RUSH / AMBUSH LASER HIT"
                 label.TextColor3 = Color3.fromRGB(255, 90, 90)
             end
         end
@@ -8117,7 +8174,6 @@ local function refreshEntityNodesVisuals()
         tl.Text = string.format("Node %d (R%d)", i, node.RoomNum)
         tl.Parent = bb
 
-        -- Connect line to next node
         if i < #nodes then
             local nextNode = nodes[i + 1]
             local p1 = node.Pos + Vector3.new(0, 1.5, 0)
@@ -8155,26 +8211,22 @@ local function checkWalkableFloor(candidatePos, ignoreList)
     for _, vis in ipairs(activeNodeVisuals) do table.insert(filter, vis) end
     rayParams.FilterDescendantsInstances = filter
 
-    -- 1. Downward Raycast to locate real floor surface
     local downHit = Workspace:Raycast(candidatePos + Vector3.new(0, 3.5, 0), Vector3.new(0, -9.0, 0), rayParams)
     if not downHit or not downHit.Instance or not downHit.Instance.CanCollide then
         return nil
     end
 
-    -- Normal must face predominantly upwards (walkable floor, not wall or steep angle)
     if downHit.Normal.Y < 0.72 then
         return nil
     end
 
     local floorPos = downHit.Position
 
-    -- 2. Upward Headroom Raycast (4.2 studs standing clearance)
     local upHit = Workspace:Raycast(floorPos + Vector3.new(0, 0.4, 0), Vector3.new(0, 4.2, 0), rayParams)
     if upHit and upHit.Instance and upHit.Instance.CanCollide then
         return nil
     end
 
-    -- 3. 4-way horizontal clearance check (1.2 studs radius) to prevent clipping in bookshelves/walls
     local waistPos = floorPos + Vector3.new(0, 2.0, 0)
     local radialOffsets = {
         Vector3.new(1.2, 0, 0),
@@ -8192,41 +8244,53 @@ local function checkWalkableFloor(candidatePos, ignoreList)
     return floorPos
 end
 
-local function castRayThroughNonSolid(origin, targetPos, baseParams)
+-- Invisible Laser Raycast: Shoots laser from Rush path point towards player.
+-- Returns hit, obstacleName if laser is absorbed by solid matter; nil if laser hits player directly!
+local function castLaserToTarget(origin, targetPos, baseParams)
     local diff = targetPos - origin
     local totalDist = diff.Magnitude
-    if totalDist < 0.2 then return nil end
+    if totalDist < 0.2 then return nil, "TooClose" end
+    local dirUnit = diff.Unit
     local curOrigin = origin
     local remainingDist = totalDist * 0.99
     local filterList = table.clone(baseParams.FilterDescendantsInstances)
-    local dirUnit = diff.Unit
 
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
 
-    while remainingDist > 0.4 do
-        rayParams.FilterDescendantsInstances = filterList
-        local hit = Workspace:Raycast(curOrigin, dirUnit * remainingDist, rayParams)
+    -- Allow up to 6 penetrations of non-solid particles, decor, and transparent zones
+    for step = 1, 6 do
+        if remainingDist <= 0.4 then break end
+        rp.FilterDescendantsInstances = filterList
+        local hit = Workspace:Raycast(curOrigin, dirUnit * remainingDist, rp)
         if not hit or not hit.Instance then
-            return nil -- Direct unobstructed LOS
+            -- Laser reached player unobstructed: DIRECT HIT!
+            return nil, nil
         end
 
         local inst = hit.Instance
         local instName = inst.Name:lower()
-        -- Solid Cover: Walls, Pillars, Wardrobes, Closets, Beds, Bookshelves, Furniture
-        if inst.CanCollide and inst.Transparency < 0.85 and not instName:find("door") and not instName:find("hidden") and not instName:find("trigger") then
-            return hit
+
+        -- Solid obstacles: Walls, Columns, Wardrobes, Desks, Bookshelves, Beds, Crates, Floors, Door frames
+        -- Note: Wardrobes, doorframes, and sideroom walls are 100% solid obstacles!
+        if inst.CanCollide and inst.Transparency < 0.85 and not instName:find("trigger") and not instName:find("hidden") then
+            return hit, inst.Name
         end
 
-        -- Transparent / Non-collidable decor or door leaf: penetrate through
+        -- Non-solid dust/decor/triggers: penetrate through
         table.insert(filterList, inst)
         local stepDist = (hit.Position - curOrigin).Magnitude
-        remainingDist = remainingDist - (stepDist + 0.1)
-        curOrigin = hit.Position + dirUnit * 0.1
+        remainingDist = remainingDist - (stepDist + 0.15)
+        curOrigin = hit.Position + dirUnit * 0.15
     end
-    return nil
+
+    return nil, nil
 end
 
+-- The Invisible Laser Analyzer:
+-- Shoots invisible lasers from every path point of Rush/Ambush within 16 studs towards the player.
+-- If any laser hits the player -> DANGER (Rush has direct line of sight within kill range).
+-- If all lasers are blocked by solid obstacles, or player is >16 studs from path -> SAFE!
 local function evaluateRushSafety(testPos, segments, char)
     if State.God_Mode then
         return true, "⚡ GOD-MODE ACTIVE: ENTITIES CANNOT DAMAGE"
@@ -8236,8 +8300,13 @@ local function evaluateRushSafety(testPos, segments, char)
         return true, "🛡️ SAFE: HIDDEN IN CLOSET/BED"
     end
 
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then
+        return true, "STANDBY: CURRENTROOMS INACTIVE"
+    end
+
     if not segments or #segments == 0 then
-        return true, "🛡️ SAFE: NO ACTIVE THREAT DETECTED"
+        return false, "⚠️ SCANNING: RUSH PATH NOT YET GENERATED"
     end
 
     local rayParams = RaycastParams.new()
@@ -8249,68 +8318,86 @@ local function evaluateRushSafety(testPos, segments, char)
     for _, vis in ipairs(activeNodeVisuals) do table.insert(filter, vis) end
     rayParams.FilterDescendantsInstances = filter
 
-    local minSegmentDist = math.huge
+    -- 1. Find Closest Point on Entire Rush Path
+    local minPathDist = math.huge
     local closestPathPoint = nil
 
     for _, seg in ipairs(segments) do
         local cPoint, dist = getClosestPointOnSegment(testPos, seg.A, seg.B)
-        if dist < minSegmentDist then
-            minSegmentDist = dist
+        if dist < minPathDist then
+            minPathDist = dist
             closestPathPoint = cPoint
         end
     end
 
-    -- If player is completely beyond lethal path radius (> 20 studs from all segments)
-    if minSegmentDist > 20 then
-        return true, string.format("🛡️ SAFE ZONE: OUT OF RUSH PATH RANGE (%.1fm)", minSegmentDist)
+    -- 2. Lethal Kill Radius Check:
+    -- In DOORS, Rush/Ambush lethal hitbox radius is ~15.5 studs.
+    -- If the player is > 16.0 studs away from Rush's closest path segment:
+    -- Rush CANNOT kill here, even with zero walls!
+    local LETHAL_KILL_RADIUS = 16.0
+    if minPathDist > LETHAL_KILL_RADIUS then
+        return true, string.format("🛡️ SAFE: OUT OF RUSH KILL RADIUS (%.1fm FROM PATH)", minPathDist)
     end
 
-    -- Within 20 studs: Rush CAN kill here unless blocked by solid cover!
-    -- Multi-Level Elevation Test Points: Head (3.5 studs), Torso (2.0 studs)
+    -- 3. Invisible Laser Raycast Analyzer:
+    -- Rush passes within 16 studs of the player!
+    -- Shoot invisible lasers from every path point within 16 studs towards the player.
+    local isCrouching = isPlayerCrouching(charInst)
     local targetElevations = {
-        testPos + Vector3.new(0, 3.5, 0),
-        testPos + Vector3.new(0, 2.0, 0)
+        testPos + Vector3.new(0, isCrouching and 1.6 or 2.7, 0), -- Head
+        testPos + Vector3.new(0, isCrouching and 0.8 or 1.4, 0)  -- Torso
     }
 
-    local nearbyTrajectoryPoints = {}
+    -- Sample laser emitter points along all path segments that get within 16.0 studs
+    local laserEmitters = {}
     for _, seg in ipairs(segments) do
         local _, sDist = getClosestPointOnSegment(testPos, seg.A, seg.B)
-        if sDist <= 24 then
-            table.insert(nearbyTrajectoryPoints, seg.A)
-            table.insert(nearbyTrajectoryPoints, (seg.A + seg.B) * 0.5)
-            table.insert(nearbyTrajectoryPoints, seg.B)
-            if seg.Length > 10 then
-                table.insert(nearbyTrajectoryPoints, seg.A + (seg.B - seg.A) * 0.25)
-                table.insert(nearbyTrajectoryPoints, seg.A + (seg.B - seg.A) * 0.75)
+        if sDist <= LETHAL_KILL_RADIUS then
+            local segDir = seg.B - seg.A
+            local segLen = seg.Length
+            local numSamples = math.max(1, math.floor(segLen / 2.5))
+            for i = 0, numSamples do
+                local p = seg.A + segDir * (i / numSamples)
+                local d = (p - testPos).Magnitude
+                if d <= LETHAL_KILL_RADIUS then
+                    table.insert(laserEmitters, p)
+                end
             end
         end
     end
 
-    if #nearbyTrajectoryPoints == 0 then
-        table.insert(nearbyTrajectoryPoints, closestPathPoint or testPos)
+    if #laserEmitters == 0 and closestPathPoint then
+        table.insert(laserEmitters, closestPathPoint)
     end
 
-    local directLineOfSight = false
+    local unblockedLaserFound = false
+    local lethalLaserDist = minPathDist
     local lastObstacle = "Solid Cover"
 
-    for _, pt in ipairs(nearbyTrajectoryPoints) do
-        local origin = pt + Vector3.new(0, 3.2, 0)
+    for _, emitPos in ipairs(laserEmitters) do
+        local laserOrigin = emitPos + Vector3.new(0, 2.8, 0) -- Rush center height
+
         for _, tPos in ipairs(targetElevations) do
-            local solidHit = castRayThroughNonSolid(origin, tPos, rayParams)
+            local solidHit, obstacleName = castLaserToTarget(laserOrigin, tPos, rayParams)
             if solidHit then
-                lastObstacle = solidHit.Instance.Name
+                lastObstacle = obstacleName or lastObstacle
             else
-                directLineOfSight = true
+                -- DIRECT UNBLOCKED LASER HIT ON PLAYER!
+                unblockedLaserFound = true
+                lethalLaserDist = (emitPos - testPos).Magnitude
                 break
             end
         end
-        if directLineOfSight then break end
+
+        if unblockedLaserFound then
+            break
+        end
     end
 
-    if not directLineOfSight then
-        return true, string.format("🛡️ SAFE: SHIELDED BEHIND %s", lastObstacle)
+    if unblockedLaserFound then
+        return false, string.format("⚠️ DANGER: DIRECT RUSH LASER HIT (%.1fm)", lethalLaserDist)
     else
-        return false, string.format("⚠️ DANGER: DIRECT RUSH / AMBUSH LOS (%.1fm)", minSegmentDist)
+        return true, string.format("🛡️ SAFE: ALL LASERS BLOCKED BY %s", lastObstacle)
     end
 end
 
