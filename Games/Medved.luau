@@ -172,7 +172,7 @@ local Config = {
     -- Misc & Progression
     AutoUnlockDoors = false,
     AutoPrestigeOn32 = false,
-    AntiRagdoll = false
+    AntiRagdoll = true
 }
 getgenv().MedvedConfig = Config
 getgenv().UnknownHub = Hub
@@ -982,13 +982,26 @@ local function getBearLevitationTarget(bear)
         end
     end
 
-    -- Category 1: Ball Bear (ballbear, BooBoo, HypersonicBooBoo)
-    -- In Melee / Bear Attack: Hover tightly behind spine so claw swipes and bite hitboxes connect 100%!
-    if name:find("booboo") or name:find("ball") or sz.Y < 6.5 or sz.Magnitude < 8 then
+    -- Category 1: Ball Bear (ballbear) - 9.9-stud rolling sphere
+    if name:find("ball") then
         local targetPos = cf.Position
         if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
-            local targetY = cf.Position.Y + (sz.Y * 0.5) + 2.2
-            local distBehind = 2.4
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 0.5
+            local distBehind = 3.2
+            return targetPos, distBehind, targetY
+        else
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 22.0
+            local distBehind = 28.0
+            return targetPos, distBehind, targetY
+        end
+    end
+
+    -- Category 1.1: Boo-Boo & Mini Bears (Height ~3.5 studs)
+    if name:find("booboo") or sz.Y < 6.5 or sz.Magnitude < 8 then
+        local targetPos = cf.Position
+        if Config.FarmMethod == "Melee" or Config.FarmMethod == "Bear Attack" then
+            local targetY = cf.Position.Y + (sz.Y * 0.5) + 1.8
+            local distBehind = 2.0
             return targetPos, distBehind, targetY
         else
             local targetY = cf.Position.Y + (sz.Y * 0.5) + 22.0
@@ -2281,22 +2294,29 @@ RunService.Heartbeat:Connect(function(dt)
                     RunService:UnbindFromRenderStep("BearFacing")
                 end)
 
-                -- Real-Time Anti-Jump Dynamic Ceiling Clearance:
-                -- When any bear jumps or bounces (AssemblyLinearVelocity.Y > 1.5), Boo-Boo dynamically floats higher!
-                local vY = bRoot.AssemblyLinearVelocity.Y
-                local dynamicJumpLift = 0
-                if vY > 1.5 then
-                    dynamicJumpLift = math.min(vY * 0.35 + 2.5, 12.0)
-                end
-
                 local bName = activeFlightBear.Name:lower()
-                local isBooBoo = bName:find("boo") ~= nil or bName:find("ball") ~= nil
+                local isBallBear = bName:find("ball") ~= nil
+                local isBooBoo = (bName:find("boo") ~= nil) and not isBallBear
                 local isBurrowingBear = bName:find("burrow") ~= nil
                 local bVel = bRoot.AssemblyLinearVelocity
                 local flatVel = Vector3.new(bVel.X, 0, bVel.Z)
 
+                -- Real-Time Anti-Jump Dynamic Ceiling Clearance:
+                -- When any bear jumps, bounces, or lunges, Boo-Boo dynamically floats higher!
+                local vY = bVel.Y
+                local dynamicJumpLift = 0
+                if vY > 1.0 then
+                    if isBallBear then
+                        -- BallBear BallLunge shoots 34 studs up, SpinCharge shoots 66 studs up!
+                        -- Track its vertical ascent instantly to keep Boo-Boo strictly above the sphere!
+                        dynamicJumpLift = math.min(vY * 0.95 + 3.0, 38.0)
+                    else
+                        dynamicJumpLift = math.min(vY * 0.35 + 2.5, 12.0)
+                    end
+                end
+
                 -- Real-Time Dynamic Anti-Jump & Elevation Clearance:
-                local activeElevation = (activeFlightOffset.elevation or 6.8) + dynamicJumpLift
+                local activeElevation = (activeFlightOffset.elevation or 5.4) + dynamicJumpLift
 
                 -- Authoritative Bear Heading for ALL Bears (Boo-Boo, Medved, Burrowing, etc.):
                 -- 1. If moving, live velocity vector is 100% indisputable forward heading!
@@ -2312,7 +2332,7 @@ RunService.Heartbeat:Connect(function(dt)
 
                 -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 75ms feedforward
                 local curStandoff = activeFlightOffset.standoff or 2.4
-                if flatVel.Magnitude > 1.0 then
+                if not isBallBear and flatVel.Magnitude > 1.0 then
                     curStandoff = math.max(1.8, curStandoff - math.clamp(flatVel.Magnitude * 0.035, 0, 0.7))
                 end
 
@@ -2758,10 +2778,12 @@ task.spawn(function()
 
         if isBallBear then
             -- BALL BEAR: 9.9-stud diameter rolling sphere (radius 4.95 studs from center).
-            -- Standoff 5.6 behind rolling direction (+Z) places Boo-Boo cleanly outside sphere surface (0 roll/crush touch).
-            -- Elevation 6.8 is 1.85 studs above sphere top surface, bringing sonic scream distance to 3.85 studs (100% connect rate)!
-            standoff = 5.6
-            elevation = 6.8 + damageElevationBoost
+            -- Upper-Rear Dorsal Apex:
+            -- Standoff 3.2 behind rolling heading and elevation 5.4 puts Boo-Boo 0.45 studs above top surface
+            -- and 1.32 studs from the dorsal hull, maintaining distance at 6.27 studs (STRICTLY WITHIN the 6.5-stud scream reach)!
+            -- Aim position targeted directly at upper sphere hull (+1.2 studs) guarantees 100% scream connection on every tick!
+            standoff = 3.2
+            elevation = 5.4 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("body") or bearRoot
         elseif isWallBear then
             -- WALL BEAR: 15.5-stud tall concrete slab. Faces -Z, topples forward.
@@ -2857,6 +2879,9 @@ task.spawn(function()
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
         end
         local aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
+        if isBallBear then
+            aimPos = bearRoot.Position + Vector3.new(0, 1.2, 0)
+        end
 
         activeFlightOffset = {
             standoff = standoff,
@@ -3019,6 +3044,9 @@ task.spawn(function()
                 if isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
                     local currentAimPos = (targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.2, 0)) or aimPos
+                    if isBallBear then
+                        currentAimPos = bearRoot.Position + Vector3.new(0, 1.2, 0)
+                    end
                     local hitOffset = (targetHitPart and targetHitPart.Parent) and targetHitPart.CFrame:PointToObjectSpace(currentAimPos) or Vector3.zero
                     if bearAim and targetHitPart and targetHitPart.Parent then
                         pcall(function()
