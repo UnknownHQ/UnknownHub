@@ -1239,18 +1239,16 @@ task.spawn(function()
 
                         record.CurrentlyVisible = shouldShow
                         if record.Visuals then
-                            local budgetAllowed = (allowedHighlights and allowedHighlights[record]) == true
                             for _, vis in ipairs(record.Visuals) do
                                 if vis:IsA("BillboardGui") then
                                     vis.Enabled = shouldShow
-                                elseif vis:IsA("SelectionBox") then
+                                elseif vis:IsA("SelectionBox") or vis:IsA("BoxHandleAdornment") or vis:IsA("SphereHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
                                     vis.Visible = shouldShow
-                                    vis.Adornee = shouldShow and (vis.Adornee or (record.HighlightMap and record.HighlightMap[vis]) or record.Adornee) or nil
-                                elseif vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
-                                    vis.Visible = shouldShow
+                                    vis.Adornee = shouldShow and (vis.Adornee or record.Adornee) or nil
                                 elseif vis:IsA("Highlight") then
-                                    vis.Enabled = shouldShow and budgetAllowed
-                                    vis.Adornee = (shouldShow and budgetAllowed) and ((record.HighlightMap and record.HighlightMap[vis]) or record.Adornee) or nil
+                                    -- Doors receive TOP UNCONDITIONAL PRIORITY: never disabled by budget or distance!
+                                    vis.Enabled = shouldShow
+                                    vis.Adornee = shouldShow and (record.Owner or record.Adornee) or nil
                                 end
                             end
                         end
@@ -1502,28 +1500,47 @@ local function processDoor(room, doorModel)
     -- Wood textures, door number plates, and padlocks remain 100% visible and un-obscured!
     local extraVisuals = {}
 
-    local doorHighlight = createHighlight(doorMesh, color, 0.45, 0.1)
-    if doorHighlight then
-        table.insert(extraVisuals, doorHighlight)
+    -- 1. Direct Roblox Model Highlight (Adorned to doorModel so Roblox engine natively highlights the entire door leaf & frame!)
+    local doorHighlight = doorModel:FindFirstChild("Unknown_ESP_DoorHighlight")
+    if not doorHighlight then
+        doorHighlight = Instance.new("Highlight")
+        doorHighlight.Name = "Unknown_ESP_DoorHighlight"
+        doorHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        doorHighlight.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
     end
+    doorHighlight.Adornee = doorModel
+    doorHighlight.FillColor = color
+    doorHighlight.OutlineColor = color
+    doorHighlight.FillTransparency = 0.35
+    doorHighlight.OutlineTransparency = 0
+    doorHighlight.Enabled = true
+    table.insert(extraVisuals, doorHighlight)
 
+    -- 2. Direct 3D BoxHandleAdornment on doorMesh (AlwaysOnTop through-wall neon glowing solid fill, 100% bypasses Roblox 31 highlight limit!)
+    local doorBox = Instance.new("BoxHandleAdornment")
+    doorBox.Name = "Unknown_DoorBoxAdornment"
+    doorBox.Adornee = doorMesh
+    doorBox.Size = doorMesh.Size + Vector3.new(0.08, 0.08, 0.08)
+    doorBox.Color3 = color
+    doorBox.Transparency = 0.35
+    doorBox.AlwaysOnTop = true
+    doorBox.ZIndex = 10
+    doorBox.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+    table.insert(extraVisuals, doorBox)
+
+    -- 3. Neon SelectionBox perimeter outline on doorMesh
     local doorOutline = Instance.new("SelectionBox")
     doorOutline.Name = "Unknown_DoorOutlineBox"
     doorOutline.Adornee = doorMesh
     doorOutline.Color3 = color
-    doorOutline.LineThickness = 0.025
-    doorOutline.SurfaceTransparency = 1
+    doorOutline.LineThickness = 0.06
+    doorOutline.SurfaceTransparency = 0.65
     doorOutline.Parent = (gethui and gethui()) or CoreGui
     table.insert(extraVisuals, doorOutline)
 
-    local partsToHl = { doorMesh }
-    if lock and lock:IsA("BasePart") then
-        table.insert(partsToHl, lock)
-    end
-
     -- Float text cleanly ABOVE the top door frame header (doorMesh.Size.Y / 2 + 0.95 studs) so it is NEVER behind or inside the door!
     local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", partsToHl, doorHeaderOffset, roomNumber, extraVisuals)
+    registerEsp(doorModel, adorneePart, baseText, color, "Doors", nil, doorHeaderOffset, roomNumber, extraVisuals)
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
@@ -1936,7 +1953,7 @@ local function processGold(goldInstance)
 
         local baseText = displayName
         local color = Color3.fromRGB(255, 195, 0)
-        registerEsp(owner, targetPart, baseText, color, "Gold", owner, Vector3.new(0, 0.8, 0))
+        registerEsp(owner, targetPart, baseText, color, "Gold", nil, Vector3.new(0, 0.8, 0))
     end
 end
 
@@ -5398,44 +5415,8 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Proven DOORS Native Flight & Invisibility Deflector (Zero Physics Fighting, Zero Camera Shaking):
-    if State.Noclip and State.Bypass_AntiCheat and not hiding and not TeleportState.isTweening and not isAutoFlying and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
-        -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then
-                if p.CanCollide then p.CanCollide = false end
-                p.CanTouch = true
-                p.CanQuery = true
-            end
-        end
-
-        -- Retain DOORS native mgTable.clipPos and align root horizontally with Camera look direction
-        -- This guarantees that when dropping tools during flight, they drop directly in front of the crosshair!
-        local cam = Workspace.CurrentCamera
-        if cam and root then
-            local cLook = cam.CFrame.LookVector
-            local hLook = Vector3.new(cLook.X, 0, cLook.Z)
-            if hLook.Magnitude > 0.05 then
-                root.CFrame = CFrame.new(root.Position, root.Position + hLook.Unit)
-            end
-        end
-
-        local mgTable = getMainGameTable()
-        if mgTable then
-            if not mgTable.noclip then mgTable.noclip = true end
-            if mgTable.hideplayers ~= 0 then mgTable.hideplayers = 0 end
-            if mgTable.__NOBASERIG then mgTable.__NOBASERIG = false end
-            if mgTable.canUseItems == false then mgTable.canUseItems = true end
-        end
-
-        local cam = Workspace.CurrentCamera
-        local baseRig = cam and cam:FindFirstChild("BaseRig")
-        if baseRig then
-            for _, bp in ipairs(baseRig:GetDescendants()) do
-                if bp:IsA("BasePart") then bp.LocalTransparencyModifier = 0 end
-            end
-        end
-    elseif State.Walk_Noclip and not hiding and not TeleportState.isTweening then
+    -- Native Movement & Ground Walk Noclip (Zero Flight Physics, Zero Server Desync):
+    if State.Walk_Noclip and not hiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
         if mgTable and root then
             if mgTable.SETNEWCF then mgTable.SETNEWCF = nil end
@@ -7352,7 +7333,7 @@ farmGlideTo = function(targetPos, speedVal, maxTime)
     local arrived = false
 
     -- Ensure Core Protections & Noclip are actively running
-    if not State.Noclip then State.Noclip = true end
+    if not State.Noclip then State.Walk_Noclip = true end
     if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
     if not State.Auto_Hide then State.Auto_Hide = true; State.Auto_RoofEvacuate = true end
     if not State.Deflect_Glitch then State.Deflect_Glitch = true end
@@ -7836,7 +7817,7 @@ runAutoComplete100Step = function()
         local curRoom = curRooms:FindFirstChild(tostring(lr))
 
         -- Ensure Noclip & Anti-Cheat Bypass are actively engaged
-        if not State.Noclip then State.Noclip = true end
+        if not State.Noclip then State.Walk_Noclip = true end
         if not State.Bypass_AntiCheat then State.Bypass_AntiCheat = true end
 
         -- Special Stage: Room 50 (Figure Library)
@@ -8741,88 +8722,8 @@ Hub.CreateToggle(mainTab, "Walk Noclip", State.Walk_Noclip, function(v)
     Hub.Notify("Movement", v and "Walk Noclip: Active (Walk through walls without flying!)" or "Walk Noclip: Disabled", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Fly Noclip", State.Noclip, function(v)
-    if v and not State.Bypass_AntiCheat then
-        State.Bypass_AntiCheat = true
-        neutralizeServerTeleported()
-        initAntiGlitchShield()
-        Hub.Notify("Anti-Cheat", "Anti-Cheat Bypass auto-enabled for Fly Noclip!", 2)
-    end
-    State.Noclip = v
-    local mg = getMainGameTable()
-    if mg then
-        mg.noclip = v
-        syncNativeFlightSpeed(State.Noclip_Speed)
-        if not v then
-            local r = getRoot()
-            if r then
-                local rayParams = RaycastParams.new()
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                rayParams.FilterDescendantsInstances = { getChar() }
-                local hit = Workspace:Raycast(r.Position, Vector3.new(0, -20, 0), rayParams)
-                if hit then
-                    r.CFrame = CFrame.new(hit.Position + Vector3.new(0, 3.2, 0), hit.Position + Vector3.new(0, 3.2, 0) + r.CFrame.LookVector)
-                    mg.clipPos = r.Position
-                else
-                    mg.clipPos = r.Position
-                end
-                mg.inAir = false
-                mg.hideplayers = 0
-                pcall(function()
-                    r.AssemblyLinearVelocity = Vector3.zero
-                    r.AssemblyAngularVelocity = Vector3.zero
-                end)
-                local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
-                if hum then
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end
-                restoreCharacterInteractivity(getChar())
-                syncServerRoomBoundary()
-            end
-        end
-    end
-    local char = getChar()
-    if char then
-        local coll = char:FindFirstChild("Collision")
-        if coll and coll:IsA("BasePart") then
-            coll.CanCollide = not v
-        end
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then
-                if p.Name ~= "Collision" then
-                    p.CanCollide = false -- Limbs permanently CanCollide = false: eradicates floor catch / 'small stones' and allows smooth door approach
-                end
-                if p.CollisionGroup ~= "NoPlayer" then
-                    pcall(function() p.CollisionGroup = "NoPlayer" end)
-                end
-                p.CanTouch = true
-                p.CanQuery = true
-            end
-        end
-    end
-    if not v then
-        local root = getRoot()
-        if root then
-            pcall(function()
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-            end)
-            local mg = getMainGameTable()
-            if mg then
-                mg.clipPos = root.Position
-                mg.inAir = false
-            end
-        end
-    end
-    Hub.Notify("Movement", v and "Fly Noclip: Active (Native Engine Flight)" or "Fly Noclip: Disabled", 2)
-end)
-
-Hub.CreateSlider(mainTab, "Fly Speed", 4, 300, State.Noclip_Speed, " studs/s", function(v)
-    State.Noclip_Speed = v
-    if State.Noclip then
-        syncNativeFlightSpeed(v)
-    end
-end)
+-- Fly Noclip permanently removed as requested: Eliminates all flight-induced server desync, interaction delay, and camera glitches!
+-- Ground Walk Noclip remains 100% active and working with ZERO server desync!
 
 Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
     State.WalkSpeed_Enabled = v
@@ -8957,7 +8858,7 @@ Hub.CreateSection(exploitsTab, "Autonomous 1-100 Doors Completer")
 Hub.CreateToggle(exploitsTab, "Auto Complete 100 Doors", State.Auto_Complete_100, function(v)
     State.Auto_Complete_100 = v
     if v then
-        State.Noclip = true
+        State.Walk_Noclip = true
         State.Bypass_AntiCheat = true
         State.Auto_Hide = true
         State.Auto_RoofEvacuate = true
@@ -9027,7 +8928,7 @@ end)
 Hub.CreateToggle(exploitsTab, "Knobs Farm Autopilot", State.Knobs_Farm_Active, function(v)
     State.Knobs_Farm_Active = v
     if v then
-        State.Noclip = true
+        State.Walk_Noclip = true
         State.Bypass_AntiCheat = true
         State.Auto_RoofEvacuate = true
         State.Deflect_Glitch = true
