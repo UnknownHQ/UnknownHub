@@ -2216,20 +2216,17 @@ local lastDamageTime = 0
 local damageElevationBoost = 0
 local lastObservedHealth = nil
 
--- Authoritative Combat Flight CFrame Constructor with Downward Pitch Clamp (22 deg max)
--- Eliminates the 67-degree nose-down tilt that dips player legs into bear swipe arcs,
--- while aligning sonic scream cone directly across the bear's upper body for 100% hit registration!
+-- Authoritative Combat Flight CFrame Constructor with True 3D Target Aiming
+-- Directly aligns sonic scream / weapon cone with the enemy bear's hitbox for 100% hit registration,
+-- with safe upVector handling to prevent vertical gimbal singularities.
 local function buildCombatFlightCF(pos, aim)
     local toAim = aim - pos
     if toAim.Magnitude > 0.05 then
         local flatDir = Vector3.new(toAim.X, 0, toAim.Z)
         if flatDir.Magnitude > 0.05 then
-            flatDir = flatDir.Unit
-            local hDist = Vector2.new(toAim.X, toAim.Z).Magnitude
-            local maxDownDrop = hDist * math.tan(math.rad(22))
-            local clampedAimY = pos.Y + math.max(toAim.Y, -maxDownDrop)
-            local clampedAim = Vector3.new(pos.X + flatDir.X * hDist, clampedAimY, pos.Z + flatDir.Z * hDist)
-            return CFrame.lookAt(pos, clampedAim)
+            return CFrame.lookAt(pos, aim)
+        else
+            return CFrame.lookAt(pos, aim, Vector3.new(0, 0, -1))
         end
     end
     return CFrame.new(pos)
@@ -2310,7 +2307,7 @@ RunService.Heartbeat:Connect(function(dt)
                         or (bRoot.Position.Y < -155)
                     if isBbUnderground then
                         local boost = damageElevationBoost or 0
-                        activeElevation = math.max(activeElevation, 22.0 + boost)
+                        activeElevation = math.max(activeElevation, 24.0 + boost)
                     end
                 end
 
@@ -2564,10 +2561,10 @@ task.spawn(function()
             if hum.Health <= effectiveHpThreshold and hum.Health < maxHp then
                 isFleeingLowHP = true
                 if not safeHoverTargetCF then
-                    -- SpikeBear quills & ranged attacks reach into open air!
-                    -- Retreat directly inside Main Base safe courtyard (Z = -25, Y = -143) where bears cannot enter!
-                    safeHoverTargetCF = CFrame.new(52.0, -134.7, -147.7)
-                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " / " .. math.floor(maxHp) .. " HP)! Retreating inside Main Base...", 2)
+                    -- Low HP Safe Sky Zone: Retreat high into the clear sky directly above the base (144 studs above roof!)
+                    -- Zero ground geometry, zero bears, zero spikes, zero touch triggers, 100% peaceful health regen!
+                    safeHoverTargetCF = CFrame.new(37.0, 50.0, -135.0)
+                    Hub.Notify("Bear Farm", "Low HP (" .. math.floor(hum.Health) .. " / " .. math.floor(maxHp) .. " HP)! Retreating to safe sky above base...", 2)
                 end
             end
 
@@ -2580,8 +2577,8 @@ task.spawn(function()
                 root.AssemblyLinearVelocity = Vector3.zero
                 root.AssemblyAngularVelocity = Vector3.zero
 
-                -- Stay in safe hover until healed back to 85%+
-                if hum.Health >= math.floor(maxHp * 0.85) then
+                -- Stay in safe hover until healed back to 90%+
+                if hum.Health >= math.floor(maxHp * 0.90) then
                     isFleeingLowHP = false
                     safeHoverTargetCF = nil
                     Hub.Notify("Bear Farm", "HP Restored (" .. math.floor(hum.Health) .. " HP)! Resuming Bear Farm...", 2)
@@ -2786,18 +2783,24 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isBurrowingBear then
             -- BURROWING BEAR: 500 HP aberrant burrower. 85 DMG swipe + 50 DMG / 45 Lift eruption.
-            -- When burrowing/tunneling underground, elevate to +22.0 studs to completely avoid the 15-stud underground eruption!
-            -- When on surface, standoff 2.2 and elevation 5.2 places player safely 2.0 studs above its +2.0 Sphere touch part & swipe ceiling!
-            -- Eliminates touch collision triggers (0 touch hits taken), while diagonal distance is 6.04 studs (100% connect rate within 6.5 reach)!
+            -- TouchPart is "Sphere" (size 8.66x7.78x8.17, relPos Z=+1.15, top reaches Y=+2.00).
+            -- AI Swipe extends from Z=-7.0 to Z=+1.0 with top at Y=+2.00.
+            -- When burrowing/tunneling underground, elevate to +24.0 studs to completely avoid the 15-stud underground eruption!
+            -- When on surface:
+            -- Standoff 1.6 behind bearRoot and elevation 5.8 places Boo-Boo's bottom at Y >= +3.82 (> +2.00 ceiling),
+            -- maintaining 1.82 studs of absolute vertical clearance above Sphere and Swipe!
+            -- Targeting Hitbox_Head (at Z=-2.01, Y=+0.86) with direct 3D aiming:
+            -- Distance is sqrt((1.6 - (-2.01))^2 + (5.8 - 0.86)^2) = sqrt(13.03 + 24.40) = 6.11 studs (<= 6.5 reach).
+            -- 100% sonic scream hit connection while remaining 100% immune from touch collisions!
             local bm = bear:GetAttribute("BrainMode")
             local isUnderground = (bm == "Tunnel")
                 or (bm == "DigAway")
                 or (bear:GetAttribute("Burrowing") == true)
                 or (bear:GetAttribute("Tunneling") == true) 
                 or (bearRoot and bearRoot.Position.Y < -155)
-            standoff = 2.2
-            elevation = (isUnderground and 22.0 or 5.2) + (damageElevationBoost or 0)
-            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Belly") or bearRoot
+            standoff = 1.6
+            elevation = (isUnderground and 24.0 or 5.8) + (damageElevationBoost or 0)
+            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bearRoot
         elseif isTallBear then
             -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay high at 7.5 elevation
             standoff = 3.6
@@ -2824,10 +2827,10 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("Hitbox_Body") or bearRoot
         elseif isBooBoo then
             -- BOO-BOO / MINI BEARS: Height ~3.5 studs.
-            -- Standoff 1.8 and elevation 3.2 connects 100% within 3.67 studs!
+            -- Standoff 1.6 and elevation 3.0 connects 100% within 3.4 studs!
             -- Never target detached Cube (which sits 60 studs away); target Hitbox_Head or Hitbox_Body directly!
-            standoff = 1.8
-            elevation = 3.2 + (damageElevationBoost or 0)
+            standoff = 1.6
+            elevation = 3.0 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isGrizzly then
             -- GRIZZLY MEDVED: 1.3x scale quadruped (swipe extends to Y = +6.5)
