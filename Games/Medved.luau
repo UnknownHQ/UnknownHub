@@ -3364,14 +3364,35 @@ miscHeartbeatConn = RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
 
-    -- 1. Infinite Stamina (Human & Bear)
+    -- 1. Infinite Stamina (Human & Bear Kinematic Sprint Engine)
     if Config.InfiniteStamina then
         local sprintScript = char:FindFirstChild("Sprinting")
         if sprintScript then
             sprintScript:SetAttribute("Stamina", 1)
         end
-        if char:GetAttribute("BearStamina") ~= nil and char:GetAttribute("BearStamina") < 1 then
-            char:SetAttribute("BearStamina", 1)
+
+        local isBear = char:GetAttribute("TransformedToBear") ~= nil
+        if isBear then
+            if char:GetAttribute("BearStamina") ~= 1 then
+                char:SetAttribute("BearStamina", 1)
+            end
+
+            -- True Infinite Kinematic Sprint: When moving on the ground, maintain uninterrupted full sprint speed!
+            if not Config.AutoFarmBears and not Config.FlyNoclip then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if hum and root and hum.MoveDirection.Magnitude > 0.05 then
+                    local isShiftHeld = false
+                    pcall(function()
+                        isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+                    end)
+                    if isShiftHeld or Config.InfiniteStamina then
+                        local targetSpeed = math.max(Config.CustomSpeed or 38, 38)
+                        local dir = hum.MoveDirection.Unit
+                        root.AssemblyLinearVelocity = Vector3.new(dir.X * targetSpeed, root.AssemblyLinearVelocity.Y, dir.Z * targetSpeed)
+                    end
+                end
+            end
         end
     end
 
