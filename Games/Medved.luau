@@ -2211,6 +2211,25 @@ local function getNearbyThreatCeiling(playerPos, currentTarget)
     return highestThreatY, pushRepelVector
 end
 
+-- Authoritative Combat Flight CFrame Constructor with Downward Pitch Clamp (22 deg max)
+-- Eliminates the 67-degree nose-down tilt that dips player legs into bear swipe arcs,
+-- while aligning sonic scream cone directly across the bear's upper body for 100% hit registration!
+local function buildCombatFlightCF(pos, aim)
+    local toAim = aim - pos
+    if toAim.Magnitude > 0.05 then
+        local flatDir = Vector3.new(toAim.X, 0, toAim.Z)
+        if flatDir.Magnitude > 0.05 then
+            flatDir = flatDir.Unit
+            local hDist = Vector2.new(toAim.X, toAim.Z).Magnitude
+            local maxDownDrop = hDist * math.tan(math.rad(22))
+            local clampedAimY = pos.Y + math.max(toAim.Y, -maxDownDrop)
+            local clampedAim = Vector3.new(pos.X + flatDir.X * hDist, clampedAimY, pos.Z + flatDir.Z * hDist)
+            return CFrame.lookAt(pos, clampedAim)
+        end
+    end
+    return CFrame.new(pos)
+end
+
 -- Pipeline 1: 60+ FPS Butter-Smooth Levitation Flight (RunService.Heartbeat)
 -- Decoupled from combat task.wait pauses; updates every single physics frame without stutter or delay
 RunService.Heartbeat:Connect(function(dt)
@@ -2270,8 +2289,24 @@ RunService.Heartbeat:Connect(function(dt)
 
                 local bName = activeFlightBear.Name:lower()
                 local isBooBoo = bName:find("boo") ~= nil or bName:find("ball") ~= nil
+                local isBurrowingBear = bName:find("burrow") ~= nil
                 local bVel = bRoot.AssemblyLinearVelocity
                 local flatVel = Vector3.new(bVel.X, 0, bVel.Z)
+
+                -- Real-Time Dynamic Clearance for BurrowingBear:
+                -- If BurrowingBear tunnels/burrows underground, instantly elevate to 20 studs above 15-stud eruption!
+                local activeElevation = activeFlightOffset.elevation + dynamicJumpLift
+                if isBurrowingBear then
+                    local bm = activeFlightBear:GetAttribute("BrainMode")
+                    local isBbUnderground = (bm == "Tunnel")
+                        or (bm == "DigAway")
+                        or (activeFlightBear:GetAttribute("Burrowing") == true)
+                        or (activeFlightBear:GetAttribute("Tunneling") == true)
+                        or (bRoot.Position.Y < -155)
+                    if isBbUnderground then
+                        activeElevation = math.max(activeElevation, 20.0 + damageElevationBoost)
+                    end
+                end
 
                 -- Authoritative Bear Heading:
                 -- 1. If moving, live velocity vector is 100% indisputable forward heading!
@@ -2296,7 +2331,7 @@ RunService.Heartbeat:Connect(function(dt)
                     flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
                 end
 
-                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeFlightOffset.elevation + dynamicJumpLift, 0)
+                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeElevation, 0)
                 -- Dynamic Velocity Feedforward: 40ms predictive lead glued to the bear's running momentum
                 if flatVel.Magnitude > 0.5 then
                     targetPos = targetPos + (flatVel * 0.040)
@@ -2306,14 +2341,14 @@ RunService.Heartbeat:Connect(function(dt)
                 if Config.EvasiveOrbit ~= false then
                     local rightVec = flatLook:Cross(Vector3.yAxis)
                     if rightVec.Magnitude > 0.05 then
-                        local sway = math.sin(os.clock() * 4.0) * 1.5
+                        local sway = math.sin(os.clock() * 3.5) * 1.3
                         targetPos = targetPos + (rightVec.Unit * sway)
                     end
                 end
 
                 local aimPart = activeFlightOffset.targetHitPart or bRoot
                 local aimPos = (aimPart and aimPart.Parent) and (aimPart.Position + Vector3.new(0, 0.2, 0)) or (bRoot.Position + Vector3.new(0, 0.5, 0))
-                targetCF = CFrame.lookAt(targetPos, aimPos)
+                targetCF = buildCombatFlightCF(targetPos, aimPos)
             else
                 activeFlightBear = nil
                 activeFlightTargetCF = nil
@@ -2753,14 +2788,18 @@ task.spawn(function()
             targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isBurrowingBear then
             -- BURROWING BEAR: 500 HP aberrant burrower. 85 DMG swipe + 50 DMG / 45 Lift eruption.
-            -- When burrowing/tunneling underground, elevate to +18.0 studs to completely avoid the underground eruption!
-            -- When on surface, standoff 4.5 and elevation 8.0 places player safely above its downward swipe hitbox.
-            local isUnderground = bear:GetAttribute("Burrowing") == true 
-                or bear:GetAttribute("Tunneling") == true 
+            -- When burrowing/tunneling underground, elevate to +20.0 studs to completely avoid the 15-stud underground eruption!
+            -- When on surface, standoff 2.8 and elevation 4.4 places player safely above its +2.0 swipe ceiling & +2.0 Sphere touch part,
+            -- while keeping diagonal distance within 5.68 studs (100% Sonic Scream connect rate within 6.5-stud reach)!
+            local bm = bear:GetAttribute("BrainMode")
+            local isUnderground = (bm == "Tunnel")
+                or (bm == "DigAway")
+                or (bear:GetAttribute("Burrowing") == true)
+                or (bear:GetAttribute("Tunneling") == true) 
                 or (bearRoot and bearRoot.Position.Y < -155)
-            standoff = 4.5
-            elevation = (isUnderground and 18.0 or 8.0) + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Body") or bearRoot
+            standoff = 2.8
+            elevation = (isUnderground and 20.0 or 4.4) + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Belly") or bear:FindFirstChild("Hitbox_Head") or bearRoot
         elseif isTallBear then
             -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay high at 7.5 elevation
             standoff = 3.6
@@ -2805,12 +2844,12 @@ task.spawn(function()
         else
             -- STANDARD QUADRUPEDS (Medved, ClassicBear):
             -- Medved claw swipe volume is Y in [-3.0, +5.0].
-            -- Standoff 2.8 and elevation 6.8 places Boo-Boo safely above Medved's +5.0 claw swipe ceiling!
-            -- Even when pitched down to aim at Hitbox_Chest, lower body stays at Y >= +5.6 studs (> +5.0).
-            -- 0 damage taken from claws, while sonic scream (4.9 studs diagonal) connects 100%.
-            standoff = 2.8
-            elevation = 6.8 + damageElevationBoost
-            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
+            -- Standoff 3.0 and elevation 7.2 places Boo-Boo 2.2 studs above Medved's +5.0 claw swipe ceiling!
+            -- With pitch clamp, lower body stays at Y >= +6.0 studs (> +5.0).
+            -- 0 damage taken from claws, while sonic scream (5.86 studs diagonal) connects 100% within 6.5-stud reach.
+            standoff = 3.0
+            elevation = 7.2 + damageElevationBoost
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
         -- TRUE BEAR FACING ORIENTATION: STRICTLY FROM BEAR ROOT!
@@ -2848,8 +2887,8 @@ task.spawn(function()
             end
         end)
 
-        -- Update 60 FPS flight target CFrame: pitches downward so attack cone directly engulfs enemy
-        activeFlightTargetCF = CFrame.lookAt(targetPos, aimPos)
+        -- Update 60 FPS flight target CFrame with pitch clamp: attack cone directly engulfs enemy
+        activeFlightTargetCF = buildCombatFlightCF(targetPos, aimPos)
         activeFlightBear = bear
 
         -- Target Switch: INSTANT INTER-BEAR TELEPORTATION!
@@ -2878,7 +2917,15 @@ task.spawn(function()
             -- Screams penetrate wide cone; fire when within engagement volume
             canStrike = distToTargetPart <= 16.0 or distToRoot <= 16.0 or (bear:FindFirstChild("BodyTop") and (root.Position - bear.BodyTop.Position).Magnitude <= 14.0)
             -- If BurrowingBear is underground, suspend attack until it emerges onto surface!
-            if isBurrowingBear and (bear:GetAttribute("Burrowing") == true or bear:GetAttribute("Tunneling") == true or (bearRoot and bearRoot.Position.Y < -155)) then
+            local bm = bear:GetAttribute("BrainMode")
+            local isBbUnderground = isBurrowingBear and (
+                bm == "Tunnel"
+                or bm == "DigAway"
+                or bear:GetAttribute("Burrowing") == true 
+                or bear:GetAttribute("Tunneling") == true 
+                or (bearRoot and bearRoot.Position.Y < -155)
+            )
+            if isBbUnderground then
                 canStrike = false
             end
         end
@@ -2969,9 +3016,10 @@ task.spawn(function()
                         local candidateSlot = hotbarSlots[bearVariantIndex]
                         if isAbilityReady(candidateSlot) and (tick() - lastBearAttack >= 0.10) then
                             lastBearAttack = tick()
-                            if bearAim and targetHitPart then
+                            if bearAim and targetHitPart and targetHitPart.Parent then
+                                local hitOffset = targetHitPart.CFrame:PointToObjectSpace(aimPos)
                                 pcall(function()
-                                    bearAim:FireServer(aimPos, targetHitPart, Vector3.zero)
+                                    bearAim:FireServer(aimPos, targetHitPart, hitOffset)
                                 end)
                             end
                             pcall(function()
@@ -2989,11 +3037,11 @@ task.spawn(function()
                 -- Authoritative server cooldown tracking with 1.25s predictive floor and zero-latency target lead
                 if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= 0.15) then
                     lastDefaultM1Attack = tick()
-                    local currentAimPos = (targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.3, 0)) or aimPos
-                    local targetVel = (targetHitPart and targetHitPart.Parent and targetHitPart.AssemblyLinearVelocity) or Vector3.zero
+                    local currentAimPos = (targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.2, 0)) or aimPos
+                    local hitOffset = (targetHitPart and targetHitPart.Parent) and targetHitPart.CFrame:PointToObjectSpace(currentAimPos) or Vector3.zero
                     if bearAim and targetHitPart and targetHitPart.Parent then
                         pcall(function()
-                            bearAim:FireServer(currentAimPos, targetHitPart, targetVel)
+                            bearAim:FireServer(currentAimPos, targetHitPart, hitOffset)
                         end)
                     end
                     pcall(function()
