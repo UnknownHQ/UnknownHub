@@ -3725,10 +3725,11 @@ local function initAntiGlitchShield()
                                 local curNum = getCurrentRoomNumber()
                                 local curRoom = curRooms and (curRooms:FindFirstChild(tostring(curNum)) or curRooms:GetChildren()[#curRooms:GetChildren()])
                                 if curRoom then
-                                    local rStart = curRoom:FindFirstChild("RoomStart") or curRoom:FindFirstChild("Door") or curRoom.PrimaryPart
+                                    local rStart = curRoom:FindFirstChild("RoomStart") or (curRoom:FindFirstChild("Door") and (curRoom.Door:FindFirstChild("Door") or curRoom.Door)) or curRoom.PrimaryPart
                                     local root = getRoot()
                                     if root and rStart then
-                                        root.CFrame = rStart.CFrame + Vector3.new(0, 2, 0)
+                                        local startCF = rStart:IsA("Model") and rStart:GetPivot() or rStart.CFrame
+                                        root.CFrame = startCF + Vector3.new(0, 2, 0)
                                         local mg = getMainGameTable()
                                         if mg then mg.clipPos = root.Position end
                                     end
