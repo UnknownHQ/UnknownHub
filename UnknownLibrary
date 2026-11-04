@@ -119,6 +119,14 @@ return function(opts)
         end
     end
 
+    -- 0. Universal Teardown Protocol: Stop ALL previous hub functions and disconnect previous listeners!
+    if _G.UNKNOWN_ACTIVE_HUB and type(_G.UNKNOWN_ACTIVE_HUB.destroy) == "function" then
+        pcall(function()
+            _G.UNKNOWN_ACTIVE_HUB.destroy()
+        end)
+        _G.UNKNOWN_ACTIVE_HUB = nil
+    end
+
     -- Clean up any previous instances
     local cleanupContainers = {targetParent, CoreGui, LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")}
     for _, container in ipairs(cleanupContainers) do
@@ -154,6 +162,7 @@ return function(opts)
     -- =========================================================================
     local registeredElements = {}
     local registeredFlags = {}
+    local registeredSections = {}
     local mainFrame = Instance.new("CanvasGroup")
     mainFrame.Name = "MainWindow"
     mainFrame.Size = UDim2.new(0, winWidth, 0, winHeight)
@@ -521,18 +530,48 @@ return function(opts)
     updatesBtn.MouseButton1Click:Connect(showUpdateLogModal)
     -- Hub.ShowUpdateLog assigned below after Hub table creation
 
-    searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+    local function applyGlobalFilter()
         local q = searchInput.Text:lower():gsub("^%s*(.-)%s*$", "%1")
+        if q == "" then
+            for _, elem in ipairs(registeredElements) do
+                if elem.Card and elem.Card.Parent then
+                    elem.Card.Visible = true
+                end
+            end
+            for _, sec in ipairs(registeredSections) do
+                if sec.Container and sec.Container.Parent then
+                    sec.Container.Visible = true
+                end
+            end
+            return
+        end
+
+        local visibleCountByParent = {}
         for _, elem in ipairs(registeredElements) do
             if elem.Card and elem.Card.Parent then
-                if q == "" then
-                    elem.Card.Visible = true
-                else
-                    elem.Card.Visible = (elem.Title:lower():find(q, 1, true) ~= nil)
+                local matches = (elem.Title:lower():find(q, 1, true) ~= nil)
+                elem.Card.Visible = matches
+                if matches then
+                    local p = elem.Card.Parent
+                    visibleCountByParent[p] = (visibleCountByParent[p] or 0) + 1
                 end
             end
         end
-    end)
+
+        for _, sec in ipairs(registeredSections) do
+            if sec.Container and sec.Container.Parent then
+                local secTitleMatches = (sec.Title:lower():find(q, 1, true) ~= nil)
+                local p = sec.Container.Parent
+                if secTitleMatches then
+                    sec.Container.Visible = true
+                else
+                    sec.Container.Visible = (visibleCountByParent[p] ~= nil and visibleCountByParent[p] > 0)
+                end
+            end
+        end
+    end
+
+    searchInput:GetPropertyChangedSignal("Text"):Connect(applyGlobalFilter)
 
     -- Breadcrumb Title (Truncated dynamically so it never bleeds into search box)
     local breadcrumbTitle = Instance.new("TextLabel")
@@ -1015,31 +1054,111 @@ return function(opts)
             selectTab(tabRecord)
         end
 
-        -- Component binding helpers on tab object
-        tabRecord.CreateSection = function(title) return createSection(pageScroll, title) end
-        tabRecord.CreateToggle = function(name, default, callback) return createToggle(pageScroll, name, default, callback) end
-        tabRecord.CreateSlider = function(name, min, max, default, suffix, callback) return createSlider(pageScroll, name, min, max, default, suffix, callback) end
-        tabRecord.CreateDropdown = function(name, options, default, callback) return createDropdown(pageScroll, name, options, default, callback) end
-        tabRecord.CreateMultiDropdown = function(name, options, default, callback) return createMultiDropdown(pageScroll, name, options, default, callback) end
-        tabRecord.CreateButton = function(name, callback) return createButton(pageScroll, name, callback) end
-        tabRecord.CreateTextBox = function(name, placeholder, callback) return createTextBox(pageScroll, name, placeholder, callback) end
-        tabRecord.CreateInput = tabRecord.CreateTextBox
-        tabRecord.CreateColorpicker = function(name, defaultColor, callback) return createColorPicker(pageScroll, name, defaultColor, callback) end
-        tabRecord.CreateColorPicker = tabRecord.CreateColorpicker
-        tabRecord.CreateList = function(name, items, height, expanded, selectionOptions, callback) return createList(pageScroll, name, items, height, expanded, selectionOptions, callback) end
+        local tabObj = {}
+        tabObj.Page = pageScroll
+        tabObj.Record = tabRecord
+        tabObj.Name = tabName
+        tabObj.Button = tabBtn
+        tabObj.Icon = iconLbl
+        tabObj.Title = tabTitle
+        tabObj.Indicator = activeIndicator
 
-        return pageScroll
+        tabObj.CreateSection = function(self, title)
+            local t = (type(self) == "string" and self) or title
+            return createSection(pageScroll, t)
+        end
+        tabObj.createSection = tabObj.CreateSection
+        tabObj.addSection = tabObj.CreateSection
+
+        tabObj.CreateToggle = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createToggle(pageScroll, unpack(a))
+        end
+        tabObj.createToggle = tabObj.CreateToggle
+
+        tabObj.CreateSlider = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createSlider(pageScroll, unpack(a))
+        end
+        tabObj.createSlider = tabObj.CreateSlider
+
+        tabObj.CreateDropdown = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createDropdown(pageScroll, unpack(a))
+        end
+        tabObj.createDropdown = tabObj.CreateDropdown
+
+        tabObj.CreateMultiDropdown = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createMultiDropdown(pageScroll, unpack(a))
+        end
+        tabObj.createMultiDropdown = tabObj.CreateMultiDropdown
+
+        tabObj.CreateButton = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createButton(pageScroll, unpack(a))
+        end
+        tabObj.createButton = tabObj.CreateButton
+
+        tabObj.CreateTextBox = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createTextBox(pageScroll, unpack(a))
+        end
+        tabObj.createTextBox = tabObj.CreateTextBox
+        tabObj.CreateInput = tabObj.CreateTextBox
+        tabObj.createInput = tabObj.CreateTextBox
+
+        tabObj.CreateColorPicker = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createColorPicker(pageScroll, unpack(a))
+        end
+        tabObj.createColorPicker = tabObj.CreateColorPicker
+        tabObj.CreateColorpicker = tabObj.CreateColorPicker
+        tabObj.createColorpicker = tabObj.CreateColorPicker
+
+        tabObj.CreateList = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" then table.insert(a, 1, self) end
+            return createList(pageScroll, unpack(a))
+        end
+        tabObj.createList = tabObj.CreateList
+
+        setmetatable(tabObj, {
+            __index = function(_, k)
+                return pageScroll[k]
+            end,
+            __newindex = function(_, k, v)
+                pageScroll[k] = v
+            end
+        })
+
+        return tabObj
     end
 
     -- =========================================================================
     -- Component 1: Section Header (Clean & Subtle)
     -- =========================================================================
     createSection = function(parent, titleText)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
+
         local container = Instance.new("Frame")
         container.Name = "Section_" .. tostring(titleText)
         container.Size = UDim2.new(1, 0, 0, 22)
         container.BackgroundTransparency = 1
         container.Parent = parent
+
+        table.insert(registeredSections, { Container = container, Title = tostring(titleText), Parent = parent })
 
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Title"
@@ -1076,8 +1195,16 @@ return function(opts)
     -- Component 2: Modern Toggle Switch (Clean Rounded Surfaces)
     -- =========================================================================
     createToggle = function(parent, titleText, defaultState, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = defaultState
+            defaultState = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local state = defaultState == true
         local cb = type(callback) == "function" and callback or function() end
+        local setToggle
 
         local card = Instance.new("Frame")
         card.Name = "ToggleCard_" .. tostring(titleText)
@@ -1155,11 +1282,17 @@ return function(opts)
             end
         end
 
-        local function setToggle(val)
+        setToggle = function(val)
             state = (val == true)
             updateVisuals()
             pcall(cb, state)
         end
+
+        table.insert(featureStoppers, function()
+            if state == true then
+                setToggle(false)
+            end
+        end)
 
         -- Trigger on whole card click
         local hitTrigger = Instance.new("TextButton")
@@ -1192,6 +1325,16 @@ return function(opts)
     -- Component 3: Precision Slider
     -- =========================================================================
     createSlider = function(parent, titleText, minVal, maxVal, defaultVal, suffixText, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = suffixText
+            suffixText = defaultVal
+            defaultVal = maxVal
+            maxVal = minVal
+            minVal = tonumber(titleText) or 0
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         if type(suffixText) == "function" and callback == nil then
             callback = suffixText
             suffixText = ""
@@ -1212,6 +1355,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Slider" })
 
         -- Title on left (Never bleeds into ValueBadge)
         local titleLabel = Instance.new("TextLabel")
@@ -1340,6 +1485,12 @@ return function(opts)
     -- Component 4: Modern Button
     -- =========================================================================
     createButton = function(parent, titleText, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local cb = type(callback) == "function" and callback or function() end
 
         local card = Instance.new("TextButton")
@@ -1355,6 +1506,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Button" })
 
         card.MouseEnter:Connect(function()
             tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover})
@@ -1379,10 +1532,32 @@ return function(opts)
     -- Component 5: Accordion Dropdown
     -- =========================================================================
     createDropdown = function(parent, titleText, optionsList, defaultChoice, callback)
-        local options = optionsList or {}
+        -- Table / TabObj parent unwrapping
+        if typeof(parent) == "table" and parent.Page then
+            parent = parent.Page
+        end
+        -- Omitted parent: called as createDropdown(title, options, default, cb)
+        if typeof(parent) == "string" then
+            callback = defaultChoice
+            defaultChoice = optionsList
+            optionsList = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
+        -- Dictionary argument: { Name = "...", Options = {...} }
+        if typeof(titleText) == "table" then
+            local cfg = titleText
+            titleText = cfg.Name or cfg.Title or "Dropdown"
+            optionsList = cfg.Options or cfg.options or {}
+            defaultChoice = cfg.Default or cfg.default or cfg.CurrentOption or optionsList[1]
+            callback = cfg.Callback or cfg.callback
+        end
+
+        local options = (type(optionsList) == "table" and optionsList) or {}
         local currentSelection = defaultChoice or options[1] or "None"
         local cb = type(callback) == "function" and callback or function() end
         local isExpanded = false
+        local currentQuery = ""
 
         local card = Instance.new("Frame")
         card.Name = "DropdownCard_" .. tostring(titleText)
@@ -1393,6 +1568,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Dropdown" })
 
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "HeaderButton"
@@ -1439,11 +1616,34 @@ return function(opts)
         chevron.TextSize = 14
         chevron.Parent = headerBtn
 
-        local optionsContainer = Instance.new("Frame")
+        -- Search Bar (Dynamic visibility)
+        local searchBar = Instance.new("TextBox")
+        searchBar.Name = "SearchBox"
+        searchBar.Size = UDim2.new(1, -20, 0, 26)
+        searchBar.Position = UDim2.new(0, 10, 0, 44)
+        searchBar.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        searchBar.BorderSizePixel = 0
+        searchBar.PlaceholderText = "Search..."
+        searchBar.PlaceholderColor3 = Color3.fromRGB(110, 120, 140)
+        searchBar.Text = ""
+        searchBar.TextColor3 = DEFAULT_THEME.TextPrimary
+        searchBar.Font = Enum.Font.Gotham
+        searchBar.TextSize = 11
+        searchBar.ClearTextOnFocus = false
+        searchBar.Visible = false
+        searchBar.Parent = card
+        applyCorner(searchBar, 6)
+        applyStroke(searchBar, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local optionsContainer = Instance.new("ScrollingFrame")
         optionsContainer.Name = "OptionsList"
-        optionsContainer.Size = UDim2.new(1, -20, 0, 0)
+        optionsContainer.Size = UDim2.new(1, -20, 0, 150)
         optionsContainer.Position = UDim2.new(0, 10, 0, 44)
         optionsContainer.BackgroundTransparency = 1
+        optionsContainer.BorderSizePixel = 0
+        optionsContainer.ScrollBarThickness = 3
+        optionsContainer.ScrollBarImageColor3 = Color3.fromRGB(60, 75, 105)
+        optionsContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
         optionsContainer.Parent = card
 
         local optLayout = Instance.new("UIListLayout")
@@ -1451,12 +1651,38 @@ return function(opts)
         optLayout.Padding = UDim.new(0, 3)
         optLayout.Parent = optionsContainer
 
-        local function rebuildOptions()
+        local function getFilteredOptions(query)
+            if not query or query == "" then return options end
+            local filtered = {}
+            local lowerQuery = string.lower(query)
+            for _, opt in ipairs(options) do
+                if string.find(string.lower(tostring(opt)), lowerQuery, 1, true) then
+                    table.insert(filtered, opt)
+                end
+            end
+            return filtered
+        end
+
+        local function rebuildOptions(query)
             for _, child in ipairs(optionsContainer:GetChildren()) do
-                if child:IsA("TextButton") then child:Destroy() end
+                if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
             end
 
-            for _, opt in ipairs(options) do
+            local filtered = getFilteredOptions(query)
+            if #filtered == 0 then
+                local emptyLbl = Instance.new("TextLabel")
+                emptyLbl.Name = "EmptyLabel"
+                emptyLbl.Size = UDim2.new(1, 0, 0, 26)
+                emptyLbl.BackgroundTransparency = 1
+                emptyLbl.Font = Enum.Font.Gotham
+                emptyLbl.Text = "No matching results"
+                emptyLbl.TextColor3 = DEFAULT_THEME.TextSecondary
+                emptyLbl.TextSize = 11
+                emptyLbl.Parent = optionsContainer
+                return 0
+            end
+
+            for _, opt in ipairs(filtered) do
                 local optBtn = Instance.new("TextButton")
                 optBtn.Name = "Opt_" .. tostring(opt)
                 optBtn.Size = UDim2.new(1, 0, 0, 28)
@@ -1489,15 +1715,41 @@ return function(opts)
                     tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 42)})
                 end)
             end
+            return #filtered
         end
-        rebuildOptions()
+
+        local function updateDropdownVisuals()
+            local hasSearch = (#options >= 5)
+            searchBar.Visible = isExpanded and hasSearch
+            if hasSearch then
+                optionsContainer.Position = UDim2.new(0, 10, 0, 76)
+            else
+                optionsContainer.Position = UDim2.new(0, 10, 0, 44)
+            end
+
+            local count = rebuildOptions(currentQuery)
+            chevron.Text = isExpanded and "▴" or "▾"
+            local targetH = 42
+            if isExpanded then
+                local scrollH = math.min(160, math.max(34, count * 31))
+                optionsContainer.Size = UDim2.new(1, -20, 0, scrollH)
+                targetH = (hasSearch and 76 or 44) + scrollH + 8
+            end
+            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+        end
+
+        searchBar:GetPropertyChangedSignal("Text"):Connect(function()
+            currentQuery = searchBar.Text
+            updateDropdownVisuals()
+        end)
+
+        rebuildOptions("")
 
         headerBtn.MouseButton1Click:Connect(function()
             isExpanded = not isExpanded
-            chevron.Text = isExpanded and "▴" or "▾"
-            local targetH = isExpanded and (48 + (#options * 31)) or 42
-            rebuildOptions()
-            tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+            currentQuery = ""
+            searchBar.Text = ""
+            updateDropdownVisuals()
         end)
 
         local dropdownObj = {
@@ -1510,13 +1762,24 @@ return function(opts)
             end,
             Refresh = function(newOpts)
                 options = newOpts or {}
-                rebuildOptions()
+                currentQuery = ""
+                if searchBar then searchBar.Text = "" end
+                rebuildOptions("")
+                if isExpanded then updateDropdownVisuals() end
             end
         }
         return dropdownObj
     end
 
     createMultiDropdown = function(parent, titleText, optionsList, defaultSelected, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = defaultSelected
+            defaultSelected = optionsList
+            optionsList = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local options = optionsList or {}
         local selected = {}
         if type(defaultSelected) == "table" then
@@ -1543,6 +1806,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "MultiDropdown" })
 
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "HeaderButton"
@@ -1727,6 +1992,13 @@ return function(opts)
     -- Component 6: Full Custom RGB Palette & ColorPicker
     -- =========================================================================
     createColorPicker = function(parent, titleText, defaultColor, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = defaultColor
+            defaultColor = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local curColor = defaultColor or primaryTheme
         local cb = type(callback) == "function" and callback or function() end
         local isExpanded = false
@@ -1744,6 +2016,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "ColorPicker" })
 
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "Header"
@@ -1993,6 +2267,13 @@ return function(opts)
     -- Component 7: TextBox / Input Card
     -- =========================================================================
     createTextBox = function(parent, titleText, placeholderText, callback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            callback = placeholderText
+            placeholderText = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
         local cb = type(callback) == "function" and callback or function() end
 
         local card = Instance.new("Frame")
@@ -2003,6 +2284,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "TextBox" })
 
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
@@ -2061,6 +2344,17 @@ return function(opts)
     -- Component 8: List & Nested Lists (BeeSwarm & BloxFruits Compatible)
     -- =========================================================================
     createList = function(parent, titleText, itemsList, maxHeight, expandedState, selectionOptions, extraCallback)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        if typeof(parent) == "string" then
+            extraCallback = selectionOptions
+            selectionOptions = expandedState
+            expandedState = maxHeight
+            maxHeight = itemsList
+            itemsList = titleText
+            titleText = parent
+            parent = activeTab and activeTab.Page or nil
+        end
+
         local items = itemsList or {}
         local isExpanded = (expandedState == true)
         local cb = type(extraCallback) == "function" and extraCallback or (type(selectionOptions) == "function" and selectionOptions or function() end)
@@ -2074,6 +2368,8 @@ return function(opts)
         card.Parent = parent
         applyCorner(card, 8)
         applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "List" })
 
         local headerBtn = Instance.new("TextButton")
         headerBtn.Name = "Header"
@@ -2118,6 +2414,25 @@ return function(opts)
         chevron.TextSize = 14
         chevron.Parent = headerBtn
 
+        -- Search Bar (Visible when list is large)
+        local searchBar = Instance.new("TextBox")
+        searchBar.Name = "SearchBox"
+        searchBar.Size = UDim2.new(1, -20, 0, 26)
+        searchBar.Position = UDim2.new(0, 10, 0, 44)
+        searchBar.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+        searchBar.BorderSizePixel = 0
+        searchBar.PlaceholderText = "Search list..."
+        searchBar.PlaceholderColor3 = Color3.fromRGB(110, 120, 140)
+        searchBar.Text = ""
+        searchBar.TextColor3 = DEFAULT_THEME.TextPrimary
+        searchBar.Font = Enum.Font.Gotham
+        searchBar.TextSize = 11
+        searchBar.ClearTextOnFocus = false
+        searchBar.Visible = false
+        searchBar.Parent = card
+        applyCorner(searchBar, 6)
+        applyStroke(searchBar, DEFAULT_THEME.Stroke, 1, 0.3)
+
         local listScroll = Instance.new("ScrollingFrame")
         listScroll.Name = "ScrollItems"
         listScroll.Size = UDim2.new(1, -20, 0, tonumber(maxHeight) or 160)
@@ -2142,15 +2457,49 @@ return function(opts)
         }
 
         local function updateListVisuals()
-            local contentHeight = listLayout.AbsoluteContentSize.Y
-            local targetH = isExpanded and math.min(contentHeight + 52, tonumber(maxHeight) or 220) or 40
+            local showSearch = (#listObj.Items >= 5)
+            searchBar.Visible = isExpanded and showSearch
+            if showSearch then
+                listScroll.Position = UDim2.new(0, 10, 0, 76)
+            else
+                listScroll.Position = UDim2.new(0, 10, 0, 42)
+            end
+
+            local visibleCount = 0
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") and child.Visible then
+                    visibleCount = visibleCount + 1
+                end
+            end
+
+            local maxH = tonumber(maxHeight) or 160
+            local scrollHeight = math.min(visibleCount * 32, maxH)
+            listScroll.Size = UDim2.new(1, -20, 0, scrollHeight)
+
+            local baseH = showSearch and 76 or 44
+            local targetH = isExpanded and (baseH + scrollHeight + 8) or 40
             chevron.Text = isExpanded and "▴" or "▾"
             countBadge.Text = tostring(#listObj.Items)
             tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
         end
 
+        searchBar:GetPropertyChangedSignal("Text"):Connect(function()
+            local q = searchBar.Text:lower():gsub("^%s*(.-)%s*$", "%1")
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local txt = child.Text:lower():gsub("^%s*", "")
+                    child.Visible = (q == "" or txt:find(q, 1, true) ~= nil)
+                end
+            end
+            updateListVisuals()
+        end)
+
         headerBtn.MouseButton1Click:Connect(function()
             isExpanded = not isExpanded
+            searchBar.Text = ""
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then child.Visible = true end
+            end
             updateListVisuals()
         end)
 
@@ -2352,7 +2701,6 @@ return function(opts)
     -- Config System & Control Registry
     Hub.RegisteredFlags = registeredFlags
     Hub.RegisteredElements = registeredElements
-    Hub.RegisteredElements = {}
 
     -- Universal Configuration Serializer (Profiles, Auto-Save & Auto-Load)
     Hub.SaveConfig = function(configName)
@@ -2485,6 +2833,14 @@ return function(opts)
     end
     Hub.RegisterFeatureStopper = Hub.registerFeatureStopper
 
+    Hub.OnUnload = function(fn)
+        if type(fn) == "function" then
+            table.insert(featureStoppers, fn)
+        end
+    end
+    Hub.RegisterTeardown = Hub.OnUnload
+    Hub.onUnload = Hub.OnUnload
+
     Hub.disableAll = function()
         for _, stopper in ipairs(featureStoppers) do
             pcall(stopper)
@@ -2495,6 +2851,9 @@ return function(opts)
         Hub.disableAll()
         if screenGui and screenGui.Parent then
             screenGui:Destroy()
+        end
+        if _G.UNKNOWN_ACTIVE_HUB == Hub then
+            _G.UNKNOWN_ACTIVE_HUB = nil
         end
     end
 
@@ -2608,5 +2967,6 @@ return function(opts)
         ensureSettingsTab()
     end)
 
+    _G.UNKNOWN_ACTIVE_HUB = Hub
     return Hub
 end
