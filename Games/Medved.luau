@@ -66,6 +66,15 @@ LocalPlayer.CharacterAdded:Connect(function()
     silenceTelemetry()
 end)
 
+-- Built-in Anti-AFK Idle Prevention (Overnight Safe)
+pcall(function()
+    local VirtualUser = game:GetService('VirtualUser')
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.zero)
+    end)
+end)
+
 --------------------------------------------------------------------------------
 -- 2. LIBRARY INITIALIZATION
 --------------------------------------------------------------------------------
