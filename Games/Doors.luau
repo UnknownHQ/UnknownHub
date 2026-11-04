@@ -532,6 +532,20 @@ local function initPromptGateImmunity()
 end
 initPromptGateImmunity()
 
+local function configurePromptDistances(prompt)
+    if not prompt or not prompt:IsA("ProximityPrompt") then return end
+    prompt.RequiresLineOfSight = false
+    local pObj = (prompt.ObjectText or ""):lower()
+    local parentName = prompt.Parent and prompt.Parent.Name:lower() or ""
+    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or parentName:find("knob")
+    if isDrawerOrContainer then
+        -- Strict 6.5-stud Server Validation Guard: Prevents server rejecting out-of-range drawer clicks!
+        prompt.MaxActivationDistance = 6.5
+    elseif prompt.MaxActivationDistance < 14.0 then
+        prompt.MaxActivationDistance = 14.0
+    end
+end
+
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
@@ -544,22 +558,14 @@ pcall(function()
             initPromptGateImmunity()
         end
     end)
-    pps.PromptShown:Connect(function(prompt)
-        prompt.RequiresLineOfSight = false
-        if prompt.MaxActivationDistance < 14.0 then
-            prompt.MaxActivationDistance = 14.0
-        end
-    end)
+    pps.PromptShown:Connect(configurePromptDistances)
 end)
 
 pcall(function()
     local curRooms = Workspace:WaitForChild("CurrentRooms")
     curRooms.DescendantAdded:Connect(function(desc)
         if desc:IsA("ProximityPrompt") then
-            desc.RequiresLineOfSight = false
-            if desc.MaxActivationDistance < 14.0 then
-                desc.MaxActivationDistance = 14.0
-            end
+            configurePromptDistances(desc)
         end
     end)
 end)
@@ -3966,7 +3972,12 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
         if self == UserInputService and method == "IsKeyDown" then
             local key = ...
             if State.Noclip and (key == Enum.KeyCode.E or key == Enum.KeyCode.Q) then
-                return false
+                local caller = getcallingscript and getcallingscript()
+                if caller and (caller.Name:find("Movement") or caller.Name:find("MainGame")) then
+                    return false
+                elseif not caller then
+                    return false
+                end
             end
         end
         return origNc(self, ...)
@@ -5623,8 +5634,8 @@ local function syncServerRoomBoundary()
                 coll.CanTouch = true
                 for rIdx = curAttr, curSpatialRoom - 1 do
                     local rModel = cr:FindFirstChild(tostring(rIdx))
-                    local door = rModel and rModel:FindFirstChild("Door")
-                    local hidden = door and door:FindFirstChild("Hidden")
+                    -- Search recursively for doorway boundary trigger so Floor 1 and Floor 2 (The Mines) are 100% matched!
+                    local hidden = rModel and (rModel:FindFirstChild("Hidden", true) or (rModel:FindFirstChild("Door") and rModel.Door:FindFirstChild("Hidden")))
                     if hidden and hidden:IsA("BasePart") then
                         hidden.CanTouch = true
                         firetouchinterest(coll, hidden, 0)
@@ -5986,7 +5997,7 @@ local lastPromptFiredObj = nil
 local function safeInstantFirePrompt(prompt)
     if not prompt or not prompt.Parent then return end
     local now = os.clock()
-    if lastPromptFiredObj == prompt and (now - lastPromptFiredTick < 0.25) then return end
+    if lastPromptFiredObj == prompt and (now - lastPromptFiredTick < 0.15) then return end
     lastPromptFiredObj = prompt
     lastPromptFiredTick = now
 
