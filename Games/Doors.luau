@@ -1023,9 +1023,106 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     local bb, label = createBillboard(adorneePart, baseText, color, offset)
     if bb then table.insert(visuals, bb) end
 
-    -- 2. Precision Highlights (ONLY target visible parts, NEVER giant hitboxes)
-    if partsToHighlight then
-        if typeof(partsToHighlight) == "Instance" then
+    -- 2. Precision Highlights & Adornments (100% through-wall visibility for all Models, Tools, and BaseParts)
+    local function addPartAdornment(part, partColor)
+        if not part or not part:IsA("BasePart") then return end
+        local box = Instance.new("BoxHandleAdornment")
+        box.Name = "Unknown_ESP_BoxAdornment"
+        box.Adornee = part
+        box.Size = part.Size + Vector3.new(0.04, 0.04, 0.04)
+        box.Color3 = partColor
+        box.Transparency = State.ESP_FillTransparency or 0.45
+        box.AlwaysOnTop = true
+        box.ZIndex = 8
+        box.Parent = (gethui and gethui()) or CoreGui or part
+        table.insert(visuals, box)
+
+        local sbox = Instance.new("SelectionBox")
+        sbox.Name = "Unknown_ESP_OutlineBox"
+        sbox.Adornee = part
+        sbox.Color3 = partColor
+        sbox.LineThickness = 0.025
+        sbox.SurfaceTransparency = 1
+        sbox.Parent = (gethui and gethui()) or CoreGui or part
+        table.insert(visuals, sbox)
+    end
+
+    local function tryAddHighlight(targetModel, hlColor)
+        if not targetModel then return end
+        local hlAdornee = nil
+        if targetModel:IsA("Model") then
+            hlAdornee = targetModel
+        elseif targetModel.Parent and targetModel.Parent:IsA("Model") and targetModel.Parent ~= Workspace and targetModel.Parent.Name ~= "CurrentRooms" and targetModel.Parent.Name ~= "Drops" and not targetModel.Parent.Name:match("^%d+$") then
+            hlAdornee = targetModel.Parent
+        end
+        if hlAdornee then
+            local hl = createHighlight(hlAdornee, hlColor)
+            if hl then
+                table.insert(visuals, hl)
+                highlightMap[hl] = hlAdornee
+            end
+        end
+    end
+
+    if category ~= "Doors" and category ~= "Entities" then
+        if partsToHighlight then
+            if typeof(partsToHighlight) == "Instance" then
+                if partsToHighlight:IsA("Model") then
+                    tryAddHighlight(partsToHighlight, color)
+                    local adornedCount = 0
+                    for _, p in ipairs(partsToHighlight:GetDescendants()) do
+                        if p:IsA("BasePart") and not p.Name:lower():find("hitbox") then
+                            addPartAdornment(p, color)
+                            adornedCount = adornedCount + 1
+                            if adornedCount >= 4 then break end
+                        end
+                    end
+                    if adornedCount == 0 and adorneePart then
+                        addPartAdornment(adorneePart, color)
+                    end
+                elseif partsToHighlight:IsA("Tool") then
+                    local adornedCount = 0
+                    for _, p in ipairs(partsToHighlight:GetDescendants()) do
+                        if p:IsA("BasePart") and not p.Name:lower():find("hitbox") then
+                            addPartAdornment(p, color)
+                            adornedCount = adornedCount + 1
+                            if adornedCount >= 4 then break end
+                        end
+                    end
+                    if adornedCount == 0 and adorneePart then
+                        addPartAdornment(adorneePart, color)
+                    end
+                    tryAddHighlight(partsToHighlight, color)
+                elseif partsToHighlight:IsA("BasePart") then
+                    addPartAdornment(partsToHighlight, color)
+                    tryAddHighlight(partsToHighlight, color)
+                end
+            elseif type(partsToHighlight) == "table" then
+                for _, p in ipairs(partsToHighlight) do
+                    if p and p:IsA("BasePart") then
+                        addPartAdornment(p, color)
+                    elseif p and p:IsA("Model") then
+                        tryAddHighlight(p, color)
+                        for _, subP in ipairs(p:GetDescendants()) do
+                            if subP:IsA("BasePart") and not subP.Name:lower():find("hitbox") then
+                                addPartAdornment(subP, color)
+                                break
+                            end
+                        end
+                    end
+                end
+                tryAddHighlight(owner, color)
+            end
+        else
+            -- Fallback when partsToHighlight is nil (e.g. Gold or single parts)
+            if adorneePart and adorneePart:IsA("BasePart") then
+                addPartAdornment(adorneePart, color)
+            end
+            tryAddHighlight(owner, color)
+        end
+    elseif category == "Entities" and partsToHighlight then
+        -- Native Clean Highlight for 3D Entities
+        if typeof(partsToHighlight) == "Instance" and partsToHighlight:IsA("Model") then
             local hl = createHighlight(partsToHighlight, color)
             if hl then
                 table.insert(visuals, hl)
@@ -1033,7 +1130,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
             end
         elseif type(partsToHighlight) == "table" then
             for _, p in ipairs(partsToHighlight) do
-                if p and p:IsA("BasePart") then
+                if p and (p:IsA("BasePart") or p:IsA("Model")) then
                     local hl = createHighlight(p, color)
                     if hl then
                         table.insert(visuals, hl)
@@ -1051,11 +1148,29 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         end
     end
 
-    -- Immediate Room Visibility Initialization (Prevents 1-frame distant flash on room scan)
+    -- Immediate Room & Category Visibility Initialization (Prevents 1-frame distant flash on room scan)
     local isRoomRestricted = (category == "Doors" or category == "HidingSpots")
     local curRoom = isRoomRestricted and getCurrentRoomNumber() or nil
-    local initiallyVisible = true
-    if isRoomRestricted then
+    local initiallyVisible = State.Master_ESP ~= false
+    if category == "Doors" then
+        initiallyVisible = initiallyVisible and (State.Doors_ESP ~= false)
+    elseif category == "HidingSpots" then
+        initiallyVisible = initiallyVisible and (State.HidingSpots_ESP ~= false)
+    elseif category == "Items" then
+        initiallyVisible = initiallyVisible and (State.Items_ESP ~= false)
+    elseif category == "Keys" then
+        initiallyVisible = initiallyVisible and (State.Keys_ESP ~= false)
+    elseif category == "Books" then
+        initiallyVisible = initiallyVisible and (State.Books_ESP ~= false)
+    elseif category == "Breakers" then
+        initiallyVisible = initiallyVisible and (State.Breakers_ESP ~= false)
+    elseif category == "Gold" then
+        initiallyVisible = initiallyVisible and (State.Gold_ESP ~= false)
+    elseif category == "Entities" then
+        initiallyVisible = initiallyVisible and (State.Entities_ESP ~= false)
+    end
+
+    if isRoomRestricted and initiallyVisible then
         if State.ESP_OnlyCurrentRoom or State.ESP_RoomFilterMode == "Current Room Only" then
             initiallyVisible = (curRoom ~= nil and roomNumber ~= nil and roomNumber == curRoom)
         elseif State.ESP_RoomFilterMode == "Current & Next Room" then
@@ -1063,16 +1178,17 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         else
             initiallyVisible = true
         end
-        for _, vis in ipairs(visuals) do
-            if vis:IsA("BillboardGui") then
-                vis.Enabled = initiallyVisible
-            elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
-                vis.Visible = initiallyVisible
-            elseif vis:IsA("Highlight") then
-                vis.Enabled = initiallyVisible
-                if not initiallyVisible then
-                    vis.Adornee = nil
-                end
+    end
+
+    for _, vis in ipairs(visuals) do
+        if vis:IsA("BillboardGui") then
+            vis.Enabled = initiallyVisible
+        elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
+            vis.Visible = initiallyVisible
+        elseif vis:IsA("Highlight") then
+            vis.Enabled = initiallyVisible
+            if not initiallyVisible then
+                vis.Adornee = nil
             end
         end
     end
@@ -1287,6 +1403,42 @@ task.spawn(function()
                                             vis.Adornee = nil
                                         else
                                             vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    elseif record.Category == "Items" or record.Category == "Keys" or record.Category == "Books" or record.Category == "Breakers" or record.Category == "Gold" or record.Category == "Entities" then
+                        local shouldShow = State.Master_ESP ~= false
+                        if record.Category == "Items" then
+                            shouldShow = shouldShow and (State.Items_ESP ~= false)
+                        elseif record.Category == "Keys" then
+                            shouldShow = shouldShow and (State.Keys_ESP ~= false)
+                        elseif record.Category == "Books" then
+                            shouldShow = shouldShow and (State.Books_ESP ~= false)
+                        elseif record.Category == "Breakers" then
+                            shouldShow = shouldShow and (State.Breakers_ESP ~= false)
+                        elseif record.Category == "Gold" then
+                            shouldShow = shouldShow and (State.Gold_ESP ~= false)
+                        elseif record.Category == "Entities" then
+                            shouldShow = shouldShow and (State.Entities_ESP ~= false)
+                        end
+
+                        if record.CurrentlyVisible ~= shouldShow then
+                            record.CurrentlyVisible = shouldShow
+                            if record.Visuals then
+                                for _, vis in ipairs(record.Visuals) do
+                                    if vis:IsA("BillboardGui") then
+                                        vis.Enabled = shouldShow
+                                    elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
+                                        vis.Visible = shouldShow
+                                    elseif vis:IsA("Highlight") then
+                                        local budgetAllowed = (record.Category == "Entities" or record.Category == "Keys") or ((allowedHighlights and allowedHighlights[record]) == true)
+                                        vis.Enabled = shouldShow and budgetAllowed
+                                        if not (shouldShow and budgetAllowed) then
+                                            vis.Adornee = nil
+                                        else
+                                            vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or (record.Owner:IsA("Model") and record.Owner) or nil
                                         end
                                     end
                                 end
@@ -1806,7 +1958,14 @@ local function processItem(itemModel)
         if targetPart then
             local baseText = displayName
             local color = Color3.fromRGB(185, 80, 255)
-            registerEsp(itemModel, targetPart, baseText, color, "Items", itemModel, Vector3.new(0, 1.2, 0))
+            local itemParts = {}
+            for _, p in ipairs(itemModel:GetDescendants()) do
+                if p:IsA("BasePart") and not p.Name:lower():find("hitbox") then
+                    table.insert(itemParts, p)
+                end
+            end
+            if #itemParts == 0 then table.insert(itemParts, targetPart) end
+            registerEsp(itemModel, targetPart, baseText, color, "Items", itemParts, Vector3.new(0, 1.2, 0))
         end
     end
 end
@@ -1953,7 +2112,7 @@ local function processGold(goldInstance)
 
         local baseText = displayName
         local color = Color3.fromRGB(255, 195, 0)
-        registerEsp(owner, targetPart, baseText, color, "Gold", nil, Vector3.new(0, 0.8, 0))
+        registerEsp(owner, targetPart, baseText, color, "Gold", targetPart, Vector3.new(0, 0.8, 0))
     end
 end
 
@@ -2113,7 +2272,8 @@ local function processEntity(entity)
         or eLower:find("chair") or eLower:find("desk") or eLower:find("lamp") or eLower:find("lightstand") or eLower:find("chandelier")
         or eLower:find("plant") or eLower:find("potted") or eLower:find("pot") or eLower:find("flower") or eLower:find("leaf")
         or eLower:find("painting") or eLower:find("frame") or eLower:find("canvas") or eLower:find("drawer") or eLower:find("door")
-        or eLower:find("curtain") or eLower:find("elevator") or eLower:find("clock") or eLower:find("pillar") or eLower:find("wall") then
+        or eLower:find("curtain") or eLower:find("window") or eLower:find("blind") or eLower:find("glass") or eLower:find("framing")
+        or eLower:find("elevator") or eLower:find("clock") or eLower:find("pillar") or eLower:find("wall") then
         return
     end
 
