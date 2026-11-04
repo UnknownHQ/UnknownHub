@@ -119,6 +119,14 @@ return function(opts)
         end
     end
 
+    -- 0. Universal Teardown Protocol: Stop ALL previous hub functions and disconnect previous listeners!
+    if _G.UNKNOWN_ACTIVE_HUB and type(_G.UNKNOWN_ACTIVE_HUB.destroy) == "function" then
+        pcall(function()
+            _G.UNKNOWN_ACTIVE_HUB.destroy()
+        end)
+        _G.UNKNOWN_ACTIVE_HUB = nil
+    end
+
     -- Clean up any previous instances
     local cleanupContainers = {targetParent, CoreGui, LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")}
     for _, container in ipairs(cleanupContainers) do
@@ -1279,6 +1287,12 @@ return function(opts)
             updateVisuals()
             pcall(cb, state)
         end
+
+        table.insert(featureStoppers, function()
+            if state == true then
+                setToggle(false)
+            end
+        end)
 
         -- Trigger on whole card click
         local hitTrigger = Instance.new("TextButton")
@@ -2819,6 +2833,14 @@ return function(opts)
     end
     Hub.RegisterFeatureStopper = Hub.registerFeatureStopper
 
+    Hub.OnUnload = function(fn)
+        if type(fn) == "function" then
+            table.insert(featureStoppers, fn)
+        end
+    end
+    Hub.RegisterTeardown = Hub.OnUnload
+    Hub.onUnload = Hub.OnUnload
+
     Hub.disableAll = function()
         for _, stopper in ipairs(featureStoppers) do
             pcall(stopper)
@@ -2829,6 +2851,9 @@ return function(opts)
         Hub.disableAll()
         if screenGui and screenGui.Parent then
             screenGui:Destroy()
+        end
+        if _G.UNKNOWN_ACTIVE_HUB == Hub then
+            _G.UNKNOWN_ACTIVE_HUB = nil
         end
     end
 
@@ -2942,5 +2967,6 @@ return function(opts)
         ensureSettingsTab()
     end)
 
+    _G.UNKNOWN_ACTIVE_HUB = Hub
     return Hub
 end

@@ -144,6 +144,22 @@ local Hub = createHubFn({
     secondaryTheme = Color3.fromRGB(165, 95, 255)
 })
 
+-- Automated Library-Integrated Lifecycle Teardown
+if Hub and Hub.OnUnload then
+    Hub.OnUnload(function()
+        local sess = tick()
+        _G.MEDVED_SESSION = sess
+        _G.MedvedFarmSession = sess
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CanCollide = true
+        end
+    end)
+end
+
 --------------------------------------------------------------------------------
 -- 3. STATE & CONFIGURATION
 --------------------------------------------------------------------------------
@@ -159,8 +175,8 @@ local Config = {
     FarmMethod = "Bear Attack", -- "Gun", "Melee", or "Bear Attack"
     SpawnAsBear = "booboo",
     AutoFriendlyBear = true,
-    ExcludeBooBoo = true,
-    EvasiveOrbit = true,
+    RageMode = false,
+    RageModeMinLevel = 20,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -1238,14 +1254,6 @@ end
 -- Authoritative Bear Multi-Selection Validator (Ultra-Resilient Fuzzy & Multi-Select)
 local function isBearTargetSelected(b)
     if not b or not isBearTargetable(b) then return false end
-
-    -- Exclude Boo-Boo (Option 1: low $20 bounty, high speed, tiny hitbox)
-    if Config.ExcludeBooBoo then
-        local bLower = b.Name:lower()
-        if bLower:find("booboo") or bLower:find("boo") then
-            return false
-        end
-    end
 
     -- Check Multi-Select state dict / array
     if Config.SelectedBears and type(Config.SelectedBears) == "table" then
@@ -2357,30 +2365,40 @@ flightHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
                     flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
                 end
 
-                -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 75ms feedforward
-                local curStandoff = activeFlightOffset.standoff or 2.4
-                if not isBallBear and flatVel.Magnitude > 1.0 then
-                    curStandoff = math.max(1.8, curStandoff - math.clamp(flatVel.Magnitude * 0.035, 0, 0.7))
-                end
+                local curLvl = char:GetAttribute("BearLevel") or 1
+                local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 20))
+                local targetPos
+                local aimPos
 
-                local targetPos = bRoot.Position - (flatLook * curStandoff) + Vector3.new(0, activeElevation, 0)
-                -- Dynamic Velocity Feedforward: 75ms predictive lead glued to running bears (prevents enraged bears from escaping scream cone!)
-                if flatVel.Magnitude > 0.5 then
-                    targetPos = targetPos + (flatVel * 0.075)
-                end
+                if isRageActive then
+                    -- RAGE MODE: Teleport and lock DIRECTLY INSIDE target bear! (Zero standoff, zero elevation, phase inside torso)
+                    targetPos = bRoot.Position
+                    aimPos = bRoot.Position + Vector3.new(0, 0.2, 0)
+                    targetCF = CFrame.new(bRoot.Position, bRoot.Position + bRoot.CFrame.LookVector)
+                else
+                    -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 75ms feedforward
+                    local curStandoff = activeFlightOffset.standoff or 2.4
+                    if not isBallBear and flatVel.Magnitude > 1.0 then
+                        curStandoff = math.max(1.8, curStandoff - math.clamp(flatVel.Magnitude * 0.035, 0, 0.7))
+                    end
 
-                -- Dynamic Evasive Dorsal Orbit: Weaves laterally across the rear spine to disrupt bear tracking & turning attacks!
-                if Config.EvasiveOrbit ~= false then
+                    targetPos = bRoot.Position - (flatLook * curStandoff) + Vector3.new(0, activeElevation, 0)
+                    -- Dynamic Velocity Feedforward: 75ms predictive lead glued to running bears (prevents enraged bears from escaping scream cone!)
+                    if flatVel.Magnitude > 0.5 then
+                        targetPos = targetPos + (flatVel * 0.075)
+                    end
+
+                    -- Dynamic Evasive Dorsal Orbit Core: Weaves laterally across the rear spine to disrupt bear tracking & turning attacks!
                     local rightVec = flatLook:Cross(Vector3.yAxis)
                     if rightVec.Magnitude > 0.05 then
                         local sway = math.sin(os.clock() * 4.0) * 1.4
                         targetPos = targetPos + (rightVec.Unit * sway)
                     end
-                end
 
-                local aimPart = activeFlightOffset.targetHitPart or bRoot
-                local aimPos = (aimPart and aimPart.Parent) and (aimPart.Position + Vector3.new(0, 0.2, 0)) or (bRoot.Position + Vector3.new(0, 0.5, 0))
-                targetCF = buildCombatFlightCF(targetPos, aimPos)
+                    local aimPart = activeFlightOffset.targetHitPart or bRoot
+                    aimPos = (aimPart and aimPart.Parent) and (aimPart.Position + Vector3.new(0, 0.2, 0)) or (bRoot.Position + Vector3.new(0, 0.5, 0))
+                    targetCF = buildCombatFlightCF(targetPos, aimPos)
+                end
             else
                 activeFlightBear = nil
                 activeFlightTargetCF = nil
@@ -2901,24 +2919,36 @@ task.spawn(function()
             flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
         end
 
+        local curLvl = char:GetAttribute("BearLevel") or 1
+        local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 20))
         local targetPos = nil
-        if Config.FarmMethod == "Gun" then
+        local aimPos = nil
+
+        if isRageActive then
+            -- RAGE MODE: Teleport DIRECTLY INTO the bear!
+            standoff = 0
+            elevation = 0
+            targetPos = bearRoot.Position
+            aimPos = bearRoot.Position + Vector3.new(0, 0.2, 0)
+        elseif Config.FarmMethod == "Gun" then
             standoff = math.max(16.0, myRadius + 12.0)
             elevation = 12.0
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
+            aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
         else
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
-        end
-        local aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
-        if isBallBear then
-            aimPos = bearRoot.Position + Vector3.new(0, 1.2, 0)
+            aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
+            if isBallBear then
+                aimPos = bearRoot.Position + Vector3.new(0, 1.2, 0)
+            end
         end
 
         activeFlightOffset = {
             standoff = standoff,
             elevation = elevation,
             targetHitPart = targetHitPart,
-            bearRoot = bearRoot
+            bearRoot = bearRoot,
+            isRageActive = isRageActive
         }
 
         -- Synchronize authoritative local aim on character
@@ -2939,12 +2969,13 @@ task.spawn(function()
         activeFlightBear = bear
 
         -- Target Switch: INSTANT INTER-BEAR TELEPORTATION!
-        -- If switching bears or far away, warp immediately with zero travel delay!
-        if lastEngagedBear ~= bear or (root.Position - targetPos).Magnitude > 8.0 then
+        -- If in Rage Mode or switching bears, warp immediately into target bear!
+        if isRageActive or lastEngagedBear ~= bear or (root.Position - targetPos).Magnitude > 6.0 then
             lastEngagedBear = bear
-            root.CFrame = activeFlightTargetCF
+            root.CFrame = isRageActive and CFrame.new(bearRoot.Position, bearRoot.Position + bearRoot.CFrame.LookVector) or activeFlightTargetCF
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
+            if root.CanCollide then root.CanCollide = false end
             lastBearAttack = 0
             lastDefaultM1Attack = 0
             lastMeleeSwing = 0
@@ -2956,7 +2987,9 @@ task.spawn(function()
         local distToTargetPart = (root.Position - targetHitPart.Position).Magnitude
         local distToRoot = (root.Position - bearRoot.Position).Magnitude
         local canStrike = false
-        if Config.FarmMethod == "Gun" then
+        if isRageActive then
+            canStrike = true
+        elseif Config.FarmMethod == "Gun" then
             canStrike = distToRoot <= 150.0
         elseif Config.FarmMethod == "Melee" then
             canStrike = distToTargetPart <= 8.5
@@ -3071,25 +3104,27 @@ task.spawn(function()
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream / Hyper Sonic Scream)
                 -- Dynamic M1 Cooldown Engine: Hypersonic Boo-Boo has 0.04s attack cooldown; standard bears have ~1.5s
                 local isHypersonic = myBearName:find("hyper") ~= nil
-                local m1MinInterval = isHypersonic and 0.04 or (myBearName:find("boo") and 0.08 or 0.15)
-                if isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= m1MinInterval) then
+                local m1MinInterval = isRageActive and 0.01 or (isHypersonic and 0.04 or (myBearName:find("boo") and 0.08 or 0.15))
+                local defaultReady = isRageActive or isAbilityReady("Default")
+                if defaultReady and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
-                    local currentAimPos = (targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.2, 0)) or aimPos
-                    if isBallBear then
+                    local currentAimPos = isRageActive and (bearRoot.Position + Vector3.new(0, 0.2, 0)) or ((targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.2, 0)) or aimPos)
+                    if not isRageActive and isBallBear then
                         currentAimPos = bearRoot.Position + Vector3.new(0, 1.2, 0)
                     end
-                    local hitOffset = (targetHitPart and targetHitPart.Parent) and targetHitPart.CFrame:PointToObjectSpace(currentAimPos) or Vector3.zero
-                    if bearAim and targetHitPart and targetHitPart.Parent then
+                    local hitOffset = isRageActive and Vector3.zero or ((targetHitPart and targetHitPart.Parent) and targetHitPart.CFrame:PointToObjectSpace(currentAimPos) or Vector3.zero)
+                    local hitPart = isRageActive and bearRoot or targetHitPart
+                    if bearAim and hitPart and hitPart.Parent then
                         pcall(function()
-                            bearAim:FireServer(currentAimPos, targetHitPart, hitOffset)
+                            bearAim:FireServer(currentAimPos, hitPart, hitOffset)
                         end)
                     end
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", currentAimPos)
                     end)
-                    -- Enforce predictive cooldown floor (0.04s for Hypersonic Boo-Boo, 1.25s for standard bears)
+                    -- Enforce predictive cooldown floor (0.01s in Rage Mode, 0.04s for Hypersonic Boo-Boo, 0.65s for Boo-Boo)
                     local sTime = workspace:GetServerTimeNow()
-                    local cdFloor = isHypersonic and 0.04 or (myBearName:find("boo") and 0.65 or 1.25)
+                    local cdFloor = isRageActive and 0.01 or (isHypersonic and 0.04 or (myBearName:find("boo") and 0.65 or 1.25))
                     abilityCooldowns["Default"] = math.max(abilityCooldowns["Default"] or 0, sTime + cdFloor)
                 end
 
@@ -3648,14 +3683,13 @@ Hub.CreateToggle(farmTab, "Auto Friendly Bear", Config.AutoFriendlyBear, functio
     Hub.Notify("Bear", val and "Auto Friendly Bear: ACTIVE" or "Auto Friendly Bear: OFF", 2)
 end)
 
-Hub.CreateToggle(farmTab, "Exclude Boo-Boo from Farm", Config.ExcludeBooBoo, function(val)
-    Config.ExcludeBooBoo = val
-    Hub.Notify("Bear Farm", val and "Boo-Boo Excluded (Fallback Mode Active)" or "Boo-Boo Included", 2)
+Hub.CreateToggle(farmTab, "Enable Farm Rage Mode", Config.RageMode, function(val)
+    Config.RageMode = val
+    Hub.Notify("Rage Mode", val and ("Farm Rage Mode: ACTIVE (At Lvl " .. tostring(Config.RageModeMinLevel) .. "+)") or "Farm Rage Mode: OFF", 2)
 end)
 
-Hub.CreateToggle(farmTab, "Evasive Dorsal Orbit", Config.EvasiveOrbit, function(val)
-    Config.EvasiveOrbit = val
-    Hub.Notify("Bear Farm", val and "Evasive Orbit: ACTIVE" or "Evasive Orbit: OFF", 2)
+Hub.CreateSlider(farmTab, "Rage Mode Min Level", 1, 50, Config.RageModeMinLevel, "Lvl", function(val)
+    Config.RageModeMinLevel = val
 end)
 
 bearTypeDropdown = Hub.CreateMultiDropdown(farmTab, "Target Bears", getAvailableBearTypes(), {"All"}, function(dict, arr)
