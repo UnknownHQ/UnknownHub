@@ -197,6 +197,13 @@ local Config = {
     CratesESP = false,
     BearsESP = false,
     TurretsESP = false,
+    PlayersESP = false,
+    NoFog = false,
+    Fullbright = false,
+
+    -- Firearms Mods
+    RapidFire = false,
+    NoSpread = false,
 
     -- Combat: Turret & Sentry Automation
     AutoHealTurrets = false,
@@ -385,42 +392,22 @@ local function safeTeleport(targetPos, locationName)
     local spawnOffset = Vector3.new(0, 2.5, 0)
     local destCFrame = CFrame.new(targetPos + spawnOffset)
 
-    -- Anchor-Flash Protocol: Prevents 50/50 physics packet rubberband when walking or sprinting
+    -- Instant Smooth Teleport: Zero delay, zero slowdown, zero anchor lock!
+    char:PivotTo(destCFrame)
     root.AssemblyLinearVelocity = Vector3.zero
     root.AssemblyAngularVelocity = Vector3.zero
-    root.Anchored = true
-    char:PivotTo(destCFrame)
 
-    task.spawn(function()
-        -- Hold anchored across 0.75s to allow terrain and mesh streaming before unanchoring
-        local startTime = tick()
-        while tick() - startTime < 0.75 do
-            RunService.Heartbeat:Wait()
-            if root and root.Parent then
-                char:PivotTo(destCFrame)
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-            end
-        end
-
-        if root and root.Parent then
-            root.Anchored = false
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-        end
-
-        -- Clean up safety landing pad after 3 seconds
-        task.delay(3, function()
-            if pad and pad.Parent then
-                pad:Destroy()
-            end
-        end)
-
-        isTeleporting = false
-        if locationName then
-            Hub.Notify("Teleport", "Arrived at " .. locationName, 2)
+    -- Clean up safety landing pad after 1.5 seconds
+    task.delay(1.5, function()
+        if pad and pad.Parent then
+            pad:Destroy()
         end
     end)
+
+    isTeleporting = false
+    if locationName then
+        Hub.Notify("Teleport", "Arrived at " .. locationName, 2)
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -1677,6 +1664,9 @@ end
 
 local function getToolFireRate(tool)
     if not tool then return 0.20 end
+    if Config.RapidFire then
+        return 0.04 -- Overclocked Rapid Fire for all weapons
+    end
     local toolName = tool.Name:lower()
     if toolName:find("minigun") then
         return 0.06 -- Ultra-rapid fire for Basic & Golden Miniguns
@@ -2359,8 +2349,8 @@ local function getFarmBearTarget()
             if bearHum and bearHum.Health > 0 then
                 local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
                 if bearRoot then
-                    -- Ghost Cloak: Skip bears near other players
-                    if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck and isAnyOtherPlayerNear(bearRoot.Position, Config.StealthSafeRadius) then
+                    -- Ghost Cloak: Skip bears near other players (ONLY in Stealth Farm mode)
+                    if Config.StealthFarm and Config.StealthPlayerCheck and isAnyOtherPlayerNear(bearRoot.Position, Config.StealthSafeRadius) then
                         continue
                     end
                     local dist = (bearRoot.Position - root.Position).Magnitude
@@ -2409,7 +2399,7 @@ local function getFarmBearTarget()
         end
     end
     if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetable(lockedFarmTarget) then
-        if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck then
+        if Config.StealthFarm and Config.StealthPlayerCheck then
             local lRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart
             if lRoot and isAnyOtherPlayerNear(lRoot.Position, (Config.StealthSafeRadius or 250) * 0.7) then
                 lockedFarmTarget = nil
@@ -2445,8 +2435,8 @@ local function getFarmBearTarget()
             if bearHum and bearHum.Health > 0 then
                 local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
                 if bearRoot then
-                    -- Ghost Cloak: Skip bears near other players
-                    if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck and isAnyOtherPlayerNear(bearRoot.Position, Config.StealthSafeRadius) then
+                    -- Ghost Cloak: Skip bears near other players (ONLY in Stealth Farm mode)
+                    if Config.StealthFarm and Config.StealthPlayerCheck and isAnyOtherPlayerNear(bearRoot.Position, Config.StealthSafeRadius) then
                         continue
                     end
                     local dist = (bearRoot.Position - root.Position).Magnitude
@@ -2901,7 +2891,7 @@ task.spawn(function()
         -- IMMEDIATELY DROP COMBAT AND FULLY TELEPORT TO SAFE FOG SANCTUARY!
         -- (Even if the bear is 1 hit away from dying!)
         -- =========================================================================
-        local isStealthActive = Config.StealthFarm or (Config.AutoFarmBears and Config.StealthPlayerCheck)
+        local isStealthActive = Config.StealthFarm
         if isStealthActive and Config.StealthPlayerCheck then
             local isThreatNear, threatPlayer, threatDist = getNearestThreatPlayer(root.Position, Config.StealthSafeRadius or 250)
             
@@ -3357,8 +3347,8 @@ task.spawn(function()
         end
 
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
-        -- Double Safety Gate: If a player stepped into radius right before attack dispatch, ABORT!
-        if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck and isAnyOtherPlayerNear(root.Position, Config.StealthSafeRadius) then
+        -- Double Safety Gate: If a player stepped into radius right before attack dispatch, ABORT! (Stealth Farm only)
+        if Config.StealthFarm and Config.StealthPlayerCheck and isAnyOtherPlayerNear(root.Position, Config.StealthSafeRadius) then
             task.wait(0.02)
             continue
         end
@@ -3768,23 +3758,27 @@ miscHeartbeatConn = RunService.Heartbeat:Connect(function()
                 char:SetAttribute("BearStamina", 1)
             end
 
-            -- Native Humanoid Sprint Speed: Clean, natural running physics without collision or physics fighting!
+            -- True Bear Infinite Sprint: Remote Sync + Uncapped Sprint Physics
+            local RS = game:GetService("ReplicatedStorage")
+            local bearSprintRemote = RS:FindFirstChild("SharedEvents") and RS.SharedEvents:FindFirstChild("PlayerBears") and RS.SharedEvents.PlayerBears:FindFirstChild("BearSprint")
+            
+            local isShiftHeld = false
+            pcall(function()
+                isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) 
+                    or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) 
+                    or (char:GetAttribute("BearSprinting") == true)
+            end)
+
+            if isShiftHeld and bearSprintRemote then
+                pcall(function() bearSprintRemote:FireServer(true) end)
+            end
+
             local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum and not Config.AutoFarmBears and not Config.FlyNoclip then
-                local isShiftHeld = false
-                pcall(function()
-                    isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) 
-                        or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) 
-                        or (char:GetAttribute("BearSprinting") == true)
-                end)
+            if hum and not Config.AutoFarmBears and not Config.StealthFarm and not Config.FlyNoclip then
                 local sprintSpeed = math.max(38, Config.CustomSpeed or 38)
                 if isShiftHeld then
                     if hum.WalkSpeed < sprintSpeed then
                         hum.WalkSpeed = sprintSpeed
-                    end
-                else
-                    if hum.WalkSpeed > 30 then
-                        hum.WalkSpeed = 24
                     end
                 end
             end
@@ -3843,6 +3837,65 @@ local function clearTurretESP()
         if obj and obj.Parent then pcall(function() obj:Destroy() end) end
     end
     table.clear(activeTurretESP)
+end
+
+-- Players ESP (Name, Health %, Distance & Highlight)
+local activePlayerESP = {}
+local function clearPlayerESP()
+    for _, obj in ipairs(activePlayerESP) do
+        pcall(function() obj:Destroy() end)
+    end
+    table.clear(activePlayerESP)
+end
+
+local function updatePlayerESP()
+    clearPlayerESP()
+    if not Config.PlayersESP then return end
+
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local pChar = p.Character
+            local hum = pChar:FindFirstChildOfClass("Humanoid")
+            local root = pChar:FindFirstChild("HumanoidRootPart") or pChar.PrimaryPart
+            if hum and hum.Health > 0 and root then
+                local dist = myRoot and math.floor((root.Position - myRoot.Position).Magnitude) or 0
+                local hpPct = math.clamp(math.floor((hum.Health / math.max(hum.MaxHealth, 1)) * 100), 0, 100)
+
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "PlayerESP_" .. p.Name
+                bb.Adornee = root
+                bb.Size = UDim2.new(0, 140, 0, 40)
+                bb.StudsOffset = Vector3.new(0, 3.5, 0)
+                bb.AlwaysOnTop = true
+
+                local txt = Instance.new("TextLabel")
+                txt.Size = UDim2.new(1, 0, 1, 0)
+                txt.BackgroundTransparency = 1
+                txt.Text = string.format("👤 %s\n%d HP | %d studs", p.DisplayName, hpPct, dist)
+                txt.TextColor3 = Color3.fromRGB(0, 255, 200)
+                txt.TextStrokeTransparency = 0
+                txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                txt.Font = Enum.Font.GothamBold
+                txt.TextSize = 13
+                txt.Parent = bb
+                bb.Parent = CoreGui
+                table.insert(activePlayerESP, bb)
+
+                local hl = Instance.new("Highlight")
+                hl.Name = "PlayerHL_" .. p.Name
+                hl.Adornee = pChar
+                hl.FillColor = Color3.fromRGB(0, 255, 200)
+                hl.FillTransparency = 0.65
+                hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                hl.OutlineTransparency = 0.2
+                hl.Parent = CoreGui
+                table.insert(activePlayerESP, hl)
+            end
+        end
+    end
 end
 
 local function updateTurretsESP()
@@ -4005,6 +4058,7 @@ task.spawn(function()
         if Config.CratesESP then updateCratesESP() end
         if Config.BearsESP then updateBearESP() end
         if Config.TurretsESP then updateTurretsESP() end
+        if Config.PlayersESP then updatePlayerESP() end
     end
 end)
 
@@ -4328,6 +4382,16 @@ Hub.CreateSlider(combatTab, "Gun Range", 20, 150, Config.GunAuraRange, " studs",
     Config.GunAuraRange = val
 end)
 
+Hub.CreateToggle(combatTab, "Rapid Fire (Max Fire Rate)", Config.RapidFire, function(val)
+    Config.RapidFire = val
+    Hub.Notify("Firearms", val and "Rapid Fire: ACTIVE (0.04s Cycle)" or "Rapid Fire: OFF", 2)
+end)
+
+Hub.CreateToggle(combatTab, "No Spread / Recoil", Config.NoSpread, function(val)
+    Config.NoSpread = val
+    Hub.Notify("Firearms", val and "No Spread / Recoil: ACTIVE" or "No Spread: OFF", 2)
+end)
+
 
 
 Hub.CreateSection(combatTab, "Movement")
@@ -4420,6 +4484,56 @@ Hub.CreateToggle(visualTab, "Turrets ESP", Config.TurretsESP, function(val)
         updateTurretsESP()
     else
         clearTurretESP()
+    end
+end)
+
+Hub.CreateToggle(visualTab, "Players ESP", Config.PlayersESP, function(val)
+    Config.PlayersESP = val
+    if val then
+        updatePlayerESP()
+    else
+        clearPlayerESP()
+    end
+    Hub.Notify("Visuals", val and "Players ESP: ACTIVE" or "Players ESP: OFF", 2)
+end)
+
+local originalFogEnd = nil
+Hub.CreateToggle(visualTab, "Remove Blizzard Fog", Config.NoFog, function(val)
+    Config.NoFog = val
+    local lighting = game:GetService("Lighting")
+    if val then
+        if not originalFogEnd then originalFogEnd = lighting.FogEnd end
+        lighting.FogEnd = 100000
+        for _, obj in ipairs(lighting:GetChildren()) do
+            if obj:IsA("Atmosphere") or obj:IsA("Clouds") then
+                obj:SetAttribute("OrigDensity", obj.Density or 0)
+                pcall(function() obj.Density = 0 end)
+            end
+        end
+        Hub.Notify("Visuals", "Blizzard Fog REMOVED: Infinite Vision!", 2.5)
+    else
+        lighting.FogEnd = originalFogEnd or 300
+        for _, obj in ipairs(lighting:GetChildren()) do
+            if obj:IsA("Atmosphere") then
+                pcall(function() obj.Density = obj:GetAttribute("OrigDensity") or 0.35 end)
+            end
+        end
+        Hub.Notify("Visuals", "Blizzard Fog Restored", 2)
+    end
+end)
+
+Hub.CreateToggle(visualTab, "Fullbright / Night Vision", Config.Fullbright, function(val)
+    Config.Fullbright = val
+    local lighting = game:GetService("Lighting")
+    if val then
+        lighting.Ambient = Color3.fromRGB(200, 200, 200)
+        lighting.Brightness = 2
+        lighting.ClockTime = 14
+        Hub.Notify("Visuals", "Fullbright: ACTIVE", 2)
+    else
+        lighting.Ambient = Color3.fromRGB(70, 70, 70)
+        lighting.Brightness = 1
+        Hub.Notify("Visuals", "Fullbright: OFF", 2)
     end
 end)
 
@@ -4771,6 +4885,95 @@ end)
 Hub.CreateToggle(miscTab, "Auto Prestige on 32 Pages", Config.AutoPrestigeOn32, function(val)
     Config.AutoPrestigeOn32 = val
     Hub.Notify("Misc", val and "Auto Prestige: ACTIVE" or "Auto Prestige: OFF", 2)
+end)
+
+Hub.CreateSection(miscTab, "Funny & Broken Glitches")
+
+local ghostSeatInstance = nil
+Hub.CreateToggle(miscTab, "Ghost Seat Desync (Invisible Model)", false, function(val)
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not char or not hum or not root then return end
+
+    if val then
+        if ghostSeatInstance then ghostSeatInstance:Destroy() end
+        local seat = Instance.new("Seat")
+        seat.Name = "GhostDesyncSeat"
+        seat.Size = Vector3.new(2, 0.5, 2)
+        seat.CFrame = root.CFrame - Vector3.new(0, 1.5, 0)
+        seat.Anchored = true
+        seat.Transparency = 1
+        seat.CanCollide = false
+        seat.Parent = workspace
+        ghostSeatInstance = seat
+
+        seat:Sit(hum)
+        task.wait(0.1)
+        root.CFrame = root.CFrame + Vector3.new(0, 5, 0)
+        Hub.Notify("Ghost Seat", "Ghost Seat: ACTIVE (Model seated, hitbox detached!)", 3)
+    else
+        if ghostSeatInstance then
+            ghostSeatInstance:Destroy()
+            ghostSeatInstance = nil
+        end
+        hum.Sit = false
+        Hub.Notify("Ghost Seat", "Ghost Seat: OFF (Stood up)", 2)
+    end
+end)
+
+local spinbotActive = false
+local spinbotConn = nil
+Hub.CreateToggle(miscTab, "Tornado Spinbot", false, function(val)
+    spinbotActive = val
+    if val then
+        if spinbotConn then spinbotConn:Disconnect() end
+        spinbotConn = RunService.Heartbeat:Connect(function()
+            if not spinbotActive then return end
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.AssemblyAngularVelocity = Vector3.new(0, 120, 0)
+            end
+        end)
+        Hub.Notify("Fun", "Tornado Spinbot: ACTIVE 🌪️", 2)
+    else
+        if spinbotConn then spinbotConn:Disconnect(); spinbotConn = nil end
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+        Hub.Notify("Fun", "Tornado Spinbot: OFF", 2)
+    end
+end)
+
+Hub.CreateButton(miscTab, "Check / Show Bearshroom Gamepass", function()
+    local MarketplaceService = game:GetService("MarketplaceService")
+    local found = false
+    for _, desc in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+        local n = desc.Name:lower()
+        if n:find("bearshroom") or n:find("shroom") then
+            found = true
+            Hub.Notify("Bearshroom", "Found reference: " .. desc.Name, 4)
+            if desc:IsA("IntValue") or desc:IsA("NumberValue") then
+                pcall(function()
+                    MarketplaceService:PromptGamePassPurchase(LocalPlayer, desc.Value)
+                end)
+            end
+        end
+    end
+    for _, obj in ipairs({game:GetService("ReplicatedStorage"), workspace, LocalPlayer}) do
+        for attr, val in pairs(obj:GetAttributes()) do
+            if attr:lower():find("bearshroom") or attr:lower():find("shroom") then
+                found = true
+                Hub.Notify("Bearshroom", "Found attribute: " .. attr .. " = " .. tostring(val), 4)
+            end
+        end
+    end
+    if not found then
+        Hub.Notify("Bearshroom", "Bearshroom gamepass is not yet registered in this place version!", 3)
+    end
 end)
 
 Hub.CreateSection(miscTab, "Security & Doors Override")
