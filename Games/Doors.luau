@@ -841,6 +841,10 @@ local function isPlayerHiding(char, mgTable)
     return false
 end
 
+local function isHidingState(char, mgTable)
+    return isPlayerHiding(char or (getChar and getChar()), mgTable)
+end
+
 local lastKnownPlayerRoom = nil
 
 local function getCurrentRoomNumber()
@@ -8100,7 +8104,8 @@ local function evaluateRushSafety(testPos, segments, char)
     if State.God_Mode then
         return true, "⚡ GOD-MODE ACTIVE: ENTITIES CANNOT DAMAGE"
     end
-    if isHidingState() then
+    local charInst = char or getChar()
+    if isPlayerHiding(charInst) then
         return true, "🛡️ SAFE: HIDDEN IN CLOSET/BED"
     end
 
@@ -8108,7 +8113,6 @@ local function evaluateRushSafety(testPos, segments, char)
         return true, "🛡️ SAFE: NO ACTIVE THREAT DETECTED"
     end
 
-    local charInst = char or getChar()
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
     local filter = {charInst}
