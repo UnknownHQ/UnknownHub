@@ -8511,7 +8511,7 @@ task.spawn(function()
 end)
 
 -- Tab 1: MAIN TAB (Movement, Interaction, Speed Changer & Automation)
-do
+;(function()
 local mainTab = Hub.CreateTab("Main", { 
     Icon = "🏠", 
     Size = 18, 
@@ -8746,12 +8746,12 @@ end)
 Hub.CreateToggle(mainTab, "Auto Books / Breakers", State.AutoInteract_Books, function(v)
     State.AutoInteract_Books = v
 end)
-end
+end)()
 
 -- =========================================================================
 -- Tab 2: EXPLOITS TAB (Autonomous 1-100 Completer, Knobs Farm, God-Mode & Item Exploits)
 -- =========================================================================
-do
+;(function()
 local exploitsTab = Hub.CreateTab("Exploits", { 
     Icon = "⚡", 
     Size = 18, 
@@ -8939,11 +8939,11 @@ Hub.CreateButton(exploitsTab, "Quick Dupe Held Tool", function()
         Hub.Notify("Dupe", "Equip a tool first to dupe!", 2)
     end
 end)
-end
+end)()
 
 local floorTabName = "Floor (" .. tostring(detectedFloor) .. ")" 
 
-do
+;(function()
 local floorTab = Hub.CreateTab(floorTabName, {
     Icon = "🏨",
     Size = 18,
@@ -9093,11 +9093,11 @@ if isHotel then
 end
 
 -- =========================================================================
-end
+end)()
 
 -- Tab 3: VISUALS TAB
 -- =========================================================================
-do
+;(function()
 local espTab = Hub.CreateTab("Visuals", {
     Icon = "👁️",
     Size = 18,
@@ -9344,11 +9344,11 @@ Hub.CreateButton(espTab, "Refresh ESP", function()
 end)
 
 -- =========================================================================
-end
+end)()
 
 -- Tab 4: DIAGNOSTICS & TELEMETRY ROUTINES
 -- =========================================================================
-(function()
+;(function()
 local diagTab = Hub.CreateTab("Diagnostics", {
     Icon = "⚙️",
     Size = 18,
