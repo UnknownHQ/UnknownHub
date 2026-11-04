@@ -2505,7 +2505,9 @@ end
 -- Pipeline 2: Autonomous Combat & Target Acquisition Loop
 task.spawn(function()
     while true do
-        task.wait(0.06)
+        local pChar = LocalPlayer.Character
+        local isHyperActive = pChar and ((pChar:GetAttribute("TransformedToBear") or ""):lower():find("hyper") ~= nil)
+        task.wait(isHyperActive and 0.035 or 0.06)
         if not Config.AutoFarmBears then
             isFleeingLowHP = false
             activeFlightBear = nil
@@ -2733,6 +2735,7 @@ task.spawn(function()
             end
         end
         playerLegHang = math.clamp(root.Position.Y - charMinY, 1.8, 5.5)
+        local hangOffset = math.max(0, playerLegHang - 1.8)
 
         -- Reactive Damage Elevation Reflex: If hit, immediately elevate +2 studs
         if lastObservedHealth and hum.Health < lastObservedHealth then
@@ -2852,6 +2855,10 @@ task.spawn(function()
             elevation = 7.4 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
+
+        -- Dynamic Anatomical Clearance: Adjust elevation so larger bear morphs (HypersonicBooBoo, etc.)
+        -- maintain identical clearance above enemy claw swipe arcs and touch volumes
+        elevation = elevation + hangOffset
 
         -- TRUE BEAR FACING ORIENTATION: PRIORITIZE LIVE VELOCITY HEADING
         local bCF = bearRoot.CFrame
@@ -3041,9 +3048,11 @@ task.spawn(function()
                     end
                 end
 
-                -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream)
-                -- Authoritative server cooldown tracking with 1.25s predictive floor and zero-latency target lead
-                if not dispatchedVariant and isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= 0.15) then
+                -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream / Hyper Sonic Scream)
+                -- Dynamic M1 Cooldown Engine: Hypersonic Boo-Boo has 0.04s attack cooldown; standard bears have ~1.5s
+                local isHypersonic = myBearName:find("hyper") ~= nil
+                local m1MinInterval = isHypersonic and 0.04 or 0.15
+                if isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
                     local currentAimPos = (targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.2, 0)) or aimPos
                     local hitOffset = (targetHitPart and targetHitPart.Parent) and targetHitPart.CFrame:PointToObjectSpace(currentAimPos) or Vector3.zero
@@ -3055,9 +3064,10 @@ task.spawn(function()
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", currentAimPos)
                     end)
-                    -- Enforce predictive cooldown floor (1.25s) until server Cooldown packet arrives
+                    -- Enforce predictive cooldown floor (0.04s for Hypersonic Boo-Boo, 1.25s for standard bears)
                     local sTime = workspace:GetServerTimeNow()
-                    abilityCooldowns["Default"] = math.max(abilityCooldowns["Default"] or 0, sTime + 1.25)
+                    local cdFloor = isHypersonic and 0.04 or 1.25
+                    abilityCooldowns["Default"] = math.max(abilityCooldowns["Default"] or 0, sTime + cdFloor)
                 end
 
                 -- 4. Also activate tool if held
