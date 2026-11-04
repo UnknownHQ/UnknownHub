@@ -2494,7 +2494,7 @@ task.spawn(function()
     while true do
         local pChar = LocalPlayer.Character
         local isHyperActive = pChar and ((pChar:GetAttribute("TransformedToBear") or ""):lower():find("hyper") ~= nil)
-        task.wait(isHyperActive and 0.035 or 0.06)
+        task.wait(0.02)
         if not Config.AutoFarmBears then
             isFleeingLowHP = false
             activeFlightBear = nil
@@ -2650,7 +2650,7 @@ task.spawn(function()
             activeFlightTargetCF = nil
             lockedFarmTarget = nil
             lastEngagedBear = nil
-            task.wait(0.05)
+            task.wait(0.01)
             continue
         end
 
@@ -3015,7 +3015,7 @@ task.spawn(function()
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream / Hyper Sonic Scream)
                 -- Dynamic M1 Cooldown Engine: Hypersonic Boo-Boo has 0.04s attack cooldown; standard bears have ~1.5s
                 local isHypersonic = myBearName:find("hyper") ~= nil
-                local m1MinInterval = isHypersonic and 0.04 or 0.15
+                local m1MinInterval = isHypersonic and 0.04 or (myBearName:find("boo") and 0.08 or 0.15)
                 if isAbilityReady("Default") and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
                     local currentAimPos = (targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.2, 0)) or aimPos
@@ -3030,7 +3030,7 @@ task.spawn(function()
                     end)
                     -- Enforce predictive cooldown floor (0.04s for Hypersonic Boo-Boo, 1.25s for standard bears)
                     local sTime = workspace:GetServerTimeNow()
-                    local cdFloor = isHypersonic and 0.04 or 1.25
+                    local cdFloor = isHypersonic and 0.04 or (myBearName:find("boo") and 0.65 or 1.25)
                     abilityCooldowns["Default"] = math.max(abilityCooldowns["Default"] or 0, sTime + cdFloor)
                 end
 
