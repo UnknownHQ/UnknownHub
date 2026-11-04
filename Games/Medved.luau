@@ -215,6 +215,7 @@ local Config = {
     StealthTransitAltitude = 180,
     StealthPanicKey = Enum.KeyCode.X,
     StealthRageInterlock = true,
+    StealthRetreatMode = "Stratospheric Fog (Y=220)",
 
     -- Bear Archetype Adaptations (Ice Bear, Grinder Bear, Boo-Boo)
     BearArchetypeMode = "Auto-Detect",
@@ -2128,19 +2129,89 @@ end)
 -- =========================================================================
 -- GHOST CLOAK & PUBLIC STEALTH SENTINEL
 -- =========================================================================
-local function isAnyOtherPlayerNear(pos, radius)
-    if not pos then return false end
+
+-- 1. Unfailing Player Position Resolver (Normal Players, Ragdolls, Morphs & Player Bears)
+local function getAnyPlayerPosition(p)
+    if not p or p == LocalPlayer then return nil end
+    local c = p.Character
+    if not c or not c.Parent then return nil end
+    
+    if c.PrimaryPart and c.PrimaryPart.Parent then
+        return c.PrimaryPart.Position
+    end
+    
+    local hrp = c:FindFirstChild("HumanoidRootPart")
+        or c:FindFirstChild("Torso")
+        or c:FindFirstChild("UpperTorso")
+        or c:FindFirstChild("Head")
+        or c:FindFirstChild("Hitbox_Hips")
+        or c:FindFirstChild("Hitbox_Head")
+        or c:FindFirstChild("Hitbox_Chest")
+        or c:FindFirstChild("Hitbox_Pelvis")
+        or c:FindFirstChildWhichIsA("BasePart")
+        
+    if hrp and hrp.Parent then
+        return hrp.Position
+    end
+    
+    local ok, pivot = pcall(function() return c:GetPivot() end)
+    if ok and pivot then
+        return pivot.Position
+    end
+    return nil
+end
+
+-- 2. Comprehensive Threat Scan: Returns (isNear, nearestPlayer, nearestDist)
+local function getNearestThreatPlayer(pos, radius)
+    if not pos then return false, nil, math.huge end
     radius = radius or (Config.StealthSafeRadius or 250)
+    local nearestP = nil
+    local nearestD = math.huge
+    
+    -- Scan 1: All registered Players service entities
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local pRoot = p.Character:FindFirstChild("HumanoidRootPart")
-            if pRoot and (pRoot.Position - pos).Magnitude < radius then
-                return true
+        if p ~= LocalPlayer then
+            local pPos = getAnyPlayerPosition(p)
+            if pPos then
+                local d = (pPos - pos).Magnitude
+                if d < radius and d < nearestD then
+                    nearestD = d
+                    nearestP = p
+                end
             end
         end
     end
-    return false
+    
+    -- Scan 2: Any workspace models that represent other players (Player bears / morphs)
+    local wsBears = workspace:FindFirstChild("Bears")
+    if wsBears then
+        for _, b in ipairs(wsBears:GetChildren()) do
+            if b ~= LocalPlayer.Character and b.Name ~= LocalPlayer.Name then
+                local linkedPlayer = Players:GetPlayerFromCharacter(b) or Players:FindFirstChild(b.Name)
+                if linkedPlayer and linkedPlayer ~= LocalPlayer then
+                    local bPivot = b:GetPivot()
+                    if bPivot then
+                        local d = (bPivot.Position - pos).Magnitude
+                        if d < radius and d < nearestD then
+                            nearestD = d
+                            nearestP = linkedPlayer
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return (nearestP ~= nil), nearestP, nearestD
 end
+
+local function isAnyOtherPlayerNear(pos, radius)
+    local isNear, _, _ = getNearestThreatPlayer(pos, radius)
+    return isNear
+end
+
+local isEvasiveRetreating = false
+local lastEvasionNotify = 0
 
 -- Staff & Developer Detection Engine (Owner: megahammer / Group: Roblox High IQ Society)
 local staffRankCache = {}
@@ -2528,7 +2599,7 @@ flightHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
     -- Pure aerodynamic flight between bears; 60 FPS zero-lag dorsal blindspot lock in combat!
     if Config.AutoFarmBears or Config.StealthFarm then
         local targetCF = nil
-        if isFleeingLowHP then
+        if isFleeingLowHP or isEvasiveRetreating then
             targetCF = safeHoverTargetCF
         elseif activeFlightBear and activeFlightBear.Parent and activeFlightOffset then
             local bHum = activeFlightBear:FindFirstChildOfClass("Humanoid")
@@ -2821,6 +2892,63 @@ task.spawn(function()
                 activeFlightEvading = false
                 task.wait(0.25)
                 continue
+            end
+        end
+
+        -- =========================================================================
+        -- GHOST CLOAK: ABSOLUTE EMERGENCY PLAYER EVASION (ANTI-SCREENSHOT SANCTUARY)
+        -- If ANY player is near our character OR our target bear:
+        -- IMMEDIATELY DROP COMBAT AND FULLY TELEPORT TO SAFE FOG SANCTUARY!
+        -- (Even if the bear is 1 hit away from dying!)
+        -- =========================================================================
+        local isStealthActive = Config.StealthFarm or (Config.AutoFarmBears and Config.StealthPlayerCheck)
+        if isStealthActive and Config.StealthPlayerCheck then
+            local isThreatNear, threatPlayer, threatDist = getNearestThreatPlayer(root.Position, Config.StealthSafeRadius or 250)
+            
+            -- Also check if a player is near our target bear
+            if not isThreatNear and lockedFarmTarget and lockedFarmTarget.Parent then
+                local tBearRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart or lockedFarmTarget:FindFirstChildWhichIsA("BasePart")
+                if tBearRoot then
+                    isThreatNear, threatPlayer, threatDist = getNearestThreatPlayer(tBearRoot.Position, Config.StealthSafeRadius or 250)
+                end
+            end
+
+            if isThreatNear and threatPlayer then
+                isEvasiveRetreating = true
+                lockedFarmTarget = nil
+                activeFlightBear = nil
+                activeFlightTargetCF = nil
+                activeFlightOffset = nil
+                stopAllMinigunSpins()
+                
+                -- Determine Safe Evasion Destination
+                local safeEvasionCF
+                if Config.StealthRetreatMode == "Bunker Safe Zone" then
+                    safeEvasionCF = CFrame.new(114.5, -127.7, -116.3)
+                elseif Config.StealthRetreatMode == "High Sky Above Base" then
+                    safeEvasionCF = CFrame.new(37.0, 220.0, -135.0)
+                else -- "Stratospheric Fog (Y=220)" (Default)
+                    safeEvasionCF = CFrame.new(root.Position.X, math.max(220, Config.StealthTransitAltitude or 200), root.Position.Z)
+                end
+
+                safeHoverTargetCF = safeEvasionCF
+                root.CFrame = safeEvasionCF
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+
+                if tick() - lastEvasionNotify > 4.0 then
+                    lastEvasionNotify = tick()
+                    Hub.Notify("Ghost Cloak", "PLAYER DETECTED (" .. threatPlayer.Name .. " - " .. math.floor(threatDist) .. " studs)! Warped to safe sanctuary!", 2)
+                end
+
+                task.wait(0.4)
+                continue
+            else
+                if isEvasiveRetreating then
+                    isEvasiveRetreating = false
+                    safeHoverTargetCF = nil
+                    Hub.Notify("Ghost Cloak", "Perimeter clear! Resuming Stealth Farm...", 2)
+                end
             end
         end
 
@@ -3229,6 +3357,12 @@ task.spawn(function()
         end
 
         -- 5. Attack Execution (Multi-Variant Rotation + Continuous M1 + Dual Remote Dispatch)
+        -- Double Safety Gate: If a player stepped into radius right before attack dispatch, ABORT!
+        if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck and isAnyOtherPlayerNear(root.Position, Config.StealthSafeRadius) then
+            task.wait(0.02)
+            continue
+        end
+
         -- Combat Range Guard: Zero-delay dispatch whenever player is within flight engagement volume
         local distToTargetPart = (root.Position - targetHitPart.Position).Magnitude
         local distToRoot = (root.Position - bearRoot.Position).Magnitude
@@ -3926,6 +4060,11 @@ end)
 
 Hub.CreateSlider(stealthTab, "Safe Player Radius", 100, 500, Config.StealthSafeRadius, " studs", function(val)
     Config.StealthSafeRadius = val
+end)
+
+Hub.CreateDropdown(stealthTab, "Evasive Retreat Sanctuary", {"Stratospheric Fog (Y=220)", "Bunker Safe Zone", "High Sky Above Base"}, Config.StealthRetreatMode, function(val)
+    Config.StealthRetreatMode = val
+    Hub.Notify("Stealth", "Evasive sanctuary: " .. val, 2)
 end)
 
 Hub.CreateToggle(stealthTab, "Staff & Dev Auto-Sentinel", Config.StealthStaffSentinel, function(val)
