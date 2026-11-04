@@ -2337,17 +2337,23 @@ RunService.Heartbeat:Connect(function(dt)
                     flatLook = rawLook.Magnitude > 0.05 and rawLook.Unit or Vector3.new(0, 0, -1)
                 end
 
-                local targetPos = bRoot.Position - (flatLook * activeFlightOffset.standoff) + Vector3.new(0, activeElevation, 0)
-                -- Dynamic Velocity Feedforward: 40ms predictive lead glued to the bear's running momentum
+                -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 75ms feedforward
+                local curStandoff = activeFlightOffset.standoff
+                if flatVel.Magnitude > 1.0 then
+                    curStandoff = math.max(1.8, curStandoff - math.clamp(flatVel.Magnitude * 0.035, 0, 0.7))
+                end
+
+                local targetPos = bRoot.Position - (flatLook * curStandoff) + Vector3.new(0, activeElevation, 0)
+                -- Dynamic Velocity Feedforward: 75ms predictive lead glued to running bears (prevents enraged bears from escaping scream cone!)
                 if flatVel.Magnitude > 0.5 then
-                    targetPos = targetPos + (flatVel * 0.040)
+                    targetPos = targetPos + (flatVel * 0.075)
                 end
 
                 -- Dynamic Evasive Dorsal Orbit: Weaves laterally across the rear spine to disrupt bear tracking & turning attacks!
                 if Config.EvasiveOrbit ~= false then
                     local rightVec = flatLook:Cross(Vector3.yAxis)
                     if rightVec.Magnitude > 0.05 then
-                        local sway = math.sin(os.clock() * 3.5) * 1.3
+                        local sway = math.sin(os.clock() * 4.0) * 1.4
                         targetPos = targetPos + (rightVec.Unit * sway)
                     end
                 end
@@ -2847,11 +2853,11 @@ task.spawn(function()
         else
             -- STANDARD QUADRUPEDS (Medved, ClassicBear):
             -- Medved claw swipe volume is Y in [-3.0, +5.0].
-            -- Standoff 2.8 and elevation 7.0 places Boo-Boo 2.0 studs above Medved's +5.0 claw swipe ceiling!
-            -- With pitch clamp, lower body stays at Y >= +5.8 studs (> +5.0).
-            -- 0 damage taken from claws, while sonic scream (5.32 studs diagonal) connects 100% within 6.5-stud reach.
-            standoff = 2.8
-            elevation = 7.0 + (damageElevationBoost or 0)
+            -- Standoff 2.4 and elevation 7.4 places Boo-Boo 2.4 studs above Medved's +5.0 claw swipe ceiling!
+            -- With pitch clamp, lower body stays at Y >= +6.2 studs (> +5.0), completely immune even if Medved rears up.
+            -- Sonic scream diagonal distance is 5.69 studs (100% connect rate within 6.5 reach).
+            standoff = 2.4
+            elevation = 7.4 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
