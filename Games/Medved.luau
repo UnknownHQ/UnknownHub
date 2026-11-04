@@ -18,6 +18,7 @@ local CoreGui = game:GetService("CoreGui")
 local TeleportService = game:GetService("TeleportService")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -1608,9 +1609,61 @@ end
 
 local lastGunShotTime = {}
 
+-- Minigun & Gatling Spin-Up State Engine
+local minigunSpinning = {}
+local minigunSpinStart = {}
+
+local function spinUpMinigun(tool)
+    if not tool or not tool.Parent then return false end
+    local cfg = tool:FindFirstChild("Config")
+    local spinVal = cfg and cfg:FindFirstChild("SpinUp")
+    local isMinigun = (spinVal ~= nil) or (tool.Name:lower():find("minigun") ~= nil)
+    if not isMinigun then return true end
+
+    local spinTime = (spinVal and spinVal:IsA("ValueBase") and tonumber(spinVal.Value)) or 0.75
+    local gunScripts = tool:FindFirstChild("GunScripts")
+    local reloadRemote = gunScripts and gunScripts:FindFirstChild("Reload")
+
+    if not minigunSpinning[tool] then
+        minigunSpinning[tool] = true
+        minigunSpinStart[tool] = tick()
+        if reloadRemote then
+            pcall(function() reloadRemote:FireServer("Spin") end)
+        end
+        pcall(function() tool:Activate() end)
+    end
+
+    local elapsed = tick() - (minigunSpinStart[tool] or 0)
+    return elapsed >= spinTime
+end
+
+local function stopMinigunSpin(tool)
+    if tool and minigunSpinning[tool] then
+        minigunSpinning[tool] = nil
+        minigunSpinStart[tool] = nil
+        local gunScripts = tool:FindFirstChild("GunScripts")
+        local reloadRemote = gunScripts and gunScripts:FindFirstChild("Reload")
+        if reloadRemote then
+            pcall(function() reloadRemote:FireServer("Unspin") end)
+        end
+    end
+end
+
+local function stopAllMinigunSpins()
+    for tool, _ in pairs(minigunSpinning) do
+        stopMinigunSpin(tool)
+    end
+    table.clear(minigunSpinning)
+    table.clear(minigunSpinStart)
+end
+
 local function getToolFireRate(tool)
     if not tool then return 0.20 end
-    local isShotgun = tool.Name:lower():find("shotgun") ~= nil
+    local toolName = tool.Name:lower()
+    if toolName:find("minigun") then
+        return 0.06 -- Ultra-rapid fire for Basic & Golden Miniguns
+    end
+    local isShotgun = toolName:find("shotgun") ~= nil
     if isShotgun then
         local cfg = tool:FindFirstChild("Config")
         local fr = cfg and cfg:FindFirstChild("FireRate")
@@ -1620,7 +1673,11 @@ local function getToolFireRate(tool)
     local cfg = tool:FindFirstChild("Config")
     local fr = cfg and cfg:FindFirstChild("FireRate")
     if fr and fr:IsA("ValueBase") then
-        return math.max(0.12, tonumber(fr.Value) or 0.18)
+        local rate = tonumber(fr.Value) or 0.18
+        if cfg:FindFirstChild("SpinUp") then
+            return math.max(0.05, rate)
+        end
+        return math.max(0.12, rate)
     end
     return 0.18
 end
@@ -1636,6 +1693,13 @@ local function shootTargetBear(tool, bear, bearPart)
     local gunScripts = tool:FindFirstChild("GunScripts")
     local fireRemote = gunScripts and gunScripts:FindFirstChild("FireBullet")
     if not fireRemote then return end
+
+    -- Minigun Spin-Up Gate (Server-Authoritative validation: bullets only connect when spun up)
+    local isSpun = spinUpMinigun(tool)
+    if not isSpun then
+        pcall(function() tool:Activate() end)
+        return
+    end
 
     -- 0. Gun Cycle / Fire Rate Debounce:
     -- Shotguns require authentic pump action cycle time (0.70s).
@@ -3039,10 +3103,12 @@ task.spawn(function()
                 applyWeaponMods(bestTool)
                 local currentAmmo, reloading = getLoadedAmmoFromGUI(bestTool)
                 if not reloading and currentAmmo <= 0 and tick() >= reloadEndTime then
+                    stopMinigunSpin(bestTool)
                     triggerGunReload(bestTool)
                 elseif not reloading and currentAmmo > 0 then
                     shootTargetBear(bestTool, bear, targetHitPart)
                 elseif not reloading and currentAmmo <= 0 then
+                    stopMinigunSpin(bestTool)
                     triggerGunReload(bestTool)
                 end
             end
@@ -3364,7 +3430,7 @@ miscHeartbeatConn = RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
 
-    -- 1. Infinite Stamina (Human & Bear Kinematic Sprint Engine)
+    -- 1. Infinite Stamina (Human Sprint & Bear Sprint Speed Controller)
     if Config.InfiniteStamina then
         local sprintScript = char:FindFirstChild("Sprinting")
         if sprintScript then
@@ -3377,19 +3443,23 @@ miscHeartbeatConn = RunService.Heartbeat:Connect(function()
                 char:SetAttribute("BearStamina", 1)
             end
 
-            -- True Infinite Kinematic Sprint: When moving on the ground, maintain uninterrupted full sprint speed!
-            if not Config.AutoFarmBears and not Config.FlyNoclip then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                local root = char:FindFirstChild("HumanoidRootPart")
-                if hum and root and hum.MoveDirection.Magnitude > 0.05 then
-                    local isShiftHeld = false
-                    pcall(function()
-                        isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-                    end)
-                    if isShiftHeld or Config.InfiniteStamina then
-                        local targetSpeed = math.max(Config.CustomSpeed or 38, 38)
-                        local dir = hum.MoveDirection.Unit
-                        root.AssemblyLinearVelocity = Vector3.new(dir.X * targetSpeed, root.AssemblyLinearVelocity.Y, dir.Z * targetSpeed)
+            -- Native Humanoid Sprint Speed: Clean, natural running physics without collision or physics fighting!
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and not Config.AutoFarmBears and not Config.FlyNoclip then
+                local isShiftHeld = false
+                pcall(function()
+                    isShiftHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) 
+                        or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) 
+                        or (char:GetAttribute("BearSprinting") == true)
+                end)
+                local sprintSpeed = math.max(38, Config.CustomSpeed or 38)
+                if isShiftHeld then
+                    if hum.WalkSpeed < sprintSpeed then
+                        hum.WalkSpeed = sprintSpeed
+                    end
+                else
+                    if hum.WalkSpeed > 30 then
+                        hum.WalkSpeed = 24
                     end
                 end
             end
