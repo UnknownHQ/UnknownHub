@@ -2295,21 +2295,8 @@ RunService.Heartbeat:Connect(function(dt)
                 local bVel = bRoot.AssemblyLinearVelocity
                 local flatVel = Vector3.new(bVel.X, 0, bVel.Z)
 
-                -- Real-Time Dynamic Clearance for BurrowingBear:
-                -- If BurrowingBear tunnels/burrows underground, instantly elevate to 20 studs above 15-stud eruption!
+                -- Real-Time Dynamic Anti-Jump & Elevation Clearance:
                 local activeElevation = activeFlightOffset.elevation + dynamicJumpLift
-                if isBurrowingBear then
-                    local bm = activeFlightBear:GetAttribute("BrainMode")
-                    local isBbUnderground = (bm == "Tunnel")
-                        or (bm == "DigAway")
-                        or (activeFlightBear:GetAttribute("Burrowing") == true)
-                        or (activeFlightBear:GetAttribute("Tunneling") == true)
-                        or (bRoot.Position.Y < -155)
-                    if isBbUnderground then
-                        local boost = damageElevationBoost or 0
-                        activeElevation = math.max(activeElevation, 24.0 + boost)
-                    end
-                end
 
                 -- Authoritative Bear Heading for ALL Bears (Boo-Boo, Medved, Burrowing, etc.):
                 -- 1. If moving, live velocity vector is 100% indisputable forward heading!
@@ -2785,25 +2772,14 @@ task.spawn(function()
             elevation = 9.2 + damageElevationBoost
             targetHitPart = bear:FindFirstChild("BodyTop") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isBurrowingBear then
-            -- BURROWING BEAR: 500 HP aberrant burrower. 85 DMG swipe + 50 DMG / 45 Lift eruption.
-            -- TouchPart is "Sphere" (size 8.66x7.78x8.17, relPos Z=+1.15, top reaches Y=+2.00).
-            -- AI Swipe extends from Z=-7.0 to Z=+1.0 with top at Y=+2.00.
-            -- When burrowing/tunneling underground, elevate to +24.0 studs to completely avoid the 15-stud underground eruption!
-            -- When on surface:
-            -- Standoff 1.6 behind bearRoot and elevation 5.8 places Boo-Boo's bottom at Y >= +3.82 (> +2.00 ceiling),
-            -- maintaining 1.82 studs of absolute vertical clearance above Sphere and Swipe!
-            -- Targeting Hitbox_Head (at Z=-2.01, Y=+0.86) with direct 3D aiming:
-            -- Distance is sqrt((1.6 - (-2.01))^2 + (5.8 - 0.86)^2) = sqrt(13.03 + 24.40) = 6.11 studs (<= 6.5 reach).
-            -- 100% sonic scream hit connection while remaining 100% immune from touch collisions!
-            local bm = bear:GetAttribute("BrainMode")
-            local isUnderground = (bm == "Tunnel")
-                or (bm == "DigAway")
-                or (bear:GetAttribute("Burrowing") == true)
-                or (bear:GetAttribute("Tunneling") == true) 
-                or (bearRoot and bearRoot.Position.Y < -155)
-            standoff = 1.6
-            elevation = (isUnderground and 24.0 or 5.8) + (damageElevationBoost or 0)
-            targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Chest") or bearRoot
+            -- BURROWING BEAR: 500 HP aberrant burrower. 85 DMG directional swipe + TouchPart Sphere.
+            -- TouchPart is "Sphere" (relPos Z=+1.15, top reaches Y=+2.00). Swipe top is at Y=+2.00.
+            -- Standoff 2.4 behind bearRoot and elevation 6.8 places Boo-Boo's lower body at Y = +5.00 (+3.0 studs clearance above swipe & sphere ceiling),
+            -- maintaining 100% immunity against touch damage, eruptions, and forward swipes.
+            -- Direct 3D aim onto Hitbox_Chest keeps distance at 6.8 studs (within sonic scream reach) for frame-1 vaporization!
+            standoff = 2.4
+            elevation = 6.8 + (damageElevationBoost or 0)
+            targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bearRoot
         elseif isTallBear then
             -- TALL BEAR: 19.5 studs tall! Ground slam strikes Y <= 8; stay high at 7.5 elevation
             standoff = 3.6
@@ -2931,18 +2907,6 @@ task.spawn(function()
         elseif Config.FarmMethod == "Bear Attack" then
             -- Screams penetrate wide cone; fire when within engagement volume
             canStrike = distToTargetPart <= 16.0 or distToRoot <= 16.0 or (bear:FindFirstChild("BodyTop") and (root.Position - bear.BodyTop.Position).Magnitude <= 14.0)
-            -- If BurrowingBear is underground, suspend attack until it emerges onto surface!
-            local bm = bear:GetAttribute("BrainMode")
-            local isBbUnderground = isBurrowingBear and (
-                bm == "Tunnel"
-                or bm == "DigAway"
-                or bear:GetAttribute("Burrowing") == true 
-                or bear:GetAttribute("Tunneling") == true 
-                or (bearRoot and bearRoot.Position.Y < -155)
-            )
-            if isBbUnderground then
-                canStrike = false
-            end
         end
         if not canStrike then
             task.wait(0.02)
