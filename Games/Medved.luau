@@ -22,25 +22,6 @@ local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
 --------------------------------------------------------------------------------
--- 0. SESSION GUARDIAN & ZOMBIE INSTANCE TERMINATOR
---------------------------------------------------------------------------------
-local currentScriptSession = tick()
-_G.MEDVED_SESSION = currentScriptSession
-_G.MedvedFarmSession = currentScriptSession
-
--- Clean up any prior GUI to prevent ghost UI controls
-pcall(function()
-    local h = (gethui and gethui()) or CoreGui
-    if h then
-        for _, c in ipairs(h:GetChildren()) do
-            if c.Name == "Unknown_TabbedHub_UI" then
-                c:Destroy()
-            end
-        end
-    end
-end)
-
---------------------------------------------------------------------------------
 -- 1. TELEMETRY NEUTRALIZATION LAYER
 --------------------------------------------------------------------------------
 local function silenceTelemetry()
@@ -145,12 +126,16 @@ local Hub = createHubFn({
     secondaryTheme = Color3.fromRGB(165, 95, 255)
 })
 
+--------------------------------------------------------------------------------
+-- 0. AUTHORITATIVE SESSION REGISTRATION (ACTIVE AFTER PREVIOUS HUB CLEANUP)
+--------------------------------------------------------------------------------
+local currentScriptSession = tick()
+_G.MEDVED_SESSION = currentScriptSession
+_G.MedvedFarmSession = currentScriptSession
+
 -- Automated Library-Integrated Lifecycle Teardown
 if Hub and Hub.OnUnload then
     Hub.OnUnload(function()
-        local sess = tick()
-        _G.MEDVED_SESSION = sess
-        _G.MedvedFarmSession = sess
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         if root then
