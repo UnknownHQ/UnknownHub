@@ -22,6 +22,25 @@ local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
 --------------------------------------------------------------------------------
+-- 0. SESSION GUARDIAN & ZOMBIE INSTANCE TERMINATOR
+--------------------------------------------------------------------------------
+local currentScriptSession = tick()
+_G.MEDVED_SESSION = currentScriptSession
+_G.MedvedFarmSession = currentScriptSession
+
+-- Clean up any prior GUI to prevent ghost UI controls
+pcall(function()
+    local h = (gethui and gethui()) or CoreGui
+    if h then
+        for _, c in ipairs(h:GetChildren()) do
+            if c.Name == "Unknown_TabbedHub_UI" then
+                c:Destroy()
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
 -- 1. TELEMETRY NEUTRALIZATION LAYER
 --------------------------------------------------------------------------------
 local function silenceTelemetry()
@@ -461,7 +480,7 @@ end
 
 -- 4. Turret Proximity Auto-Heal Engine
 task.spawn(function()
-    while true do
+    while _G.MEDVED_SESSION == currentScriptSession do
         task.wait(0.6)
         if Config.AutoHealTurrets then
             local char = LocalPlayer.Character
@@ -490,7 +509,7 @@ end)
 
 -- Active GhostBear Neutralization & Visualizer Protocol
 task.spawn(function()
-    while true do
+    while _G.MEDVED_SESSION == currentScriptSession do
         task.wait(0.12)
         local wsBears = Workspace:FindFirstChild("Bears")
         if wsBears then
@@ -674,12 +693,12 @@ local function getNextCrateTarget()
     return nil
 end
 
-local currentFarmSession = tick()
+local currentFarmSession = currentScriptSession
 _G.MedvedFarmSession = currentFarmSession
 
 task.spawn(function()
     local mySession = currentFarmSession
-    while _G.MedvedFarmSession == mySession do
+    while _G.MedvedFarmSession == mySession and _G.MEDVED_SESSION == currentScriptSession do
         task.wait(0.08)
         if Config.AutoFarmCrates then
             local char = LocalPlayer.Character
@@ -885,7 +904,7 @@ local function collectSinglePage(pagePart)
 end
 
 task.spawn(function()
-    while true do
+    while _G.MEDVED_SESSION == currentScriptSession do
         task.wait(0.2)
         if Config.AutoCollectPages then
             local char = LocalPlayer.Character
@@ -1758,7 +1777,7 @@ local lastMeleeSwing = 0
 local lastBearAttack = 0
 
 task.spawn(function()
-    while true do
+    while _G.MEDVED_SESSION == currentScriptSession do
         task.wait(0.08)
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -2247,7 +2266,15 @@ end
 
 -- Pipeline 1: 60+ FPS Butter-Smooth Levitation Flight (RunService.Heartbeat)
 -- Decoupled from combat task.wait pauses; updates every single physics frame without stutter or delay
-RunService.Heartbeat:Connect(function(dt)
+local flightHeartbeatConn
+flightHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
+    if _G.MEDVED_SESSION ~= currentScriptSession then
+        if flightHeartbeatConn then
+            flightHeartbeatConn:Disconnect()
+            flightHeartbeatConn = nil
+        end
+        return
+    end
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2511,7 +2538,7 @@ end
 
 -- Pipeline 2: Autonomous Combat & Target Acquisition Loop
 task.spawn(function()
-    while true do
+    while _G.MEDVED_SESSION == currentScriptSession do
         local pChar = LocalPlayer.Character
         local isHyperActive = pChar and ((pChar:GetAttribute("TransformedToBear") or ""):lower():find("hyper") ~= nil)
         task.wait(0.02)
@@ -2519,7 +2546,11 @@ task.spawn(function()
             isFleeingLowHP = false
             activeFlightBear = nil
             activeFlightTargetCF = nil
+            activeFlightOffset = nil
             activeFlightEvading = false
+            lockedFarmTarget = nil
+            lastEngagedBear = nil
+            safeHoverTargetCF = nil
             task.wait(0.3)
             continue
         end
@@ -3077,7 +3108,7 @@ end)
 
 
 task.spawn(function()
-    while true do
+    while _G.MEDVED_SESSION == currentScriptSession do
         task.wait(0.5)
         if Config.AutoFriendlyBear and Config.AutoFarmBears then
             local char = LocalPlayer.Character
@@ -3236,7 +3267,15 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     end
 end)
 
-RunService.Heartbeat:Connect(function()
+local miscHeartbeatConn
+miscHeartbeatConn = RunService.Heartbeat:Connect(function()
+    if _G.MEDVED_SESSION ~= currentScriptSession then
+        if miscHeartbeatConn then
+            miscHeartbeatConn:Disconnect()
+            miscHeartbeatConn = nil
+        end
+        return
+    end
     local char = LocalPlayer.Character
     if not char then return end
 
@@ -3439,7 +3478,7 @@ local function updateBearESP()
 end
 
 task.spawn(function()
-    while true do
+    while _G.MEDVED_SESSION == currentScriptSession do
         task.wait(2.0)
         if Config.CratesESP then updateCratesESP() end
         if Config.BearsESP then updateBearESP() end
@@ -3463,6 +3502,15 @@ Hub.CreateSection(farmTab, "Crates")
 
 Hub.CreateToggle(farmTab, "Auto Farm Crates", Config.AutoFarmCrates, function(val)
     Config.AutoFarmCrates = val
+    if not val then
+        isCratesActivelyFarming = false
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
     if val then
         silenceTelemetry()
         table.clear(crateAttempts)
@@ -3484,6 +3532,14 @@ Hub.CreateSection(farmTab, "Pages")
 
 Hub.CreateToggle(farmTab, "Auto Collect Pages", Config.AutoCollectPages, function(val)
     Config.AutoCollectPages = val
+    if not val then
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
     if val then
         silenceTelemetry()
     end
@@ -3508,7 +3564,19 @@ Hub.CreateToggle(farmTab, "Auto Farm Bears", Config.AutoFarmBears, function(val)
     if not val then
         activeFlightBear = nil
         activeFlightTargetCF = nil
+        activeFlightOffset = nil
         activeFlightEvading = false
+        lockedFarmTarget = nil
+        lastEngagedBear = nil
+        isFleeingLowHP = false
+        safeHoverTargetCF = nil
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CanCollide = true
+        end
     end
     if val then
         silenceTelemetry()
