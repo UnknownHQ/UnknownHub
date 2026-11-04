@@ -204,7 +204,24 @@ local Config = {
     -- Misc & Progression
     AutoUnlockDoors = false,
     AutoPrestigeOn32 = false,
-    AntiRagdoll = true
+    AntiRagdoll = true,
+
+    -- Stealth Public Farm Suite (Ghost Cloak & Anti-Detection)
+    StealthFarm = false,
+    StealthPlayerCheck = true,
+    StealthSafeRadius = 250,
+    StealthStaffSentinel = true,
+    StealthStratosphericTransit = true,
+    StealthTransitAltitude = 180,
+    StealthPanicKey = Enum.KeyCode.X,
+    StealthRageInterlock = true,
+
+    -- Bear Archetype Adaptations (Ice Bear, Grinder Bear, Boo-Boo)
+    BearArchetypeMode = "Auto-Detect",
+    IceBearStandoff = 35,
+    IceBearAutoMana = true,
+    GrinderStandoff = 28,
+    GrinderApexClearance = true
 }
 getgenv().MedvedConfig = Config
 getgenv().UnknownHub = Hub
@@ -2108,6 +2125,127 @@ pcall(function()
     end
 end)
 
+-- =========================================================================
+-- GHOST CLOAK & PUBLIC STEALTH SENTINEL
+-- =========================================================================
+local function isAnyOtherPlayerNear(pos, radius)
+    if not pos then return false end
+    radius = radius or (Config.StealthSafeRadius or 250)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local pRoot = p.Character:FindFirstChild("HumanoidRootPart")
+            if pRoot and (pRoot.Position - pos).Magnitude < radius then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Staff & Developer Detection Engine (Owner: megahammer / Group: Roblox High IQ Society)
+local staffRankCache = {}
+local function isStaffMember(player)
+    if not player then return false end
+    if player.UserId == 8393409 then return true end -- megahammer (Owner)
+    if staffRankCache[player.UserId] ~= nil then
+        return staffRankCache[player.UserId]
+    end
+    local staff = false
+    pcall(function()
+        local rank = player:GetRankInGroup(4457057)
+        if rank >= 100 then
+            staff = true
+        end
+    end)
+    staffRankCache[player.UserId] = staff
+    return staff
+end
+
+local function triggerStaffEvacuation(player)
+    if not (Config.StealthStaffSentinel or Config.StealthFarm) then return end
+    warn("[GHOST CLOAK] STAFF MEMBER DETECTED: " .. tostring(player and player.Name))
+    
+    Config.StealthFarm = false
+    Config.AutoFarmBears = false
+    Config.AutoFarmCrates = false
+    Config.FlyNoclip = false
+    activeFlightBear = nil
+    activeFlightTargetCF = nil
+    lockedFarmTarget = nil
+    
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CanCollide = true
+    end
+    if hum then
+        hum.WalkSpeed = 16
+    end
+    
+    Hub.Notify("Staff Detected", "Dev/Staff " .. tostring(player and player.Name) .. " entered! Server hopping...", 5)
+    task.wait(0.5)
+    if getgenv().serverhop then
+        getgenv().serverhop()
+    else
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end
+end
+
+-- Sentinel background scanner
+task.spawn(function()
+    while _G.MEDVED_SESSION == currentScriptSession do
+        task.wait(1.5)
+        if Config.StealthStaffSentinel or Config.StealthFarm then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and isStaffMember(p) then
+                    triggerStaffEvacuation(p)
+                    break
+                end
+            end
+        end
+    end
+end)
+
+Players.PlayerAdded:Connect(function(p)
+    if isStaffMember(p) then
+        triggerStaffEvacuation(p)
+    end
+end)
+
+-- Emergency Panic Keybind Listener (Default X)
+pcall(function()
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.KeyCode == (Config.StealthPanicKey or Enum.KeyCode.X) then
+            if Config.StealthFarm or Config.AutoFarmBears or Config.FlyNoclip or Config.AutoFarmCrates then
+                Config.StealthFarm = false
+                Config.AutoFarmBears = false
+                Config.AutoFarmCrates = false
+                Config.FlyNoclip = false
+                activeFlightBear = nil
+                activeFlightTargetCF = nil
+                lockedFarmTarget = nil
+                
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if root then
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
+                    root.CanCollide = true
+                end
+                if hum then
+                    hum.WalkSpeed = 16
+                end
+                Hub.Notify("Panic Key", "EMERGENCY CAMOUFLAGE: All features disabled & grounded!", 3)
+            end
+        end
+    end)
+end)
+
 local lockedFarmTarget = nil
 local lastEngagedBear = nil
 
@@ -2150,6 +2288,10 @@ local function getFarmBearTarget()
             if bearHum and bearHum.Health > 0 then
                 local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
                 if bearRoot then
+                    -- Ghost Cloak: Skip bears near other players
+                    if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck and isAnyOtherPlayerNear(bearRoot.Position, Config.StealthSafeRadius) then
+                        continue
+                    end
                     local dist = (bearRoot.Position - root.Position).Magnitude
                     if dist < bestPriorityDist then
                         bestPriorityDist = dist
@@ -2196,6 +2338,14 @@ local function getFarmBearTarget()
         end
     end
     if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetable(lockedFarmTarget) then
+        if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck then
+            local lRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart
+            if lRoot and isAnyOtherPlayerNear(lRoot.Position, (Config.StealthSafeRadius or 250) * 0.7) then
+                lockedFarmTarget = nil
+            end
+        end
+    end
+    if lockedFarmTarget and lockedFarmTarget.Parent and isBearTargetable(lockedFarmTarget) then
         local lockedHum = lockedFarmTarget:FindFirstChildOfClass("Humanoid")
         local lockedRoot = lockedFarmTarget:FindFirstChild("HumanoidRootPart") or lockedFarmTarget.PrimaryPart or lockedFarmTarget:FindFirstChildWhichIsA("BasePart")
         local isTargetDead = (not lockedHum or lockedHum.Health <= 0)
@@ -2224,6 +2374,10 @@ local function getFarmBearTarget()
             if bearHum and bearHum.Health > 0 then
                 local bearRoot = bear:FindFirstChild("HumanoidRootPart") or bear.PrimaryPart or bear:FindFirstChildWhichIsA("BasePart")
                 if bearRoot then
+                    -- Ghost Cloak: Skip bears near other players
+                    if (Config.StealthFarm or Config.AutoFarmBears) and Config.StealthPlayerCheck and isAnyOtherPlayerNear(bearRoot.Position, Config.StealthSafeRadius) then
+                        continue
+                    end
                     local dist = (bearRoot.Position - root.Position).Magnitude
                     if isBooBooBear(bear) then
                         if dist < bestBooBooDist then
@@ -2370,9 +2524,9 @@ flightHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Levitation & High-Speed 3D Cruise Flight Engine (Auto Farm Bears)
+    -- Levitation & High-Speed 3D Cruise Flight Engine (Auto Farm Bears & Stealth Farm)
     -- Pure aerodynamic flight between bears; 60 FPS zero-lag dorsal blindspot lock in combat!
-    if Config.AutoFarmBears then
+    if Config.AutoFarmBears or Config.StealthFarm then
         local targetCF = nil
         if isFleeingLowHP then
             targetCF = safeHoverTargetCF
@@ -2620,7 +2774,7 @@ task.spawn(function()
         local pChar = LocalPlayer.Character
         local isHyperActive = pChar and ((pChar:GetAttribute("TransformedToBear") or ""):lower():find("hyper") ~= nil)
         task.wait(0.02)
-        if not Config.AutoFarmBears then
+        if not Config.AutoFarmBears and not Config.StealthFarm then
             isFleeingLowHP = false
             activeFlightBear = nil
             activeFlightTargetCF = nil
@@ -2981,6 +3135,14 @@ task.spawn(function()
 
         local curLvl = char:GetAttribute("BearLevel") or 1
         local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 20))
+        if (Config.StealthFarm or Config.StealthRageInterlock) and isAnyOtherPlayerNear(root.Position, 350) then
+            isRageActive = false
+        end
+
+        local myBearName = tostring(char:GetAttribute("TransformedToBear") or ""):lower()
+        local isMyIceBear = myBearName:find("ice") ~= nil or Config.BearArchetypeMode == "Ice Bear (Mage)"
+        local isMyGrinderBear = myBearName:find("grinder") ~= nil or Config.BearArchetypeMode == "Grinder Bear (Artillery)"
+
         local targetPos = nil
         local aimPos = nil
 
@@ -2990,6 +3152,26 @@ task.spawn(function()
             elevation = 0
             targetPos = bearRoot.Position
             aimPos = bearRoot.Position + Vector3.new(0, 0.2, 0)
+        elseif isMyIceBear and (Config.FarmMethod == "Bear Attack" or Config.StealthFarm) then
+            -- ICE BEAR ARTIFACT: Long-Range Magic Artillery (600 studs reach)
+            standoff = math.max(15.0, Config.IceBearStandoff or 35.0)
+            elevation = 12.0 + (damageElevationBoost or 0)
+            targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
+            aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
+            if Config.IceBearAutoMana or Config.InfiniteMana then
+                pcall(function()
+                    char:SetAttribute("Mana", 100)
+                    char:SetAttribute("IceMana", 100)
+                    char:SetAttribute("Recharging", false)
+                    char:SetAttribute("OutOfMana", false)
+                end)
+            end
+        elseif isMyGrinderBear and (Config.FarmMethod == "Bear Attack" or Config.StealthFarm) then
+            -- GRINDER BEAR ARTIFACT: Heavy Cannon Turret Vantage
+            standoff = math.max(15.0, Config.GrinderStandoff or 28.0)
+            elevation = 16.0 + (damageElevationBoost or 0)
+            targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
+            aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
         elseif Config.FarmMethod == "Gun" then
             standoff = math.max(16.0, myRadius + 12.0)
             elevation = 12.0
@@ -3028,9 +3210,13 @@ task.spawn(function()
         activeFlightTargetCF = buildCombatFlightCF(targetPos, aimPos)
         activeFlightBear = bear
 
-        -- Target Switch: INSTANT INTER-BEAR TELEPORTATION!
-        -- If in Rage Mode or switching bears, warp immediately into target bear!
-        if isRageActive or lastEngagedBear ~= bear or (root.Position - targetPos).Magnitude > 6.0 then
+        -- Target Switch: INSTANT INTER-BEAR TELEPORTATION & STRATOSPHERIC TRANSIT!
+        local distToDest = (root.Position - targetPos).Magnitude
+        if distToDest > 70.0 and (Config.StealthFarm or Config.StealthStratosphericTransit) then
+            -- High Fog Stratospheric Cloaking:
+            local highTransitCF = CFrame.new(root.Position.X, Config.StealthTransitAltitude or 180, root.Position.Z)
+            root.CFrame = highTransitCF
+        elseif isRageActive or lastEngagedBear ~= bear or distToDest > 6.0 then
             lastEngagedBear = bear
             root.CFrame = isRageActive and CFrame.new(bearRoot.Position, bearRoot.Position + bearRoot.CFrame.LookVector) or activeFlightTargetCF
             root.AssemblyLinearVelocity = Vector3.zero
@@ -3049,6 +3235,10 @@ task.spawn(function()
         local canStrike = false
         if isRageActive then
             canStrike = true
+        elseif isMyIceBear then
+            canStrike = distToTargetPart <= 90.0 or distToRoot <= 90.0
+        elseif isMyGrinderBear then
+            canStrike = distToTargetPart <= 60.0 or distToRoot <= 60.0
         elseif Config.FarmMethod == "Gun" then
             canStrike = distToRoot <= 150.0
         elseif Config.FarmMethod == "Melee" then
@@ -3166,7 +3356,8 @@ task.spawn(function()
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream / Hyper Sonic Scream)
                 -- Dynamic M1 Cooldown Engine: Hypersonic Boo-Boo has 0.04s attack cooldown; standard bears have ~1.5s
                 local isHypersonic = myBearName:find("hyper") ~= nil
-                local m1MinInterval = isRageActive and 0.01 or (isHypersonic and 0.04 or (myBearName:find("boo") and 0.08 or 0.15))
+                local isIceMage = myBearName:find("ice") ~= nil
+                local m1MinInterval = isRageActive and 0.01 or (isHypersonic and 0.04 or (isIceMage and 0.08 or (myBearName:find("boo") and 0.08 or 0.15)))
                 local defaultReady = isRageActive or isAbilityReady("Default")
                 if defaultReady and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
@@ -3694,6 +3885,92 @@ local farmTab = Hub.CreateTab("Auto Farm", {
     Color = Color3.fromRGB(0, 195, 245),
     ActiveColor = Color3.fromRGB(0, 230, 255)
 })
+
+-- =========================================================================
+-- TAB: STEALTH FARM (GHOST CLOAK & SPECIAL ARCHETYPES)
+-- =========================================================================
+local stealthTab = Hub.CreateTab("Stealth Farm", {
+    Icon = "👻",
+    Size = 18,
+    Color = Color3.fromRGB(0, 225, 200),
+    ActiveColor = Color3.fromRGB(80, 255, 225)
+})
+
+Hub.CreateSection(stealthTab, "Ghost Cloak & Detection Defense")
+
+Hub.CreateToggle(stealthTab, "Auto Farm (Stealth Mode)", Config.StealthFarm, function(val)
+    Config.StealthFarm = val
+    if not val then
+        activeFlightBear = nil
+        activeFlightTargetCF = nil
+        activeFlightOffset = nil
+        lockedFarmTarget = nil
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CanCollide = true
+        end
+    end
+    if val then
+        silenceTelemetry()
+    end
+    Hub.Notify("Stealth Farm", val and "Stealth Public Farm: ACTIVE (Ghost Cloak ON)" or "Stealth Farm: OFF", 2)
+end)
+
+Hub.CreateToggle(stealthTab, "Player Proximity Check", Config.StealthPlayerCheck, function(val)
+    Config.StealthPlayerCheck = val
+    Hub.Notify("Stealth", val and "Player Exclusion Bubble: ON" or "Player Exclusion Bubble: OFF", 2)
+end)
+
+Hub.CreateSlider(stealthTab, "Safe Player Radius", 100, 500, Config.StealthSafeRadius, " studs", function(val)
+    Config.StealthSafeRadius = val
+end)
+
+Hub.CreateToggle(stealthTab, "Staff & Dev Auto-Sentinel", Config.StealthStaffSentinel, function(val)
+    Config.StealthStaffSentinel = val
+    Hub.Notify("Sentinel", val and "Staff Sentinel: ACTIVE (Auto-Hop on Dev Join)" or "Staff Sentinel: OFF", 2)
+end)
+
+Hub.CreateToggle(stealthTab, "Stratospheric Fog Transit", Config.StealthStratosphericTransit, function(val)
+    Config.StealthStratosphericTransit = val
+    Hub.Notify("Stealth", val and "Fog Transit: ACTIVE (High Altitude Cruising)" or "Fog Transit: OFF", 2)
+end)
+
+Hub.CreateSlider(stealthTab, "Transit Altitude", 120, 300, Config.StealthTransitAltitude, " Y", function(val)
+    Config.StealthTransitAltitude = val
+end)
+
+Hub.CreateToggle(stealthTab, "Rage Mode Public Interlock", Config.StealthRageInterlock, function(val)
+    Config.StealthRageInterlock = val
+    Hub.Notify("Stealth", val and "Rage Interlock: ACTIVE (Suppressed Near Players)" or "Rage Interlock: OFF", 2)
+end)
+
+Hub.CreateSection(stealthTab, "Special Bear Adaptations")
+
+Hub.CreateDropdown(stealthTab, "Bear Archetype", {"Auto-Detect", "Ice Bear (Mage)", "Grinder Bear (Artillery)", "Boo-Boo (Apex)", "Standard Melee"}, Config.BearArchetypeMode, function(val)
+    Config.BearArchetypeMode = val
+    Hub.Notify("Bear Archetype", "Archetype set to: " .. val, 2)
+end)
+
+Hub.CreateSlider(stealthTab, "Ice Bear Standoff", 15, 75, Config.IceBearStandoff, " studs", function(val)
+    Config.IceBearStandoff = val
+end)
+
+Hub.CreateToggle(stealthTab, "Auto Infinite Mana (Ice Bear)", Config.IceBearAutoMana, function(val)
+    Config.IceBearAutoMana = val
+    Hub.Notify("Ice Bear", val and "Infinite Ice Mana: LOCKED" or "Infinite Ice Mana: OFF", 2)
+end)
+
+Hub.CreateSlider(stealthTab, "Grinder Bear Standoff", 15, 60, Config.GrinderStandoff, " studs", function(val)
+    Config.GrinderStandoff = val
+end)
+
+Hub.CreateToggle(stealthTab, "Anti-Wheel Apex Guard", Config.GrinderApexClearance, function(val)
+    Config.GrinderApexClearance = val
+    Hub.Notify("Grinder Defense", val and "Apex Dorsal Pocket: LOCKED" or "Apex Guard: OFF", 2)
+end)
 
 Hub.CreateSection(farmTab, "Crates")
 
