@@ -4660,6 +4660,8 @@ end)
 
 Hub.CreateSection(tpTab, "Bear Teleport")
 local bearMap = {}
+local lastBearListCache = {}
+
 local function getLiveBearList()
     local bearsFolder = workspace:FindFirstChild("Bears")
     local char = LocalPlayer.Character
@@ -4667,29 +4669,76 @@ local function getLiveBearList()
     local entries = {}
     table.clear(bearMap)
 
+    local function processCandidate(b, isPlayerBear)
+        if not b or not b.Parent or b == char or b.Name == LocalPlayer.Name then return end
+
+        local bName = b.Name
+        local lowerName = bName:lower()
+
+        -- Comprehensive Bear Classifier: NPC Bears, Bosses, Special Bears & Player Bears
+        local isBear = false
+        if b.Parent == bearsFolder then
+            isBear = true
+        elseif b:GetAttribute("TransformedToBear") ~= nil or b:GetAttribute("IsBear") == true or b:GetAttribute("BearLevel") ~= nil then
+            isBear = true
+            bName = tostring(b:GetAttribute("TransformedToBear") or bName)
+        elseif lowerName:find("bear") or lowerName:find("booboo") or lowerName:find("medved") or lowerName:find("cutie") or lowerName:find("demon") or lowerName:find("ghost") or lowerName:find("grinder") or lowerName:find("ice") then
+            isBear = true
+        end
+
+        if not isBear then return end
+
+        local isDead = b:GetAttribute("Dead") == true or b:GetAttribute("IsDead") == true or b:GetAttribute("Evaporated") == true
+        local hum = b:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then isDead = true end
+
+        if isDead then return end
+
+        local lvl = b:GetAttribute("BearLevel") or b:GetAttribute("Level") or 1
+        local hpPct = 100
+        if hum and hum.MaxHealth and hum.MaxHealth > 0 then
+            hpPct = math.clamp(math.floor((hum.Health / hum.MaxHealth) * 100), 0, 100)
+        end
+
+        local displayName = bName
+        if isPlayerBear then
+            displayName = string.format("%s (Player: %s)", bName, b.Name)
+        end
+
+        counts[displayName] = (counts[displayName] or 0) + 1
+        table.insert(entries, {
+            model = b,
+            name = displayName,
+            rawName = bName,
+            lvl = lvl,
+            hp = hpPct,
+            isPlayer = isPlayerBear
+        })
+    end
+
+    -- 1. Scan workspace.Bears (Standard NPC bears)
     if bearsFolder then
         for _, b in ipairs(bearsFolder:GetChildren()) do
-            if b ~= char and b.Name ~= LocalPlayer.Name then
-                local isDead = b:GetAttribute("Dead") == true or b:GetAttribute("IsDead") == true or b:GetAttribute("Evaporated") == true
-                local hum = b:FindFirstChildOfClass("Humanoid")
-                if hum and hum.Health <= 0 then isDead = true end
+            processCandidate(b, false)
+        end
+    end
 
-                if not isDead then
-                    local bName = b.Name
-                    local lvl = b:GetAttribute("BearLevel") or b:GetAttribute("Level") or 1
-                    local hpPct = 100
-                    if hum then
-                        hpPct = math.clamp(math.floor((hum.Health / math.max(hum.MaxHealth, 1)) * 100), 0, 100)
-                    end
+    -- 2. Scan workspace root for any unparented/special bears (CutieBear, DemonBear, GhostBear, IceBear)
+    for _, b in ipairs(workspace:GetChildren()) do
+        if b ~= bearsFolder and b:IsA("Model") then
+            local lName = b.Name:lower()
+            if lName:find("bear") or lName:find("booboo") or lName:find("medved") or lName:find("cutie") or lName:find("demon") or lName:find("ghost") or lName:find("grinder") or lName:find("ice") then
+                processCandidate(b, false)
+            end
+        end
+    end
 
-                    counts[bName] = (counts[bName] or 0) + 1
-                    table.insert(entries, {
-                        model = b,
-                        name = bName,
-                        lvl = lvl,
-                        hp = hpPct
-                    })
-                end
+    -- 3. Scan all players for transformed player bears (CutieBear, DemonBear, GhostBear, etc.)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local pChar = p.Character
+            if pChar:GetAttribute("TransformedToBear") ~= nil or pChar:GetAttribute("BearLevel") ~= nil then
+                processCandidate(pChar, true)
             end
         end
     end
@@ -4704,13 +4753,13 @@ local function getLiveBearList()
     local nameTracker = {}
     local list = {}
     for _, entry in ipairs(entries) do
-        local bName = entry.name
+        local dName = entry.name
         local label
-        if counts[bName] > 1 then
-            nameTracker[bName] = (nameTracker[bName] or 0) + 1
-            label = string.format("%s #%d [Lvl %d, %d%%]", bName, nameTracker[bName], entry.lvl, entry.hp)
+        if counts[dName] > 1 then
+            nameTracker[dName] = (nameTracker[dName] or 0) + 1
+            label = string.format("%s #%d [Lvl %d, %d%%]", dName, nameTracker[dName], entry.lvl, entry.hp)
         else
-            label = string.format("%s [Lvl %d, %d%%]", bName, entry.lvl, entry.hp)
+            label = string.format("%s [Lvl %d, %d%%]", dName, entry.lvl, entry.hp)
         end
         table.insert(list, label)
         bearMap[label] = entry.model
@@ -4723,6 +4772,7 @@ local function getLiveBearList()
 end
 
 local initialBearList = getLiveBearList()
+lastBearListCache = initialBearList
 local selectedBearString = initialBearList[1] or "No bears found"
 local bearDropdown = Hub.CreateDropdown(tpTab, "Select Bear", initialBearList, selectedBearString, function(val)
     selectedBearString = val
@@ -4742,6 +4792,17 @@ Hub.CreateButton(tpTab, "Teleport to Selected Bear", function()
             if bearsFolder then
                 targetBear = bearsFolder:FindFirstChild(bName)
             end
+            if not targetBear then
+                targetBear = workspace:FindFirstChild(bName)
+            end
+            if not targetBear then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p.Character and (p.Name == bName or p.DisplayName == bName or tostring(p.Character:GetAttribute("TransformedToBear")) == bName) then
+                        targetBear = p.Character
+                        break
+                    end
+                end
+            end
         end
     end
     if not targetBear or not targetBear.Parent then
@@ -4758,19 +4819,31 @@ Hub.CreateButton(tpTab, "Teleport to Selected Bear", function()
     Hub.Notify("Teleport", "Teleported to " .. selectedBearString, 2)
 end)
 
--- Background loop: Auto-refresh live bear list every 1.0 second
+-- Background loop: Smart Differential Auto-refresh live bear list (preserves active search query)
 task.spawn(function()
     while _G.MEDVED_SESSION == currentScriptSession do
-        task.wait(1.0)
+        task.wait(1.5)
         if _G.MEDVED_SESSION ~= currentScriptSession then break end
         if bearDropdown and bearDropdown.Refresh then
             pcall(function()
                 local newList = getLiveBearList()
-                bearDropdown.Refresh(newList)
-                if selectedBearString and bearMap[selectedBearString] and bearMap[selectedBearString].Parent then
-                    -- Keep current active selection
-                else
-                    selectedBearString = newList[1] or "No bears found"
+                local changed = (#newList ~= #lastBearListCache)
+                if not changed then
+                    for i = 1, #newList do
+                        if newList[i] ~= lastBearListCache[i] then
+                            changed = true
+                            break
+                        end
+                    end
+                end
+                if changed then
+                    lastBearListCache = newList
+                    bearDropdown.Refresh(newList)
+                    if selectedBearString and bearMap[selectedBearString] and bearMap[selectedBearString].Parent then
+                        -- Keep current active selection
+                    else
+                        selectedBearString = newList[1] or "No bears found"
+                    end
                 end
             end)
         end

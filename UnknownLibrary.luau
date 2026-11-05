@@ -1762,9 +1762,14 @@ return function(opts)
             end,
             Refresh = function(newOpts)
                 options = newOpts or {}
-                currentQuery = ""
-                if searchBar then searchBar.Text = "" end
-                rebuildOptions("")
+                local isTyping = searchBar and (searchBar:IsFocused() or (searchBar.Text ~= ""))
+                if isTyping then
+                    currentQuery = searchBar.Text
+                else
+                    currentQuery = ""
+                    if searchBar then searchBar.Text = "" end
+                end
+                rebuildOptions(currentQuery)
                 if isExpanded then updateDropdownVisuals() end
             end
         }
