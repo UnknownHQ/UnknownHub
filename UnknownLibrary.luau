@@ -1841,7 +1841,7 @@ return function(opts)
         selectionPill.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
         selectionPill.BorderSizePixel = 0
         selectionPill.Font = Enum.Font.Gotham
-        selectionPill.Text = "All Bears"
+        selectionPill.Text = "All"
         selectionPill.TextColor3 = DEFAULT_THEME.TextSecondary
         selectionPill.TextSize = 11
         selectionPill.TextTruncate = Enum.TextTruncate.AtEnd
@@ -1878,7 +1878,7 @@ return function(opts)
 
         local function updatePillText()
             if selected["All"] then
-                selectionPill.Text = "All Bears"
+                selectionPill.Text = "All"
                 return
             end
             local count = 0
