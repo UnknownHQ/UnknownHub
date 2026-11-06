@@ -109,6 +109,8 @@ local toysPage    = Hub.CreateTab("Toys",    { Icon = "🧸", Size = 18, Color =
 -- Farming
 local AutoFarmState = false
 local AutoDigState = false
+local PacketDigState = false
+local PacketDigSpeed = 1.0
 local AutoSprinklersState = false
 local SelectedFarmField = "Sunflower Field"
 local TweenSpeed = 6
@@ -133,6 +135,8 @@ local SelectedFarmSettings = {
     ["Farm Duped Tokens"] = true,
     ["Farm Petals"] = true,
     ["Farm Leaves"] = false,
+    ["Farm Blooms"] = true,
+    ["Prioritize Bloom Fields"] = false,
 }
 
 local ConvertSettings = {
@@ -513,6 +517,25 @@ local MonstersFolder = Workspace:WaitForChild("Monsters")
 local ToysFolder = Workspace:WaitForChild("Toys")
 local NPCsFolder = Workspace:FindFirstChild("NPCs")
 local PlantersFolder = Workspace:FindFirstChild("Planters")
+local HappeningsFolder = Workspace:FindFirstChild("Happenings")
+
+local function executePacketDig()
+    pcall(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local tool = char:FindFirstChildOfClass("Tool")
+        if tool and tool:FindFirstChild("ClickEvent") then
+            tool.ClickEvent:FireServer()
+        end
+        local events = ReplicatedStorage:FindFirstChild("Events")
+        if events then
+            local ev = require(events)
+            if type(ev) == "table" and type(ev.ClientCall) == "function" then
+                ev.ClientCall("ToolCollect")
+            end
+        end
+    end)
+end
 
 local function safeStartCollection()
     pcall(function()
@@ -521,11 +544,27 @@ local function safeStartCollection()
             tool.ClickEvent:FireServer()
         end
     end)
+    if PacketDigState then
+        executePacketDig()
+    end
 end
 
 local function safeStopCollection()
     -- Reserved for clean swing termination
 end
+
+-- Dedicated Animation-Free Packet Digging Daemon
+task.spawn(function()
+    while true do
+        if (PacketDigState or AutoDigState) and (AutoFarmState or AutoDigState) and not isConvertingAtHive then
+            executePacketDig()
+            local interval = math.clamp(0.2 / (PacketDigSpeed or 1.0), 0.05, 0.5)
+            task.wait(interval)
+        else
+            task.wait(0.25)
+        end
+    end
+end)
 
 local function getCharacter()
     local char = LocalPlayer.Character
@@ -689,12 +728,86 @@ local function isTokenInField(tokenPart, field)
     return tokenPart and isPositionInField(tokenPart.Position, field, 4)
 end
 
+local function getBloomPosition(bloom)
+    if not bloom then return nil end
+    if bloom:IsA("Model") then
+        local core = bloom:FindFirstChild("CorePart") or bloom:FindFirstChild("Pistil") or bloom.PrimaryPart or bloom:FindFirstChildWhichIsA("BasePart")
+        if core then return core.Position end
+        local cf = bloom:GetPivot()
+        return cf.Position
+    elseif bloom:IsA("BasePart") then
+        return bloom.Position
+    end
+    return nil
+end
+
+local function getBloomsInField(field)
+    local blooms = {}
+    local happenings = Workspace:FindFirstChild("Happenings")
+    if not happenings then return blooms end
+
+    local containers = {
+        happenings:FindFirstChild("PoppablePlants"),
+        happenings:FindFirstChild("BrickBlooms"),
+    }
+    for _, folder in ipairs(containers) do
+        if folder then
+            for _, child in ipairs(folder:GetChildren()) do
+                local bPos = getBloomPosition(child)
+                if bPos and isPositionInField(bPos, field, 4) then
+                    table.insert(blooms, { Object = child, Position = bPos })
+                end
+            end
+        end
+    end
+    return blooms
+end
+
+local function getActiveBloomField()
+    local happenings = Workspace:FindFirstChild("Happenings")
+    if not happenings then return nil end
+
+    local containers = {
+        happenings:FindFirstChild("PoppablePlants"),
+        happenings:FindFirstChild("BrickBlooms"),
+    }
+    for _, folder in ipairs(containers) do
+        if folder then
+            for _, child in ipairs(folder:GetChildren()) do
+                local bPos = getBloomPosition(child)
+                if bPos then
+                    for _, f in ipairs(FieldsFolder:GetChildren()) do
+                        if isPositionInField(bPos, f, 4) then
+                            return f
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function findNearestFieldTarget(field, root)
     if not field or not root then return nil, nil end
     local bestObj = nil
     local bestPos = nil
     local bestScore = math.huge
     local myPos = root.Position
+
+    -- 0. Check Poppable Plants & Blooms (Highest Gathering Priority)
+    if SelectedFarmSettings["Farm Blooms"] then
+        local blooms = getBloomsInField(field)
+        for _, b in ipairs(blooms) do
+            local dist = (myPos - b.Position).Magnitude
+            local score = dist * 0.25
+            if score < bestScore then
+                bestScore = score
+                bestObj = b.Object
+                bestPos = b.Position
+            end
+        end
+    end
 
     -- 1. Check Field Collectibles
     for _, child in ipairs(CollectiblesFolder:GetChildren()) do
@@ -1131,6 +1244,12 @@ local function resolveQuestField()
                         end
                     end
 
+                    -- Bloom task match
+                    if QuestTaskFilters["Farm Blooms"] and (string.find(desc, "bloom") or string.find(desc, "plant")) then
+                        local bField = getActiveBloomField()
+                        if bField then return bField end
+                    end
+
                     -- Color Pollen match
                     if string.find(desc, "blue pollen") then
                         return FieldsFolder:FindFirstChild(QuestFieldSettings.BestBlueField)
@@ -1194,6 +1313,12 @@ local function checkAndClaimQuests()
 end
 
 local function resolveFarmField()
+    -- 0. Bloom Field Priority (Poppable Plant Hunter)
+    if SelectedFarmSettings["Prioritize Bloom Fields"] then
+        local bField = getActiveBloomField()
+        if bField then return bField end
+    end
+
     -- 1. Guiding Star priority
     if GuidingStarSettings.FarmGuidingStar then
         pcall(function()
@@ -1631,6 +1756,14 @@ Hub.CreateToggle(farmingPage, "Auto Dig", false, function(state)
     elseif not AutoFarmState then
         safeStopCollection()
     end
+end)
+
+Hub.CreateToggle(farmingPage, "Packet Dig (Animation-Free)", false, function(state)
+    PacketDigState = state
+end)
+
+Hub.CreateSlider(farmingPage, "Packet Dig Speed", 1, 3, PacketDigSpeed, "x", function(value)
+    PacketDigSpeed = value
 end)
 
 Hub.CreateSlider(farmingPage, "Tween Speed", 4, 16, TweenSpeed, "x", function(value)
