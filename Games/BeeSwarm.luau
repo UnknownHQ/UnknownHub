@@ -553,15 +553,15 @@ local function safeStopCollection()
     -- Reserved for clean swing termination
 end
 
--- Dedicated Animation-Free Packet Digging Daemon
+-- Dedicated Animation-Free Packet Digging Daemon (Turbo Rate)
 task.spawn(function()
     while true do
         if (PacketDigState or AutoDigState) and (AutoFarmState or AutoDigState) and not isConvertingAtHive then
             executePacketDig()
-            local interval = math.clamp(0.2 / (PacketDigSpeed or 1.0), 0.05, 0.5)
+            local interval = math.clamp(0.06 / (PacketDigSpeed or 1.0), 0.02, 0.15)
             task.wait(interval)
         else
-            task.wait(0.25)
+            task.wait(0.15)
         end
     end
 end)
@@ -636,7 +636,7 @@ local function isPositionInDangerZone(pos, dangerZones, margin)
     return false
 end
 
-local function tweenCharacterTo(root, humanoid, destination, speedMultiplier)
+local function tweenCharacterTo(root, humanoid, destination, speedMultiplier, earlyExitRadius)
     if not root or not destination then return false end
     releaseActiveTween()
 
@@ -677,11 +677,14 @@ local function tweenCharacterTo(root, humanoid, destination, speedMultiplier)
         if conn then conn:Disconnect() end
     end)
 
+    local exitRadius = earlyExitRadius or 3.2
     local elapsed = 0
     while not completed and activeTween == tw do
-        task.wait(0.03)
-        elapsed = elapsed + 0.03
-        if elapsed >= dur + 0.5 then break end
+        task.wait(0.015)
+        elapsed = elapsed + 0.015
+        if (root.Position - destination).Magnitude <= exitRadius or elapsed >= dur then
+            break
+        end
     end
 
     releaseActiveTween()
@@ -705,9 +708,23 @@ local function getTokenPriorityMultiplier(tokenPart)
     if not tokenPart then return 1 end
     local dec = tokenPart:FindFirstChildWhichIsA("Decal")
     local tId = dec and dec.Texture or ""
-    for name, rank in pairs(PriorityRanks) do
-        if string.find(tId, name) then
-            return 1 + (5 - rank) * 0.5
+    local name = tokenPart.Name or ""
+    -- Token Link: touching this instantly vacuums ALL tokens in the field at once!
+    if string.find(tId, "2028450125") or string.find(tId, "Link") or string.find(name, "Link") then
+        return 15
+    -- Fuzzy Bomb / Super Tokens
+    elseif string.find(tId, "2028450085") or string.find(tId, "Fuzzy") or string.find(name, "Fuzzy") then
+        return 6
+    -- Baby Love (Loot Luck & Multiplier)
+    elseif string.find(tId, "2028450008") or string.find(tId, "Baby") or string.find(name, "Baby") then
+        return 5
+    -- Melody
+    elseif string.find(tId, "2028450047") or string.find(tId, "Melody") or string.find(name, "Melody") then
+        return 4
+    end
+    for pName, rank in pairs(PriorityRanks) do
+        if string.find(tId, pName) then
+            return 1 + (5 - rank) * 1.5
         end
     end
     return 1
@@ -809,18 +826,31 @@ local function findNearestFieldTarget(field, root)
         end
     end
 
-    -- 1. Check Field Collectibles
+    -- 1. Check Field Collectibles with Cluster Density Optimization
+    local validTokens = {}
     for _, child in ipairs(CollectiblesFolder:GetChildren()) do
         local p = getTokenPart(child)
         if p and not blockedTokens[child] and isTokenInField(p, field) and not isExcludedToken(p) then
-            local dist = (myPos - p.Position).Magnitude
-            local prio = getTokenPriorityMultiplier(p)
-            local score = dist / prio
-            if score < bestScore then
-                bestScore = score
-                bestObj = child
-                bestPos = p.Position
+            table.insert(validTokens, { Obj = child, Part = p, Pos = p.Position, Mult = getTokenPriorityMultiplier(p) })
+        end
+    end
+
+    for _, t in ipairs(validTokens) do
+        local dist = (myPos - t.Pos).Magnitude
+        local clusterBonus = 0
+        if #validTokens > 1 then
+            for _, other in ipairs(validTokens) do
+                if other ~= t and (other.Pos - t.Pos).Magnitude <= 14 then
+                    clusterBonus = clusterBonus + 3.5
+                end
             end
+        end
+        local effectiveDist = math.max(1, dist - math.min(clusterBonus, dist * 0.7))
+        local score = effectiveDist / t.Mult
+        if score < bestScore then
+            bestScore = score
+            bestObj = t.Obj
+            bestPos = t.Pos
         end
     end
 
@@ -844,24 +874,37 @@ end
 
 local function farmFieldTargets(field, root, humanoid, runId)
     local targetObj, targetPos = findNearestFieldTarget(field, root)
-    if targetPos then
+    if targetObj and targetPos then
         local safeY = field.Position.Y + 3.2
         local dest = Vector3.new(targetPos.X, safeY, targetPos.Z)
-        tweenCharacterTo(root, humanoid, dest)
+        if PacketDigState or AutoDigState or AutoFarmState then
+            executePacketDig()
+        end
+        tweenCharacterTo(root, humanoid, dest, nil, 3.2)
+        if PacketDigState or AutoDigState or AutoFarmState then
+            executePacketDig()
+        end
     else
-        -- Natro pattern movement or center roam
+        -- High-Efficiency Field Gathering (Fast Flower Sweep when no tokens)
+        local safeY = field.Position.Y + 3.2
         if NatroPatterns.Enabled then
-            local t = tick() * 0.8
+            local t = tick() * 1.5
             local w = (NatroPatterns.Width or 30) * 0.5
             local l = (NatroPatterns.Length or 30) * 0.5
             local offX = math.sin(t) * w
             local offZ = math.cos(t) * l
-            local dest = field.Position + Vector3.new(offX, 3.2, offZ)
-            tweenCharacterTo(root, humanoid, dest)
+            local dest = field.Position + Vector3.new(offX, safeY - field.Position.Y, offZ)
+            if PacketDigState or AutoDigState or AutoFarmState then executePacketDig() end
+            tweenCharacterTo(root, humanoid, dest, nil, 4.0)
+            if PacketDigState or AutoDigState or AutoFarmState then executePacketDig() end
         else
-            local safeY = field.Position.Y + 3.2
-            local dest = field.Position + Vector3.new(math.random(-15, 15), 3.2, math.random(-15, 15))
-            tweenCharacterTo(root, humanoid, dest)
+            local t = tick() * 1.2
+            local offX = math.sin(t) * 16
+            local offZ = math.cos(t) * 16
+            local dest = field.Position + Vector3.new(offX, safeY - field.Position.Y, offZ)
+            if PacketDigState or AutoDigState or AutoFarmState then executePacketDig() end
+            tweenCharacterTo(root, humanoid, dest, nil, 4.0)
+            if PacketDigState or AutoDigState or AutoFarmState then executePacketDig() end
         end
     end
 end
@@ -1613,6 +1656,9 @@ Hub.CreateToggle(farmingPage, "Autofarm", false, function(state)
         return
     end
 
+    -- Turbo gathering defaults engaged on Autofarm
+    PacketDigState = true
+    AutoDigState = true
     CombatState = CombatRequested
     AutoViciousBeeState = ViciousBeeRequested
 
@@ -1695,8 +1741,9 @@ Hub.CreateToggle(farmingPage, "Autofarm", false, function(state)
                         currentFieldName = nil
                         sprinklersPlacedField = nil
                         if AutoDigState or AutoFarmState then safeStartCollection() end
+                    else
+                        task.wait(0.05)
                     end
-                    task.wait(0.5)
                     break
                 end
 
@@ -1739,7 +1786,7 @@ Hub.CreateToggle(farmingPage, "Autofarm", false, function(state)
                 end
 
                 farmFieldTargets(field, root, humanoid, runId)
-                task.wait(0.02)
+                task.wait()
             until true
         end
     end)
