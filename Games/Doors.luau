@@ -7884,10 +7884,10 @@ local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and gam
 -- Entity Path Nodes & Rush/Ambush Safe Zones Visualization Subsystems
 -- =========================================================================
 local refreshEntityNodesVisuals, refreshSafeZonesVisuals
-do
 local activeNodeVisuals = {}
 local activeSafeZoneVisuals = {}
 local rushSafeHUD = nil
+do
 
 local cachedRoomPathNodes = {}
 
@@ -8133,7 +8133,7 @@ local function updateRushSafeHUD(isSafe, statusText)
     end
 end
 
-local function refreshEntityNodesVisuals()
+refreshEntityNodesVisuals = function()
     clearNodeVisuals()
     if not State.ESP_Entity_Nodes then return end
 
@@ -8212,7 +8212,9 @@ local function refreshEntityNodesVisuals()
         end
     end
 end
+end -- End of Block 1 (Entity Path Nodes Visuals)
 
+do -- Block 2: Rush/Ambush Safe Zones Visualization Subsystem
 local function checkWalkableFloor(candidatePos, ignoreList)
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
