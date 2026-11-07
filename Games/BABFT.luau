@@ -312,17 +312,34 @@ task.spawn(function()
 
                 if not State.AutoFarm_Enabled then continue end
 
-                -- 3. Collect Normal Stages
-                local normalStages = Workspace:FindFirstChild("BoatStages") and Workspace.BoatStages:FindFirstChild("NormalStages")
+                -- 3. Discover Stages & Corridor Waypoints (Both Cave Arches and Stage Interiors)
+                local boatStages = Workspace:FindFirstChild("BoatStages")
+                local normalStages = boatStages and boatStages:FindFirstChild("NormalStages")
+                local otherStages = boatStages and boatStages:FindFirstChild("OtherStages")
+
                 if normalStages then
-                    local stageList = {}
+                    local waypoints = {}
+                    
+                    -- A. Cave Archways (DarknessPart boundaries)
                     for _, ch in ipairs(normalStages:GetChildren()) do
                         local dp = ch:FindFirstChild("DarknessPart")
                         if dp then
-                            table.insert(stageList, { name = ch.Name, z = dp.Position.Z, part = dp })
+                            table.insert(waypoints, { name = ch.Name, z = dp.Position.Z, part = dp, isCave = true })
                         end
                     end
-                    table.sort(stageList, function(a, b) return a.z < b.z end)
+                    
+                    -- B. Stage Interiors (Ensures every single stage area is registered in OtherData)
+                    if otherStages then
+                        for _, stg in ipairs(otherStages:GetChildren()) do
+                            local fp = stg:FindFirstChildWhichIsA("BasePart", true)
+                            if fp then
+                                table.insert(waypoints, { name = stg.Name, z = fp.Position.Z, part = fp, isCave = false })
+                            end
+                        end
+                    end
+
+                    -- Chronological river sequence from dock to TheEnd
+                    table.sort(waypoints, function(a, b) return a.z < b.z end)
 
                     -- 4. Align with River Water Trigger Corridor (Y = 0)
                     updateStatus("Aligning River Corridor...")
@@ -338,21 +355,31 @@ task.spawn(function()
 
                     tweenCharacter(root, CFrame.new(-51.5, safeY, root.Position.Z), 0.5)
 
-                    -- 5. Traverse Each Stage (Passes exact stage trigger gates)
+                    -- 5. Traverse Each Waypoint (Guarantees 100% of areas are registered)
                     local abort = false
-                    for i, stg in ipairs(stageList) do
+                    local wpDuration = math.clamp((State.Farm_StageDelay or 1.25) * 0.55, 0.5, 1.2)
+
+                    for i, wp in ipairs(waypoints) do
                         if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                             abort = true
                             break
                         end
 
-                        updateStatus(string.format("Clearing: Stage %d/%d (%s)", i, #stageList, stg.name))
-                        local targetPos = Vector3.new(-51.5, safeY, stg.z)
-                        tweenCharacter(root, CFrame.new(targetPos), State.Farm_StageDelay or 1.9)
+                        updateStatus(string.format("Clearing: Area %d/%d (%s)", i, #waypoints, wp.name))
+                        local targetPos = Vector3.new(-51.5, safeY, wp.z)
+                        tweenCharacter(root, CFrame.new(targetPos), wpDuration)
                         
-                        -- Quick 40ms physics touch trigger pulse with BodyVelocity holding Y position
+                        -- Unanchored dwell pulse with BodyVelocity holding safe height
                         root.Anchored = false
-                        task.wait(0.04)
+                        if wp.isCave and wp.part then
+                            pcall(function()
+                                firetouchinterest(root, wp.part, 0)
+                                task.wait(0.05)
+                                firetouchinterest(root, wp.part, 1)
+                            end)
+                        else
+                            task.wait(0.08)
+                        end
                         root.Anchored = true
                     end
 
@@ -373,14 +400,26 @@ task.spawn(function()
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
-                        -- Touch trigger interest to initiate server chest opening sequence
+                        -- 1. Physically swing open the chest cap on HingeConstraint so lid opens visually
+                        pcall(function()
+                            local cap = chest:FindFirstChild("Cap")
+                            if cap then
+                                for _, hinge in ipairs(cap:GetDescendants()) do
+                                    if hinge:IsA("HingeConstraint") then
+                                        hinge.TargetAngle = -105
+                                    end
+                                end
+                            end
+                        end)
+
+                        -- 2. Touch trigger interest to initiate server chest opening sequence
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
                             task.wait(0.15)
                             firetouchinterest(root, trigger, 1)
                         end)
 
-                        -- Ensure the client chest cutscene/effects play cleanly
+                        -- 3. Ensure the client chest cutscene/effects play cleanly
                         pcall(function()
                             local effectsScript = trigger:FindFirstChild("EndTreasureScript") and trigger.EndTreasureScript:FindFirstChild("TreasureEndEffectsLS")
                             if effectsScript and not LocalPlayer.PlayerGui:FindFirstChild("TreasureEndEffectsLS") then
@@ -389,7 +428,7 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Fire server claim remote
+                        -- 4. Fire server claim remote
                         if State.Farm_AutoClaim then
                             pcall(function()
                                 local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
@@ -399,7 +438,7 @@ task.spawn(function()
                             end)
                         end
 
-                        -- Allow chest animation to open and dispense prizes (3.2s collection window)
+                        -- 5. Allow chest animation to open and dispense prizes (3.2s collection window)
                         local prizeCollectionTime = 3.2
                         local startWait = tick()
                         while tick() - startWait < prizeCollectionTime do
@@ -428,6 +467,18 @@ task.spawn(function()
                             task.wait(0.2)
                             dismissResultsPopup()
                         end
+
+                        -- 6. Reset Chest Lid for next round
+                        pcall(function()
+                            local cap = chest:FindFirstChild("Cap")
+                            if cap then
+                                for _, hinge in ipairs(cap:GetDescendants()) do
+                                    if hinge:IsA("HingeConstraint") then
+                                        hinge.TargetAngle = 0
+                                    end
+                                end
+                            end
+                        end)
 
                         -- Smooth Dock Return (Zero Death, 100 Health Preserved)
                         if hum and hum.Health > 0 then
