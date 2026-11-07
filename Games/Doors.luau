@@ -6150,6 +6150,18 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end
         end
     end
+
+    if input.KeyCode == Enum.KeyCode.Space and State.Enable_Jumping and not UserInputService:GetFocusedTextBox() then
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        local root = getRoot()
+        if hum and root and hum.Health > 0 then
+            if hum.FloorMaterial ~= Enum.Material.Air or hum:GetState() == Enum.HumanoidStateType.Climbing then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, State.Jump_Height or 50, root.AssemblyLinearVelocity.Z)
+            end
+        end
+    end
 end))
 
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
@@ -6378,6 +6390,45 @@ pcall(function()
     end
 end)
 
+local function getCompatibleToolForPrompt(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    local pName = prompt.Name:lower()
+    local obj = (prompt.ObjectText or ""):lower()
+    local act = (prompt.ActionText or ""):lower()
+    local parentName = prompt.Parent.Name:lower()
+    local isChest = obj:find("chest") or pName:find("chest") or parentName:find("chest")
+
+    -- 1. Padlock / Skull Lock / Door Unlock -> Skeleton Key or Lockpick
+    if (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or (obj:find("lock") and not isChest)) and not act:find("open") then
+        local tool = getEquippedOrInventoryTool({"skeleton", "lockpick", "key"})
+        if tool then return tool end
+    end
+
+    -- 2. Vines / Overgrowth -> Shears
+    if act:find("cut") or obj:find("vine") or parentName:find("vine") or obj:find("plant") then
+        local tool = getEquippedOrInventoryTool({"shear"})
+        if tool then return tool end
+    end
+
+    -- 3. Gate / Electrical / Breaker -> Garage Key / Electrical Key
+    if obj:find("gate") or parentName:find("gate") or act:find("insert") then
+        local tool = getEquippedOrInventoryTool({"garage", "electrical", "key"})
+        if tool then return tool end
+    end
+
+    -- 4. General equipped tool check
+    local char = getChar()
+    local equipped = char and char:FindFirstChildOfClass("Tool")
+    if equipped then
+        local tn = equipped.Name:lower()
+        if tn:find("skeleton") or tn:find("lockpick") or tn:find("shear") or tn:find("key") then
+            return equipped
+        end
+    end
+
+    return nil
+end
+
 local lastPromptFiredTick = 0
 local lastPromptFiredObj = nil
 local function safeInstantFirePrompt(prompt)
@@ -6387,33 +6438,8 @@ local function safeInstantFirePrompt(prompt)
     lastPromptFiredObj = prompt
     lastPromptFiredTick = now
 
-    -- Auto-equip tool if this is an unlock prompt so interaction is never empty-handed!
-    local pName = prompt.Name:lower()
-    local obj = (prompt.ObjectText or ""):lower()
-    local act = (prompt.ActionText or ""):lower()
-    local isChest = obj:find("chest") or pName:find("chest") or (prompt.Parent and prompt.Parent.Name:lower():find("chest"))
-    
-    -- Strictly only unlock prompts (padlock / lock / shears vines), NEVER chest or drawer open prompts!
-    local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or (obj:find("lock") and not isChest)) and not act:find("open")
-    
-    local usedTool = nil
-    if isUnlock then
-        local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
-        if tool then
-            usedTool = tool
-            if not isEq then
-                local char = getChar()
-                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                if hum and tool.Parent == LocalPlayer:FindFirstChild("Backpack") then
-                    hum:EquipTool(tool)
-                    task.wait(0.04)
-                end
-            end
-        end
-    end
-
-    if isUnlock and State.Infinite_Items and State.Infinite_Lockpicks then
-        local tool = usedTool or getEquippedOrInventoryTool({"skeleton", "lockpick", "shears", "key"})
+    if State.Infinite_Items then
+        local tool = getCompatibleToolForPrompt(prompt)
         if tool then
             executeInfinitePromptInteraction(prompt, tool)
             return
@@ -6433,6 +6459,16 @@ pcall(function()
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
         if (player == nil or player == LocalPlayer) and State.Instant_Interact then
             safeInstantFirePrompt(prompt)
+        end
+    end)
+    pps.PromptTriggered:Connect(function(prompt, player)
+        if (player == nil or player == LocalPlayer) and State.Infinite_Items and not infItemsDebounce then
+            local tool = getCompatibleToolForPrompt(prompt)
+            if tool then
+                task.spawn(function()
+                    executeInfinitePromptInteraction(prompt, tool)
+                end)
+            end
         end
     end)
 end)
