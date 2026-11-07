@@ -5705,7 +5705,7 @@ trackConn(RunService.Stepped:Connect(function()
             if cp and cp.CanCollide then cp.CanCollide = false end
         end
     end
-end)
+end))
 
 -- =========================================================================
 -- Noclip Room Entrance & Wardrobe Desynchronization Resolver + PromptGate Immunity
@@ -5813,7 +5813,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         applyTeflonGlide(char)
         pcall(function() char:SetAttribute("CanSlide", true) end)
     end
-end))
+end)
 
 -- =========================================================================
 -- Pre-Physics Stepped Collision Bypass: Ensures physics engine NEVER overrides noclip collisions before physics step
@@ -5901,7 +5901,7 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end
         end
     end
-end)
+end))
 
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftControl then
@@ -5931,7 +5931,7 @@ pcall(function()
             if isSlidingActive then stopSlide() end
         end)
     end
-end))
+end)
 
 -- =========================================================================
 -- Interaction Engine (Instant Interact, Noclip Interact, Range Interact, Auto Interact)
