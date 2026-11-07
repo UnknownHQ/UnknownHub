@@ -3726,18 +3726,10 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end
 
-    -- Garage Key: Trigger prompt before dropping (mspaint order)
-    if isGarageKey then
-        pcall(function() fireproximityprompt(targetPrompt) end)
-    end
-
-    -- Phase 1: Drop the tool onto the floor
-    pcall(function() dropRemote:FireServer(tool) end)
-
-    -- Phase 2: Event-driven wait for the NEW dropped item in Workspace.Drops (mspaint exact logic)
+    -- Phase 1: Pre-bind the Drops listener before sending the drop remote
     local droppedModel = nil
     local dropConn = nil
-    local deadline = os.clock() + 1.5
+    local deadline = os.clock() + 2.0
 
     dropConn = dropsFolder.ChildAdded:Connect(function(child)
         if child:IsA("Model") and (child:GetAttribute("Pickup") == pickupId or child.Name:lower():find(tn))
@@ -3746,12 +3738,24 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end)
 
+    -- Ensure prompt activates instantaneously with zero hold delay or line of sight blocks
+    targetPrompt.HoldDuration = 0
+    targetPrompt.RequiresLineOfSight = false
+
+    -- Phase 2: Simultaneous Drop + Interact Race Condition (mspaint 1:1 exploit)
+    -- Fire the tool drop, immediately followed by the target unlock prompt!
+    -- The server starts the unlock verification while the tool is dropped onto the floor,
+    -- preventing the server from deleting the tool from your inventory!
+    pcall(function() dropRemote:FireServer(tool) end)
+    pcall(function() fireproximityprompt(targetPrompt) end)
+
+    -- Phase 3: Await the tool landing in Workspace.Drops
     while not droppedModel and os.clock() < deadline do
         task.wait(0.02)
     end
     if dropConn then dropConn:Disconnect() end
 
-    -- Fallback sweep if ChildAdded fired before connection was bound
+    -- Fallback sweep if ChildAdded was missed
     if not droppedModel then
         for _, ch in ipairs(dropsFolder:GetChildren()) do
             if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
@@ -3762,25 +3766,14 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end
 
-    -- Shears: Trigger prompt before reclaim (mspaint order)
-    if isShears then
-        pcall(function() fireproximityprompt(targetPrompt) end)
-    end
-
-    -- Phase 3: Instantly re-obtain the tool from the floor
+    -- Phase 4: Instantly reclaim the dropped tool from the floor
     if droppedModel then
-        local pickupPrompt = droppedModel:WaitForChild("ModulePrompt", 0.6) or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+        local pickupPrompt = droppedModel:WaitForChild("ModulePrompt", 0.8) or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
         if pickupPrompt then
             pickupPrompt.HoldDuration = 0
             pickupPrompt.RequiresLineOfSight = false
             pcall(function() fireproximityprompt(pickupPrompt) end)
         end
-    end
-
-    -- Lockpick / Skeleton Key: Trigger unlock prompt AFTER tool is safely re-obtained (mspaint order)
-    if isLockpickSkeleton then
-        task.wait(0.03)
-        pcall(function() fireproximityprompt(targetPrompt) end)
     end
 
     task.delay(0.2, function()
