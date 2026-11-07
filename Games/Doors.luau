@@ -1577,7 +1577,8 @@ local DECOR_BLACKLIST = {
     "shadow", "node", "spawn", "point", "waypoint", "decor", "dresser", "wardrobe",
     "closet", "locker", "frame", "railing", "trim", "support", "beam", "plank",
     "candlestick", "candlestand", "candleholder", "candelabra", "candelabrum",
-    "wallcandle", "tablecandle", "staticcandle", "candles", "candle_decor", "candledecor"
+    "wallcandle", "tablecandle", "staticcandle", "candles", "candle_decor", "candledecor",
+    "wallpaper", "wall", "floor", "ceiling", "assets", "structure", "room", "scenery"
 }
 
 local function isDecorOrScenery(inst)
@@ -1607,7 +1608,8 @@ local function isDecorOrScenery(inst)
             or pName:find("candelabra") or pName:find("candlestand") or pName:find("candleholder")
             or pName:find("candlestick") or pName:find("candle_decor") or pName:find("candledecor")
             or pName:find("lightfixture") or pName:find("light_fixture")
-            or pName:find("fireplace") or (pName:find("candle") and (pName:find("wall") or pName:find("stand") or pName:find("holder"))) then
+            or pName:find("fireplace") or (pName:find("candle") and (pName:find("wall") or pName:find("stand") or pName:find("holder")))
+            or pName:find("wallpaper") or pName:find("assets") then
             return true
         end
         p = p.Parent
@@ -1619,7 +1621,7 @@ end
 
 local function isMspaintItemCondition(inst)
     if not inst then return false end
-    return (inst:GetAttribute("Pickup") ~= nil or inst:GetAttribute("PropType") ~= nil) and inst:GetAttribute("FuseID") == nil
+    return inst:GetAttribute("Pickup") ~= nil and inst:GetAttribute("FuseID") == nil
 end
 
 local VALID_ITEM_NAMES = {
@@ -1680,24 +1682,27 @@ local function isValidLootItem(model)
         return true, VALID_ITEM_NAMES[lower]
     end
 
-    -- 5. Fast-Path: Strictly Genuine Collectible ProximityPrompt Check ("Take", "Pick up", "Grab", "Collect", "Steal")
-    -- Invariant: NEVER match generic "ModulePrompt" - that matches bookshelves, drawers & scenery props!
-    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt then
-        local act = (prompt.ActionText or ""):lower()
-        local obj = prompt.ObjectText or ""
-        if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("steal") then
-            local cleanName = (#obj > 0) and obj or VALID_ITEM_NAMES[lower] or model.Name
-            return true, cleanName
-        end
+    -- 5. Strict Furniture, Structural & Ambient Scenery Exclusion
+    -- Invariant: Must run BEFORE ProximityPrompt & Attribute checks to prevent tables, wallpaper & decor from glowing!
+    if lower:find("table") or lower:find("desk") or lower:find("shelf") or lower:find("stand")
+        or lower:find("counter") or lower:find("chair") or lower:find("sofa") or lower:find("couch")
+        or lower:find("furniture") or lower:find("decor") or lower:find("wall") or lower:find("wallpaper")
+        or lower:find("floor") or lower:find("ceiling") or lower:find("pillar") or lower:find("column")
+        or lower:find("carpet") or lower:find("rug") or lower:find("wardrobe") or lower:find("closet")
+        or lower:find("locker") or lower:find("bed") or lower:find("dresser") or lower:find("drawer")
+        or lower:find("cabinet") or lower:find("chest") or lower:find("room") or lower:find("door")
+        or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom") or lower:find("structure")
+        or lower:find("assets") or lower:find("skulllock") or lower:find("lamp") or lower:find("chandelier")
+        or lower:find("fixture") or lower:find("curtain") or lower:find("window") or lower:find("stair")
+        or lower:find("railing") or lower:find("trim") or lower:find("beam") or lower:find("plank")
+        or lower:find("crate") or lower:find("barrel") or lower:find("cart") or lower:find("luggage")
+        or lower:find("clock") or lower:find("fireplace") or lower:find("paper") or lower:find("scenery") then
+        return false, nil
     end
 
-    -- 6. Authoritative mspaint Attribute Check
-    if isMspaintItemCondition(model) then
-        local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("PropType") or model:GetAttribute("Pickup")
-        if typeof(rawName) == "string" and #rawName > 0 then
-            return true, rawName
-        end
+    -- 6. Deep Decor & Scenery Filter
+    if isDecorOrScenery(model) then
+        return false, nil
     end
 
     -- 7. Dropped tools in Workspace.Drops
@@ -1709,17 +1714,30 @@ local function isValidLootItem(model)
         return true, model.Name
     end
 
-    -- 8. Structural & Scenery Exclusion (Only applied if NOT matched as a collectible item above)
-    if lower:find("room") or lower:find("shop") or lower:find("assets") or lower:find("structure")
-        or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom")
-        or lower:find("wall") or lower:find("ceiling") or lower:find("floor") or lower:find("desk")
-        or lower:find("drawer") or lower:find("cabinet") or lower:find("table") or lower:find("skulllock") then
-        return false, nil
+    -- 8. Authoritative mspaint Attribute Check (Pickup or DisplayName ONLY, NEVER PropType)
+    if isMspaintItemCondition(model) then
+        local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("Pickup")
+        if typeof(rawName) == "string" and #rawName > 0 then
+            local rLower = rawName:lower()
+            if not (rLower:find("table") or rLower:find("desk") or rLower:find("wall") or rLower:find("decor") or rLower:find("shelf") or rLower:find("prop")) then
+                return true, rawName
+            end
+        end
     end
 
-    -- 9. Deep Decor & Scenery Filter
-    if isDecorOrScenery(model) then
-        return false, nil
+    -- 9. Strictly Genuine Collectible ProximityPrompt Check ("Take", "Pick up", "Grab", "Collect", "Steal")
+    -- Invariant: NEVER match generic "ModulePrompt", Gold prompts, or prompts inside furniture!
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", false)
+        or model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt and prompt.Name ~= "ModulePrompt" then
+        local act = (prompt.ActionText or ""):lower()
+        local obj = (prompt.ObjectText or ""):lower()
+        if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("steal") then
+            if not (obj:find("gold") or obj:find("coin") or obj:find("table") or obj:find("desk") or obj:find("drawer") or obj:find("shelf") or obj:find("wall")) then
+                local cleanName = (#prompt.ObjectText > 0) and prompt.ObjectText or VALID_ITEM_NAMES[lower] or model.Name
+                return true, cleanName
+            end
+        end
     end
 
     return false, nil
@@ -2832,13 +2850,18 @@ local function scanSingleRoom(room)
             elseif desc:IsA("ProximityPrompt") then
                 local obj = (desc.ObjectText or ""):lower()
                 local act = (desc.ActionText or ""):lower()
-                if obj:find("lever") or act:find("pull") then
+                if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
+                    processGold(desc.Parent)
+                elseif obj:find("lever") or act:find("pull") then
                     processLever(desc.Parent)
-                elseif act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect") or desc.Name == "ModulePrompt" then
+                elseif (act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect")) and desc.Name ~= "ModulePrompt" then
                     local p = desc.Parent
-                    local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
-                    if itemTarget then
-                        processItem(itemTarget)
+                    local pNameLower = p and p.Name:lower() or ""
+                    if not (pNameLower:find("table") or pNameLower:find("desk") or pNameLower:find("shelf") or pNameLower:find("wall") or pNameLower:find("drawer") or pNameLower:find("wardrobe") or pNameLower:find("closet") or pNameLower:find("locker")) then
+                        local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
+                        if itemTarget then
+                            processItem(itemTarget)
+                        end
                     end
                 end
             end
@@ -2999,11 +3022,14 @@ pcall(function()
                         processGold(desc.Parent)
                     elseif obj:find("lever") or act:find("pull") then
                         processLever(desc.Parent)
-                    elseif act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect") or desc.Name == "ModulePrompt" then
+                    elseif (act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect")) and desc.Name ~= "ModulePrompt" then
                         local p = desc.Parent
-                        local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
-                        if itemTarget then
-                            processItem(itemTarget)
+                        local pNameLower = p and p.Name:lower() or ""
+                        if not (pNameLower:find("table") or pNameLower:find("desk") or pNameLower:find("shelf") or pNameLower:find("wall") or pNameLower:find("drawer") or pNameLower:find("wardrobe") or pNameLower:find("closet") or pNameLower:find("locker")) then
+                            local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
+                            if itemTarget then
+                                processItem(itemTarget)
+                            end
                         end
                     end
                 end
@@ -6373,40 +6399,62 @@ pcall(function()
     end
 end)
 
-local function getCompatibleToolForPrompt(prompt)
-    if not prompt or not prompt.Parent then return nil end
+local function isGenuineUnlockPrompt(prompt)
+    if not prompt or not prompt.Parent then return false, nil end
     local pName = prompt.Name:lower()
     local obj = (prompt.ObjectText or ""):lower()
     local act = (prompt.ActionText or ""):lower()
-    local parentName = prompt.Parent.Name:lower()
-    local isChest = obj:find("chest") or pName:find("chest") or parentName:find("chest")
+    local parent = prompt.Parent
+    local parentName = parent.Name:lower()
+    local model = parent:IsA("Model") and parent or parent:FindFirstAncestorOfClass("Model")
+    local mName = model and model.Name:lower() or ""
 
-    -- 1. Padlock / Skull Lock / Door Unlock / Locked Chest -> Skeleton Key or Lockpick
-    if pName:find("unlock") or act:find("unlock") or act:find("pick") or obj:find("padlock") or obj:find("lock") then
-        local tool = getEquippedOrInventoryTool({"skeleton", "lockpick", "key"})
-        if tool then return tool end
+    -- Strict exclusion: NEVER match hiding spots, drawers, decor, or generic props
+    if obj:find("locker") or parentName:find("locker") or mName:find("locker")
+        or obj:find("wardrobe") or parentName:find("wardrobe") or mName:find("wardrobe")
+        or obj:find("closet") or parentName:find("closet") or mName:find("closet")
+        or obj:find("bed") or parentName:find("bed") or mName:find("bed")
+        or obj:find("drawer") or parentName:find("drawer") or mName:find("drawer")
+        or obj:find("desk") or parentName:find("desk") or mName:find("desk")
+        or obj:find("cabinet") or parentName:find("cabinet") or mName:find("cabinet")
+        or act:find("hide") or act:find("enter") or act:find("open") or act:find("take") or act:find("search") then
+        return false, nil
     end
 
-    -- 2. Vines / Overgrowth -> Shears
-    if act:find("cut") or obj:find("vine") or parentName:find("vine") or obj:find("plant") then
-        local tool = getEquippedOrInventoryTool({"shear"})
-        if tool then return tool end
+    -- 1. Shears: Cutting vines
+    if act:find("cut") or obj:find("vine") or parentName:find("vine") or (model and model:GetAttribute("LockAttribute") == "CanCutVines") then
+        return true, "shears"
     end
 
-    -- 3. Gate / Electrical / Breaker -> Garage Key / Electrical Key
+    -- 2. Lockpick / Skeleton Key: Padlocks, skull lock, pickable locked doors, locked chests
+    if pName:find("unlock") or act:find("unlock") or act:find("pick")
+        or (obj:find("padlock") or obj == "lock" or obj:find("skull lock")) then
+        return true, "lockpick"
+    end
+
+    -- 3. Gate / Electrical
     if obj:find("gate") or parentName:find("gate") or act:find("insert") then
-        local tool = getEquippedOrInventoryTool({"garage", "electrical", "key"})
-        if tool then return tool end
+        return true, "gate"
     end
 
-    -- 4. General equipped tool check
-    local char = getChar()
-    local equipped = char and char:FindFirstChildOfClass("Tool")
-    if equipped then
-        local tn = equipped.Name:lower()
-        if tn:find("skeleton") or tn:find("lockpick") or tn:find("shear") or tn:find("key") then
-            return equipped
-        end
+    return false, nil
+end
+
+local function getCompatibleToolForPrompt(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    local isUnlock, requiredToolType = isGenuineUnlockPrompt(prompt)
+    if not isUnlock then
+        -- Invariant: NEVER return a tool for non-unlock prompts!
+        -- Prevents lockpick from being dropped or triggered when interacting with wardrobes, drawers, etc.
+        return nil
+    end
+
+    if requiredToolType == "shears" then
+        return getEquippedOrInventoryTool({"shear"})
+    elseif requiredToolType == "lockpick" then
+        return getEquippedOrInventoryTool({"skeleton", "lockpick", "key"})
+    elseif requiredToolType == "gate" then
+        return getEquippedOrInventoryTool({"garage", "electrical", "key"})
     end
 
     return nil
@@ -6446,11 +6494,13 @@ pcall(function()
     end)
     pps.PromptTriggered:Connect(function(prompt, player)
         if (player == nil or player == LocalPlayer) and State.Infinite_Items and not infItemsDebounce then
-            local tool = getCompatibleToolForPrompt(prompt)
-            if tool then
-                task.spawn(function()
-                    executeInfinitePromptInteraction(prompt, tool)
-                end)
+            if isGenuineUnlockPrompt(prompt) then
+                local tool = getCompatibleToolForPrompt(prompt)
+                if tool then
+                    task.spawn(function()
+                        executeInfinitePromptInteraction(prompt, tool)
+                    end)
+                end
             end
         end
     end)
@@ -6519,7 +6569,6 @@ local PromptAuraWhitelist = {
     ["GoldPrompt"] = true,
     ["Knob"] = true,
     ["DoorPrompt"] = true,
-    ["EnterPrompt"] = true,
     ["OpenPrompt"] = true,
     ["FusesPrompt"] = true,
     ["FlakesPrompt"] = true,
@@ -6592,9 +6641,13 @@ local function isBlacklistedPromptObject(obj)
     if name == "RetroWardrobe" or name == "MandrakeLive" or name == "ArchivesFireExit" or name == "MinesAnchor" or name == "CandyVault" or name == "StairwellTerminal" then
         return true
     end
-    -- Hiding spot invariant: Closets, Wardrobes, Beds, Lockers
     local lower = name:lower()
-    if lower:find("wardrobe") or lower:find("closet") or lower:find("bed") or lower:find("locker") then
+    -- Hiding spot invariant: Closets, Wardrobes, Beds, Lockers
+    if lower:find("wardrobe") or lower:find("closet") or lower:find("bed") or lower:find("locker") or lower:find("hidingspot") or lower:find("hiding") then
+        return true
+    end
+    -- Painting invariant: Never auto-interact with paintings, canvases, frames, portraits
+    if lower:find("painting") or lower:find("canvas") or lower:find("portrait") or lower:find("picture") or lower:find("frame") then
         return true
     end
     -- Decor & scenery invariant: Never interact with decorative candles or scenery props
@@ -6616,6 +6669,33 @@ local function staticPromptCheck(prompt)
     local model = parent:IsA("Model") and parent or parent:FindFirstAncestorOfClass("Model")
     local mName = model and model.Name or ""
     local pName = parent.Name
+    local prName = prompt.Name:lower()
+    local act = (prompt.ActionText or ""):lower()
+    local obj = (prompt.ObjectText or ""):lower()
+
+    -- 1. Anti-Hiding Spot Invariant: Never auto-interact with wardrobes, closets, lockers, beds
+    if prName:find("enter") or prName:find("hide") or act:find("hide") or act:find("enter")
+        or obj:find("wardrobe") or obj:find("closet") or obj:find("locker") or obj:find("bed") then
+        return false
+    end
+
+    -- 2. Anti-Painting Invariant: Never auto-interact with paintings, canvases, frames, portraits
+    if prName:find("painting") or obj:find("painting") or obj:find("canvas") or obj:find("portrait") or obj:find("picture") or obj:find("frame") then
+        return false
+    end
+
+    -- Ancestry check: Reject if prompt belongs to any wardrobe, locker, hiding spot or painting hierarchy
+    local curr = parent
+    local depth = 0
+    while curr and curr ~= Workspace and depth < 6 do
+        local cName = curr.Name:lower()
+        if cName:find("wardrobe") or cName:find("closet") or cName:find("locker") or cName:find("bed") or cName:find("hidingspot")
+            or cName:find("painting") or cName:find("canvas") or cName:find("portrait") or cName:find("picture") or cName:find("frame") then
+            return false
+        end
+        curr = curr.Parent
+        depth += 1
+    end
 
     if isBlacklistedPromptObject(parent) or isBlacklistedPromptObject(model) then
         return false
@@ -6653,6 +6733,41 @@ local function dynamicPromptCheck(prompt)
     local prName = prompt.Name
     local act = (prompt.ActionText or ""):lower()
     local obj = (prompt.ObjectText or ""):lower()
+
+    local prNameLower = prName:lower()
+    local pNameLower = pName:lower()
+    local mNameLower = mName:lower()
+
+    -- 1. Anti-Hiding Spot Invariant: Never auto-interact with wardrobes, closets, lockers, beds
+    if act:find("hide") or act:find("enter") or act:find("climb into") or act:find("crawl into")
+        or obj:find("wardrobe") or obj:find("closet") or obj:find("locker") or obj:find("bed")
+        or prNameLower:find("hide") or prNameLower:find("enter")
+        or pNameLower:find("wardrobe") or pNameLower:find("closet") or pNameLower:find("locker") or pNameLower:find("bed") or pNameLower:find("hidingspot")
+        or mNameLower:find("wardrobe") or mNameLower:find("closet") or mNameLower:find("locker") or mNameLower:find("bed") or mNameLower:find("hidingspot") then
+        return false
+    end
+
+    -- 2. Anti-Painting Invariant: Never auto-interact with paintings, canvases, frames, portraits
+    if obj:find("painting") or obj:find("portrait") or obj:find("canvas") or obj:find("picture")
+        or act:find("painting") or act:find("swap") or act:find("hang") or act:find("straighten")
+        or prNameLower:find("painting")
+        or pNameLower:find("painting") or pNameLower:find("portrait") or pNameLower:find("canvas") or pNameLower:find("picture") or pNameLower:find("frame")
+        or mNameLower:find("painting") or mNameLower:find("portrait") or mNameLower:find("canvas") or mNameLower:find("picture") or mNameLower:find("frame") then
+        return false
+    end
+
+    -- Deep Ancestry Guard for Hiding Spots and Paintings
+    local aCheck = parent
+    local aDepth = 0
+    while aCheck and aCheck ~= Workspace and aDepth < 6 do
+        local an = aCheck.Name:lower()
+        if an:find("wardrobe") or an:find("closet") or an:find("locker") or an:find("bed") or an:find("hidingspot")
+            or an:find("painting") or an:find("canvas") or an:find("portrait") or an:find("picture") or an:find("frame") then
+            return false
+        end
+        aCheck = aCheck.Parent
+        aDepth += 1
+    end
 
     -- Distance check (squared magnitude for performance, 6.5-stud clamp for drawers)
     local targetPos = getPromptTargetPosition(prompt)
@@ -6856,13 +6971,9 @@ pcall(function()
     -- Automatically equip lockpick/key and execute Infinite Items BEFORE server consumes it!
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player and player ~= LocalPlayer then return end
-        local pName = prompt.Name:lower()
-        local obj = (prompt.ObjectText or ""):lower()
-        local act = (prompt.ActionText or ""):lower()
-        local isChest = obj:find("chest") or pName:find("chest") or (prompt.Parent and prompt.Parent.Name:lower():find("chest"))
         
-        -- Strictly real unlock prompts (doors, padlocks, chests)
-        local isUnlock = pName:find("unlock") or act:find("unlock") or act:find("pick") or obj:find("padlock") or obj:find("lock")
+        -- Strictly real unlock prompts (doors, padlocks, locked chests) - NEVER wardrobes, lockers, drawers, etc.
+        local isUnlock, requiredToolType = isGenuineUnlockPrompt(prompt)
         
         if isUnlock then
             local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
