@@ -835,7 +835,10 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans, category
     local targetModel = adornee
     if adornee:IsA("BasePart") then
         if adornee.Parent and adornee.Parent:IsA("Model") then
-            targetModel = adornee.Parent
+            local pName = adornee.Parent.Name:lower()
+            if not pName:find("sally") and not pName:find("princess") then
+                targetModel = adornee.Parent
+            end
         end
     end
 
@@ -1549,6 +1552,11 @@ local function isDecorOrScenery(inst)
     if not inst then return false end
     local name = inst.Name:lower()
 
+    -- Items with valid names are NEVER decor!
+    if VALID_ITEM_NAMES and VALID_ITEM_NAMES[name] then
+        return false
+    end
+
     for _, blocked in ipairs(DECOR_BLACKLIST) do
         if name:find(blocked) then
             return true
@@ -1566,8 +1574,8 @@ local function isDecorOrScenery(inst)
         if pName:find("decor") or pName:find("chandelier") or pName:find("sconce")
             or pName:find("candelabra") or pName:find("candlestand") or pName:find("candleholder")
             or pName:find("candlestick") or pName:find("candle_decor") or pName:find("candledecor")
-            or pName:find("lightfixture") or pName:find("light_fixture") or pName:find("furniture")
-            or pName:find("fireplace") or (pName:find("candle") and (pName:find("wall") or pName:find("table") or pName:find("stand") or pName:find("holder"))) then
+            or pName:find("lightfixture") or pName:find("light_fixture")
+            or pName:find("fireplace") or (pName:find("candle") and (pName:find("wall") or pName:find("stand") or pName:find("holder"))) then
             return true
         end
         p = p.Parent
@@ -1625,34 +1633,29 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- 3. Reject entire room structures, shops, siderooms, hallways, walls, fixtures
-    if lower:find("room") or lower:find("shop") or lower:find("assets") or lower:find("structure")
-        or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom")
-        or lower:find("wall") or lower:find("ceiling") or lower:find("floor") or lower:find("desk")
-        or lower:find("drawer") or lower:find("cabinet") or lower:find("table") or lower:find("skulllock") then
-        return false, nil
-    end
-
-    -- 4. Deep Decor & Scenery Filter
-    if isDecorOrScenery(model) then
-        return false, nil
-    end
-
-    -- 5. Physical Size Check: In DOORS, loot items are small handheld props (< 7.5 studs)
-    if model:IsA("Model") then
-        local cf, sz = model:GetBoundingBox()
-        if sz.X > 7.5 or sz.Y > 7.5 or sz.Z > 7.5 then
-            return false, nil
-        end
-    end
-
-    -- 6. Reject gold, doors, levers, and paintings (handled by their own dedicated ESP categories)
+    -- 3. Reject gold, doors, levers, and paintings (handled by their own dedicated ESP categories)
     if lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever")
         or lower:find("painting") or lower:find("picture") or lower:find("canvas") or lower:find("frame") or lower:find("portrait") or lower:find("photo") then
         return false, nil
     end
 
-    -- 7. Authoritative mspaint Attribute Check
+    -- 4. Fast-Path: Verified Item Dictionary Match
+    if VALID_ITEM_NAMES[lower] then
+        return true, VALID_ITEM_NAMES[lower]
+    end
+
+    -- 5. Fast-Path: Collectible ProximityPrompt Check ("Take", "Pick up", "Grab", "Collect", "Steal", "ModulePrompt")
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        local act = (prompt.ActionText or ""):lower()
+        local obj = prompt.ObjectText or ""
+        if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("steal") or prompt.Name == "ModulePrompt" then
+            local cleanName = (#obj > 0) and obj or VALID_ITEM_NAMES[lower] or model.Name
+            return true, cleanName
+        end
+    end
+
+    -- 6. Authoritative mspaint Attribute Check
     if isMspaintItemCondition(model) then
         local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("PropType") or model:GetAttribute("Pickup")
         if typeof(rawName) == "string" and #rawName > 0 then
@@ -1660,29 +1663,26 @@ local function isValidLootItem(model)
         end
     end
 
-    -- 8. Dropped tools in Workspace.Drops
+    -- 7. Dropped tools in Workspace.Drops
     if dropsFolder and model.Parent == dropsFolder then
         return true, model.Name
     end
 
-    -- 9. Check verified item dictionary
-    if VALID_ITEM_NAMES[lower] then
-        return true, VALID_ITEM_NAMES[lower]
-    end
-
-    -- 10. Check ProximityPrompt action text for collectible items ("Take", "Pick up", "Grab", "Collect")
-    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt then
-        local act = (prompt.ActionText or ""):lower()
-        local obj = prompt.ObjectText or ""
-        if act == "take" or act == "pick up" or act == "pickup" or act == "grab" or act == "collect" or prompt.Name == "ModulePrompt" then
-            local cleanName = (#obj > 0) and obj or model.Name
-            return true, cleanName
-        end
-    end
-
     if model:IsA("Tool") then
         return true, model.Name
+    end
+
+    -- 8. Structural & Scenery Exclusion (Only applied if NOT matched as a collectible item above)
+    if lower:find("room") or lower:find("shop") or lower:find("assets") or lower:find("structure")
+        or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom")
+        or lower:find("wall") or lower:find("ceiling") or lower:find("floor") or lower:find("desk")
+        or lower:find("drawer") or lower:find("cabinet") or lower:find("table") or lower:find("skulllock") then
+        return false, nil
+    end
+
+    -- 9. Deep Decor & Scenery Filter
+    if isDecorOrScenery(model) then
+        return false, nil
     end
 
     return false, nil
@@ -2312,95 +2312,92 @@ local function processEntity(entity)
             -- Gloombats Full Swarm Highlighting: Highlight ALL flying bats in the swarm, not just the center point!
             highlightTarget = entity
         elseif cfg.Name == "Sally" then
-            -- Sally Visibility Guardian: Permanently lock transparency to 0 strictly on Sally's character body parts, NEVER her seat/platform!
+            -- Sally Visibility Guardian: Group strictly Sally's character body parts, NEVER her seat/platform!
+            local sallyModel = entity:FindFirstChild("__sally_char_model")
+            if not sallyModel then
+                sallyModel = Instance.new("Model")
+                sallyModel.Name = "__sally_char_model"
+                sallyModel.Parent = entity
+            end
+
             local sallyBodyParts = {}
             local function enforceSallyPart(p)
-                if p:IsA("BasePart") then
+                if p:IsA("BasePart") and p.Parent ~= sallyModel then
                     local pName = p.Name:lower()
-                    local isPlatform = pName:find("seat") or pName:find("platform") or pName:find("chair") or pName:find("stool") or pName:find("base") or pName:find("stand")
-                    if not isPlatform then
+                    local isPlatform = pName:find("seat") or pName:find("platform") or pName:find("chair") or pName:find("stool") or pName:find("base") or pName:find("stand") or pName:find("cushion") or pName:find("pedestal")
+                    if isPlatform then
+                        p.Transparency = 1
+                        p.LocalTransparencyModifier = 1
+                    else
                         table.insert(sallyBodyParts, p)
                         p.Transparency = 0
                         p.LocalTransparencyModifier = 0
-                        p:GetPropertyChangedSignal("LocalTransparencyModifier"):Connect(function()
-                            if p.LocalTransparencyModifier ~= 0 then
-                                p.LocalTransparencyModifier = 0
-                            end
-                        end)
-                        p:GetPropertyChangedSignal("Transparency"):Connect(function()
-                            if p.Transparency ~= 0 then
-                                p.Transparency = 0
-                            end
-                        end)
+                        p.Parent = sallyModel
                     end
                 end
             end
-            for _, p in ipairs(entity:GetDescendants()) do
-                enforceSallyPart(p)
+            for _, p in ipairs(entity:GetChildren()) do
+                if p:IsA("BasePart") then enforceSallyPart(p) end
             end
             pcall(function()
-                entity.DescendantAdded:Connect(enforceSallyPart)
+                entity.ChildAdded:Connect(function(c)
+                    if c:IsA("BasePart") then enforceSallyPart(c) end
+                end)
             end)
-            highlightTarget = #sallyBodyParts > 0 and sallyBodyParts or entity
+            highlightTarget = sallyModel
         end
 
         if is2D then
-            -- mspaint 1:1 Parity 3D Volumetric Cham & Vector Adornment Engine
-            -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (6.5, 6.5, 6.5) -> Glowing 3D Sphere Cham
-            -- Rush / Ambush / A-60 / A-120 / Halt / Surge / Dread: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham
+            -- mspaint 1:1 Rounded-Corner Cube / Box Cham Engine for Eyes & 2D Entities
             pcall(function()
                 local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
                 local chamName = isEyes and "__mspaint_eyes_esp" or "__mspaint_cube_esp"
-                local existingChamModel = entity:FindFirstChild(chamName .. "_Model")
-                local chamModel = existingChamModel
-                local chamPart = nil
+                local existingCham = entity:FindFirstChild(chamName)
+                local chamGui = existingCham
                 local container = getEspContainer()
 
-                local shape = isEyes and Enum.PartType.Ball or Enum.PartType.Block
-                local size = isEyes and Vector3.new(6.5, 6.5, 6.5) or Vector3.new(6, 6, 6)
-
+                local boxSize = isEyes and UDim2.new(6.5, 0, 6.5, 0) or UDim2.new(6, 0, 6, 0)
                 if cfg.Name:lower():find("stampede") then
-                    size = Vector3.new(8, 8, 8)
+                    boxSize = UDim2.new(8, 0, 8, 0)
                 elseif cfg.Name:lower():find("drone") and not cfg.Name:lower():find("stampede") then
-                    size = Vector3.new(3.5, 6.5, 1.5)
+                    boxSize = UDim2.new(3.5, 0, 6.5, 0)
                 end
 
-                if not chamModel or not chamModel:IsA("Model") then
-                    chamModel = Instance.new("Model")
-                    chamModel.Name = chamName .. "_Model"
+                if not chamGui or not chamGui:IsA("BillboardGui") then
+                    chamGui = Instance.new("BillboardGui")
+                    chamGui.Name = chamName
+                    chamGui.Adornee = targetPart
+                    chamGui.Size = boxSize
+                    chamGui.AlwaysOnTop = true
+                    chamGui.ResetOnSpawn = false
+                    chamGui.LightInfluence = 0
+                    chamGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-                    chamPart = Instance.new("Part")
-                    chamPart.Name = chamName
-                    chamPart.Anchored = true
-                    chamPart.CanCollide = false
-                    chamPart.CanTouch = false
-                    chamPart.CanQuery = false
-                    chamPart.Massless = true
-                    chamPart.CastShadow = false
-                    chamPart.Color = entityColor
-                    chamPart.Material = Enum.Material.SmoothPlastic
-                    chamPart.Transparency = 0.55 -- Translucent SmoothPlastic geometry: activates Roblox's native Highlight shader for the soft glowing rounded cube!
-                    chamPart.Shape = shape
-                    chamPart.Size = size
-                    chamPart.CFrame = targetPart.CFrame
-                    chamPart.Parent = chamModel
+                    local frame = Instance.new("Frame")
+                    frame.Name = "RoundedBox"
+                    frame.Size = UDim2.new(1, 0, 1, 0)
+                    frame.BackgroundColor3 = entityColor
+                    frame.BackgroundTransparency = 0.85
+                    frame.BorderSizePixel = 0
+                    frame.Parent = chamGui
 
-                    chamModel.PrimaryPart = chamPart
-                    chamModel.Parent = entity
+                    local corner = Instance.new("UICorner")
+                    corner.CornerRadius = UDim.new(0, 8) -- Exact rounded corners!
+                    corner.Parent = frame
 
-                    local weld = Instance.new("WeldConstraint")
-                    weld.Part0 = chamPart
-                    weld.Part1 = targetPart
-                    weld.Parent = chamPart
-                    chamPart.Anchored = false
-                else
-                    chamPart = chamModel.PrimaryPart or chamModel:FindFirstChildWhichIsA("BasePart")
+                    local stroke = Instance.new("UIStroke")
+                    stroke.Name = "BoxStroke"
+                    stroke.Color = entityColor
+                    stroke.Thickness = 2
+                    stroke.Transparency = 0
+                    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    stroke.Parent = frame
+
+                    chamGui.Parent = container or entity
                 end
 
-                -- mspaint 1:1 Pure Highlight Engine (Zero harsh wireframes/CAD borders, pure soft glowing rounded bloom)
-                highlightTarget = chamModel
-                targetPart = chamPart
-                table.insert(extraVisuals, chamModel)
+                highlightTarget = nil -- 2D entities use the rounded box cham, eliminating crude block/ball highlights!
+                table.insert(extraVisuals, chamGui)
             end)
         else
             -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, Sally, etc.):
@@ -2767,9 +2764,11 @@ local function scanSingleRoom(room)
                 local act = (desc.ActionText or ""):lower()
                 if obj:find("lever") or act:find("pull") then
                     processLever(desc.Parent)
-                elseif act:find("take") or act:find("pick") or act:find("grab") then
-                    if desc.Parent and (desc.Parent:IsA("Model") or desc.Parent:IsA("Tool")) then
-                        processItem(desc.Parent)
+                elseif act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect") or desc.Name == "ModulePrompt" then
+                    local p = desc.Parent
+                    local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
+                    if itemTarget then
+                        processItem(itemTarget)
                     end
                 end
             end
@@ -2930,9 +2929,11 @@ pcall(function()
                         processGold(desc.Parent)
                     elseif obj:find("lever") or act:find("pull") then
                         processLever(desc.Parent)
-                    elseif act:find("take") or act:find("pick") or act:find("grab") then
-                        if desc.Parent and (desc.Parent:IsA("Model") or desc.Parent:IsA("Tool")) then
-                            processItem(desc.Parent)
+                    elseif act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect") or desc.Name == "ModulePrompt" then
+                        local p = desc.Parent
+                        local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
+                        if itemTarget then
+                            processItem(itemTarget)
                         end
                     end
                 end
