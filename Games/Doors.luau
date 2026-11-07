@@ -728,7 +728,8 @@ local function clearCategoryEsp(category)
         local c = espContainer
         if c then
             for _, ch in ipairs(c:GetChildren()) do
-                if category == "Doors" and (ch.Name:find("Door") or ch.Name:find("Unknown_ESP_Door") or ch.Name == "Unknown_DoorOutlineBox" or ch.Name == "Unknown_DoorBoxAdornment") then
+                local n = ch.Name
+                if n:find(category) or (category == "Doors" and (n:find("Door") or n:find("Doors"))) then
                     pcall(function() ch:Destroy() end)
                 end
             end
@@ -957,14 +958,14 @@ local function createBillboard(adorneePart, baseText, color, offset)
     return bb, label
 end
 
-local function createHighlight(adornee, color, fillTrans, outlineTrans)
+local function createHighlight(adornee, color, fillTrans, outlineTrans, category)
     if not adornee then return nil end
     local container = getEspContainer()
     fillTrans = fillTrans or State.ESP_FillTransparency or 0.65
     outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
 
     local hl = Instance.new("Highlight")
-    hl.Name = "Unknown_ESP_Highlight"
+    hl.Name = "Unknown_ESP_" .. (category or "General") .. "_Highlight"
     hl.Adornee = adornee
     hl.FillColor = color
     hl.FillTransparency = fillTrans
@@ -1220,7 +1221,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     end
 
     if hlTarget and category ~= "Gold" then
-        hl = createHighlight(hlTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0)
+        hl = createHighlight(hlTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0, category)
         if hl then table.insert(visuals, hl) end
     end
 
@@ -1534,7 +1535,12 @@ local function isValidLootItem(model)
     if not model or not (model:IsA("Model") or model:IsA("Tool")) then return false, nil end
     local lower = model.Name:lower()
 
-    -- Reject entire room structures, shops, siderooms, hallways, walls, fixtures (DO NOT REJECT RIFT!)
+    -- Strict Invariant: Reject Rift & stored rift items so Rift is never highlighted as loot!
+    if lower:find("rift") or model:GetAttribute("IsRift") or model:GetAttribute("Rift") then
+        return false, nil
+    end
+
+    -- Reject entire room structures, shops, siderooms, hallways, walls, fixtures
     if lower:find("room") or lower:find("shop") or lower:find("assets") or lower:find("structure")
         or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom")
         or lower:find("wall") or lower:find("ceiling") or lower:find("floor") or lower:find("desk")
@@ -2690,11 +2696,13 @@ local function scanSingleRoom(room)
             end
 
             if desc:IsA("Model") or desc:IsA("Tool") then
-                if desc.Name == "Door" or desc.Name == "DoorFake" then
+                if desc.Name == "DoorFake" then
                     processDoor(room, desc)
-                    if (desc.Name == "DoorFake" or isDupeDoor(desc, room)) and State.Anti_Dupe then
+                    if isDupeDoor(desc, room) and State.Anti_Dupe then
                         secureDupeDoor(desc)
                     end
+                elseif desc.Name == "SideDoor" or desc:GetAttribute("IsSideDoor") then
+                    processDoor(room, desc)
                 elseif desc.Name == "KeyObtain" or desc:GetAttribute("IsKey") then
                     processKey(desc)
                 elseif dName:find("lever") then
@@ -4240,6 +4248,8 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 local args = {...}
                 args[2] = true -- mspaint v4 ClutchHeartbeat spoof: forces 100% perfect heartbeat score
                 return origNc(self, unpack(args))
+            elseif (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and State.Auto_Heartbeat then
+                return task.wait(9e9) -- mspaint v4 Figure bypass: prevents Figure from catching/killing player
             end
         end
         return origNc(self, ...)
@@ -5419,7 +5429,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         processNearbyDoors(root.Position, doorReach)
     end
 
-    -- mspaint v4 Walk Through Doors (DoorNoclip)
+    -- mspaint v4 Walk Through Doors (DoorNoclip) - strictly only door leaf, frames & walls remain solid!
     if State.DoorNoclip and (nowTime - (openedDoors.lastDoorNoclip or 0) >= 0.2) then
         openedDoors.lastDoorNoclip = nowTime
         local cr = Workspace:FindFirstChild("CurrentRooms")
@@ -5427,10 +5437,16 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
             for _, rm in ipairs(cr:GetChildren()) do
                 local d = rm:FindFirstChild("Door")
                 if d then
-                    local dModel = d:FindFirstChild("Door") or d
-                    for _, p in ipairs(dModel:GetDescendants()) do
-                        if p:IsA("BasePart") and p.CanCollide then
-                            p.CanCollide = false
+                    local doorLeaf = d:FindFirstChild("Door")
+                    if doorLeaf and doorLeaf:IsA("BasePart") then
+                        if doorLeaf.CanCollide then doorLeaf.CanCollide = false end
+                    end
+                end
+                for _, child in ipairs(rm:GetChildren()) do
+                    if child:IsA("Model") and (child.Name == "SideDoor" or child.Name:lower():find("door")) and child ~= d then
+                        local sideLeaf = child:FindFirstChild("Door")
+                        if sideLeaf and sideLeaf:IsA("BasePart") then
+                            if sideLeaf.CanCollide then sideLeaf.CanCollide = false end
                         end
                     end
                 end
@@ -6385,6 +6401,24 @@ end)
 
 -- Prompts are dynamically optimized on-demand via ProximityPromptService.PromptShown (0ms room streaming lag)
 
+local function getPromptTargetPosition(prompt)
+    if not prompt then return nil end
+    local p = prompt.Parent
+    if not p then return nil end
+    if p:IsA("BasePart") then
+        return p.Position
+    elseif p:IsA("Attachment") then
+        return p.WorldPosition
+    elseif p:IsA("Model") then
+        return p.PrimaryPart and p.PrimaryPart.Position or p:GetPivot().Position
+    elseif p.Parent and p.Parent:IsA("BasePart") then
+        return p.Parent.Position
+    end
+    local anyPart = p:FindFirstChildWhichIsA("BasePart", true)
+    if anyPart then return anyPart.Position end
+    return nil
+end
+
 local function isPromptSafeToAutoInteract(prompt)
     if not prompt or not prompt.Enabled or not prompt.Parent then return false end
 
@@ -6396,7 +6430,7 @@ local function isPromptSafeToAutoInteract(prompt)
     local obj = (prompt.ObjectText or ""):lower()
     local prName = prompt.Name:lower()
 
-    -- STRICT INVARIANT: Rift & Rift Storage MUST NEVER be touched by Auto Interact!
+    -- 1. STRICT INVARIANT: Rift & Rift Storage MUST NEVER be touched by Auto Interact!
     if prName:find("rift") or act:find("rift") or obj:find("rift") or pName:find("rift") or mName:find("rift") then
         return false
     end
@@ -6409,7 +6443,7 @@ local function isPromptSafeToAutoInteract(prompt)
         curAncestor = curAncestor.Parent
     end
 
-    -- STRICT INVARIANT: All hiding spots (Wardrobes, Closets, Beds, Lockers) MUST NEVER be auto-interacted!
+    -- 2. STRICT INVARIANT: All hiding spots (Wardrobes, Closets, Beds, Lockers) MUST NEVER be auto-interacted!
     if prName:find("hide") or act:find("hide") or act:find("enter")
        or obj:find("wardrobe") or obj:find("closet") or obj:find("bed") or obj:find("locker")
        or pName:find("wardrobe") or pName:find("closet") or pName:find("bed") or pName:find("locker")
@@ -6417,7 +6451,12 @@ local function isPromptSafeToAutoInteract(prompt)
         return false
     end
 
-    -- 0. USER CUSTOM KEYWORD EXCLUSIONS
+    -- 3. STRICT INVARIANT: Dupe Fake Doors MUST NEVER be opened!
+    if mName == "doorfake" or mName:find("fake") or mName:find("dupe") or (model and isDupeDoor(model)) then
+        return false
+    end
+
+    -- 4. User Custom Keywords Exclusions
     if State.AutoInteract_CustomKeywords then
         for _, kw in ipairs(State.AutoInteract_CustomKeywords) do
             if kw and #kw > 0 then
@@ -6429,7 +6468,7 @@ local function isPromptSafeToAutoInteract(prompt)
         end
     end
 
-    -- MSPaint v4 Ignore List Filters:
+    -- 5. MSPaint v4 Ignore List Filters (1:1 Decompiled Parity):
     if State.AutoInteract_IgnoreList then
         local ign = State.AutoInteract_IgnoreList
         if ign["Unlock w/ Shears"] then
@@ -6472,198 +6511,41 @@ local function isPromptSafeToAutoInteract(prompt)
         end
     end
 
-    -- 0a. Universal Item & Pickup Engine (mspaint DynamicPromptCheck Parity: Instant Auto-Loot)
-    if prompt.Name == "ModulePrompt" or prompt:GetAttribute("Pickup") or parent:GetAttribute("Pickup") or (model and model:GetAttribute("Pickup")) then
-        return State.AutoInteract_Items
-    end
-    if prompt.Name == "GoldPrompt" or pName:find("gold") or mName:find("gold") or obj:find("gold") or obj:find("coin") then
-        return State.AutoInteract_Gold
-    end
-    if prompt.Name == "KeyPrompt" or pName:find("key") or mName:find("key") or obj:find("key") or (model and model:GetAttribute("IsKey")) then
-        return State.AutoInteract_Keys
-    end
-    if prompt.Name == "ActivateEventPrompt" and (pName:find("drawer") or pName:find("knob") or pName:find("chest") or mName:find("drawer") or mName:find("chest")) then
-        return State.AutoInteract_Drawers
-    end
-
-    -- 1. GLITCH FRAGMENTS (Instant Auto Collect Priority)
-    if isGlitchFragmentInstance(model) or isGlitchFragmentInstance(parent) then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Glitch Fragments"] then
+    -- 6. Player Health / Durability Optimization (mspaint parity)
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    local propType = parent:GetAttribute("PropType") or (model and model:GetAttribute("PropType"))
+    if propType == "Heal" or act:find("heal") or act:find("consume") then
+        if hum and hum.Health >= hum.MaxHealth then
             return false
         end
-        return true
     end
-
-    -- 2. HARD SAFETY GUARDS (Never close containers or hide in closets accidentally)
-    if act:find("close") then
-        return false
-    end
-
-    if act:find("hide") or pName:find("closet") or pName:find("wardrobe") or pName:find("locker") or mName:find("closet") or mName:find("wardrobe") or mName:find("locker") or mName:find("bed") then
-        return false
-    end
-
-    -- 3. CATEGORY EXCLUSION LIST CHECKS
-    -- Paintings & Pictures
-    if pName:find("paint") or pName:find("canvas") or pName:find("frame") or pName:find("picture") or pName:find("portrait")
-        or mName:find("paint") or mName:find("canvas") or mName:find("frame") or mName:find("picture") or mName:find("portrait")
-        or obj:find("paint") or obj:find("picture") or obj:find("canvas") or obj:find("frame") or obj:find("portrait") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Paintings & Pictures"] ~= false then
+    if propType == "Battery" or obj:find("battery") then
+        local tool = char and char:FindFirstChildOfClass("Tool")
+        if not tool or (tool:GetAttribute("Durability") and tool:GetAttribute("DurabilityMax") and tool:GetAttribute("Durability") >= tool:GetAttribute("DurabilityMax")) then
             return false
         end
     end
 
-    -- Fake Doors / Dupe
-    if mName:find("fake") or mName:find("dupe") or pName:find("fake") or pName:find("dupe")
-        or (model and (model:GetAttribute("Fake") or model:GetAttribute("DupeRoom") or isDupeDoor(model))) then
-        return false
-    end
-
-    -- Wall Clocks & Bells
-    if obj:find("bell") or act == "ring" or pName:find("bell") or pName:find("clock") or obj:find("clock") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Wall Clocks & Bells"] ~= false then
+    -- 7. Key Duplication Guard (mspaint parity: don't pick up extra key if already held)
+    if pName == "keyobtain" or mName == "keyobtain" or prompt:GetAttribute("IsKey") then
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        if (char and char:FindFirstChild("Key")) or (bp and bp:FindFirstChild("Key")) then
             return false
         end
     end
 
-    -- Light Switches & Lamps
-    if act == "inspect" or act == "examine" or obj:find("lamp") or obj:find("light") or pName:find("light") or obj:find("switch") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Light Switches & Lamps"] ~= false then
+    -- 8. Locked door / Padlock validation
+    local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or obj:find("lock")) and not act:find("open")
+    if isUnlock then
+        local hasKeyOrLockpick = getEquippedOrInventoryTool({"key", "lockpick", "skeleton", "shears"})
+        if not hasKeyOrLockpick then
             return false
         end
     end
 
-    -- 4. FUNCTIONAL PROMPT FILTERS
-    -- Normal Exit Doors:
-    if mName == "door" or pName == "door" or obj:find("door") or act:find("open door") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Normal Exit Doors"] then
-            return false
-        end
-        if not State.AutoInteract_Doors then return false end
-        if model and model:GetAttribute("Locked") and not State.AutoInteract_Keys then
-            return false
-        end
-        return true
-    end
-
-    -- Side Room Doors:
-    if (pName:find("sideroom") or mName:find("sideroom") or pName:find("sidedoor") or mName:find("sidedoor")) and (pName:find("door") or mName:find("door")) then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Side Room Doors"] then
-            return false
-        end
-    end
-
-    -- Chests & Strongboxes (Open & Unlock Chests):
-    if pName:find("chest") or mName:find("chest") or obj:find("chest") or (act:find("unlock") and (obj:find("chest") or pName:find("chest") or mName:find("chest"))) then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Chests"] then
-            return false
-        end
-        -- Auto-equip lockpick or skeleton key if locked
-        if act:find("unlock") then
-            local lockpick = getEquippedOrInventoryTool({"lockpick", "skeleton"})
-            if lockpick and lockpick.Parent == LocalPlayer.Backpack then
-                local hum = getChar() and getChar():FindFirstChildWhichIsA("Humanoid")
-                if hum then hum:EquipTool(lockpick) end
-            end
-        end
-        return State.AutoInteract_Drawers or State.AutoInteract_Items or true
-    end
-
-    -- Drawers & Desks (Containers & Drawer Knobs):
-    if pName:find("drawer") or mName:find("drawer") or pName:find("desk") or mName:find("desk") or pName:find("dresser") or mName:find("dresser") or pName:find("container") or obj:find("drawer") or pName:find("knob") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Drawers & Desks"] then
-            return false
-        end
-        if not State.AutoInteract_Drawers then return false end
-        if act:find("close") then return false end
-        return true
-    end
-
-    -- Stardust & Starlight Pickups:
-    if obj:find("stardust") or obj:find("starlight") or obj:find("star") or act:find("stardust") or act:find("starlight") or pName:find("stardust") or pName:find("starlight") or mName:find("stardust") or mName:find("starlight") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Gold & Coins"] then
-            return false
-        end
-        return State.AutoInteract_Items or State.AutoInteract_Gold
-    end
-
-    -- Gold / Coins:
-    if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") or pName:find("gold") or mName:find("gold") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Gold & Coins"] then
-            return false
-        end
-        return State.AutoInteract_Gold
-    end
-
-    -- Keys & Skeleton Keys:
-    if obj:find("key") or act:find("unlock") or pName:find("key") or mName:find("key") or (model and model:GetAttribute("IsKey")) then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Keys & Skeleton Keys"] then
-            return false
-        end
-        return State.AutoInteract_Keys
-    end
-
-    -- Levers & Breakers:
-    if obj:find("lever") or act:find("pull") or pName:find("lever") or mName:find("lever") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Levers & Breakers"] then
-            return false
-        end
-        return State.AutoInteract_Levers
-    end
-    if pName:find("breaker") or mName:find("breaker") or obj:find("breaker") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Levers & Breakers"] then
-            return false
-        end
-        return State.AutoInteract_Books
-    end
-
-    -- Books & Papers:
-    if pName:find("book") or mName:find("book") or obj:find("book") or obj:find("paper") or pName:find("paper") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Books & Papers"] then
-            return false
-        end
-        return State.AutoInteract_Books
-    end
-
-    -- Crucifix & Defense Items:
-    if obj:find("crucifix") or obj:find("candle") or pName:find("crucifix") or mName:find("crucifix") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Crucifix & Defense Items"] then
-            return false
-        end
-        return State.AutoInteract_Items
-    end
-
-    -- Lighters & Flashlights:
-    if obj:find("lighter") or obj:find("flashlight") or obj:find("battery") or obj:find("bulk") or pName:find("lighter") or pName:find("flashlight") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Lighters & Flashlights"] then
-            return false
-        end
-        return State.AutoInteract_Items
-    end
-
-    -- Health & Bandages:
-    if obj:find("bandage") or obj:find("vitamin") or obj:find("herb") or obj:find("plant") or act:find("heal") or act:find("consume") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Health & Bandages"] then
-            return false
-        end
-        return State.AutoInteract_Items
-    end
-
-    -- Lockpicks & Shears:
-    if obj:find("lockpick") or obj:find("shears") or obj:find("skeleton") or pName:find("lockpick") or pName:find("shears") then
-        if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Lockpicks & Shears"] then
-            return false
-        end
-        return State.AutoInteract_Items
-    end
-
-    -- General Items / Pickups:
-    if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("obtain") or act:find("use") or act:find("equip") or act:find("claim") or act:find("harvest")
-        or obj:find("gummy") or obj:find("shake") or obj:find("pack") or obj:find("barrel") or obj:find("fuse") or obj:find("wrench") or obj:find("anchor") or obj:find("scanner") or obj:find("laser") then
-        return State.AutoInteract_Items
-    end
-
-    return false
+    -- All other gameplay prompts (Items, Gold, Drawers, Desks, Chests, Books, Breakers, Levers, Side Doors, Main Doors) are 100% SAFE!
+    return true
 end
 
 -- Auto Interact Worker Thread (Hyper-Fast, Non-Blocking, Debounced & Lag-Free)
@@ -6674,7 +6556,6 @@ task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.Auto_Interact then
-            -- Pause Auto Interact if daddy is pressing E (manual interact), or entering a wardrobe, or near a hiding spot
             local now = os.clock()
             local root = getRoot()
             local rootPos = root and root.Position
@@ -6723,20 +6604,21 @@ task.spawn(function()
 
                 local batchCount = 0
                 for _, container in ipairs(searchContainers) do
-                    -- 1. Check ProximityPrompts (Drawers, Items, Keys, Books, Levers, Gold)
+                    -- 1. Check ProximityPrompts (Drawers, Items, Keys, Books, Levers, Gold, Side Doors)
                     for _, prompt in ipairs(container:GetDescendants()) do
                         if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Parent then
                             if not promptDebounce[prompt] or now >= promptDebounce[prompt] then
-                                local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart")
-                                if pPart then
-                                    local dist = (rootPos - pPart.Position).Magnitude
+                                local pPos = getPromptTargetPosition(prompt)
+                                if pPos then
+                                    local dist = (rootPos - pPos).Magnitude
                                     local pObj = (prompt.ObjectText or ""):lower()
                                     local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
-                                    local promptReach = isDrawerOrContainer and 6.0 or maxDist
-                                    if dist <= promptReach then
+                                    -- CRITICAL INVARIANT: Server strictly rejects drawer activation beyond 6.5 studs!
+                                    local maxReach = isDrawerOrContainer and 6.5 or prompt.MaxActivationDistance
+                                    if dist <= maxReach then
                                         if isPromptSafeToAutoInteract(prompt) then
                                             local delayTime = tonumber(State.AutoInteract_Delay) or 0.05
-                                            promptDebounce[prompt] = now + math.max(0.3, delayTime)
+                                            promptDebounce[prompt] = now + math.max(0.2, delayTime)
                                             batchCount = batchCount + 1
                                             local stagger = (batchCount - 1) * delayTime
                                             task.spawn(function()
@@ -6751,16 +6633,14 @@ task.spawn(function()
                     end
 
                     -- 2. Check All Doors (Main Doors, Side Doors, Hallway Doors)
-                    if State.AutoInteract_Doors and not (State.AutoInteract_Excludes and State.AutoInteract_Excludes["Side Room Doors"]) then
-                        for _, child in ipairs(container:GetDescendants()) do
-                            if child:IsA("Model") and (child.Name == "Door" or child.Name:lower():find("door")) then
-                                local dPart = child:FindFirstChild("Door") or child:FindFirstChild("Hidden") or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-                                if dPart then
-                                    local dist = (rootPos - dPart.Position).Magnitude
-                                    if dist <= (maxDist + 4) then
-                                        processNearbyDoors(rootPos, maxDist + 4)
-                                        break
-                                    end
+                    for _, child in ipairs(container:GetDescendants()) do
+                        if child:IsA("Model") and (child.Name == "Door" or child.Name:lower():find("door")) then
+                            local dPart = child:FindFirstChild("Door") or child:FindFirstChild("Hidden") or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+                            if dPart then
+                                local dist = (rootPos - dPart.Position).Magnitude
+                                if dist <= (maxDist + 4) then
+                                    processNearbyDoors(rootPos, maxDist + 4)
+                                    break
                                 end
                             end
                         end
@@ -8777,11 +8657,19 @@ task.spawn(function()
                         for _, door in ipairs(room:GetDescendants()) do
                             if door:IsA("Model") and (door.Name == "Door" or door.Name:lower():find("door") or door.Name:lower():find("sideroom")) then
                                 if not isDupeDoor(door, room) then
-                                    local isOpened = door:GetAttribute("Opened") == true or door:GetAttribute("Open") == true
-                                    if not isOpened then
-                                        local dPart = door:FindFirstChild("Door") or door:FindFirstChild("Hidden") or door.PrimaryPart or door:FindFirstChildWhichIsA("BasePart")
-                                        if dPart and (rootPos - dPart.Position).Magnitude <= 22 then
-                                            -- 1. UnlockPrompt auto-unlock if locked
+                                    local dPart = door:FindFirstChild("Door") or door:FindFirstChild("Hidden") or door.PrimaryPart or door:FindFirstChildWhichIsA("BasePart")
+                                    if dPart then
+                                        local dist = (rootPos - dPart.Position).Magnitude
+                                        -- 1. Main door ClientOpen (up to 75 studs - exact mspaint v4 reach)
+                                        if dist <= 75 then
+                                            local co = door:FindFirstChild("ClientOpen") or (door:FindFirstChild("Door") and door.Door:FindFirstChild("ClientOpen"))
+                                            if co and co:IsA("RemoteEvent") then
+                                                pcall(function() co:FireServer() end)
+                                            end
+                                        end
+                                        -- 2. ProximityPrompts for all doors (Side Doors, Lever doors, Unlock prompts) up to 22 studs
+                                        if dist <= 22 then
+                                            -- UnlockPrompt auto-unlock if locked
                                             local lock = door:FindFirstChild("Lock")
                                             if lock then
                                                 local up = lock:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -8789,18 +8677,13 @@ task.spawn(function()
                                                     safeInstantFirePrompt(up)
                                                 end
                                             end
-                                            -- 2. Trigger all Door ProximityPrompts
+                                            -- Trigger all Door ProximityPrompts (Side Doors open effortlessly!)
                                             for _, desc in ipairs(door:GetDescendants()) do
                                                 if desc:IsA("ProximityPrompt") and desc.Enabled then
                                                     safeInstantFirePrompt(desc)
                                                 end
                                             end
-                                            -- 3. Trigger ClientOpen RemoteEvent
-                                            local co = door:FindFirstChild("ClientOpen")
-                                            if co and co:IsA("RemoteEvent") then
-                                                pcall(function() co:FireServer() end)
-                                            end
-                                            -- 4. Touch Hidden Trigger
+                                            -- Touch Hidden Trigger
                                             local hidden = door:FindFirstChild("Hidden")
                                             if hidden and hidden:IsA("BasePart") then
                                                 pcall(function()
