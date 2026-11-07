@@ -649,7 +649,7 @@ end)
 -- Forward Declarations & Core Motion Synchronization Flags
 -- =========================================================================
 local isAutoFlying = false
-local isCompleterActive = false
+-- isCompleterActive purged
 local isKnobsFarmRunning = false
 local isEvacuatingRoof = false
 
@@ -746,13 +746,6 @@ local function clearCategoryEsp(category)
     end
 end
 
-local function clearEntitySubcategory(entityCategory)
-    for owner, record in pairs(activeEspRecords) do
-        if record.Category == "Entities" and record.EntityCategory == entityCategory then
-            removeEspFor(owner)
-        end
-    end
-end
 
 local function clearAllEsp()
     for owner, _ in pairs(activeEspRecords) do
@@ -1054,9 +1047,6 @@ local function isPlayerHiding(char, mgTable)
     return false
 end
 
-local function isHidingState(char, mgTable)
-    return isPlayerHiding(char or (getChar and getChar()), mgTable)
-end
 
 local lastKnownPlayerRoom = nil
 
@@ -1870,97 +1860,8 @@ local function processRift(model)
 end
 
 -- 8. Comprehensive Entity ESP (Every Monster in DOORS Hotel, The Mines & The Rooms)
-local ENTITY_REGISTRY = {
-    -- Hotel Main Roster
-    ["rushmoving"]     = { Name = "Rush",               Category = "Rush" },
-    ["rushnew"]        = { Name = "Rush",               Category = "Rush" },
-    ["rush"]           = { Name = "Rush",               Category = "Rush" },
-    ["ambushmoving"]   = { Name = "Ambush",             Category = "Ambush" },
-    ["ambush"]         = { Name = "Ambush",             Category = "Ambush" },
-    ["figurerig"]      = { Name = "Figure",             Category = "Figure" },
-    ["figure"]         = { Name = "Figure",             Category = "Figure" },
-    ["seekmoving"]     = { Name = "Seek",               Category = "Seek" },
-    ["seekrig"]        = { Name = "Seek",               Category = "Seek" },
-    ["seekarm"]        = { Name = "Seek Arm",           Category = "Seek" },
-    ["eyes"]           = { Name = "Eyes (Don't Look!)", Category = "Eyes" },
-    ["lookman"]        = { Name = "Lookman",            Category = "Eyes" },
-    ["eyesretro"]      = { Name = "Retro Eyes",         Category = "Eyes" },
-    ["halt"]           = { Name = "Halt",               Category = "Halt" },
-    ["shade"]          = { Name = "Halt",               Category = "Halt" },
-    ["screech"]        = { Name = "Screech",            Category = "Screech" },
-    ["screechretro"]   = { Name = "Retro Screech",      Category = "Screech" },
-    ["dread"]          = { Name = "Dread",              Category = "Dread" },
-    ["timothy"]        = { Name = "Timothy",            Category = "Timothy" },
-    ["spider"]         = { Name = "Timothy",            Category = "Timothy" },
-    ["spiderjumpscare"]= { Name = "Timothy",            Category = "Timothy" },
-    ["snare"]          = { Name = "Snare Trap",         Category = "Snare" },
-    ["snaretrap"]      = { Name = "Snare Trap",         Category = "Snare" },
-
-    -- Floor 2: The Mines
-    ["giggleceiling"]  = { Name = "Giggle",             Category = "Giggle" },
-    ["giggle"]         = { Name = "Giggle",             Category = "Giggle" },
-    ["gigglerig"]      = { Name = "Giggle",             Category = "Giggle" },
-    ["grumble"]        = { Name = "Grumble",            Category = "Grumble" },
-    ["grumblerig"]     = { Name = "Grumble",            Category = "Grumble" },
-    ["queen"]          = { Name = "Grumble Queen",      Category = "Grumble" },
-    ["gloombats"]      = { Name = "Gloombats",          Category = "Gloombats" },
-    ["gloombat"]       = { Name = "Gloombats",          Category = "Gloombats" },
-
-    -- The Rooms (A-1000)
-    ["a60"]            = { Name = "A-60",               Category = "Rooms" },
-    ["a-60"]           = { Name = "A-60",               Category = "Rooms" },
-    ["a90"]            = { Name = "A-90",               Category = "Rooms" },
-    ["a-90"]           = { Name = "A-90",               Category = "Rooms" },
-    ["a120"]           = { Name = "A-120",              Category = "Rooms" },
-    ["a-120"]          = { Name = "A-120",              Category = "Rooms" },
-
-    -- Special & Rare / Modifiers
-    ["glitch"]         = { Name = "Glitch",             Category = "Other" },
-    ["void"]           = { Name = "Void",               Category = "Other" },
-    ["shadow"]         = { Name = "Shadow",             Category = "Other" },
-    ["sally"]          = { Name = "Sally",              Category = "Other" },
-    ["jack"]           = { Name = "Jack",               Category = "Other" },
-    ["blitz"]          = { Name = "Blitz",              Category = "Other" },
-    ["depth"]          = { Name = "Depth",              Category = "Other" },
-    ["silence"]        = { Name = "Silence",            Category = "Other" },
-    ["greed"]          = { Name = "Greed",              Category = "Other" },
-}
 
 -- Sleek, Native Adornment Bounding Box for 2D Sprite/Billboard Entities (Zero physical Workspace parts!)
-local function createEntityBoundingBox(targetPart, size, color)
-    if not targetPart or not targetPart.Parent then return nil end
-    local folder = Instance.new("Folder")
-    folder.Name = "Unknown_EntityBox"
-
-    local s = size or Vector3.new(4.5, 5.5, 4.5)
-    if typeof(s) == "number" then
-        s = Vector3.new(s, s, s)
-    end
-    local boxColor = color or Color3.fromRGB(255, 30, 30)
-
-    -- Clean BoxHandleAdornment: smooth translucent fill centered on targetPart
-    local boxAdorn = Instance.new("BoxHandleAdornment")
-    boxAdorn.Name = "EntityBoxFill"
-    boxAdorn.Adornee = targetPart
-    boxAdorn.Size = s
-    boxAdorn.Color3 = boxColor
-    boxAdorn.Transparency = 0.45
-    boxAdorn.AlwaysOnTop = true
-    boxAdorn.ZIndex = 10
-    boxAdorn.Parent = folder
-
-    -- Sharp SelectionBox: razor-thin outer wireframe border in matching Crimson Red
-    local sbox = Instance.new("SelectionBox")
-    sbox.Name = "EntityBoxOutline"
-    sbox.Adornee = targetPart
-    sbox.Color3 = boxColor
-    sbox.LineThickness = 0.03
-    sbox.SurfaceTransparency = 1
-    sbox.Parent = folder
-
-    folder.Parent = (gethui and gethui()) or CoreGui
-    return folder
-end
 
 local function processEntity(entity)
     if not entity or not entity.Parent then return end
@@ -2511,64 +2412,6 @@ local function collectGlitchFragment(inst)
     return true
 end
 
-local function getGlitchFragmentNow()
-    local root = getRoot()
-    if not root then
-        Hub.Notify("Glitch Fragment", "Character not spawned!", 3)
-        return false
-    end
-
-    local found = nil
-    local currentRooms = Workspace:FindFirstChild("CurrentRooms")
-    if currentRooms then
-        for _, desc in ipairs(currentRooms:GetDescendants()) do
-            if isGlitchFragmentInstance(desc) then
-                found = desc
-                break
-            end
-        end
-    end
-
-    if not found then
-        for _, desc in ipairs(Workspace:GetChildren()) do
-            if isGlitchFragmentInstance(desc) then
-                found = desc
-                break
-            end
-        end
-    end
-
-    if not found then
-        local drops = Workspace:FindFirstChild("Drops")
-        if drops then
-            for _, desc in ipairs(drops:GetDescendants()) do
-                if isGlitchFragmentInstance(desc) then
-                    found = desc
-                    break
-                end
-            end
-        end
-    end
-
-    if not found then
-        Hub.Notify("Glitch Fragment", "🔍 No Glitch Fragment currently spawned!", 3)
-        return false
-    end
-
-    local targetPart = (found:IsA("Model") and (found.PrimaryPart or found:FindFirstChildWhichIsA("BasePart", true)))
-        or (found:IsA("BasePart") and found)
-    if not targetPart then return false end
-
-    local oldPos = root.CFrame
-    root.CFrame = targetPart.CFrame + Vector3.new(0, 2, 0)
-    task.wait(0.12)
-    collectGlitchFragment(found)
-    task.wait(0.12)
-    root.CFrame = oldPos
-
-    Hub.Notify("Glitch Fragment", "🌀 Glitch Fragment collected!", 3)
-    return true
-end
 
 local function processGlitchFragment(inst)
     if not inst then return end
@@ -2710,21 +2553,6 @@ local function defuseSeekObstacles(room)
 end
 
 -- Defuse Figure Lethal Touch Hitbox
-local function defuseFigureHitbox(inst)
-    if not (State.Anti_Figure and inst) then return end
-    pcall(function()
-        local name = inst.Name:lower()
-        if name:find("figure") then
-            for _, sub in ipairs(inst:GetDescendants()) do
-                if sub:IsA("TouchTransmitter") then
-                    sub:Destroy()
-                elseif sub.Name:lower():find("hitbox") and sub:IsA("BasePart") then
-                    sub.CanTouch = false
-                end
-            end
-        end
-    end)
-end
 
 -- Full Room Parser
 local function scanSingleRoom(room)
@@ -3208,13 +3036,7 @@ local function restoreDefaultFriction(char)
     end
 end
 
-local trailHistory = {} -- Ring buffer of { pos = Vector3, cf = CFrame, time = number }
-local lastForwardCFrame = nil
-local lastForwardPos = nil
-local lastMoveVector = Vector3.new(0, 0, 0)
-local wasMoving = false
 crouchRemote = remotesFolder and remotesFolder:FindFirstChild("Crouch")
-local isServerSlideActive = false
 local lastSentCrouchState = nil
 local lastSentSlideState = nil
 local lastSlideSyncTime = 0
@@ -3892,38 +3714,6 @@ local function processNearbyDoors(currentPos, maxReach)
 end
 
 -- Room Bounds Sentry: Calculates valid room corridor height to prevent Void/Glitch triggers
-local function getSafeFlightY(desiredPos)
-    if not State.Fly_SafeBounds then return desiredPos.Y end
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if not curRooms then return desiredPos.Y end
-
-    local bestRoom = nil
-    local bestDist = math.huge
-    for _, rm in ipairs(curRooms:GetChildren()) do
-        local cf, sz = rm:GetBoundingBox()
-        local d = (desiredPos - cf.Position).Magnitude
-        if d < bestDist then
-            bestDist = d
-            bestRoom = rm
-        end
-    end
-
-    if bestRoom then
-        local cf, sz = bestRoom:GetBoundingBox()
-        local minY = cf.Position.Y - sz.Y / 2
-        local maxY = cf.Position.Y + sz.Y / 2
-        local numPart = bestRoom:FindFirstChild(bestRoom.Name)
-        if numPart and numPart:IsA("BasePart") then
-            minY = math.max(minY, numPart.Position.Y - 0.5)
-        end
-        local safeMinY = minY + 0.8
-        local safeMaxY = maxY - 1.2
-        if safeMaxY > safeMinY then
-            return math.clamp(desiredPos.Y, safeMinY, safeMaxY)
-        end
-    end
-    return desiredPos.Y
-end
 
 -- High-Precision Environment & Hiding Spot Introspectors
 local function isPlayerOutOfMap()
@@ -3946,27 +3736,6 @@ local function isPlayerOutOfMap()
     return true
 end
 
-local function isHidingSpotNearPos(pos)
-    if not pos then return false end
-    local p = (typeof(pos) == "CFrame") and pos.Position or pos
-    if typeof(p) ~= "Vector3" then return false end
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if not curRooms then return false end
-    for _, rm in ipairs(curRooms:GetChildren()) do
-        for _, desc in ipairs(rm:GetDescendants()) do
-            if desc:IsA("Model") then
-                local nl = desc.Name:lower()
-                if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
-                    local pivot = desc:GetPivot().Position
-                    if (pivot - p).Magnitude < 22 then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
 
 -- =========================================================================
 -- Universal Godmode & Client Death Interceptor (Protects Against ALL Entities)
@@ -4290,16 +4059,18 @@ end
 for _, c in ipairs(Workspace:GetChildren()) do
     registerEyesThreat(c)
 end
-local initialLive = Workspace:FindFirstChild("LiveEntities")
-if initialLive then
-    for _, c in ipairs(initialLive:GetChildren()) do
-        registerEyesThreat(c)
+pcall(function()
+    local live = Workspace:FindFirstChild("LiveEntities")
+    if live then
+        for _, c in ipairs(live:GetChildren()) do
+            registerEyesThreat(c)
+        end
+        live.ChildAdded:Connect(registerEyesThreat)
+        live.ChildRemoved:Connect(function(c)
+            activeEyesRegistry[c] = nil
+        end)
     end
-    initialLive.ChildAdded:Connect(registerEyesThreat)
-    initialLive.ChildRemoved:Connect(function(c)
-        activeEyesRegistry[c] = nil
-    end)
-end
+end)
 
 Workspace.ChildAdded:Connect(registerEyesThreat)
 Workspace.ChildRemoved:Connect(function(c)
@@ -4416,9 +4187,6 @@ end)
 
 
 
-local lastFlySlidePulse = 0
-local lastCrouchStealthTick = 0
-local flyPos = nil
 local lastNoclipDisableGrace = 0
 
 local function pulseSlideKeepAlive()
@@ -4573,47 +4341,6 @@ task.spawn(function()
 end)
 
 -- Safe Room Landing Calculator: Determines valid floor coordinates inside active rooms
-local function getSafeLandingPosition()
-    local char = getChar()
-    local root = getRoot()
-    if not root then return nil end
-
-    -- 1. Check if there is already a solid walkable floor directly below root
-    local rayParams = RaycastParams.new()
-    rayParams.FilterDescendantsInstances = {char, Workspace.CurrentCamera}
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-    local floorHit = workspace:Raycast(root.Position + Vector3.new(0, 2, 0), Vector3.new(0, -12, 0), rayParams)
-    if floorHit and floorHit.Instance and floorHit.Instance.CanCollide then
-        local hum = char:FindFirstChildWhichIsA("Humanoid")
-        local rootOffset = (hum and hum.HipHeight or 2.0) + 1.0
-        return Vector3.new(root.Position.X, floorHit.Position.Y + rootOffset, root.Position.Z)
-    end
-
-    -- 2. If out of bounds or in mid-air/void, snap to nearest room entrance floor
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if curRooms then
-        local targetRoom = nil
-        local bestDist = math.huge
-        for _, rm in ipairs(curRooms:GetChildren()) do
-            local cf, sz = rm:GetBoundingBox()
-            local d = (root.Position - cf.Position).Magnitude
-            if d < bestDist then
-                bestDist = d
-                targetRoom = rm
-            end
-        end
-
-        if targetRoom then
-            local roomEnt = targetRoom:FindFirstChild("RoomEntrance") or targetRoom:FindFirstChild("RoomExit") or targetRoom:FindFirstChildWhichIsA("BasePart")
-            if roomEnt then
-                return getExactFloorPos(roomEnt.Position + Vector3.new(0, 1, 0))
-            end
-        end
-    end
-
-    return nil
-end
 
 -- Floor Raycast Snapping: Guaranteed placement on walkable floor surface (eliminates mid-air drops & gravity physics spikes)
 getExactFloorPos = function(pos, fallbackOffset)
@@ -5301,9 +5028,6 @@ local function purgeResidualRoofPlatforms()
 end
 purgeResidualRoofPlatforms()
 
-local function removeRoofPlatform()
-    purgeResidualRoofPlatforms()
-end
 
 local function teleportToRoof(callback)
     if State.Noclip or isPlayerOutOfMap() then
@@ -5456,61 +5180,11 @@ if getgenv then
 end
 
 local isAutoNavigatingRooms = false
-local function autoNavigateToRoom(targetRoom)
-    if isAutoNavigatingRooms then
-        isAutoNavigatingRooms = false
-        Hub.Notify("Room Navigator", "Navigation cancelled.", 2)
-        return
-    end
-
-    isAutoNavigatingRooms = true
-    Hub.Notify("Room Navigator", "Auto-advancing to Room " .. tostring(targetRoom) .. "...", 3)
-
-    task.spawn(function()
-        while isAutoNavigatingRooms do
-            if _G.DOORS_SESSION ~= currentSession then break end
-            local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
-            local lr = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
-            if lr >= targetRoom then
-                Hub.Notify("Room Navigator", "Target Room " .. tostring(targetRoom) .. " Reached!", 4)
-                break
-            end
-
-            -- 1. Grab Key if door locked
-            local curRooms = Workspace:FindFirstChild("CurrentRooms")
-            local cRoom = curRooms and curRooms:FindFirstChild(tostring(lr))
-            local door = cRoom and cRoom:FindFirstChild("Door")
-            local lock = door and door:FindFirstChild("Lock")
-            if lock and lock:FindFirstChild("UnlockPrompt", true) then
-                local hasKey = LocalPlayer.Backpack:FindFirstChild("Key") ~= nil or (getChar() and getChar():FindFirstChild("Key") ~= nil)
-                if not hasKey then
-                    teleportToRoomKey()
-                    task.wait(1.5)
-                end
-            end
-
-            -- 2. Teleport to Exit Door
-            teleportToNextDoor()
-            task.wait(1.2)
-
-            -- Wait for next room to spawn
-            local attempts = 0
-            while isAutoNavigatingRooms and attempts < 15 do
-                local curLr = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
-                if curLr > lr then break end
-                task.wait(0.2)
-                attempts = attempts + 1
-            end
-        end
-        isAutoNavigatingRooms = false
-    end)
-end
 
 -- =========================================================================
 -- Continuous Heartbeat Enforcement & Omnidirectional Phase Noclip Engine
 -- =========================================================================
-local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
-    if hbFlightConn then trackConn(hbFlightConn) end
+trackConn(RunService.Heartbeat:Connect(function(dt)
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
     local root = getRoot()
@@ -5925,8 +5599,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- First-Person Dynamic Eye-Level Camera Shield & Complete Body Clip Eradication:
-local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(function()
-    if cameraPitchConn then trackConn(cameraPitchConn) end
+trackConn(RunService.RenderStepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
 
     if State.Noclip then
@@ -5973,8 +5646,7 @@ local cameraPitchConn; cameraPitchConn = RunService.RenderStepped:Connect(functi
 end)
 
 -- Stepped Guard: Strips collisions & touch on character parts during Noclip
-local steppedConn1; steppedConn1 = RunService.Stepped:Connect(function()
-    if steppedConn1 then trackConn(steppedConn1) end
+trackConn(RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     local char = getChar()
     local mgTable = getMainGameTable()
@@ -6145,8 +5817,7 @@ end)
 
 -- =========================================================================
 -- Pre-Physics Stepped Collision Bypass: Ensures physics engine NEVER overrides noclip collisions before physics step
-local steppedConn2; steppedConn2 = RunService.Stepped:Connect(function()
-    if steppedConn2 then trackConn(steppedConn2) end
+trackConn(RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     if State.Noclip then
         local char = getChar()
@@ -6166,8 +5837,7 @@ end)
 -- =========================================================================
 
 local lastJumpRequestTime = 0
-local jumpConn; jumpConn = UserInputService.JumpRequest:Connect(function()
-    if jumpConn then trackConn(jumpConn) end
+trackConn(UserInputService.JumpRequest:Connect(function()
     if State.Enable_Jumping then
         local now = os.clock()
         if now - lastJumpRequestTime < 0.35 then return end -- Debounce: strictly 1 jump per spacebar press!
@@ -6193,8 +5863,7 @@ end)
 local autoInteractToggleObj = nil
 local autoHideToggleObj = nil
 
-local inputConn1; inputConn1 = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if inputConn1 then trackConn(inputConn1) end
+trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
     -- Keybind Triggers for Auto Interact [R] & Auto Hide [Q]
     if not gameProcessed then
@@ -7171,10 +6840,9 @@ pcall(function()
 end)
 
 -- Visual Enhancements: Semi-Transparent Closet While Hiding
-local lastHidingModel = nil
-local lastHidingOriginalTrans = {}
-
 task.spawn(function()
+    local lastHidingModel = nil
+    local lastHidingOriginalTrans = {}
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.SemiTransparent_Closet then
@@ -7341,13 +7009,15 @@ pcall(function()
 end)
 
 -- Visual Enhancements: Entity Spawn Notifier & Sound Alert
+local triggerEntityNotification, checkAndDefuseEntity
+do
 local notifiedEntities = {}
 local notifySound = Instance.new("Sound")
 notifySound.SoundId = "rbxassetid://6534947588"
 notifySound.Volume = 0.6
 notifySound.Parent = game:GetService("SoundService")
 
-local function triggerEntityNotification(name)
+triggerEntityNotification = function(name)
     if not State.Notify_EntitySpawn then return end
     if State.Notify_Entity_Filters and State.Notify_Entity_Filters[name] == false then return end
     local now = os.clock()
@@ -7391,7 +7061,7 @@ defuseLethalEntity = function(entity)
     end)
 end
 
-local function checkAndDefuseEntity(child)
+checkAndDefuseEntity = function(child)
     if not child then return end
     local cName = child.Name
     local lower = cName:lower()
@@ -7442,6 +7112,8 @@ if remotesFolder then
         end)
     end
 end
+
+end -- End of Entity Notifier scoped block
 
 -- Dynamic Floor Active Entities & Modifier Scanner
 local function getActiveEntitiesForFloor()
@@ -7553,7 +7225,6 @@ end
 -- Autonomous Knobs Farm & Auto-Win Engine (Fly-Noclip, Anti-Entity, Quota Reset)
 -- =========================================================================
 isKnobsFarmRunning = false
-local currentFarmTarget = nil
 local lootedContainersThisRun = {}
 local lootedRoomsThisRun = {}
 isEvacuatingRoof = false
@@ -7618,7 +7289,7 @@ end
 -- Autonomous Rush & Ambush Safe Phase Daemon (Vertical Safe Altitude Shield)
 -- When Rush, Ambush, or any entity approaches, safely elevates flight to +160 studs until threat passes!
 -- =========================================================================
-local isSafePhased = false
+-- isSafePhased purged
 
 -- =========================================================================
 -- Autonomous Auto-Hide Daemon (mspaint v4 Wardrobe/Closet Threat Evasion)
@@ -7939,6 +7610,8 @@ local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and gam
 -- =========================================================================
 -- Entity Path Nodes & Rush/Ambush Safe Zones Visualization Subsystems
 -- =========================================================================
+local refreshEntityNodesVisuals, refreshSafeZonesVisuals
+do
 local activeNodeVisuals = {}
 local activeSafeZoneVisuals = {}
 local rushSafeHUD = nil
@@ -8669,6 +8342,7 @@ task.spawn(function()
         task.wait(1.5)
     end
 end)
+end -- End of Rush Pathfinding scoped block
 
 -- Tab 1: MAIN TAB (Movement, Interaction, Speed Changer & Automation)
 ;(function()
@@ -9144,9 +8818,8 @@ Hub.CreateButton(exploitsTab, "Quick Dupe Held Tool", function()
 end)
 end)()
 
-local floorTabName = "Floor (" .. tostring(detectedFloor) .. ")" 
-
 ;(function()
+local floorTabName = "Floor (" .. tostring(detectedFloor) .. ")"
 local floorTab = Hub.CreateTab(floorTabName, {
     Icon = "🏨",
     Size = 18,
