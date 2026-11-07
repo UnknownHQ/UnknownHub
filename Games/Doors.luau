@@ -1582,6 +1582,35 @@ local function isMspaintItemCondition(inst)
     return (inst:GetAttribute("Pickup") ~= nil or inst:GetAttribute("PropType") ~= nil) and inst:GetAttribute("FuseID") == nil
 end
 
+local VALID_ITEM_NAMES = {
+    ["keyobtain"]       = "Key",
+    ["livehintbook"]    = "Book",
+    ["lighter"]         = "Lighter",
+    ["lighter_small"]   = "Lighter",
+    ["flashlight"]      = "Flashlight",
+    ["bulklight"]       = "Bulklight",
+    ["straplight"]      = "Straplight",
+    ["shakelight"]      = "Shakelight",
+    ["lockpick"]        = "Lockpick",
+    ["skeletonkey"]     = "Skeleton Key",
+    ["crucifix"]        = "Crucifix",
+    ["battery"]         = "Battery",
+    ["batteries"]       = "Battery",
+    ["bandage"]         = "Bandage",
+    ["bandages"]        = "Bandage",
+    ["bandaid"]         = "Bandage",
+    ["vitamins"]        = "Vitamins",
+    ["shears"]          = "Shears",
+    ["starjug"]         = "Star Jug",
+    ["starlight"]       = "Starlight",
+    ["candy"]           = "Candy",
+    ["smoothie"]        = "Smoothie",
+    ["herb"]            = "Herb",
+    ["bread"]           = "Bread",
+    ["livebreakerpolepickup"] = "Fuse",
+    ["fuse"]            = "Fuse"
+}
+
 local function isValidLootItem(model)
     if not model or not (model:IsA("Model") or model:IsA("Tool") or model:IsA("BasePart")) then return false, nil end
     local lower = model.Name:lower()
@@ -1591,7 +1620,7 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- 2. Strict Invariant: Reject Rift & stored rift items so Rift is never highlighted as loot!
+    -- 2. Strict Invariant: Reject Rift & stored rift items
     if lower:find("rift") or model:GetAttribute("IsRift") or model:GetAttribute("Rift") then
         return false, nil
     end
@@ -1604,7 +1633,7 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- 4. Deep Decor & Scenery Filter (Catches Candle Decor, Candlesticks, Candelabras & their child parts)
+    -- 4. Deep Decor & Scenery Filter
     if isDecorOrScenery(model) then
         return false, nil
     end
@@ -1617,46 +1646,42 @@ local function isValidLootItem(model)
         end
     end
 
-    -- 6. Reject keys, gold, coins, doors, levers, and paintings (handled by their own dedicated ESP categories)
-    if lower:find("keyobtain") or lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever")
+    -- 6. Reject gold, doors, levers, and paintings (handled by their own dedicated ESP categories)
+    if lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever")
         or lower:find("painting") or lower:find("picture") or lower:find("canvas") or lower:find("frame") or lower:find("portrait") or lower:find("photo") then
         return false, nil
     end
 
-    -- 6b. Authoritative Engine Attribute Check (mspaint 1:1 Parity)
-    -- In DOORS, genuine collectible items ALWAYS carry the 'Pickup' or 'PropType' attribute from the engine!
-    local isRealLoot = isMspaintItemCondition(model) or model:IsA("Tool") or (dropsFolder and model.Parent == dropsFolder)
-    if not isRealLoot then
-        -- Strict mspaint Invariant: Arbitrary room decor, furniture, and static scene props NEVER have Pickup/PropType!
-        return false, nil
+    -- 7. Authoritative mspaint Attribute Check
+    if isMspaintItemCondition(model) then
+        local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("PropType") or model:GetAttribute("Pickup")
+        if typeof(rawName) == "string" and #rawName > 0 then
+            return true, rawName
+        end
     end
 
-    if isDecorOrScenery(model) then
-        return false, nil
+    -- 8. Dropped tools in Workspace.Drops
+    if dropsFolder and model.Parent == dropsFolder then
+        return true, model.Name
     end
 
-    local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("PropType") or model:GetAttribute("Pickup")
-    if typeof(rawName) == "string" and #rawName > 0 then
-        local rLower = rawName:lower()
-        if not rLower:find("decor") and not rLower:find("holder") and not rLower:find("stand") then
-            if rLower:find("candle") and model:IsA("Model") then
-                local _, sz = model:GetBoundingBox()
-                if sz.X <= 3.2 and sz.Y <= 3.2 and sz.Z <= 3.2 then
-                    return true, "Candle"
-                else
-                    return false, nil
-                end
-            else
-                return true, rawName
-            end
+    -- 9. Check verified item dictionary
+    if VALID_ITEM_NAMES[lower] then
+        return true, VALID_ITEM_NAMES[lower]
+    end
+
+    -- 10. Check ProximityPrompt action text for collectible items ("Take", "Pick up", "Grab", "Collect")
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        local act = (prompt.ActionText or ""):lower()
+        local obj = prompt.ObjectText or ""
+        if act == "take" or act == "pick up" or act == "pickup" or act == "grab" or act == "collect" or prompt.Name == "ModulePrompt" then
+            local cleanName = (#obj > 0) and obj or model.Name
+            return true, cleanName
         end
     end
 
     if model:IsA("Tool") then
-        local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if prompt and prompt.ObjectText and #prompt.ObjectText > 1 then
-            return true, prompt.ObjectText
-        end
         return true, model.Name
     end
 
@@ -2287,21 +2312,27 @@ local function processEntity(entity)
             -- Gloombats Full Swarm Highlighting: Highlight ALL flying bats in the swarm, not just the center point!
             highlightTarget = entity
         elseif cfg.Name == "Sally" then
-            -- Sally Visibility Guardian: Permanently lock transparency to 0 against sitting animation hidden states
+            -- Sally Visibility Guardian: Permanently lock transparency to 0 strictly on Sally's character body parts, NEVER her seat/platform!
+            local sallyBodyParts = {}
             local function enforceSallyPart(p)
                 if p:IsA("BasePart") then
-                    p.Transparency = 0
-                    p.LocalTransparencyModifier = 0
-                    p:GetPropertyChangedSignal("LocalTransparencyModifier"):Connect(function()
-                        if p.LocalTransparencyModifier ~= 0 then
-                            p.LocalTransparencyModifier = 0
-                        end
-                    end)
-                    p:GetPropertyChangedSignal("Transparency"):Connect(function()
-                        if p.Transparency ~= 0 then
-                            p.Transparency = 0
-                        end
-                    end)
+                    local pName = p.Name:lower()
+                    local isPlatform = pName:find("seat") or pName:find("platform") or pName:find("chair") or pName:find("stool") or pName:find("base") or pName:find("stand")
+                    if not isPlatform then
+                        table.insert(sallyBodyParts, p)
+                        p.Transparency = 0
+                        p.LocalTransparencyModifier = 0
+                        p:GetPropertyChangedSignal("LocalTransparencyModifier"):Connect(function()
+                            if p.LocalTransparencyModifier ~= 0 then
+                                p.LocalTransparencyModifier = 0
+                            end
+                        end)
+                        p:GetPropertyChangedSignal("Transparency"):Connect(function()
+                            if p.Transparency ~= 0 then
+                                p.Transparency = 0
+                            end
+                        end)
+                    end
                 end
             end
             for _, p in ipairs(entity:GetDescendants()) do
@@ -2310,7 +2341,7 @@ local function processEntity(entity)
             pcall(function()
                 entity.DescendantAdded:Connect(enforceSallyPart)
             end)
-            highlightTarget = entity -- Direct clean Highlight on Sally's 3D character model! NO cube!
+            highlightTarget = #sallyBodyParts > 0 and sallyBodyParts or entity
         end
 
         if is2D then
@@ -2348,7 +2379,7 @@ local function processEntity(entity)
                     chamPart.CastShadow = false
                     chamPart.Color = entityColor
                     chamPart.Material = Enum.Material.SmoothPlastic
-                    chamPart.Transparency = 0.99 -- Nearly invisible in workspace: geometry receptor only!
+                    chamPart.Transparency = 0.55 -- Translucent SmoothPlastic geometry: activates Roblox's native Highlight shader for the soft glowing rounded cube!
                     chamPart.Shape = shape
                     chamPart.Size = size
                     chamPart.CFrame = targetPart.CFrame
@@ -6068,7 +6099,7 @@ local function applyPromptModifications(prompt)
     local isHidingSpot = prName:find("hide") or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed")
         or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("locker") or parentName:find("bed")
         or pAct:find("hide") or pAct:find("enter")
-    local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt"
+    local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt" or prName:find("knob") or parentName:find("knob") or prName == "manualopenprompt"
 
     -- Line of Sight Check (Door prompts ALWAYS bypass LOS so side doors open standing up; PromptClip bypasses all)
     if isDoorPrompt or State.PromptClip or State.Noclip_Interact then
@@ -6078,8 +6109,8 @@ local function applyPromptModifications(prompt)
         if origLOS ~= nil then prompt.RequiresLineOfSight = origLOS end
     end
 
-    -- Instant Interact (HoldDuration = 0)
-    if State.Instant_Interact then
+    -- Instant Interact (HoldDuration = 0; Door prompts always instant for seamless opening)
+    if State.Instant_Interact or isDoorPrompt then
         prompt.HoldDuration = 0
     else
         local origHold = prompt:GetAttribute("OrigHold")
