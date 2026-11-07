@@ -117,7 +117,29 @@ local State = {
     AutoEggMinigame = false,
     AutoHeartbeat = false,
     AutoHide = false,
-    AutoHide_ThreatRadius = 45
+    AutoHide_ThreatRadius = 45,
+
+    -- Visuals & ESP Suite (1:1 mspaint v4 Part 2)
+    Master_ESP = true,
+    ESP_ShowDistance = true,
+    ESP_TextSize = 14,
+    ESP_FillTransparency = 0.65,
+    ESP_OutlineTransparency = 0,
+    Doors_ESP = true,
+    Keys_ESP = true,
+    Items_ESP = true,
+    Gold_ESP = true,
+    Entities_ESP = true,
+    HidingSpots_ESP = false,
+    Rift_ESP = false,
+    Tracers_ESP = false,
+    Offscreen_Radar = true,
+    Radar_Radius = 160,
+
+    -- Visuals & World
+    Fullbright = false,
+    NoFog = false,
+    NoCamShake = false
 }
 
 -- Forward Declarations
@@ -223,7 +245,7 @@ do
     function UILib.CreateTab(name)
         local tabBtn = Instance.new("TextButton")
         tabBtn.Name = name .. "_TabBtn"
-        tabBtn.Size = UDim2.new(0, 140, 1, 0)
+        tabBtn.Size = UDim2.new(0, 86, 1, 0)
         tabBtn.BackgroundColor3 = Color3.fromRGB(24, 25, 30)
         tabBtn.BorderSizePixel = 0
         tabBtn.Font = Enum.Font.RobotoMono
@@ -546,8 +568,10 @@ end
 
 -- // 7. TAB INSTANTIATION // --
 local movementTab = UILib.CreateTab("Movement")
-local interactionTab = UILib.CreateTab("Interaction")
-local automationTab = UILib.CreateTab("Automation")
+local interactionTab = UILib.CreateTab("Interact")
+local automationTab = UILib.CreateTab("Automate")
+local espTab = UILib.CreateTab("ESP")
+local visualsTab = UILib.CreateTab("Visuals")
 
 -- =========================================================================
 -- SECTION 1: MOVEMENT & CHARACTER (MSPAINT PARITY)
@@ -1060,4 +1084,790 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
-print("[U⚡] UNKNOWN HUB — DOORS V2 (PART 1) LOADED SUCCESSFULLY!")
+
+-- =========================================================================
+-- SECTION 4: VISUALS & ESP SUITE (1:1 MSPAINT V4 RE-ARCHITECTURE)
+-- =========================================================================
+local EspContainer = Instance.new("Folder")
+EspContainer.Name = "Unknown_DoorsV2_ESP"
+EspContainer.Parent = GuiContainer
+
+local activeEspRecords = {}
+local activeTracers = {}
+local activeRadarArrows = {}
+
+local function createBillboard(adorneePart, baseText, color, offset)
+    if not adorneePart then return nil, nil end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "ESP_Billboard"
+    bb.Adornee = adorneePart
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.new(0, 200, 0, 50)
+    bb.StudsOffset = offset or Vector3.new(0, 1.8, 0)
+    bb.ResetOnSpawn = false
+    bb.LightInfluence = 0
+    bb.MaxDistance = 5000
+    bb.Parent = EspContainer
+
+    local label = Instance.new("TextLabel")
+    label.Name = "ESPLabel"
+    label.Size = UDim2.new(0, 200, 0, 50)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.RobotoMono
+    label.TextSize = State.ESP_TextSize or 14
+    label.RichText = true
+    label.TextWrapped = true
+    label.TextWrap = true
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.Parent = bb
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 0, 0)
+    stroke.Thickness = 1.2
+    stroke.Parent = label
+
+    local initialText = baseText
+    if State.ESP_ShowDistance then
+        local root = getRoot()
+        if root and adorneePart:IsA("BasePart") then
+            local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
+            initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 14) - 3, 9), dist)
+        end
+    end
+    label.Text = initialText
+    return bb, label
+end
+
+local function createHighlight(adornee, color, fillTrans, outlineTrans)
+    if not adornee then return nil end
+    fillTrans = fillTrans or State.ESP_FillTransparency or 0.65
+    outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "ESP_Highlight"
+    hl.Adornee = adornee
+    hl.FillColor = color
+    hl.FillTransparency = fillTrans
+    hl.OutlineColor = color
+    hl.OutlineTransparency = outlineTrans
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = EspContainer
+    return hl
+end
+
+local function removeEspFor(owner)
+    if not owner then return end
+    local record = activeEspRecords[owner]
+    if record then
+        if record.Visuals then
+            for _, v in ipairs(record.Visuals) do
+                pcall(function() v:Destroy() end)
+            end
+        end
+        activeEspRecords[owner] = nil
+    end
+    if activeTracers[owner] then
+        pcall(function() activeTracers[owner]:Remove() end)
+        activeTracers[owner] = nil
+    end
+    if activeRadarArrows[owner] then
+        pcall(function() activeRadarArrows[owner]:Remove() end)
+        activeRadarArrows[owner] = nil
+    end
+end
+
+local function clearCategoryEsp(cat)
+    for owner, record in pairs(activeEspRecords) do
+        if record.Category == cat then
+            removeEspFor(owner)
+        end
+    end
+end
+
+local function clearAllEsp()
+    for owner, _ in pairs(activeEspRecords) do
+        removeEspFor(owner)
+    end
+    table.clear(activeEspRecords)
+    pcall(function() EspContainer:ClearAllChildren() end)
+end
+
+local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber)
+    if not owner or not adorneePart or not State.Master_ESP then return end
+
+    -- Existing record update
+    local existing = activeEspRecords[owner]
+    if existing and existing.Adornee == adorneePart and existing.Category == category then
+        if existing.BaseText ~= baseText or existing.Color ~= color then
+            existing.BaseText = baseText
+            existing.Color = color
+            if existing.Label then
+                existing.Label.TextColor3 = color
+                existing.Label.Text = baseText
+            end
+            if existing.Highlight then
+                existing.Highlight.FillColor = color
+                existing.Highlight.OutlineColor = color
+            end
+        end
+        return
+    end
+
+    removeEspFor(owner)
+
+    local visuals = {}
+    local bb, label = createBillboard(adorneePart, baseText, color, offset)
+    if bb then table.insert(visuals, bb) end
+
+    -- Safe highlight target assignment (Instance vs table vs model)
+    local hl = nil
+    local hlTarget = nil
+    if typeof(partsToHighlight) == "Instance" then
+        if partsToHighlight:IsA("BasePart") or partsToHighlight:IsA("Model") then
+            hlTarget = partsToHighlight
+        end
+    elseif typeof(partsToHighlight) == "table" and #partsToHighlight > 0 then
+        if #partsToHighlight == 1 and typeof(partsToHighlight[1]) == "Instance" and partsToHighlight[1]:IsA("BasePart") then
+            hlTarget = partsToHighlight[1]
+        elseif typeof(owner) == "Instance" and owner:IsA("Model") then
+            hlTarget = owner
+        end
+    end
+
+    if not hlTarget then
+        if typeof(adorneePart) == "Instance" and adorneePart:IsA("BasePart") then
+            hlTarget = adorneePart
+        elseif typeof(owner) == "Instance" and owner:IsA("Model") then
+            hlTarget = owner
+        end
+    end
+
+    if hlTarget and category ~= "Gold" then
+        hl = createHighlight(hlTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0)
+        if hl then table.insert(visuals, hl) end
+    end
+
+    activeEspRecords[owner] = {
+        Owner = owner,
+        Adornee = adorneePart,
+        BaseText = baseText,
+        Color = color,
+        Category = category,
+        Label = label,
+        Highlight = hl,
+        Visuals = visuals,
+        RoomNumber = roomNumber,
+        LastDist = -1
+    }
+
+    pcall(function()
+        owner.Destroying:Once(function()
+            removeEspFor(owner)
+        end)
+    end)
+end
+
+-- Continuous 5Hz Distance Update Daemon
+task.spawn(function()
+    while isAlive() do
+        if State.Master_ESP then
+            local root = getRoot()
+            local rootPos = root and root.Position
+            for owner, record in pairs(activeEspRecords) do
+                if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
+                    removeEspFor(owner)
+                    continue
+                end
+
+                local cat = record.Category
+                local isEnabled = (cat == "Doors" and State.Doors_ESP)
+                    or (cat == "Keys" and State.Keys_ESP)
+                    or (cat == "Items" and State.Items_ESP)
+                    or (cat == "Gold" and State.Gold_ESP)
+                    or (cat == "Entities" and State.Entities_ESP)
+                    or (cat == "HidingSpots" and State.HidingSpots_ESP)
+                    or (cat == "Special" and State.Rift_ESP)
+
+                if not isEnabled then
+                    removeEspFor(owner)
+                    continue
+                end
+
+                if State.ESP_ShowDistance and rootPos and record.Label and record.Adornee:IsA("BasePart") then
+                    local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
+                    if dist ~= record.LastDist then
+                        record.LastDist = dist
+                        record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, math.max((State.ESP_TextSize or 14) - 3, 9), dist)
+                    end
+                end
+            end
+        end
+        task.wait(0.18)
+    end
+end)
+
+-- =========================================================================
+-- SPECIFIC SCANNERS (DOORS, KEYS, ITEMS, GOLD, ENTITIES, RIFT)
+-- =========================================================================
+
+-- 1. Precision Door Scanner (Highlights strictly wooden leaf doorMesh, never Hidden hitbox!)
+local function processDoor(room, doorModel)
+    if not doorModel then return end
+    if not State.Doors_ESP or not State.Master_ESP then
+        removeEspFor(doorModel)
+        return
+    end
+
+    local roomNumber = tonumber(room.Name)
+    local doorMesh = doorModel:FindFirstChild("Door")
+    if not doorMesh or not doorMesh:IsA("BasePart") then
+        doorMesh = doorModel:FindFirstChildWhichIsA("MeshPart") or doorModel:FindFirstChildWhichIsA("BasePart")
+    end
+    if not doorMesh then return end
+
+    local isOpened = doorModel:GetAttribute("Opened") == true or doorModel:GetAttribute("Open") == true
+    if isOpened then
+        removeEspFor(doorModel)
+        return
+    end
+
+    local isLocked = doorModel:GetAttribute("Locked") == true or (doorModel:FindFirstChild("Lock") and doorModel.Lock:FindFirstChildWhichIsA("ProximityPrompt", true))
+    local doorNumberStr = tostring((roomNumber or 0) + 1)
+    local baseText
+    local color
+
+    if isLocked then
+        baseText = string.format("Door %s [LOCKED]", doorNumberStr)
+        color = Color3.fromRGB(255, 180, 50)
+    else
+        baseText = string.format("Door %s", doorNumberStr)
+        color = Color3.fromRGB(0, 215, 255)
+    end
+
+    local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, doorHeaderOffset, roomNumber)
+end
+
+-- 2. Precision Key & Lever Scanner
+local function processKey(keyObtain)
+    if not keyObtain or not keyObtain:IsA("Model") then return end
+    if not State.Keys_ESP or not State.Master_ESP then
+        removeEspFor(keyObtain)
+        return
+    end
+
+    local keyMesh = keyObtain:FindFirstChild("Key") or keyObtain:FindFirstChild("Handle") or keyObtain:FindFirstChildWhichIsA("BasePart", true)
+    if keyMesh then
+        local baseText = "Key"
+        local color = Color3.fromRGB(0, 230, 255)
+        registerEsp(keyObtain, keyMesh, baseText, color, "Keys", keyMesh, Vector3.new(0, 1.2, 0))
+    end
+end
+
+local function processLever(leverInstance)
+    if not leverInstance then return end
+    if not State.Keys_ESP or not State.Master_ESP then
+        removeEspFor(leverInstance)
+        return
+    end
+
+    local targetPart = (leverInstance:IsA("Model") and (leverInstance.PrimaryPart or leverInstance:FindFirstChildWhichIsA("BasePart", true)))
+        or (leverInstance:IsA("BasePart") and leverInstance)
+    if targetPart then
+        local color = Color3.fromRGB(130, 255, 130)
+        registerEsp(leverInstance, targetPart, "Breaker Lever", color, "Keys", targetPart, Vector3.new(0, 1.4, 0))
+    end
+end
+
+-- 3. Precision Item Scanner
+local function processItem(itemModel)
+    if not itemModel then return end
+    if not State.Items_ESP or not State.Master_ESP then
+        removeEspFor(itemModel)
+        return
+    end
+
+    local targetPart = (itemModel:IsA("Model") and (itemModel.PrimaryPart or itemModel:FindFirstChild("Handle") or itemModel:FindFirstChildWhichIsA("BasePart", true)))
+        or (itemModel:IsA("BasePart") and itemModel)
+    if not targetPart then return end
+
+    local name = itemModel.Name
+    local cleanName = name:gsub("Pickup", ""):gsub("Model", ""):gsub("Prop", "")
+    if cleanName == "" then cleanName = "Item" end
+
+    local color = Color3.fromRGB(180, 120, 255)
+    registerEsp(itemModel, targetPart, cleanName, color, "Items", targetPart, Vector3.new(0, 1.2, 0))
+end
+
+-- 4. Precision Gold Scanner
+local function processGold(owner)
+    if not owner then return end
+    if not State.Gold_ESP or not State.Master_ESP then
+        removeEspFor(owner)
+        return
+    end
+
+    local targetPart = (owner:IsA("Model") and (owner.PrimaryPart or owner:FindFirstChildWhichIsA("BasePart", true)))
+        or (owner:IsA("BasePart") and owner)
+    if not targetPart then return end
+
+    local baseText = "Gold"
+    local goldVal = owner:GetAttribute("GoldValue") or (owner.Parent and owner.Parent:GetAttribute("GoldValue"))
+    if goldVal and tonumber(goldVal) then
+        baseText = string.format("Gold [%d]", tonumber(goldVal))
+    end
+
+    local color = Color3.fromRGB(255, 215, 0)
+    registerEsp(owner, targetPart, baseText, color, "Gold", targetPart, Vector3.new(0, 0.8, 0))
+end
+
+-- 5. Precision Hiding Spot Scanner
+local function processHidingSpot(hidingModel, roomNumber)
+    if not hidingModel then return end
+    if not State.HidingSpots_ESP or not State.Master_ESP then
+        removeEspFor(hidingModel)
+        return
+    end
+
+    local targetPart = (hidingModel:IsA("Model") and (hidingModel.PrimaryPart or hidingModel:FindFirstChildWhichIsA("BasePart", true)))
+        or (hidingModel:IsA("BasePart") and hidingModel)
+    if not targetPart then return end
+
+    local nLower = hidingModel.Name:lower()
+    local spotName = "Hiding Spot"
+    if nLower:find("closet") or nLower:find("wardrobe") then
+        spotName = "Wardrobe"
+    elseif nLower:find("bed") then
+        spotName = "Bed"
+    elseif nLower:find("locker") then
+        spotName = "Locker"
+    end
+
+    local color = Color3.fromRGB(60, 220, 90)
+    registerEsp(hidingModel, targetPart, spotName, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0), roomNumber)
+end
+
+-- 6. Dedicated Rift ESP Scanner
+local function processRift(model)
+    if not model then return end
+    if not State.Rift_ESP or not State.Master_ESP then
+        removeEspFor(model)
+        return
+    end
+
+    local mName = model.Name:lower()
+    if (mName:find("rift") and not mName:find("fragment")) or model:GetAttribute("IsRift") then
+        local targetPart = (model:IsA("Model") and (model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)))
+            or (model:IsA("BasePart") and model)
+        if targetPart then
+            local color = Color3.fromRGB(0, 255, 255)
+            registerEsp(model, targetPart, "The Rift", color, "Special", targetPart, Vector3.new(0, 1.5, 0))
+        end
+    end
+end
+
+-- 7. mspaint 2D Entity 3D Cham Engine (Function D / offset 1708680)
+local function get2DEntityChamPart(entity, entityName, rootPart)
+    local chamName = "__mspaint_2d_cham"
+    local existing = entity:FindFirstChild(chamName)
+    if existing and existing:IsA("BasePart") then return existing end
+
+    local isEyes = entityName:lower():find("eyes") or entityName:lower():find("lookman")
+    local shape = isEyes and Enum.PartType.Ball or Enum.PartType.Block
+    local size = isEyes and Vector3.new(5, 4, 5) or Vector3.new(6, 6, 6)
+
+    if entityName:lower():find("stampede") then
+        size = Vector3.new(8, 8, 8)
+    elseif entityName:lower():find("drone") and not entityName:lower():find("stampede") then
+        size = Vector3.new(3.375, 6.75, 0.619)
+    end
+
+    local part = Instance.new("Part")
+    part.Name = chamName
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanTouch = false
+    part.CanQuery = false
+    part.Massless = true
+    part.CastShadow = false
+    part.Transparency = 0.99
+    part.Shape = shape
+    part.Size = size
+    part.CFrame = rootPart.CFrame
+    part.Parent = entity
+
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = part
+    weld.Part1 = rootPart
+    weld.Parent = part
+    part.Anchored = false
+    return part
+end
+
+local function processEntity(entity)
+    if not entity or not entity.Parent then return end
+    if not State.Entities_ESP or not State.Master_ESP then
+        removeEspFor(entity)
+        return
+    end
+
+    local eLower = entity.Name:lower()
+
+    -- Reject players, character, camera baserig, viewmodels, and shop NPCs
+    if entity:IsA("Model") and Players:GetPlayerFromCharacter(entity) then return end
+    local char = getChar()
+    if char and (entity == char or entity:IsDescendantOf(char)) then return end
+    if eLower == "baserig" or eLower:find("viewmodel") or eLower:find("bob") or eLower:find("elgoblino") or (eLower:find("jeff") and not eLower:find("killer")) then
+        return
+    end
+    if eLower:find("dupe") or eLower:find("doorfake") then return end
+
+    -- Real monster registry
+    local cfg = nil
+    local is2D = false
+
+    if eLower:find("blitz") then
+        cfg = { Name = "Blitz" }; is2D = true
+    elseif eLower:find("rush") then
+        cfg = { Name = "Rush" }; is2D = true
+    elseif eLower:find("ambush") then
+        cfg = { Name = "Ambush" }; is2D = true
+    elseif eLower:find("lookman") then
+        cfg = { Name = "Lookman" }; is2D = true
+    elseif eLower:find("eyes") then
+        cfg = { Name = "Eyes" }; is2D = true
+    elseif eLower:find("screech") then
+        cfg = { Name = "Screech" }; is2D = false
+    elseif eLower:find("halt") or eLower == "shade" then
+        cfg = { Name = "Halt" }; is2D = true
+    elseif eLower:find("dread") then
+        cfg = { Name = "Dread" }; is2D = true
+    elseif eLower:find("figure") then
+        cfg = { Name = "Figure" }; is2D = false
+    elseif eLower:find("seek") then
+        cfg = { Name = "Seek" }; is2D = false
+    elseif eLower:find("giggle") then
+        cfg = { Name = "Giggle" }; is2D = false
+    elseif eLower:find("gloombat") then
+        cfg = { Name = "Gloombats" }; is2D = false
+    elseif eLower:find("grumble") then
+        cfg = { Name = "Grumble" }; is2D = false
+    elseif eLower:find("snare") then
+        cfg = { Name = "Snare Trap" }; is2D = false
+    elseif eLower:find("timothy") or eLower:find("spider") then
+        cfg = { Name = "Timothy" }; is2D = false
+    elseif eLower:find("a60") or eLower:find("a-60") then
+        cfg = { Name = "A-60" }; is2D = true
+    elseif eLower:find("a120") or eLower:find("a-120") then
+        cfg = { Name = "A-120" }; is2D = true
+    end
+
+    if not cfg then return end
+
+    local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChildWhichIsA("BasePart", true)))
+        or (entity:IsA("BasePart") and entity)
+    if not targetPart then return end
+
+    local highlightTarget = entity
+    local entityColor = Color3.fromRGB(255, 35, 35)
+
+    if is2D then
+        local chamPart = get2DEntityChamPart(entity, cfg.Name, targetPart)
+        if chamPart then
+            highlightTarget = chamPart
+        end
+    end
+
+    registerEsp(entity, targetPart, cfg.Name, entityColor, "Entities", highlightTarget, Vector3.new(0, 3.0, 0))
+end
+
+-- 8. Universal Room Scanner
+local function scanRoom(room)
+    if not room or not room:IsA("Model") then return end
+
+    -- Scan Doors
+    local door = room:FindFirstChild("Door")
+    if door then processDoor(room, door) end
+
+    -- Scan All Children
+    for _, child in ipairs(room:GetChildren()) do
+        local cLower = child.Name:lower()
+
+        -- Key Scanner
+        if cLower == "keyobtain" then
+            processKey(child)
+        -- Lever Scanner
+        elseif cLower:find("lever") or cLower:find("breaker") then
+            processLever(child)
+        -- Gold Scanner
+        elseif cLower:find("gold") then
+            processGold(child)
+        -- Rift Scanner
+        elseif cLower:find("rift") and not cLower:find("fragment") then
+            if State.Rift_ESP then processRift(child) end
+        -- Items Scanner
+        elseif child:IsA("Model") and (child:FindFirstChild("Handle") or child:FindFirstChild("ModulePrompt") or child:GetAttribute("Pickup")) then
+            processItem(child)
+        -- Hiding Spot Scanner
+        elseif child:IsA("Model") and (cLower:find("wardrobe") or cLower:find("closet") or cLower:find("bed") or cLower:find("locker")) then
+            processHidingSpot(child, tonumber(room.Name))
+        end
+    end
+end
+
+local function scanAllRooms()
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if curRooms then
+        for _, room in ipairs(curRooms:GetChildren()) do
+            scanRoom(room)
+        end
+    end
+end
+
+-- Connect Room Streaming & Entity Spawning
+task.spawn(function()
+    scanAllRooms()
+    local curRooms = Workspace:WaitForChild("CurrentRooms", 10)
+    if curRooms then
+        curRooms.ChildAdded:Connect(function(room)
+            task.wait(0.2)
+            scanRoom(room)
+        end)
+    end
+    Workspace.ChildAdded:Connect(function(child)
+        task.wait(0.1)
+        processEntity(child)
+    end)
+    for _, ch in ipairs(Workspace:GetChildren()) do
+        processEntity(ch)
+    end
+end)
+
+-- 9. Drawing API Snapline Tracers & 360 Offscreen Threat Radar
+task.spawn(function()
+    while isAlive() do
+        if State.Master_ESP and (State.Tracers_ESP or State.Offscreen_Radar) then
+            local cam = Workspace.CurrentCamera
+            local root = getRoot()
+            if cam and root then
+                local screenCenter = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+                local screenBottom = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
+
+                for owner, record in pairs(activeEspRecords) do
+                    if record.Category == "Entities" and record.Adornee and record.Adornee.Parent then
+                        local entPos = record.Adornee.Position
+                        local scrPos, onScreen = cam:WorldToViewportPoint(entPos)
+
+                        -- Snapline Tracer
+                        if State.Tracers_ESP and Drawing then
+                            if onScreen then
+                                local line = activeTracers[owner]
+                                if not line then
+                                    line = Drawing.new("Line")
+                                    line.Thickness = 1.5
+                                    line.Transparency = 1
+                                    line.Color = record.Color or Color3.fromRGB(255, 35, 35)
+                                    activeTracers[owner] = line
+                                end
+                                line.From = screenBottom
+                                line.To = Vector2.new(scrPos.X, scrPos.Y)
+                                line.Visible = true
+                            else
+                                if activeTracers[owner] then activeTracers[owner].Visible = false end
+                            end
+                        else
+                            if activeTracers[owner] then
+                                activeTracers[owner]:Remove()
+                                activeTracers[owner] = nil
+                            end
+                        end
+
+                        -- 360 Offscreen Threat Radar Arrow
+                        if State.Offscreen_Radar and Drawing then
+                            if not onScreen then
+                                local arrow = activeRadarArrows[owner]
+                                if not arrow then
+                                    arrow = Drawing.new("Triangle")
+                                    arrow.Filled = true
+                                    arrow.Color = record.Color or Color3.fromRGB(255, 35, 35)
+                                    arrow.Transparency = 0.9
+                                    activeRadarArrows[owner] = arrow
+                                end
+
+                                local relPos = cam.CFrame:PointToObjectSpace(entPos)
+                                local angle = math.atan2(-relPos.X, relPos.Z)
+                                local rad = State.Radar_Radius or 160
+
+                                local p0 = screenCenter + Vector2.new(math.sin(angle) * rad, -math.cos(angle) * rad)
+                                local p1 = screenCenter + Vector2.new(math.sin(angle + 0.18) * (rad - 16), -math.cos(angle + 0.18) * (rad - 16))
+                                local p2 = screenCenter + Vector2.new(math.sin(angle - 0.18) * (rad - 16), -math.cos(angle - 0.18) * (rad - 16))
+
+                                arrow.PointA = p0
+                                arrow.PointB = p1
+                                arrow.PointC = p2
+                                arrow.Visible = true
+                            else
+                                if activeRadarArrows[owner] then activeRadarArrows[owner].Visible = false end
+                            end
+                        else
+                            if activeRadarArrows[owner] then
+                                activeRadarArrows[owner]:Remove()
+                                activeRadarArrows[owner] = nil
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            for k, line in pairs(activeTracers) do line:Remove() end
+            for k, arrow in pairs(activeRadarArrows) do arrow:Remove() end
+            table.clear(activeTracers)
+            table.clear(activeRadarArrows)
+        end
+        task.wait(0.03)
+    end
+end)
+
+-- UI CONTROLS FOR TAB 4: ESP
+UILib.CreateSection(espTab, "Master & Visual Filters")
+
+UILib.CreateToggle(espTab, "Master ESP", State.Master_ESP, function(v)
+    State.Master_ESP = v
+    if not v then
+        clearAllEsp()
+    else
+        scanAllRooms()
+    end
+end)
+
+UILib.CreateToggle(espTab, "Show Distance", State.ESP_ShowDistance, function(v)
+    State.ESP_ShowDistance = v
+end)
+
+UILib.CreateToggle(espTab, "Door ESP", State.Doors_ESP, function(v)
+    State.Doors_ESP = v
+    if not v then clearCategoryEsp("Doors") else scanAllRooms() end
+end)
+
+UILib.CreateToggle(espTab, "Key & Lever ESP", State.Keys_ESP, function(v)
+    State.Keys_ESP = v
+    if not v then clearCategoryEsp("Keys") else scanAllRooms() end
+end)
+
+UILib.CreateToggle(espTab, "Item ESP", State.Items_ESP, function(v)
+    State.Items_ESP = v
+    if not v then clearCategoryEsp("Items") else scanAllRooms() end
+end)
+
+UILib.CreateToggle(espTab, "Gold ESP", State.Gold_ESP, function(v)
+    State.Gold_ESP = v
+    if not v then clearCategoryEsp("Gold") else scanAllRooms() end
+end)
+
+UILib.CreateToggle(espTab, "Entity ESP (3D Chams)", State.Entities_ESP, function(v)
+    State.Entities_ESP = v
+    if not v then
+        clearCategoryEsp("Entities")
+    else
+        for _, ch in ipairs(Workspace:GetChildren()) do processEntity(ch) end
+    end
+end)
+
+UILib.CreateToggle(espTab, "The Rift ESP", State.Rift_ESP, function(v)
+    State.Rift_ESP = v
+    if not v then clearCategoryEsp("Special") else scanAllRooms() end
+end)
+
+UILib.CreateToggle(espTab, "Hiding Spot ESP", State.HidingSpots_ESP, function(v)
+    State.HidingSpots_ESP = v
+    if not v then clearCategoryEsp("HidingSpots") else scanAllRooms() end
+end)
+
+UILib.CreateToggle(espTab, "Snapline Tracers", State.Tracers_ESP, function(v)
+    State.Tracers_ESP = v
+end)
+
+UILib.CreateToggle(espTab, "360 Threat Radar Arrows", State.Offscreen_Radar, function(v)
+    State.Offscreen_Radar = v
+end)
+
+UILib.CreateSlider(espTab, "Text Size", 10, 22, State.ESP_TextSize, "px", function(v)
+    State.ESP_TextSize = v
+    for _, r in pairs(activeEspRecords) do
+        if r.Label then r.Label.TextSize = v end
+    end
+end)
+
+-- =========================================================================
+-- SECTION 5: VISUALS & WORLD ENHANCEMENTS
+-- =========================================================================
+UILib.CreateSection(visualsTab, "Lighting & Camera")
+
+local Lighting = game:GetService("Lighting")
+local origAmbient = Lighting.Ambient
+local origOutdoorAmbient = Lighting.OutdoorAmbient
+local origBrightness = Lighting.Brightness
+local origFogEnd = Lighting.FogEnd
+
+-- Fullbright & No Fog Engine
+task.spawn(function()
+    while isAlive() do
+        if State.Fullbright then
+            Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+            Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+            Lighting.Brightness = 2
+        end
+        if State.NoFog then
+            Lighting.FogEnd = 9e9
+            local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+            if atmosphere then atmosphere.Density = 0 end
+        end
+        task.wait(0.5)
+    end
+end)
+
+UILib.CreateToggle(visualsTab, "Fullbright", State.Fullbright, function(v)
+    State.Fullbright = v
+    if not v then
+        Lighting.Ambient = origAmbient
+        Lighting.OutdoorAmbient = origOutdoorAmbient
+        Lighting.Brightness = origBrightness
+    end
+end)
+
+UILib.CreateToggle(visualsTab, "No Fog", State.NoFog, function(v)
+    State.NoFog = v
+    if not v then
+        Lighting.FogEnd = origFogEnd
+        local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+        if atmosphere then atmosphere.Density = 0.3 end
+    end
+end)
+
+UILib.CreateToggle(visualsTab, "No Camera Shake", State.NoCamShake, function(v)
+    State.NoCamShake = v
+end)
+
+-- Hook Camera Shake
+local function hookCamShaker()
+    local mg = getMainGameTable()
+    if mg and mg.camShaker and not _G.DOORS_V2_CAMSHAKE_HOOKED then
+        _G.DOORS_V2_CAMSHAKE_HOOKED = true
+        local origShakeOnce = mg.camShaker.ShakeOnce
+        mg.camShaker.ShakeOnce = function(self, ...)
+            if State.NoCamShake then return end
+            return origShakeOnce(self, ...)
+        end
+    end
+end
+task.spawn(function()
+    while isAlive() do
+        pcall(hookCamShaker)
+        task.wait(0.8)
+    end
+end)
+
+print("[U⚡] UNKNOWN HUB — DOORS V2 (PARTS 1 & 2) LOADED SUCCESSFULLY!")
