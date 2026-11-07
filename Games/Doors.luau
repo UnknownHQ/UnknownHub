@@ -687,12 +687,30 @@ end
 -- =========================================================================
 -- ESP Storage & Drawing Pipeline
 -- =========================================================================
+-- ESP Storage & Dynamic Pipeline (mspaint v4 Architecture)
+-- =========================================================================
 local activeEspRecords = {}
+local espContainer = nil
+
+local function getEspContainer()
+    if not espContainer or not espContainer.Parent then
+        espContainer = Instance.new("Folder")
+        espContainer.Name = "Unknown_ESP_Container"
+        local parent = (gethui and gethui()) or CoreGui
+        espContainer.Parent = parent
+    end
+    return espContainer
+end
 
 local function removeEspFor(owner)
-    if activeEspRecords[owner] then
-        for _, obj in ipairs(activeEspRecords[owner].Visuals) do
-            pcall(function() obj:Destroy() end)
+    local rec = activeEspRecords[owner]
+    if rec then
+        if rec.Billboard then pcall(function() rec.Billboard:Destroy() end) end
+        if rec.Highlight then pcall(function() rec.Highlight:Destroy() end) end
+        if rec.Visuals then
+            for _, obj in ipairs(rec.Visuals) do
+                pcall(function() obj:Destroy() end)
+            end
         end
         activeEspRecords[owner] = nil
     end
@@ -704,11 +722,30 @@ local function clearCategoryEsp(category)
             removeEspFor(owner)
         end
     end
+    -- Deep sweep for category instances in container, Terrain and CoreGui
+    pcall(function()
+        local c = espContainer
+        if c then
+            for _, ch in ipairs(c:GetChildren()) do
+                if category == "Doors" and (ch.Name:find("Door") or ch.Name:find("Unknown_ESP_Door") or ch.Name == "Unknown_DoorOutlineBox" or ch.Name == "Unknown_DoorBoxAdornment") then
+                    pcall(function() ch:Destroy() end)
+                end
+            end
+        end
+        local terrain = Workspace:FindFirstChild("Terrain")
+        if terrain then
+            for _, ch in ipairs(terrain:GetChildren()) do
+                if ch.Name:find("Unknown_ESP_Door") or ch.Name:find("Unknown_Door") or (category == "Doors" and ch.Name:find("Door")) then
+                    pcall(function() ch:Destroy() end)
+                end
+            end
+        end
+    end)
     if category == "Entities" then
         pcall(function()
             for _, desc in ipairs(Workspace:GetDescendants()) do
                 if desc.Name == "Unknown_RoundedCube" then
-                    desc:Destroy()
+                    pcall(function() desc:Destroy() end)
                 end
             end
         end)
@@ -724,41 +761,34 @@ local function clearEntitySubcategory(entityCategory)
 end
 
 local function clearAllEsp()
-    for owner, record in pairs(activeEspRecords) do
-        if record.Visuals then
-            for _, obj in ipairs(record.Visuals) do
-                pcall(function() obj:Destroy() end)
-            end
-        end
+    for owner, _ in pairs(activeEspRecords) do
+        removeEspFor(owner)
     end
     table.clear(activeEspRecords)
 
-    -- Purge any orphaned Highlights and Billboards from CoreGui and gethui
+    if espContainer then
+        pcall(function() espContainer:ClearAllChildren() end)
+    end
+
+    -- Deep Purge of any orphaned Highlights, Billboards and Adornments across all containers
     pcall(function()
-        local uiContainers = { CoreGui }
+        local uiContainers = { CoreGui, Workspace:FindFirstChild("Terrain"), Workspace }
         if gethui then
             local h = gethui()
             if h and h ~= CoreGui then table.insert(uiContainers, h) end
         end
         for _, container in ipairs(uiContainers) do
-            for _, child in ipairs(container:GetChildren()) do
-                if child.Name == "Unknown_ESP_Highlight" or child.Name == "Unknown_ESP_Billboard" then
-                    child:Destroy()
+            if container then
+                for _, child in ipairs(container:GetChildren()) do
+                    local n = child.Name
+                    if n:find("Unknown_ESP") or n:find("Unknown_Door") or n == "Unknown_RoundedCube" then
+                        pcall(function() child:Destroy() end)
+                    end
                 end
             end
         end
     end)
-
-    -- Purge any orphaned rounded cubes and highlights from Workspace
-    pcall(function()
-        for _, desc in ipairs(Workspace:GetDescendants()) do
-            if desc.Name == "Unknown_RoundedCube" or desc.Name == "Unknown_ESP_Highlight" or desc.Name == "Unknown_ESP_Billboard" then
-                desc:Destroy()
-            end
-        end
-    end)
 end
-
 -- =========================================================================
 -- Visuals: Tracers & Offscreen Threat Radar (Drawing Engine)
 -- =========================================================================
@@ -879,19 +909,20 @@ pcall(function()
 end)
 
 local function createBillboard(adorneePart, baseText, color, offset)
-    if not adorneePart or not adorneePart:IsA("BasePart") then return nil, nil end
-    offset = offset or Vector3.new(0, 1.8, 0)
+    if not adorneePart then return nil, nil end
+    local container = getEspContainer()
 
     local bb = Instance.new("BillboardGui")
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 160, 0, 36)
-    bb.StudsOffset = offset
+    bb.Size = UDim2.new(0, 180, 0, 36)
+    bb.StudsOffset = offset or Vector3.new(0, 1.8, 0)
     bb.ResetOnSpawn = false
     bb.LightInfluence = 0
+    bb.MaxDistance = 5000
 
-    -- Modern Rounded Badge Container (mspaint aesthetic)
+    -- Modern Rounded Badge (mspaint v4 aesthetic)
     local badge = Instance.new("Frame")
     badge.Name = "Badge"
     badge.Size = UDim2.new(1, 0, 1, 0)
@@ -901,14 +932,14 @@ local function createBillboard(adorneePart, baseText, color, offset)
     badge.Parent = bb
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 7)
+    corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = badge
 
     local stroke = Instance.new("UIStroke")
     stroke.Name = "BorderStroke"
     stroke.Color = color or Color3.fromRGB(0, 220, 255)
     stroke.Thickness = 1.2
-    stroke.Transparency = 0.25
+    stroke.Transparency = 0.2
     stroke.Parent = badge
 
     local label = Instance.new("TextLabel")
@@ -927,19 +958,20 @@ local function createBillboard(adorneePart, baseText, color, offset)
     local initialText = baseText
     if State.Show_Distance then
         local root = getRoot()
-        if root then
+        if root and adorneePart:IsA("BasePart") then
             local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
             initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
         end
     end
     label.Text = initialText
 
-    bb.Parent = (gethui and gethui()) or CoreGui
+    bb.Parent = container
     return bb, label
 end
 
 local function createHighlight(adornee, color, fillTrans, outlineTrans)
     if not adornee then return nil end
+    local container = getEspContainer()
     fillTrans = fillTrans or State.ESP_FillTransparency or 0.65
     outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
 
@@ -951,44 +983,21 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans)
     hl.OutlineColor = color
     hl.OutlineTransparency = outlineTrans
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    -- Reliable World Parenting: Highlights MUST be parented to Workspace/Terrain to render depth-stencil pass in Roblox 3D pipeline
-    local targetParent = Workspace:FindFirstChild("Terrain") or Workspace
-    hl.Parent = targetParent
+    hl.Parent = container
     return hl
-end
-
-local function createBoxAdornment(adorneePart, color)
-    if not adorneePart or not adorneePart:IsA("BasePart") then return nil end
-    local box = Instance.new("BoxHandleAdornment")
-    box.Name = "Unknown_ESP_BoxAdornment"
-    box.Adornee = adorneePart
-    box.Size = adorneePart.Size + Vector3.new(0.08, 0.08, 0.08)
-    box.Color3 = color
-    box.Transparency = 0.45
-    box.AlwaysOnTop = true
-    box.ZIndex = 10
-    box.Parent = adorneePart
-    return box
 end
 
 local function refreshEspVisualSettings()
     for _, rec in pairs(activeEspRecords) do
         if rec.Label then
-            rec.Label.TextSize = State.ESP_TextSize or 15
+            rec.Label.TextSize = State.ESP_TextSize or 13
         end
-        if rec.Visuals then
-            for _, vis in ipairs(rec.Visuals) do
-                if vis:IsA("Highlight") then
-                    vis.FillTransparency = State.ESP_FillTransparency or 0.5
-                    vis.OutlineTransparency = State.ESP_OutlineTransparency or 0
-                elseif vis:IsA("BoxHandleAdornment") then
-                    vis.Transparency = State.ESP_FillTransparency or 0.45
-                end
-            end
+        if rec.Highlight then
+            rec.Highlight.FillTransparency = State.ESP_FillTransparency or 0.65
+            rec.Highlight.OutlineTransparency = State.ESP_OutlineTransparency or 0
         end
     end
 end
-
 local function getObjectRoom(instance)
     if not instance then return nil, nil end
     local currentRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -1153,9 +1162,20 @@ end
 
 local function registerEsp(owner, adorneePart, baseText, color, category, partsToHighlight, offset, roomNumber, extraVisuals, entityCategory)
     if not State.Master_ESP then return end
-    if not adorneePart then return end
+    if not adorneePart or not owner then return end
 
-    -- Anti-flicker guard: if already registered, do NOT destroy and recreate visuals
+    -- Active category visibility filter (Fail-fast, zero allocations)
+    if category == "Doors" and not State.Doors_ESP then return end
+    if category == "Keys" and not State.Keys_ESP then return end
+    if category == "Items" and not State.Items_ESP then return end
+    if category == "Books" and not State.Books_ESP then return end
+    if category == "Breakers" and not State.Breakers_ESP then return end
+    if category == "Gold" and not State.Gold_ESP then return end
+    if category == "Entities" and not State.Entities_ESP then return end
+    if category == "HidingSpots" and not State.HidingSpots_ESP then return end
+    if category == "GlitchFragment" and not State.GlitchFragment_ESP then return end
+
+    -- Existing record update (anti-flicker: update text/color in-place, zero reallocations)
     local existing = activeEspRecords[owner]
     if existing and existing.Adornee == adorneePart and existing.Category == category then
         if roomNumber then existing.RoomNumber = roomNumber end
@@ -1166,25 +1186,16 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
             if existing.Label then
                 existing.Label.TextColor3 = color
                 local root = getRoot()
-                if root and State.Show_Distance then
+                if root and State.Show_Distance and adorneePart:IsA("BasePart") then
                     local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
                     existing.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
                 else
                     existing.Label.Text = baseText
                 end
             end
-            -- Synchronize Highlight & Adornment colors immediately
-            if existing.Visuals then
-                for _, vis in ipairs(existing.Visuals) do
-                    if vis:IsA("Highlight") then
-                        vis.FillColor = color
-                        vis.OutlineColor = color
-                    elseif vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") then
-                        vis.Color3 = color
-                    elseif vis:IsA("SelectionBox") then
-                        vis.Color3 = color
-                    end
-                end
+            if existing.Highlight then
+                existing.Highlight.FillColor = color
+                existing.Highlight.OutlineColor = color
             end
         end
         return
@@ -1193,447 +1204,91 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     removeEspFor(owner)
 
     local visuals = {}
-    local highlightMap = {}
-
-    -- 1. Billboard with Distance
     local bb, label = createBillboard(adorneePart, baseText, color, offset)
     if bb then table.insert(visuals, bb) end
 
-    -- 2. Precision Highlights & Adornments (100% through-wall visibility for all Models, Tools, and BaseParts)
-    local function addPartAdornment(part, partColor)
-        if not part or not part:IsA("BasePart") then return end
-        local box = Instance.new("BoxHandleAdornment")
-        box.Name = "Unknown_ESP_BoxAdornment"
-        box.Adornee = part
-        box.Size = part.Size + Vector3.new(0.04, 0.04, 0.04)
-        box.Color3 = partColor
-        box.Transparency = State.ESP_FillTransparency or 0.45
-        box.AlwaysOnTop = true
-        box.ZIndex = 8
-        box.Parent = (gethui and gethui()) or CoreGui or part
-        table.insert(visuals, box)
-
-        local sbox = Instance.new("SelectionBox")
-        sbox.Name = "Unknown_ESP_OutlineBox"
-        sbox.Adornee = part
-        sbox.Color3 = partColor
-        sbox.LineThickness = 0.025
-        sbox.SurfaceTransparency = 1
-        sbox.Parent = (gethui and gethui()) or CoreGui or part
-        table.insert(visuals, sbox)
+    -- ONE Single Highlight per target Model (mspaint v4 1:1 Parity: 0.65 fill, 0 outline)
+    local hl = nil
+    local hlTarget = (owner:IsA("Model") and owner) or (partsToHighlight and partsToHighlight:IsA("Model") and partsToHighlight) or (adorneePart and adorneePart:IsA("BasePart") and adorneePart)
+    if hlTarget and category ~= "Gold" then
+        hl = createHighlight(hlTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0)
+        if hl then table.insert(visuals, hl) end
     end
 
-    local function tryAddHighlight(targetModel, hlColor)
-        if not targetModel then return end
-        local hlAdornee = nil
-        if targetModel:IsA("Model") then
-            hlAdornee = targetModel
-        elseif targetModel.Parent and targetModel.Parent:IsA("Model") and targetModel.Parent ~= Workspace and targetModel.Parent.Name ~= "CurrentRooms" and targetModel.Parent.Name ~= "Drops" and not targetModel.Parent.Name:match("^%d+$") then
-            hlAdornee = targetModel.Parent
-        end
-        if hlAdornee then
-            local hl = createHighlight(hlAdornee, hlColor)
-            if hl then
-                table.insert(visuals, hl)
-                highlightMap[hl] = hlAdornee
-            end
-        end
-    end
-
-    if category ~= "Doors" and category ~= "Entities" then
-        if partsToHighlight then
-            if typeof(partsToHighlight) == "Instance" then
-                if partsToHighlight:IsA("Model") then
-                    tryAddHighlight(partsToHighlight, color)
-                    local adornedCount = 0
-                    for _, p in ipairs(partsToHighlight:GetDescendants()) do
-                        if p:IsA("BasePart") and not p.Name:lower():find("hitbox") then
-                            addPartAdornment(p, color)
-                            adornedCount = adornedCount + 1
-                            if adornedCount >= 4 then break end
-                        end
-                    end
-                    if adornedCount == 0 and adorneePart then
-                        addPartAdornment(adorneePart, color)
-                    end
-                elseif partsToHighlight:IsA("Tool") then
-                    local adornedCount = 0
-                    for _, p in ipairs(partsToHighlight:GetDescendants()) do
-                        if p:IsA("BasePart") and not p.Name:lower():find("hitbox") then
-                            addPartAdornment(p, color)
-                            adornedCount = adornedCount + 1
-                            if adornedCount >= 4 then break end
-                        end
-                    end
-                    if adornedCount == 0 and adorneePart then
-                        addPartAdornment(adorneePart, color)
-                    end
-                    tryAddHighlight(partsToHighlight, color)
-                elseif partsToHighlight:IsA("BasePart") then
-                    addPartAdornment(partsToHighlight, color)
-                    tryAddHighlight(partsToHighlight, color)
-                end
-            elseif type(partsToHighlight) == "table" then
-                for _, p in ipairs(partsToHighlight) do
-                    if p and p:IsA("BasePart") then
-                        addPartAdornment(p, color)
-                    elseif p and p:IsA("Model") then
-                        tryAddHighlight(p, color)
-                        for _, subP in ipairs(p:GetDescendants()) do
-                            if subP:IsA("BasePart") and not subP.Name:lower():find("hitbox") then
-                                addPartAdornment(subP, color)
-                                break
-                            end
-                        end
-                    end
-                end
-                tryAddHighlight(owner, color)
-            end
-        else
-            -- Fallback when partsToHighlight is nil (e.g. Gold or single parts)
-            if adorneePart and adorneePart:IsA("BasePart") then
-                addPartAdornment(adorneePart, color)
-            end
-            tryAddHighlight(owner, color)
-        end
-    elseif category == "Entities" and partsToHighlight then
-        -- Native Clean Highlight for 3D Entities
-        if typeof(partsToHighlight) == "Instance" and partsToHighlight:IsA("Model") then
-            local hl = createHighlight(partsToHighlight, color)
-            if hl then
-                table.insert(visuals, hl)
-                highlightMap[hl] = partsToHighlight
-            end
-        elseif type(partsToHighlight) == "table" then
-            for _, p in ipairs(partsToHighlight) do
-                if p and (p:IsA("BasePart") or p:IsA("Model")) then
-                    local hl = createHighlight(p, color)
-                    if hl then
-                        table.insert(visuals, hl)
-                        highlightMap[hl] = p
-                    end
-                end
-            end
-        end
-    end
-
-    -- 3. Extra visuals (e.g. 3D SphereHandleAdornment for 2D monsters)
-    if extraVisuals and type(extraVisuals) == "table" then
+    if extraVisuals then
         for _, v in ipairs(extraVisuals) do
             table.insert(visuals, v)
-        end
-    end
-
-    -- Immediate Room & Category Visibility Initialization (Prevents 1-frame distant flash on room scan)
-    local isRoomRestricted = (category == "Doors" or category == "HidingSpots")
-    local curRoom = isRoomRestricted and getCurrentRoomNumber() or nil
-    local initiallyVisible = State.Master_ESP ~= false
-    if category == "Doors" then
-        initiallyVisible = initiallyVisible and (State.Doors_ESP ~= false)
-    elseif category == "HidingSpots" then
-        initiallyVisible = initiallyVisible and (State.HidingSpots_ESP ~= false)
-    elseif category == "Items" then
-        initiallyVisible = initiallyVisible and (State.Items_ESP ~= false)
-    elseif category == "Keys" then
-        initiallyVisible = initiallyVisible and (State.Keys_ESP ~= false)
-    elseif category == "Books" then
-        initiallyVisible = initiallyVisible and (State.Books_ESP ~= false)
-    elseif category == "Breakers" then
-        initiallyVisible = initiallyVisible and (State.Breakers_ESP ~= false)
-    elseif category == "Gold" then
-        initiallyVisible = initiallyVisible and (State.Gold_ESP ~= false)
-    elseif category == "Entities" then
-        initiallyVisible = initiallyVisible and (State.Entities_ESP ~= false)
-    end
-
-    if isRoomRestricted and initiallyVisible then
-        if State.ESP_OnlyCurrentRoom or State.ESP_RoomFilterMode == "Current Room Only" then
-            initiallyVisible = (curRoom ~= nil and roomNumber ~= nil and roomNumber == curRoom)
-        elseif State.ESP_RoomFilterMode == "Current & Next Room" then
-            initiallyVisible = (curRoom == nil or roomNumber == nil or math.abs(roomNumber - curRoom) <= 1)
-        else
-            initiallyVisible = true
-        end
-    end
-
-    for _, vis in ipairs(visuals) do
-        if vis:IsA("BillboardGui") then
-            vis.Enabled = initiallyVisible
-        elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
-            vis.Visible = initiallyVisible
-        elseif vis:IsA("Highlight") then
-            vis.Enabled = initiallyVisible
-            if not initiallyVisible then
-                vis.Adornee = nil
-            end
         end
     end
 
     activeEspRecords[owner] = {
         Owner = owner,
         Adornee = adorneePart,
+        AdorneePart = adorneePart,
         BaseText = baseText,
         Color = color,
         Category = category,
         EntityCategory = entityCategory,
         Label = label,
+        Billboard = bb,
+        Highlight = hl,
         Visuals = visuals,
-        HighlightMap = highlightMap,
         RoomNumber = roomNumber,
-        CurrentlyVisible = initiallyVisible,
+        CurrentlyVisible = true,
         LastDist = -1
     }
 
-    -- Auto-cleanup on destroy or parent removal
+    -- Lifecycle listener: remove cleanly when target is destroyed
     pcall(function()
-        owner.Destroying:Connect(function()
+        owner.Destroying:Once(function()
             removeEspFor(owner)
-        end)
-        owner.AncestryChanged:Connect(function(_, parent)
-            local char = getChar()
-            local inChar = char and (owner == char or owner:IsDescendantOf(char))
-            local inBackpack = LocalPlayer and LocalPlayer:FindFirstChild("Backpack") and owner:IsDescendantOf(LocalPlayer.Backpack)
-            if not parent or inChar or inBackpack or (not owner:IsDescendantOf(Workspace) and not owner:IsDescendantOf(Camera)) then
-                removeEspFor(owner)
-            end
         end)
     end)
 end
 
--- Continuous Room & Distance Update Loop (0.15s, Jitter-Free & Hardware-Slot Efficient)
+-- Continuous Room & Distance Update Daemon (Ultra-Fast 5Hz: Zero-Lag, Instant Cleanup)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.Master_ESP then
             local root = getRoot()
             local rootPos = root and root.Position or nil
-            local curRoom = getCurrentRoomNumber()
-
-            -- Dynamic Highlight Budget Engine (Solves Roblox 31 Highlight limit):
-            -- Doors, Keys, and Entities receive TOP PRIORITY so the Next Door and Key ALWAYS have Highlights!
-            local priorityRecords = {}
-            local otherCandidates = {}
-            for owner, record in pairs(activeEspRecords) do
-                if record and record.Adornee and record.Adornee.Parent and record.Owner and record.Owner.Parent then
-                    if record.Category == "Doors" or record.Category == "Keys" or record.Category == "Entities" then
-                        priorityRecords[record] = true
-                    else
-                        local d = rootPos and (rootPos - record.Adornee.Position).Magnitude or 9999
-                        table.insert(otherCandidates, { Record = record, Dist = d })
-                    end
-                end
-            end
-            table.sort(otherCandidates, function(a, b) return a.Dist < b.Dist end)
-            local allowedHighlights = {}
-            for rec, _ in pairs(priorityRecords) do
-                allowedHighlights[rec] = true
-            end
-            local priorityCount = 0
-            for _ in pairs(priorityRecords) do priorityCount = priorityCount + 1 end
-            local remainingBudget = math.max(0, 24 - priorityCount)
-            for i = 1, math.min(remainingBudget, #otherCandidates) do
-                allowedHighlights[otherCandidates[i].Record] = true
-            end
 
             for owner, record in pairs(activeEspRecords) do
-                if not owner or typeof(owner) ~= "Instance" or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
+                if not owner or not owner.Parent or not record.Adornee or not record.Adornee.Parent then
                     removeEspFor(owner)
                     continue
                 end
 
-                local char = getChar()
-                local inChar = false
-                local inBackpack = false
-                pcall(function()
-                    if char and (owner == char or owner:IsDescendantOf(char)) then
-                        inChar = true
-                    end
-                    local bp = LocalPlayer and LocalPlayer:FindFirstChild("Backpack")
-                    if bp and owner:IsDescendantOf(bp) then
-                        inBackpack = true
-                    end
-                end)
+                -- Dynamic category toggle enforcement
+                local cat = record.Category
+                local isCatEnabled = (cat == "Doors" and State.Doors_ESP)
+                    or (cat == "Keys" and State.Keys_ESP)
+                    or (cat == "Items" and State.Items_ESP)
+                    or (cat == "Books" and State.Books_ESP)
+                    or (cat == "Breakers" and State.Breakers_ESP)
+                    or (cat == "Gold" and State.Gold_ESP)
+                    or (cat == "Entities" and State.Entities_ESP)
+                    or (cat == "HidingSpots" and State.HidingSpots_ESP)
+                    or (cat == "GlitchFragment" and State.GlitchFragment_ESP)
+                    or (cat == "Special")
 
-                if inChar or inBackpack then
+                if not isCatEnabled then
                     removeEspFor(owner)
                     continue
                 end
-                    -- Entity Despawn / Bramble Ghost Filter
-                    if record.Category == "Entities" then
-                        local ent = record.Owner
-                        local isDeadOrGone = false
-                        if not ent or not ent.Parent then
-                            isDeadOrGone = true
-                        elseif ent:GetAttribute("Despawned") == true or ent:GetAttribute("Dead") == true or ent:GetAttribute("Hidden") == true then
-                            isDeadOrGone = true
-                        elseif ent.Name:lower():find("bramble") then
-                            local visiblePartCount = 0
-                            for _, p in ipairs(ent:GetDescendants()) do
-                                if p:IsA("BasePart") and p.Transparency < 0.9 then
-                                    visiblePartCount = visiblePartCount + 1
-                                end
-                            end
-                            if visiblePartCount == 0 then
-                                isDeadOrGone = true
-                            end
-                        end
-                        if isDeadOrGone then
-                            removeEspFor(owner)
-                            continue
-                        end
+
+                -- Distance Text Update (Only updates visible records when integer distance changes)
+                if State.Show_Distance and rootPos and record.Label and record.Adornee:IsA("BasePart") then
+                    local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
+                    if dist ~= record.LastDist then
+                        record.LastDist = dist
+                        record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
                     end
-
-                    -- 1. Precision Door Visibility Filter: ONLY show the NEXT UNOPENED EXIT DOOR & Current Dupe Doors!
-                    if record.Category == "Doors" then
-                        local shouldShow = State.Doors_ESP
-                        if shouldShow then
-                            local dModel = record.Owner
-                            local isDupe = (record.BaseText and record.BaseText:find("Dupe")) or (dModel and isDupeDoor(dModel, dModel.Parent))
-                            local isOpened = dModel and (dModel:GetAttribute("Opened") == true or dModel:GetAttribute("Open") == true)
-
-                            -- Completely hide ANY door that is already opened!
-                            if isOpened and not isDupe then
-                                shouldShow = false
-                            else
-                                local doorRoom = record.RoomNumber
-                                if doorRoom == nil and dModel and dModel.Parent then
-                                    doorRoom = tonumber(dModel.Parent.Name)
-                                    if doorRoom then record.RoomNumber = doorRoom end
-                                end
-
-                                if curRoom ~= nil and doorRoom ~= nil then
-                                    -- Hide doors from previous rooms
-                                    if doorRoom < curRoom then
-                                        shouldShow = false
-                                    -- Hide doors in rooms far ahead
-                                    elseif doorRoom > (curRoom + 1) then
-                                        shouldShow = false
-                                    -- If door is in current room, only show if it is an active exit door
-                                    elseif doorRoom == curRoom then
-                                        shouldShow = not isOpened
-                                    elseif doorRoom == (curRoom + 1) then
-                                        shouldShow = not isOpened
-                                    end
-
-                                    if shouldShow and record.Label then
-                                        local isLocked = dModel and (dModel:GetAttribute("Locked") == true or (dModel:FindFirstChild("Lock") and dModel.Lock:FindFirstChildWhichIsA("ProximityPrompt", true)))
-                                        if not isDupe then
-                                            local doorNum = doorRoom + 1
-                                            local rolePrefix = (doorRoom == curRoom) and "Exit Door" or "Next Door"
-                                            record.BaseText = string.format("%s %d%s", rolePrefix, doorNum, isLocked and " [LOCKED]" or "")
-                                        end
-                                    end
-                                else
-                                    shouldShow = not isOpened
-                                end
-                            end
-                        end
-
-                        record.CurrentlyVisible = shouldShow
-                        if record.Visuals then
-                            for _, vis in ipairs(record.Visuals) do
-                                if vis:IsA("BillboardGui") then
-                                    vis.Enabled = shouldShow
-                                elseif vis:IsA("SelectionBox") or vis:IsA("BoxHandleAdornment") or vis:IsA("SphereHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
-                                    vis.Visible = shouldShow
-                                    vis.Adornee = shouldShow and (vis.Adornee or record.Adornee) or nil
-                                elseif vis:IsA("Highlight") then
-                                    -- Doors receive TOP UNCONDITIONAL PRIORITY: never disabled by budget or distance!
-                                    vis.Enabled = shouldShow
-                                    vis.Adornee = shouldShow and (record.Owner or record.Adornee) or nil
-                                end
-                            end
-                        end
-                    elseif record.Category == "HidingSpots" then
-                        local shouldShow = State.HidingSpots_ESP
-                        if shouldShow then
-                            if State.ESP_OnlyCurrentRoom or State.ESP_RoomFilterMode == "Current Room Only" then
-                                shouldShow = (curRoom ~= nil and record.RoomNumber ~= nil and record.RoomNumber == curRoom)
-                            elseif State.ESP_RoomFilterMode == "Current & Next Room" then
-                                shouldShow = (curRoom == nil or record.RoomNumber == nil or math.abs(record.RoomNumber - curRoom) <= 1)
-                            else -- "All Rooms (Full Vision)"
-                                shouldShow = true
-                            end
-                            -- Proximity safety: ALWAYS show closets in the immediate vicinity (<= 55 studs) of the player
-                            if not shouldShow and rootPos and record.Adornee and record.Adornee.Parent then
-                                local dist = (rootPos - record.Adornee.Position).Magnitude
-                                if dist <= 55 then
-                                    shouldShow = true
-                                end
-                            end
-                        end
-
-                        -- Only perform visual property & highlight adornee updates on actual state transitions (eliminates jitter and highlight slot churn!)
-                        if record.CurrentlyVisible ~= shouldShow then
-                            record.CurrentlyVisible = shouldShow
-                            if record.Visuals then
-                                for _, vis in ipairs(record.Visuals) do
-                                    if vis:IsA("BillboardGui") then
-                                        vis.Enabled = shouldShow
-                                    elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
-                                        vis.Visible = shouldShow
-                                    elseif vis:IsA("Highlight") then
-                                        local budgetAllowed = (allowedHighlights and allowedHighlights[record]) == true
-                                        vis.Enabled = shouldShow and budgetAllowed
-                                        if not (shouldShow and budgetAllowed) then
-                                            vis.Adornee = nil
-                                        else
-                                            vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or record.Owner
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    elseif record.Category == "Items" or record.Category == "Keys" or record.Category == "Books" or record.Category == "Breakers" or record.Category == "Gold" or record.Category == "Entities" then
-                        local shouldShow = State.Master_ESP ~= false
-                        if record.Category == "Items" then
-                            shouldShow = shouldShow and (State.Items_ESP ~= false)
-                        elseif record.Category == "Keys" then
-                            shouldShow = shouldShow and (State.Keys_ESP ~= false)
-                        elseif record.Category == "Books" then
-                            shouldShow = shouldShow and (State.Books_ESP ~= false)
-                        elseif record.Category == "Breakers" then
-                            shouldShow = shouldShow and (State.Breakers_ESP ~= false)
-                        elseif record.Category == "Gold" then
-                            shouldShow = shouldShow and (State.Gold_ESP ~= false)
-                        elseif record.Category == "Entities" then
-                            shouldShow = shouldShow and (State.Entities_ESP ~= false)
-                        end
-
-                        if record.CurrentlyVisible ~= shouldShow then
-                            record.CurrentlyVisible = shouldShow
-                            if record.Visuals then
-                                for _, vis in ipairs(record.Visuals) do
-                                    if vis:IsA("BillboardGui") then
-                                        vis.Enabled = shouldShow
-                                    elseif vis:IsA("SelectionBox") or vis:IsA("SphereHandleAdornment") or vis:IsA("BoxHandleAdornment") or vis:IsA("PVAdornment") or vis:IsA("HandleAdornment") then
-                                        vis.Visible = shouldShow
-                                    elseif vis:IsA("Highlight") then
-                                        local budgetAllowed = (record.Category == "Entities" or record.Category == "Keys") or ((allowedHighlights and allowedHighlights[record]) == true)
-                                        vis.Enabled = shouldShow and budgetAllowed
-                                        if not (shouldShow and budgetAllowed) then
-                                            vis.Adornee = nil
-                                        else
-                                            vis.Adornee = (record.HighlightMap and record.HighlightMap[vis]) or (record.Owner:IsA("Model") and record.Owner) or nil
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-
-                    -- 2. Distance Text Update (Only updates visible records when integer distance changes)
-                    local isVisible = (record.Category ~= "Doors" and record.Category ~= "HidingSpots") or (record.CurrentlyVisible == true)
-                    if isVisible and State.Show_Distance and rootPos and record.Label and record.Adornee and record.Adornee.Parent then
-                        local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
-                        if dist ~= record.LastDist then
-                            record.LastDist = dist
-                            record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
-                        end
-                    end
+                end
             end
         end
-        task.wait(0.15)
+        task.wait(0.2)
     end
 end)
 
@@ -1713,188 +1368,53 @@ local function processDoor(room, doorModel)
     end
 
     local roomNumber = tonumber(room.Name)
+    local isDupe = isDupeDoor(doorModel, room)
 
-    -- Case 1: Standalone dupeDoor BasePart / MeshPart
-    if doorModel:IsA("BasePart") then
-        local doorMesh = doorModel
-        local baseText = "Dupe Door"
-        local color = State.ESP_Color_Dupe or Color3.fromRGB(255, 35, 35)
-        local extraVisuals = {}
-
-        local doorOutline = Instance.new("SelectionBox")
-        doorOutline.Name = "Unknown_DoorOutlineBox"
-        doorOutline.Adornee = doorMesh
-        doorOutline.Color3 = color
-        doorOutline.LineThickness = 0.025
-        doorOutline.SurfaceTransparency = 1
-        doorOutline.Parent = (gethui and gethui()) or CoreGui
-        table.insert(extraVisuals, doorOutline)
-
-        local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-        registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, doorHeaderOffset, roomNumber, extraVisuals)
-        if State.Anti_Dupe then secureDupeDoor(doorModel) end
-        return
-    end
-
-    if not doorModel:IsA("Model") then return end
-
-    local dName = doorModel.Name:lower()
-    -- Filter out decorative blocked doors with wooden planks across them
-    local isBlocked = dName:find("blocked") 
-        or doorModel:GetAttribute("Blocked") == true 
-        or doorModel:FindFirstChild("Plank", true) ~= nil 
-        or doorModel:FindFirstChild("Boards", true) ~= nil
-        or doorModel:FindFirstChild("Barricade", true) ~= nil
-    if isBlocked then
-        removeEspFor(doorModel)
-        return
-    end
-
-    -- Real playable DOORS exit doors must have 'Door' MeshPart
     local doorMesh = doorModel:FindFirstChild("Door")
     if not doorMesh or not doorMesh:IsA("BasePart") then
         doorMesh = doorModel:FindFirstChildWhichIsA("MeshPart") or doorModel:FindFirstChildWhichIsA("BasePart")
     end
     if not doorMesh then return end
 
-    -- Dupe Check: Verified early so fake doors are NEVER discarded by decor filters
-    local isDupe = isDupeDoor(doorModel, room)
-
-    -- Verify door has real interactable open components (excludes non-dupe room decor)
-    if not isDupe and not (doorModel:FindFirstChild("ClientOpen") or doorModel:FindFirstChild("Hidden") or doorModel:FindFirstChild("Hinge") or doorModel:FindFirstChild("HingeConstraint") or doorModel:GetAttribute("ESP_Hooked") or doorModel:GetAttribute("Opened") or doorModel:FindFirstChild("Open")) then
+    local isOpened = doorModel:GetAttribute("Opened") == true or doorModel:GetAttribute("Open") == true
+    if isOpened and not isDupe then
         removeEspFor(doorModel)
         return
     end
 
-    -- Precision Lock Detection:
-    local isLocked = false
-    local lock = doorModel:FindFirstChild("Lock")
-    if lock then
-        local prompt = lock:FindFirstChildWhichIsA("ProximityPrompt", true) or (lock:IsA("ProximityPrompt") and lock)
-        if prompt and prompt.Enabled then
-            isLocked = true
-        end
-    end
-    if doorModel:GetAttribute("Locked") == true then
-        isLocked = true
-    end
+    local isLocked = doorModel:GetAttribute("Locked") == true or (doorModel:FindFirstChild("Lock") and doorModel.Lock:FindFirstChildWhichIsA("ProximityPrompt", true))
 
-    -- Check for Dupe (Fake Door)
-    if not isDupe then
-        isDupe = isDupeDoor(doorModel, room)
-    end
-
-    local signPart = doorModel:FindFirstChild("Sign", true)
-    local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
-    local signText = signLabel and signLabel.Text or nil
-
-    -- Door Passability & Collision Smoothing:
-    -- When a door opens or is unlocked, disable collisions on the swinging door leaf and collision barrier
-    -- so high-speed walking never clips the door edge or frame and causes physics rebound snaps.
-    local isOpened = doorModel:GetAttribute("Opened") == true 
-        or doorModel:GetAttribute("Open") == true
-
-    for _, ch in ipairs(doorModel:GetDescendants()) do
-        if ch:IsA("BasePart") then
-            local chName = ch.Name:lower()
-            if chName == "hidden" or chName == "collision" then
-                ch.Transparency = 1
-            end
-            if isOpened and not chName:find("frame") then
-                ch.CanCollide = false
-            end
-        end
-    end
-
-    local doorNumberStr = signText or tostring(room.Name)
+    local doorNumberStr = tostring((roomNumber or 0) + 1)
     local baseText
     local color
 
     if isDupe then
         baseText = "Dupe Door"
-        color = State.ESP_Color_Dupe
+        color = State.ESP_Color_Dupe or Color3.fromRGB(255, 35, 35)
     elseif isLocked then
         baseText = string.format("Door %s [LOCKED]", doorNumberStr)
-        color = State.ESP_Color_DoorsLocked
+        color = State.ESP_Color_DoorsLocked or Color3.fromRGB(255, 180, 50)
     else
         baseText = string.format("Door %s", doorNumberStr)
-        color = State.ESP_Color_Doors
+        color = State.ESP_Color_Doors or Color3.fromRGB(0, 215, 255)
     end
 
-    local adorneePart = doorMesh
-
-    -- Clean Sleek Door ESP Visuals (SelectionBox + Elevated Floating Billboard Header):
-    -- SelectionBox provides a razor-sharp neon perimeter outline around the door leaf without covering the door!
-    -- Wood textures, door number plates, and padlocks remain 100% visible and un-obscured!
-    local extraVisuals = {}
-
-    -- 1. Direct Roblox Model Highlight (Adorned to doorModel so Roblox engine natively highlights the entire door leaf & frame!)
-    local doorHighlight = doorModel:FindFirstChild("Unknown_ESP_DoorHighlight")
-    if not doorHighlight then
-        doorHighlight = Instance.new("Highlight")
-        doorHighlight.Name = "Unknown_ESP_DoorHighlight"
-        doorHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        doorHighlight.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
-    end
-    doorHighlight.Adornee = doorModel
-    doorHighlight.FillColor = color
-    doorHighlight.OutlineColor = color
-    doorHighlight.FillTransparency = 0.35
-    doorHighlight.OutlineTransparency = 0
-    doorHighlight.Enabled = true
-    table.insert(extraVisuals, doorHighlight)
-
-    -- 2. Direct 3D BoxHandleAdornment on doorMesh (AlwaysOnTop through-wall neon glowing solid fill, 100% bypasses Roblox 31 highlight limit!)
-    local doorBox = Instance.new("BoxHandleAdornment")
-    doorBox.Name = "Unknown_DoorBoxAdornment"
-    doorBox.Adornee = doorMesh
-    doorBox.Size = doorMesh.Size + Vector3.new(0.08, 0.08, 0.08)
-    doorBox.Color3 = color
-    doorBox.Transparency = 0.35
-    doorBox.AlwaysOnTop = true
-    doorBox.ZIndex = 10
-    doorBox.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
-    table.insert(extraVisuals, doorBox)
-
-    -- 3. Neon SelectionBox perimeter outline on doorMesh
-    local doorOutline = Instance.new("SelectionBox")
-    doorOutline.Name = "Unknown_DoorOutlineBox"
-    doorOutline.Adornee = doorMesh
-    doorOutline.Color3 = color
-    doorOutline.LineThickness = 0.06
-    doorOutline.SurfaceTransparency = 0.65
-    doorOutline.Parent = (gethui and gethui()) or CoreGui
-    table.insert(extraVisuals, doorOutline)
-
-    -- Float text cleanly ABOVE the top door frame header (doorMesh.Size.Y / 2 + 0.95 studs) so it is NEVER behind or inside the door!
     local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-    registerEsp(doorModel, adorneePart, baseText, color, "Doors", nil, doorHeaderOffset, roomNumber, extraVisuals)
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorModel, doorHeaderOffset, roomNumber)
+
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
 
-    -- Lifecycle listener: automatically update if lock is removed or room scripts finish loading
+    -- Hook opened attribute to instantly remove ESP when opened
     if not doorModel:GetAttribute("ESP_Hooked") then
         doorModel:SetAttribute("ESP_Hooked", true)
         pcall(function()
-            local function onDoorStateChanged()
-                task.wait(0.05)
-                if doorModel.Parent then
-                    local nowOpened = doorModel:GetAttribute("Opened") == true 
-                        or doorModel:GetAttribute("Open") == true
-                    if nowOpened then
-                        for _, ch in ipairs(doorModel:GetDescendants()) do
-                            if ch:IsA("BasePart") and not ch.Name:lower():find("frame") then
-                                ch.CanCollide = false
-                            end
-                        end
-                    end
-                    processDoor(room, doorModel)
+            doorModel:GetAttributeChangedSignal("Opened"):Once(function()
+                if not isDupe then
+                    removeEspFor(doorModel)
                 end
-            end
-            doorModel.ChildAdded:Connect(onDoorStateChanged)
-            doorModel.ChildRemoved:Connect(onDoorStateChanged)
-            doorModel.AttributeChanged:Connect(onDoorStateChanged)
+            end)
         end)
     end
 end
@@ -9192,6 +8712,41 @@ Hub.CreateToggle(mainTab, "Door Reach", State.DoorReach, function(v)
     State.DoorReach = v
     refreshAllPrompts()
     Hub.Notify("Interaction", v and "Door Reach: Enabled (22 studs)" or "Door Reach: Disabled", 2)
+end)
+
+-- Active Door Reach Daemon (mspaint v4 1:1 Implementation)
+-- Continuously sweeps doors and auto-fires proximity prompt when within 22 studs!
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.DoorReach then
+            local char = getChar()
+            local root = getRoot()
+            local mgTable = getMainGameTable()
+            if root and not isPlayerHiding(char, mgTable) then
+                local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                if curRooms then
+                    for _, room in ipairs(curRooms:GetChildren()) do
+                        local door = room:FindFirstChild("Door")
+                        if door and not (door:GetAttribute("Opened") == true or door:GetAttribute("Open") == true) then
+                            for _, desc in ipairs(door:GetDescendants()) do
+                                if desc:IsA("ProximityPrompt") and desc.Enabled then
+                                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
+                                    if pPart then
+                                        local dist = (root.Position - pPart.Position).Magnitude
+                                        if dist <= 22 then
+                                            safeInstantFirePrompt(desc)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.08)
+    end
 end)
 
 Hub.CreateToggle(mainTab, "Walk Through Doors", State.DoorNoclip, function(v)
