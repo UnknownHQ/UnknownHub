@@ -103,6 +103,8 @@ local function getHumanoid()
     return char and char:FindFirstChildOfClass("Humanoid")
 end
 
+local stopAutoFarmCleanly
+
 -- =========================================================================
 -- Script State Configuration
 -- =========================================================================
@@ -143,7 +145,7 @@ local Hub = factory({
     theme = Color3.fromRGB(245, 142, 32),          -- Vibrant Gold / Amber
     secondaryTheme = Color3.fromRGB(0, 195, 245), -- Cyber Cyan
     onClose = function()
-        State.AutoFarm_Enabled = false
+        if stopAutoFarmCleanly then stopAutoFarmCleanly() end
         _G.BABFT_SESSION = nil
         print("[Unknown Hub] BABFT Session closed.")
     end
@@ -181,6 +183,49 @@ local function updateRuns()
             lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d", State.CurrentStatus, State.TotalRuns))
         end
     end)
+end
+
+-- Comprehensive Farm Shutdown & Anti-Levitation Routine
+local function stopAutoFarmCleanly()
+    State.AutoFarm_Enabled = false
+    updateStatus("Idle")
+
+    local char = LocalPlayer.Character
+    local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+
+    if root then
+        -- 1. Purge all BodyVelocity and physics constraints holding character in air
+        for _, child in ipairs(root:GetChildren()) do
+            if child.Name == "FarmBV" or child:IsA("BodyVelocity") or child:IsA("BodyGyro") or child:IsA("BodyPosition") then
+                pcall(function() child:Destroy() end)
+            end
+        end
+        -- 2. Clear lingering velocities and unanchor
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.Anchored = false
+    end
+
+    -- 3. Restore collision on all character parts
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanCollide = true
+            end
+        end
+    end
+
+    -- 4. Safely reposition character onto dock spawn so they are grounded at dock
+    pcall(function()
+        local team = LocalPlayer.Team
+        local teamName = team and team.TeamColor.Name
+        local spawnsFolder = Workspace.Teams:FindFirstChild(teamName .. "Team") and Workspace.Teams[teamName .. "Team"]:FindFirstChild("Spawns")
+        local spawnPart = spawnsFolder and spawnsFolder:FindFirstChildOfClass("SpawnLocation")
+        if spawnPart and root and root.Parent then
+            root.CFrame = spawnPart.CFrame + Vector3.new(0, 3, 0)
+        end
+    end)
+    Hub.Notify({ Title = "Auto Farm", Content = "Auto-Farm Stopped. Returned safely to dock.", Duration = 2 })
 end
 
 Hub.CreateSection(farmTab, "GOLD AUTO-FARM CONFIG")
@@ -322,17 +367,26 @@ task.spawn(function()
                     local trigger = chest and chest:FindFirstChild("Trigger")
 
                     if trigger then
-                        updateStatus("Touching Golden Chest...")
+                        updateStatus("Opening Golden Chest & Collecting Prizes...")
                         -- Direct CFrame right onto chest (Bypasses lethal waterfall pointed rocks)
                         root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.5, 0))
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
-                        -- Touch trigger interest
+                        -- Touch trigger interest to initiate server chest opening sequence
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.1)
+                            task.wait(0.15)
                             firetouchinterest(root, trigger, 1)
+                        end)
+
+                        -- Ensure the client chest cutscene/effects play cleanly
+                        pcall(function()
+                            local effectsScript = trigger:FindFirstChild("EndTreasureScript") and trigger.EndTreasureScript:FindFirstChild("TreasureEndEffectsLS")
+                            if effectsScript and not LocalPlayer.PlayerGui:FindFirstChild("TreasureEndEffectsLS") then
+                                local cl = effectsScript:Clone()
+                                cl.Parent = LocalPlayer.PlayerGui
+                            end
                         end)
 
                         -- Fire server claim remote
@@ -345,17 +399,37 @@ task.spawn(function()
                             end)
                         end
 
+                        -- Allow chest animation to open and dispense prizes (3.2s collection window)
+                        local prizeCollectionTime = 3.2
+                        local startWait = tick()
+                        while tick() - startWait < prizeCollectionTime do
+                            task.wait(0.2)
+                            if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
+                            -- Fast collect any spawned prizes directly into root
+                            pcall(function()
+                                local tempPrizes = chest:FindFirstChild("DisplayPrizesTemp")
+                                if tempPrizes then
+                                    for _, prize in ipairs(tempPrizes:GetChildren()) do
+                                        if prize:IsA("BasePart") then
+                                            prize.CFrame = root.CFrame
+                                        elseif prize:IsA("Model") and prize.PrimaryPart then
+                                            prize:SetPrimaryPartCFrame(root.CFrame)
+                                        end
+                                    end
+                                end
+                            end)
+                        end
+
                         updateRuns()
-                        updateStatus("Chest Claimed! Fast Turnaround...")
+                        updateStatus("Reward Claimed! Returning to Dock...")
 
                         -- Close popup
                         if State.Farm_ClosePopups then
-                            task.wait(0.3)
+                            task.wait(0.2)
                             dismissResultsPopup()
                         end
 
                         -- Smooth Dock Return (Zero Death, 100 Health Preserved)
-                        task.wait(0.4)
                         if hum and hum.Health > 0 then
                             pcall(function()
                                 local team = LocalPlayer.Team
@@ -391,14 +465,16 @@ task.spawn(function()
 end)
 
 Hub.CreateToggle(farmTab, "Enable Gold Auto-Farm", State.AutoFarm_Enabled, function(v)
-    State.AutoFarm_Enabled = v
     if v then
+        State.AutoFarm_Enabled = true
         Hub.Notify({ Title = "Auto Farm", Content = "Gold Auto-Farm Started! Bypassing stage filters...", Duration = 3 })
     else
-        updateStatus("Stopped")
-        local root = getRoot()
-        if root then root.Anchored = false end
+        stopAutoFarmCleanly()
     end
+end)
+
+Hub.CreateButton(farmTab, "Emergency Unstuck (Clear Levitation & Return to Dock)", function()
+    stopAutoFarmCleanly()
 end)
 
 Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 0.8, 3.0, State.Farm_StageDelay, function(val)
