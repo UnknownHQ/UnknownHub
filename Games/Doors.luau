@@ -7884,6 +7884,7 @@ local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and gam
 -- Entity Path Nodes & Rush/Ambush Safe Zones Visualization Subsystems
 -- =========================================================================
 local refreshEntityNodesVisuals, refreshSafeZonesVisuals
+local isPlayerCrouching, getRushPathSegments, getClosestPointOnSegment, updateRushSafeHUD, clearSafeZoneVisuals
 local activeNodeVisuals = {}
 local activeSafeZoneVisuals = {}
 local rushSafeHUD = nil
@@ -7891,7 +7892,7 @@ do
 
 local cachedRoomPathNodes = {}
 
-local function isPlayerCrouching(char)
+isPlayerCrouching = function(char)
     if not char then return false end
     local collCrouch = char:FindFirstChild("CollisionCrouch")
     if collCrouch and collCrouch:IsA("BasePart") and collCrouch.CanCollide then
@@ -8016,7 +8017,7 @@ local function getOrderedRoomNodes()
     return nodes
 end
 
-local function getRushPathSegments()
+getRushPathSegments = function()
     local nodes = getOrderedRoomNodes()
     local segments = {}
     if #nodes < 2 then return segments end
@@ -8038,7 +8039,7 @@ local function getRushPathSegments()
     return segments
 end
 
-local function getClosestPointOnSegment(p, a, b)
+getClosestPointOnSegment = function(p, a, b)
     local ab = b - a
     local abLenSq = ab.X * ab.X + ab.Y * ab.Y + ab.Z * ab.Z
     if abLenSq < 0.0001 then
@@ -8058,14 +8059,14 @@ local function clearNodeVisuals()
     activeNodeVisuals = {}
 end
 
-local function clearSafeZoneVisuals()
+clearSafeZoneVisuals = function()
     for _, vis in ipairs(activeSafeZoneVisuals) do
         pcall(function() vis:Destroy() end)
     end
     activeSafeZoneVisuals = {}
 end
 
-local function updateRushSafeHUD(isSafe, statusText)
+updateRushSafeHUD = function(isSafe, statusText)
     if not State.ESP_Safe_Zones then
         if rushSafeHUD then rushSafeHUD.Enabled = false end
         return
@@ -8422,7 +8423,7 @@ local function evaluateRushSafety(testPos, segments, char)
     end
 end
 
-local function refreshSafeZonesVisuals()
+refreshSafeZonesVisuals = function()
     clearSafeZoneVisuals()
     if not State.ESP_Safe_Zones then
         updateRushSafeHUD(false, nil)
@@ -8588,12 +8589,16 @@ task.spawn(function()
             local char = getChar()
             local root = getRoot()
             if root and char then
-                local segments = getRushPathSegments()
-                local isSafe, statusText = evaluateRushSafety(root.Position, segments, char)
-                updateRushSafeHUD(isSafe, statusText)
+                if getRushPathSegments and evaluateRushSafety and updateRushSafeHUD then
+                    local segments = getRushPathSegments()
+                    local isSafe, statusText = evaluateRushSafety(root.Position, segments, char)
+                    updateRushSafeHUD(isSafe, statusText)
+                end
             end
         else
-            updateRushSafeHUD(false, nil)
+            if updateRushSafeHUD then
+                updateRushSafeHUD(false, nil)
+            end
         end
         task.wait(0.12)
     end
