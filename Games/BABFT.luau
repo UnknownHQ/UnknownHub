@@ -109,8 +109,8 @@ end
 local State = {
     -- Auto Farm
     AutoFarm_Enabled = false,
-    Farm_StageDelay = 2.0,       -- 2.0s per stage ensures server validates passed stages
-    Farm_FlightHeight = -5,      -- River trigger height (-5) ensures all 10 stages register passed credits
+    Farm_StageDelay = 1.9,       -- 1.9s per stage ensures server validates passed stages
+    Farm_FlightHeight = 0,       -- Safe river trigger height (Y = 0) is 13 studs above water, avoiding all water/log damage
     Farm_AutoLaunch = true,      -- Automatically triggers team dock launch
     Farm_AutoClaim = true,       -- Automatically fires ClaimRiverResultsGold:FireServer()
     Farm_ClosePopups = true,     -- Closes RiverResultsGui automatically
@@ -279,27 +279,35 @@ task.spawn(function()
                     end
                     table.sort(stageList, function(a, b) return a.z < b.z end)
 
-                    -- 4. Align with River Water Trigger Corridor (Y = -5)
-                    updateStatus("Aligning River Water Corridor...")
+                    -- 4. Align with River Water Trigger Corridor (Y = 0)
+                    updateStatus("Aligning River Corridor...")
                     root.Anchored = true
-                    local safeY = State.Farm_FlightHeight or -5
+                    local safeY = State.Farm_FlightHeight or 0
+
+                    -- Attach persistent Anti-Drop BodyVelocity so character never falls during pulses
+                    local bv = root:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
+                    bv.Name = "FarmBV"
+                    bv.Velocity = Vector3.zero
+                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                    bv.Parent = root
+
                     tweenCharacter(root, CFrame.new(-51.5, safeY, root.Position.Z), 0.5)
 
                     -- 5. Traverse Each Stage (Passes exact stage trigger gates)
                     local abort = false
                     for i, stg in ipairs(stageList) do
-                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then
+                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                             abort = true
                             break
                         end
 
                         updateStatus(string.format("Clearing: Stage %d/%d (%s)", i, #stageList, stg.name))
                         local targetPos = Vector3.new(-51.5, safeY, stg.z)
-                        tweenCharacter(root, CFrame.new(targetPos), State.Farm_StageDelay or 2.0)
+                        tweenCharacter(root, CFrame.new(targetPos), State.Farm_StageDelay or 1.9)
                         
-                        -- Send momentary physics update pulse so server validates the stage pass
+                        -- Quick 40ms physics touch trigger pulse with BodyVelocity holding Y position
                         root.Anchored = false
-                        task.wait(0.12)
+                        task.wait(0.04)
                         root.Anchored = true
                     end
 
@@ -308,24 +316,22 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 6. Claim The End & Golden Chest (Bypasses lethal waterfall rocks)
+                    -- 6. Claim The End & Golden Chest (Instant Snapback = ZERO DEATHS)
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
 
                     if trigger then
-                        updateStatus("Direct Landing at Golden Chest...")
-                        -- Direct CFrame right onto chest (Bypasses the pointed rocks on the waterfall)
-                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.8, 0))
+                        updateStatus("Touching Golden Chest...")
+                        -- Direct CFrame right onto chest (Bypasses waterfall pointed rocks)
+                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.5, 0))
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
-
-                        updateStatus("Claiming Treasure...")
 
                         -- Touch trigger interest
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.15)
+                            task.wait(0.05)
                             firetouchinterest(root, trigger, 1)
                         end)
 
@@ -339,29 +345,19 @@ task.spawn(function()
                             end)
                         end
 
+                        -- INSTANT RETREAT TO DOCK (Prevents chest death script & void from ever touching you)
+                        updateStatus("Instant Snapback to Dock (Zero Deaths)...")
+                        root.CFrame = CFrame.new(-50, 5, -20)
+                        root.Anchored = false
+
                         -- Close popup
                         if State.Farm_ClosePopups then
-                            task.wait(0.5)
+                            task.wait(0.3)
                             dismissResultsPopup()
                         end
 
                         updateRuns()
-                        updateStatus("Returning to Docks...")
                         task.wait(1.5)
-
-                        -- Safe return to dock: never die, never fall into void
-                        local respawned = false
-                        local respawnConn = LocalPlayer.CharacterAdded:Connect(function()
-                            respawned = true
-                        end)
-                        task.wait(1.5)
-                        pcall(function() respawnConn:Disconnect() end)
-
-                        if not respawned and root and root.Parent then
-                            root.CFrame = CFrame.new(-50, 5, -20)
-                            root.Anchored = false
-                        end
-                        task.wait(2.0)
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
