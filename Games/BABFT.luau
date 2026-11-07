@@ -109,7 +109,7 @@ end
 local State = {
     -- Auto Farm
     AutoFarm_Enabled = false,
-    Farm_StageDelay = 1.9,       -- 1.9s per stage ensures server validates passed stages
+    Farm_StageDelay = 1.4,       -- Optimized 1.4s per stage (14s river run) for max gold throughput without rollbacks
     Farm_FlightHeight = 0,       -- Safe river trigger height (Y = 0) is 13 studs above water, avoiding all water/log damage
     Farm_AutoLaunch = true,      -- Automatically triggers team dock launch
     Farm_AutoClaim = true,       -- Automatically fires ClaimRiverResultsGold:FireServer()
@@ -346,18 +346,24 @@ task.spawn(function()
                         end
 
                         updateRuns()
-                        updateStatus("Chest Claimed! Voyage Complete...")
+                        updateStatus("Chest Claimed! Fast Turnaround...")
 
                         -- Close popup
                         if State.Farm_ClosePopups then
-                            task.wait(0.4)
+                            task.wait(0.3)
                             dismissResultsPopup()
                         end
 
-                        -- BABFT natively resets the character upon claiming the final treasure
-                        -- to conclude the voyage and return you to the dock plot.
+                        -- Fast Turnaround: Bypasses the 15-second slow chest opening animation
+                        task.wait(0.7)
+                        pcall(function()
+                            if hum and hum.Health > 0 then
+                                hum.Health = 0
+                            end
+                        end)
+
                         LocalPlayer.CharacterAdded:Wait()
-                        task.wait(2.0) -- Server round re-initialization buffer
+                        task.wait(1.5) -- Server round re-initialization buffer
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
@@ -385,7 +391,7 @@ Hub.CreateToggle(farmTab, "Enable Gold Auto-Farm", State.AutoFarm_Enabled, funct
     end
 end)
 
-Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 1.5, 3.5, State.Farm_StageDelay, function(val)
+Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 0.8, 3.0, State.Farm_StageDelay, function(val)
     State.Farm_StageDelay = val
 end)
 
