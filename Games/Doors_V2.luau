@@ -161,7 +161,28 @@ local State = {
     -- Automated Puzzle Solvers
     AutoLibrarySolver = true,
     AutoBreakerSolver = true,
-    AutoPaintings = true
+    AutoPaintings = true,
+
+    -- Floor 2: The Mines Suite (1:1 mspaint v4 Part 4)
+    AntiBridgeFall = true,
+    AntiPipeGap = true,
+    AntiSeekFlood = true,
+    NoUnderwaterEffect = true,
+    AutoMinesAnchors = true,
+    AutoGeneratorFuses = true,
+    AutoElectricalWires = true,
+    MinecartAutoSteer = true,
+    MinecartSpeedBoost = false,
+
+    -- Special Modes: Backdoor & Retro (1:1 mspaint v4 Part 4)
+    AutoBackdoorLevers = true,
+    AntiBananaPeel = true,
+    AntiJeffClient = true,
+    NoRetroSeekWall = true,
+
+    -- Predictive Notifiers (1:1 mspaint v4 Part 4)
+    PredictChaseEvents = true,
+    NotifyEntitySpawns = true
 }
 
 -- Forward Declarations
@@ -775,6 +796,8 @@ local espTab = UILib.CreateTab("ESP")
 local visualsTab = UILib.CreateTab("Visuals")
 local defenseTab = UILib.CreateTab("Defense")
 local exploitsTab = UILib.CreateTab("Exploits")
+local minesTab = UILib.CreateTab("Mines")
+local specialTab = UILib.CreateTab("Special")
 
 -- =========================================================================
 -- SECTION 1: MOVEMENT & CHARACTER (MSPAINT PARITY)
@@ -2599,7 +2622,385 @@ end)
 UILib.CreateToggle(exploitsTab, "Auto Painting Puzzle Aligner", State.AutoPaintings, function(v)
     State.AutoPaintings = v
 end)
-\nprint("[U⚡] UNKNOWN HUB — DOORS V2 (PARTS 1, 2 & 3 COMPLETE) LOADED SUCCESSFULLY!")
+
+-- =========================================================================
+-- SECTION 8: FLOOR 2 THE MINES SUITE (1:1 MSPAINT V4 RE-ARCHITECTURE)
+-- =========================================================================
+
+-- Anti Bridge Fall (Clones PlayerBarrier across bridge gap)
+local function handleBridgeFall(room)
+    if not State.AntiBridgeFall then return end
+    pcall(function()
+        for _, desc in ipairs(room:GetDescendants()) do
+            if desc.Name == "PlayerBarrier" and desc:IsA("BasePart") then
+                if desc.Size.Y == 2.75 and (desc.Rotation.X == 0 or desc.Rotation.X == 180) then
+                    if not desc.Parent:FindFirstChild("AntiBridge") then
+                        local b = desc:Clone()
+                        b.CFrame = b.CFrame * CFrame.new(0, 0, -5)
+                        b.Name = "AntiBridge"
+                        b.Size = Vector3.new(b.Size.X, b.Size.Y, 11)
+                        b.Transparency = 1
+                        b.CanCollide = true
+                        b.Parent = desc.Parent
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Anti Pipe Gap (Spans KillBrick gaps with invisible platform & disables touch)
+local function handlePipeGap(room)
+    if not State.AntiPipeGap then return end
+    pcall(function()
+        for _, desc in ipairs(room:GetDescendants()) do
+            if desc.Name == "KillBrick" and desc:IsA("BasePart") then
+                desc.CanTouch = false
+                if not desc.Parent:FindFirstChild("AntiPipeGap") then
+                    local p = desc:Clone()
+                    p.Name = "AntiPipeGap"
+                    p.Position = p.Position + Vector3.new(0, 20, 0)
+                    p.Size = Vector3.new(9, 4, p.Size.Z)
+                    p.Transparency = 1
+                    p.CanCollide = true
+                    p.CanTouch = false
+                    p.Parent = desc.Parent
+                end
+            end
+        end
+    end)
+end
+
+-- Anti Seek Floodline (Enables collision on dam water during chase)
+local function handleSeekFlood(room)
+    if not State.AntiSeekFlood then return end
+    pcall(function()
+        for _, desc in ipairs(room:GetDescendants()) do
+            if desc.Name == "SeekFloodline" and desc:IsA("BasePart") then
+                desc.CanCollide = true
+            end
+        end
+    end)
+end
+
+-- Continuous Underwater DOF Muter
+task.spawn(function()
+    while isAlive() do
+        if State.NoUnderwaterEffect then
+            pcall(function()
+                local dof = Lighting:FindFirstChildWhichIsA("DepthOfFieldEffect") or Lighting:FindFirstChild("UnderwaterDOF")
+                if dof and dof.Enabled then dof.Enabled = false end
+            end)
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- Auto Mines Anchor Solver (Rooms 150 & 200)
+local function solveMinesAnchors()
+    if not State.AutoMinesAnchors then return end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return end
+    local root = getRoot()
+    if not root then return end
+
+    for _, room in ipairs(curRooms:GetChildren()) do
+        for _, anchor in ipairs(room:GetDescendants()) do
+            if anchor.Name == "MinesAnchor" and anchor:IsA("Model") and not anchor:GetAttribute("Activated") then
+                local prompt = anchor:FindFirstChild("ActivateEventPrompt", true)
+                local targetCode = anchor:GetAttribute("TargetCode") or anchor:GetAttribute("Code") or "1234"
+
+                if prompt and (root.Position - anchor:GetPivot().Position).Magnitude <= 20 then
+                    local rf = anchor:FindFirstChildOfClass("RemoteFunction") or anchor:FindFirstChildWhichIsA("RemoteFunction", true)
+                    if rf then
+                        pcall(function()
+                            rf:InvokeServer(targetCode)
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Auto Generator Fuses & Electrical Wires
+local function autoMinesElectrical()
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return end
+    local root = getRoot()
+    if not root then return end
+
+    for _, room in ipairs(curRooms:GetChildren()) do
+        if State.AutoGeneratorFuses then
+            for _, prompt in ipairs(room:GetDescendants()) do
+                if prompt:IsA("ProximityPrompt") and prompt.Name == "FusesPrompt" and prompt.Enabled then
+                    if (root.Position - prompt.Parent.Position).Magnitude <= 18 then
+                        safeInstantFirePrompt(prompt)
+                    end
+                end
+            end
+        end
+        if State.AutoElectricalWires then
+            local wirePuzzle = room:FindFirstChild("CircuitBreakerPuzzle", true) or room:FindFirstChild("Wires", true)
+            if wirePuzzle then
+                for _, p in ipairs(wirePuzzle:GetDescendants()) do
+                    if p:IsA("ProximityPrompt") and p.Enabled then
+                        safeInstantFirePrompt(p)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Minecart Auto-Steer & Speed Boost
+task.spawn(function()
+    while isAlive() do
+        if State.MinecartAutoSteer or State.MinecartSpeedBoost then
+            local char = getChar()
+            local root = getRoot()
+            if char and root then
+                local seat = char:FindFirstChildWhichIsA("VehicleSeat") or (root.Parent and root.Parent:FindFirstChildWhichIsA("VehicleSeat", true))
+                if seat then
+                    if State.MinecartSpeedBoost then
+                        seat.MaxSpeed = 45
+                        seat.Torque = 50000
+                    end
+                    if State.MinecartAutoSteer then
+                        local aheadRay = Ray.new(root.Position, root.CFrame.LookVector * 25)
+                        local hit = Workspace:FindPartOnRayWithIgnoreList(aheadRay, {char, seat.Parent})
+                        if hit and hit.Name:find("Turn") then
+                            if hit.Name:find("Left") then
+                                seat.Steer = -1
+                            elseif hit.Name:find("Right") then
+                                seat.Steer = 1
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- Continuous Mines Watchdog Daemon
+task.spawn(function()
+    while isAlive() do
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, room in ipairs(curRooms:GetChildren()) do
+                handleBridgeFall(room)
+                handlePipeGap(room)
+                handleSeekFlood(room)
+            end
+        end
+        solveMinesAnchors()
+        autoMinesElectrical()
+        task.wait(0.5)
+    end
+end)
+
+-- UI CONTROLS FOR TAB 8: MINES
+UILib.CreateSection(minesTab, "Mines Hazard Neutralizers")
+
+UILib.CreateToggle(minesTab, "Anti Bridge Fall (Rope Bridges)", State.AntiBridgeFall, function(v)
+    State.AntiBridgeFall = v
+end)
+
+UILib.CreateToggle(minesTab, "Anti Pipe Gap (Killbrick Gaps)", State.AntiPipeGap, function(v)
+    State.AntiPipeGap = v
+end)
+
+UILib.CreateToggle(minesTab, "Anti Seek Flood (Walk On Dam Water)", State.AntiSeekFlood, function(v)
+    State.AntiSeekFlood = v
+end)
+
+UILib.CreateToggle(minesTab, "No Underwater Blur & DOF", State.NoUnderwaterEffect, function(v)
+    State.NoUnderwaterEffect = v
+end)
+
+UILib.CreateSection(minesTab, "Mines Automations & Puzzles")
+
+UILib.CreateToggle(minesTab, "Auto Mines Anchor Solver (Rooms 150 & 200)", State.AutoMinesAnchors, function(v)
+    State.AutoMinesAnchors = v
+end)
+
+UILib.CreateToggle(minesTab, "Auto Generator Fuse Sockets", State.AutoGeneratorFuses, function(v)
+    State.AutoGeneratorFuses = v
+end)
+
+UILib.CreateToggle(minesTab, "Auto Electrical Wire Puzzles", State.AutoElectricalWires, function(v)
+    State.AutoElectricalWires = v
+end)
+
+UILib.CreateToggle(minesTab, "Minecart Auto Steer (Track Turns)", State.MinecartAutoSteer, function(v)
+    State.MinecartAutoSteer = v
+end)
+
+UILib.CreateToggle(minesTab, "Minecart Speed Boost (Fast Cart)", State.MinecartSpeedBoost, function(v)
+    State.MinecartSpeedBoost = v
+end)
+
+-- =========================================================================
+-- SECTION 9: SPECIAL MODES (BACKDOOR & RETRO) & NOTIFIERS
+-- =========================================================================
+
+-- Auto Backdoor Levers (Anti-Haste clock extender)
+local function autoBackdoorLevers()
+    if not State.AutoBackdoorLevers then return end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return end
+    local root = getRoot()
+    if not root then return end
+
+    for _, room in ipairs(curRooms:GetChildren()) do
+        for _, prompt in ipairs(room:GetDescendants()) do
+            if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                local pn = prompt.Name:lower()
+                local act = (prompt.ActionText or ""):lower()
+                local obj = (prompt.ObjectText or ""):lower()
+                if pn:find("lever") or pn:find("timer") or act:find("pull") or obj:find("lever") or obj:find("timer") then
+                    if (root.Position - prompt.Parent.Position).Magnitude <= 20 then
+                        safeInstantFirePrompt(prompt)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Retro Mode Defusals
+local function handleRetroThreats(room)
+    pcall(function()
+        for _, desc in ipairs(room:GetDescendants()) do
+            if State.AntiBananaPeel and desc.Name == "BananaPeel" and desc:IsA("BasePart") then
+                desc.CanTouch = false
+            end
+            if State.AntiJeffClient and (desc.Name == "JeffTheKiller" or (desc.Parent and desc.Parent.Name == "JeffTheKiller")) and desc:IsA("BasePart") then
+                desc.CanTouch = false
+            end
+            if State.NoRetroSeekWall and (desc.Name == "ScaryWall" or desc.Name:find("ScaryWall")) then
+                if desc:IsA("BasePart") then
+                    desc.CanCollide = false
+                    desc.Transparency = 0.8
+                end
+            end
+        end
+    end)
+end
+
+-- Continuous Special Mode Daemon
+task.spawn(function()
+    while isAlive() do
+        autoBackdoorLevers()
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, room in ipairs(curRooms:GetChildren()) do
+                handleRetroThreats(room)
+            end
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- Predictive Event Detector & Threat Radar
+local lastAlertedRoom = -1
+local notifierStatusCard = nil
+
+task.spawn(function()
+    while isAlive() do
+        if State.PredictChaseEvents then
+            pcall(function()
+                local gd = ReplicatedStorage:FindFirstChild("GameData")
+                local chaseStart = gd and gd:FindFirstChild("ChaseStart")
+                local latestRoom = gd and gd:FindFirstChild("LatestRoom")
+                if chaseStart and latestRoom then
+                    local diff = chaseStart.Value - latestRoom.Value
+                    if diff > 0 and diff <= 3 and latestRoom.Value ~= lastAlertedRoom then
+                        lastAlertedRoom = latestRoom.Value
+                        local msg = string.format("WARNING: Chase event in %d room(s)!", diff)
+                        if notifierStatusCard then
+                            notifierStatusCard:SetStatus(msg, true)
+                        end
+                        pcall(function()
+                            StarterGui:SetCore("SendNotification", {
+                                Title = "[U⚡] Event Prediction",
+                                Text = msg,
+                                Duration = 4
+                            })
+                        end)
+                    end
+                end
+            end)
+        end
+        task.wait(1.0)
+    end
+end)
+
+-- Entity Spawning Radar Alerts
+Workspace.ChildAdded:Connect(function(child)
+    if not State.NotifyEntitySpawns then return end
+    task.delay(0.05, function()
+        pcall(function()
+            local n = child.Name:lower()
+            local matched = nil
+            local threats = {"rush", "ambush", "eyes", "lookman", "screech", "halt", "seek", "grumble", "figure", "a-60", "a-90", "a-120", "blitz", "dread", "void"}
+            for _, t in ipairs(threats) do
+                if n:find(t) then
+                    matched = child.Name
+                    break
+                end
+            end
+            if matched then
+                if notifierStatusCard then
+                    notifierStatusCard:SetStatus("THREAT DETECTED: " .. matched:upper() .. "!", true)
+                end
+                pcall(function()
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "[U⚡] Entity Alert",
+                        Text = "Hostile Entity Spawned: " .. matched,
+                        Duration = 5
+                    })
+                end)
+            end
+        end)
+    end)
+end)
+
+-- UI CONTROLS FOR TAB 9: SPECIAL MODES & NOTIFIERS
+UILib.CreateSection(specialTab, "The Backdoor Mode")
+
+UILib.CreateToggle(specialTab, "Auto Backdoor Clock Levers (Anti-Haste)", State.AutoBackdoorLevers, function(v)
+    State.AutoBackdoorLevers = v
+end)
+
+UILib.CreateSection(specialTab, "Retro Mode Neutralizers")
+
+UILib.CreateToggle(specialTab, "Anti Banana Peels (No Tripping)", State.AntiBananaPeel, function(v)
+    State.AntiBananaPeel = v
+end)
+
+UILib.CreateToggle(specialTab, "Anti Jeff the Killer (0 Damage)", State.AntiJeffClient, function(v)
+    State.AntiJeffClient = v
+end)
+
+UILib.CreateToggle(specialTab, "No Retro Seek Wall (Pass-Through)", State.NoRetroSeekWall, function(v)
+    State.NoRetroSeekWall = v
+end)
+
+UILib.CreateSection(specialTab, "Event Prediction & Radar Alerts")
+
+notifierStatusCard = UILib.CreateStatusLabel(specialTab, "Event Prediction: Monitoring...")
+
+UILib.CreateToggle(specialTab, "Predict Chase Events (Seek & Figure)", State.PredictChaseEvents, function(v)
+    State.PredictChaseEvents = v
+end)
+
+UILib.CreateToggle(specialTab, "Entity Spawning Radar Alerts", State.NotifyEntitySpawns, function(v)
+    State.NotifyEntitySpawns = v
+end)
+\nprint("[U⚡] UNKNOWN HUB — DOORS V2 (PARTS 1, 2, 3 & 4 COMPLETE) LOADED SUCCESSFULLY!")
 
 -- Global Keybind Triggers (R: Auto Interact, Q: Auto Hide)
 UserInputService.InputBegan:Connect(function(input, gpe)
