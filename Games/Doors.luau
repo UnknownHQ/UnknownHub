@@ -7934,7 +7934,7 @@ local isPlayerCrouching, getRushPathSegments, getClosestPointOnSegment, updateRu
 local activeNodeVisuals = {}
 local activeSafeZoneVisuals = {}
 local rushSafeHUD = nil
-do
+;(function()
 
 local cachedRoomPathNodes = {}
 
@@ -8259,9 +8259,9 @@ refreshEntityNodesVisuals = function()
         end
     end
 end
-end -- End of Block 1 (Entity Path Nodes Visuals)
+end)() -- End of Block 1 (Entity Path Nodes Visuals)
 
-do -- Block 2: Rush/Ambush Safe Zones Visualization Subsystem
+;(function() -- Block 2: Rush/Ambush Safe Zones Visualization Subsystem
 local function checkWalkableFloor(candidatePos, ignoreList)
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -8668,7 +8668,7 @@ task.spawn(function()
         task.wait(1.5)
     end
 end)
-end -- End of Rush Pathfinding scoped block
+end)() -- End of Rush Pathfinding scoped block
 
 -- Tab 1: MAIN TAB (Movement, Interaction, Speed Changer & Automation)
 ;(function()
