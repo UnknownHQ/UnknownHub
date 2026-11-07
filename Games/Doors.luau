@@ -783,7 +783,7 @@ local function clearAllEsp()
     end)
 end
 
--- Exact mspaint v4 Billboard Typography Engine (RobotoCondensed / Size 22 / UIStroke 1.5)
+-- Exact mspaint v4 Billboard Typography Engine (RobotoCondensed / Size 22 / UIStroke 1.0)
 local function createBillboard(adorneePart, baseText, color, offset)
     if not adorneePart then return nil, nil end
     local container = getEspContainer()
@@ -792,8 +792,8 @@ local function createBillboard(adorneePart, baseText, color, offset)
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 250, 0, 50)
-    bb.StudsOffset = offset or Vector3.new(0, 1.5, 0)
+    bb.Size = UDim2.new(0, 200, 0, 50)
+    bb.StudsOffset = offset or Vector3.new(0, 0, 0)
     bb.ResetOnSpawn = false
     bb.LightInfluence = 0
     bb.MaxDistance = 5000
@@ -807,12 +807,13 @@ local function createBillboard(adorneePart, baseText, color, offset)
     label.TextSize = State.ESP_TextSize or 22
     label.RichText = true
     label.TextWrapped = false
-    label.TextStrokeTransparency = 1 -- Clean: stroke handled exclusively by UIStroke
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
     label.Parent = bb
 
     local stroke = Instance.new("UIStroke")
     stroke.Color = Color3.fromRGB(0, 0, 0)
-    stroke.Thickness = 1.5
+    stroke.Thickness = 1.0
     stroke.Transparency = 0
     stroke.Parent = label
 
@@ -821,7 +822,7 @@ local function createBillboard(adorneePart, baseText, color, offset)
         local root = getRoot()
         if root and adorneePart:IsA("BasePart") then
             local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
-            local distSize = math.max((State.ESP_TextSize or 22) - 4, 12)
+            local distSize = math.max((State.ESP_TextSize or 22) - 3, 12)
             initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, distSize, dist)
         end
     end
@@ -980,83 +981,7 @@ pcall(function()
     end)
 end)
 
-local function createBillboard(adorneePart, baseText, color, offset)
-    if not adorneePart then return nil, nil end
-    local container = getEspContainer()
 
-    local bb = Instance.new("BillboardGui")
-    bb.Name = "Unknown_ESP_Billboard"
-    bb.Adornee = adorneePart
-    bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 200, 0, 50)
-    bb.StudsOffset = offset or Vector3.new(0, 1.8, 0)
-    bb.ResetOnSpawn = false
-    bb.LightInfluence = 0
-    bb.MaxDistance = 5000
-
-    -- Clean floating ESP text with UIStroke (mspaint v4 esplibrary.txt 1:1 Parity)
-    local label = Instance.new("TextLabel")
-    label.Name = "ESPLabel"
-    label.Size = UDim2.new(0, 200, 0, 50)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
-    label.Font = Enum.Font.RobotoMono
-    label.TextSize = State.ESP_TextSize or 13
-    label.RichText = true
-    label.TextWrapped = true
-    label.TextWrap = true
-    label.TextStrokeTransparency = 0
-    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.Parent = bb
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(0, 0, 0)
-    stroke.Thickness = 1.2
-    stroke.Parent = label
-
-    local initialText = baseText
-    if State.Show_Distance then
-        local root = getRoot()
-        if root and adorneePart:IsA("BasePart") then
-            local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
-            initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 3, 9), dist)
-        end
-    end
-    label.Text = initialText
-
-    bb.Parent = container
-    return bb, label
-end
-
-local function createHighlight(adornee, color, fillTrans, outlineTrans, category)
-    if not adornee then return nil end
-    local container = getEspContainer()
-    fillTrans = fillTrans or State.ESP_FillTransparency or 0.65
-    outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
-
-    local hl = Instance.new("Highlight")
-    hl.Name = "Unknown_ESP_" .. (category or "General") .. "_Highlight"
-    hl.Adornee = adornee
-    hl.FillColor = color
-    hl.FillTransparency = fillTrans
-    hl.OutlineColor = color
-    hl.OutlineTransparency = outlineTrans
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = container
-    return hl
-end
-
-local function refreshEspVisualSettings()
-    for _, rec in pairs(activeEspRecords) do
-        if rec.Label then
-            rec.Label.TextSize = State.ESP_TextSize or 13
-        end
-        if rec.Highlight then
-            rec.Highlight.FillTransparency = State.ESP_FillTransparency or 0.65
-            rec.Highlight.OutlineTransparency = State.ESP_OutlineTransparency or 0
-        end
-    end
-end
 local function getObjectRoom(instance)
     if not instance then return nil, nil end
     local currentRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -2376,9 +2301,9 @@ local function processEntity(entity)
         end
 
         if is2D then
-            -- mspaint v4 Exact 2D Entity 3D Cham Engine (Function D / offset 1708680)
-            -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (5, 4, 5) -> Glowing 3D Sphere Cham!
-            -- Rush / Ambush / A-60 / A-120 / Halt / Surge: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham!
+            -- mspaint v4 Exact 2D Entity 3D Cham Engine (Function D & L / Chunk 271 1:1 Parity)
+            -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (5, 4, 5) -> Glowing 3D Sphere Cham (No corners!)
+            -- Rush / Ambush / A-60 / A-120 / Halt / Surge: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham
             pcall(function()
                 local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
                 local chamName = isEyes and "__mspaint_eyes_esp" or "__mspaint_cube_esp"
@@ -2403,8 +2328,8 @@ local function processEntity(entity)
                     chamPart.Massless = true
                     chamPart.CastShadow = false
                     chamPart.Color = entityColor
-                    chamPart.Material = Enum.Material.ForceField
-                    chamPart.Transparency = 0.55
+                    chamPart.Material = Enum.Material.SmoothPlastic
+                    chamPart.Transparency = 0.99 -- Exactly 0.99 so native Highlight renders full 3D volumetric cham!
                     chamPart.Shape = shape
                     chamPart.Size = size
                     chamPart.CFrame = targetPart.CFrame
@@ -2415,21 +2340,10 @@ local function processEntity(entity)
                     weld.Part1 = targetPart
                     weld.Parent = chamPart
                     chamPart.Anchored = false
-
-                    -- Volumetric 3D glowing cube visible through walls
-                    if not isEyes then
-                        local boxAdorn = Instance.new("BoxHandleAdornment")
-                        boxAdorn.Name = "Unknown_CubeAdornment"
-                        boxAdorn.Adornee = chamPart
-                        boxAdorn.Size = size
-                        boxAdorn.Color3 = entityColor
-                        boxAdorn.Transparency = 0.5
-                        boxAdorn.AlwaysOnTop = true
-                        boxAdorn.ZIndex = 10
-                        boxAdorn.Parent = chamPart
-                    end
                 end
                 highlightTarget = chamPart
+                targetPart = chamPart
+                table.insert(extraVisuals, chamPart)
             end)
         else
             -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, Sally, etc.):
@@ -2440,7 +2354,7 @@ local function processEntity(entity)
         end
 
         local baseText = cfg.Name
-        registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, nil, cfg.Category)
+        registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 0, 0), nil, extraVisuals, cfg.Category)
     end
 end
 
@@ -4404,7 +4318,7 @@ task.spawn(function()
                 local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
                 local mr = rf and rf:FindFirstChild("MotorReplication")
                 if mr then
-                    mr:FireServer(-899, 0)
+                    mr:FireServer(-649, 0) -- -64.9 degrees (mspaint exact within server [-65, 65] clamp)
                 end
             end)
         end
@@ -6448,7 +6362,7 @@ pcall(function()
         if PromptGate and PromptGate.isHidden then
             local origIsHidden = PromptGate.isHidden
             PromptGate.isHidden = function(prompt, ...)
-                if State.Instant_Interact or State.Noclip or State.Noclip_Interact then
+                if State.Instant_Interact or State.Auto_Interact or State.Noclip or State.Noclip_Interact then
                     return false -- Completely bypasses DOORS custom LOS, Facing, Sector, and Crouch gates!
                 end
                 return origIsHidden(prompt, ...)
@@ -6542,239 +6456,362 @@ local function getPromptTargetPosition(prompt)
     return nil
 end
 
-local function isPromptSafeToAutoInteract(prompt)
-    if not prompt or not prompt.Enabled or not prompt.Parent then return false end
+local function getPromptTargetPosition(prompt)
+    if not prompt then return nil end
+    local p = prompt.Parent
+    if not p then return nil end
+    if p:IsA("BasePart") then
+        return p.Position
+    elseif p:IsA("Attachment") then
+        return p.WorldPosition
+    elseif p:IsA("Model") then
+        return p.PrimaryPart and p.PrimaryPart.Position or p:GetPivot().Position
+    elseif p.Parent and p.Parent:IsA("BasePart") then
+        return p.Parent.Position
+    end
+    local anyPart = p:FindFirstChildWhichIsA("BasePart", true)
+    if anyPart then return anyPart.Position end
+    return nil
+end
+
+-- =========================================================================
+-- MSPAINT CHUNK 302 & 316 1:1 PROMPT AUTO-INTERACT ENGINE
+-- =========================================================================
+local autoInteractDebounce = setmetatable({}, {__mode = "k"})
+local currentRoomPrompts = setmetatable({}, {__mode = "k"})
+local activeRoomCache = setmetatable({}, {__mode = "k"})
+local lastAutoInteractRoom = nil
+
+-- PromptTable Whitelist from mspaint Chunks 302 & 316 (Allowed Prompts & Objects)
+local PromptAuraWhitelist = {
+    ["ModulePrompt"] = true,
+    ["InteractPrompt"] = true,
+    ["ActivateEventPrompt"] = true,
+    ["UnlockPrompt"] = true,
+    ["TakePrompt"] = true,
+    ["KeyObtain"] = true,
+    ["GoldPrompt"] = true,
+    ["Knob"] = true,
+    ["DoorPrompt"] = true,
+    ["EnterPrompt"] = true,
+    ["OpenPrompt"] = true,
+    ["FusesPrompt"] = true,
+    ["FlakesPrompt"] = true,
+    ["WaterPump"] = true,
+    ["WaterWheel"] = true,
+    ["SkullPrompt"] = true,
+}
+
+local ObjectAuraWhitelist = {
+    ["Door"] = true,
+    ["DoorNormal"] = true,
+    ["SideroomDoor"] = true,
+    ["Knob"] = true,
+    ["Lock"] = true,
+    ["Lock1"] = true,
+    ["Lock2"] = true,
+    ["StairwellLockpickDoor"] = true,
+    ["Drawer"] = true,
+    ["DrawerContainer"] = true,
+    ["Desk"] = true,
+    ["Cabinet"] = true,
+    ["Chest"] = true,
+    ["ChestBox"] = true,
+    ["Toolbox"] = true,
+    ["Key"] = true,
+    ["KeyObtain"] = true,
+    ["ElectricalKeyObtain"] = true,
+    ["LiveBreakerPolePickup"] = true,
+    ["LiveHintBook"] = true,
+    ["FuseObtain"] = true,
+    ["TimerLever"] = true,
+    ["GateButton"] = true,
+    ["VineGuillotine"] = true,
+    ["KeyJewelry"] = true,
+    ["Gold"] = true,
+    ["GoldPile"] = true,
+    ["Coin"] = true,
+    ["DroppedItem"] = true,
+    ["Drops"] = true,
+    ["Light"] = true,
+    ["Lighter"] = true,
+    ["Flashlight"] = true,
+    ["Candle"] = true,
+    ["Lockpick"] = true,
+    ["SkeletonKey"] = true,
+    ["Shears"] = true,
+    ["Bandage"] = true,
+    ["Vitamins"] = true,
+    ["Battery"] = true,
+    ["Crucifix"] = true,
+    ["BandagePickup"] = true,
+    ["VitaminsPickup"] = true,
+    ["BatteryPickup"] = true,
+    ["LighterPickup"] = true,
+    ["LockpickPickup"] = true,
+}
+
+local PromptDebounceObjects = {
+    ["Lock"] = 0.5,
+    ["Lock1"] = 0.5,
+    ["Lock2"] = 0.5,
+    ["UnlockPrompt"] = 0.5,
+    ["StairwellLockpickDoor"] = 0.5,
+}
+
+-- Mspaint Static Blacklist (Chunk 316 function U & e.StaticPromptCheck)
+local function isBlacklistedPromptObject(obj)
+    if not obj then return true end
+    local name = obj.Name
+    if name == "RetroWardrobe" or name == "MandrakeLive" or name == "ArchivesFireExit" or name == "MinesAnchor" or name == "CandyVault" or name == "StairwellTerminal" then
+        return true
+    end
+    -- Hiding spot invariant: Closets, Wardrobes, Beds, Lockers
+    local lower = name:lower()
+    if lower:find("wardrobe") or lower:find("closet") or lower:find("bed") or lower:find("locker") then
+        return true
+    end
+    -- Rift invariant: Never touch rift storage
+    if lower:find("rift") or obj:GetAttribute("IsRift") or obj:GetAttribute("Rift") then
+        return true
+    end
+    return false
+end
+
+-- Mspaint StaticPromptCheck (Chunk 316 1:1 Parity)
+local function staticPromptCheck(prompt)
+    if not prompt or not prompt.Parent then return false end
+    local parent = prompt.Parent
+    local model = parent:IsA("Model") and parent or parent:FindFirstAncestorOfClass("Model")
+    local mName = model and model.Name or ""
+    local pName = parent.Name
+
+    if isBlacklistedPromptObject(parent) or isBlacklistedPromptObject(model) then
+        return false
+    end
+
+    -- Dupe / Fake door check
+    if mName:lower():find("dupe") or mName:lower():find("doorfake") or isDupeDoor(model) then
+        return false
+    end
+
+    -- Check if prompt or its parent is in the verified aura whitelist
+    local pWhitelisted = PromptAuraWhitelist[prompt.Name] == true
+    local oWhitelisted = ObjectAuraWhitelist[pName] == true or ObjectAuraWhitelist[mName] == true
+
+    if not pWhitelisted and not oWhitelisted then
+        -- Strict reject: furniture, decor, paintings, clocks, elevator buttons, etc.
+        return false
+    end
+
+    return true
+end
+
+-- Mspaint DynamicPromptCheck (Chunk 302 1:1 Parity)
+local function dynamicPromptCheck(prompt)
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    local root = getRoot()
+    if not char or not hum or hum.Health <= 0 or not root then return false end
+    if not prompt or not prompt.Parent or not prompt.Enabled then return false end
 
     local parent = prompt.Parent
-    local model = parent:IsA("Model") and parent or parent.Parent
-    local mName = model and model.Name:lower() or ""
-    local pName = parent.Name:lower()
+    local model = parent:IsA("Model") and parent or parent:FindFirstAncestorOfClass("Model")
+    local pName = parent.Name
+    local mName = model and model.Name or ""
+    local prName = prompt.Name
     local act = (prompt.ActionText or ""):lower()
     local obj = (prompt.ObjectText or ""):lower()
-    local prName = prompt.Name:lower()
 
-    -- 1. STRICT INVARIANT: Rift & Rift Storage MUST NEVER be touched by Auto Interact!
-    if prName:find("rift") or act:find("rift") or obj:find("rift") or pName:find("rift") or mName:find("rift") then
-        return false
-    end
-    local curAncestor = prompt.Parent
-    while curAncestor and curAncestor ~= workspace do
-        local aName = curAncestor.Name:lower()
-        if aName:find("rift") or curAncestor:GetAttribute("IsRift") or curAncestor:GetAttribute("Rift") then
+    -- Distance check (squared magnitude for performance, 6.5-stud clamp for drawers)
+    local targetPos = getPromptTargetPosition(prompt)
+    if not targetPos then return false end
+    local delta = root.Position - targetPos
+    local distSq = delta:Dot(delta)
+
+    local isDrawerOrContainer = obj:find("drawer") or obj:find("desk") or pName:lower():find("drawer")
+    local maxReach = isDrawerOrContainer and 6.5 or prompt.MaxActivationDistance
+    if distSq > (maxReach * maxReach) then return false end
+
+    -- Mspaint Ignore List Filters (AutoInteractIgnore)
+    local ign = State.AutoInteract_IgnoreList or {}
+    if ign["Unlock w/ Shears"] then
+        if pName:lower():find("vine") or mName:lower():find("vine") or obj:find("vine") or act:find("cut") or (model and model:GetAttribute("LockAttribute") == "CanCutVines") then
             return false
         end
-        curAncestor = curAncestor.Parent
+    end
+    if ign["Jeff Items"] then
+        if prompt:GetAttribute("JeffShop") or parent:GetAttribute("JeffShop") or (model and model:GetAttribute("JeffShop")) or pName:lower():find("shop") or mName:lower():find("shop") then
+            return false
+        end
+    end
+    if ign["Can-Die Candy"] then
+        if prompt:GetAttribute("Tool_CandyID") == "CandyRed" or parent:GetAttribute("Tool_CandyID") == "CandyRed" or obj:find("evil") or obj:find("red candy") then
+            return false
+        end
+    end
+    if ign["Skull Prompt"] then
+        if prName == "SkullPrompt" or pName == "SkullLock" or mName == "SkullLock" or obj:find("skull") then
+            return false
+        end
+    end
+    if ign["Glitch Fragment"] then
+        if prompt:GetAttribute("CustomFrame") == "Glitch" or pName == "GlitchCube" or mName == "GlitchCube" or isGlitchFragmentInstance(model) then
+            return false
+        end
+    end
+    if ign["Paper Planes"] then
+        if prompt:GetAttribute("Pickup") == "PaperPlane" or pName:lower():find("paperplane") or obj:find("plane") then
+            return false
+        end
+    end
+    if ign["Fih Flakes"] then
+        if prName == "FlakesPrompt" or prompt:GetAttribute("Pickup") == "FihFlakes" or parent:GetAttribute("Pickup") == "FihFlakes" or obj:find("flake") then
+            return false
+        end
     end
 
-    -- 2. STRICT INVARIANT: All hiding spots (Wardrobes, Closets, Beds, Lockers) MUST NEVER be auto-interacted!
-    if prName:find("hide") or act:find("hide") or act:find("enter")
-       or obj:find("wardrobe") or obj:find("closet") or obj:find("bed") or obj:find("locker")
-       or pName:find("wardrobe") or pName:find("closet") or pName:find("bed") or pName:find("locker")
-       or mName:find("wardrobe") or mName:find("closet") or mName:find("bed") or mName:find("locker") then
-        return false
-    end
-
-    -- 3. STRICT INVARIANT: Dupe Fake Doors MUST NEVER be opened!
-    if mName == "doorfake" or mName:find("fake") or mName:find("dupe") or (model and isDupeDoor(model)) then
-        return false
-    end
-
-    -- 4. User Custom Keywords Exclusions
+    -- User custom keywords exclusions
     if State.AutoInteract_CustomKeywords then
         for _, kw in ipairs(State.AutoInteract_CustomKeywords) do
             if kw and #kw > 0 then
                 local lkw = kw:lower()
-                if pName:find(lkw, 1, true) or mName:find(lkw, 1, true) or obj:find(lkw, 1, true) or act:find(lkw, 1, true) then
+                if pName:lower():find(lkw, 1, true) or mName:lower():find(lkw, 1, true) or obj:find(lkw, 1, true) or act:find(lkw, 1, true) then
                     return false
                 end
             end
         end
     end
 
-    -- 5. MSPaint v4 Ignore List Filters (1:1 Decompiled Parity):
-    if State.AutoInteract_IgnoreList then
-        local ign = State.AutoInteract_IgnoreList
-        if ign["Unlock w/ Shears"] then
-            if pName:find("vine") or mName:find("vine") or obj:find("vine") or act:find("cut") or (model and model:GetAttribute("LockAttribute") == "CanCutVines") then
-                return false
-            end
-        end
-        if ign["Jeff Items"] then
-            if prompt:GetAttribute("JeffShop") or (parent and parent:GetAttribute("JeffShop")) or (model and model:GetAttribute("JeffShop")) or pName:find("shop") or mName:find("shop") or (obj:find("gold") and (pName:find("buy") or act:find("buy") or act:find("purchase"))) then
-                return false
-            end
-        end
-        if ign["Can-Die Candy"] then
-            if (prompt:FindFirstChild("CandyReferenceModel") or (parent and parent:FindFirstChild("CandyReferenceModel"))) and (prompt:GetAttribute("Tool_CandyID") == "CandyRed" or (parent and parent:GetAttribute("Tool_CandyID") == "CandyRed")) then
-                return false
-            end
-            if obj:find("evil") or obj:find("red candy") or pName:find("candyred") then
-                return false
-            end
-        end
-        if ign["Skull Prompt"] then
-            if prompt.Name == "SkullPrompt" or pName == "skullprompt" or mName == "skulllock" or obj:find("skull") then
-                return false
-            end
-        end
-        if ign["Glitch Fragment"] then
-            if prompt:GetAttribute("CustomFrame") == "Glitch" or pName == "glitchcube" or mName == "glitchcube" or (model and isGlitchFragmentInstance(model)) then
-                return false
-            end
-        end
-        if ign["Paper Planes"] then
-            if prompt:GetAttribute("Pickup") == "PaperPlane" or pName:find("paperplane") or mName:find("paperplane") or obj:find("plane") then
-                return false
-            end
-        end
-        if ign["Fih Flakes"] then
-            if prompt.Name == "FlakesPrompt" or prompt:GetAttribute("Pickup") == "FihFlakes" or (parent and parent:GetAttribute("Pickup") == "FihFlakes") or obj:find("flake") or pName:find("flake") then
-                return false
-            end
-        end
-    end
-
-    -- 6. Player Health / Durability Optimization (mspaint parity)
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    -- PropType == "Heal": Don't pick up bandages/vitamins if health is full
     local propType = parent:GetAttribute("PropType") or (model and model:GetAttribute("PropType"))
     if propType == "Heal" or act:find("heal") or act:find("consume") then
-        if hum and hum.Health >= hum.MaxHealth then
-            return false
-        end
+        if hum.Health >= hum.MaxHealth then return false end
     end
+
+    -- PropType == "Battery": Don't pick up batteries if no battery-powered tool or already 100% full
     if propType == "Battery" or obj:find("battery") then
-        local tool = char and char:FindFirstChildOfClass("Tool")
+        local tool = char:FindFirstChildOfClass("Tool")
         if not tool or (tool:GetAttribute("Durability") and tool:GetAttribute("DurabilityMax") and tool:GetAttribute("Durability") >= tool:GetAttribute("DurabilityMax")) then
             return false
         end
     end
 
-    -- 7. Key Duplication Guard (mspaint parity: don't pick up extra key if already held)
-    if pName == "keyobtain" or mName == "keyobtain" or prompt:GetAttribute("IsKey") then
+    -- KeyObtain / Key duplication guard
+    if prName == "KeyObtain" or pName == "KeyObtain" or mName == "KeyObtain" or prompt:GetAttribute("IsKey") then
         local bp = LocalPlayer:FindFirstChild("Backpack")
-        if (char and char:FindFirstChild("Key")) or (bp and bp:FindFirstChild("Key")) then
+        if (char:FindFirstChild("Key")) or (bp and bp:FindFirstChild("Key")) then
             return false
         end
     end
 
-    -- 8. Locked door / Padlock validation
-    local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or obj:find("lock")) and not act:find("open")
+    -- ModulePrompt duplication guard (CanOwnMultiple)
+    if prName == "ModulePrompt" and not parent:GetAttribute("CanOwnMultiple") then
+        local pickup = parent:GetAttribute("Pickup") or pName
+        local bp = LocalPlayer:FindFirstChild("Backpack")
+        if char:FindFirstChild(pickup) or (bp and bp:FindFirstChild(pickup)) then
+            return false
+        end
+    end
+
+    -- Locked Doors / Padlocks tool validation
+    local isUnlock = (pName:lower():find("unlock") or act:find("unlock") or obj:find("padlock") or obj:find("lock") or prName == "UnlockPrompt") and not act:find("open")
     if isUnlock then
         local hasKeyOrLockpick = getEquippedOrInventoryTool({"key", "lockpick", "skeleton", "shears"})
-        if not hasKeyOrLockpick then
-            return false
+        if not hasKeyOrLockpick then return false end
+    end
+
+    return true, pName
+end
+
+-- Room Interaction Prompt Mapping (Chunk 316 SetupInteractionPromptMapping)
+local function setupRoomPromptMapping(roomModel)
+    if not roomModel or not roomModel.Parent then return end
+    if activeRoomCache[roomModel] then
+        currentRoomPrompts = activeRoomCache[roomModel]
+        return
+    end
+
+    local prompts = setmetatable({}, {__mode = "k"})
+    for _, prompt in ipairs(roomModel:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") and staticPromptCheck(prompt) then
+            prompts[prompt] = true
         end
     end
 
-    -- All other gameplay prompts (Items, Gold, Drawers, Desks, Chests, Books, Breakers, Levers, Side Doors, Main Doors) are 100% SAFE!
-    return true
+    roomModel.DescendantAdded:Connect(function(desc)
+        if desc:IsA("ProximityPrompt") and staticPromptCheck(desc) then
+            prompts[desc] = true
+        end
+    end)
+    roomModel.DescendantRemoving:Connect(function(desc)
+        if desc:IsA("ProximityPrompt") then
+            prompts[desc] = nil
+        end
+    end)
+
+    activeRoomCache[roomModel] = prompts
+    currentRoomPrompts = prompts
 end
 
--- Auto Interact Worker Thread (Hyper-Fast, Non-Blocking, Debounced & Lag-Free)
-local promptDebounce = {}
-local lastCleanup = 0
-
+-- Auto Interact Worker Thread (Chunk 302 PerformCycle 1:1 Parity)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.Auto_Interact then
             local now = os.clock()
             local root = getRoot()
-            local rootPos = root and root.Position
+            local char = getChar()
 
-            if UserInputService:IsKeyDown(Enum.KeyCode.E) or (now < unhideGraceUntil) then
-                task.wait(0.1)
-                continue
-            end
-
-            -- Pause Auto Interact ONLY if daddy is currently hiding inside a closet/wardrobe
-            if (now < unhideGraceUntil) or isPlayerHiding(char, mgTable) then
-                task.wait(0.08)
-                continue
-            end
-            if root then
-                local rootPos = root.Position
-                local maxDist = State.Range_Interact and math.clamp(State.Interact_MaxRange, 6, 14) or 12
-                local now = os.clock()
-
-                -- Clean expired cooldowns periodically (every 5 seconds)
-                if now - lastCleanup > 5 then
-                    lastCleanup = now
-                    for obj, expire in pairs(promptDebounce) do
-                        if now >= expire then
-                            promptDebounce[obj] = nil
-                        end
-                    end
-                end
-
-                -- High-Performance Proximity Scope: Scans ONLY current room, next room, and Drops (zero FPS lag)
+            if not UserInputService:IsKeyDown(Enum.KeyCode.E) and (now >= unhideGraceUntil) and not isPlayerHiding(char, mgTable) and root then
+                -- Check room transitions dynamically
                 local curRoom, curNum = getObjectRoom(root)
-                local searchContainers = {}
-                if curRoom then
-                    table.insert(searchContainers, curRoom)
-                    if curNum and Workspace:FindFirstChild("CurrentRooms") then
-                        local nextRoom = Workspace.CurrentRooms:FindFirstChild(tostring(curNum + 1))
-                        if nextRoom then table.insert(searchContainers, nextRoom) end
-                    end
-                else
-                    local cr = Workspace:FindFirstChild("CurrentRooms")
-                    if cr then table.insert(searchContainers, cr) end
+                if curRoom and curRoom ~= lastAutoInteractRoom then
+                    lastAutoInteractRoom = curRoom
+                    setupRoomPromptMapping(curRoom)
                 end
 
+                -- Prompt sources: Current room pre-filtered prompts + Workspace.Drops
+                local promptSources = { currentRoomPrompts }
                 local drops = Workspace:FindFirstChild("Drops")
-                if drops then table.insert(searchContainers, drops) end
+                if drops then
+                    local dropPrompts = {}
+                    for _, d in ipairs(drops:GetChildren()) do
+                        local p = d:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if p and p.Enabled then table.insert(dropPrompts, p) end
+                    end
+                    table.insert(promptSources, dropPrompts)
+                end
 
-                local batchCount = 0
-                for _, container in ipairs(searchContainers) do
-                    -- 1. Check ProximityPrompts (Drawers, Items, Keys, Books, Levers, Gold, Side Doors)
-                    for _, prompt in ipairs(container:GetDescendants()) do
-                        if prompt:IsA("ProximityPrompt") and prompt.Enabled and prompt.Parent then
-                            if not promptDebounce[prompt] or now >= promptDebounce[prompt] then
-                                local pPos = getPromptTargetPosition(prompt)
-                                if pPos then
-                                    local dist = (rootPos - pPos).Magnitude
-                                    local pObj = (prompt.ObjectText or ""):lower()
-                                    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") -- Door knobs are NOT drawers!
-                                    -- CRITICAL INVARIANT: Server strictly rejects drawer activation beyond 6.5 studs!
-                                    local maxReach = isDrawerOrContainer and 6.5 or prompt.MaxActivationDistance
-                                    if dist <= maxReach then
-                                        if isPromptSafeToAutoInteract(prompt) then
-                                            local delayTime = tonumber(State.AutoInteract_Delay) or 0.05
-                                            promptDebounce[prompt] = now + math.max(0.2, delayTime)
-                                            batchCount = batchCount + 1
-                                            local stagger = (batchCount - 1) * delayTime
-                                            task.spawn(function()
-                                                if stagger > 0 then task.wait(stagger) end
-                                                safeInstantFirePrompt(prompt)
-                                            end)
-                                        end
-                                    end
+                for _, pSet in ipairs(promptSources) do
+                    for prompt, _ in pairs(pSet) do
+                        local actualPrompt = (typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt")) and prompt or _
+                        if typeof(actualPrompt) == "Instance" and actualPrompt:IsA("ProximityPrompt") and actualPrompt.Enabled and actualPrompt.Parent then
+                            -- Debounce check
+                            local lastFired = autoInteractDebounce[actualPrompt]
+                            local debounceTime = PromptDebounceObjects[actualPrompt.Parent.Name] or 0.2
+                            if not lastFired or (now - lastFired) >= debounceTime then
+                                local safe, objName = dynamicPromptCheck(actualPrompt)
+                                if safe then
+                                    autoInteractDebounce[actualPrompt] = now
+                                    safeInstantFirePrompt(actualPrompt)
+                                    local delayVal = tonumber(State.AutoInteract_Delay) or 0.05
+                                    if delayVal > 0 then task.wait(delayVal) end
                                 end
                             end
                         end
                     end
+                end
 
-                    -- 2. Check All Doors (Main Doors, Side Doors, Hallway Doors)
-                    for _, child in ipairs(container:GetDescendants()) do
-                        if child:IsA("Model") and (child.Name == "Door" or child.Name:lower():find("door")) then
-                            local dPart = child:FindFirstChild("Door") or child:FindFirstChild("Hidden") or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
-                            if dPart then
-                                local dist = (rootPos - dPart.Position).Magnitude
-                                if dist <= (maxDist + 4) then
-                                    processNearbyDoors(rootPos, maxDist + 4)
-                                    break
-                                end
-                            end
-                        end
-                    end
+                -- Check nearby doors to trigger smooth opening
+                if curRoom and (State.AutoInteract_Doors or State.Knobs_Farm_Active) then
+                    processNearbyDoors(root.Position, 16)
                 end
             end
         end
-        task.wait(0.16) -- Smooth 6.5Hz loop (zero lag): instant looting without CPU frame spikes or micro-freezes
+        task.wait(0.16) -- Smooth 6.5Hz loop (zero lag, zero O(N) descendant scans)
     end
 end)
-
 -- =========================================================================
 -- Prompt Listeners, Crucifix Exorcism Retain & Consumables Auto-Retain Engines
 -- =========================================================================
