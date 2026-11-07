@@ -109,7 +109,7 @@ end
 local State = {
     -- Auto Farm
     AutoFarm_Enabled = false,
-    Farm_StageDelay = 1.4,       -- Optimized 1.4s per stage (14s river run) for max gold throughput without rollbacks
+    Farm_StageDelay = 1.25,      -- Accelerated 1.25s per stage (12.5s river run) for max gold throughput without rollbacks
     Farm_FlightHeight = 0,       -- Safe river trigger height (Y = 0) is 13 studs above water, avoiding all water/log damage
     Farm_AutoLaunch = true,      -- Automatically triggers team dock launch
     Farm_AutoClaim = true,       -- Automatically fires ClaimRiverResultsGold:FireServer()
@@ -354,16 +354,26 @@ task.spawn(function()
                             dismissResultsPopup()
                         end
 
-                        -- Fast Turnaround: Bypasses the 15-second slow chest opening animation
-                        task.wait(0.7)
-                        pcall(function()
-                            if hum and hum.Health > 0 then
-                                hum.Health = 0
-                            end
-                        end)
-
-                        LocalPlayer.CharacterAdded:Wait()
-                        task.wait(1.5) -- Server round re-initialization buffer
+                        -- Smooth Dock Return (Zero Death, 100 Health Preserved)
+                        task.wait(0.4)
+                        if hum and hum.Health > 0 then
+                            pcall(function()
+                                local team = LocalPlayer.Team
+                                local teamName = team and team.TeamColor.Name
+                                local spawnsFolder = Workspace.Teams:FindFirstChild(teamName .. "Team") and Workspace.Teams[teamName .. "Team"]:FindFirstChild("Spawns")
+                                local spawnPart = spawnsFolder and spawnsFolder:FindFirstChildOfClass("SpawnLocation")
+                                if spawnPart and root and root.Parent then
+                                    root.CFrame = spawnPart.CFrame + Vector3.new(0, 3, 0)
+                                    root.AssemblyLinearVelocity = Vector3.zero
+                                    root.AssemblyAngularVelocity = Vector3.zero
+                                end
+                            end)
+                            root.Anchored = false
+                            task.wait(0.6)
+                        else
+                            LocalPlayer.CharacterAdded:Wait()
+                            task.wait(1.0)
+                        end
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
