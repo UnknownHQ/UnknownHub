@@ -1577,6 +1577,11 @@ local function isDecorOrScenery(inst)
     return false
 end
 
+local function isMspaintItemCondition(inst)
+    if not inst then return false end
+    return (inst:GetAttribute("Pickup") ~= nil or inst:GetAttribute("PropType") ~= nil) and inst:GetAttribute("FuseID") == nil
+end
+
 local function isValidLootItem(model)
     if not model or not (model:IsA("Model") or model:IsA("Tool") or model:IsA("BasePart")) then return false, nil end
     local lower = model.Name:lower()
@@ -1616,6 +1621,24 @@ local function isValidLootItem(model)
     if lower:find("keyobtain") or lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever")
         or lower:find("painting") or lower:find("picture") or lower:find("canvas") or lower:find("frame") or lower:find("portrait") or lower:find("photo") then
         return false, nil
+    end
+
+    -- 6b. Authoritative Engine Attribute Check (mspaint 1:1 Parity)
+    if isMspaintItemCondition(model) and not isDecorOrScenery(model) then
+        local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("PropType") or model:GetAttribute("Pickup")
+        if typeof(rawName) == "string" and #rawName > 0 then
+            local rLower = rawName:lower()
+            if not rLower:find("decor") and not rLower:find("holder") and not rLower:find("stand") then
+                if rLower:find("candle") and model:IsA("Model") then
+                    local _, sz = model:GetBoundingBox()
+                    if sz.X <= 3.2 and sz.Y <= 3.2 and sz.Z <= 3.2 then
+                        return true, "Candle"
+                    end
+                else
+                    return true, rawName
+                end
+            end
+        end
     end
 
     -- 7. Mandatory ProximityPrompt Check (World models MUST have a ProximityPrompt to be collectible!)
@@ -1771,13 +1794,25 @@ local function isValidLootItem(model)
 
     return false, nil
 end
-
+
 local function processItem(itemModel)
-    if not itemModel or not (itemModel:IsA("Model") or itemModel:IsA("Tool")) then return end
+    if not itemModel or not (itemModel:IsA("Model") or itemModel:IsA("Tool") or itemModel:IsA("BasePart")) then return end
     if not State.Items_ESP then
         removeEspFor(itemModel)
         return
     end
+
+    -- Hook ItemPicked attribute change for instantaneous despawn!
+    pcall(function()
+        if not itemModel:GetAttribute("__Unknown_ItemPicked_Hooked") then
+            itemModel:SetAttribute("__Unknown_ItemPicked_Hooked", true)
+            itemModel:GetAttributeChangedSignal("ItemPicked"):Connect(function()
+                if itemModel:GetAttribute("ItemPicked") == true then
+                    removeEspFor(itemModel)
+                end
+            end)
+        end
+    end)
 
     local isValid, displayName = isValidLootItem(itemModel)
     if isValid and displayName then
@@ -1878,6 +1913,102 @@ local function processHidingSpot(hidingModel, room)
                 registerEsp(hidingModel, targetPart, baseText, color, "HidingSpots", hidingModel, Vector3.new(0, 2.5, 0), roomNumber)
             end
         end
+    end
+end
+
+-- 6b. Precision Chest & Toolbox Scanner (mspaint 1:1 Parity)
+local function processChest(chestModel)
+    if not chestModel or not chestModel:IsA("Model") then return end
+    if not State.Items_ESP then
+        removeEspFor(chestModel)
+        return
+    end
+
+    -- If chest is already opened or looted, remove ESP immediately
+    if chestModel:GetAttribute("Opened") == true or chestModel:GetAttribute("Open") == true then
+        removeEspFor(chestModel)
+        return
+    end
+
+    local prompt = chestModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt and not prompt.Enabled then
+        removeEspFor(chestModel)
+        return
+    end
+
+    local targetPart = chestModel:FindFirstChild("Box")
+        or chestModel:FindFirstChild("Main")
+        or chestModel:FindFirstChildWhichIsA("MeshPart")
+        or chestModel.PrimaryPart
+        or chestModel:FindFirstChildWhichIsA("BasePart")
+    if targetPart then
+        local isToolbox = chestModel.Name:lower():find("toolbox")
+        local baseText = isToolbox and "Toolbox" or "Chest"
+        local color = isToolbox and Color3.fromRGB(255, 140, 40) or Color3.fromRGB(130, 215, 255)
+
+        pcall(function()
+            if not chestModel:GetAttribute("__Unknown_Chest_Hooked") then
+                chestModel:SetAttribute("__Unknown_Chest_Hooked", true)
+                chestModel:GetAttributeChangedSignal("Opened"):Connect(function()
+                    if chestModel:GetAttribute("Opened") == true then
+                        removeEspFor(chestModel)
+                    end
+                end)
+            end
+        end)
+
+        registerEsp(chestModel, targetPart, baseText, color, "Items", chestModel, Vector3.new(0, 1.8, 0))
+    end
+end
+
+-- 6c. Precision Objective Scanner (Gates, Levers, Generators, Anchors, Terminals)
+local OBJECTIVE_KEYWORDS = {
+    "minesgenerator", "minesgatebutton", "fuseobtain", "candyvault", "waterpump",
+    "gardengate", "minesanchor", "stairwellfirealarm", "depothalloween", "vineguillotine",
+    "stairwellterminal", "archivesterminal", "timerlever", "gardengatebutton",
+    "leverforgate", "sallytoyobtain"
+}
+
+local function isObjectiveInstance(inst)
+    if not inst then return false end
+    local lower = inst.Name:lower()
+    for _, kw in ipairs(OBJECTIVE_KEYWORDS) do
+        if lower == kw or lower:find(kw) then
+            return true
+        end
+    end
+    return false
+end
+
+local function processObjective(objModel)
+    if not objModel then return end
+    if not State.Keys_ESP and not State.Items_ESP then
+        removeEspFor(objModel)
+        return
+    end
+
+    local name = objModel.Name
+    local cleanName = name
+    local lower = name:lower()
+
+    if lower:find("generator") then cleanName = "Generator"
+    elseif lower:find("anchor") then cleanName = "Anchor"
+    elseif lower:find("waterpump") then cleanName = "Water Pump"
+    elseif lower:find("timerlever") then cleanName = "Timer Lever"
+    elseif lower:find("fuseobtain") then cleanName = "Fuse"
+    elseif lower:find("gatebutton") then cleanName = "Gate Button"
+    elseif lower:find("terminal") then cleanName = "Terminal"
+    elseif lower:find("firealarm") then cleanName = "Fire Alarm"
+    elseif lower:find("guillotine") then cleanName = "Guillotine"
+    elseif lower:find("candyvault") then cleanName = "Candy Vault"
+    elseif lower:find("lever") then cleanName = "Lever"
+    end
+
+    local targetPart = (objModel:IsA("Model") and (objModel.PrimaryPart or objModel:FindFirstChildWhichIsA("BasePart", true)))
+        or (objModel:IsA("BasePart") and objModel)
+    if targetPart then
+        local color = Color3.fromRGB(80, 255, 140)
+        registerEsp(objModel, targetPart, cleanName, color, "Keys", objModel, Vector3.new(0, 1.8, 0))
     end
 end
 
@@ -2315,26 +2446,27 @@ local function processEntity(entity)
         end
 
         if is2D then
-            -- mspaint v4 Exact 2D Entity 3D Cham Engine (Function D & L / Chunk 271 & esplibrary.txt 1:1 Parity)
-            -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (5, 4, 5) -> Glowing 3D Sphere Cham (No corners!)
-            -- Rush / Ambush / A-60 / A-120 / Halt / Surge: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham
+            -- mspaint 1:1 Parity 3D Volumetric Cham & Vector Adornment Engine
+            -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (6.5, 6.5, 6.5) -> Glowing 3D Sphere Cham
+            -- Rush / Ambush / A-60 / A-120 / Halt / Surge / Dread: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham
             pcall(function()
                 local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
                 local chamName = isEyes and "__mspaint_eyes_esp" or "__mspaint_cube_esp"
                 local existingChamModel = entity:FindFirstChild(chamName .. "_Model")
                 local chamModel = existingChamModel
                 local chamPart = nil
+                local container = getEspContainer()
+
+                local shape = isEyes and Enum.PartType.Ball or Enum.PartType.Block
+                local size = isEyes and Vector3.new(6.5, 6.5, 6.5) or Vector3.new(6, 6, 6)
+
+                if cfg.Name:lower():find("stampede") then
+                    size = Vector3.new(8, 8, 8)
+                elseif cfg.Name:lower():find("drone") and not cfg.Name:lower():find("stampede") then
+                    size = Vector3.new(3.5, 6.5, 1.5)
+                end
 
                 if not chamModel or not chamModel:IsA("Model") then
-                    local shape = isEyes and Enum.PartType.Ball or Enum.PartType.Block
-                    local size = isEyes and Vector3.new(5, 4, 5) or Vector3.new(6, 6, 6)
-
-                    if cfg.Name:lower():find("stampede") then
-                        size = Vector3.new(8, 8, 8)
-                    elseif cfg.Name:lower():find("drone") and not cfg.Name:lower():find("stampede") then
-                        size = Vector3.new(3.375, 6.75, 0.619)
-                    end
-
                     chamModel = Instance.new("Model")
                     chamModel.Name = chamName .. "_Model"
 
@@ -2348,7 +2480,7 @@ local function processEntity(entity)
                     chamPart.CastShadow = false
                     chamPart.Color = entityColor
                     chamPart.Material = Enum.Material.SmoothPlastic
-                    chamPart.Transparency = 0.5 -- 50% semi-transparent volumetric core
+                    chamPart.Transparency = 0.99 -- Nearly invisible in workspace: geometry receptor only!
                     chamPart.Shape = shape
                     chamPart.Size = size
                     chamPart.CFrame = targetPart.CFrame
@@ -2362,43 +2494,43 @@ local function processEntity(entity)
                     weld.Part1 = targetPart
                     weld.Parent = chamPart
                     chamPart.Anchored = false
-
-                    -- mspaint 1:1 Adornment Engine (BoxHandleAdornment & SelectionBox / SphereHandleAdornment)
-                    if isEyes then
-                        local sphere = Instance.new("SphereHandleAdornment")
-                        sphere.Name = "__mspaint_sphere_adorn"
-                        sphere.Adornee = chamPart
-                        sphere.AlwaysOnTop = true
-                        sphere.ZIndex = 10
-                        sphere.Radius = size.X * 0.55
-                        sphere.Color3 = entityColor
-                        sphere.Transparency = 0.5
-                        sphere.Parent = chamPart
-                        table.insert(extraVisuals, sphere)
-                    else
-                        local box = Instance.new("BoxHandleAdornment")
-                        box.Name = "__mspaint_box_adorn"
-                        box.Adornee = chamPart
-                        box.AlwaysOnTop = true
-                        box.ZIndex = 10
-                        box.Size = size
-                        box.Color3 = entityColor
-                        box.Transparency = 0.5
-                        box.Parent = chamPart
-                        table.insert(extraVisuals, box)
-
-                        local sel = Instance.new("SelectionBox")
-                        sel.Name = "__mspaint_box_sel"
-                        sel.Adornee = chamPart
-                        sel.Color3 = entityColor
-                        sel.LineThickness = 0.05
-                        sel.SurfaceColor3 = entityColor
-                        sel.SurfaceTransparency = 0.7
-                        sel.Parent = chamPart
-                        table.insert(extraVisuals, sel)
-                    end
                 else
                     chamPart = chamModel.PrimaryPart or chamModel:FindFirstChildWhichIsA("BasePart")
+                end
+
+                -- mspaint 1:1 Adornment Engine (Parented to getEspContainer in CoreGui for true AlwaysOnTop rendering!)
+                if isEyes then
+                    local sphere = Instance.new("SphereHandleAdornment")
+                    sphere.Name = "__mspaint_sphere_adorn"
+                    sphere.Adornee = chamPart
+                    sphere.AlwaysOnTop = true
+                    sphere.ZIndex = 10
+                    sphere.Radius = size.X * 0.55
+                    sphere.Color3 = entityColor
+                    sphere.Transparency = 0.55
+                    sphere.Parent = container
+                    table.insert(extraVisuals, sphere)
+                else
+                    local box = Instance.new("BoxHandleAdornment")
+                    box.Name = "__mspaint_box_adorn"
+                    box.Adornee = chamPart
+                    box.AlwaysOnTop = true
+                    box.ZIndex = 10
+                    box.Size = size
+                    box.Color3 = entityColor
+                    box.Transparency = 0.65
+                    box.Parent = container
+                    table.insert(extraVisuals, box)
+
+                    local sel = Instance.new("SelectionBox")
+                    sel.Name = "__mspaint_box_sel"
+                    sel.Adornee = chamPart
+                    sel.Color3 = entityColor
+                    sel.LineThickness = 0.06
+                    sel.SurfaceColor3 = entityColor
+                    sel.SurfaceTransparency = 1
+                    sel.Parent = container
+                    table.insert(extraVisuals, sel)
                 end
 
                 highlightTarget = chamModel
@@ -2414,7 +2546,8 @@ local function processEntity(entity)
         end
 
         local baseText = cfg.Name
-        registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 0, 0), nil, extraVisuals, cfg.Category)
+        local labelOffset = Vector3.new(0, is2D and 4.2 or 1.8, 0)
+        registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, labelOffset, nil, extraVisuals, cfg.Category)
     end
 end
 
@@ -2724,6 +2857,10 @@ local function scanSingleRoom(room)
                     processHidingSpot(desc, room)
                 elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                     processGold(desc)
+                elseif dName == "chestbox" or dName == "toolshed_small" or dName:find("toolbox") or dName == "chest" then
+                    processChest(desc)
+                elseif isObjectiveInstance(desc) then
+                    processObjective(desc)
                 elseif dName:find("snare") then
                     if State.Anti_Snare then defuseSnare(desc) end
                     if State.Entities_ESP then processEntity(desc) end
@@ -2884,6 +3021,10 @@ pcall(function()
                         processHidingSpot(desc, newRoom)
                     elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                         processGold(desc)
+                    elseif dName == "chestbox" or dName == "toolshed_small" or dName:find("toolbox") or dName == "chest" then
+                        processChest(desc)
+                    elseif isObjectiveInstance(desc) then
+                        processObjective(desc)
                     elseif dName:find("snare") then
                         if State.Anti_Snare then defuseSnare(desc) end
                         if State.Entities_ESP then processEntity(desc) end
@@ -6448,7 +6589,7 @@ local function isBlacklistedPromptObject(obj)
     end
     return false
 end
-
+
 -- Mspaint StaticPromptCheck (Chunk 316 1:1 Parity)
 local function staticPromptCheck(prompt)
     if not prompt or not prompt.Parent then return false end
