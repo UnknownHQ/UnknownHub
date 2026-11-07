@@ -624,11 +624,15 @@ local function configurePromptDistances(prompt)
     else
         local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or pObj:find("dresser")
             or parentName:find("drawer") or parentName:find("dresser") or parentName == "knobs"
+        local isKeyOrItem = prName:find("key") or pObj:find("key") or parentName:find("key") or (prompt:GetAttribute("IsKey") == true) or pAct:find("take") or pAct:find("pick")
         if isDrawerOrContainer then
-            -- Strict 6.5 - 6.8 stud Server Validation Guard: Prevents server rejecting out-of-range clicks!
-            prompt.MaxActivationDistance = 6.8
-        elseif prompt.MaxActivationDistance < 14.0 then
-            prompt.MaxActivationDistance = 14.0
+            -- Strict 6.5 stud Server Validation Guard: Prevents server rejecting out-of-range clicks!
+            prompt.MaxActivationDistance = 6.5
+        elseif isKeyOrItem then
+            -- Strict 9.5 stud Server Validation Guard for Keys & Items: Prevents premature distant triggering!
+            prompt.MaxActivationDistance = 9.5
+        elseif prompt.MaxActivationDistance < 12.0 then
+            prompt.MaxActivationDistance = 12.0
         end
     end
 end
@@ -1655,6 +1659,11 @@ local function isValidLootItem(model)
     if not model or not (model:IsA("Model") or model:IsA("Tool") or model:IsA("BasePart")) then return false, nil end
     local lower = model.Name:lower()
 
+    -- 0. Anti-Highlight & Internal Tag Guard: Never highlight door highlight models or helper parts
+    if lower:find("mspaint") or lower:find("highlight") or lower:find("frame") or lower:find("lock") then
+        return false, nil
+    end
+
     -- 1. Anti-Pickup Guard: If item has already been collected, NEVER display ESP!
     if model:GetAttribute("ItemPicked") == true then
         return false, nil
@@ -1677,13 +1686,12 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- 4. Fast-Path: Verified Item Dictionary Match
+    -- 4. Fast-Path: Verified Item Dictionary Match (Authoritative 100% Genuine Items)
     if VALID_ITEM_NAMES[lower] then
         return true, VALID_ITEM_NAMES[lower]
     end
 
     -- 5. Strict Furniture, Structural & Ambient Scenery Exclusion
-    -- Invariant: Must run BEFORE ProximityPrompt & Attribute checks to prevent tables, wallpaper & decor from glowing!
     if lower:find("table") or lower:find("desk") or lower:find("shelf") or lower:find("stand")
         or lower:find("counter") or lower:find("chair") or lower:find("sofa") or lower:find("couch")
         or lower:find("furniture") or lower:find("decor") or lower:find("wall") or lower:find("wallpaper")
@@ -1696,7 +1704,8 @@ local function isValidLootItem(model)
         or lower:find("fixture") or lower:find("curtain") or lower:find("window") or lower:find("stair")
         or lower:find("railing") or lower:find("trim") or lower:find("beam") or lower:find("plank")
         or lower:find("crate") or lower:find("barrel") or lower:find("cart") or lower:find("luggage")
-        or lower:find("clock") or lower:find("fireplace") or lower:find("paper") or lower:find("scenery") then
+        or lower:find("clock") or lower:find("fireplace") or lower:find("paper") or lower:find("scenery")
+        or lower:find("runner") or lower:find("prop") or lower:find("cubby") or lower:find("holder") then
         return false, nil
     end
 
@@ -1721,21 +1730,6 @@ local function isValidLootItem(model)
             local rLower = rawName:lower()
             if not (rLower:find("table") or rLower:find("desk") or rLower:find("wall") or rLower:find("decor") or rLower:find("shelf") or rLower:find("prop")) then
                 return true, rawName
-            end
-        end
-    end
-
-    -- 9. Strictly Genuine Collectible ProximityPrompt Check ("Take", "Pick up", "Grab", "Collect", "Steal")
-    -- Invariant: NEVER match generic "ModulePrompt", Gold prompts, or prompts inside furniture!
-    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", false)
-        or model:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt and prompt.Name ~= "ModulePrompt" then
-        local act = (prompt.ActionText or ""):lower()
-        local obj = (prompt.ObjectText or ""):lower()
-        if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("steal") then
-            if not (obj:find("gold") or obj:find("coin") or obj:find("table") or obj:find("desk") or obj:find("drawer") or obj:find("shelf") or obj:find("wall")) then
-                local cleanName = (#prompt.ObjectText > 0) and prompt.ObjectText or VALID_ITEM_NAMES[lower] or model.Name
-                return true, cleanName
             end
         end
     end
@@ -2782,12 +2776,16 @@ local function scanSingleRoom(room)
     -- 2. Scan Room Descendants & Defuse Void/Boundary Anti-Cheat Triggers
     for _, desc in ipairs(room:GetDescendants()) do
         local dName = desc.Name:lower()
-        if desc:IsA("BasePart") and (dName:find("voidcollision") or dName == "playercollision") then
+        if desc:IsA("BasePart") and dName:find("voidcollision") then
             desc.CanTouch = false
             desc.CanCollide = false
         end
 
-        -- Skip internal Dupe sideroom decorations/models (only DoorFake is tracked as a door)
+        -- Skip internal Dupe sideroom decorations/models and mspaint highlight helper parts
+        if desc.Name == "_mspaint_doorhighlight" or desc.Name == "__mspaint_door_frame" then
+            continue
+        end
+
         if not (desc.Parent and desc.Parent.Name == "SideroomDupe" and desc.Name ~= "DoorFake") then
             if isGlitchFragmentInstance(desc) then
                 processGlitchFragment(desc)
@@ -2826,6 +2824,8 @@ local function scanSingleRoom(room)
                     if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("bramble") or dName:find("grumble") or dName:find("monument") or dName:find("groundskeeper") or dName:find("jack") then
                     if State.Entities_ESP then processEntity(desc) end
+                elseif dName == "lock" or dName:find("door") or dName:find("table") or dName:find("desk") or dName:find("shelf") or dName:find("painting") then
+                    -- Structural/furniture/door model: never process as item!
                 else
                     processItem(desc)
                 end
@@ -2852,19 +2852,13 @@ local function scanSingleRoom(room)
             elseif desc:IsA("ProximityPrompt") then
                 local obj = (desc.ObjectText or ""):lower()
                 local act = (desc.ActionText or ""):lower()
-                if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
+                local prName = desc.Name
+                if prName == "LootPrompt" or obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
                     processGold(desc.Parent)
+                elseif prName == "PropPrompt" or obj:find("painting") or obj:find("portrait") or obj:find("canvas") then
+                    -- Painting prompt - never process as item
                 elseif obj:find("lever") or act:find("pull") then
                     processLever(desc.Parent)
-                elseif (act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect")) and desc.Name ~= "ModulePrompt" then
-                    local p = desc.Parent
-                    local pNameLower = p and p.Name:lower() or ""
-                    if not (pNameLower:find("table") or pNameLower:find("desk") or pNameLower:find("shelf") or pNameLower:find("wall") or pNameLower:find("drawer") or pNameLower:find("wardrobe") or pNameLower:find("closet") or pNameLower:find("locker")) then
-                        local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
-                        if itemTarget then
-                            processItem(itemTarget)
-                        end
-                    end
                 end
             end
 
@@ -2966,6 +2960,10 @@ pcall(function()
                     processGlitchFragment(desc)
                 end
 
+                if desc.Name == "_mspaint_doorhighlight" or desc.Name == "__mspaint_door_frame" then
+                    return
+                end
+
                 if isModel or isTool then
                     if desc.Name == "Door" or desc.Name == "DoorFake" then
                         processDoor(newRoom, desc)
@@ -2994,6 +2992,8 @@ pcall(function()
                         if State.Entities_ESP then processEntity(desc) end
                     elseif (dName == "sally" or dName:find("^sally") or dName == "princess") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstChildOfClass("AnimationController") or desc:FindFirstChild("Head")) then
                         if State.Entities_ESP then processEntity(desc) end
+                    elseif dName == "lock" or dName:find("door") or dName:find("table") or dName:find("desk") or dName:find("shelf") or dName:find("painting") then
+                        -- Structural/furniture/door model: never process as item!
                     else
                         processItem(desc)
                     end
@@ -3020,19 +3020,13 @@ pcall(function()
                 elseif isPrompt then
                     local obj = (desc.ObjectText or ""):lower()
                     local act = (desc.ActionText or ""):lower()
-                    if obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
+                    local prName = desc.Name
+                    if prName == "LootPrompt" or obj:find("gold") or obj:find("coin") or act:find("gold") or act:find("coin") then
                         processGold(desc.Parent)
+                    elseif prName == "PropPrompt" or obj:find("painting") or obj:find("portrait") or obj:find("canvas") then
+                        -- Painting prompt - never process as item
                     elseif obj:find("lever") or act:find("pull") then
                         processLever(desc.Parent)
-                    elseif (act:find("take") or act:find("pick") or act:find("grab") or act:find("steal") or act:find("collect")) and desc.Name ~= "ModulePrompt" then
-                        local p = desc.Parent
-                        local pNameLower = p and p.Name:lower() or ""
-                        if not (pNameLower:find("table") or pNameLower:find("desk") or pNameLower:find("shelf") or pNameLower:find("wall") or pNameLower:find("drawer") or pNameLower:find("wardrobe") or pNameLower:find("closet") or pNameLower:find("locker")) then
-                            local itemTarget = (p and (p:IsA("Model") or p:IsA("Tool"))) and p or (p and p.Parent and (p.Parent:IsA("Model") or p.Parent:IsA("Tool"))) and p.Parent or p
-                            if itemTarget then
-                                processItem(itemTarget)
-                            end
-                        end
                     end
                 end
             end)
@@ -3626,7 +3620,7 @@ retrieveDroppedTool = function(toolName, maxWait)
 
             -- Also scan any ProximityPrompt whose ObjectText or ActionText mentions the tool
             if #candidateDrops == 0 then
-                local searchContainers = { Workspace:FindFirstChild("Drops"), Workspace:FindFirstChild("CurrentRooms") }
+                local searchContainers = { Workspace:FindFirstChild("Drops") }
                 for _, c in ipairs(searchContainers) do
                     if c then
                         for _, prompt in ipairs(c:GetDescendants()) do
@@ -6014,8 +6008,15 @@ pcall(function()
             _G.__PROMPT_GATE_DETOURED = true
             local oldIsHidden = pg.isHidden
             pg.isHidden = function(prompt, ...)
-                if State.Instant_Interact or State.Noclip or State.Noclip_Interact then
-                    return false -- Never gate/suppress prompts!
+                if not prompt then return false end
+                local prName = prompt.Name:lower()
+                local pObj = (prompt.ObjectText or ""):lower()
+                local pAct = (prompt.ActionText or ""):lower()
+                local parentName = prompt.Parent and prompt.Parent.Name:lower() or ""
+                local isDoor = prName:find("door") or pObj:find("door") or parentName:find("door")
+                    or pAct:find("open") or prName:find("knob") or parentName == "knob" or prName == "enterprompt" or prName == "manualopenprompt" or parentName:find("sidedoor")
+                if isDoor or State.Instant_Interact or State.Auto_Interact or State.Noclip or State.Noclip_Interact or State.AutoInteract_Doors then
+                    return false -- Never gate/suppress door or side door prompts!
                 end
                 return oldIsHidden and oldIsHidden(prompt, ...) or false
             end
@@ -6436,10 +6437,17 @@ pcall(function()
         if PromptGate and PromptGate.isHidden then
             local origIsHidden = PromptGate.isHidden
             PromptGate.isHidden = function(prompt, ...)
-                if State.Instant_Interact or State.Auto_Interact or State.Noclip or State.Noclip_Interact then
+                if not prompt then return false end
+                local prName = prompt.Name:lower()
+                local pObj = (prompt.ObjectText or ""):lower()
+                local pAct = (prompt.ActionText or ""):lower()
+                local parentName = prompt.Parent and prompt.Parent.Name:lower() or ""
+                local isDoor = prName:find("door") or pObj:find("door") or parentName:find("door")
+                    or pAct:find("open") or prName:find("knob") or parentName == "knob" or prName == "enterprompt" or prName == "manualopenprompt" or parentName:find("sidedoor")
+                if isDoor or State.Instant_Interact or State.Auto_Interact or State.Noclip or State.Noclip_Interact or State.AutoInteract_Doors then
                     return false -- Completely bypasses DOORS custom LOS, Facing, Sector, and Crouch gates!
                 end
-                return origIsHidden(prompt, ...)
+                return origIsHidden and origIsHidden(prompt, ...) or false
             end
         end
     end
@@ -6618,6 +6626,8 @@ local PromptAuraWhitelist = {
     ["WaterPump"] = true,
     ["WaterWheel"] = true,
     ["SkullPrompt"] = true,
+    ["EnterPrompt"] = true,
+    ["HidePrompt"] = true,
 }
 
 local ObjectAuraWhitelist = {
@@ -6636,6 +6646,10 @@ local ObjectAuraWhitelist = {
     ["Chest"] = true,
     ["ChestBox"] = true,
     ["Toolbox"] = true,
+    ["Wardrobe"] = true,
+    ["Closet"] = true,
+    ["Locker"] = true,
+    ["Bed"] = true,
     ["Key"] = true,
     ["KeyObtain"] = true,
     ["ElectricalKeyObtain"] = true,
@@ -6685,10 +6699,6 @@ local function isBlacklistedPromptObject(obj)
         return true
     end
     local lower = name:lower()
-    -- Hiding spot invariant: Closets, Wardrobes, Beds, Lockers
-    if lower:find("wardrobe") or lower:find("closet") or lower:find("bed") or lower:find("locker") or lower:find("hidingspot") or lower:find("hiding") then
-        return true
-    end
     -- Painting invariant: Never auto-interact with paintings, canvases, frames, portraits
     if lower:find("painting") or lower:find("canvas") or lower:find("portrait") or lower:find("picture") or lower:find("frame") then
         return true
@@ -6716,10 +6726,15 @@ local function staticPromptCheck(prompt)
     local act = (prompt.ActionText or ""):lower()
     local obj = (prompt.ObjectText or ""):lower()
 
-    -- 1. Anti-Hiding Spot Invariant: Never auto-interact with wardrobes, closets, lockers, beds
-    if prName:find("enter") or prName:find("hide") or act:find("hide") or act:find("enter")
-        or obj:find("wardrobe") or obj:find("closet") or obj:find("locker") or obj:find("bed") then
-        return false
+    -- 1. Hiding Spot Guard: Allow auto-interact on wardrobes/closets only when player is not already hiding!
+    local isHidingPrompt = prName:find("enter") or prName:find("hide") or act:find("hide") or act:find("enter")
+        or obj:find("wardrobe") or obj:find("closet") or obj:find("locker") or obj:find("bed")
+    if isHidingPrompt then
+        local char = getChar()
+        local mgTable = getMainGameTable()
+        if isPlayerHiding(char, mgTable) then
+            return false
+        end
     end
 
     -- 2. Anti-Painting Invariant: Never auto-interact with paintings, canvases, frames, portraits
@@ -6781,13 +6796,17 @@ local function dynamicPromptCheck(prompt)
     local pNameLower = pName:lower()
     local mNameLower = mName:lower()
 
-    -- 1. Anti-Hiding Spot Invariant: Never auto-interact with wardrobes, closets, lockers, beds
-    if act:find("hide") or act:find("enter") or act:find("climb into") or act:find("crawl into")
+    -- 1. Hiding Spot Guard: Allow auto-interact on wardrobes/closets only when player is not already hiding!
+    local isHidingPrompt = act:find("hide") or act:find("enter") or act:find("climb into") or act:find("crawl into")
         or obj:find("wardrobe") or obj:find("closet") or obj:find("locker") or obj:find("bed")
         or prNameLower:find("hide") or prNameLower:find("enter")
         or pNameLower:find("wardrobe") or pNameLower:find("closet") or pNameLower:find("locker") or pNameLower:find("bed") or pNameLower:find("hidingspot")
-        or mNameLower:find("wardrobe") or mNameLower:find("closet") or mNameLower:find("locker") or mNameLower:find("bed") or mNameLower:find("hidingspot") then
-        return false
+        or mNameLower:find("wardrobe") or mNameLower:find("closet") or mNameLower:find("locker") or mNameLower:find("bed") or mNameLower:find("hidingspot")
+    if isHidingPrompt then
+        local mgTable = getMainGameTable()
+        if isPlayerHiding(char, mgTable) then
+            return false
+        end
     end
 
     -- 2. Anti-Painting Invariant: Never auto-interact with paintings, canvases, frames, portraits
@@ -6799,27 +6818,27 @@ local function dynamicPromptCheck(prompt)
         return false
     end
 
-    -- Deep Ancestry Guard for Hiding Spots and Paintings
+    -- Deep Ancestry Guard for Paintings
     local aCheck = parent
     local aDepth = 0
     while aCheck and aCheck ~= Workspace and aDepth < 6 do
         local an = aCheck.Name:lower()
-        if an:find("wardrobe") or an:find("closet") or an:find("locker") or an:find("bed") or an:find("hidingspot")
-            or an:find("painting") or an:find("canvas") or an:find("portrait") or an:find("picture") or an:find("frame") then
+        if an:find("painting") or an:find("canvas") or an:find("portrait") or an:find("picture") or an:find("frame") then
             return false
         end
         aCheck = aCheck.Parent
         aDepth += 1
     end
 
-    -- Distance check (squared magnitude for performance, 6.5-stud clamp for drawers)
+    -- Distance check (squared magnitude for performance, 6.5-stud clamp for drawers, 9.5-stud clamp for keys & items)
     local targetPos = getPromptTargetPosition(prompt)
     if not targetPos then return false end
     local delta = root.Position - targetPos
     local distSq = delta:Dot(delta)
 
     local isDrawerOrContainer = obj:find("drawer") or obj:find("desk") or pName:lower():find("drawer")
-    local maxReach = isDrawerOrContainer and 6.5 or prompt.MaxActivationDistance
+    local isKeyOrItem = prNameLower:find("key") or obj:find("key") or pNameLower:find("key") or (prompt:GetAttribute("IsKey") == true) or act:find("take") or act:find("pick")
+    local maxReach = isDrawerOrContainer and 6.5 or (isKeyOrItem and 9.5) or prompt.MaxActivationDistance
     if distSq > (maxReach * maxReach) then return false end
 
     -- Mspaint Ignore List Filters (AutoInteractIgnore)
@@ -7188,33 +7207,8 @@ local function applyAdditionalDefenses()
         end
     end
 
-    -- 2. Anti-Seek Hands, Obstructions & Seek Moving Entity Defusal: Completely neutralizes Seek hands, SeekMoving, and falling debris!
-    if State.Anti_Seek or State.WalkSpeed_Enabled or State.Noclip then
-        local char = getChar()
-        local r = getRoot()
-        local mgTable = getMainGameTable()
-        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-        for _, desc in ipairs(curRooms:GetDescendants()) do
-            local nl = desc.Name:lower()
-            local pName = desc.Parent and desc.Parent.Name:lower() or ""
-            local isSeekThreat = nl:find("seek") or pName:find("seek") or nl:find("arm") or nl:find("hand") or nl:find("animatorpart")
-            if isSeekThreat then
-                if desc:IsA("BasePart") then
-                    if desc.CanTouch then desc.CanTouch = false end
-                    if desc.CanCollide then desc.CanCollide = false end
-                    local tt = desc:FindFirstChildWhichIsA("TouchTransmitter")
-                    if tt then pcall(function() tt:Destroy() end) end
-                elseif desc:IsA("TouchTransmitter") then
-                    pcall(function() desc:Destroy() end)
-                end
-            end
-            -- Strictly defuse damage touch triggers on fire and seek hands (Never disable collision on furniture or room geometry!)
-            if (nl:find("fire") or nl:find("damage") or nl:find("kill")) and desc:IsA("BasePart") then
-                desc.CanTouch = false
-            end
-        end
-
-        -- Ensure Seek himself (SeekMoving / SeekRig) in Workspace is defused immediately
+    -- 2. Anti-Seek Moving Entity Defusal (Zero curRooms scans to eradicate FPS freezes and preserve table collisions!)
+    if State.Anti_Seek then
         for _, obj in ipairs(Workspace:GetChildren()) do
             local oLower = obj.Name:lower()
             if oLower:find("seek") then
