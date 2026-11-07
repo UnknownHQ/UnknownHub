@@ -1540,8 +1540,42 @@ local DECOR_BLACKLIST = {
     "bell", "plate", "cup", "bed", "lightstand", "light_fixture",
     "lightfixture", "sconce", "hook", "fixture", "helpfullight", "wire", "pipe", "crate",
     "shadow", "node", "spawn", "point", "waypoint", "decor", "dresser", "wardrobe",
-    "closet", "locker", "frame", "railing", "trim", "support", "beam", "plank"
+    "closet", "locker", "frame", "railing", "trim", "support", "beam", "plank",
+    "candlestick", "candlestand", "candleholder", "candelabra", "candelabrum",
+    "wallcandle", "tablecandle", "staticcandle", "candles", "candle_decor", "candledecor"
 }
+
+local function isDecorOrScenery(inst)
+    if not inst then return false end
+    local name = inst.Name:lower()
+
+    for _, blocked in ipairs(DECOR_BLACKLIST) do
+        if name:find(blocked) then
+            return true
+        end
+    end
+    if name == "candles" or name:find("^candles") then
+        return true
+    end
+
+    -- Deep Ancestry Guard: Check if part/model is inside any decor/scenery parent
+    local p = inst.Parent
+    local depth = 0
+    while p and p ~= Workspace and depth < 6 do
+        local pName = p.Name:lower()
+        if pName:find("decor") or pName:find("chandelier") or pName:find("sconce")
+            or pName:find("candelabra") or pName:find("candlestand") or pName:find("candleholder")
+            or pName:find("candlestick") or pName:find("candle_decor") or pName:find("candledecor")
+            or pName:find("lightfixture") or pName:find("light_fixture") or pName:find("furniture")
+            or pName:find("fireplace") or (pName:find("candle") and (pName:find("wall") or pName:find("table") or pName:find("stand") or pName:find("holder"))) then
+            return true
+        end
+        p = p.Parent
+        depth += 1
+    end
+
+    return false
+end
 
 local function isValidLootItem(model)
     if not model or not (model:IsA("Model") or model:IsA("Tool") or model:IsA("BasePart")) then return false, nil end
@@ -1565,17 +1599,15 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- 4. Physical Size Check: In DOORS, loot items are small props (strictly < 8 studs on every axis)
-    if model:IsA("Model") then
-        local cf, sz = model:GetBoundingBox()
-        if sz.X > 8 or sz.Y > 8 or sz.Z > 8 then
-            return false, nil
-        end
+    -- 4. Deep Decor & Scenery Filter (Catches Candle Decor, Candlesticks, Candelabras & their child parts)
+    if isDecorOrScenery(model) then
+        return false, nil
     end
 
-    -- 5. Reject blacklist decor & furniture
-    for _, blocked in ipairs(DECOR_BLACKLIST) do
-        if lower:find(blocked) then
+    -- 5. Physical Size Check: In DOORS, loot items are small handheld props (< 7.5 studs)
+    if model:IsA("Model") then
+        local cf, sz = model:GetBoundingBox()
+        if sz.X > 7.5 or sz.Y > 7.5 or sz.Z > 7.5 then
             return false, nil
         end
     end
@@ -1586,74 +1618,150 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- 7. Direct Attribute Checks (mspaint Chunk 273 & 290 1:1 Parity)
-    local attrDisplayName = model:GetAttribute("DisplayName")
-    if typeof(attrDisplayName) == "string" and #attrDisplayName > 0 then
-        return true, attrDisplayName
+    -- 7. Mandatory ProximityPrompt Check (World models MUST have a ProximityPrompt to be collectible!)
+    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if not prompt and model.Parent then
+        prompt = model.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
     end
-    local attrPickup = model:GetAttribute("Pickup")
-    if typeof(attrPickup) == "string" and #attrPickup > 0 then
-        return true, attrPickup
+    if not prompt and not model:IsA("Tool") then
+        -- An object in Workspace with NO ProximityPrompt cannot be picked up in DOORS! It is pure static decor.
+        return false, nil
     end
 
-    -- 8. ProximityPrompt ObjectText inspection (does NOT require prompt.Enabled == true so items in drawers show instantly!)
-    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+    -- 8. ProximityPrompt Action & Object Text Validation
     local promptObjectName = ""
+    local promptActionName = ""
     if prompt then
         promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
+        promptActionName = (prompt.ActionText and #prompt.ActionText > 0) and prompt.ActionText:lower() or ""
+
+        -- Reject non-pickup actions (e.g. "Light" on candles, "Open" on drawers/doors, "Hide" on wardrobes)
+        local nonPickupActions = {
+            "light", "extinguish", "blow", "open", "search", "close", "hide", "unlock",
+            "pull", "push", "turn", "use", "view", "read", "sit"
+        }
+        for _, badAct in ipairs(nonPickupActions) do
+            if promptActionName == badAct or promptActionName:find(badAct) then
+                return false, nil
+            end
+        end
+
         local forbiddenPromptWords = {
             "gold", "coin", "painting", "picture", "canvas", "frame", "portrait", "photo",
             "drawer", "knob", "desk", "table", "dresser", "container", "chest", "shelf",
             "closet", "wardrobe", "locker", "bed", "door", "gate", "lever", "switch",
-            "button", "wheel", "valve", "lock", "padlock", "keyhole", "window", "curtain",
-            "lamp", "light", "bell", "clock", "breaker"
+            "button", "wheel", "valve", "padlock", "keyhole", "window", "curtain",
+            "lamp", "bell", "clock", "breaker", "decor", "candlestick", "candlestand",
+            "candelabra", "stand", "holder"
         }
         for _, bad in ipairs(forbiddenPromptWords) do
             if promptObjectName == bad or promptObjectName:find(bad) then
                 return false, nil
             end
         end
+        if promptObjectName == "light" or promptObjectName:find("light fixture") or promptObjectName:find("lightfixture") or promptObjectName:find("lightstand") then
+            return false, nil
+        end
+        if promptObjectName == "lock" or (promptObjectName:find("^lock") and not promptObjectName:find("^lockpick")) then
+            return false, nil
+        end
+    end
 
-        -- Priority 1: Check if prompt explicitly indicates Candle or Crucifix
-        if promptObjectName:find("candle") or lower:find("candle") then
-            return true, "Candle"
+    -- 9. Direct Attribute Checks (mspaint Chunk 273 & 290 1:1 Parity, validated against decor)
+    local attrDisplayName = model:GetAttribute("DisplayName")
+    if typeof(attrDisplayName) == "string" and #attrDisplayName > 0 then
+        local aLower = attrDisplayName:lower()
+        if not aLower:find("decor") and not aLower:find("stand") and not aLower:find("holder") and not aLower:find("stick") then
+            if aLower:find("candle") and model:IsA("Model") then
+                local _, sz = model:GetBoundingBox()
+                if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then return false, nil end
+            end
+            return true, attrDisplayName
         end
-        if promptObjectName:find("crucifix") or lower:find("crucifix") then
-            return true, "Crucifix"
-        end
+    end
 
-        -- Priority 2: Check if prompt explicitly indicates Smoothie, Herb, Starlight
-        if promptObjectName:find("smoothie") or lower:find("smoothie") or promptObjectName:find("shake") or lower:find("shake") then
-            return true, "Smoothie"
+    local attrPickup = model:GetAttribute("Pickup")
+    if typeof(attrPickup) == "string" and #attrPickup > 0 then
+        local pLower = attrPickup:lower()
+        if not pLower:find("decor") and not pLower:find("stand") and not pLower:find("holder") and not pLower:find("stick") then
+            if pLower:find("candle") and model:IsA("Model") then
+                local _, sz = model:GetBoundingBox()
+                if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then return false, nil end
+            end
+            return true, attrPickup
         end
-        if promptObjectName:find("herb") or lower:find("herb") then
-            return true, "Herb"
-        end
-        if promptObjectName:find("starlight") or lower:find("starlight") or promptObjectName:find("starjug") or lower:find("starjug") then
-            return true, "Starlight"
-        end
+    end
 
-        -- Priority 3: Check Paper
-        if promptObjectName:find("paper") or lower:find("paper") or lower:find("hintpaper") then
-            return true, "Paper"
+    -- 10. Strict Candle Resolution: REAL Handheld Candle vs Scenery Decor
+    if promptObjectName == "candle" or promptObjectName == "rift candle" or lower == "candle" or lower == "riftcandle" then
+        if isDecorOrScenery(model) then return false, nil end
+        if model:IsA("Model") then
+            local _, sz = model:GetBoundingBox()
+            if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then
+                return false, nil
+            end
         end
+        return true, "Candle"
+    end
 
-        -- Priority 4: Check KNOWN_ITEMS against promptObjectName
+    -- 11. Strict Crucifix Resolution
+    if promptObjectName:find("crucifix") or lower == "crucifix" or lower:find("^crucifix") then
+        return true, "Crucifix"
+    end
+
+    -- 12. Consumables & Special Pickups
+    if promptObjectName:find("smoothie") or lower:find("smoothie") or promptObjectName:find("shake") or lower:find("shake") then
+        return true, "Smoothie"
+    end
+    if promptObjectName:find("herb") or lower:find("herb") then
+        return true, "Herb"
+    end
+    if promptObjectName:find("starlight") or lower:find("starlight") or promptObjectName:find("starjug") or lower:find("starjug") then
+        return true, "Starlight"
+    end
+    if promptObjectName:find("paper") or lower:find("paper") or lower:find("hintpaper") then
+        return true, "Paper"
+    end
+
+    -- 13. Check KNOWN_ITEMS against promptObjectName
+    if #promptObjectName > 1 then
         for key, displayName in pairs(KNOWN_ITEMS) do
             if promptObjectName == key or promptObjectName:find(key) then
+                if displayName == "Candle" then
+                    if isDecorOrScenery(model) then return false, nil end
+                    if model:IsA("Model") then
+                        local _, sz = model:GetBoundingBox()
+                        if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then return false, nil end
+                    end
+                end
                 return true, displayName
             end
         end
     end
 
-    -- 9. Check KNOWN_ITEMS against model name
+    -- 14. Check KNOWN_ITEMS against exact model name (NEVER loose substring for candle/decor!)
     for key, displayName in pairs(KNOWN_ITEMS) do
-        if lower == key or lower:find("^" .. key) or lower:find(key) then
-            return true, displayName
+        if displayName == "Candle" then
+            if lower == "candle" or lower == "riftcandle" or lower == "livecandle" then
+                if not isDecorOrScenery(model) then
+                    if model:IsA("Model") then
+                        local _, sz = model:GetBoundingBox()
+                        if sz.X <= 3.2 and sz.Y <= 3.2 and sz.Z <= 3.2 then
+                            return true, "Candle"
+                        end
+                    else
+                        return true, "Candle"
+                    end
+                end
+            end
+        else
+            if lower == key or lower:find("^" .. key) then
+                return true, displayName
+            end
         end
     end
 
-    -- 10. Fallback for Tools with valid ProximityPrompt or Handle
+    -- 15. Fallback for Tools with valid ProximityPrompt or Handle
     if model:IsA("Tool") then
         if prompt and #promptObjectName > 1 then
             return true, prompt.ObjectText
@@ -1663,7 +1771,7 @@ local function isValidLootItem(model)
 
     return false, nil
 end
-
+
 local function processItem(itemModel)
     if not itemModel or not (itemModel:IsA("Model") or itemModel:IsA("Tool")) then return end
     if not State.Items_ESP then
@@ -6329,13 +6437,18 @@ local function isBlacklistedPromptObject(obj)
     if lower:find("wardrobe") or lower:find("closet") or lower:find("bed") or lower:find("locker") then
         return true
     end
+    -- Decor & scenery invariant: Never interact with decorative candles or scenery props
+    if lower:find("decor") or lower:find("candle_decor") or lower:find("candledecor") or lower:find("candlestick")
+        or lower:find("candlestand") or lower:find("candelabra") or lower:find("chandelier") or lower:find("sconce") then
+        return true
+    end
     -- Rift invariant: Never touch rift storage
     if lower:find("rift") or obj:GetAttribute("IsRift") or obj:GetAttribute("Rift") then
         return true
     end
     return false
 end
-
+
 -- Mspaint StaticPromptCheck (Chunk 316 1:1 Parity)
 local function staticPromptCheck(prompt)
     if not prompt or not prompt.Parent then return false end
