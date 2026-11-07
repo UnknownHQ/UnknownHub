@@ -1624,169 +1624,37 @@ local function isValidLootItem(model)
     end
 
     -- 6b. Authoritative Engine Attribute Check (mspaint 1:1 Parity)
-    if isMspaintItemCondition(model) and not isDecorOrScenery(model) then
-        local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("PropType") or model:GetAttribute("Pickup")
-        if typeof(rawName) == "string" and #rawName > 0 then
-            local rLower = rawName:lower()
-            if not rLower:find("decor") and not rLower:find("holder") and not rLower:find("stand") then
-                if rLower:find("candle") and model:IsA("Model") then
-                    local _, sz = model:GetBoundingBox()
-                    if sz.X <= 3.2 and sz.Y <= 3.2 and sz.Z <= 3.2 then
-                        return true, "Candle"
-                    end
-                else
-                    return true, rawName
-                end
-            end
-        end
-    end
-
-    -- 7. Mandatory ProximityPrompt Check (World models MUST have a ProximityPrompt to be collectible!)
-    local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if not prompt and model.Parent then
-        prompt = model.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
-    end
-    if not prompt and not model:IsA("Tool") then
-        -- An object in Workspace with NO ProximityPrompt cannot be picked up in DOORS! It is pure static decor.
+    -- In DOORS, genuine collectible items ALWAYS carry the 'Pickup' or 'PropType' attribute from the engine!
+    local isRealLoot = isMspaintItemCondition(model) or model:IsA("Tool") or (dropsFolder and model.Parent == dropsFolder)
+    if not isRealLoot then
+        -- Strict mspaint Invariant: Arbitrary room decor, furniture, and static scene props NEVER have Pickup/PropType!
         return false, nil
     end
 
-    -- 8. ProximityPrompt Action & Object Text Validation
-    local promptObjectName = ""
-    local promptActionName = ""
-    if prompt then
-        promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
-        promptActionName = (prompt.ActionText and #prompt.ActionText > 0) and prompt.ActionText:lower() or ""
-
-        -- Reject non-pickup actions (e.g. "Light" on candles, "Open" on drawers/doors, "Hide" on wardrobes)
-        local nonPickupActions = {
-            "light", "extinguish", "blow", "open", "search", "close", "hide", "unlock",
-            "pull", "push", "turn", "use", "view", "read", "sit"
-        }
-        for _, badAct in ipairs(nonPickupActions) do
-            if promptActionName == badAct or promptActionName:find(badAct) then
-                return false, nil
-            end
-        end
-
-        local forbiddenPromptWords = {
-            "gold", "coin", "painting", "picture", "canvas", "frame", "portrait", "photo",
-            "drawer", "knob", "desk", "table", "dresser", "container", "chest", "shelf",
-            "closet", "wardrobe", "locker", "bed", "door", "gate", "lever", "switch",
-            "button", "wheel", "valve", "padlock", "keyhole", "window", "curtain",
-            "lamp", "bell", "clock", "breaker", "decor", "candlestick", "candlestand",
-            "candelabra", "stand", "holder"
-        }
-        for _, bad in ipairs(forbiddenPromptWords) do
-            if promptObjectName == bad or promptObjectName:find(bad) then
-                return false, nil
-            end
-        end
-        if promptObjectName == "light" or promptObjectName:find("light fixture") or promptObjectName:find("lightfixture") or promptObjectName:find("lightstand") then
-            return false, nil
-        end
-        if promptObjectName == "lock" or (promptObjectName:find("^lock") and not promptObjectName:find("^lockpick")) then
-            return false, nil
-        end
+    if isDecorOrScenery(model) then
+        return false, nil
     end
 
-    -- 9. Direct Attribute Checks (mspaint Chunk 273 & 290 1:1 Parity, validated against decor)
-    local attrDisplayName = model:GetAttribute("DisplayName")
-    if typeof(attrDisplayName) == "string" and #attrDisplayName > 0 then
-        local aLower = attrDisplayName:lower()
-        if not aLower:find("decor") and not aLower:find("stand") and not aLower:find("holder") and not aLower:find("stick") then
-            if aLower:find("candle") and model:IsA("Model") then
+    local rawName = model:GetAttribute("DisplayName") or model:GetAttribute("PropType") or model:GetAttribute("Pickup")
+    if typeof(rawName) == "string" and #rawName > 0 then
+        local rLower = rawName:lower()
+        if not rLower:find("decor") and not rLower:find("holder") and not rLower:find("stand") then
+            if rLower:find("candle") and model:IsA("Model") then
                 local _, sz = model:GetBoundingBox()
-                if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then return false, nil end
-            end
-            return true, attrDisplayName
-        end
-    end
-
-    local attrPickup = model:GetAttribute("Pickup")
-    if typeof(attrPickup) == "string" and #attrPickup > 0 then
-        local pLower = attrPickup:lower()
-        if not pLower:find("decor") and not pLower:find("stand") and not pLower:find("holder") and not pLower:find("stick") then
-            if pLower:find("candle") and model:IsA("Model") then
-                local _, sz = model:GetBoundingBox()
-                if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then return false, nil end
-            end
-            return true, attrPickup
-        end
-    end
-
-    -- 10. Strict Candle Resolution: REAL Handheld Candle vs Scenery Decor
-    if promptObjectName == "candle" or promptObjectName == "rift candle" or lower == "candle" or lower == "riftcandle" then
-        if isDecorOrScenery(model) then return false, nil end
-        if model:IsA("Model") then
-            local _, sz = model:GetBoundingBox()
-            if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then
-                return false, nil
-            end
-        end
-        return true, "Candle"
-    end
-
-    -- 11. Strict Crucifix Resolution
-    if promptObjectName:find("crucifix") or lower == "crucifix" or lower:find("^crucifix") then
-        return true, "Crucifix"
-    end
-
-    -- 12. Consumables & Special Pickups
-    if promptObjectName:find("smoothie") or lower:find("smoothie") or promptObjectName:find("shake") or lower:find("shake") then
-        return true, "Smoothie"
-    end
-    if promptObjectName:find("herb") or lower:find("herb") then
-        return true, "Herb"
-    end
-    if promptObjectName:find("starlight") or lower:find("starlight") or promptObjectName:find("starjug") or lower:find("starjug") then
-        return true, "Starlight"
-    end
-    if promptObjectName:find("paper") or lower:find("paper") or lower:find("hintpaper") then
-        return true, "Paper"
-    end
-
-    -- 13. Check KNOWN_ITEMS against promptObjectName
-    if #promptObjectName > 1 then
-        for key, displayName in pairs(KNOWN_ITEMS) do
-            if promptObjectName == key or promptObjectName:find(key) then
-                if displayName == "Candle" then
-                    if isDecorOrScenery(model) then return false, nil end
-                    if model:IsA("Model") then
-                        local _, sz = model:GetBoundingBox()
-                        if sz.X > 3.2 or sz.Y > 3.2 or sz.Z > 3.2 then return false, nil end
-                    end
+                if sz.X <= 3.2 and sz.Y <= 3.2 and sz.Z <= 3.2 then
+                    return true, "Candle"
+                else
+                    return false, nil
                 end
-                return true, displayName
+            else
+                return true, rawName
             end
         end
     end
 
-    -- 14. Check KNOWN_ITEMS against exact model name (NEVER loose substring for candle/decor!)
-    for key, displayName in pairs(KNOWN_ITEMS) do
-        if displayName == "Candle" then
-            if lower == "candle" or lower == "riftcandle" or lower == "livecandle" then
-                if not isDecorOrScenery(model) then
-                    if model:IsA("Model") then
-                        local _, sz = model:GetBoundingBox()
-                        if sz.X <= 3.2 and sz.Y <= 3.2 and sz.Z <= 3.2 then
-                            return true, "Candle"
-                        end
-                    else
-                        return true, "Candle"
-                    end
-                end
-            end
-        else
-            if lower == key or lower:find("^" .. key) then
-                return true, displayName
-            end
-        end
-    end
-
-    -- 15. Fallback for Tools with valid ProximityPrompt or Handle
     if model:IsA("Tool") then
-        if prompt and #promptObjectName > 1 then
+        local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.ObjectText and #prompt.ObjectText > 1 then
             return true, prompt.ObjectText
         end
         return true, model.Name
@@ -2498,41 +2366,7 @@ local function processEntity(entity)
                     chamPart = chamModel.PrimaryPart or chamModel:FindFirstChildWhichIsA("BasePart")
                 end
 
-                -- mspaint 1:1 Adornment Engine (Parented to getEspContainer in CoreGui for true AlwaysOnTop rendering!)
-                if isEyes then
-                    local sphere = Instance.new("SphereHandleAdornment")
-                    sphere.Name = "__mspaint_sphere_adorn"
-                    sphere.Adornee = chamPart
-                    sphere.AlwaysOnTop = true
-                    sphere.ZIndex = 10
-                    sphere.Radius = size.X * 0.55
-                    sphere.Color3 = entityColor
-                    sphere.Transparency = 0.55
-                    sphere.Parent = container
-                    table.insert(extraVisuals, sphere)
-                else
-                    local box = Instance.new("BoxHandleAdornment")
-                    box.Name = "__mspaint_box_adorn"
-                    box.Adornee = chamPart
-                    box.AlwaysOnTop = true
-                    box.ZIndex = 10
-                    box.Size = size
-                    box.Color3 = entityColor
-                    box.Transparency = 0.65
-                    box.Parent = container
-                    table.insert(extraVisuals, box)
-
-                    local sel = Instance.new("SelectionBox")
-                    sel.Name = "__mspaint_box_sel"
-                    sel.Adornee = chamPart
-                    sel.Color3 = entityColor
-                    sel.LineThickness = 0.06
-                    sel.SurfaceColor3 = entityColor
-                    sel.SurfaceTransparency = 1
-                    sel.Parent = container
-                    table.insert(extraVisuals, sel)
-                end
-
+                -- mspaint 1:1 Pure Highlight Engine (Zero harsh wireframes/CAD borders, pure soft glowing rounded bloom)
                 highlightTarget = chamModel
                 targetPart = chamPart
                 table.insert(extraVisuals, chamModel)
@@ -3318,7 +3152,7 @@ pcall(function()
                 unhideGraceUntil = os.clock() + 1.0
                 lastForwardPos = nil
                 lastForwardCFrame = nil
-                table.clear(trailHistory)
+                if type(trailHistory) == "table" then table.clear(trailHistory) end
                 wasMoving = false
                 if syncServerSlide then syncServerSlide(false, false) end
 
@@ -3863,7 +3697,7 @@ local function processNearbyDoors(currentPos, maxReach)
 
     for _, rm in ipairs(curRooms:GetChildren()) do
         for _, d in ipairs(rm:GetDescendants()) do
-            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name:lower():find("door")) then
+            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name == "SideDoor") then
                 -- Anti-Dupe Protection: NEVER strip collisions, open, or interact with Dupe doors!
                 if isDupeDoor(d, rm) then
                     if State.Anti_Dupe then
@@ -3873,11 +3707,10 @@ local function processNearbyDoors(currentPos, maxReach)
                 end
                 local dPos = getDoorPosition(d)
                 if dPos and (currentPos - dPos).Magnitude <= reach then
-                    -- 1. Strip CanCollide locally on all door parts so character never hits physical barrier
-                    for _, dp in ipairs(d:GetDescendants()) do
-                        if dp:IsA("BasePart") and not dp.Name:lower():find("frame") and dp.CanCollide then
-                            dp.CanCollide = false
-                        end
+                    -- 1. Strip CanCollide locally ONLY on the door leaf itself (mspaint 1:1, never affects tables/props!)
+                    local doorLeaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal") or d:FindFirstChild("Panel")
+                    if doorLeaf and doorLeaf:IsA("BasePart") and doorLeaf.CanCollide then
+                        doorLeaf.CanCollide = false
                     end
 
                     -- 2. Check for Lock and auto-unlock ONLY if Auto_Interact and AutoInteract_Keys are enabled!
@@ -5625,7 +5458,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Native Ground Movement & Speed Boost (Zero Noclip, Zero Anti-Cheat Detection):
-    if State.WalkSpeed_Enabled and not hiding and not TeleportState.isTweening then
+    if State.WalkSpeed_Enabled and not isInsideHiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         if hum.MoveDirection.Magnitude > 0.05 then
@@ -5649,10 +5482,9 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
             for _, r in ipairs(currentRooms:GetChildren()) do
                 local d = r:FindFirstChild("Door")
                 if d and (d:GetAttribute("Opened") == true or d:FindFirstChild("ClientOpen") ~= nil or d:GetAttribute("Open") == true) then
-                    for _, part in ipairs(d:GetDescendants()) do
-                        if part:IsA("BasePart") and part.CanCollide and not part.Name:lower():find("frame") then
-                            part.CanCollide = false
-                        end
+                    local doorLeaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal")
+                    if doorLeaf and doorLeaf:IsA("BasePart") and doorLeaf.CanCollide then
+                        doorLeaf.CanCollide = false
                     end
                 end
             end
@@ -6238,8 +6070,8 @@ local function applyPromptModifications(prompt)
         or pAct:find("hide") or pAct:find("enter")
     local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt"
 
-    -- Line of Sight Check (Interact Through Walls / PromptClip)
-    if State.PromptClip or State.Noclip_Interact then
+    -- Line of Sight Check (Door prompts ALWAYS bypass LOS so side doors open standing up; PromptClip bypasses all)
+    if isDoorPrompt or State.PromptClip or State.Noclip_Interact then
         prompt.RequiresLineOfSight = false
     else
         local origLOS = prompt:GetAttribute("OrigLOS")
@@ -6266,8 +6098,13 @@ local function applyPromptModifications(prompt)
     elseif isDrawerOrContainer then
         -- CRITICAL INVARIANT: Server strictly rejects drawer activation beyond 6.5 studs!
         prompt.MaxActivationDistance = math.min(6.5, origDist * mult)
-    elseif isDoorPrompt and State.DoorReach then
-        prompt.MaxActivationDistance = math.max(22.0, origDist * 2.2)
+    elseif isDoorPrompt then
+        prompt.RequiresLineOfSight = false
+        if State.DoorReach then
+            prompt.MaxActivationDistance = math.max(22.0, origDist * 2.2)
+        else
+            prompt.MaxActivationDistance = math.max(16.0, origDist * mult)
+        end
     else
         prompt.MaxActivationDistance = origDist * mult
     end
