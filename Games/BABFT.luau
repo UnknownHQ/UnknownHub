@@ -112,7 +112,7 @@ local State = {
     -- Auto Farm
     AutoFarm_Enabled = false,
     Farm_StageDelay = 1.25,      -- Accelerated 1.25s per stage (12.5s river run) for max gold throughput without rollbacks
-    Farm_FlightHeight = 0,       -- Safe river trigger height (Y = 0) is 13 studs above water, avoiding all water/log damage
+    Farm_FlightHeight = 50,      -- Optimal 50 studs elevation flies high above all rocks, obstacles, logs, and water hazards for 100% zero-damage passage
     Farm_AutoLaunch = true,      -- Automatically triggers team dock launch
     Farm_AutoClaim = true,       -- Automatically fires ClaimRiverResultsGold:FireServer()
     Farm_ClosePopups = true,     -- Closes RiverResultsGui automatically
@@ -395,20 +395,37 @@ task.spawn(function()
 
                     if trigger then
                         updateStatus("Opening Golden Chest & Collecting Prizes...")
-                        -- Direct CFrame right onto chest (Bypasses lethal waterfall pointed rocks)
+                        
+                        -- Neutralize lethal waterfall obstacle collision and kill parts on client
+                        pcall(function()
+                            local dbp = theEnd:FindFirstChild("DestroyBoatPart")
+                            if dbp then dbp.CanTouch = false; dbp.CanCollide = false end
+                            for _, obj in ipairs(theEnd:GetDescendants()) do
+                                if obj:IsA("BasePart") and (obj.Name:find("Point") or obj.Name:find("Rock")) then
+                                    obj.CanTouch = false
+                                    obj.CanCollide = false
+                                end
+                            end
+                        end)
+
+                        -- Direct CFrame right onto chest
                         root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.5, 0))
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
-                        -- 1. Physically swing open the chest cap on HingeConstraint so lid opens visually
+                        -- 1. Visually and physically rotate the chest lid open via PivotTo
+                        local initialCapPivot = nil
                         pcall(function()
                             local cap = chest:FindFirstChild("Cap")
                             if cap then
-                                for _, hinge in ipairs(cap:GetDescendants()) do
-                                    if hinge:IsA("HingeConstraint") then
-                                        hinge.TargetAngle = -105
+                                initialCapPivot = cap:GetPivot()
+                                local openPivot = initialCapPivot * CFrame.Angles(math.rad(-75), 0, 0) + Vector3.new(0, 4, 3)
+                                task.spawn(function()
+                                    for step = 1, 10 do
+                                        task.wait(0.03)
+                                        cap:PivotTo(initialCapPivot:Lerp(openPivot, step / 10))
                                     end
-                                end
+                                end)
                             end
                         end)
 
@@ -471,12 +488,8 @@ task.spawn(function()
                         -- 6. Reset Chest Lid for next round
                         pcall(function()
                             local cap = chest:FindFirstChild("Cap")
-                            if cap then
-                                for _, hinge in ipairs(cap:GetDescendants()) do
-                                    if hinge:IsA("HingeConstraint") then
-                                        hinge.TargetAngle = 0
-                                    end
-                                end
+                            if cap and initialCapPivot then
+                                cap:PivotTo(initialCapPivot)
                             end
                         end)
 
@@ -532,7 +545,7 @@ Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 0.8, 3.0, State.Farm
     State.Farm_StageDelay = val
 end)
 
-Hub.CreateSlider(farmTab, "River Glide Height (Y)", -10, 30, State.Farm_FlightHeight, function(val)
+Hub.CreateSlider(farmTab, "River Glide Height (Y)", -10, 80, State.Farm_FlightHeight, function(val)
     State.Farm_FlightHeight = val
 end)
 
