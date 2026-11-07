@@ -316,6 +316,19 @@ task.spawn(function()
                 local boatStages = Workspace:FindFirstChild("BoatStages")
                 local normalStages = boatStages and boatStages:FindFirstChild("NormalStages")
                 local otherStages = boatStages and boatStages:FindFirstChild("OtherStages")
+                local stageInfo = boatStages and boatStages:FindFirstChild("StageInfo")
+
+                -- Build dynamic mapping from StageName to StageNumber (Stage1 to Stage9)
+                local stageNameToNum = {}
+                if stageInfo then
+                    for sNum = 1, 9 do
+                        local stgObj = stageInfo:FindFirstChild("Stage" .. sNum)
+                        local sNameObj = stgObj and stgObj:FindFirstChild("StageName")
+                        if sNameObj and sNameObj.Value ~= "" then
+                            stageNameToNum[sNameObj.Value] = sNum
+                        end
+                    end
+                end
 
                 if normalStages then
                     local waypoints = {}
@@ -333,7 +346,14 @@ task.spawn(function()
                         for _, stg in ipairs(otherStages:GetChildren()) do
                             local fp = stg:FindFirstChildWhichIsA("BasePart", true)
                             if fp then
-                                table.insert(waypoints, { name = stg.Name, z = fp.Position.Z, part = fp, isCave = false })
+                                local sNum = stageNameToNum[stg.Name]
+                                table.insert(waypoints, { 
+                                    name = stg.Name, 
+                                    z = fp.Position.Z, 
+                                    part = fp, 
+                                    isCave = false,
+                                    stageNum = sNum
+                                })
                             end
                         end
                     end
@@ -378,7 +398,18 @@ task.spawn(function()
                                 firetouchinterest(root, wp.part, 1)
                             end)
                         else
-                            task.wait(0.08)
+                            -- Active Server Stage Confirmation Handshake (verifies OtherData.Stage<N> populated)
+                            if wp.stageNum then
+                                local stageData = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("Stage" .. wp.stageNum)
+                                local t0 = tick()
+                                while stageData and stageData.Value ~= wp.name and (tick() - t0 < 0.65) do
+                                    task.wait(0.04)
+                                    if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
+                                end
+                                task.wait(0.04)
+                            else
+                                task.wait(0.12)
+                            end
                         end
                         root.Anchored = true
                     end
@@ -408,8 +439,10 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Direct CFrame right onto chest
-                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.5, 0))
+                        -- Unanchor and place character right onto chest with zeroed velocity
+                        root.Anchored = false
+                        bv.Velocity = Vector3.zero
+                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.8, 0))
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
