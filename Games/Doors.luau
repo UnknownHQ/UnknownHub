@@ -3306,7 +3306,9 @@ local function updateSpeedBypass(now, dt)
             setupSpeedBypassCollisionClone()
         end
 
-        if speedBypassCollisionClone and (now - lastMasslessToggle >= math.min(0.34, (dt or 0.016) * 10)) then
+        -- Exact mspaint v4 Speed Bypass timing (HotelCfg.json SpeedBypassModeTwoDelay: 0.23s)
+        -- Desyncs server inertia/displacement accumulator so speeds up to 50+ studs/s never rubberband!
+        if speedBypassCollisionClone and (now - lastMasslessToggle >= 0.23) then
             lastMasslessToggle = now
             speedBypassCollisionClone.Massless = not speedBypassCollisionClone.Massless
         end
@@ -4305,21 +4307,18 @@ local function neutralizeServerTeleported()
                     hookfunction(rawFn, newcclosure(function(p1, p2, p3, p4)
                         local char = getChar()
                         local mgTable = getMainGameTable()
-                        local targetPos = (typeof(p2) == "Vector3") and p2 or ((typeof(p2) == "CFrame") and p2.Position or nil)
-
-                        local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
                         local isGraceActive = (os.clock() < unhideGraceUntil)
                         local isHidingNow = isPlayerHiding(char, mgTable)
                         local isChaseActive = (mgTable and mgTable.chase == true)
 
-                        -- Legitimate in-game hiding transitions (wardrobe / closet / bed) are preserved!
-                        if isNearHiding or isGraceActive or isHidingNow or isChaseActive then
+                        -- ONLY permit teleports if player is genuinely inside a closet/bed animation or exiting!
+                        if isHidingNow or isGraceActive or (isChaseActive and not State.WalkSpeed_Enabled and not State.Noclip) then
                             return rawFn(p1, p2, p3, p4)
                         end
 
-                        -- When Noclip, Walk Noclip, Anti-Cheat, Tweening, or Speed is active:
-                        -- Drop ALL server-side anti-cheat rollback teleports!
-                        if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                        -- When Speed Boost, Noclip, or Anti-Cheat is active:
+                        -- Drop ALL server-side rollback/rubberband teleports (Zero Rubberbanding!)
+                        if State.Bypass_AntiCheat or State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                             if mgTable and mgTable.SETNEWCF then
                                 mgTable.SETNEWCF = nil
                             end
@@ -4349,18 +4348,18 @@ local function neutralizeServerTeleported()
                             hookfunction(fn, newcclosure(function(pTarget, ...)
                                 local char = getChar()
                                 local mgTable = getMainGameTable()
-                                local targetPos = (typeof(pTarget) == "Vector3") and pTarget or ((typeof(pTarget) == "CFrame") and pTarget.Position or nil)
-
-                                local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
                                 local isGraceActive = (os.clock() < unhideGraceUntil)
                                 local isHidingNow = isPlayerHiding(char, mgTable)
                                 local isChaseActive = (mgTable and mgTable.chase == true)
 
-                                if isNearHiding or isGraceActive or isHidingNow or isChaseActive then
+                                -- ONLY allow teleport if player is genuinely hiding inside a closet/bed
+                                if isHidingNow or isGraceActive or (isChaseActive and not State.WalkSpeed_Enabled and not State.Noclip) then
                                     return fn(pTarget, ...)
                                 end
 
-                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                                if State.Bypass_AntiCheat or State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                                    local mgt = getMainGameTable()
+                                    if mgt and mgt.SETNEWCF then mgt.SETNEWCF = nil end
                                     return
                                 end
                                 return fn(pTarget, ...)
@@ -4383,18 +4382,15 @@ local function neutralizeServerTeleported()
                             hookfunction(fn, newcclosure(function(p1, p2, ...)
                                 local char = getChar()
                                 local mgTable = getMainGameTable()
-                                local targetPos = (typeof(p2) == "Vector3") and p2 or ((typeof(p2) == "CFrame") and p2.Position or ((typeof(p1) == "Vector3") and p1 or nil))
-
-                                local isNearHiding = targetPos and isHidingSpotNearPos(targetPos)
                                 local isGraceActive = (os.clock() < unhideGraceUntil)
                                 local isHidingNow = isPlayerHiding(char, mgTable)
                                 local isChaseActive = (mgTable and mgTable.chase == true)
 
-                                if isNearHiding or isGraceActive or isHidingNow or isChaseActive then
+                                if isHidingNow or isGraceActive or (isChaseActive and not State.WalkSpeed_Enabled and not State.Noclip) then
                                     return fn(p1, p2, ...)
                                 end
 
-                                if State.Bypass_AntiCheat or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.WalkSpeed_Enabled or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
+                                if State.Bypass_AntiCheat or State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
                                     if mgTable and mgTable.SETNEWCF then
                                         mgTable.SETNEWCF = nil
                                     end
@@ -5554,7 +5550,10 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         else
             restoreDefaultFriction(char)
         end
-        syncServerSlide(true, true)
+        -- Only sync slide state if player is actually sliding or crouching, never while standing sprint!
+        if State.Enable_Sliding or isCrouching then
+            syncServerSlide(true, isCrouching)
+        end
 
         local targetSpeed = State.WalkSpeed_Value or 15
         if hum.WalkSpeed ~= targetSpeed then
