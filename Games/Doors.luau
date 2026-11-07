@@ -5596,7 +5596,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
             end
         end
     end
-end)
+end))
 
 -- First-Person Dynamic Eye-Level Camera Shield & Complete Body Clip Eradication:
 trackConn(RunService.RenderStepped:Connect(function()
@@ -5643,7 +5643,7 @@ trackConn(RunService.RenderStepped:Connect(function()
             end
         end
     end
-end)
+end))
 
 -- Stepped Guard: Strips collisions & touch on character parts during Noclip
 trackConn(RunService.Stepped:Connect(function()
@@ -5813,7 +5813,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         applyTeflonGlide(char)
         pcall(function() char:SetAttribute("CanSlide", true) end)
     end
-end)
+end))
 
 -- =========================================================================
 -- Pre-Physics Stepped Collision Bypass: Ensures physics engine NEVER overrides noclip collisions before physics step
@@ -5831,7 +5831,7 @@ trackConn(RunService.Stepped:Connect(function()
             end
         end
     end
-end)
+end))
 
 -- Jumping & Sliding Engine (DOORS Freedom Movement)
 -- =========================================================================
@@ -5858,7 +5858,7 @@ trackConn(UserInputService.JumpRequest:Connect(function()
             end
         end
     end
-end)
+end))
 
 local autoInteractToggleObj = nil
 local autoHideToggleObj = nil
@@ -5931,7 +5931,7 @@ pcall(function()
             if isSlidingActive then stopSlide() end
         end)
     end
-end)
+end))
 
 -- =========================================================================
 -- Interaction Engine (Instant Interact, Noclip Interact, Range Interact, Auto Interact)
