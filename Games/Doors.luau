@@ -1196,11 +1196,29 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     if bb then table.insert(visuals, bb) end
 
     -- ONE Single Highlight per target Model/Part (mspaint v4 1:1 Parity: 0.65 fill, 0 outline)
-    -- Prioritize partsToHighlight (e.g. doorMesh or welded 2D cham part) so invisible hitboxes are NEVER highlighted!
+    -- Defensive Instance typecheck: partsToHighlight can be an Instance, a table of BaseParts, or nil
     local hl = nil
-    local hlTarget = (partsToHighlight and (partsToHighlight:IsA("BasePart") or partsToHighlight:IsA("Model")) and partsToHighlight)
-        or (adorneePart and adorneePart:IsA("BasePart") and adorneePart)
-        or (owner:IsA("Model") and owner)
+    local hlTarget = nil
+    if typeof(partsToHighlight) == "Instance" then
+        if partsToHighlight:IsA("BasePart") or partsToHighlight:IsA("Model") then
+            hlTarget = partsToHighlight
+        end
+    elseif typeof(partsToHighlight) == "table" and #partsToHighlight > 0 then
+        if #partsToHighlight == 1 and typeof(partsToHighlight[1]) == "Instance" and partsToHighlight[1]:IsA("BasePart") then
+            hlTarget = partsToHighlight[1]
+        elseif typeof(owner) == "Instance" and owner:IsA("Model") then
+            hlTarget = owner
+        end
+    end
+
+    if not hlTarget then
+        if typeof(adorneePart) == "Instance" and adorneePart:IsA("BasePart") then
+            hlTarget = adorneePart
+        elseif typeof(owner) == "Instance" and owner:IsA("Model") then
+            hlTarget = owner
+        end
+    end
+
     if hlTarget and category ~= "Gold" then
         hl = createHighlight(hlTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0)
         if hl then table.insert(visuals, hl) end
@@ -3509,17 +3527,18 @@ end
 local isDroppingAndRetrieving = false
 local lastDupeTime = 0
 
+local infItemsDebounce = false
+
 executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
+    if infItemsDebounce then return end
+    infItemsDebounce = true
+
     local tool = overrideTool or getEquippedOrInventoryTool({"skeleton", "lockpick", "shears", "key"})
     if not tool or not State.Infinite_Items then
         pcall(function() fireproximityprompt(targetPrompt) end)
+        infItemsDebounce = false
         return
     end
-
-    local now = os.clock()
-    if isDroppingAndRetrieving and (now - lastDupeTime < 0.25) then return end
-    lastDupeTime = now
-    isDroppingAndRetrieving = true
 
     local tn = tool.Name:lower()
     local isLockpickSkeleton = tn:find("lockpick") or tn:find("skeleton")
@@ -3533,7 +3552,7 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
 
     if not dropRemote or not dropsFolder then
         pcall(function() fireproximityprompt(targetPrompt) end)
-        isDroppingAndRetrieving = false
+        infItemsDebounce = false
         return
     end
 
@@ -3545,6 +3564,7 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         task.wait(0.04)
     end
 
+    -- Garage Key: Trigger prompt before dropping (mspaint order)
     if isGarageKey then
         pcall(function() fireproximityprompt(targetPrompt) end)
     end
@@ -3552,34 +3572,42 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
     -- Phase 1: Drop the tool onto the floor
     pcall(function() dropRemote:FireServer(tool) end)
 
-    -- Phase 2: Instant event-driven wait for the dropped item in Workspace.Drops
+    -- Phase 2: Event-driven wait for the NEW dropped item in Workspace.Drops (mspaint exact logic)
     local droppedModel = nil
-    local deadline = os.clock() + 1.2
+    local dropConn = nil
+    local deadline = os.clock() + 1.5
 
-    for _, ch in ipairs(dropsFolder:GetChildren()) do
-        if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
-           and (ch:GetAttribute("PlayerName") == LocalPlayer.Name or not ch:GetAttribute("PlayerName")) then
-            droppedModel = ch
-            break
-        end
-    end
-
-    while not droppedModel and os.clock() < deadline do
-        local child = dropsFolder.ChildAdded:Wait()
+    dropConn = dropsFolder.ChildAdded:Connect(function(child)
         if child:IsA("Model") and (child:GetAttribute("Pickup") == pickupId or child.Name:lower():find(tn))
            and (child:GetAttribute("PlayerName") == LocalPlayer.Name or not child:GetAttribute("PlayerName")) then
             droppedModel = child
-            break
+        end
+    end)
+
+    while not droppedModel and os.clock() < deadline do
+        task.wait(0.02)
+    end
+    if dropConn then dropConn:Disconnect() end
+
+    -- Fallback sweep if ChildAdded fired before connection was bound
+    if not droppedModel then
+        for _, ch in ipairs(dropsFolder:GetChildren()) do
+            if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
+               and (ch:GetAttribute("PlayerName") == LocalPlayer.Name) then
+                droppedModel = ch
+                break
+            end
         end
     end
 
-    -- Phase 3: Trigger unlock prompt and reclaim item
+    -- Shears: Trigger prompt before reclaim (mspaint order)
     if isShears then
         pcall(function() fireproximityprompt(targetPrompt) end)
     end
 
+    -- Phase 3: Instantly re-obtain the tool from the floor
     if droppedModel then
-        local pickupPrompt = droppedModel:FindFirstChild("ModulePrompt") or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+        local pickupPrompt = droppedModel:WaitForChild("ModulePrompt", 0.6) or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
         if pickupPrompt then
             pickupPrompt.HoldDuration = 0
             pickupPrompt.RequiresLineOfSight = false
@@ -3587,12 +3615,14 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end
 
+    -- Lockpick / Skeleton Key: Trigger unlock prompt AFTER tool is safely re-obtained (mspaint order)
     if isLockpickSkeleton then
+        task.wait(0.03)
         pcall(function() fireproximityprompt(targetPrompt) end)
     end
 
-    task.delay(0.12, function()
-        isDroppingAndRetrieving = false
+    task.delay(0.2, function()
+        infItemsDebounce = false
     end)
 end
 
@@ -6303,7 +6333,10 @@ local function safeInstantFirePrompt(prompt)
     local obj = (prompt.ObjectText or ""):lower()
     local act = (prompt.ActionText or ""):lower()
     local isChest = obj:find("chest") or pName:find("chest") or (prompt.Parent and prompt.Parent.Name:lower():find("chest"))
-    local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("lock") or obj:find("padlock")) and not (isChest and act:find("open"))
+    
+    -- Strictly only unlock prompts (padlock / lock / shears vines), NEVER chest or drawer open prompts!
+    local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or (obj:find("lock") and not isChest)) and not act:find("open")
+    
     local usedTool = nil
     if isUnlock then
         local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
@@ -6750,13 +6783,17 @@ pcall(function()
     local activePromptTool = nil
 
     -- When daddy begins holding or focusing an unlock prompt:
-    -- Automatically equip lockpick/key so hands are NEVER empty!
+    -- Automatically equip lockpick/key and execute Infinite Items BEFORE server consumes it!
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player and player ~= LocalPlayer then return end
         local pName = prompt.Name:lower()
         local obj = (prompt.ObjectText or ""):lower()
         local act = (prompt.ActionText or ""):lower()
-        local isUnlock = pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock")
+        local isChest = obj:find("chest") or pName:find("chest") or (prompt.Parent and prompt.Parent.Name:lower():find("chest"))
+        
+        -- Strictly only real unlock prompts, NEVER chest open or door open prompts!
+        local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or (obj:find("lock") and not isChest)) and not act:find("open")
+        
         if isUnlock then
             local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
             if tool then
@@ -6768,30 +6805,20 @@ pcall(function()
                         hum:EquipTool(tool)
                     end
                 end
+                if State.Infinite_Items and State.Infinite_Lockpicks and not infItemsDebounce then
+                    local tn = tool.Name:lower()
+                    if tn:find("lockpick") or tn:find("skeleton") or tn:find("shear") then
+                        task.spawn(function()
+                            executeInfinitePromptInteraction(prompt, tool)
+                        end)
+                    end
+                end
             end
         end
     end)
 
-    local function onPromptInteract(prompt, player)
-        if not State.Infinite_Items or not State.Infinite_Lockpicks then return end
-        if player and player ~= LocalPlayer then return end
-        local pName = prompt.Name:lower()
-        local obj = (prompt.ObjectText or ""):lower()
-        local act = (prompt.ActionText or ""):lower()
-        local isUnlock = pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock")
-
-        if isUnlock then
-            local tool = activePromptTool or getEquippedOrInventoryTool({"lockpick", "skeleton", "shears", "key"})
-            if tool then
-                local tn = tool.Name:lower()
-                if tn:find("lockpick") or tn:find("skeleton") or tn:find("shear") then
-                    executeInfinitePromptInteraction(prompt, tool)
-                end
-            end
-        end
-    end
-
-    pps.PromptTriggered:Connect(onPromptInteract)
+    -- Note: PromptTriggered recursive firing eliminated!
+    -- Unlock prompts with Infinite Items are handled cleanly on PromptButtonHoldBegan or safeInstantFirePrompt.
     pps.PromptButtonHoldEnded:Connect(function(prompt, player)
         if player and player ~= LocalPlayer then return end
         task.delay(0.3, function()
