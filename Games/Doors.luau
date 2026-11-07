@@ -5503,8 +5503,8 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- mspaint v4 Auto Egg Minigame (AntiGloomEgg)
-    if State.AntiGloomEgg and (nowTime - (openedDoors.lastEggCheck or 0) >= 0.5) then
+    -- mspaint v4 Auto Egg Minigame & Gloom Egg Defuser
+    if (State.AutoEggMinigame or State.AntiGloomEgg) and (nowTime - (openedDoors.lastEggCheck or 0) >= 0.3) then
         openedDoors.lastEggCheck = nowTime
         local cr = Workspace:FindFirstChild("CurrentRooms")
         if cr then
@@ -5513,6 +5513,31 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
                     egg.CanTouch = false
                 end
             end
+        end
+        -- Mines / Subfloor Egg Minigame Cartridge Auto-Solver
+        if State.AutoEggMinigame then
+            pcall(function()
+                local eggCoreMod = LocalPlayer.PlayerScripts:FindFirstChild("EggGameCore", true)
+                if eggCoreMod and eggCoreMod:IsA("ModuleScript") then
+                    local eggCore = require(eggCoreMod)
+                    local coreInst = (type(eggCore) == "table" and type(eggCore.GetCore) == "function") and eggCore.GetCore() or eggCore
+                    if type(coreInst) == "table" and coreInst.eggs and coreInst.Round then
+                        for _, egg in ipairs(coreInst.eggs) do
+                            if egg.Alive then
+                                if egg.Type == "Rotten" then
+                                    pcall(function() coreInst:_BreakEgg(egg) end)
+                                else
+                                    pcall(function() coreInst:_CatchEgg(egg) end)
+                                end
+                            end
+                        end
+                        if coreInst.config and coreInst.config.MaxScore and (coreInst.score or 0) < coreInst.config.MaxScore then
+                            coreInst.score = coreInst.config.MaxScore
+                            if coreInst._Emit then coreInst:_Emit("ScoreChanged", coreInst.score) end
+                        end
+                    end
+                end
+            end)
         end
     end
 
