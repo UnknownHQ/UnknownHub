@@ -293,6 +293,12 @@ local State = {
     Breakers_ESP = true,
     Gold_ESP = false,
     Entities_ESP = true,
+    Tracers_ESP = false,
+    Tracers_Origin = "Bottom",
+    Offscreen_Arrows = true,
+    Offscreen_Arrows_Radius = 180,
+    GuidingLight_ESP = true,
+    Toolbox_ESP = true,
     HidingSpots_ESP = false,
     GlitchFragment_ESP = true,
     Auto_GetGlitchFragment = false,
@@ -724,6 +730,125 @@ local function clearAllEsp()
         end
     end)
 end
+
+-- =========================================================================
+-- Visuals: Tracers & Offscreen Threat Radar (Drawing Engine)
+-- =========================================================================
+local activeTracers = {}
+local activeArrows = {}
+
+local function clearDrawings()
+    pcall(function()
+        for _, line in pairs(activeTracers) do
+            pcall(function() line.Visible = false; line:Remove() end)
+        end
+        table.clear(activeTracers)
+        for _, arr in pairs(activeArrows) do
+            pcall(function() arr.Visible = false; arr:Remove() end)
+        end
+        table.clear(activeArrows)
+    end)
+end
+
+local function getTracerOriginPoint()
+    local cam = Workspace.CurrentCamera
+    if not cam then return Vector2.new(0, 0) end
+    local vp = cam.ViewportSize
+    if State.Tracers_Origin == "Center" then
+        return Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+    elseif State.Tracers_Origin == "Mouse" and UserInputService then
+        return UserInputService:GetMouseLocation()
+    else -- "Bottom"
+        return Vector2.new(vp.X * 0.5, vp.Y)
+    end
+end
+
+-- RenderStepped Tracker for Tracers & Threat Radar
+pcall(function()
+    RunService.RenderStepped:Connect(function()
+        if not State.Master_ESP then
+            clearDrawings()
+            return
+        end
+
+        local cam = Workspace.CurrentCamera
+        if not cam or not Drawing then return end
+        local vp = cam.ViewportSize
+        local center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+        local origin = getTracerOriginPoint()
+
+        local usedTracers = {}
+        local usedArrows = {}
+
+        for id, rec in pairs(activeEspRecords) do
+            local adornee = rec.AdorneePart or (rec.Instance and rec.Instance:IsA("BasePart") and rec.Instance)
+            if adornee and adornee.Parent then
+                local pos = adornee.Position
+                local screenPos, onScreen = cam:WorldToViewportPoint(pos)
+                local cat = rec.Category
+
+                -- 1. Tracers
+                if State.Tracers_ESP and onScreen and (cat == "Entities" or cat == "Doors" or cat == "Keys") then
+                    local line = activeTracers[id]
+                    if not line then
+                        line = Drawing.new("Line")
+                        activeTracers[id] = line
+                    end
+                    usedTracers[id] = true
+                    line.From = origin
+                    line.To = Vector2.new(screenPos.X, screenPos.Y)
+                    line.Color = (cat == "Entities" and Color3.fromRGB(255, 35, 35)) or (cat == "Keys" and Color3.fromRGB(255, 220, 50)) or Color3.fromRGB(0, 215, 255)
+                    line.Thickness = 1.5
+                    line.Transparency = 0.85
+                    line.Visible = true
+                end
+
+                -- 2. Offscreen Threat Radar Arrows for Entities
+                if State.Offscreen_Arrows and not onScreen and cat == "Entities" then
+                    local tri = activeArrows[id]
+                    if not tri then
+                        tri = Drawing.new("Triangle")
+                        activeArrows[id] = tri
+                    end
+                    usedArrows[id] = true
+                    local rawDir = Vector2.new(screenPos.X, screenPos.Y) - center
+                    if screenPos.Z < 0 then rawDir = -rawDir end
+                    local dir = rawDir.Magnitude > 0.01 and rawDir.Unit or Vector2.new(0, -1)
+                    local rad = State.Offscreen_Arrows_Radius or 180
+                    local arrCenter = center + (dir * rad)
+                    local angle = math.atan2(dir.Y, dir.X)
+
+                    local tip = arrCenter + (dir * 15)
+                    local side1 = arrCenter + Vector2.new(math.cos(angle + 2.3) * 11, math.sin(angle + 2.3) * 11)
+                    local side2 = arrCenter + Vector2.new(math.cos(angle - 2.3) * 11, math.sin(angle - 2.3) * 11)
+
+                    tri.PointA = tip
+                    tri.PointB = side1
+                    tri.PointC = side2
+                    tri.Color = Color3.fromRGB(255, 35, 35)
+                    tri.Filled = true
+                    tri.Visible = true
+                end
+            end
+        end
+
+        -- Clean up unused Drawing instances
+        for id, line in pairs(activeTracers) do
+            if not usedTracers[id] then
+                line.Visible = false
+                line:Remove()
+                activeTracers[id] = nil
+            end
+        end
+        for id, arr in pairs(activeArrows) do
+            if not usedArrows[id] then
+                arr.Visible = false
+                arr:Remove()
+                activeArrows[id] = nil
+            end
+        end
+    end)
+end)
 
 local function createBillboard(adorneePart, baseText, color, offset)
     if not adorneePart or not adorneePart:IsA("BasePart") then return nil, nil end
@@ -9137,6 +9262,28 @@ Hub.CreateToggle(espTab, "Gold ESP", State.Gold_ESP, function(v)
     else
         scanAllRooms()
     end
+end)
+
+Hub.CreateSection(espTab, "Snaplines & Threat Radar (mspaint Suite)")
+
+Hub.CreateToggle(espTab, "Snapline Tracers", State.Tracers_ESP, function(v)
+    State.Tracers_ESP = v
+    if not v then clearDrawings() end
+    Hub.Notify("Visuals", v and "Tracers: Enabled" or "Tracers: Disabled", 2)
+end)
+
+Hub.CreateDropdown(espTab, "Tracer Origin", {"Bottom", "Center", "Mouse"}, State.Tracers_Origin, function(v)
+    State.Tracers_Origin = v
+end)
+
+Hub.CreateToggle(espTab, "Offscreen Threat Radar Arrows", State.Offscreen_Arrows, function(v)
+    State.Offscreen_Arrows = v
+    if not v then clearDrawings() end
+    Hub.Notify("Visuals", v and "Threat Radar: Enabled (Rush/Ambush 360°)" or "Threat Radar: Disabled", 2)
+end)
+
+Hub.CreateSlider(espTab, "Threat Arrow Radar Radius", 100, 300, State.Offscreen_Arrows_Radius, " px", function(v)
+    State.Offscreen_Arrows_Radius = v
 end)
 
 Hub.CreateSection(espTab, "Entities")
