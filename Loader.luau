@@ -74,7 +74,7 @@ local SupportedGames = {
         icon = "🚪",
         placeIds = { 6516141723, 6839171747, 12555541629, 13511802958, 11935914798, 16033173781 },
         gameIds = { 2440500124, 6839171747, 6516141723 },
-        scriptUrl = BASE_URL .. "/Games/Doors.luau",
+        scriptUrl = BASE_URL .. "/Games/Doors_V2.luau",
         desc = "Entity alert & auto-closet hide, ESP (doors, keys, items, monsters), instant interact, auto-solve"
     },
     {

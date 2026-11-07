@@ -109,7 +109,6 @@ local State = {
     },
     InstantInteract = false,
     InteractThroughWalls = false,
-    InteractDistance = 12,
     DoorReach = false,
     WalkThroughDoors = false,
     InstantHidingSpotExit = false,
@@ -3000,7 +2999,8 @@ end)
 UILib.CreateToggle(specialTab, "Entity Spawning Radar Alerts", State.NotifyEntitySpawns, function(v)
     State.NotifyEntitySpawns = v
 end)
-\nprint("[U⚡] UNKNOWN HUB — DOORS V2 (PARTS 1, 2, 3 & 4 COMPLETE) LOADED SUCCESSFULLY!")
+
+print("[U⚡] UNKNOWN HUB — DOORS V2 (PARTS 1, 2, 3 & 4 COMPLETE) LOADED SUCCESSFULLY!")
 
 -- Global Keybind Triggers (R: Auto Interact, Q: Auto Hide)
 UserInputService.InputBegan:Connect(function(input, gpe)
