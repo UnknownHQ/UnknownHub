@@ -109,8 +109,8 @@ end
 local State = {
     -- Auto Farm
     AutoFarm_Enabled = false,
-    Farm_StageDelay = 2.2,       -- 2.2s per stage (22s total) bypasses the server anti-instant teleport filter
-    Farm_FlightHeight = 65,      -- Safe height above all water, rocks, and falling obstacles
+    Farm_StageDelay = 2.0,       -- 2.0s per stage ensures server validates passed stages
+    Farm_FlightHeight = -5,      -- River trigger height (-5) ensures all 10 stages register passed credits
     Farm_AutoLaunch = true,      -- Automatically triggers team dock launch
     Farm_AutoClaim = true,       -- Automatically fires ClaimRiverResultsGold:FireServer()
     Farm_ClosePopups = true,     -- Closes RiverResultsGui automatically
@@ -280,13 +280,13 @@ task.spawn(function()
                     end
                     table.sort(stageList, function(a, b) return a.z < b.z end)
 
-                    -- 4. Lift to Safe Corridor
-                    updateStatus("Ascending to Corridor...")
+                    -- 4. Align with River Water Trigger Corridor (Y = -5)
+                    updateStatus("Aligning River Water Corridor...")
                     root.Anchored = true
-                    local safeY = State.Farm_FlightHeight or 65
+                    local safeY = State.Farm_FlightHeight or -5
                     tweenCharacter(root, CFrame.new(-51.5, safeY, root.Position.Z), 0.5)
 
-                    -- 5. Traverse Each Stage (Bypasses Anti-Teleport Check)
+                    -- 5. Traverse Each Stage (Passes exact stage trigger gates)
                     local abort = false
                     for i, stg in ipairs(stageList) do
                         if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then
@@ -294,9 +294,14 @@ task.spawn(function()
                             break
                         end
 
-                        updateStatus(string.format("Gliding: Stage %d/%d (%s)", i, #stageList, stg.name))
+                        updateStatus(string.format("Clearing: Stage %d/%d (%s)", i, #stageList, stg.name))
                         local targetPos = Vector3.new(-51.5, safeY, stg.z)
-                        tweenCharacter(root, CFrame.new(targetPos), State.Farm_StageDelay or 2.2)
+                        tweenCharacter(root, CFrame.new(targetPos), State.Farm_StageDelay or 2.0)
+                        
+                        -- Send momentary physics update pulse so server validates the stage pass
+                        root.Anchored = false
+                        task.wait(0.12)
+                        root.Anchored = true
                     end
 
                     if abort then
@@ -304,23 +309,24 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 6. Claim The End & Golden Chest
+                    -- 6. Claim The End & Golden Chest (Bypasses lethal waterfall rocks)
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
 
                     if trigger then
-                        updateStatus("Approaching Golden Chest...")
-                        tweenCharacter(root, CFrame.new(trigger.Position.X, safeY, trigger.Position.Z), 1.0)
-                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 1.5, 0)), 0.8)
+                        updateStatus("Direct Landing at Golden Chest...")
+                        -- Direct CFrame right onto chest (Bypasses the pointed rocks on the waterfall)
+                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.8, 0))
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
 
-                        root.Anchored = false
                         updateStatus("Claiming Treasure...")
 
                         -- Touch trigger interest
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.1)
+                            task.wait(0.15)
                             firetouchinterest(root, trigger, 1)
                         end)
 
@@ -341,11 +347,22 @@ task.spawn(function()
                         end
 
                         updateRuns()
-                        updateStatus("Waiting for Respawn...")
+                        updateStatus("Returning to Docks...")
+                        task.wait(1.5)
 
-                        -- Wait for character respawn
-                        LocalPlayer.CharacterAdded:Wait()
-                        task.wait(2.0) -- Server round re-initialization buffer
+                        -- Safe return to dock: never die, never fall into void
+                        local respawned = false
+                        local respawnConn = LocalPlayer.CharacterAdded:Connect(function()
+                            respawned = true
+                        end)
+                        task.wait(1.5)
+                        pcall(function() respawnConn:Disconnect() end)
+
+                        if not respawned and root and root.Parent then
+                            root.CFrame = CFrame.new(-50, 5, -20)
+                            root.Anchored = false
+                        end
+                        task.wait(2.0)
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
@@ -377,7 +394,7 @@ Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 1.5, 3.5, State.Farm
     State.Farm_StageDelay = val
 end)
 
-Hub.CreateSlider(farmTab, "Corridor Flight Height", 40, 100, State.Farm_FlightHeight, function(val)
+Hub.CreateSlider(farmTab, "River Glide Height (Y)", -10, 30, State.Farm_FlightHeight, function(val)
     State.Farm_FlightHeight = val
 end)
 
