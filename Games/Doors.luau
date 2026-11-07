@@ -252,9 +252,34 @@ local State = {
     ClickTP_Enabled = false,
     Target_Room_Number = 10,
 
-    -- Main / Interactions
-    Instant_Interact = true,
+    -- Main / Interactions (mspaint v4 Interaction Suite)
+    Auto_Interact = false,
+    Auto_Interact_Key = Enum.KeyCode.R,
+    AutoInteract_Delay = 0.05,
+    AutoInteract_IgnoreList = {
+        ["Unlock w/ Shears"] = true,
+        ["Jeff Items"] = true,
+        ["Can-Die Candy"] = true,
+        ["Skull Prompt"] = true,
+        ["Glitch Fragment"] = true,
+        ["Paper Planes"] = true,
+        ["Fih Flakes"] = true
+    },
+    Instant_Interact = false,
+    PromptClip = false,
     Noclip_Interact = false,
+    Interact_DistanceMultiplier = 1,
+    PromptReachMultiplier = 1,
+    DoorReach = false,
+    DoorNoclip = false,
+    FastClosetExit = false,
+
+    -- Main / Automation (mspaint v4 Automation Suite)
+    AutoEggMinigame = false,
+    AntiGloomEgg = false,
+    Auto_Heartbeat = false,
+    Auto_Hide = false,
+    Auto_Hide_Key = Enum.KeyCode.Q,
     Range_Interact = false,
     Interact_MaxRange = 12,
     Auto_Interact = false,
@@ -4121,7 +4146,7 @@ executeItemDupeDrop = function(tool, delaySeconds)
 end
 
 -- Active Proximity Sentry: Automatically solves locks & opens doors on approach (Zero Yield / Full Descendants)
-local openedDoors = { lastKeyEquip = 0, lastSentryCheck = 0 }
+local openedDoors = { lastKeyEquip = 0, lastSentryCheck = 0, lastDoorNoclip = 0, lastEggCheck = 0 }
 
 local function processNearbyDoors(currentPos, maxReach)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -4652,6 +4677,10 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 if arg1 == "moved" then
                     return origNc(self, "didnt")
                 end
+            elseif self.Name == "ClutchHeartbeat" and State.Auto_Heartbeat then
+                local args = {...}
+                args[2] = true -- mspaint v4 ClutchHeartbeat spoof: forces 100% perfect heartbeat score
+                return origNc(self, unpack(args))
             end
         end
         return origNc(self, ...)
@@ -5809,6 +5838,17 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
     wasHidingState = isInsideHiding
     local hiding = isInsideHiding or (os.clock() < unhideGraceUntil)
 
+    -- mspaint v4 Instant Hiding Spot Exit (FastClosetExit)
+    if State.FastClosetExit and isInsideHiding then
+        if hum and hum.MoveDirection.Magnitude > 0.05 then
+            local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+            local camLock = rf and rf:FindFirstChild("CamLock")
+            if camLock then
+                camLock:FireServer()
+            end
+        end
+    end
+
     -- Auto-disable Noclip if Bypass Anti-Cheat Core is disabled
     if State.Noclip and not State.Bypass_AntiCheat then
         State.Noclip = false
@@ -5824,6 +5864,38 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         openedDoors.lastSentryCheck = nowTime
         local doorReach = State.Knobs_Farm_Active and 35 or 16
         processNearbyDoors(root.Position, doorReach)
+    end
+
+    -- mspaint v4 Walk Through Doors (DoorNoclip)
+    if State.DoorNoclip and (nowTime - (openedDoors.lastDoorNoclip or 0) >= 0.2) then
+        openedDoors.lastDoorNoclip = nowTime
+        local cr = Workspace:FindFirstChild("CurrentRooms")
+        if cr then
+            for _, rm in ipairs(cr:GetChildren()) do
+                local d = rm:FindFirstChild("Door")
+                if d then
+                    local dModel = d:FindFirstChild("Door") or d
+                    for _, p in ipairs(dModel:GetDescendants()) do
+                        if p:IsA("BasePart") and p.CanCollide then
+                            p.CanCollide = false
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- mspaint v4 Auto Egg Minigame (AntiGloomEgg)
+    if State.AntiGloomEgg and (nowTime - (openedDoors.lastEggCheck or 0) >= 0.5) then
+        openedDoors.lastEggCheck = nowTime
+        local cr = Workspace:FindFirstChild("CurrentRooms")
+        if cr then
+            for _, egg in ipairs(cr:GetDescendants()) do
+                if egg.Name == "Egg" and egg.Parent and egg.Parent.Name == "GloomPile" and egg:IsA("BasePart") and egg.CanTouch then
+                    egg.CanTouch = false
+                end
+            end
+        end
     end
 
     -- God-Mode & Hitbox Immunity Engine: Eradicates all monster contact damage (Intangible Hitbox, Zero Teleport)
@@ -6420,8 +6492,29 @@ local jumpConn; jumpConn = UserInputService.JumpRequest:Connect(function()
     end
 end)
 
+local autoInteractToggleObj = nil
+local autoHideToggleObj = nil
+
 local inputConn1; inputConn1 = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if inputConn1 then trackConn(inputConn1) end
+
+    -- Keybind Triggers for Auto Interact [R] & Auto Hide [Q]
+    if not gameProcessed then
+        if input.KeyCode == (State.Auto_Interact_Key or Enum.KeyCode.R) then
+            State.Auto_Interact = not State.Auto_Interact
+            if autoInteractToggleObj and autoInteractToggleObj.Set then
+                autoInteractToggleObj:Set(State.Auto_Interact)
+            end
+            Hub.Notify("Interaction", State.Auto_Interact and "Auto Interact: Enabled [R]" or "Auto Interact: Disabled [R]", 2)
+        elseif input.KeyCode == (State.Auto_Hide_Key or Enum.KeyCode.Q) then
+            State.Auto_Hide = not State.Auto_Hide
+            if autoHideToggleObj and autoHideToggleObj.Set then
+                autoHideToggleObj:Set(State.Auto_Hide)
+            end
+            Hub.Notify("Automation", State.Auto_Hide and "Auto Hide: Enabled [Q]" or "Auto Hide: Disabled [Q]", 2)
+        end
+    end
+
     -- Click to Teleport (Ctrl + Left Click)
     if State.ClickTP_Enabled and input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessed then
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
@@ -6497,55 +6590,42 @@ local function applyPromptModifications(prompt)
     local isHidingSpot = prName:find("hide") or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed")
         or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("locker") or parentName:find("bed")
         or pAct:find("hide") or pAct:find("enter")
-    local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock")
+    local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt"
 
-    -- Strip line-of-sight check unconditionally so prompts appear instantly
-    prompt.RequiresLineOfSight = false
+    -- Line of Sight Check (Interact Through Walls / PromptClip)
+    if State.PromptClip or State.Noclip_Interact then
+        prompt.RequiresLineOfSight = false
+    else
+        local origLOS = prompt:GetAttribute("OrigLOS")
+        if origLOS ~= nil then prompt.RequiresLineOfSight = origLOS end
+    end
+
+    -- Instant Interact (HoldDuration = 0)
+    if State.Instant_Interact then
+        prompt.HoldDuration = 0
+    else
+        local origHold = prompt:GetAttribute("OrigHold")
+        if origHold ~= nil then prompt.HoldDuration = origHold end
+    end
+
+    -- Distance Multiplier & Door Reach
+    local origDist = prompt:GetAttribute("OrigMaxDist") or prompt.MaxActivationDistance or 10
+    local mult = tonumber(State.PromptReachMultiplier or State.Interact_DistanceMultiplier) or 1
 
     if isHidingSpot then
-        -- Wardrobe & Closet Interaction Assurance:
-        -- Natural instant click (HoldDuration = 0) with zero annoying hold bar!
-        prompt.MaxActivationDistance = 14.0
-        if State.Instant_Interact then
-            prompt.HoldDuration = 0
-        else
-            local origHold = prompt:GetAttribute("OrigHold") or 0
-            prompt.HoldDuration = origHold
-        end
-        prompt.RequiresLineOfSight = false
+        prompt.MaxActivationDistance = math.max(14.0, origDist * mult)
         if not prompt.Enabled and (not prompt.Parent or not prompt.Parent:GetAttribute("HiddenPlayer")) then
             prompt.Enabled = true
         end
     elseif isDrawerOrContainer then
-        -- CRITICAL DRAWER FIX: Server strictly rejects drawer activation beyond 6.5 studs!
-        -- Clamping to 6.5 guarantees client triggers only within server reach, preventing false prompt disappearance!
-        prompt.MaxActivationDistance = 6.5
-        prompt.RequiresLineOfSight = false
-        if State.Instant_Interact then
-            prompt.HoldDuration = 0
-        else
-            local origHold = prompt:GetAttribute("OrigHold") or 0
-            prompt.HoldDuration = origHold
-        end
-    elseif isDoorPrompt then
-        prompt.RequiresLineOfSight = false
+        -- CRITICAL INVARIANT: Server strictly rejects drawer activation beyond 6.5 studs!
+        prompt.MaxActivationDistance = math.min(6.5, origDist * mult)
+    elseif isDoorPrompt and State.DoorReach then
+        prompt.MaxActivationDistance = math.max(22.0, origDist * 2.2)
     else
-        -- ITEMS, KEYS, GOLD, CHESTS, LEVERS, TOOLS & DRAWERS:
-        -- ALWAYS expand MaxActivationDistance to 14 studs and strip RequiresLineOfSight!
-        -- Eradicates all 6-10s interaction delays whether flying, noclipping through walls, or walking!
-        prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 0, 14)
-        prompt.RequiresLineOfSight = false
-
-        if State.Instant_Interact then
-            prompt.HoldDuration = 0
-        else
-            -- PRESERVE NATURAL HOLD DURATION: Never flicker or overwrite HoldDuration so 1-2s hold prompts work smoothly!
-            local origHold = prompt:GetAttribute("OrigHold")
-            if origHold ~= nil then prompt.HoldDuration = origHold end
-        end
+        prompt.MaxActivationDistance = origDist * mult
     end
 end
-
 local function refreshAllPrompts()
     local root = getRoot()
     local curRoom = root and getObjectRoom(root)
@@ -6786,6 +6866,49 @@ local function isPromptSafeToAutoInteract(prompt)
                 if pName:find(lkw, 1, true) or mName:find(lkw, 1, true) or obj:find(lkw, 1, true) or act:find(lkw, 1, true) then
                     return false
                 end
+            end
+        end
+    end
+
+    -- MSPaint v4 Ignore List Filters:
+    if State.AutoInteract_IgnoreList then
+        local ign = State.AutoInteract_IgnoreList
+        if ign["Unlock w/ Shears"] then
+            if pName:find("vine") or mName:find("vine") or obj:find("vine") or act:find("cut") or (model and model:GetAttribute("LockAttribute") == "CanCutVines") then
+                return false
+            end
+        end
+        if ign["Jeff Items"] then
+            if prompt:GetAttribute("JeffShop") or (parent and parent:GetAttribute("JeffShop")) or (model and model:GetAttribute("JeffShop")) or pName:find("shop") or mName:find("shop") or (obj:find("gold") and (pName:find("buy") or act:find("buy") or act:find("purchase"))) then
+                return false
+            end
+        end
+        if ign["Can-Die Candy"] then
+            if (prompt:FindFirstChild("CandyReferenceModel") or (parent and parent:FindFirstChild("CandyReferenceModel"))) and (prompt:GetAttribute("Tool_CandyID") == "CandyRed" or (parent and parent:GetAttribute("Tool_CandyID") == "CandyRed")) then
+                return false
+            end
+            if obj:find("evil") or obj:find("red candy") or pName:find("candyred") then
+                return false
+            end
+        end
+        if ign["Skull Prompt"] then
+            if prompt.Name == "SkullPrompt" or pName == "skullprompt" or mName == "skulllock" or obj:find("skull") then
+                return false
+            end
+        end
+        if ign["Glitch Fragment"] then
+            if prompt:GetAttribute("CustomFrame") == "Glitch" or pName == "glitchcube" or mName == "glitchcube" or (model and isGlitchFragmentInstance(model)) then
+                return false
+            end
+        end
+        if ign["Paper Planes"] then
+            if prompt:GetAttribute("Pickup") == "PaperPlane" or pName:find("paperplane") or mName:find("paperplane") or obj:find("plane") then
+                return false
+            end
+        end
+        if ign["Fih Flakes"] then
+            if prompt.Name == "FlakesPrompt" or prompt:GetAttribute("Pickup") == "FihFlakes" or (parent and parent:GetAttribute("Pickup") == "FihFlakes") or obj:find("flake") or pName:find("flake") then
+                return false
             end
         end
     end
@@ -7039,9 +7162,10 @@ task.spawn(function()
                                     local promptReach = isDrawerOrContainer and 6.0 or maxDist
                                     if dist <= promptReach then
                                         if isPromptSafeToAutoInteract(prompt) then
-                                            promptDebounce[prompt] = now + 0.4
+                                            local delayTime = tonumber(State.AutoInteract_Delay) or 0.05
+                                            promptDebounce[prompt] = now + math.max(0.3, delayTime)
                                             batchCount = batchCount + 1
-                                            local stagger = (batchCount - 1) * 0.02
+                                            local stagger = (batchCount - 1) * delayTime
                                             task.spawn(function()
                                                 if stagger > 0 then task.wait(stagger) end
                                                 safeInstantFirePrompt(prompt)
@@ -7802,8 +7926,94 @@ end
 -- =========================================================================
 local isSafePhased = false
 
--- Auto-Hide and Threat Evasion Daemon removed per daddy's instruction.
--- Fly Noclip runs 100% standalone and completely unhindered!
+-- =========================================================================
+-- Autonomous Auto-Hide Daemon (mspaint v4 Wardrobe/Closet Threat Evasion)
+-- =========================================================================
+task.spawn(function()
+    while true do
+        if _G.DOORS_SESSION ~= currentSession then break end
+        if State.Auto_Hide then
+            local isThreat, threatName = isLethalEntityIncoming()
+            local char = getChar()
+            local root = getRoot()
+            local mgTable = getMainGameTable()
+            local currentlyHiding = isPlayerHiding(char, mgTable)
+
+            if isThreat and not currentlyHiding and root then
+                -- Locate nearest hiding spot in current and adjacent rooms
+                local bestPrompt, bestDist = nil, math.huge
+                local searchRooms = {}
+                local curRoom, curNum = getObjectRoom(root)
+                if curRoom then
+                    table.insert(searchRooms, curRoom)
+                    if curNum and Workspace:FindFirstChild("CurrentRooms") then
+                        local prevRoom = Workspace.CurrentRooms:FindFirstChild(tostring(curNum - 1))
+                        local nextRoom = Workspace.CurrentRooms:FindFirstChild(tostring(curNum + 1))
+                        if prevRoom then table.insert(searchRooms, prevRoom) end
+                        if nextRoom then table.insert(searchRooms, nextRoom) end
+                    end
+                elseif Workspace:FindFirstChild("CurrentRooms") then
+                    for _, r in ipairs(Workspace.CurrentRooms:GetChildren()) do
+                        table.insert(searchRooms, r)
+                    end
+                end
+
+                for _, rm in ipairs(searchRooms) do
+                    for _, desc in ipairs(rm:GetDescendants()) do
+                        if desc:IsA("ProximityPrompt") and desc.Enabled then
+                            local dName = desc.Name:lower()
+                            local dAct = (desc.ActionText or ""):lower()
+                            local pModel = desc:FindFirstAncestorWhichIsA("Model")
+                            local mName = pModel and pModel.Name:lower() or ""
+
+                            local isHidePrompt = dName:find("hide") or dAct:find("hide") or dAct:find("enter")
+                                or mName:find("wardrobe") or mName:find("closet") or mName:find("locker") or mName:find("bed")
+
+                            if isHidePrompt and pModel and not pModel:GetAttribute("HiddenPlayer") then
+                                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart") or (pModel.PrimaryPart)
+                                if pPart then
+                                    local dist = (root.Position - pPart.Position).Magnitude
+                                    if dist < bestDist then
+                                        bestDist = dist
+                                        bestPrompt = desc
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if bestPrompt then
+                    Hub.Notify("Auto Hide", string.format("Threat detected (%s)! Entering hiding spot...", tostring(threatName)), 2)
+                    local targetPart = bestPrompt.Parent:IsA("BasePart") and bestPrompt.Parent or bestPrompt.Parent:FindFirstChildWhichIsA("BasePart")
+                    if targetPart and (root.Position - targetPart.Position).Magnitude > 12 then
+                        root.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 2, 0))
+                    end
+
+                    local timeout = os.clock() + 4.0
+                    while os.clock() < timeout and not isPlayerHiding(char, mgTable) and State.Auto_Hide do
+                        safeInstantFirePrompt(bestPrompt)
+                        task.wait(0.05)
+                    end
+
+                    while State.Auto_Hide and isLethalEntityIncoming() do
+                        task.wait(0.2)
+                    end
+
+                    task.wait(0.8)
+                    if isPlayerHiding(char, mgTable) then
+                        local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                        if rf and rf:FindFirstChild("CamLock") then
+                            rf.CamLock:FireServer()
+                        end
+                        Hub.Notify("Auto Hide", "Threat has passed! Safely unhidden.", 2)
+                    end
+                end
+            end
+        end
+        task.wait(0.2)
+    end
+end)
 
 -- Fly-Noclip Glide Controller: Direct 3D linear flight through walls and obstacles
 farmGlideTo = function(targetPos, speedVal, maxTime)
@@ -8889,7 +9099,73 @@ Hub.CreateToggle(mainTab, "No Acceleration", State.No_Acceleration, function(v)
     Hub.Notify("Movement", v and "No Acceleration: Enabled" or "No Acceleration: Disabled", 2)
 end)
 
+local function addKeybindBadge(toggleCard, keyText)
+    if not toggleCard then return end
+    local badge = Instance.new("TextLabel")
+    badge.Name = "KeyBadge"
+    badge.Size = UDim2.new(0, 24, 0, 20)
+    badge.Position = UDim2.new(1, -82, 0.5, -10)
+    badge.BackgroundColor3 = Color3.fromRGB(24, 25, 29)
+    badge.BorderSizePixel = 0
+    badge.Font = Enum.Font.RobotoMono
+    badge.Text = keyText
+    badge.TextColor3 = Color3.fromRGB(180, 180, 185)
+    badge.TextSize = 12
+    badge.Parent = toggleCard
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = badge
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(48, 50, 58)
+    stroke.Thickness = 1
+    stroke.Parent = badge
+    return badge
+end
+
+local function createCardDivider(parent)
+    local target = (typeof(parent) == "table" and parent.Page) or parent
+    local div = Instance.new("Frame")
+    div.Name = "Divider"
+    div.Size = UDim2.new(1, 0, 0, 1)
+    div.BackgroundColor3 = Color3.fromRGB(36, 38, 44)
+    div.BorderSizePixel = 0
+    div.Parent = target
+    return div
+end
+
+-- =========================================================================
+-- Section: Interaction (mspaint v4 1:1 Parity)
+-- =========================================================================
 Hub.CreateSection(mainTab, "Interaction")
+
+autoInteractToggleObj = Hub.CreateToggle(mainTab, "Auto Interact", State.Auto_Interact, function(v)
+    State.Auto_Interact = v
+    Hub.Notify("Interaction", v and "Auto Interact: Enabled [R]" or "Auto Interact: Disabled [R]", 2)
+end)
+if autoInteractToggleObj and autoInteractToggleObj.Instance then
+    addKeybindBadge(autoInteractToggleObj.Instance, "R")
+end
+
+local ignoreOptions = {
+    "Unlock w/ Shears",
+    "Jeff Items",
+    "Can-Die Candy",
+    "Skull Prompt",
+    "Glitch Fragment",
+    "Paper Planes",
+    "Fih Flakes"
+}
+Hub.CreateMultiDropdown(mainTab, "Ignore List", ignoreOptions, State.AutoInteract_IgnoreList, function(selected)
+    State.AutoInteract_IgnoreList = selected
+end)
+
+Hub.CreateSlider(mainTab, "Auto Interact Delay", 0.01, 0.5, State.AutoInteract_Delay or 0.05, "s", function(v)
+    State.AutoInteract_Delay = tonumber(v) or 0.05
+end)
+
+createCardDivider(mainTab)
 
 Hub.CreateToggle(mainTab, "Instant Interact", State.Instant_Interact, function(v)
     State.Instant_Interact = v
@@ -8897,59 +9173,68 @@ Hub.CreateToggle(mainTab, "Instant Interact", State.Instant_Interact, function(v
     Hub.Notify("Interaction", v and "Instant Interact: Enabled" or "Instant Interact: Disabled", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Wall Interact", State.Noclip_Interact, function(v)
+Hub.CreateToggle(mainTab, "Interact Through Walls", State.PromptClip, function(v)
+    State.PromptClip = v
     State.Noclip_Interact = v
     refreshAllPrompts()
-    Hub.Notify("Interaction", v and "Wall Interact: Enabled" or "Wall Interact: Disabled", 2)
+    Hub.Notify("Interaction", v and "Interact Through Walls: Enabled" or "Interact Through Walls: Disabled", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Interact Reach", State.Range_Interact, function(v)
-    State.Range_Interact = v
+Hub.CreateSlider(mainTab, "Interact Distance", 1, 2, State.Interact_DistanceMultiplier or 1, "/2", function(v)
+    State.Interact_DistanceMultiplier = v
+    State.PromptReachMultiplier = v
     refreshAllPrompts()
-    Hub.Notify("Interaction", v and string.format("Interact Reach: %d studs", State.Interact_MaxRange) or "Interact Reach: Disabled", 2)
 end)
 
-Hub.CreateSlider(mainTab, "Reach Distance", 6, 14, State.Interact_MaxRange, " studs", function(v)
-    State.Interact_MaxRange = v
-    if State.Range_Interact then
-        refreshAllPrompts()
+createCardDivider(mainTab)
+
+Hub.CreateToggle(mainTab, "Door Reach", State.DoorReach, function(v)
+    State.DoorReach = v
+    refreshAllPrompts()
+    Hub.Notify("Interaction", v and "Door Reach: Enabled (22 studs)" or "Door Reach: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Walk Through Doors", State.DoorNoclip, function(v)
+    State.DoorNoclip = v
+    Hub.Notify("Interaction", v and "Walk Through Doors: Enabled" or "Walk Through Doors: Disabled", 2)
+end)
+
+createCardDivider(mainTab)
+
+Hub.CreateToggle(mainTab, "Instant Hiding Spot Exit", State.FastClosetExit, function(v)
+    State.FastClosetExit = v
+    Hub.Notify("Interaction", v and "Instant Hiding Spot Exit: Enabled" or "Instant Hiding Spot Exit: Disabled", 2)
+end)
+
+-- =========================================================================
+-- Section: Automation (mspaint v4 1:1 Parity)
+-- =========================================================================
+Hub.CreateSection(mainTab, "Automation")
+
+Hub.CreateToggle(mainTab, "Auto Egg Minigame", State.AntiGloomEgg, function(v)
+    State.AntiGloomEgg = v
+    State.AutoEggMinigame = v
+    Hub.Notify("Automation", v and "Auto Egg Minigame: Enabled (Defused)" or "Auto Egg Minigame: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "Auto Heartbeat", State.Auto_Heartbeat, function(v)
+    State.Auto_Heartbeat = v
+    Hub.Notify("Automation", v and "Auto Heartbeat: Enabled (Perfect Score Spoofed)" or "Auto Heartbeat: Disabled", 2)
+end)
+
+createCardDivider(mainTab)
+
+autoHideToggleObj = Hub.CreateToggle(mainTab, "Auto Hide", State.Auto_Hide, function(v)
+    State.Auto_Hide = v
+    Hub.Notify("Automation", v and "Auto Hide: Enabled [Q]" or "Auto Hide: Disabled [Q]", 2)
+end)
+if autoHideToggleObj and autoHideToggleObj.Instance then
+    local label = autoHideToggleObj.Instance:FindFirstChild("Label")
+    if label then
+        label.TextColor3 = Color3.fromRGB(240, 70, 70)
     end
-end)
-
-Hub.CreateSection(mainTab, "Automation & Auto-Interact")
-
-Hub.CreateToggle(mainTab, "Auto Interact", State.Auto_Interact, function(v)
-    State.Auto_Interact = v
-    Hub.Notify("Auto Interact", v and "Auto Interact: Enabled" or "Auto Interact: Disabled", 2)
-end)
-
-Hub.CreateToggle(mainTab, "Auto Doors", State.AutoInteract_Doors, function(v)
-    State.AutoInteract_Doors = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Keys", State.AutoInteract_Keys, function(v)
-    State.AutoInteract_Keys = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Items", State.AutoInteract_Items, function(v)
-    State.AutoInteract_Items = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Gold", State.AutoInteract_Gold, function(v)
-    State.AutoInteract_Gold = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Drawers", State.AutoInteract_Drawers, function(v)
-    State.AutoInteract_Drawers = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Levers", State.AutoInteract_Levers, function(v)
-    State.AutoInteract_Levers = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto Books / Breakers", State.AutoInteract_Books, function(v)
-    State.AutoInteract_Books = v
-end)
+    addKeybindBadge(autoHideToggleObj.Instance, "Q")
+end
 end)()
 
 -- =========================================================================
