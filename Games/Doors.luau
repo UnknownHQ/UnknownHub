@@ -329,6 +329,7 @@ local State = {
     Toolbox_ESP = true,
     HidingSpots_ESP = false,
     GlitchFragment_ESP = true,
+    Rift_ESP = false,
     Auto_GetGlitchFragment = false,
     Glitch_Count = 0,
     ESP_Color_GlitchFragment = Color3.fromRGB(245, 50, 255),
@@ -916,51 +917,38 @@ local function createBillboard(adorneePart, baseText, color, offset)
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 180, 0, 36)
+    bb.Size = UDim2.new(0, 200, 0, 50)
     bb.StudsOffset = offset or Vector3.new(0, 1.8, 0)
     bb.ResetOnSpawn = false
     bb.LightInfluence = 0
     bb.MaxDistance = 5000
 
-    -- Modern Rounded Badge (mspaint v4 aesthetic)
-    local badge = Instance.new("Frame")
-    badge.Name = "Badge"
-    badge.Size = UDim2.new(1, 0, 1, 0)
-    badge.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-    badge.BackgroundTransparency = 0.35
-    badge.BorderSizePixel = 0
-    badge.Parent = bb
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = badge
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Name = "BorderStroke"
-    stroke.Color = color or Color3.fromRGB(0, 220, 255)
-    stroke.Thickness = 1.2
-    stroke.Transparency = 0.2
-    stroke.Parent = badge
-
+    -- Clean floating ESP text with UIStroke (mspaint v4 esplibrary.txt 1:1 Parity)
     local label = Instance.new("TextLabel")
     label.Name = "ESPLabel"
-    label.Size = UDim2.new(1, -8, 1, 0)
-    label.Position = UDim2.new(0, 4, 0, 0)
+    label.Size = UDim2.new(0, 200, 0, 50)
     label.BackgroundTransparency = 1
     label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
-    label.Font = Enum.Font.GothamBold
+    label.Font = Enum.Font.RobotoMono
     label.TextSize = State.ESP_TextSize or 13
     label.RichText = true
-    label.TextStrokeTransparency = 0.5
+    label.TextWrapped = true
+    label.TextWrap = true
+    label.TextStrokeTransparency = 0
     label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.Parent = badge
+    label.Parent = bb
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 0, 0)
+    stroke.Thickness = 1.2
+    stroke.Parent = label
 
     local initialText = baseText
     if State.Show_Distance then
         local root = getRoot()
         if root and adorneePart:IsA("BasePart") then
             local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
-            initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
+            initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 3, 9), dist)
         end
     end
     label.Text = initialText
@@ -1207,9 +1195,12 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     local bb, label = createBillboard(adorneePart, baseText, color, offset)
     if bb then table.insert(visuals, bb) end
 
-    -- ONE Single Highlight per target Model (mspaint v4 1:1 Parity: 0.65 fill, 0 outline)
+    -- ONE Single Highlight per target Model/Part (mspaint v4 1:1 Parity: 0.65 fill, 0 outline)
+    -- Prioritize partsToHighlight (e.g. doorMesh or welded 2D cham part) so invisible hitboxes are NEVER highlighted!
     local hl = nil
-    local hlTarget = (owner:IsA("Model") and owner) or (partsToHighlight and partsToHighlight:IsA("Model") and partsToHighlight) or (adorneePart and adorneePart:IsA("BasePart") and adorneePart)
+    local hlTarget = (partsToHighlight and (partsToHighlight:IsA("BasePart") or partsToHighlight:IsA("Model")) and partsToHighlight)
+        or (adorneePart and adorneePart:IsA("BasePart") and adorneePart)
+        or (owner:IsA("Model") and owner)
     if hlTarget and category ~= "Gold" then
         hl = createHighlight(hlTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0)
         if hl then table.insert(visuals, hl) end
@@ -1271,7 +1262,7 @@ task.spawn(function()
                     or (cat == "Entities" and State.Entities_ESP)
                     or (cat == "HidingSpots" and State.HidingSpots_ESP)
                     or (cat == "GlitchFragment" and State.GlitchFragment_ESP)
-                    or (cat == "Special")
+                    or (cat == "Special" and State.Rift_ESP)
 
                 if not isCatEnabled then
                     removeEspFor(owner)
@@ -1283,7 +1274,7 @@ task.spawn(function()
                     local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
                     if dist ~= record.LastDist then
                         record.LastDist = dist
-                        record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
+                        record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, math.max((State.ESP_TextSize or 13) - 3, 9), dist)
                     end
                 end
             end
@@ -1400,7 +1391,8 @@ local function processDoor(room, doorModel)
     end
 
     local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorModel, doorHeaderOffset, roomNumber)
+    -- Highlight strictly the doorMesh BasePart, completely excluding Hidden and the doorway hitbox!
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, doorHeaderOffset, roomNumber)
 
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
@@ -1815,16 +1807,20 @@ end
 
 -- Clean Rift Detection: Highlight natural Rift when present without force-spawning fake clones or particle emitters
 
--- 7b. Dedicated Rift ESP: Brilliant Glowing Cyan Highlighter
+-- 7b. Dedicated Rift ESP: Controlled by State.Rift_ESP (default OFF so no unwanted highlights!)
 local function processRift(model)
     if not model then return end
+    if not State.Rift_ESP or not State.Master_ESP then
+        removeEspFor(model)
+        return
+    end
     local mName = model.Name:lower()
     if (mName:find("rift") and not mName:find("fragment")) or model:GetAttribute("IsRift") then
         local targetPart = (model:IsA("Model") and (model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)))
             or (model:IsA("BasePart") and model)
         if targetPart then
             local color = Color3.fromRGB(0, 255, 255)
-            registerEsp(model, targetPart, "The Rift", color, "Special", model, Vector3.new(0, 1.5, 0))
+            registerEsp(model, targetPart, "The Rift", color, "Special", targetPart, Vector3.new(0, 1.5, 0))
         end
     end
 end
@@ -2258,49 +2254,47 @@ local function processEntity(entity)
         end
 
         if is2D then
-            -- 3D Mesh for 2D Entities (Asset ID 14731807321) with mspaint rounded Highlight!
+            -- mspaint v4 Exact 2D Entity 3D Cham Engine (Function D / offset 1708680)
+            -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (5, 4, 5) -> Glowing 3D Sphere Cham!
+            -- Rush / Ambush / A-60 / A-120 / Halt / Surge: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham!
             pcall(function()
-                local meshPart = Instance.new("Part")
-                meshPart.Name = "Unknown_2DEntityMesh"
-                meshPart.Size = Vector3.new(3.5, 4.5, 3.5)
-                meshPart.CanCollide = false
-                meshPart.CanTouch = false
-                meshPart.CanQuery = false
-                meshPart.Anchored = false
-                meshPart.Massless = true
-                meshPart.CastShadow = false
-                meshPart.Material = Enum.Material.SmoothPlastic
-                meshPart.Transparency = 0.5
-                meshPart.Color = entityColor
+                local chamName = "__unknown_2d_cham"
+                local existingCham = entity:FindFirstChild(chamName)
+                local chamPart = existingCham
+                if not chamPart or not chamPart:IsA("BasePart") then
+                    local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
+                    local shape = isEyes and Enum.PartType.Ball or Enum.PartType.Block
+                    local size = isEyes and Vector3.new(5, 4, 5) or Vector3.new(6, 6, 6)
 
-                local sm = Instance.new("SpecialMesh")
-                sm.MeshType = Enum.MeshType.FileMesh
-                sm.MeshId = "rbxassetid://14731807321"
-                sm.Scale = Vector3.new(2.8, 2.8, 2.8)
-                sm.Parent = meshPart
+                    if cfg.Name:lower():find("stampede") then
+                        size = Vector3.new(8, 8, 8)
+                    elseif cfg.Name:lower():find("drone") and not cfg.Name:lower():find("stampede") then
+                        size = Vector3.new(3.375, 6.75, 0.619)
+                    end
 
-                local weld = Instance.new("WeldConstraint")
-                weld.Part0 = meshPart
-                weld.Part1 = targetPart
-                weld.Parent = meshPart
+                    chamPart = Instance.new("Part")
+                    chamPart.Name = chamName
+                    chamPart.Anchored = true
+                    chamPart.CanCollide = false
+                    chamPart.CanTouch = false
+                    chamPart.CanQuery = false
+                    chamPart.Massless = true
+                    chamPart.CastShadow = false
+                    chamPart.Transparency = 0.99
+                    chamPart.Shape = shape
+                    chamPart.Size = size
+                    chamPart.CFrame = targetPart.CFrame
+                    chamPart.Parent = entity
 
-                meshPart.CFrame = targetPart.CFrame
-                meshPart.Parent = Workspace:FindFirstChild("Terrain") or Workspace
-                table.insert(extraVisuals, meshPart)
-
-                -- Attach sleek mspaint Highlight to the rounded cube mesh!
-                local hl = createHighlight(meshPart, entityColor, 0.65, 0)
-                if hl then
-                    table.insert(extraVisuals, hl)
+                    local weld = Instance.new("WeldConstraint")
+                    weld.Part0 = chamPart
+                    weld.Part1 = targetPart
+                    weld.Parent = chamPart
+                    chamPart.Anchored = false
                 end
-            end)
 
-            -- Sleek Bounding Box Adornment with guaranteed through-wall visibility for 2D entities!
-            local bbox = createEntityBoundingBox(targetPart, Vector3.new(4.5, 5.5, 4.5), entityColor)
-            if bbox then
-                table.insert(extraVisuals, bbox)
-            end
-            highlightTarget = nil
+                highlightTarget = chamPart
+            end)
         else
             -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, Sally, etc.):
             -- Highlight the actual 3D model/parts directly! ZERO cubes!
@@ -2310,7 +2304,7 @@ local function processEntity(entity)
         end
 
         local baseText = cfg.Name
-        registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, extraVisuals, cfg.Category)
+        registerEsp(entity, targetPart, baseText, entityColor, "Entities", highlightTarget, Vector3.new(0, 3.0, 0), nil, nil, cfg.Category)
     end
 end
 
@@ -2635,13 +2629,18 @@ end
 local function scanSingleRoom(room)
     if not room or not room:IsA("Model") then return end
 
-    -- 0b. Scan The Rift
+    -- 0b. Scan The Rift & Defuse Seek Obstacles
     for _, child in ipairs(room:GetChildren()) do
         local cLower = child.Name:lower()
         if cLower:find("rift") and not cLower:find("fragment") then
-            processRift(child)
-        if State.Anti_Seek then defuseSeekObstacles(child) end
-        -- Anti Figure removed
+            if State.Rift_ESP then
+                processRift(child)
+            else
+                removeEspFor(child)
+            end
+        end
+        if State.Anti_Seek then
+            defuseSeekObstacles(child)
         end
     end
 
@@ -4186,10 +4185,18 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 end
             end
         elseif method == "FireServer" then
-            if self.Name == "MotorReplication" and State.Anti_Eyes then
-                if isEyesActive() then
-                    local args = {...}
+            if self.Name == "MotorReplication" then
+                local args = {...}
+                local modified = false
+                if State.Anti_Eyes and isEyesActive() then
                     args[1] = -899 -- Spoof camera pitch to -85 degrees (staring at floor): 100% immune to Eyes & Lookman!
+                    modified = true
+                end
+                if State.Anti_Figure_Hearing then
+                    args[4] = true -- mspaint v4 AntiHearing spoof: silent crouching footsteps so Figure NEVER hears player running!
+                    modified = true
+                end
+                if modified then
                     return origNc(self, unpack(args))
                 end
             elseif self.Name == "A90" and State.Anti_A90 then
@@ -6433,6 +6440,20 @@ local function isPromptSafeToAutoInteract(prompt)
         end
     end
 
+    -- 0a. Universal Item & Pickup Engine (mspaint DynamicPromptCheck Parity: Instant Auto-Loot)
+    if prompt.Name == "ModulePrompt" or prompt:GetAttribute("Pickup") or parent:GetAttribute("Pickup") or (model and model:GetAttribute("Pickup")) then
+        return State.AutoInteract_Items
+    end
+    if prompt.Name == "GoldPrompt" or pName:find("gold") or mName:find("gold") or obj:find("gold") or obj:find("coin") then
+        return State.AutoInteract_Gold
+    end
+    if prompt.Name == "KeyPrompt" or pName:find("key") or mName:find("key") or obj:find("key") or (model and model:GetAttribute("IsKey")) then
+        return State.AutoInteract_Keys
+    end
+    if prompt.Name == "ActivateEventPrompt" and (pName:find("drawer") or pName:find("knob") or pName:find("chest") or mName:find("drawer") or mName:find("chest")) then
+        return State.AutoInteract_Drawers
+    end
+
     -- 1. GLITCH FRAGMENTS (Instant Auto Collect Priority)
     if isGlitchFragmentInstance(model) or isGlitchFragmentInstance(parent) then
         if State.AutoInteract_Excludes and State.AutoInteract_Excludes["Glitch Fragments"] then
@@ -6936,11 +6957,9 @@ local function applyAdditionalDefenses()
                     pcall(function() desc:Destroy() end)
                 end
             end
-            if (nl:find("obstruction") or nl:find("fallen") or nl:find("bookshelf") or nl:find("chandelier") or nl:find("debris") or nl:find("fire")) and desc:IsA("BasePart") then
-                if isCrouching or State.Noclip or (r and desc.Position.Y > (r.Position.Y + 1.2)) then
-                    desc.CanCollide = false
-                    desc.CanTouch = false
-                end
+            -- Strictly defuse damage touch triggers on fire and seek hands (Never disable collision on furniture or room geometry!)
+            if (nl:find("fire") or nl:find("damage") or nl:find("kill")) and desc:IsA("BasePart") then
+                desc.CanTouch = false
             end
         end
 
@@ -8726,16 +8745,44 @@ task.spawn(function()
             if root and not isPlayerHiding(char, mgTable) then
                 local curRooms = Workspace:FindFirstChild("CurrentRooms")
                 if curRooms then
+                    local rootPos = root.Position
                     for _, room in ipairs(curRooms:GetChildren()) do
-                        local door = room:FindFirstChild("Door")
-                        if door and not (door:GetAttribute("Opened") == true or door:GetAttribute("Open") == true) then
-                            for _, desc in ipairs(door:GetDescendants()) do
-                                if desc:IsA("ProximityPrompt") and desc.Enabled then
-                                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
-                                    if pPart then
-                                        local dist = (root.Position - pPart.Position).Magnitude
-                                        if dist <= 22 then
-                                            safeInstantFirePrompt(desc)
+                        -- Sweep ALL doors in room (Main Exit Doors, Side Room Doors, Lever Doors, Puzzle Doors)
+                        for _, door in ipairs(room:GetDescendants()) do
+                            if door:IsA("Model") and (door.Name == "Door" or door.Name:lower():find("door") or door.Name:lower():find("sideroom")) then
+                                if not isDupeDoor(door, room) then
+                                    local isOpened = door:GetAttribute("Opened") == true or door:GetAttribute("Open") == true
+                                    if not isOpened then
+                                        local dPart = door:FindFirstChild("Door") or door:FindFirstChild("Hidden") or door.PrimaryPart or door:FindFirstChildWhichIsA("BasePart")
+                                        if dPart and (rootPos - dPart.Position).Magnitude <= 22 then
+                                            -- 1. UnlockPrompt auto-unlock if locked
+                                            local lock = door:FindFirstChild("Lock")
+                                            if lock then
+                                                local up = lock:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                                if up and up.Enabled then
+                                                    safeInstantFirePrompt(up)
+                                                end
+                                            end
+                                            -- 2. Trigger all Door ProximityPrompts
+                                            for _, desc in ipairs(door:GetDescendants()) do
+                                                if desc:IsA("ProximityPrompt") and desc.Enabled then
+                                                    safeInstantFirePrompt(desc)
+                                                end
+                                            end
+                                            -- 3. Trigger ClientOpen RemoteEvent
+                                            local co = door:FindFirstChild("ClientOpen")
+                                            if co and co:IsA("RemoteEvent") then
+                                                pcall(function() co:FireServer() end)
+                                            end
+                                            -- 4. Touch Hidden Trigger
+                                            local hidden = door:FindFirstChild("Hidden")
+                                            if hidden and hidden:IsA("BasePart") then
+                                                pcall(function()
+                                                    hidden.CanTouch = true
+                                                    firetouchinterest(root, hidden, 0)
+                                                    firetouchinterest(root, hidden, 1)
+                                                end)
+                                            end
                                         end
                                     end
                                 end
@@ -8745,7 +8792,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.08)
+        task.wait(0.1)
     end
 end)
 
@@ -9211,6 +9258,15 @@ Hub.CreateToggle(espTab, "Key ESP", State.Keys_ESP, function(v)
     State.Keys_ESP = v
     if not v then
         clearCategoryEsp("Keys")
+    else
+        scanAllRooms()
+    end
+end)
+
+Hub.CreateToggle(espTab, "The Rift ESP", State.Rift_ESP, function(v)
+    State.Rift_ESP = v
+    if not v then
+        clearCategoryEsp("Special")
     else
         scanAllRooms()
     end
