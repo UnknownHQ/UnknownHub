@@ -182,15 +182,18 @@ assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub instance")
 -- =========================================================================
 local State = {
     FieldOfView = 70,
-    -- Main / Movement
+    -- Main / Movement (mspaint V4 Movement Suite)
+    Speed_Bypass = true,
+    Speed_Bypass_Status = "Idle",
+    WalkSpeed_Value = 15,
     WalkSpeed_Enabled = false,
-    WalkSpeed_Value = 45,
     Enable_Jumping = false,
     Enable_Sliding = false,
+    No_Acceleration = false,
+    Instant_Movement = false, -- Natural DOORS Humanoid walking physics (zero platform feeling / zero backward drift)
     Noclip = false,
     Walk_Noclip = false,
     Noclip_Speed = 35,
-    Instant_Movement = false, -- Natural DOORS Humanoid walking physics (zero platform feeling / zero backward drift)
 
     -- Autonomous 1-100 Doors Master Completer Suite
     Auto_Complete_100 = false,
@@ -353,7 +356,7 @@ local State = {
 }
 
 -- Forward Declarations (Guarantees zero unscoped calls across all modules)
-local getMainGameTable, farmGlideTo, defuseLethalEntity, getExactFloorPos
+local getMainGameTable, farmGlideTo, defuseLethalEntity, getExactFloorPos, speedBypassLabel
 -- lastNoclipDisableGrace hoisted
 local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("RemotesFolder", 5)
 local crouchRemote = remotesFolder and remotesFolder:WaitForChild("Crouch", 5)
@@ -3665,6 +3668,69 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     end
 end
 
+-- =========================================================================
+-- Speed Bypass Massless Toggle & Status Controller (mspaint V4 Dual-Layer Bypass)
+-- =========================================================================
+local speedBypassCollisionClone = nil
+local lastMasslessToggle = 0
+
+local function setupSpeedBypassCollisionClone()
+    pcall(function()
+        local char = getChar()
+        if not char then return end
+        if speedBypassCollisionClone and speedBypassCollisionClone.Parent == char then return end
+        local coll = char:FindFirstChild("Collision")
+        local collCrouch = (coll and coll:FindFirstChild("CollisionCrouch")) or char:FindFirstChild("CollisionCrouch", true)
+        if collCrouch then
+            speedBypassCollisionClone = collCrouch:Clone()
+            speedBypassCollisionClone.Name = "CollisionClone_Bypass"
+            speedBypassCollisionClone.CanCollide = false
+            speedBypassCollisionClone.Massless = true
+            speedBypassCollisionClone.Parent = char
+        end
+    end)
+end
+
+local function updateSpeedBypass(now, dt)
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    local root = getRoot()
+    if not char or not hum or not root or hum.Health <= 0 then
+        if speedBypassLabel then speedBypassLabel:SetText("Speed Bypass: Idle", false) end
+        return
+    end
+
+    local isMoving = hum.MoveDirection.Magnitude > 0.05
+    local currentSpeed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 15) or hum.WalkSpeed
+    local isHighSpeed = currentSpeed >= 18
+
+    if State.WalkSpeed_Enabled and isMoving and isHighSpeed then
+        State.Speed_Bypass_Status = "Bypassing"
+        if speedBypassLabel then
+            speedBypassLabel:SetText("Speed Bypass: Bypassing", true)
+        end
+
+        if not speedBypassCollisionClone or speedBypassCollisionClone.Parent ~= char then
+            setupSpeedBypassCollisionClone()
+        end
+
+        if speedBypassCollisionClone and (now - lastMasslessToggle >= math.min(0.34, (dt or 0.016) * 10)) then
+            lastMasslessToggle = now
+            speedBypassCollisionClone.Massless = not speedBypassCollisionClone.Massless
+        end
+    else
+        State.Speed_Bypass_Status = "Idle"
+        if speedBypassLabel then
+            speedBypassLabel:SetText("Speed Bypass: Idle", false)
+        end
+        if speedBypassCollisionClone and speedBypassCollisionClone.Parent then
+            if not speedBypassCollisionClone.Massless then
+                speedBypassCollisionClone.Massless = true
+            end
+        end
+    end
+end
+
 local function startSlide()
     if not State.Enable_Sliding then return end
     if isSlidingActive then return end
@@ -5831,7 +5897,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
         syncServerSlide(true, true)
 
-        local targetSpeed = State.WalkSpeed_Value or 45
+        local targetSpeed = State.WalkSpeed_Value or 15
         if hum.WalkSpeed ~= targetSpeed then
             hum.WalkSpeed = targetSpeed
         end
@@ -5862,7 +5928,10 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Natural Walking Physics & Zero-Drift Stationary Lock:
+    -- Continuous Speed Bypass Telemetry & Massless Sync (mspaint V4)
+    updateSpeedBypass(nowTime, dt)
+
+    -- Natural Walking Physics & No-Acceleration Kinematics:
     -- Completely eradicates sliding/drifting backwards when standing still, with zero synthetic platform feeling!
     if not State.Noclip and not hiding and not TeleportState.isTweening and not isSlidingActive and not isAtRoof then
         if hum.MoveDirection.Magnitude <= 0.05 and root then
@@ -5872,11 +5941,13 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                 root.AssemblyAngularVelocity = Vector3.zero
             end
             restoreDefaultFriction(char)
-        elseif State.Instant_Movement and not hum.Sit and root then
+        elseif (State.No_Acceleration or State.Instant_Movement) and not hum.Sit and root then
             local moveDir = hum.MoveDirection
-            local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 45) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
-            local targetVel = moveDir.Unit * speed
-            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, root.AssemblyLinearVelocity.Y, targetVel.Z)
+            if moveDir.Magnitude > 0.05 then
+                local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 15) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
+                local targetVel = moveDir.Unit * speed
+                root.AssemblyLinearVelocity = Vector3.new(targetVel.X, root.AssemblyLinearVelocity.Y, targetVel.Z)
+            end
         end
     end
 
@@ -6254,18 +6325,21 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         if hum then
             hum.WalkSpeed = State.WalkSpeed_Value
         end
+        setupSpeedBypassCollisionClone()
     end
     if State.Enable_Jumping then
         local hum = char:WaitForChild("Humanoid", 5)
         if hum then
             hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
             hum.UseJumpPower = true
-            hum.JumpPower = 52
+            hum.JumpPower = 50
             hum.JumpHeight = 7.5
         end
+        pcall(function() char:SetAttribute("CanJump", true) end)
     end
     if State.Enable_Sliding then
         applyTeflonGlide(char)
+        pcall(function() char:SetAttribute("CanSlide", true) end)
     end
 end)
 
@@ -8673,29 +8747,56 @@ local mainTab = Hub.CreateTab("Main", {
 
 Hub.CreateSection(mainTab, "Movement")
 
--- Noclip (Fly & Walk) permanently removed: Character maintains 100% natural collisions, completely undetectable by anti-cheat!
+local function createStatusLabel(parent, initialText)
+    local page = (typeof(parent) == "table" and parent.Page) or parent
+    local card = Instance.new("Frame")
+    card.Name = "StatusCard_SpeedBypass"
+    card.Size = UDim2.new(1, 0, 0, 32)
+    card.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+    card.BorderSizePixel = 0
+    card.Parent = page
+    
+    local uic = Instance.new("UICorner")
+    uic.CornerRadius = UDim.new(0, 6)
+    uic.Parent = card
+    
+    local uis = Instance.new("UIStroke")
+    uis.Color = Color3.fromRGB(45, 45, 52)
+    uis.Thickness = 1
+    uis.Transparency = 0.4
+    uis.Parent = card
 
--- Fly Noclip permanently removed as requested: Eliminates all flight-induced server desync, interaction delay, and camera glitches!
--- Ground Walk Noclip remains 100% active and working with ZERO server desync!
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Name = "Label"
+    textLabel.Size = UDim2.new(1, -20, 1, 0)
+    textLabel.Position = UDim2.new(0, 10, 0, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Font = Enum.Font.RobotoMono
+    textLabel.Text = initialText or "Speed Bypass: Idle"
+    textLabel.TextColor3 = Color3.fromRGB(220, 220, 225)
+    textLabel.TextSize = 13
+    textLabel.TextXAlignment = Enum.TextXAlignment.Left
+    textLabel.Parent = card
 
-Hub.CreateToggle(mainTab, "WalkSpeed", State.WalkSpeed_Enabled, function(v)
-    State.WalkSpeed_Enabled = v
-    local char = getChar()
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then
-        if v then
-            syncServerSlide(true, true)
-            hum.WalkSpeed = State.WalkSpeed_Value or 45
-        else
-            syncServerSlide(false, false)
-            hum.WalkSpeed = 15
-            pcall(function() char:SetAttribute("SpeedBoostExtra", nil) end)
+    return {
+        Card = card,
+        Label = textLabel,
+        SetText = function(self, text, isBypassing)
+            textLabel.Text = text
+            if isBypassing then
+                textLabel.TextColor3 = Color3.fromRGB(120, 255, 150)
+                uis.Color = Color3.fromRGB(60, 180, 100)
+            else
+                textLabel.TextColor3 = Color3.fromRGB(220, 220, 225)
+                uis.Color = Color3.fromRGB(45, 45, 52)
+            end
         end
-    end
-    Hub.Notify("Movement", v and string.format("WalkSpeed: %d studs/s (Bypass Active)", State.WalkSpeed_Value) or "WalkSpeed: Restored (15 studs/s)", 2)
-end)
+    }
+end
 
-Hub.CreateSlider(mainTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s", function(v)
+speedBypassLabel = createStatusLabel(mainTab, "Speed Bypass: Idle")
+
+Hub.CreateSlider(mainTab, "Walk Speed", 10, 100, State.WalkSpeed_Value or 15, " studs/s", function(v)
     State.WalkSpeed_Value = v
     if State.WalkSpeed_Enabled then
         local char = getChar()
@@ -8704,24 +8805,44 @@ Hub.CreateSlider(mainTab, "Speed", 15, 300, State.WalkSpeed_Value, " studs/s", f
     end
 end)
 
-Hub.CreateToggle(mainTab, "Instant Acceleration", State.Instant_Movement, function(v)
-    State.Instant_Movement = v
-    Hub.Notify("Movement", v and "Instant Acceleration: Enabled" or "Instant Acceleration: Disabled", 2)
+Hub.CreateToggle(mainTab, "Speed Boost", State.WalkSpeed_Enabled, function(v)
+    State.WalkSpeed_Enabled = v
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        if v then
+            syncServerSlide(true, true)
+            hum.WalkSpeed = State.WalkSpeed_Value or 15
+        else
+            syncServerSlide(false, false)
+            hum.WalkSpeed = 15
+            pcall(function() char:SetAttribute("SpeedBoostExtra", nil) end)
+        end
+    end
+    Hub.Notify("Movement", v and string.format("Speed Boost: %d studs/s (Bypass Active)", State.WalkSpeed_Value) or "Speed Boost: Restored (15 studs/s)", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Enable Jump", State.Enable_Jumping, function(v)
+Hub.CreateToggle(mainTab, "Jumping", State.Enable_Jumping, function(v)
     State.Enable_Jumping = v
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if hum then
+        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, v)
         hum.UseJumpPower = v
         hum.JumpPower = v and 50 or 0
     end
-    Hub.Notify("Movement", v and "Jump: Enabled" or "Jump: Disabled", 2)
+    if char then
+        pcall(function() char:SetAttribute("CanJump", v) end)
+    end
+    Hub.Notify("Movement", v and "Jumping: Enabled" or "Jumping: Disabled", 2)
 end)
 
-Hub.CreateToggle(mainTab, "Enable Slide", State.Enable_Sliding, function(v)
+Hub.CreateToggle(mainTab, "Sliding", State.Enable_Sliding, function(v)
     State.Enable_Sliding = v
+    local char = getChar()
+    if char then
+        pcall(function() char:SetAttribute("CanSlide", v) end)
+    end
     if v then
         syncServerSlide(true, true)
     else
@@ -8729,7 +8850,13 @@ Hub.CreateToggle(mainTab, "Enable Slide", State.Enable_Sliding, function(v)
             syncServerSlide(false, false)
         end
     end
-    Hub.Notify("Movement", v and "Slide: Enabled" or "Slide: Disabled", 2)
+    Hub.Notify("Movement", v and "Sliding: Enabled" or "Sliding: Disabled", 2)
+end)
+
+Hub.CreateToggle(mainTab, "No Acceleration", State.No_Acceleration, function(v)
+    State.No_Acceleration = v
+    State.Instant_Movement = v
+    Hub.Notify("Movement", v and "No Acceleration: Enabled" or "No Acceleration: Disabled", 2)
 end)
 
 Hub.CreateSection(mainTab, "Interaction")
