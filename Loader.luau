@@ -108,6 +108,14 @@ local SupportedGames = {
         gameIds = { 5750914919 },
         scriptUrl = BASE_URL .. "/Games/Fisch.luau",
         desc = "Anti-cheat bypass shield, auto-cast, auto-shake, safe humanized auto-reel, auto-sell & island teleports"
+    },
+    {
+        name = "Build A Boat For Treasure",
+        icon = "⛵",
+        placeIds = { 537413528 },
+        gameIds = { 210851291 },
+        scriptUrl = BASE_URL .. "/Games/BABFT.luau",
+        desc = "Fast gold autofarm, stage bypass tweening, anti-void protection, chest farmer & auto-rejoin"
     }
 }
 
