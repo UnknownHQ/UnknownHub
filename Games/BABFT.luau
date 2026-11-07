@@ -161,17 +161,26 @@ local farmTab = Hub.CreateTab("Auto Farm", {
 
 Hub.CreateSection(farmTab, "STATUS & PERFORMANCE")
 
-local statusLabel = Hub.CreateLabel(farmTab, "Status: Idle")
-local runsLabel = Hub.CreateLabel(farmTab, "Completed Runs: 0")
+local statusSection = Hub.CreateSection(farmTab, "STATUS: IDLE | RUNS: 0")
 
 local function updateStatus(text)
     State.CurrentStatus = text
-    pcall(function() statusLabel.SetText("Status: " .. text) end)
+    pcall(function()
+        local lbl = statusSection:FindFirstChild("Title")
+        if lbl then
+            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d", text, State.TotalRuns))
+        end
+    end)
 end
 
 local function updateRuns()
     State.TotalRuns = State.TotalRuns + 1
-    pcall(function() runsLabel.SetText("Completed Runs: " .. tostring(State.TotalRuns)) end)
+    pcall(function()
+        local lbl = statusSection:FindFirstChild("Title")
+        if lbl then
+            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d", State.CurrentStatus, State.TotalRuns))
+        end
+    end)
 end
 
 Hub.CreateSection(farmTab, "GOLD AUTO-FARM CONFIG")
