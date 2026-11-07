@@ -316,14 +316,14 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 6. Claim The End & Golden Chest (Instant Snapback = ZERO DEATHS)
+                    -- 6. Claim The End & Golden Chest
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
 
                     if trigger then
                         updateStatus("Touching Golden Chest...")
-                        -- Direct CFrame right onto chest (Bypasses waterfall pointed rocks)
+                        -- Direct CFrame right onto chest (Bypasses lethal waterfall pointed rocks)
                         root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.5, 0))
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
@@ -331,7 +331,7 @@ task.spawn(function()
                         -- Touch trigger interest
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.05)
+                            task.wait(0.1)
                             firetouchinterest(root, trigger, 1)
                         end)
 
@@ -345,19 +345,19 @@ task.spawn(function()
                             end)
                         end
 
-                        -- INSTANT RETREAT TO DOCK (Prevents chest death script & void from ever touching you)
-                        updateStatus("Instant Snapback to Dock (Zero Deaths)...")
-                        root.CFrame = CFrame.new(-50, 5, -20)
-                        root.Anchored = false
+                        updateRuns()
+                        updateStatus("Chest Claimed! Voyage Complete...")
 
                         -- Close popup
                         if State.Farm_ClosePopups then
-                            task.wait(0.3)
+                            task.wait(0.4)
                             dismissResultsPopup()
                         end
 
-                        updateRuns()
-                        task.wait(1.5)
+                        -- BABFT natively resets the character upon claiming the final treasure
+                        -- to conclude the voyage and return you to the dock plot.
+                        LocalPlayer.CharacterAdded:Wait()
+                        task.wait(2.0) -- Server round re-initialization buffer
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
