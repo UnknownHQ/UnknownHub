@@ -861,27 +861,50 @@ local function createBillboard(adorneePart, baseText, color, offset)
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
-    bb.Size = UDim2.new(0, 260, 0, 48)
+    bb.Size = UDim2.new(0, 160, 0, 36)
     bb.StudsOffset = offset
     bb.ResetOnSpawn = false
+    bb.LightInfluence = 0
+
+    -- Modern Rounded Badge Container (mspaint aesthetic)
+    local badge = Instance.new("Frame")
+    badge.Name = "Badge"
+    badge.Size = UDim2.new(1, 0, 1, 0)
+    badge.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    badge.BackgroundTransparency = 0.35
+    badge.BorderSizePixel = 0
+    badge.Parent = bb
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 7)
+    corner.Parent = badge
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Name = "BorderStroke"
+    stroke.Color = color or Color3.fromRGB(0, 220, 255)
+    stroke.Thickness = 1.2
+    stroke.Transparency = 0.25
+    stroke.Parent = badge
 
     local label = Instance.new("TextLabel")
     label.Name = "ESPLabel"
-    label.Size = UDim2.new(1, 0, 1, 0)
+    label.Size = UDim2.new(1, -8, 1, 0)
+    label.Position = UDim2.new(0, 4, 0, 0)
     label.BackgroundTransparency = 1
-    label.TextColor3 = color
-    label.TextStrokeTransparency = 0 -- Full solid black outline for razor-sharp readability!
+    label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = State.ESP_TextSize or 13
+    label.RichText = true
+    label.TextStrokeTransparency = 0.5
     label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.Font = Enum.Font.GothamBold -- Bold font for instant visibility against any background
-    label.TextSize = State.ESP_TextSize or 15
-    label.Parent = bb
+    label.Parent = badge
 
     local initialText = baseText
     if State.Show_Distance then
         local root = getRoot()
         if root then
             local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
-            initialText = string.format("%s [%dm]", baseText, dist)
+            initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
         end
     end
     label.Text = initialText
@@ -892,7 +915,7 @@ end
 
 local function createHighlight(adornee, color, fillTrans, outlineTrans)
     if not adornee then return nil end
-    fillTrans = fillTrans or State.ESP_FillTransparency or 0.5
+    fillTrans = fillTrans or State.ESP_FillTransparency or 0.65
     outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
 
     local hl = Instance.new("Highlight")
@@ -1120,7 +1143,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
                 local root = getRoot()
                 if root and State.Show_Distance then
                     local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
-                    existing.Label.Text = string.format("%s [%dm]", baseText, dist)
+                    existing.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
                 else
                     existing.Label.Text = baseText
                 end
@@ -1580,7 +1603,7 @@ task.spawn(function()
                         local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
                         if dist ~= record.LastDist then
                             record.LastDist = dist
-                            record.Label.Text = string.format("%s [%dm]", record.BaseText, dist)
+                            record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
                         end
                     end
             end
@@ -2690,7 +2713,7 @@ local function processEntity(entity)
         end
 
         if is2D then
-            -- 3D Mesh for 2D Entities (Asset ID 14731807321)
+            -- 3D Mesh for 2D Entities (Asset ID 14731807321) with mspaint rounded Highlight!
             pcall(function()
                 local meshPart = Instance.new("Part")
                 meshPart.Name = "Unknown_2DEntityMesh"
@@ -2701,13 +2724,14 @@ local function processEntity(entity)
                 meshPart.Anchored = false
                 meshPart.Massless = true
                 meshPart.CastShadow = false
-                meshPart.Material = Enum.Material.Neon
+                meshPart.Material = Enum.Material.SmoothPlastic
+                meshPart.Transparency = 0.5
                 meshPart.Color = entityColor
 
                 local sm = Instance.new("SpecialMesh")
                 sm.MeshType = Enum.MeshType.FileMesh
                 sm.MeshId = "rbxassetid://14731807321"
-                sm.Scale = Vector3.new(2.5, 2.5, 2.5)
+                sm.Scale = Vector3.new(2.8, 2.8, 2.8)
                 sm.Parent = meshPart
 
                 local weld = Instance.new("WeldConstraint")
@@ -2716,8 +2740,14 @@ local function processEntity(entity)
                 weld.Parent = meshPart
 
                 meshPart.CFrame = targetPart.CFrame
-                meshPart.Parent = (gethui and gethui()) or Workspace:FindFirstChild("Terrain") or Workspace
+                meshPart.Parent = Workspace:FindFirstChild("Terrain") or Workspace
                 table.insert(extraVisuals, meshPart)
+
+                -- Attach sleek mspaint Highlight to the rounded cube mesh!
+                local hl = createHighlight(meshPart, entityColor, 0.65, 0)
+                if hl then
+                    table.insert(extraVisuals, hl)
+                end
             end)
 
             -- Sleek Bounding Box Adornment with guaranteed through-wall visibility for 2D entities!
@@ -2725,7 +2755,7 @@ local function processEntity(entity)
             if bbox then
                 table.insert(extraVisuals, bbox)
             end
-            highlightTarget = nil -- Adornments handle through-wall rendering without consuming Highlight slots!
+            highlightTarget = nil
         else
             -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, Sally, etc.):
             -- Highlight the actual 3D model/parts directly! ZERO cubes!
