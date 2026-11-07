@@ -3416,7 +3416,7 @@ local pendingCrouchState = nil
 local unhideGraceUntil = 0
 local wasHidingState = false
 local justExitedHiding = false
-local getEquippedOrInventoryTool, executeItemDupeDrop, retrieveDroppedTool
+local getEquippedOrInventoryTool, executeItemDupeDrop, retrieveDroppedTool, executeInfinitePromptInteraction
 
 -- isPlayerHiding defined above near top of script (line 472)
 
@@ -3744,40 +3744,156 @@ end
 local isDroppingAndRetrieving = false
 local lastDupeTime = 0
 
+executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
+    local tool = overrideTool or getEquippedOrInventoryTool({"skeleton", "lockpick", "shears", "key"})
+    if not tool or not State.Infinite_Items then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+        return
+    end
+
+    local now = os.clock()
+    if isDroppingAndRetrieving and (now - lastDupeTime < 0.25) then return end
+    lastDupeTime = now
+    isDroppingAndRetrieving = true
+
+    local tn = tool.Name:lower()
+    local isLockpickSkeleton = tn:find("lockpick") or tn:find("skeleton")
+    local isGarageKey = tn:find("garage") or tn:find("key")
+    local isShears = tn:find("shear")
+
+    local pickupId = tool:GetAttribute("Pickup") or tool.Name
+    local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+    local dropRemote = rf and rf:FindFirstChild("DropItem")
+    local dropsFolder = Workspace:FindFirstChild("Drops")
+
+    if not dropRemote or not dropsFolder then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+        isDroppingAndRetrieving = false
+        return
+    end
+
+    local char = getChar()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if tool.Parent == bp and hum then
+        hum:EquipTool(tool)
+        task.wait(0.04)
+    end
+
+    if isGarageKey then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    -- Phase 1: Drop the tool onto the floor
+    pcall(function() dropRemote:FireServer(tool) end)
+
+    -- Phase 2: Instant event-driven wait for the dropped item in Workspace.Drops
+    local droppedModel = nil
+    local deadline = os.clock() + 1.2
+
+    for _, ch in ipairs(dropsFolder:GetChildren()) do
+        if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
+           and (ch:GetAttribute("PlayerName") == LocalPlayer.Name or not ch:GetAttribute("PlayerName")) then
+            droppedModel = ch
+            break
+        end
+    end
+
+    while not droppedModel and os.clock() < deadline do
+        local child = dropsFolder.ChildAdded:Wait()
+        if child:IsA("Model") and (child:GetAttribute("Pickup") == pickupId or child.Name:lower():find(tn))
+           and (child:GetAttribute("PlayerName") == LocalPlayer.Name or not child:GetAttribute("PlayerName")) then
+            droppedModel = child
+            break
+        end
+    end
+
+    -- Phase 3: Trigger unlock prompt and reclaim item
+    if isShears then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    if droppedModel then
+        local pickupPrompt = droppedModel:FindFirstChild("ModulePrompt") or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if pickupPrompt then
+            pickupPrompt.HoldDuration = 0
+            pickupPrompt.RequiresLineOfSight = false
+            pcall(function() fireproximityprompt(pickupPrompt) end)
+        end
+    end
+
+    if isLockpickSkeleton then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    task.delay(0.12, function()
+        isDroppingAndRetrieving = false
+    end)
+end
+
 executeItemDupeDrop = function(tool, delaySeconds)
     if not tool or not State.Infinite_Items then return end
     local now = os.clock()
-    if isDroppingAndRetrieving and (now - lastDupeTime < 0.3) then return end
+    if isDroppingAndRetrieving and (now - lastDupeTime < 0.25) then return end
     lastDupeTime = now
     isDroppingAndRetrieving = true
 
     local toolName = tool.Name
+    local tn = toolName:lower()
+    local pickupId = tool:GetAttribute("Pickup") or toolName
     local char = getChar()
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
 
     task.spawn(function()
-        -- Ensure tool is equipped in Character so DropItem remote accepts it
         if tool.Parent == bp and hum then
             hum:EquipTool(tool)
-            task.wait(0.06)
+            task.wait(0.04)
         end
 
-        -- Calibrated Delay: Allows server to validate unlock / consumption before drop executes
         if delaySeconds and delaySeconds > 0 then
             task.wait(delaySeconds)
         end
 
         local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
         local dropRemote = rf and rf:FindFirstChild("DropItem")
+        local dropsFolder = Workspace:FindFirstChild("Drops")
+
         if dropRemote and tool and tool.Parent then
             pcall(function() dropRemote:FireServer(tool) end)
         end
 
-        -- Aggressive multi-frame retrieval
-        retrieveDroppedTool(toolName, 3.5)
+        if dropsFolder then
+            local droppedModel = nil
+            local deadline = os.clock() + 1.2
+            for _, ch in ipairs(dropsFolder:GetChildren()) do
+                if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
+                   and (ch:GetAttribute("PlayerName") == LocalPlayer.Name or not ch:GetAttribute("PlayerName")) then
+                    droppedModel = ch
+                    break
+                end
+            end
+            while not droppedModel and os.clock() < deadline do
+                local child = dropsFolder.ChildAdded:Wait()
+                if child:IsA("Model") and (child:GetAttribute("Pickup") == pickupId or child.Name:lower():find(tn))
+                   and (child:GetAttribute("PlayerName") == LocalPlayer.Name or not child:GetAttribute("PlayerName")) then
+                    droppedModel = child
+                    break
+                end
+            end
+            if droppedModel then
+                local pickupPrompt = droppedModel:FindFirstChild("ModulePrompt") or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if pickupPrompt then
+                    pickupPrompt.HoldDuration = 0
+                    pickupPrompt.RequiresLineOfSight = false
+                    pcall(function() fireproximityprompt(pickupPrompt) end)
+                end
+            end
+        end
 
-        task.delay(0.35, function()
+        retrieveDroppedTool(toolName, 2.0)
+
+        task.delay(0.15, function()
             isDroppingAndRetrieving = false
         end)
     end)
@@ -3835,12 +3951,10 @@ local function processNearbyDoors(currentPos, maxReach)
                                             hum:EquipTool(tool)
                                             task.wait(0.08)
                                         end
-                                        pcall(function() fireproximityprompt(up) end)
                                         if tool and State.Infinite_Items and State.Infinite_Lockpicks then
-                                            local tn = tool.Name:lower()
-                                            if tn:find("lockpick") or tn:find("skeleton") then
-                                                executeItemDupeDrop(tool, 0.09)
-                                            end
+                                            executeInfinitePromptInteraction(up, tool)
+                                        else
+                                            pcall(function() fireproximityprompt(up) end)
                                         end
                                     end)
                                 end
@@ -6370,27 +6484,19 @@ local function safeInstantFirePrompt(prompt)
         end
     end
 
+    if isUnlock and State.Infinite_Items and State.Infinite_Lockpicks then
+        local tool = usedTool or getEquippedOrInventoryTool({"skeleton", "lockpick", "shears", "key"})
+        if tool then
+            executeInfinitePromptInteraction(prompt, tool)
+            return
+        end
+    end
+
     pcall(function()
         if fireproximityprompt then
             fireproximityprompt(prompt)
         end
     end)
-
-    -- Delayed Dupe-Drop: Only drop AFTER server validates unlock (0.35s delay), NEVER on frame 0!
-    -- This prevents aborting chest or door unlock minigames / server checks!
-    if usedTool and State.Infinite_Items and State.Infinite_Lockpicks then
-        local tn = usedTool.Name:lower()
-        if tn:find("lockpick") or tn:find("skeleton") then
-            task.delay(0.35, function()
-                local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-                local dropRemote = rf and rf:FindFirstChild("DropItem")
-                if dropRemote and usedTool and usedTool.Parent then
-                    pcall(function() dropRemote:FireServer(usedTool) end)
-                end
-                retrieveDroppedTool(usedTool.Name, 3.5)
-            end)
-        end
-    end
 end
 
 -- Frame-0 Immediate Prompt Trigger: Fires the exact millisecond KeyCode.E is pressed down without double-tap cancellation!
@@ -6781,14 +6887,11 @@ pcall(function()
         local isUnlock = pName:find("unlock") or obj:find("lock") or obj:find("door") or obj:find("chest") or act:find("unlock") or obj:find("padlock")
 
         if isUnlock then
-            local tool = activePromptTool or getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
+            local tool = activePromptTool or getEquippedOrInventoryTool({"lockpick", "skeleton", "shears", "key"})
             if tool then
                 local tn = tool.Name:lower()
-                -- Strictly retain multi-use tools (lockpicks & skeleton keys). Normal room keys open doors natively without dupe clutter!
-                if tn:find("lockpick") or tn:find("skeleton") then
-                    task.defer(function()
-                        executeItemDupeDrop(tool, 0.02)
-                    end)
+                if tn:find("lockpick") or tn:find("skeleton") or tn:find("shear") then
+                    executeInfinitePromptInteraction(prompt, tool)
                 end
             end
         end
