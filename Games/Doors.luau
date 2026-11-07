@@ -1342,10 +1342,10 @@ task.spawn(function()
                     continue
                 end
 
-                -- Distance Text Update (Only updates visible records when integer distance changes)
+                -- Distance Text Update (Only updates visible records when distance changes by >= 2 studs)
                 if State.Show_Distance and rootPos and record.Label and record.Adornee:IsA("BasePart") then
                     local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
-                    if dist ~= record.LastDist then
+                    if dist <= 200 and math.abs(dist - (record.LastDist or 0)) >= 2 then
                         record.LastDist = dist
                         local distSize = math.max((State.ESP_TextSize or 22) - 4, 12)
                         record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, distSize, dist)
@@ -1353,7 +1353,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.16)
+        task.wait(0.25)
     end
 end)
 -- =========================================================================
@@ -2315,8 +2315,16 @@ local function processEntity(entity)
         return
     end
 
-    local targetPart = (entity:IsA("Model") and (entity.PrimaryPart or entity:FindFirstChild("RushNew") or entity:FindFirstChild("Root") or entity:FindFirstChild("Core") or entity:FindFirstChildWhichIsA("BasePart", true)))
-        or (entity:IsA("BasePart") and entity)
+    local targetPart = nil
+    if entity:IsA("Model") then
+        targetPart = entity.PrimaryPart
+            or (entity:FindFirstChild("RushNew") and (entity.RushNew:IsA("BasePart") and entity.RushNew or entity.RushNew:FindFirstChildWhichIsA("BasePart", true)))
+            or (entity:FindFirstChild("Root") and (entity.Root:IsA("BasePart") and entity.Root or entity.Root:FindFirstChildWhichIsA("BasePart", true)))
+            or (entity:FindFirstChild("Core") and (entity.Core:IsA("BasePart") and entity.Core or entity.Core:FindFirstChildWhichIsA("BasePart", true)))
+            or entity:FindFirstChildWhichIsA("BasePart", true)
+    elseif entity:IsA("BasePart") then
+        targetPart = entity
+    end
 
     if targetPart then
         local highlightTarget = entity
@@ -2394,7 +2402,9 @@ local function processEntity(entity)
                     chamPart.CanQuery = false
                     chamPart.Massless = true
                     chamPart.CastShadow = false
-                    chamPart.Transparency = 0.99
+                    chamPart.Color = entityColor
+                    chamPart.Material = Enum.Material.ForceField
+                    chamPart.Transparency = 0.55
                     chamPart.Shape = shape
                     chamPart.Size = size
                     chamPart.CFrame = targetPart.CFrame
@@ -2405,6 +2415,19 @@ local function processEntity(entity)
                     weld.Part1 = targetPart
                     weld.Parent = chamPart
                     chamPart.Anchored = false
+
+                    -- Volumetric 3D glowing cube visible through walls
+                    if not isEyes then
+                        local boxAdorn = Instance.new("BoxHandleAdornment")
+                        boxAdorn.Name = "Unknown_CubeAdornment"
+                        boxAdorn.Adornee = chamPart
+                        boxAdorn.Size = size
+                        boxAdorn.Color3 = entityColor
+                        boxAdorn.Transparency = 0.5
+                        boxAdorn.AlwaysOnTop = true
+                        boxAdorn.ZIndex = 10
+                        boxAdorn.Parent = chamPart
+                    end
                 end
                 highlightTarget = chamPart
             end)
@@ -3660,7 +3683,10 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if tool.Parent == bp and hum then
         hum:EquipTool(tool)
-        task.wait(0.04)
+        local t0 = os.clock()
+        while tool.Parent ~= char and os.clock() - t0 < 0.35 do
+            task.wait()
+        end
     end
 
     -- Garage Key: Trigger prompt before dropping (mspaint order)
@@ -3882,8 +3908,16 @@ local function processNearbyDoors(currentPos, maxReach)
                             end)
                         end
 
-                        -- Note: Doors open cleanly via Hidden touch interest and ClientOpen remote.
-                        -- ProximityPrompt interaction on doors is disabled so no interact prompt or E-spam appears!
+                        -- Open Side Room Doors via ProximityPrompt (DoorNormal / Knob / Door)
+                        for _, p in ipairs(d:GetDescendants()) do
+                            if p:IsA("ProximityPrompt") and p.Enabled then
+                                local pAct = (p.ActionText or ""):lower()
+                                local pName = p.Name:lower()
+                                if pAct:find("open") or pName:find("open") or pName:find("interact") or pName:find("knob") then
+                                    safeInstantFirePrompt(p)
+                                end
+                            end
+                        end
                     end
                 end
             end
@@ -4318,7 +4352,7 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 local args = {...}
                 local modified = false
                 if State.Anti_Eyes and isEyesActive() then
-                    args[1] = -899 -- Spoof camera pitch to -85 degrees (staring at floor): 100% immune to Eyes & Lookman!
+                    args[1] = -649 -- Spoof camera pitch to -64.9 degrees (mspaint exact within server [-65, 65] clamp) (staring at floor): 100% immune to Eyes & Lookman!
                     modified = true
                 end
                 if State.Anti_Figure_Hearing then
@@ -6701,7 +6735,7 @@ task.spawn(function()
                                 if pPos then
                                     local dist = (rootPos - pPos).Magnitude
                                     local pObj = (prompt.ObjectText or ""):lower()
-                                    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or (prompt.Parent and prompt.Parent.Name:lower():find("knob"))
+                                    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") -- Door knobs are NOT drawers!
                                     -- CRITICAL INVARIANT: Server strictly rejects drawer activation beyond 6.5 studs!
                                     local maxReach = isDrawerOrContainer and 6.5 or prompt.MaxActivationDistance
                                     if dist <= maxReach then
@@ -6737,7 +6771,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.12) -- Smooth 8Hz loop: instant looting without CPU frame spikes or micro-freezes
+        task.wait(0.16) -- Smooth 6.5Hz loop (zero lag): instant looting without CPU frame spikes or micro-freezes
     end
 end)
 
