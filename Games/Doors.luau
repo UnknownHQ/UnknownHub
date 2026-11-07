@@ -336,20 +336,21 @@ local State = {
     Show_Distance = true,
     Fullbright = true,
 
-    -- ESP Customization & Appearance Configs
-    ESP_TextSize = 15,
-    ESP_FillTransparency = 0.5,
+    -- ESP Customization & Appearance Configs (1:1 mspaint v4 / HotelCfg.json Exact Parity)
+    ESP_TextSize = 22,
+    ESP_FillTransparency = 0.75,
     ESP_OutlineTransparency = 0,
-    ESP_OnlyCurrentRoom = true, -- Exclusively show doors and closets in current room only!
+    ESP_OnlyCurrentRoom = true,
     ESP_RoomFilterMode = "Current Room Only",
-    ESP_ColorTheme = "Default Vibrant",
-    ESP_Color_Doors = Color3.fromRGB(0, 215, 255),
-    ESP_Color_DoorsLocked = Color3.fromRGB(255, 175, 30),
-    ESP_Color_Dupe = Color3.fromRGB(255, 35, 35),
-    ESP_Color_Keys = Color3.fromRGB(255, 220, 50),
-    ESP_Color_Items = Color3.fromRGB(160, 110, 255),
-    ESP_Color_Entities = Color3.fromRGB(255, 35, 35),
-    ESP_Color_Hiding = Color3.fromRGB(80, 220, 120),
+    ESP_ColorTheme = "mspaint Vibrant",
+    ESP_Color_Doors = Color3.fromRGB(0, 255, 255),       -- #00FFFF Cyan
+    ESP_Color_DoorsLocked = Color3.fromRGB(0, 255, 255), -- #00FFFF Cyan (Door 014 [Locked])
+    ESP_Color_Dupe = Color3.fromRGB(255, 0, 0),          -- #FF0000 Red
+    ESP_Color_Keys = Color3.fromRGB(0, 255, 0),          -- #00FF00 Objective Lime
+    ESP_Color_Items = Color3.fromRGB(255, 0, 255),       -- #FF00FF Item Magenta
+    ESP_Color_Entities = Color3.fromRGB(255, 0, 0),      -- #FF0000 Entity Red
+    ESP_Color_Hiding = Color3.fromRGB(0, 128, 0),        -- #008000 Dark Green
+    ESP_Color_Gold = Color3.fromRGB(255, 255, 0),        -- #FFFF00 Yellow
 
     -- Entity Filters (Exclude/Include individual monster types)
     Entity_Show_Rush = true,
@@ -688,51 +689,10 @@ end
 -- =========================================================================
 -- ESP Storage & Drawing Pipeline
 -- =========================================================================
--- ESP Storage & mspaint v4 / mstudio45 ESP Library Integration (1:1 Native Core)
+-- ESP Storage & mspaint v4 / mstudio45 Native Highlight & Typography Core (1:1 Exact Parity)
 -- =========================================================================
 local activeEspRecords = {}
 local espContainer = nil
-
-local mstudio45_ESP = getgenv().mstudio45_ESP
-if not mstudio45_ESP then
-    local loaded = false
-    -- 1. High-Speed 0ms Local Workspace Cache Loader
-    if isfile and readfile then
-        pcall(function()
-            if isfile("mspaint/cache/esplibrary.txt") then
-                local content = readfile("mspaint/cache/esplibrary.txt")
-                if content and #content > 0 then
-                    local fn = loadstring(content)
-                    if fn then mstudio45_ESP = fn(); loaded = true end
-                end
-            elseif isfile("ESPLibrary.luau") then
-                local content = readfile("ESPLibrary.luau")
-                if content and #content > 0 then
-                    local fn = loadstring(content)
-                    if fn then mstudio45_ESP = fn(); loaded = true end
-                end
-            end
-        end)
-    end
-    -- 2. Fallback to GitHub Raw Repository
-    if not loaded then
-        pcall(function()
-            local src = game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/ESPLibrary.luau")
-            if src and #src > 0 then
-                local fn = loadstring(src)
-                if fn then mstudio45_ESP = fn(); loaded = true end
-            end
-        end)
-    end
-end
-
-if mstudio45_ESP and mstudio45_ESP.GlobalConfig then
-    mstudio45_ESP.GlobalConfig.Distance = State.Show_Distance ~= false
-    mstudio45_ESP.GlobalConfig.Billboards = true
-    mstudio45_ESP.GlobalConfig.Highlighters = true
-    mstudio45_ESP.GlobalConfig.Boxes3D = true
-    mstudio45_ESP.GlobalConfig.Font = Enum.Font.RobotoMono
-end
 
 local function getEspContainer()
     if not espContainer or not espContainer.Parent then
@@ -747,9 +707,6 @@ end
 local function removeEspFor(owner)
     local rec = activeEspRecords[owner]
     if rec then
-        if rec.ESPInstance then
-            pcall(function() rec.ESPInstance:Destroy() end)
-        end
         if rec.Billboard then pcall(function() rec.Billboard:Destroy() end) end
         if rec.Highlight then pcall(function() rec.Highlight:Destroy() end) end
         if rec.Visuals then
@@ -767,7 +724,6 @@ local function clearCategoryEsp(category)
             removeEspFor(owner)
         end
     end
-    -- Deep sweep for category instances in container, Terrain and CoreGui
     pcall(function()
         local c = espContainer
         if c then
@@ -778,19 +734,11 @@ local function clearCategoryEsp(category)
                 end
             end
         end
-        local terrain = Workspace:FindFirstChild("Terrain")
-        if terrain then
-            for _, ch in ipairs(terrain:GetChildren()) do
-                if ch.Name:find("Unknown_ESP_Door") or ch.Name:find("Unknown_Door") or (category == "Doors" and ch.Name:find("Door")) then
-                    pcall(function() ch:Destroy() end)
-                end
-            end
-        end
     end)
     if category == "Entities" then
         pcall(function()
             for _, desc in ipairs(Workspace:GetDescendants()) do
-                if desc.Name == "Unknown_RoundedCube" or desc.Name == "__unknown_2d_cham" then
+                if desc.Name == "__unknown_2d_cham" or desc.Name == "__mspaint_eyes_esp" or desc.Name == "__mspaint_cube_esp" then
                     pcall(function() desc:Destroy() end)
                 end
             end
@@ -807,9 +755,6 @@ local function clearEntitySubcategory(entityCategory)
 end
 
 local function clearAllEsp()
-    if mstudio45_ESP and mstudio45_ESP.Clear then
-        pcall(function() mstudio45_ESP:Clear() end)
-    end
     for owner, _ in pairs(activeEspRecords) do
         removeEspFor(owner)
     end
@@ -819,7 +764,6 @@ local function clearAllEsp()
         pcall(function() espContainer:ClearAllChildren() end)
     end
 
-    -- Deep Purge of any orphaned Highlights, Billboards and Adornments across all containers
     pcall(function()
         local uiContainers = { CoreGui, Workspace:FindFirstChild("Terrain"), Workspace }
         if gethui then
@@ -830,7 +774,7 @@ local function clearAllEsp()
             if container then
                 for _, child in ipairs(container:GetChildren()) do
                     local n = child.Name
-                    if n:find("Unknown_ESP") or n:find("Unknown_Door") or n == "Unknown_RoundedCube" or n == "__unknown_2d_cham" then
+                    if n:find("Unknown_ESP") or n:find("Unknown_Door") or n:find("__mspaint") or n == "__unknown_2d_cham" then
                         pcall(function() child:Destroy() end)
                     end
                 end
@@ -839,6 +783,84 @@ local function clearAllEsp()
     end)
 end
 
+-- Exact mspaint v4 Billboard Typography Engine (RobotoCondensed / Size 22 / UIStroke 1.5)
+local function createBillboard(adorneePart, baseText, color, offset)
+    if not adorneePart then return nil, nil end
+    local container = getEspContainer()
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "Unknown_ESP_Billboard"
+    bb.Adornee = adorneePart
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.new(0, 250, 0, 50)
+    bb.StudsOffset = offset or Vector3.new(0, 1.5, 0)
+    bb.ResetOnSpawn = false
+    bb.LightInfluence = 0
+    bb.MaxDistance = 5000
+
+    local label = Instance.new("TextLabel")
+    label.Name = "ESPLabel"
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.RobotoCondensed
+    label.TextSize = State.ESP_TextSize or 22
+    label.RichText = true
+    label.TextWrapped = false
+    label.TextStrokeTransparency = 1 -- Clean: stroke handled exclusively by UIStroke
+    label.Parent = bb
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 0, 0)
+    stroke.Thickness = 1.5
+    stroke.Transparency = 0
+    stroke.Parent = label
+
+    local initialText = baseText
+    if State.Show_Distance then
+        local root = getRoot()
+        if root and adorneePart:IsA("BasePart") then
+            local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
+            local distSize = math.max((State.ESP_TextSize or 22) - 4, 12)
+            initialText = string.format('%s\n<font size="%d">[%dm]</font>', baseText, distSize, dist)
+        end
+    end
+    label.Text = initialText
+
+    bb.Parent = container
+    return bb, label
+end
+
+-- Exact mspaint v4 Highlight Engine (FillTransparency = 0.75, OutlineTransparency = 0, DepthMode = AlwaysOnTop)
+local function createHighlight(adornee, color, fillTrans, outlineTrans, category)
+    if not adornee then return nil end
+    local container = getEspContainer()
+    fillTrans = fillTrans or State.ESP_FillTransparency or 0.75
+    outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "Unknown_ESP_" .. (category or "General") .. "_Highlight"
+    hl.Adornee = adornee
+    hl.FillColor = color
+    hl.FillTransparency = fillTrans
+    hl.OutlineColor = color
+    hl.OutlineTransparency = outlineTrans
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = container
+    return hl
+end
+
+local function refreshEspVisualSettings()
+    for _, rec in pairs(activeEspRecords) do
+        if rec.Label then
+            rec.Label.TextSize = State.ESP_TextSize or 22
+        end
+        if rec.Highlight then
+            rec.Highlight.FillTransparency = State.ESP_FillTransparency or 0.75
+            rec.Highlight.OutlineTransparency = State.ESP_OutlineTransparency or 0
+        end
+    end
+end
 -- =========================================================================
 -- Visuals: Tracers & Offscreen Threat Radar (Drawing Engine)
 -- =========================================================================
@@ -1221,19 +1243,13 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         if existing.BaseText ~= baseText or existing.Color ~= color then
             existing.BaseText = baseText
             existing.Color = color
-            if existing.ESPInstance then
-                existing.ESPInstance.CurrentSettings.Name = baseText
-                existing.ESPInstance.CurrentSettings.Color = color
-                existing.ESPInstance.CurrentSettings.FillColor = color
-                existing.ESPInstance.CurrentSettings.OutlineColor = color
-                pcall(function() existing.ESPInstance:SetEveryColor(color, true) end)
-            end
             if existing.Label then
                 existing.Label.TextColor3 = color
                 local root = getRoot()
                 if root and State.Show_Distance and adorneePart:IsA("BasePart") then
                     local dist = math.floor((root.Position - adorneePart.Position).Magnitude)
-                    existing.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', baseText, math.max((State.ESP_TextSize or 13) - 2, 9), dist)
+                    local distSize = math.max((State.ESP_TextSize or 22) - 4, 12)
+                    existing.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', baseText, distSize, dist)
                 else
                     existing.Label.Text = baseText
                 end
@@ -1248,61 +1264,20 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
 
     removeEspFor(owner)
 
-    -- Determine mspaint ESPType (Exact mspaint v4 / mstudio45 specification):
-    -- 2D Entities:
-    -- Eyes / Lookman: "SphereAdornment" -> Perfectly smooth 3D glowing circle/sphere without corners!
-    -- Rush / Ambush / A-60 / A-120 / Halt / Surge: "Adornment" -> Cool volumetric 3D glowing Cube!
-    -- Gold: "Text"
-    -- All other (Doors, Keys, Items, Books, Breakers, HidingSpots, 3D Entities): "Highlight"
-    local espType = "Highlight"
     local modelTarget = partsToHighlight or adorneePart or owner
     if typeof(modelTarget) == "table" and #modelTarget > 0 then
         modelTarget = modelTarget[1]
     end
 
-    if category == "Entities" then
-        local lName = baseText:lower()
-        if lName:find("eyes") or lName:find("lookman") then
-            espType = "SphereAdornment"
-        elseif lName:find("rush") or lName:find("ambush") or lName:find("a-60") or lName:find("a60") or lName:find("a-120") or lName:find("a120") or lName:find("halt") or lName:find("surge") then
-            espType = "Adornment"
-        end
-    elseif category == "Gold" then
-        espType = "Text"
-    end
-
-    local espInst = nil
-    if mstudio45_ESP and mstudio45_ESP.Add then
-        pcall(function()
-            espInst = mstudio45_ESP:Add({
-                Name = baseText,
-                Model = modelTarget,
-                TextModel = adorneePart,
-                Color = color,
-                ESPType = espType,
-                FillColor = color,
-                OutlineColor = color,
-                FillTransparency = State.ESP_FillTransparency or 0.65,
-                OutlineTransparency = State.ESP_OutlineTransparency or 0,
-                StudsOffset = offset or Vector3.new(0, 1.5, 0),
-                TextSize = State.ESP_TextSize or 16,
-                Visible = true,
-                MaxDistance = 5000,
-            })
-        end)
-    end
-
-    -- Clean fallback if mstudio45_ESP is not yet available
     local visuals = {}
-    local bb, label = nil, nil
+    local bb, label = createBillboard(adorneePart, baseText, color, offset)
+    if bb then table.insert(visuals, bb) end
+
+    -- Exact mspaint Highlight rule: Gold is pure text-only (zero highlights); all other elements get native Highlight!
     local hl = nil
-    if not espInst then
-        bb, label = createBillboard(adorneePart, baseText, color, offset)
-        if bb then table.insert(visuals, bb) end
-        if modelTarget and category ~= "Gold" then
-            hl = createHighlight(modelTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0, category)
-            if hl then table.insert(visuals, hl) end
-        end
+    if modelTarget and category ~= "Gold" then
+        hl = createHighlight(modelTarget, color, State.ESP_FillTransparency or 0.75, State.ESP_OutlineTransparency or 0, category)
+        if hl then table.insert(visuals, hl) end
     end
 
     if extraVisuals then
@@ -1319,7 +1294,6 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         Color = color,
         Category = category,
         EntityCategory = entityCategory,
-        ESPInstance = espInst,
         Label = label,
         Billboard = bb,
         Highlight = hl,
@@ -1336,7 +1310,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     end)
 end
 
--- Continuous Room & Distance Update Daemon (Ultra-Fast 5Hz: Zero-Lag, Instant Cleanup)
+-- Continuous Room & Distance Update Daemon (Ultra-Fast 6Hz: Exact mspaint Typography & Cleanup)
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -1373,15 +1347,15 @@ task.spawn(function()
                     local dist = math.floor((rootPos - record.Adornee.Position).Magnitude)
                     if dist ~= record.LastDist then
                         record.LastDist = dist
-                        record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, math.max((State.ESP_TextSize or 13) - 3, 9), dist)
+                        local distSize = math.max((State.ESP_TextSize or 22) - 4, 12)
+                        record.Label.Text = string.format('%s\n<font size="%d">[%dm]</font>', record.BaseText, distSize, dist)
                     end
                 end
             end
         end
-        task.wait(0.2)
+        task.wait(0.16)
     end
 end)
-
 -- =========================================================================
 -- Precision Scanners (Doors, Keys, Items, Books, Breakers, Monsters)
 -- =========================================================================
@@ -1460,44 +1434,81 @@ local function processDoor(room, doorModel)
     local roomNumber = tonumber(room.Name)
     local isDupe = isDupeDoor(doorModel, room)
 
-    local doorMesh = doorModel:FindFirstChild("Door")
-    if not doorMesh or not doorMesh:IsA("BasePart") then
-        doorMesh = doorModel:FindFirstChildWhichIsA("MeshPart") or doorModel:FindFirstChildWhichIsA("BasePart")
-    end
-    if not doorMesh then return end
-
     local isOpened = doorModel:GetAttribute("Opened") == true or doorModel:GetAttribute("Open") == true
     if isOpened and not isDupe then
         removeEspFor(doorModel)
         return
     end
 
-    local isLocked = doorModel:GetAttribute("Locked") == true or (doorModel:FindFirstChild("Lock") and doorModel.Lock:FindFirstChildWhichIsA("ProximityPrompt", true))
+    local isLocked = doorModel:GetAttribute("Locked") == true or room:GetAttribute("RequiresKey") == true or (doorModel:FindFirstChild("Lock") and doorModel.Lock:FindFirstChildWhichIsA("ProximityPrompt", true))
 
-    local doorNumberStr = tostring((roomNumber or 0) + 1)
+    local nextNum = (roomNumber or 0) + 1
+    local doorNumberStr = string.format("%03d", nextNum) -- 1:1 mspaint 3-digit padded number
     local baseText
-    local color
+    local color = State.ESP_Color_Doors or Color3.fromRGB(0, 255, 255)
 
     if isDupe then
         baseText = "Dupe Door"
-        color = State.ESP_Color_Dupe or Color3.fromRGB(255, 35, 35)
+        color = State.ESP_Color_Dupe or Color3.fromRGB(255, 0, 0)
     elseif isLocked then
-        baseText = string.format("Door %s [LOCKED]", doorNumberStr)
-        color = State.ESP_Color_DoorsLocked or Color3.fromRGB(255, 180, 50)
+        baseText = string.format("Door %s [Locked]", doorNumberStr)
     else
         baseText = string.format("Door %s", doorNumberStr)
-        color = State.ESP_Color_Doors or Color3.fromRGB(0, 215, 255)
+    end
+
+    -- Exact Chunk 271 _mspaint_doorhighlight: Highlight strictly the door leaf models/parts, excluding wall & doorway hitboxes!
+    local highlightTarget = doorModel:FindFirstChild("_mspaint_doorhighlight")
+    local doorMesh = doorModel:FindFirstChild("Door")
+    if not doorMesh or not doorMesh:IsA("BasePart") then
+        doorMesh = doorModel:FindFirstChildWhichIsA("MeshPart") or doorModel:FindFirstChildWhichIsA("BasePart")
+    end
+    if not doorMesh then return end
+
+    if not highlightTarget then
+        local doorParts = {}
+        for _, child in ipairs(doorModel:GetChildren()) do
+            if child:IsA("BasePart") and (child.Name == "Door" or child.Name == "Door1" or child.Name == "Door2" or child.Name == "Base" or child.Name == "BaseAddition") then
+                table.insert(doorParts, child)
+            end
+        end
+        if #doorParts == 0 and doorMesh then
+            table.insert(doorParts, doorMesh)
+        end
+
+        local m = Instance.new("Model")
+        m.Name = "_mspaint_doorhighlight"
+        m.Parent = doorModel
+        for _, p in ipairs(doorParts) do
+            local frame = Instance.new("Part")
+            frame.Name = "__mspaint_door_frame"
+            frame.Anchored = true
+            frame.Transparency = 0.99
+            frame.CanCollide = false
+            frame.CanTouch = false
+            frame.CanQuery = false
+            frame.Massless = true
+            frame.Size = p.Size
+            frame.CFrame = p.CFrame
+            frame.Parent = m
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = frame
+            weld.Part1 = p
+            weld.Parent = frame
+            frame.Anchored = false
+        end
+        if not doorModel:FindFirstChildOfClass("Humanoid") then
+            Instance.new("Humanoid", doorModel)
+        end
+        highlightTarget = m
     end
 
     local doorHeaderOffset = Vector3.new(0, (doorMesh.Size.Y / 2) + 0.95, 0)
-    -- Highlight strictly the doorMesh BasePart, completely excluding Hidden and the doorway hitbox!
-    registerEsp(doorModel, doorMesh, baseText, color, "Doors", doorMesh, doorHeaderOffset, roomNumber)
+    registerEsp(doorModel, doorMesh, baseText, color, "Doors", highlightTarget, doorHeaderOffset, roomNumber)
 
     if isDupe and State.Anti_Dupe then
         secureDupeDoor(doorModel)
     end
 
-    -- Hook opened attribute to instantly remove ESP when opened
     if not doorModel:GetAttribute("ESP_Hooked") then
         doorModel:SetAttribute("ESP_Hooked", true)
         pcall(function()
@@ -1509,7 +1520,6 @@ local function processDoor(room, doorModel)
         end)
     end
 end
-
 -- 2. Precision Key Scanner
 local function processKey(keyObtain)
     if not keyObtain or not keyObtain:IsA("Model") then return end
@@ -1542,7 +1552,7 @@ local function processKey(keyObtain)
     end
 
     local baseText = signText and string.format("Key [%s]", signText) or "Key"
-    local color = Color3.fromRGB(255, 220, 35)
+    local color = State.ESP_Color_Keys or Color3.fromRGB(0, 255, 0)
 
     local highlightParts = { keyMesh }
     if tagMesh and tagMesh:IsA("BasePart") then table.insert(highlightParts, tagMesh) end
@@ -2362,11 +2372,11 @@ local function processEntity(entity)
             -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (5, 4, 5) -> Glowing 3D Sphere Cham!
             -- Rush / Ambush / A-60 / A-120 / Halt / Surge: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham!
             pcall(function()
-                local chamName = "__unknown_2d_cham"
+                local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
+                local chamName = isEyes and "__mspaint_eyes_esp" or "__mspaint_cube_esp"
                 local existingCham = entity:FindFirstChild(chamName)
                 local chamPart = existingCham
                 if not chamPart or not chamPart:IsA("BasePart") then
-                    local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
                     local shape = isEyes and Enum.PartType.Ball or Enum.PartType.Block
                     local size = isEyes and Vector3.new(5, 4, 5) or Vector3.new(6, 6, 6)
 
@@ -2396,7 +2406,6 @@ local function processEntity(entity)
                     weld.Parent = chamPart
                     chamPart.Anchored = false
                 end
-
                 highlightTarget = chamPart
             end)
         else
