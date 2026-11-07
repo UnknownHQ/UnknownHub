@@ -4440,126 +4440,9 @@ local function pulseSlideKeepAlive()
 end
 
 local function neutralizeServerTeleported()
-    if not State.Bypass_AntiCheat then return end
-
-    -- 1. Detour Client RemoteListener ServerTeleported Module (Allows wardrobe hiding; blocks void / anticheat pullbacks)
-    pcall(function()
-        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-        local rl = pGui and pGui:FindFirstChild("MainUI") and pGui.MainUI:FindFirstChild("Initiator") and pGui.MainUI.Initiator:FindFirstChild("Main_Game") and pGui.MainUI.Initiator.Main_Game:FindFirstChild("RemoteListener")
-        if rl and rl:FindFirstChild("Modules") then
-            local stMod = rl.Modules:FindFirstChild("ServerTeleported", true)
-            if stMod and not _G.ST_FN_HOOKED then
-                _G.ST_FN_HOOKED = true
-                local rawFn = require(stMod)
-                if type(rawFn) == "function" and hookfunction then
-                    hookfunction(rawFn, newcclosure(function(p1, p2, p3, p4)
-                        local char = getChar()
-                        local mgTable = getMainGameTable()
-                        local isGraceActive = (os.clock() < unhideGraceUntil)
-                        local isHidingNow = isPlayerHiding(char, mgTable)
-                        local isChaseActive = (mgTable and mgTable.chase == true)
-
-                        -- ONLY permit teleports if player is genuinely inside a closet/bed animation or exiting!
-                        if isHidingNow or isGraceActive or (isChaseActive and not State.WalkSpeed_Enabled and not State.Noclip) then
-                            return rawFn(p1, p2, p3, p4)
-                        end
-
-                        -- When Speed Boost, Noclip, or Anti-Cheat is active:
-                        -- Drop ALL server-side rollback/rubberband teleports (Zero Rubberbanding!)
-                        if State.Bypass_AntiCheat or State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                            if mgTable and mgTable.SETNEWCF then
-                                mgTable.SETNEWCF = nil
-                            end
-                            return
-                        end
-                        return rawFn(p1, p2, p3, p4)
-                    end))
-                end
-            end
-        end
-    end)
-
-    -- 2. Detour listeners on RemotesFolder.ServerTeleported & Teleport
-    pcall(function()
-        local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-        if not rf or not getconnections then return end
-
-        local tp = rf:FindFirstChild("Teleport")
-        if tp and tp:IsA("RemoteEvent") then
-            for _, c in ipairs(getconnections(tp.OnClientEvent)) do
-                pcall(function()
-                    c:Disable()
-                    local fn = c.Function
-                    if fn and not _G["TP_DETOURED_" .. tostring(fn)] then
-                        _G["TP_DETOURED_" .. tostring(fn)] = true
-                        if hookfunction then
-                            hookfunction(fn, newcclosure(function(pTarget, ...)
-                                local char = getChar()
-                                local mgTable = getMainGameTable()
-                                local isGraceActive = (os.clock() < unhideGraceUntil)
-                                local isHidingNow = isPlayerHiding(char, mgTable)
-                                local isChaseActive = (mgTable and mgTable.chase == true)
-
-                                -- ONLY allow teleport if player is genuinely hiding inside a closet/bed
-                                if isHidingNow or isGraceActive or (isChaseActive and not State.WalkSpeed_Enabled and not State.Noclip) then
-                                    return fn(pTarget, ...)
-                                end
-
-                                if State.Bypass_AntiCheat or State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                                    local mgt = getMainGameTable()
-                                    if mgt and mgt.SETNEWCF then mgt.SETNEWCF = nil end
-                                    return
-                                end
-                                return fn(pTarget, ...)
-                            end))
-                        end
-                    end
-                end)
-            end
-        end
-
-        local st = rf:FindFirstChild("ServerTeleported")
-        if st and st:IsA("RemoteEvent") then
-            for _, c in ipairs(getconnections(st.OnClientEvent)) do
-                pcall(function()
-                    c:Disable()
-                    local fn = c.Function
-                    if fn and not _G["ST_DETOURED_" .. tostring(fn)] then
-                        _G["ST_DETOURED_" .. tostring(fn)] = true
-                        if hookfunction then
-                            hookfunction(fn, newcclosure(function(p1, p2, ...)
-                                local char = getChar()
-                                local mgTable = getMainGameTable()
-                                local isGraceActive = (os.clock() < unhideGraceUntil)
-                                local isHidingNow = isPlayerHiding(char, mgTable)
-                                local isChaseActive = (mgTable and mgTable.chase == true)
-
-                                if isHidingNow or isGraceActive or (isChaseActive and not State.WalkSpeed_Enabled and not State.Noclip) then
-                                    return fn(p1, p2, ...)
-                                end
-
-                                if State.Bypass_AntiCheat or State.WalkSpeed_Enabled or State.Noclip or State.Walk_Noclip or TeleportState.isTweening or State.Deflect_Glitch or (os.clock() < lastNoclipDisableGrace) then
-                                    if mgTable and mgTable.SETNEWCF then
-                                        mgTable.SETNEWCF = nil
-                                    end
-                                    return
-                                end
-                                return fn(p1, p2, ...)
-                            end))
-                        end
-                    end
-                end)
-            end
-        end
-    end)
-
-    -- 3. Clear SETNEWCF during active Noclip, Tweening, Anti-Cheat, or disable grace period
-    local mgTable = getMainGameTable()
-    if mgTable and not isPlayerHiding(getChar(), mgTable) and (os.clock() >= unhideGraceUntil) and (State.Bypass_AntiCheat or State.Noclip or TeleportState.isTweening or (os.clock() < lastNoclipDisableGrace)) then
-        if mgTable.SETNEWCF then
-            mgTable.SETNEWCF = nil
-        end
-    end
+    -- ServerTeleported & Teleport are DOORS' legitimate cutscene, elevator, and room transition remotes!
+    -- They must NEVER be dropped, ensuring SeekIntroHotel cutscenes, elevators, and revives execute cleanly.
+    -- (Anti-cheat displacement is bypassed via syncServerSlide and updateSpeedBypass).
 end
 
 -- Initialize Glitch & Anti-Cheat Shields
@@ -5632,16 +5515,17 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Native Ground Movement & Speed Boost (Zero Noclip, Zero Anti-Cheat Detection):
-    if State.WalkSpeed_Enabled and not isInsideHiding and not TeleportState.isTweening then
-        local mgTable = getMainGameTable()
+    local mgTable = getMainGameTable()
+    local isCutscene = (mgTable and mgTable.stopcam == true)
+    if State.WalkSpeed_Enabled and not isInsideHiding and not TeleportState.isTweening and not isCutscene then
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         if hum.MoveDirection.Magnitude > 0.05 then
             applyTeflonGlide(char)
         else
             restoreDefaultFriction(char)
         end
-        -- Only sync slide state if player is actually sliding or crouching, never while standing sprint!
-        if State.Enable_Sliding or isCrouching then
+        -- Always sync slide token when WalkSpeed is enabled so server displacement authorizes speeds up to 50+ studs/s!
+        if State.WalkSpeed_Enabled or State.Enable_Sliding or isCrouching then
             syncServerSlide(true, isCrouching)
         end
 
@@ -6627,7 +6511,6 @@ local PromptAuraWhitelist = {
     ["WaterWheel"] = true,
     ["SkullPrompt"] = true,
     ["EnterPrompt"] = true,
-    ["HidePrompt"] = true,
 }
 
 local ObjectAuraWhitelist = {
@@ -6647,9 +6530,6 @@ local ObjectAuraWhitelist = {
     ["ChestBox"] = true,
     ["Toolbox"] = true,
     ["Wardrobe"] = true,
-    ["Closet"] = true,
-    ["Locker"] = true,
-    ["Bed"] = true,
     ["Key"] = true,
     ["KeyObtain"] = true,
     ["ElectricalKeyObtain"] = true,
@@ -6699,6 +6579,10 @@ local function isBlacklistedPromptObject(obj)
         return true
     end
     local lower = name:lower()
+    -- Strictly Wardrobe ONLY: Blacklist closets, lockers, beds, and hiding spots
+    if lower:find("closet") or lower:find("bed") or lower:find("locker") or lower:find("hidingspot") then
+        return true
+    end
     -- Painting invariant: Never auto-interact with paintings, canvases, frames, portraits
     if lower:find("painting") or lower:find("canvas") or lower:find("portrait") or lower:find("picture") or lower:find("frame") then
         return true
@@ -6726,15 +6610,22 @@ local function staticPromptCheck(prompt)
     local act = (prompt.ActionText or ""):lower()
     local obj = (prompt.ObjectText or ""):lower()
 
-    -- 1. Hiding Spot Guard: Allow auto-interact on wardrobes/closets only when player is not already hiding!
-    local isHidingPrompt = prName:find("enter") or prName:find("hide") or act:find("hide") or act:find("enter")
-        or obj:find("wardrobe") or obj:find("closet") or obj:find("locker") or obj:find("bed")
-    if isHidingPrompt then
+    -- 1. Strictly Wardrobe ONLY: Reject closets, lockers, beds
+    if obj:find("closet") or obj:find("locker") or obj:find("bed")
+        or pName:lower():find("closet") or pName:lower():find("locker") or pName:lower():find("bed")
+        or mName:lower():find("closet") or mName:lower():find("locker") or mName:lower():find("bed") then
+        return false
+    end
+
+    local isWardrobe = obj:find("wardrobe") or pName:lower():find("wardrobe") or mName:lower():find("wardrobe") or prName == "enterprompt"
+    if isWardrobe then
         local char = getChar()
         local mgTable = getMainGameTable()
         if isPlayerHiding(char, mgTable) then
             return false
         end
+    elseif prName:find("enter") or prName:find("hide") or act:find("hide") or act:find("enter") then
+        return false
     end
 
     -- 2. Anti-Painting Invariant: Never auto-interact with paintings, canvases, frames, portraits
@@ -6796,17 +6687,21 @@ local function dynamicPromptCheck(prompt)
     local pNameLower = pName:lower()
     local mNameLower = mName:lower()
 
-    -- 1. Hiding Spot Guard: Allow auto-interact on wardrobes/closets only when player is not already hiding!
-    local isHidingPrompt = act:find("hide") or act:find("enter") or act:find("climb into") or act:find("crawl into")
-        or obj:find("wardrobe") or obj:find("closet") or obj:find("locker") or obj:find("bed")
-        or prNameLower:find("hide") or prNameLower:find("enter")
-        or pNameLower:find("wardrobe") or pNameLower:find("closet") or pNameLower:find("locker") or pNameLower:find("bed") or pNameLower:find("hidingspot")
-        or mNameLower:find("wardrobe") or mNameLower:find("closet") or mNameLower:find("locker") or mNameLower:find("bed") or mNameLower:find("hidingspot")
-    if isHidingPrompt then
+    -- 1. Strictly Wardrobe ONLY: Reject closets, lockers, beds
+    if obj:find("closet") or obj:find("locker") or obj:find("bed")
+        or pNameLower:find("closet") or pNameLower:find("locker") or pNameLower:find("bed") or pNameLower:find("hidingspot")
+        or mNameLower:find("closet") or mNameLower:find("locker") or mNameLower:find("bed") or mNameLower:find("hidingspot") then
+        return false
+    end
+
+    local isWardrobe = obj:find("wardrobe") or pNameLower:find("wardrobe") or mNameLower:find("wardrobe") or prNameLower == "enterprompt"
+    if isWardrobe then
         local mgTable = getMainGameTable()
         if isPlayerHiding(char, mgTable) then
             return false
         end
+    elseif act:find("hide") or act:find("enter") or act:find("climb into") or act:find("crawl into") or prNameLower:find("hide") or prNameLower:find("enter") then
+        return false
     end
 
     -- 2. Anti-Painting Invariant: Never auto-interact with paintings, canvases, frames, portraits
@@ -6818,12 +6713,13 @@ local function dynamicPromptCheck(prompt)
         return false
     end
 
-    -- Deep Ancestry Guard for Paintings
+    -- Deep Ancestry Guard for Paintings, Closets, Lockers, and Beds
     local aCheck = parent
     local aDepth = 0
     while aCheck and aCheck ~= Workspace and aDepth < 6 do
         local an = aCheck.Name:lower()
-        if an:find("painting") or an:find("canvas") or an:find("portrait") or an:find("picture") or an:find("frame") then
+        if an:find("painting") or an:find("canvas") or an:find("portrait") or an:find("picture") or an:find("frame")
+            or an:find("closet") or an:find("locker") or an:find("bed") or an:find("hidingspot") then
             return false
         end
         aCheck = aCheck.Parent
