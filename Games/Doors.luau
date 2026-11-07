@@ -230,6 +230,8 @@ local State = {
 
     -- God Mode & Anti Figure Hearing Defenses
     God_Mode = false,
+    Anti_Figure = true,
+    Anti_Figure_Hearing = true,
 
     -- Additional Defenses
     Anti_Gloombat = true,
@@ -610,12 +612,24 @@ local function configurePromptDistances(prompt)
     local pObj = (prompt.ObjectText or ""):lower()
     local pAct = (prompt.ActionText or ""):lower()
     local parentName = prompt.Parent and prompt.Parent.Name:lower() or ""
-    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or pObj:find("dresser") or pObj:find("wardrobe") or pObj:find("chest") or parentName:find("knob") or parentName:find("drawer") or parentName:find("dresser") or parentName:find("wardrobe") or parentName:find("chest")
-    if isDrawerOrContainer then
-        -- Strict 6.5 - 7.0 stud Server Validation Guard: Prevents server rejecting out-of-range clicks!
-        prompt.MaxActivationDistance = 6.8
-    elseif prompt.MaxActivationDistance < 14.0 then
-        prompt.MaxActivationDistance = 14.0
+    local grandParentName = prompt.Parent and prompt.Parent.Parent and prompt.Parent.Parent.Name:lower() or ""
+    local prName = prompt.Name:lower()
+
+    local isDoorPrompt = pObj:find("door") or parentName:find("door") or grandParentName:find("door")
+        or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt"
+        or prName:find("knob") or parentName == "knob" or prName == "manualopenprompt"
+
+    if isDoorPrompt then
+        prompt.MaxActivationDistance = math.max(16.0, prompt.MaxActivationDistance or 12.0)
+    else
+        local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or pObj:find("dresser")
+            or parentName:find("drawer") or parentName:find("dresser") or parentName == "knobs"
+        if isDrawerOrContainer then
+            -- Strict 6.5 - 6.8 stud Server Validation Guard: Prevents server rejecting out-of-range clicks!
+            prompt.MaxActivationDistance = 6.8
+        elseif prompt.MaxActivationDistance < 14.0 then
+            prompt.MaxActivationDistance = 14.0
+        end
     end
 end
 
@@ -798,6 +812,8 @@ local function createBillboard(adorneePart, baseText, color, offset)
     label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
     label.Font = Enum.Font.RobotoCondensed
     label.TextSize = State.ESP_TextSize or 22
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextYAlignment = Enum.TextYAlignment.Center
     label.RichText = true
     label.TextWrapped = false
     label.TextStrokeTransparency = 0
@@ -1179,7 +1195,14 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
                     existing.Label.Text = baseText
                 end
             end
-            if existing.Highlight then
+            if existing.Visuals then
+                for _, v in ipairs(existing.Visuals) do
+                    if v:IsA("Highlight") then
+                        v.FillColor = color
+                        v.OutlineColor = color
+                    end
+                end
+            elseif existing.Highlight then
                 existing.Highlight.FillColor = color
                 existing.Highlight.OutlineColor = color
             end
@@ -1200,9 +1223,18 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
 
     -- Exact mspaint Highlight rule: Gold is pure text-only (zero highlights); all other elements get native Highlight!
     local hl = nil
-    if modelTarget and category ~= "Gold" then
-        hl = createHighlight(modelTarget, color, State.ESP_FillTransparency or 0.75, State.ESP_OutlineTransparency or 0, category)
-        if hl then table.insert(visuals, hl) end
+    if category ~= "Gold" then
+        if typeof(partsToHighlight) == "table" and #partsToHighlight > 1 then
+            for _, part in ipairs(partsToHighlight) do
+                if part and (part:IsA("BasePart") or part:IsA("Model")) then
+                    local p_hl = createHighlight(part, color, State.ESP_FillTransparency or 0.75, State.ESP_OutlineTransparency or 0, category)
+                    if p_hl then table.insert(visuals, p_hl) end
+                end
+            end
+        elseif modelTarget then
+            hl = createHighlight(modelTarget, color, State.ESP_FillTransparency or 0.75, State.ESP_OutlineTransparency or 0, category)
+            if hl then table.insert(visuals, hl) end
+        end
     end
 
     if extraVisuals then
@@ -1591,8 +1623,7 @@ local function isMspaintItemCondition(inst)
 end
 
 local VALID_ITEM_NAMES = {
-    ["keyobtain"]       = "Key",
-    ["livehintbook"]    = "Book",
+    ["candle"]          = "Candle",
     ["lighter"]         = "Lighter",
     ["lighter_small"]   = "Lighter",
     ["flashlight"]      = "Flashlight",
@@ -1615,7 +1646,6 @@ local VALID_ITEM_NAMES = {
     ["smoothie"]        = "Smoothie",
     ["herb"]            = "Herb",
     ["bread"]           = "Bread",
-    ["livebreakerpolepickup"] = "Fuse",
     ["fuse"]            = "Fuse"
 }
 
@@ -1633,7 +1663,13 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- 3. Reject gold, doors, levers, and paintings (handled by their own dedicated ESP categories)
+    -- 3. Strict Category Exclusion: Keys, Books, Fuses, Levers, Doors are handled by dedicated ESP modules!
+    if lower:find("keyobtain") or (lower:find("key") and not lower:find("skeleton"))
+        or lower:find("livehintbook") or lower:find("livebreakerpolepickup") then
+        return false, nil
+    end
+
+    -- 3b. Reject gold, doors, levers, and paintings (handled by their own dedicated ESP categories)
     if lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever")
         or lower:find("painting") or lower:find("picture") or lower:find("canvas") or lower:find("frame") or lower:find("portrait") or lower:find("photo") then
         return false, nil
@@ -1644,12 +1680,13 @@ local function isValidLootItem(model)
         return true, VALID_ITEM_NAMES[lower]
     end
 
-    -- 5. Fast-Path: Collectible ProximityPrompt Check ("Take", "Pick up", "Grab", "Collect", "Steal", "ModulePrompt")
+    -- 5. Fast-Path: Strictly Genuine Collectible ProximityPrompt Check ("Take", "Pick up", "Grab", "Collect", "Steal")
+    -- Invariant: NEVER match generic "ModulePrompt" - that matches bookshelves, drawers & scenery props!
     local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
     if prompt then
         local act = (prompt.ActionText or ""):lower()
         local obj = prompt.ObjectText or ""
-        if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("steal") or prompt.Name == "ModulePrompt" then
+        if act:find("take") or act:find("pick") or act:find("grab") or act:find("collect") or act:find("steal") then
             local cleanName = (#obj > 0) and obj or VALID_ITEM_NAMES[lower] or model.Name
             return true, cleanName
         end
@@ -1709,17 +1746,32 @@ local function processItem(itemModel)
 
     local isValid, displayName = isValidLootItem(itemModel)
     if isValid and displayName then
-        local targetPart = itemModel:FindFirstChild("Handle") 
-            or itemModel:FindFirstChildWhichIsA("MeshPart", true) 
-            or itemModel:FindFirstChildWhichIsA("BasePart", true)
-            or (itemModel:IsA("BasePart") and itemModel)
+        local lower = itemModel.Name:lower()
+        local targetPart = nil
+        if lower:find("crucifix") then
+            targetPart = itemModel:FindFirstChild("Crucifix", true)
+                or itemModel:FindFirstChild("Cross", true)
+                or itemModel:FindFirstChild("Handle", true)
+        end
+        if not targetPart then
+            targetPart = itemModel:FindFirstChild("Handle") 
+                or itemModel:FindFirstChildWhichIsA("MeshPart", true) 
+                or itemModel:FindFirstChildWhichIsA("BasePart", true)
+                or (itemModel:IsA("BasePart") and itemModel)
+        end
         if targetPart then
             local baseText = displayName
             local color = Color3.fromRGB(185, 80, 255)
             local itemParts = {}
             for _, p in ipairs(itemModel:GetDescendants()) do
                 if p:IsA("BasePart") and not p.Name:lower():find("hitbox") then
-                    table.insert(itemParts, p)
+                    local pName = p.Name:lower()
+                    -- Crucifix Wall Altar Guard: exclude decorative candles, shelves, and mounts so candles never glow as Crucifix!
+                    if lower:find("crucifix") and (pName:find("candle") or pName:find("shelf") or pName:find("mount") or pName:find("flame") or pName:find("plate")) then
+                        -- skip decor parts
+                    else
+                        table.insert(itemParts, p)
+                    end
                 end
             end
             if #itemParts == 0 then table.insert(itemParts, targetPart) end
@@ -1794,6 +1846,12 @@ local function processHidingSpot(hidingModel, room)
         end
 
         if isRealHiding then
+            -- Wardrobe Anti-Noclip Solid Guard: Ensure front doors remain solid so player never phases through wardrobe!
+            local d1 = hidingModel:FindFirstChild("Door1")
+            local d2 = hidingModel:FindFirstChild("Door2")
+            if d1 and d1:IsA("BasePart") then d1.CanCollide = true end
+            if d2 and d2:IsA("BasePart") then d2.CanCollide = true end
+
             local targetPart = hidingModel:FindFirstChild("Main") 
                 or hidingModel:FindFirstChildWhichIsA("MeshPart") 
                 or hidingModel.PrimaryPart 
@@ -2656,6 +2714,18 @@ local function defuseSeekObstacles(room)
 end
 
 -- Defuse Figure Lethal Touch Hitbox
+local function defuseFigure(figureInstance)
+    if not (State.Anti_Figure and figureInstance) then return end
+    pcall(function()
+        for _, p in ipairs(figureInstance:GetDescendants()) do
+            if p:IsA("TouchTransmitter") then
+                p:Destroy()
+            elseif p:IsA("BasePart") then
+                p.CanTouch = false
+            end
+        end
+    end)
+end
 
 -- Full Room Parser
 local function scanSingleRoom(room)
@@ -2730,7 +2800,7 @@ local function scanSingleRoom(room)
                     if State.Anti_Giggle then defuseGiggle(desc) end
                     if State.Entities_ESP then processEntity(desc) end
                 elseif dName:find("figure") then
-                    -- Anti Figure removed
+                    if State.Anti_Figure then defuseFigure(desc) end
                     if State.Entities_ESP then processEntity(desc) end
                 elseif (dName == "sally" or dName:find("^sally") or dName == "princess") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstChildOfClass("AnimationController") or desc:FindFirstChild("Head")) then
                     if State.Entities_ESP then processEntity(desc) end
@@ -3219,7 +3289,7 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     local mgTable = getMainGameTable()
-    local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+    local isCrouching = (State.Anti_Figure_Hearing == true) or (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
     local isMoving = (char and hum and hum.MoveDirection.Magnitude > 0.05) or false
     -- Crucial: When WalkSpeed is enabled AND player is moving, OR when actively sliding, slide state is authorized on server.
     -- When STANDING STILL (isMoving == false), isSliding MUST BE FALSE to prevent server slide physics from pushing player backwards!
@@ -3358,7 +3428,10 @@ local function startSlide()
     if not char or not root or not hum or hum.Health <= 0 then return end
 
     local moveDir = hum.MoveDirection
-    if moveDir.Magnitude < 0.05 then return end
+    if moveDir.Magnitude < 0.3 then return end
+
+    local horizVel = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+    if horizVel.Magnitude < 11.0 and not State.WalkSpeed_Enabled then return end
 
     isSlidingActive = true
     slideStartTime = os.clock()
@@ -3368,14 +3441,15 @@ local function startSlide()
     if mgTable then
         mgTable.sliding = true
         if mgTable.animations and mgTable.animations.Slide then
-            pcall(function() mgTable.animations.Slide:Play(0.1, 1, 1.25) end)
+            pcall(function() mgTable.animations.Slide:Play(0.15, 1, 1.1) end)
         end
     end
 
     syncServerSlide(true, true)
     applyTeflonGlide(char)
 
-    local targetSpeed = math.max(State.WalkSpeed_Value or 35, 42)
+    local curSpeed = horizVel.Magnitude
+    local targetSpeed = math.max(curSpeed, State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 20) or 22)
     root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * targetSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * targetSpeed)
 end
 
@@ -3608,12 +3682,12 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
     targetPrompt.HoldDuration = 0
     targetPrompt.RequiresLineOfSight = false
 
-    -- Phase 2: Simultaneous Drop + Interact Race Condition (mspaint 1:1 exploit)
-    -- Fire the tool drop, immediately followed by the target unlock prompt!
-    -- The server starts the unlock verification while the tool is dropped onto the floor,
-    -- preventing the server from deleting the tool from your inventory!
-    pcall(function() dropRemote:FireServer(tool) end)
+    -- Phase 2: Calibrated Unlock + Retain Sequence (mspaint 1:1 exploit)
+    -- Fire the unlock prompt first so server authenticates tool possession in hand,
+    -- followed immediately by drop remote so tool lands in Drops before server consumption!
     pcall(function() fireproximityprompt(targetPrompt) end)
+    task.wait(0.05)
+    pcall(function() dropRemote:FireServer(tool) end)
 
     -- Phase 3: Await the tool landing in Workspace.Drops
     while not droppedModel and os.clock() < deadline do
@@ -4227,16 +4301,14 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
         elseif method == "FireServer" then
             if self.Name == "MotorReplication" then
                 local args = {...}
-                local modified = false
                 if State.Anti_Eyes and isEyesActive() then
-                    args[1] = -649 -- Spoof camera pitch to -64.9 degrees (mspaint exact within server [-65, 65] clamp) (staring at floor): 100% immune to Eyes & Lookman!
-                    modified = true
+                    args[1] = -649 -- Spoof camera pitch to -64.9 degrees (staring at floor): 100% immune to Eyes & Lookman!
+                    return origNc(self, unpack(args))
                 end
+            elseif self.Name == "Crouch" then
                 if State.Anti_Figure_Hearing then
-                    args[4] = true -- mspaint v4 AntiHearing spoof: silent crouching footsteps so Figure NEVER hears player running!
-                    modified = true
-                end
-                if modified then
+                    local args = {...}
+                    args[1] = true -- Force server to register crouching: Figure NEVER hears player running!
                     return origNc(self, unpack(args))
                 end
             elseif self.Name == "A90" and State.Anti_A90 then
@@ -4248,8 +4320,12 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 local args = {...}
                 args[2] = true -- mspaint v4 ClutchHeartbeat spoof: forces 100% perfect heartbeat score
                 return origNc(self, unpack(args))
-            elseif (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and State.Auto_Heartbeat then
-                return task.wait(9e9) -- mspaint v4 Figure bypass: prevents Figure from catching/killing player
+            elseif (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and (State.Auto_Heartbeat or State.Anti_Figure) then
+                return task.wait(9e9) -- Figure bypass: prevents Figure from catching/killing player
+            end
+        elseif method == "InvokeServer" then
+            if (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and (State.Auto_Heartbeat or State.Anti_Figure) then
+                return nil
             end
         end
         return origNc(self, ...)
@@ -5492,7 +5568,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     -- Native Ground Movement & Speed Boost (Zero Noclip, Zero Anti-Cheat Detection):
     if State.WalkSpeed_Enabled and not isInsideHiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
-        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+        local isCrouching = (State.Anti_Figure_Hearing == true) or (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         if hum.MoveDirection.Magnitude > 0.05 then
             applyTeflonGlide(char)
         else
@@ -5559,11 +5635,11 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
     if isSlidingActive and not hiding then
         local elapsed = os.clock() - slideStartTime
-        if elapsed > 1.25 or hum.MoveDirection.Magnitude < 0.05 then
+        if elapsed > 1.1 or hum.MoveDirection.Magnitude < 0.1 then
             stopSlide()
         else
-            local targetSpeed = math.max(State.WalkSpeed_Value or 35, 42)
-            local slideSpeed = targetSpeed * math.clamp(1 - (elapsed / 1.35) * 0.45, 0.5, 1.0)
+            local baseSpeed = math.max(State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 20) or 22, 18)
+            local slideSpeed = baseSpeed * math.clamp(1 - (elapsed / 1.1) * 0.4, 0.45, 1.0)
             root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * slideSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * slideSpeed)
         end
     end
@@ -5673,6 +5749,20 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
             -- When NOT hiding:
             if justExitedHiding then
                 justExitedHiding = false
+            end
+
+            -- Wardrobe Phasing Shield: Ensure wardrobe doors remain solid so player cannot walk through closed wardrobes
+            local root = getRoot()
+            local curRoom = root and getObjectRoom(root)
+            if curRoom then
+                for _, w in ipairs(curRoom:GetChildren()) do
+                    if w.Name == "Wardrobe" or w.Name == "Closet" then
+                        local d1 = w:FindFirstChild("Door1")
+                        local d2 = w:FindFirstChild("Door2")
+                        if d1 and d1:IsA("BasePart") and not d1.CanCollide then d1.CanCollide = true end
+                        if d2 and d2:IsA("BasePart") and not d2.CanCollide then d2.CanCollide = true end
+                    end
+                end
             end
 
             -- 2. Permanently enforce LocalTransparencyModifier = 1 on Head, face, hair, eyelashes, eyebrows, hats
@@ -5935,8 +6025,8 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         if hum then
             hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
             hum.UseJumpPower = true
-            hum.JumpPower = 50
-            hum.JumpHeight = 7.5
+            hum.JumpPower = 32
+            hum.JumpHeight = 3.0
         end
         pcall(function() char:SetAttribute("CanJump", true) end)
     end
@@ -6027,7 +6117,7 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if State.Enable_Sliding then
             local char = getChar()
             local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-            if hum and hum.MoveDirection.Magnitude > 0.1 then
+            if hum and hum.MoveDirection.Magnitude > 0.3 then
                 startSlide()
             end
         end
@@ -6039,8 +6129,10 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         local root = getRoot()
         if hum and root and hum.Health > 0 then
             if hum.FloorMaterial ~= Enum.Material.Air or hum:GetState() == Enum.HumanoidStateType.Climbing then
+                hum.UseJumpPower = true
+                hum.JumpPower = 32
+                hum.JumpHeight = 3.0
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, State.Jump_Height or 50, root.AssemblyLinearVelocity.Z)
             end
         end
     end
@@ -6096,11 +6188,15 @@ local function applyPromptModifications(prompt)
     local pAct = (prompt.ActionText or ""):lower()
     local parentName = prompt.Parent and prompt.Parent.Name:lower() or ""
     local prName = prompt.Name:lower()
-    local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or parentName:find("knob")
+    local isDoorPrompt = pObj:find("door") or parentName:find("door") or (prompt.Parent and prompt.Parent.Parent and prompt.Parent.Parent.Name:lower():find("door"))
+        or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt"
+        or prName:find("knob") or parentName == "knob" or prName == "manualopenprompt"
+
     local isHidingSpot = prName:find("hide") or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed")
         or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("locker") or parentName:find("bed")
         or pAct:find("hide") or pAct:find("enter")
-    local isDoorPrompt = pObj:find("door") or parentName:find("door") or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt" or prName:find("knob") or parentName:find("knob") or prName == "manualopenprompt"
+
+    local isDrawerOrContainer = (not isDoorPrompt) and (pObj:find("drawer") or pObj:find("desk") or parentName:find("drawer") or parentName:find("dresser") or parentName == "knobs")
 
     -- Line of Sight Check (Door prompts ALWAYS bypass LOS so side doors open standing up; PromptClip bypasses all)
     if isDoorPrompt or State.PromptClip or State.Noclip_Interact then
@@ -6122,7 +6218,14 @@ local function applyPromptModifications(prompt)
     local origDist = prompt:GetAttribute("OrigMaxDist") or prompt.MaxActivationDistance or 10
     local mult = tonumber(State.PromptReachMultiplier or State.Interact_DistanceMultiplier) or 1
 
-    if isHidingSpot then
+    if isDoorPrompt then
+        prompt.RequiresLineOfSight = false
+        if State.DoorReach then
+            prompt.MaxActivationDistance = math.max(22.0, origDist * 2.2)
+        else
+            prompt.MaxActivationDistance = math.max(16.0, origDist * mult)
+        end
+    elseif isHidingSpot then
         prompt.MaxActivationDistance = math.max(14.0, origDist * mult)
         if not prompt.Enabled and (not prompt.Parent or not prompt.Parent:GetAttribute("HiddenPlayer")) then
             prompt.Enabled = true
@@ -6130,13 +6233,6 @@ local function applyPromptModifications(prompt)
     elseif isDrawerOrContainer then
         -- CRITICAL INVARIANT: Server strictly rejects drawer activation beyond 6.5 studs!
         prompt.MaxActivationDistance = math.min(6.5, origDist * mult)
-    elseif isDoorPrompt then
-        prompt.RequiresLineOfSight = false
-        if State.DoorReach then
-            prompt.MaxActivationDistance = math.max(22.0, origDist * 2.2)
-        else
-            prompt.MaxActivationDistance = math.max(16.0, origDist * mult)
-        end
     else
         prompt.MaxActivationDistance = origDist * mult
     end
@@ -6285,8 +6381,8 @@ local function getCompatibleToolForPrompt(prompt)
     local parentName = prompt.Parent.Name:lower()
     local isChest = obj:find("chest") or pName:find("chest") or parentName:find("chest")
 
-    -- 1. Padlock / Skull Lock / Door Unlock -> Skeleton Key or Lockpick
-    if (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or (obj:find("lock") and not isChest)) and not act:find("open") then
+    -- 1. Padlock / Skull Lock / Door Unlock / Locked Chest -> Skeleton Key or Lockpick
+    if pName:find("unlock") or act:find("unlock") or act:find("pick") or obj:find("padlock") or obj:find("lock") then
         local tool = getEquippedOrInventoryTool({"skeleton", "lockpick", "key"})
         if tool then return tool end
     end
@@ -6765,8 +6861,8 @@ pcall(function()
         local act = (prompt.ActionText or ""):lower()
         local isChest = obj:find("chest") or pName:find("chest") or (prompt.Parent and prompt.Parent.Name:lower():find("chest"))
         
-        -- Strictly only real unlock prompts, NEVER chest open or door open prompts!
-        local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or (obj:find("lock") and not isChest)) and not act:find("open")
+        -- Strictly real unlock prompts (doors, padlocks, chests)
+        local isUnlock = pName:find("unlock") or act:find("unlock") or act:find("pick") or obj:find("padlock") or obj:find("lock")
         
         if isUnlock then
             local tool, isEq = getEquippedOrInventoryTool({"lockpick", "skeleton", "key"})
@@ -6943,7 +7039,7 @@ local function applyAdditionalDefenses()
         local char = getChar()
         local r = getRoot()
         local mgTable = getMainGameTable()
-        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+        local isCrouching = (State.Anti_Figure_Hearing == true) or (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         for _, desc in ipairs(curRooms:GetDescendants()) do
             local nl = desc.Name:lower()
             local pName = desc.Parent and desc.Parent.Name:lower() or ""
@@ -8614,7 +8710,8 @@ Hub.CreateToggle(mainTab, "Jumping", State.Enable_Jumping, function(v)
     if hum then
         hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, v)
         hum.UseJumpPower = v
-        hum.JumpPower = v and 50 or 0
+        hum.JumpPower = v and 32 or 0
+        hum.JumpHeight = v and 3.0 or 0
     end
     if char then
         pcall(function() char:SetAttribute("CanJump", v) end)
