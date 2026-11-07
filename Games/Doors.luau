@@ -2734,6 +2734,8 @@ end
 -- Defuse Figure Lethal Touch Hitbox
 local function defuseFigure(figureInstance)
     if not (State.Anti_Figure and figureInstance) then return end
+    if figureInstance:GetAttribute("__FigureDefused") then return end
+    figureInstance:SetAttribute("__FigureDefused", true)
     pcall(function()
         for _, p in ipairs(figureInstance:GetDescendants()) do
             if p:IsA("TouchTransmitter") then
@@ -3315,7 +3317,7 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     local char = getChar()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     local mgTable = getMainGameTable()
-    local isCrouching = (State.Anti_Figure_Hearing == true) or (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+    local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
     local isMoving = (char and hum and hum.MoveDirection.Magnitude > 0.05) or false
     -- Crucial: When WalkSpeed is enabled AND player is moving, OR when actively sliding, slide state is authorized on server.
     -- When STANDING STILL (isMoving == false), isSliding MUST BE FALSE to prevent server slide physics from pushing player backwards!
@@ -3692,10 +3694,18 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end
 
-    -- Phase 1: Pre-bind the Drops listener before sending the drop remote
+    targetPrompt.HoldDuration = 0
+    targetPrompt.RequiresLineOfSight = false
+
+    -- Garage Key: Trigger prompt before drop (mspaint order)
+    if isGarageKey then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    -- Phase 1: Pre-bind the Drops listener BEFORE sending the drop remote
     local droppedModel = nil
     local dropConn = nil
-    local deadline = os.clock() + 2.0
+    local deadline = os.clock() + 1.5
 
     dropConn = dropsFolder.ChildAdded:Connect(function(child)
         if child:IsA("Model") and (child:GetAttribute("Pickup") == pickupId or child.Name:lower():find(tn))
@@ -3704,15 +3714,7 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end)
 
-    -- Ensure prompt activates instantaneously with zero hold delay or line of sight blocks
-    targetPrompt.HoldDuration = 0
-    targetPrompt.RequiresLineOfSight = false
-
-    -- Phase 2: Calibrated Unlock + Retain Sequence (mspaint 1:1 exploit)
-    -- Fire the unlock prompt first so server authenticates tool possession in hand,
-    -- followed immediately by drop remote so tool lands in Drops before server consumption!
-    pcall(function() fireproximityprompt(targetPrompt) end)
-    task.wait(0.05)
+    -- Phase 2: Drop tool via DropItem remote BEFORE server can destroy it
     pcall(function() dropRemote:FireServer(tool) end)
 
     -- Phase 3: Await the tool landing in Workspace.Drops
@@ -3721,7 +3723,7 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
     end
     if dropConn then dropConn:Disconnect() end
 
-    -- Fallback sweep if ChildAdded was missed
+    -- Fallback sweep if ChildAdded was early
     if not droppedModel then
         for _, ch in ipairs(dropsFolder:GetChildren()) do
             if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
@@ -3732,9 +3734,14 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end
 
+    -- Shears: Trigger prompt before reclaim (mspaint order)
+    if isShears then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
     -- Phase 4: Instantly reclaim the dropped tool from the floor
     if droppedModel then
-        local pickupPrompt = droppedModel:WaitForChild("ModulePrompt", 0.8) or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+        local pickupPrompt = droppedModel:WaitForChild("ModulePrompt", 0.6) or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
         if pickupPrompt then
             pickupPrompt.HoldDuration = 0
             pickupPrompt.RequiresLineOfSight = false
@@ -3742,7 +3749,16 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end
 
-    task.delay(0.2, function()
+    -- Continuous retrieval backup daemon
+    retrieveDroppedTool(tn, 1.8)
+
+    -- Lockpick / Skeleton Key: Trigger unlock prompt AFTER tool is safely duplicated/re-obtained (mspaint order)
+    if isLockpickSkeleton then
+        task.wait(0.04)
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    task.delay(0.25, function()
         infItemsDebounce = false
     end)
 end
@@ -4327,15 +4343,21 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
         elseif method == "FireServer" then
             if self.Name == "MotorReplication" then
                 local args = {...}
+                local modified = false
                 if State.Anti_Eyes and isEyesActive() then
                     args[1] = -649 -- Spoof camera pitch to -64.9 degrees (staring at floor): 100% immune to Eyes & Lookman!
+                    modified = true
+                end
+                if State.Anti_Figure_Hearing then
+                    args[4] = true -- mspaint v4 silent steps: server replicates crouching footsteps flag so Figure never hears player!
+                    modified = true
+                end
+                if modified then
                     return origNc(self, unpack(args))
                 end
-            elseif self.Name == "Crouch" then
+            elseif self.Name == "Footstep" or self.Name == "FootstepRemoteThatWeNeed" then
                 if State.Anti_Figure_Hearing then
-                    local args = {...}
-                    args[1] = true -- Force server to register crouching: Figure NEVER hears player running!
-                    return origNc(self, unpack(args))
+                    return nil -- Drop footstep notification packets completely
                 end
             elseif self.Name == "A90" and State.Anti_A90 then
                 local arg1 = ...
@@ -4347,7 +4369,7 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 args[2] = true -- mspaint v4 ClutchHeartbeat spoof: forces 100% perfect heartbeat score
                 return origNc(self, unpack(args))
             elseif (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and (State.Auto_Heartbeat or State.Anti_Figure) then
-                return task.wait(9e9) -- Figure bypass: prevents Figure from catching/killing player
+                return nil -- Drop Figure kill/hide signal cleanly without freezing calling threads!
             end
         elseif method == "InvokeServer" then
             if (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and (State.Auto_Heartbeat or State.Anti_Figure) then
@@ -4370,6 +4392,25 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
         return origIdx(self, idx)
     end))
 end
+
+-- Hook FootstepHandler for Anti Figure Hearing (Silent Steps)
+pcall(function()
+    local mc = game:GetService("ReplicatedStorage"):WaitForChild("ModulesClient", 3)
+    local fh = mc and mc:WaitForChild("FootstepHandler", 3)
+    if fh and fh:IsA("ModuleScript") and hookfunction then
+        local rawFh = require(fh)
+        if type(rawFh) == "function" and not _G.__FH_HOOKED then
+            _G.__FH_HOOKED = true
+            local origFh
+            origFh = hookfunction(rawFh, newcclosure(function(...)
+                if not checkcaller() and State.Anti_Figure_Hearing then
+                    return nil
+                end
+                return origFh(...)
+            end))
+        end
+    end
+end)
 
 -- Continuous Anti-Eyes & Lookman Heartbeat Daemon:
 -- Movement.LocalScript ONLY fires MotorReplication on mouse movement delta.
@@ -5389,6 +5430,7 @@ if getgenv then
 end
 
 local isAutoNavigatingRooms = false
+local lastLethalHeartbeatScan = 0
 
 -- =========================================================================
 -- Continuous Heartbeat Enforcement & Omnidirectional Phase Noclip Engine
@@ -5527,27 +5569,31 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
             end
         end
 
-        local lethalNames = {"rush", "ambush", "a60", "a-60", "a120", "a-120", "seek", "figure", "grumble", "giggle", "gloombat", "dread", "blitz", "lookman"}
-        local live = Workspace:FindFirstChild("LiveEntities")
-        local curRooms = Workspace:FindFirstChild("CurrentRooms")
-        local scanTargets = {Workspace, live, curRooms}
+        local nowHb = os.clock()
+        if (nowHb - (lastLethalHeartbeatScan or 0) >= 0.5) then
+            lastLethalHeartbeatScan = nowHb
+            local lethalNames = {"rush", "ambush", "a60", "a-60", "a120", "a-120", "seek", "figure", "grumble", "giggle", "gloombat", "dread", "blitz", "lookman"}
+            local live = Workspace:FindFirstChild("LiveEntities")
+            local curRooms = Workspace:FindFirstChild("CurrentRooms")
+            local scanTargets = {Workspace, live, curRooms}
 
-        for _, container in ipairs(scanTargets) do
-            if container then
-                for _, ent in ipairs(container:GetChildren()) do
-                    local el = ent.Name:lower()
-                    local isLethal = false
-                    for _, ln in ipairs(lethalNames) do
-                        if el:find(ln) then isLethal = true; break end
-                    end
-                    if isLethal then
-                        defuseLethalEntity(ent)
-                        if el:find("figure") then
-                            local fHit = ent:FindFirstChild("Hitbox", true)
-                            if fHit and fHit:IsA("BasePart") then
-                                fHit.CanTouch = false
-                                fHit.CanCollide = false
-                                fHit.CanQuery = false
+            for _, container in ipairs(scanTargets) do
+                if container then
+                    for _, ent in ipairs(container:GetChildren()) do
+                        local el = ent.Name:lower()
+                        local isLethal = false
+                        for _, ln in ipairs(lethalNames) do
+                            if el:find(ln) then isLethal = true; break end
+                        end
+                        if isLethal and not ent:GetAttribute("__Defused") then
+                            defuseLethalEntity(ent)
+                            if el:find("figure") then
+                                local fHit = ent:FindFirstChild("Hitbox", true)
+                                if fHit and fHit:IsA("BasePart") then
+                                    fHit.CanTouch = false
+                                    fHit.CanCollide = false
+                                    fHit.CanQuery = false
+                                end
                             end
                         end
                     end
@@ -5594,7 +5640,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     -- Native Ground Movement & Speed Boost (Zero Noclip, Zero Anti-Cheat Detection):
     if State.WalkSpeed_Enabled and not isInsideHiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
-        local isCrouching = (State.Anti_Figure_Hearing == true) or (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         if hum.MoveDirection.Magnitude > 0.05 then
             applyTeflonGlide(char)
         else
@@ -6409,30 +6455,27 @@ local function isGenuineUnlockPrompt(prompt)
     local model = parent:IsA("Model") and parent or parent:FindFirstAncestorOfClass("Model")
     local mName = model and model.Name:lower() or ""
 
-    -- Strict exclusion: NEVER match hiding spots, drawers, decor, or generic props
+    -- 1. Strict Anti-Hiding Spot Invariant: Never treat wardrobes, closets, lockers, beds as unlocks
     if obj:find("locker") or parentName:find("locker") or mName:find("locker")
         or obj:find("wardrobe") or parentName:find("wardrobe") or mName:find("wardrobe")
         or obj:find("closet") or parentName:find("closet") or mName:find("closet")
         or obj:find("bed") or parentName:find("bed") or mName:find("bed")
-        or obj:find("drawer") or parentName:find("drawer") or mName:find("drawer")
-        or obj:find("desk") or parentName:find("desk") or mName:find("desk")
-        or obj:find("cabinet") or parentName:find("cabinet") or mName:find("cabinet")
-        or act:find("hide") or act:find("enter") or act:find("open") or act:find("take") or act:find("search") then
+        or act:find("hide") or act:find("enter") then
         return false, nil
     end
 
-    -- 1. Shears: Cutting vines
+    -- 2. Shears: Cutting vines
     if act:find("cut") or obj:find("vine") or parentName:find("vine") or (model and model:GetAttribute("LockAttribute") == "CanCutVines") then
         return true, "shears"
     end
 
-    -- 2. Lockpick / Skeleton Key: Padlocks, skull lock, pickable locked doors, locked chests
-    if pName:find("unlock") or act:find("unlock") or act:find("pick")
-        or (obj:find("padlock") or obj == "lock" or obj:find("skull lock")) then
+    -- 3. Lockpick / Skeleton Key: Padlocks, skull lock, pickable locked doors, locked chests
+    local isUnlockName = pName:find("unlock") or act:find("unlock") or act:find("pick") or obj:find("padlock") or obj:find("skull lock") or (obj == "lock") or (obj:find("lock") and not obj:find("locker"))
+    if isUnlockName then
         return true, "lockpick"
     end
 
-    -- 3. Gate / Electrical
+    -- 4. Gate / Electrical
     if obj:find("gate") or parentName:find("gate") or act:find("insert") then
         return true, "gate"
     end
@@ -7150,7 +7193,7 @@ local function applyAdditionalDefenses()
         local char = getChar()
         local r = getRoot()
         local mgTable = getMainGameTable()
-        local isCrouching = (State.Anti_Figure_Hearing == true) or (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
+        local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         for _, desc in ipairs(curRooms:GetDescendants()) do
             local nl = desc.Name:lower()
             local pName = desc.Parent and desc.Parent.Name:lower() or ""
@@ -7416,6 +7459,8 @@ end
 
 defuseLethalEntity = function(entity)
     if not entity then return end
+    if entity:GetAttribute("__Defused") then return end
+    entity:SetAttribute("__Defused", true)
     pcall(function()
         for _, p in ipairs(entity:GetDescendants()) do
             if p:IsA("BasePart") then
