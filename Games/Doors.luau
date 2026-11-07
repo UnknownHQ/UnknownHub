@@ -688,10 +688,51 @@ end
 -- =========================================================================
 -- ESP Storage & Drawing Pipeline
 -- =========================================================================
--- ESP Storage & Dynamic Pipeline (mspaint v4 Architecture)
+-- ESP Storage & mspaint v4 / mstudio45 ESP Library Integration (1:1 Native Core)
 -- =========================================================================
 local activeEspRecords = {}
 local espContainer = nil
+
+local mstudio45_ESP = getgenv().mstudio45_ESP
+if not mstudio45_ESP then
+    local loaded = false
+    -- 1. High-Speed 0ms Local Workspace Cache Loader
+    if isfile and readfile then
+        pcall(function()
+            if isfile("mspaint/cache/esplibrary.txt") then
+                local content = readfile("mspaint/cache/esplibrary.txt")
+                if content and #content > 0 then
+                    local fn = loadstring(content)
+                    if fn then mstudio45_ESP = fn(); loaded = true end
+                end
+            elseif isfile("ESPLibrary.luau") then
+                local content = readfile("ESPLibrary.luau")
+                if content and #content > 0 then
+                    local fn = loadstring(content)
+                    if fn then mstudio45_ESP = fn(); loaded = true end
+                end
+            end
+        end)
+    end
+    -- 2. Fallback to GitHub Raw Repository
+    if not loaded then
+        pcall(function()
+            local src = game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/ESPLibrary.luau")
+            if src and #src > 0 then
+                local fn = loadstring(src)
+                if fn then mstudio45_ESP = fn(); loaded = true end
+            end
+        end)
+    end
+end
+
+if mstudio45_ESP and mstudio45_ESP.GlobalConfig then
+    mstudio45_ESP.GlobalConfig.Distance = State.Show_Distance ~= false
+    mstudio45_ESP.GlobalConfig.Billboards = true
+    mstudio45_ESP.GlobalConfig.Highlighters = true
+    mstudio45_ESP.GlobalConfig.Boxes3D = true
+    mstudio45_ESP.GlobalConfig.Font = Enum.Font.RobotoMono
+end
 
 local function getEspContainer()
     if not espContainer or not espContainer.Parent then
@@ -706,6 +747,9 @@ end
 local function removeEspFor(owner)
     local rec = activeEspRecords[owner]
     if rec then
+        if rec.ESPInstance then
+            pcall(function() rec.ESPInstance:Destroy() end)
+        end
         if rec.Billboard then pcall(function() rec.Billboard:Destroy() end) end
         if rec.Highlight then pcall(function() rec.Highlight:Destroy() end) end
         if rec.Visuals then
@@ -746,7 +790,7 @@ local function clearCategoryEsp(category)
     if category == "Entities" then
         pcall(function()
             for _, desc in ipairs(Workspace:GetDescendants()) do
-                if desc.Name == "Unknown_RoundedCube" then
+                if desc.Name == "Unknown_RoundedCube" or desc.Name == "__unknown_2d_cham" then
                     pcall(function() desc:Destroy() end)
                 end
             end
@@ -763,6 +807,9 @@ local function clearEntitySubcategory(entityCategory)
 end
 
 local function clearAllEsp()
+    if mstudio45_ESP and mstudio45_ESP.Clear then
+        pcall(function() mstudio45_ESP:Clear() end)
+    end
     for owner, _ in pairs(activeEspRecords) do
         removeEspFor(owner)
     end
@@ -783,7 +830,7 @@ local function clearAllEsp()
             if container then
                 for _, child in ipairs(container:GetChildren()) do
                     local n = child.Name
-                    if n:find("Unknown_ESP") or n:find("Unknown_Door") or n == "Unknown_RoundedCube" then
+                    if n:find("Unknown_ESP") or n:find("Unknown_Door") or n == "Unknown_RoundedCube" or n == "__unknown_2d_cham" then
                         pcall(function() child:Destroy() end)
                     end
                 end
@@ -791,6 +838,7 @@ local function clearAllEsp()
         end
     end)
 end
+
 -- =========================================================================
 -- Visuals: Tracers & Offscreen Threat Radar (Drawing Engine)
 -- =========================================================================
@@ -1163,6 +1211,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     if category == "Entities" and not State.Entities_ESP then return end
     if category == "HidingSpots" and not State.HidingSpots_ESP then return end
     if category == "GlitchFragment" and not State.GlitchFragment_ESP then return end
+    if category == "Special" and not State.Rift_ESP then return end
 
     -- Existing record update (anti-flicker: update text/color in-place, zero reallocations)
     local existing = activeEspRecords[owner]
@@ -1172,6 +1221,13 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         if existing.BaseText ~= baseText or existing.Color ~= color then
             existing.BaseText = baseText
             existing.Color = color
+            if existing.ESPInstance then
+                existing.ESPInstance.CurrentSettings.Name = baseText
+                existing.ESPInstance.CurrentSettings.Color = color
+                existing.ESPInstance.CurrentSettings.FillColor = color
+                existing.ESPInstance.CurrentSettings.OutlineColor = color
+                pcall(function() existing.ESPInstance:SetEveryColor(color, true) end)
+            end
             if existing.Label then
                 existing.Label.TextColor3 = color
                 local root = getRoot()
@@ -1192,37 +1248,61 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
 
     removeEspFor(owner)
 
+    -- Determine mspaint ESPType (Exact mspaint v4 / mstudio45 specification):
+    -- 2D Entities:
+    -- Eyes / Lookman: "SphereAdornment" -> Perfectly smooth 3D glowing circle/sphere without corners!
+    -- Rush / Ambush / A-60 / A-120 / Halt / Surge: "Adornment" -> Cool volumetric 3D glowing Cube!
+    -- Gold: "Text"
+    -- All other (Doors, Keys, Items, Books, Breakers, HidingSpots, 3D Entities): "Highlight"
+    local espType = "Highlight"
+    local modelTarget = partsToHighlight or adorneePart or owner
+    if typeof(modelTarget) == "table" and #modelTarget > 0 then
+        modelTarget = modelTarget[1]
+    end
+
+    if category == "Entities" then
+        local lName = baseText:lower()
+        if lName:find("eyes") or lName:find("lookman") then
+            espType = "SphereAdornment"
+        elseif lName:find("rush") or lName:find("ambush") or lName:find("a-60") or lName:find("a60") or lName:find("a-120") or lName:find("a120") or lName:find("halt") or lName:find("surge") then
+            espType = "Adornment"
+        end
+    elseif category == "Gold" then
+        espType = "Text"
+    end
+
+    local espInst = nil
+    if mstudio45_ESP and mstudio45_ESP.Add then
+        pcall(function()
+            espInst = mstudio45_ESP:Add({
+                Name = baseText,
+                Model = modelTarget,
+                TextModel = adorneePart,
+                Color = color,
+                ESPType = espType,
+                FillColor = color,
+                OutlineColor = color,
+                FillTransparency = State.ESP_FillTransparency or 0.65,
+                OutlineTransparency = State.ESP_OutlineTransparency or 0,
+                StudsOffset = offset or Vector3.new(0, 1.5, 0),
+                TextSize = State.ESP_TextSize or 16,
+                Visible = true,
+                MaxDistance = 5000,
+            })
+        end)
+    end
+
+    -- Clean fallback if mstudio45_ESP is not yet available
     local visuals = {}
-    local bb, label = createBillboard(adorneePart, baseText, color, offset)
-    if bb then table.insert(visuals, bb) end
-
-    -- ONE Single Highlight per target Model/Part (mspaint v4 1:1 Parity: 0.65 fill, 0 outline)
-    -- Defensive Instance typecheck: partsToHighlight can be an Instance, a table of BaseParts, or nil
+    local bb, label = nil, nil
     local hl = nil
-    local hlTarget = nil
-    if typeof(partsToHighlight) == "Instance" then
-        if partsToHighlight:IsA("BasePart") or partsToHighlight:IsA("Model") then
-            hlTarget = partsToHighlight
+    if not espInst then
+        bb, label = createBillboard(adorneePart, baseText, color, offset)
+        if bb then table.insert(visuals, bb) end
+        if modelTarget and category ~= "Gold" then
+            hl = createHighlight(modelTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0, category)
+            if hl then table.insert(visuals, hl) end
         end
-    elseif typeof(partsToHighlight) == "table" and #partsToHighlight > 0 then
-        if #partsToHighlight == 1 and typeof(partsToHighlight[1]) == "Instance" and partsToHighlight[1]:IsA("BasePart") then
-            hlTarget = partsToHighlight[1]
-        elseif typeof(owner) == "Instance" and owner:IsA("Model") then
-            hlTarget = owner
-        end
-    end
-
-    if not hlTarget then
-        if typeof(adorneePart) == "Instance" and adorneePart:IsA("BasePart") then
-            hlTarget = adorneePart
-        elseif typeof(owner) == "Instance" and owner:IsA("Model") then
-            hlTarget = owner
-        end
-    end
-
-    if hlTarget and category ~= "Gold" then
-        hl = createHighlight(hlTarget, color, State.ESP_FillTransparency or 0.65, State.ESP_OutlineTransparency or 0, category)
-        if hl then table.insert(visuals, hl) end
     end
 
     if extraVisuals then
@@ -1239,6 +1319,7 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         Color = color,
         Category = category,
         EntityCategory = entityCategory,
+        ESPInstance = espInst,
         Label = label,
         Billboard = bb,
         Highlight = hl,
@@ -1248,7 +1329,6 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
         LastDist = -1
     }
 
-    -- Lifecycle listener: remove cleanly when target is destroyed
     pcall(function()
         owner.Destroying:Once(function()
             removeEspFor(owner)
@@ -9094,6 +9174,9 @@ end)
 
 Hub.CreateToggle(espTab, "Show Distance", State.Show_Distance, function(v)
     State.Show_Distance = v
+    if mstudio45_ESP and mstudio45_ESP.GlobalConfig then
+        mstudio45_ESP.GlobalConfig.Distance = v
+    end
     if not v then
         for _, rec in pairs(activeEspRecords) do
             if rec.Label then rec.Label.Text = rec.BaseText end
