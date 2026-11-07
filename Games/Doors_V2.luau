@@ -97,6 +97,7 @@ local State = {
     -- Interaction Suite (1:1 mspaint v4)
     AutoInteract = false,
     AutoInteract_Delay = 0.05,
+    InteractDistance = 1,
     AutoInteract_IgnoreList = {
         ["Unlock w/ Shears"] = true,
         ["Jeff Items"] = true,
@@ -139,7 +140,28 @@ local State = {
     -- Visuals & World
     Fullbright = false,
     NoFog = false,
-    NoCamShake = false
+    NoCamShake = false,
+
+    -- Hotel Anti-Entities Suite (1:1 mspaint v4 Part 3)
+    AntiSnare = true,
+    AntiGiggle = true,
+    AntiDupe = true,
+    AntiEyes = true,
+    AntiScreech = true,
+    AntiHalt = true,
+    AntiSeek = true,
+    AntiFigureHearing = true,
+    AntiA90 = true,
+
+    -- Infinite Items & Exploits
+    InfiniteItems = true,
+    InfiniteLockpicks = true,
+    InfiniteCrucifix = true,
+
+    -- Automated Puzzle Solvers
+    AutoLibrarySolver = true,
+    AutoBreakerSolver = true,
+    AutoPaintings = true
 }
 
 -- Forward Declarations
@@ -212,13 +234,16 @@ do
         end
     end)
 
-    -- Tab Container Bar
-    local TabBar = Instance.new("Frame")
+    -- Tab Container Bar (Smooth Horizontal Scroll for All Parts)
+    local TabBar = Instance.new("ScrollingFrame")
     TabBar.Name = "TabBar"
     TabBar.Size = UDim2.new(1, -24, 0, 36)
     TabBar.Position = UDim2.new(0, 12, 0, 42)
     TabBar.BackgroundColor3 = Color3.fromRGB(24, 25, 30)
     TabBar.BorderSizePixel = 0
+    TabBar.ScrollBarThickness = 0
+    TabBar.AutomaticCanvasSize = Enum.AutomaticSize.X
+    TabBar.CanvasSize = UDim2.new(0, 0, 0, 0)
     TabBar.Parent = MainFrame
 
     local TabBarCorner = Instance.new("UICorner")
@@ -467,7 +492,7 @@ do
         }
     end
 
-    function UILib.CreateSlider(tab, title, minVal, maxVal, defaultVal, suffix, callback)
+    function UILib.CreateSlider(tab, title, minVal, maxVal, defaultVal, suffix, callback, barColor)
         local card = Instance.new("Frame")
         card.Name = "Slider_" .. title
         card.Size = UDim2.new(1, 0, 0, 48)
@@ -522,7 +547,7 @@ do
         progress.Name = "Progress"
         local initAlpha = math.clamp((defaultVal - minVal) / (maxVal - minVal), 0, 1)
         progress.Size = UDim2.new(initAlpha, 0, 1, 0)
-        progress.BackgroundColor3 = Color3.fromRGB(80, 110, 255)
+        progress.BackgroundColor3 = barColor or Color3.fromRGB(80, 110, 255)
         progress.BorderSizePixel = 0
         progress.Parent = track
 
@@ -564,6 +589,182 @@ do
             end
         end)
     end
+    function UILib.CreateDropdown(tab, title, options, defaultSelected, isMulti, callback)
+        local card = Instance.new("Frame")
+        card.Name = "Dropdown_" .. title
+        card.Size = UDim2.new(1, 0, 0, 58)
+        card.BackgroundColor3 = Color3.fromRGB(22, 23, 28)
+        card.BorderSizePixel = 0
+        card.ClipsDescendants = true
+        card.Parent = tab.Page
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = card
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(38, 40, 48)
+        stroke.Thickness = 1
+        stroke.Parent = card
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -24, 0, 18)
+        lbl.Position = UDim2.new(0, 12, 0, 6)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.RobotoMono
+        lbl.Text = title
+        lbl.TextColor3 = Color3.fromRGB(215, 220, 230)
+        lbl.TextSize = 13
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Parent = card
+
+        local mainBtn = Instance.new("TextButton")
+        mainBtn.Name = "MainButton"
+        mainBtn.Size = UDim2.new(1, -24, 0, 26)
+        mainBtn.Position = UDim2.new(0, 12, 0, 26)
+        mainBtn.BackgroundColor3 = Color3.fromRGB(28, 30, 36)
+        mainBtn.BorderSizePixel = 0
+        mainBtn.AutoButtonColor = false
+        mainBtn.Font = Enum.Font.RobotoMono
+        mainBtn.Text = ""
+        mainBtn.Parent = card
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 4)
+        btnCorner.Parent = mainBtn
+
+        local btnStroke = Instance.new("UIStroke")
+        btnStroke.Color = Color3.fromRGB(48, 50, 60)
+        btnStroke.Thickness = 1
+        btnStroke.Parent = mainBtn
+
+        local summaryLbl = Instance.new("TextLabel")
+        summaryLbl.Size = UDim2.new(1, -26, 1, 0)
+        summaryLbl.Position = UDim2.new(0, 8, 0, 0)
+        summaryLbl.BackgroundTransparency = 1
+        summaryLbl.Font = Enum.Font.RobotoMono
+        summaryLbl.TextColor3 = Color3.fromRGB(180, 185, 195)
+        summaryLbl.TextSize = 12
+        summaryLbl.TextXAlignment = Enum.TextXAlignment.Left
+        summaryLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        summaryLbl.Parent = mainBtn
+
+        local arrowLbl = Instance.new("TextLabel")
+        arrowLbl.Size = UDim2.new(0, 18, 1, 0)
+        arrowLbl.Position = UDim2.new(1, -22, 0, 0)
+        arrowLbl.BackgroundTransparency = 1
+        arrowLbl.Font = Enum.Font.RobotoMono
+        arrowLbl.Text = "v"
+        arrowLbl.TextColor3 = Color3.fromRGB(150, 155, 165)
+        arrowLbl.TextSize = 12
+        arrowLbl.Parent = mainBtn
+
+        local listContainer = Instance.new("Frame")
+        listContainer.Name = "ListContainer"
+        listContainer.Size = UDim2.new(1, -24, 0, #options * 24 + 4)
+        listContainer.Position = UDim2.new(0, 12, 0, 56)
+        listContainer.BackgroundTransparency = 1
+        listContainer.Visible = false
+        listContainer.Parent = card
+
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout.Padding = UDim.new(0, 2)
+        listLayout.Parent = listContainer
+
+        local isExpanded = false
+        local selectedTable = {}
+
+        if isMulti then
+            if typeof(defaultSelected) == "table" then
+                for k, v in pairs(defaultSelected) do
+                    if v == true then selectedTable[k] = true end
+                end
+            end
+        else
+            selectedTable[tostring(defaultSelected)] = true
+        end
+
+        local function updateSummary()
+            if isMulti then
+                local chosen = {}
+                for _, opt in ipairs(options) do
+                    if selectedTable[opt] then table.insert(chosen, opt) end
+                end
+                if #chosen == 0 then
+                    summaryLbl.Text = "None selected"
+                else
+                    summaryLbl.Text = table.concat(chosen, ", ")
+                end
+            else
+                local cur = ""
+                for opt, _ in pairs(selectedTable) do cur = opt break end
+                summaryLbl.Text = cur ~= "" and cur or "Select..."
+            end
+        end
+        updateSummary()
+
+        local optionButtons = {}
+        for idx, opt in ipairs(options) do
+            local optBtn = Instance.new("TextButton")
+            optBtn.Name = "Opt_" .. opt
+            optBtn.Size = UDim2.new(1, 0, 0, 22)
+            optBtn.BackgroundColor3 = selectedTable[opt] and Color3.fromRGB(38, 44, 60) or Color3.fromRGB(24, 25, 30)
+            optBtn.BorderSizePixel = 0
+            optBtn.Font = Enum.Font.RobotoMono
+            optBtn.Text = (selectedTable[opt] and "✓ " or "  ") .. opt
+            optBtn.TextColor3 = selectedTable[opt] and Color3.fromRGB(120, 170, 255) or Color3.fromRGB(170, 175, 185)
+            optBtn.TextSize = 11
+            optBtn.TextXAlignment = Enum.TextXAlignment.Left
+            optBtn.LayoutOrder = idx
+            optBtn.Parent = listContainer
+
+            local oCorner = Instance.new("UICorner")
+            oCorner.CornerRadius = UDim.new(0, 3)
+            oCorner.Parent = optBtn
+
+            optBtn.MouseButton1Click:Connect(function()
+                if isMulti then
+                    selectedTable[opt] = not selectedTable[opt]
+                    optBtn.BackgroundColor3 = selectedTable[opt] and Color3.fromRGB(38, 44, 60) or Color3.fromRGB(24, 25, 30)
+                    optBtn.TextColor3 = selectedTable[opt] and Color3.fromRGB(120, 170, 255) or Color3.fromRGB(170, 175, 185)
+                    optBtn.Text = (selectedTable[opt] and "✓ " or "  ") .. opt
+                    updateSummary()
+                    if callback then callback(selectedTable) end
+                else
+                    selectedTable = { [opt] = true }
+                    for _, b in ipairs(optionButtons) do
+                        local bOpt = b:GetAttribute("OptionName")
+                        local isSel = bOpt == opt
+                        b.BackgroundColor3 = isSel and Color3.fromRGB(38, 44, 60) or Color3.fromRGB(24, 25, 30)
+                        b.TextColor3 = isSel and Color3.fromRGB(120, 170, 255) or Color3.fromRGB(170, 175, 185)
+                        b.Text = (isSel and "✓ " or "  ") .. bOpt
+                    end
+                    updateSummary()
+                    isExpanded = false
+                    card.Size = UDim2.new(1, 0, 0, 58)
+                    listContainer.Visible = false
+                    arrowLbl.Text = "v"
+                    if callback then callback(opt) end
+                end
+            end)
+            optBtn:SetAttribute("OptionName", opt)
+            table.insert(optionButtons, optBtn)
+        end
+
+        mainBtn.MouseButton1Click:Connect(function()
+            isExpanded = not isExpanded
+            if isExpanded then
+                arrowLbl.Text = "^"
+                listContainer.Visible = true
+                card.Size = UDim2.new(1, 0, 0, 60 + #options * 24 + 6)
+            else
+                arrowLbl.Text = "v"
+                listContainer.Visible = false
+                card.Size = UDim2.new(1, 0, 0, 58)
+            end
+        end)
+    end
 end
 
 -- // 7. TAB INSTANTIATION // --
@@ -572,6 +773,8 @@ local interactionTab = UILib.CreateTab("Interact")
 local automationTab = UILib.CreateTab("Automate")
 local espTab = UILib.CreateTab("ESP")
 local visualsTab = UILib.CreateTab("Visuals")
+local defenseTab = UILib.CreateTab("Defense")
+local exploitsTab = UILib.CreateTab("Exploits")
 
 -- =========================================================================
 -- SECTION 1: MOVEMENT & CHARACTER (MSPAINT PARITY)
@@ -852,9 +1055,28 @@ UILib.CreateToggle(interactionTab, "Auto Interact", State.AutoInteract, function
     State.AutoInteract = v
 end, "R")
 
+UILib.CreateDropdown(interactionTab, "Ignore List", {
+    "Unlock w/ Shears",
+    "Unlock w/ Lockpick",
+    "Unlock w/ Skeleton Key",
+    "Jeff Items",
+    "Paintings",
+    "Gold",
+    "Skull Prompt",
+    "Light Source Items",
+    "Glitch Fragment",
+    "Paper Planes",
+    "Fih Flakes",
+    "Pizza",
+    "Candies",
+    "Can-Die Candy"
+}, State.AutoInteract_IgnoreList, true, function(selected)
+    State.AutoInteract_IgnoreList = selected
+end)
+
 UILib.CreateSlider(interactionTab, "Auto Interact Delay", 0.01, 0.25, State.AutoInteract_Delay, "s", function(v)
     State.AutoInteract_Delay = v
-end)
+end, Color3.fromRGB(130, 80, 255))
 
 UILib.CreateToggle(interactionTab, "Instant Interact", State.InstantInteract, function(v)
     State.InstantInteract = v
@@ -862,6 +1084,10 @@ end)
 
 UILib.CreateToggle(interactionTab, "Interact Through Walls", State.InteractThroughWalls, function(v)
     State.InteractThroughWalls = v
+end)
+
+UILib.CreateDropdown(interactionTab, "Interact Distance", { "1", "2" }, tostring(State.InteractDistance or 1), false, function(v)
+    State.InteractDistance = tonumber(v) or 1
 end)
 
 -- Active Door Reach Daemon (22 studs: sweeps Main & Side doors)
@@ -1053,7 +1279,17 @@ UILib.CreateToggle(automationTab, "Auto Hide", State.AutoHide, function(v)
     State.AutoHide = v
 end, "Q", Color3.fromRGB(255, 75, 75))
 
--- // 8. METATABLE HOOKS (CLUTCH HEARTBEAT & STEALTH) // --
+-- // 8. METATABLE HOOKS (CLUTCH HEARTBEAT, FIGURE HEARING, ANTI-EYES & A-90) // --
+local function isEyesActiveInWorld()
+    for _, ch in ipairs(Workspace:GetChildren()) do
+        local nl = ch.Name:lower()
+        if ch:IsA("Model") and (nl:find("eyes") or nl:find("lookman")) then
+            return true
+        end
+    end
+    return false
+end
+
 if hookmetamethod and not _G.DOORS_V2_METATABLE_HOOKED then
     _G.DOORS_V2_METATABLE_HOOKED = true
     local oldNc
@@ -1064,6 +1300,27 @@ if hookmetamethod and not _G.DOORS_V2_METATABLE_HOOKED then
                 local args = {...}
                 args[2] = true -- 100% heartbeat score spoof
                 return oldNc(self, unpack(args))
+            elseif self.Name == "MotorReplication" then
+                local args = {...}
+                local modified = false
+                -- Anti-Eyes & Lookman: Spoof pitch to -89.9 deg (staring straight at floor)
+                if State.AntiEyes and isEyesActiveInWorld() then
+                    args[1] = -899
+                    modified = true
+                end
+                -- Anti-Figure Hearing (Silent Steps): Spoof crouch/stealth state so Figure NEVER hears player!
+                if State.AntiFigureHearing then
+                    args[4] = true
+                    modified = true
+                end
+                if modified then
+                    return oldNc(self, unpack(args))
+                end
+            elseif self.Name == "A90" and State.AntiA90 then
+                local arg1 = ...
+                if arg1 == "moved" then
+                    return oldNc(self, "didnt")
+                end
             end
         end
         return oldNc(self, ...)
@@ -1870,4 +2127,486 @@ task.spawn(function()
     end
 end)
 
-print("[U⚡] UNKNOWN HUB — DOORS V2 (PARTS 1 & 2) LOADED SUCCESSFULLY!")
+
+-- =========================================================================
+-- SECTION 6: HOTEL ANTI-ENTITIES SUITE (1:1 MSPAINT V4 RE-ARCHITECTURE)
+-- =========================================================================
+local function defuseSnare(inst)
+    if not inst then return end
+    pcall(function()
+        for _, p in ipairs(inst:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanTouch = false end
+        end
+        if inst:IsA("BasePart") then inst.CanTouch = false end
+    end)
+end
+
+local function defuseGiggle(inst)
+    if not inst then return end
+    pcall(function()
+        for _, p in ipairs(inst:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanTouch = false end
+        end
+        if inst:IsA("BasePart") then inst.CanTouch = false end
+    end)
+end
+
+local function defuseDupe(door)
+    if not door then return end
+    pcall(function()
+        local hidden = door:FindFirstChild("Hidden")
+        if hidden and hidden:IsA("BasePart") then hidden.CanTouch = false end
+        local co = door:FindFirstChild("ClientOpen")
+        if co then co:Destroy() end
+        for _, p in ipairs(door:GetDescendants()) do
+            if p:IsA("ProximityPrompt") then p.Enabled = false end
+        end
+    end)
+end
+
+local function defuseSeekThreats(desc)
+    if not State.AntiSeek then return end
+    pcall(function()
+        local nl = desc.Name:lower()
+        if (nl:find("arm") or nl:find("hand") or nl:find("fire") or nl:find("kill") or nl:find("damage")) and desc:IsA("BasePart") then
+            desc.CanTouch = false
+        end
+    end)
+end
+
+local function defuseScreech(screechInst)
+    if not State.AntiScreech then return end
+    pcall(function()
+        if RemotesFolder and RemotesFolder:FindFirstChild("Screech") then
+            RemotesFolder.Screech:FireServer(true)
+        end
+        for _, d in ipairs(screechInst:GetDescendants()) do
+            if d:IsA("Sound") then d.Volume = 0; d:Stop() end
+            if d:IsA("ParticleEmitter") then d.Enabled = false end
+        end
+        task.delay(0.05, function() pcall(function() screechInst:Destroy() end) end)
+    end)
+end
+
+-- Camera Watchdog for Screech
+Camera.ChildAdded:Connect(function(child)
+    if child.Name == "Screech" or child.Name == "ScreechRetro" then
+        defuseScreech(child)
+    end
+end)
+
+-- Detour Halt module attack
+pcall(function()
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local mainUI = pGui and pGui:FindFirstChild("MainUI")
+    local initiator = mainUI and mainUI:FindFirstChild("Initiator")
+    local mg = initiator and initiator:FindFirstChild("Main_Game")
+    local rl = mg and mg:FindFirstChild("RemoteListener")
+    local modules = rl and rl:FindFirstChild("Modules")
+    local shadeMod = modules and modules:FindFirstChild("Shade")
+    if shadeMod then
+        local rawShade = require(shadeMod)
+        if rawShade and rawShade.stuff then
+            local oldStuff = rawShade.stuff
+            rawShade.stuff = function(...)
+                if State.AntiHalt then return end
+                return oldStuff(...)
+            end
+        end
+    end
+end)
+
+-- Continuous Anti-Entity Watchdog Daemon
+task.spawn(function()
+    while isAlive() do
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            for _, room in ipairs(curRooms:GetChildren()) do
+                -- Anti Dupe
+                if State.AntiDupe then
+                    for _, child in ipairs(room:GetChildren()) do
+                        if child.Name == "DoorFake" or (child:GetAttribute("LoadModule") == "DupeRoom") then
+                            defuseDupe(child)
+                        end
+                    end
+                end
+
+                -- Anti Snare & Giggle & Seek
+                for _, desc in ipairs(room:GetDescendants()) do
+                    local nl = desc.Name:lower()
+                    if State.AntiSnare and nl:find("snare") then
+                        defuseSnare(desc)
+                    elseif State.AntiGiggle and nl:find("giggle") then
+                        defuseGiggle(desc)
+                    elseif State.AntiSeek then
+                        defuseSeekThreats(desc)
+                    end
+                end
+            end
+        end
+        task.wait(0.4)
+    end
+end)
+
+-- UI CONTROLS FOR TAB 6: DEFENSE (HOTEL ANTI-ENTITIES)
+UILib.CreateSection(defenseTab, "Hotel Monster Neutralizers")
+
+UILib.CreateToggle(defenseTab, "Anti Snare (Bear Traps)", State.AntiSnare, function(v)
+    State.AntiSnare = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti Giggle (Ceiling Snatchers)", State.AntiGiggle, function(v)
+    State.AntiGiggle = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti Dupe (Fake Doors)", State.AntiDupe, function(v)
+    State.AntiDupe = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti Eyes & Lookman (Damage Gaze)", State.AntiEyes, function(v)
+    State.AntiEyes = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti Screech (Auto Defuse)", State.AntiScreech, function(v)
+    State.AntiScreech = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti Halt (Module Attack Defusal)", State.AntiHalt, function(v)
+    State.AntiHalt = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti Seek (Hands & Fire Obstacles)", State.AntiSeek, function(v)
+    State.AntiSeek = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti Figure Hearing (Silent Steps)", State.AntiFigureHearing, function(v)
+    State.AntiFigureHearing = v
+end)
+
+UILib.CreateToggle(defenseTab, "Anti A-90 (Instant Stop Spoof)", State.AntiA90, function(v)
+    State.AntiA90 = v
+end)
+
+-- =========================================================================
+-- SECTION 7: INFINITE ITEMS ENGINE & PUZZLE SOLVERS (MSPAINT PARITY)
+-- =========================================================================
+local function getToolFromInventory(keywords)
+    local char = getChar()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local candidates = {}
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") then table.insert(candidates, item) end
+        end
+    end
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") then table.insert(candidates, item) end
+        end
+    end
+
+    for _, tool in ipairs(candidates) do
+        local tName = tool.Name:lower()
+        for _, kw in ipairs(keywords) do
+            if tName:find(kw:lower()) then
+                return tool
+            end
+        end
+    end
+    return nil
+end
+
+local infItemsDebounce = false
+
+local function executeInfiniteUnlock(targetPrompt, overrideTool)
+    if infItemsDebounce then return end
+    infItemsDebounce = true
+
+    local tool = overrideTool or getToolFromInventory({"skeleton", "lockpick", "shears", "key"})
+    if not tool or not State.InfiniteItems then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+        infItemsDebounce = false
+        return
+    end
+
+    local tn = tool.Name:lower()
+    local isLockpickSkeleton = tn:find("lockpick") or tn:find("skeleton")
+    local isGarageKey = tn:find("garage") or tn:find("key")
+    local isShears = tn:find("shear")
+
+    local pickupId = tool:GetAttribute("Pickup") or tool.Name
+    local dropRemote = RemotesFolder and RemotesFolder:FindFirstChild("DropItem")
+    local dropsFolder = Workspace:FindFirstChild("Drops")
+
+    if not dropRemote or not dropsFolder then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+        infItemsDebounce = false
+        return
+    end
+
+    local hum = getHumanoid()
+    if tool.Parent == LocalPlayer:FindFirstChild("Backpack") and hum then
+        hum:EquipTool(tool)
+        task.wait(0.04)
+    end
+
+    -- Garage Key: Trigger prompt before drop (mspaint order)
+    if isGarageKey then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    -- Phase 1: Drop tool with DropItem remote
+    pcall(function() dropRemote:FireServer(tool) end)
+
+    -- Phase 2: Event-driven wait for NEW dropped item
+    local droppedModel = nil
+    local dropConn = nil
+    local deadline = os.clock() + 1.5
+
+    dropConn = dropsFolder.ChildAdded:Connect(function(child)
+        if child:IsA("Model") and (child:GetAttribute("Pickup") == pickupId or child.Name:lower():find(tn))
+           and (child:GetAttribute("PlayerName") == LocalPlayer.Name or not child:GetAttribute("PlayerName")) then
+            droppedModel = child
+        end
+    end)
+
+    while not droppedModel and os.clock() < deadline do
+        task.wait(0.02)
+    end
+    if dropConn then dropConn:Disconnect() end
+
+    -- Fallback sweep if ChildAdded was early
+    if not droppedModel then
+        for _, ch in ipairs(dropsFolder:GetChildren()) do
+            if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
+               and (ch:GetAttribute("PlayerName") == LocalPlayer.Name) then
+                droppedModel = ch
+                break
+            end
+        end
+    end
+
+    -- Shears: Trigger prompt before reclaim (mspaint order)
+    if isShears then
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    -- Phase 3: Re-obtain tool from floor
+    if droppedModel then
+        local pickupPrompt = droppedModel:WaitForChild("ModulePrompt", 0.6) or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if pickupPrompt then
+            pickupPrompt.HoldDuration = 0
+            pickupPrompt.RequiresLineOfSight = false
+            pcall(function() fireproximityprompt(pickupPrompt) end)
+        end
+    end
+
+    -- Lockpick / Skeleton Key: Trigger unlock prompt AFTER tool is safely re-obtained (mspaint order)
+    if isLockpickSkeleton then
+        task.wait(0.03)
+        pcall(function() fireproximityprompt(targetPrompt) end)
+    end
+
+    task.delay(0.2, function()
+        infItemsDebounce = false
+    end)
+end
+
+-- Hook ProximityPromptService for Infinite Items (mspaint Parity)
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
+    if player and player ~= LocalPlayer then return end
+    local pName = prompt.Name:lower()
+    local obj = (prompt.ObjectText or ""):lower()
+    local act = (prompt.ActionText or ""):lower()
+    local isChest = obj:find("chest") or pName:find("chest") or (prompt.Parent and prompt.Parent.Name:lower():find("chest"))
+
+    -- Strictly real unlock prompts, NEVER chest open prompts!
+    local isUnlock = (pName:find("unlock") or act:find("unlock") or obj:find("padlock") or (obj:find("lock") and not isChest)) and not act:find("open")
+
+    if isUnlock and State.InfiniteItems and State.InfiniteLockpicks and not infItemsDebounce then
+        local tool = getToolFromInventory({"skeleton", "lockpick", "shears", "key"})
+        if tool then
+            local tn = tool.Name:lower()
+            if tn:find("lockpick") or tn:find("skeleton") or tn:find("shear") then
+                task.spawn(function()
+                    executeInfiniteUnlock(prompt, tool)
+                end)
+            end
+        end
+    end
+end)
+
+-- Retain Crucifix on Exorcism Activation
+local function bindCrucifixTool(tool)
+    if not tool or not tool:IsA("Tool") then return end
+    if tool:GetAttribute("V2_Crucifix_Bound") then return end
+    tool:SetAttribute("V2_Crucifix_Bound", true)
+
+    tool.Activated:Connect(function()
+        if not State.InfiniteItems or not State.InfiniteCrucifix then return end
+        if tool.Name:lower():find("crucifix") then
+            local dropRemote = RemotesFolder and RemotesFolder:FindFirstChild("DropItem")
+            if dropRemote then
+                task.delay(0.1, function()
+                    pcall(function() dropRemote:FireServer(tool) end)
+                end)
+            end
+        end
+    end)
+end
+
+LocalPlayer.Backpack.ChildAdded:Connect(function(child)
+    if child:IsA("Tool") and child.Name:lower():find("crucifix") then
+        bindCrucifixTool(child)
+    end
+end)
+for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+    if t:IsA("Tool") and t.Name:lower():find("crucifix") then
+        bindCrucifixTool(t)
+    end
+end
+
+-- =========================================================================
+-- AUTOMATED PUZZLE SOLVERS (ROOM 50 CODE & ROOM 100 BREAKERS)
+-- =========================================================================
+
+-- 1. Room 50 Library Code Solver
+local libraryCodeStatusCard = nil
+
+local function solveLibraryCode()
+    if not State.AutoLibrarySolver then return end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return end
+    local room50 = curRooms:FindFirstChild("50")
+    if not room50 then return end
+
+    local hints = {}
+    local paper = nil
+
+    -- Look for Book Hints & Code Sheet
+    for _, desc in ipairs(room50:GetDescendants()) do
+        if desc.Name == "BookHint" or desc:GetAttribute("Hint") then
+            table.insert(hints, desc)
+        elseif desc.Name == "LibraryCodeSheet" or desc.Name:lower():find("sheet") then
+            paper = desc
+        end
+    end
+
+    if #hints >= 5 then
+        local code = ""
+        for i = 1, 5 do
+            local val = hints[i]:GetAttribute("Hint") or tostring(i)
+            code = code .. tostring(val)
+        end
+
+        if libraryCodeStatusCard then
+            libraryCodeStatusCard:SetStatus("Library Code: " .. code, true)
+        end
+
+        -- Auto-enter code into Padlock if within reach
+        local padlock = room50:FindFirstChild("Padlock", true)
+        if padlock then
+            local prompt = padlock:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then
+                local root = getRoot()
+                if root and (root.Position - padlock.Position).Magnitude <= 18 then
+                    pcall(function()
+                        local plRemote = RemotesFolder and RemotesFolder:FindFirstChild("Padlock")
+                        if plRemote and plRemote:IsA("RemoteEvent") then
+                            plRemote:FireServer(code)
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end
+
+-- 2. Room 100 Breaker Box Auto-Solver
+local function solveBreakerBox()
+    if not State.AutoBreakerSolver then return end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local room100 = curRooms and curRooms:FindFirstChild("100")
+    if not room100 then return end
+
+    local elevatorBreaker = room100:FindFirstChild("ElevatorBreaker", true)
+    if elevatorBreaker then
+        local codeVal = elevatorBreaker:GetAttribute("Code") or elevatorBreaker:GetAttribute("Target")
+        if codeVal then
+            local brRemote = RemotesFolder and RemotesFolder:FindFirstChild("Breaker")
+            if brRemote and brRemote:IsA("RemoteEvent") then
+                pcall(function() brRemote:FireServer(codeVal) end)
+            end
+        end
+    end
+end
+
+-- 3. Painting Puzzle Auto-Aligner
+local function autoAlignPaintings()
+    if not State.AutoPaintings then return end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if not curRooms then return end
+    for _, room in ipairs(curRooms:GetChildren()) do
+        local paintings = room:FindFirstChild("Paintings") or room:FindFirstChild("PaintingPuzzle")
+        if paintings then
+            for _, frame in ipairs(paintings:GetChildren()) do
+                local prompt = frame:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt and prompt.Enabled then
+                    safeInstantFirePrompt(prompt)
+                end
+            end
+        end
+    end
+end
+
+-- Continuous Puzzle Solver Daemon
+task.spawn(function()
+    while isAlive() do
+        solveLibraryCode()
+        solveBreakerBox()
+        autoAlignPaintings()
+        task.wait(1.0)
+    end
+end)
+
+-- UI CONTROLS FOR TAB 7: EXPLOITS & PUZZLES
+UILib.CreateSection(exploitsTab, "Infinite Items Engine")
+
+UILib.CreateToggle(exploitsTab, "Infinite Items (Universal)", State.InfiniteItems, function(v)
+    State.InfiniteItems = v
+end)
+
+UILib.CreateToggle(exploitsTab, "Infinite Lockpicks & Shears", State.InfiniteLockpicks, function(v)
+    State.InfiniteLockpicks = v
+end)
+
+UILib.CreateToggle(exploitsTab, "Infinite Crucifix (Retain on Attack)", State.InfiniteCrucifix, function(v)
+    State.InfiniteCrucifix = v
+end)
+
+UILib.CreateSection(exploitsTab, "Automated Room Solvers")
+
+libraryCodeStatusCard = UILib.CreateStatusLabel(exploitsTab, "Library Code: Scanning...")
+
+UILib.CreateToggle(exploitsTab, "Auto Library Code Solver (Room 50)", State.AutoLibrarySolver, function(v)
+    State.AutoLibrarySolver = v
+end)
+
+UILib.CreateToggle(exploitsTab, "Auto Breaker Box Solver (Room 100)", State.AutoBreakerSolver, function(v)
+    State.AutoBreakerSolver = v
+end)
+
+UILib.CreateToggle(exploitsTab, "Auto Painting Puzzle Aligner", State.AutoPaintings, function(v)
+    State.AutoPaintings = v
+end)
+\nprint("[U⚡] UNKNOWN HUB — DOORS V2 (PARTS 1, 2 & 3 COMPLETE) LOADED SUCCESSFULLY!")
+
+-- Global Keybind Triggers (R: Auto Interact, Q: Auto Hide)
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.R then
+        State.AutoInteract = not State.AutoInteract
+    elseif input.KeyCode == Enum.KeyCode.Q then
+        State.AutoHide = not State.AutoHide
+    end
+end)
