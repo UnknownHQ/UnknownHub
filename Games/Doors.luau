@@ -839,9 +839,16 @@ local function createHighlight(adornee, color, fillTrans, outlineTrans, category
     fillTrans = fillTrans or State.ESP_FillTransparency or 0.75
     outlineTrans = outlineTrans or State.ESP_OutlineTransparency or 0
 
+    local targetModel = adornee
+    if adornee:IsA("BasePart") then
+        if adornee.Parent and adornee.Parent:IsA("Model") then
+            targetModel = adornee.Parent
+        end
+    end
+
     local hl = Instance.new("Highlight")
     hl.Name = "Unknown_ESP_" .. (category or "General") .. "_Highlight"
-    hl.Adornee = adornee
+    hl.Adornee = targetModel
     hl.FillColor = color
     hl.FillTransparency = fillTrans
     hl.OutlineColor = color
@@ -1547,15 +1554,20 @@ local DECOR_BLACKLIST = {
 }
 
 local function isValidLootItem(model)
-    if not model or not (model:IsA("Model") or model:IsA("Tool")) then return false, nil end
+    if not model or not (model:IsA("Model") or model:IsA("Tool") or model:IsA("BasePart")) then return false, nil end
     local lower = model.Name:lower()
 
-    -- Strict Invariant: Reject Rift & stored rift items so Rift is never highlighted as loot!
+    -- 1. Anti-Pickup Guard: If item has already been collected, NEVER display ESP!
+    if model:GetAttribute("ItemPicked") == true then
+        return false, nil
+    end
+
+    -- 2. Strict Invariant: Reject Rift & stored rift items so Rift is never highlighted as loot!
     if lower:find("rift") or model:GetAttribute("IsRift") or model:GetAttribute("Rift") then
         return false, nil
     end
 
-    -- Reject entire room structures, shops, siderooms, hallways, walls, fixtures
+    -- 3. Reject entire room structures, shops, siderooms, hallways, walls, fixtures
     if lower:find("room") or lower:find("shop") or lower:find("assets") or lower:find("structure")
         or lower:find("hallway") or lower:find("elevator") or lower:find("sideroom")
         or lower:find("wall") or lower:find("ceiling") or lower:find("floor") or lower:find("desk")
@@ -1563,7 +1575,7 @@ local function isValidLootItem(model)
         return false, nil
     end
 
-    -- Physical Size Check: In DOORS, loot items are small props (strictly < 8 studs on every axis)
+    -- 4. Physical Size Check: In DOORS, loot items are small props (strictly < 8 studs on every axis)
     if model:IsA("Model") then
         local cf, sz = model:GetBoundingBox()
         if sz.X > 8 or sz.Y > 8 or sz.Z > 8 then
@@ -1571,99 +1583,92 @@ local function isValidLootItem(model)
         end
     end
 
-    -- Reject blacklist decor & furniture
+    -- 5. Reject blacklist decor & furniture
     for _, blocked in ipairs(DECOR_BLACKLIST) do
         if lower:find(blocked) then
             return false, nil
         end
     end
 
+    -- 6. Reject keys, gold, coins, doors, levers, and paintings (handled by their own dedicated ESP categories)
     if lower:find("keyobtain") or lower:find("gold") or lower:find("coin") or lower:find("door") or lower:find("lever")
         or lower:find("painting") or lower:find("picture") or lower:find("canvas") or lower:find("frame") or lower:find("portrait") or lower:find("photo") then
         return false, nil
     end
 
-    -- Strict check: Must have an enabled ProximityPrompt with a pickup action, OR be a dropped Tool
+    -- 7. Direct Attribute Checks (mspaint Chunk 273 & 290 1:1 Parity)
+    local attrDisplayName = model:GetAttribute("DisplayName")
+    if typeof(attrDisplayName) == "string" and #attrDisplayName > 0 then
+        return true, attrDisplayName
+    end
+    local attrPickup = model:GetAttribute("Pickup")
+    if typeof(attrPickup) == "string" and #attrPickup > 0 then
+        return true, attrPickup
+    end
+
+    -- 8. ProximityPrompt ObjectText inspection (does NOT require prompt.Enabled == true so items in drawers show instantly!)
     local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if not prompt or not prompt.Enabled then
-        if model:IsA("Tool") and model:FindFirstChild("Handle") then
-            local tName = model.Name
-            for key, displayName in pairs(KNOWN_ITEMS) do
-                if tName:lower():find(key) then return true, displayName end
+    local promptObjectName = ""
+    if prompt then
+        promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
+        local forbiddenPromptWords = {
+            "gold", "coin", "painting", "picture", "canvas", "frame", "portrait", "photo",
+            "drawer", "knob", "desk", "table", "dresser", "container", "chest", "shelf",
+            "closet", "wardrobe", "locker", "bed", "door", "gate", "lever", "switch",
+            "button", "wheel", "valve", "lock", "padlock", "keyhole", "window", "curtain",
+            "lamp", "light", "bell", "clock", "breaker"
+        }
+        for _, bad in ipairs(forbiddenPromptWords) do
+            if promptObjectName == bad or promptObjectName:find(bad) then
+                return false, nil
             end
-            return true, tName
         end
-        return false, nil
-    end
 
-    -- Guard against parent models adopting prompts belonging to deep nested child models
-    if prompt.Parent and prompt.Parent.Parent and prompt.Parent.Parent:IsA("Model") and prompt.Parent.Parent ~= model then
-        return false, nil
-    end
-
-    local action = (prompt.ActionText or ""):lower()
-    local isPickup = action:find("take") or action:find("obtain") or action:find("steal") 
-        or action:find("grab") or action:find("pick") or action:find("equip") or action:find("collect")
-    if not isPickup then
-        return false, nil
-    end
-
-    local promptObjectName = (prompt.ObjectText and #prompt.ObjectText > 0) and prompt.ObjectText:lower() or ""
-
-    -- Strictly reject containers, furniture, mechanisms, doors, lights, paintings, and decor
-    local forbiddenPromptWords = {
-        "gold", "coin", "painting", "picture", "canvas", "frame", "portrait", "photo",
-        "drawer", "knob", "desk", "table", "dresser", "container", "chest", "shelf",
-        "closet", "wardrobe", "locker", "bed", "door", "gate", "lever", "switch",
-        "button", "wheel", "valve", "lock", "padlock", "keyhole", "window", "curtain",
-        "lamp", "light", "bell", "clock", "breaker"
-    }
-    for _, bad in ipairs(forbiddenPromptWords) do
-        if promptObjectName == bad or promptObjectName:find(bad) or lower:find(bad) then
-            return false, nil
+        -- Priority 1: Check if prompt explicitly indicates Candle or Crucifix
+        if promptObjectName:find("candle") or lower:find("candle") then
+            return true, "Candle"
         end
-    end
+        if promptObjectName:find("crucifix") or lower:find("crucifix") then
+            return true, "Crucifix"
+        end
 
-    -- Priority 1: Check if prompt explicitly indicates Candle or Crucifix (Fixes Candle displaying as Crucifix)
-    if promptObjectName:find("candle") or lower:find("candle") then
-        return true, "Candle"
-    end
-    if promptObjectName:find("crucifix") or lower:find("crucifix") then
-        return true, "Crucifix"
-    end
+        -- Priority 2: Check if prompt explicitly indicates Smoothie, Herb, Starlight
+        if promptObjectName:find("smoothie") or lower:find("smoothie") or promptObjectName:find("shake") or lower:find("shake") then
+            return true, "Smoothie"
+        end
+        if promptObjectName:find("herb") or lower:find("herb") then
+            return true, "Herb"
+        end
+        if promptObjectName:find("starlight") or lower:find("starlight") or promptObjectName:find("starjug") or lower:find("starjug") then
+            return true, "Starlight"
+        end
 
-    -- Priority 2: Check if prompt explicitly indicates Smoothie or drink (Fixes Smoothie displaying as Vitamins)
-    if promptObjectName:find("smoothie") or lower:find("smoothie") or promptObjectName:find("shake") or lower:find("shake") then
-        return true, "Smoothie"
-    end
-    if promptObjectName:find("herb") or lower:find("herb") then
-        return true, "Herb"
-    end
-    if promptObjectName:find("starlight") or lower:find("starlight") or promptObjectName:find("starjug") or lower:find("starjug") then
-        return true, "Starlight"
-    end
+        -- Priority 3: Check Paper
+        if promptObjectName:find("paper") or lower:find("paper") or lower:find("hintpaper") then
+            return true, "Paper"
+        end
 
-    -- Priority 3: Check Paper (Clean simple name "Paper" instead of "An Inconspicious Piece Of Paper")
-    if promptObjectName:find("paper") or lower:find("paper") or lower:find("hintpaper") then
-        return true, "Paper"
-    end
-
-    -- Match known item names (prefer prompt object name first, then model name)
-    for key, displayName in pairs(KNOWN_ITEMS) do
-        if promptObjectName == key or promptObjectName:find(key) then
-            return true, displayName
+        -- Priority 4: Check KNOWN_ITEMS against promptObjectName
+        for key, displayName in pairs(KNOWN_ITEMS) do
+            if promptObjectName == key or promptObjectName:find(key) then
+                return true, displayName
+            end
         end
     end
 
+    -- 9. Check KNOWN_ITEMS against model name
     for key, displayName in pairs(KNOWN_ITEMS) do
         if lower == key or lower:find("^" .. key) or lower:find(key) then
             return true, displayName
         end
     end
 
-    -- Fallback exclusively for Tool instances with non-decor pickup prompts
-    if model:IsA("Tool") and #promptObjectName > 1 then
-        return true, prompt.ObjectText
+    -- 10. Fallback for Tools with valid ProximityPrompt or Handle
+    if model:IsA("Tool") then
+        if prompt and #promptObjectName > 1 then
+            return true, prompt.ObjectText
+        end
+        return true, model.Name
     end
 
     return false, nil
@@ -2301,15 +2306,17 @@ local function processEntity(entity)
         end
 
         if is2D then
-            -- mspaint v4 Exact 2D Entity 3D Cham Engine (Function D & L / Chunk 271 1:1 Parity)
+            -- mspaint v4 Exact 2D Entity 3D Cham Engine (Function D & L / Chunk 271 & esplibrary.txt 1:1 Parity)
             -- Eyes / Lookman: Shape = Enum.PartType.Ball, Size = (5, 4, 5) -> Glowing 3D Sphere Cham (No corners!)
             -- Rush / Ambush / A-60 / A-120 / Halt / Surge: Shape = Enum.PartType.Block, Size = (6, 6, 6) -> Glowing 3D Cube Cham
             pcall(function()
                 local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
                 local chamName = isEyes and "__mspaint_eyes_esp" or "__mspaint_cube_esp"
-                local existingCham = entity:FindFirstChild(chamName)
-                local chamPart = existingCham
-                if not chamPart or not chamPart:IsA("BasePart") then
+                local existingChamModel = entity:FindFirstChild(chamName .. "_Model")
+                local chamModel = existingChamModel
+                local chamPart = nil
+
+                if not chamModel or not chamModel:IsA("Model") then
                     local shape = isEyes and Enum.PartType.Ball or Enum.PartType.Block
                     local size = isEyes and Vector3.new(5, 4, 5) or Vector3.new(6, 6, 6)
 
@@ -2318,6 +2325,9 @@ local function processEntity(entity)
                     elseif cfg.Name:lower():find("drone") and not cfg.Name:lower():find("stampede") then
                         size = Vector3.new(3.375, 6.75, 0.619)
                     end
+
+                    chamModel = Instance.new("Model")
+                    chamModel.Name = chamName .. "_Model"
 
                     chamPart = Instance.new("Part")
                     chamPart.Name = chamName
@@ -2329,21 +2339,62 @@ local function processEntity(entity)
                     chamPart.CastShadow = false
                     chamPart.Color = entityColor
                     chamPart.Material = Enum.Material.SmoothPlastic
-                    chamPart.Transparency = 0.99 -- Exactly 0.99 so native Highlight renders full 3D volumetric cham!
+                    chamPart.Transparency = 0.5 -- 50% semi-transparent volumetric core
                     chamPart.Shape = shape
                     chamPart.Size = size
                     chamPart.CFrame = targetPart.CFrame
-                    chamPart.Parent = entity
+                    chamPart.Parent = chamModel
+
+                    chamModel.PrimaryPart = chamPart
+                    chamModel.Parent = entity
 
                     local weld = Instance.new("WeldConstraint")
                     weld.Part0 = chamPart
                     weld.Part1 = targetPart
                     weld.Parent = chamPart
                     chamPart.Anchored = false
+
+                    -- mspaint 1:1 Adornment Engine (BoxHandleAdornment & SelectionBox / SphereHandleAdornment)
+                    if isEyes then
+                        local sphere = Instance.new("SphereHandleAdornment")
+                        sphere.Name = "__mspaint_sphere_adorn"
+                        sphere.Adornee = chamPart
+                        sphere.AlwaysOnTop = true
+                        sphere.ZIndex = 10
+                        sphere.Radius = size.X * 0.55
+                        sphere.Color3 = entityColor
+                        sphere.Transparency = 0.5
+                        sphere.Parent = chamPart
+                        table.insert(extraVisuals, sphere)
+                    else
+                        local box = Instance.new("BoxHandleAdornment")
+                        box.Name = "__mspaint_box_adorn"
+                        box.Adornee = chamPart
+                        box.AlwaysOnTop = true
+                        box.ZIndex = 10
+                        box.Size = size
+                        box.Color3 = entityColor
+                        box.Transparency = 0.5
+                        box.Parent = chamPart
+                        table.insert(extraVisuals, box)
+
+                        local sel = Instance.new("SelectionBox")
+                        sel.Name = "__mspaint_box_sel"
+                        sel.Adornee = chamPart
+                        sel.Color3 = entityColor
+                        sel.LineThickness = 0.05
+                        sel.SurfaceColor3 = entityColor
+                        sel.SurfaceTransparency = 0.7
+                        sel.Parent = chamPart
+                        table.insert(extraVisuals, sel)
+                    end
+                else
+                    chamPart = chamModel.PrimaryPart or chamModel:FindFirstChildWhichIsA("BasePart")
                 end
-                highlightTarget = chamPart
+
+                highlightTarget = chamModel
                 targetPart = chamPart
-                table.insert(extraVisuals, chamPart)
+                table.insert(extraVisuals, chamModel)
             end)
         else
             -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, Sally, etc.):
@@ -2824,7 +2875,8 @@ local function scanAllRooms()
 
     local drops = Workspace:FindFirstChild("Drops")
     if drops then
-        for _, child in ipairs(drops:GetDescendants()) do
+        for _, child in ipairs(drops:GetChildren()) do
+            if State.Items_ESP then processItem(child) end
             if isGlitchFragmentInstance(child) then
                 processGlitchFragment(child)
             end
@@ -4214,32 +4266,65 @@ local function syncNativeFlightSpeed(speed)
     end)
 end
 
+local activeEyesRegistry = {}
+
+local function registerEyesThreat(inst)
+    if not inst then return end
+    local n = inst.Name:lower()
+    if n == "eyes" or n:find("^eyes") or n:find("lookman") then
+        activeEyesRegistry[inst] = true
+        pcall(function()
+            inst.Destroying:Once(function()
+                activeEyesRegistry[inst] = nil
+            end)
+            inst.AncestryChanged:Connect(function(_, parent)
+                if not parent then
+                    activeEyesRegistry[inst] = nil
+                end
+            end)
+        end)
+    end
+end
+
+-- Initialize eyes threat detection across Workspace & LiveEntities
+for _, c in ipairs(Workspace:GetChildren()) do
+    registerEyesThreat(c)
+end
+local initialLive = Workspace:FindFirstChild("LiveEntities")
+if initialLive then
+    for _, c in ipairs(initialLive:GetChildren()) do
+        registerEyesThreat(c)
+    end
+    initialLive.ChildAdded:Connect(registerEyesThreat)
+    initialLive.ChildRemoved:Connect(function(c)
+        activeEyesRegistry[c] = nil
+    end)
+end
+
+Workspace.ChildAdded:Connect(registerEyesThreat)
+Workspace.ChildRemoved:Connect(function(c)
+    activeEyesRegistry[c] = nil
+end)
+Workspace.DescendantAdded:Connect(function(desc)
+    if desc.Parent and (desc.Parent.Name == "LiveEntities" or desc.Parent == Workspace) then
+        registerEyesThreat(desc)
+    end
+end)
+
 local function isEyesActive()
     if not State.Anti_Eyes then return false end
+    for inst, _ in pairs(activeEyesRegistry) do
+        if inst and inst.Parent then
+            return true, inst
+        else
+            activeEyesRegistry[inst] = nil
+        end
+    end
     for _, c in ipairs(Workspace:GetChildren()) do
         local n = c.Name:lower()
         if n == "eyes" or n:find("^eyes") or n:find("lookman") then
+            activeEyesRegistry[c] = true
             return true, c
-        end
-    end
-    local live = Workspace:FindFirstChild("LiveEntities")
-    if live then
-        for _, c in ipairs(live:GetChildren()) do
-            local n = c.Name:lower()
-            if n == "eyes" or n:find("^eyes") or n:find("lookman") then
-                return true, c
-            end
-        end
-    end
-    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-    if curRooms then
-        for _, room in ipairs(curRooms:GetChildren()) do
-            for _, c in ipairs(room:GetChildren()) do
-                local n = c.Name:lower()
-                if n == "eyes" or n:find("^eyes") or n:find("lookman") then
-                    return true, c
-                end
-            end
         end
     end
     return false
@@ -4310,15 +4395,19 @@ end
 -- Movement.LocalScript ONLY fires MotorReplication on mouse movement delta.
 -- When the player stands still or stops moving the mouse, this daemon continuously transmits safe floor pitch (-85)
 -- so the server's LVY attribute never reverts or leaves player exposed!
+-- Continuous Anti-Eyes & Lookman Heartbeat Daemon:
+-- Movement.LocalScript ONLY fires MotorReplication on mouse movement delta.
+-- When the player stands still or stops moving the mouse, this daemon continuously transmits safe floor pitch (-649)
+-- so the server's look vector attribute is permanently locked to the ground and never leaves player exposed!
 task.spawn(function()
     while _G.DOORS_SESSION == currentSession do
-        task.wait(0.08)
+        task.wait(0.03) -- 33Hz continuous saturation (mspaint Chunk 297 exact parity)
         if State.Anti_Eyes and isEyesActive() then
             pcall(function()
                 local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
                 local mr = rf and rf:FindFirstChild("MotorReplication")
                 if mr then
-                    mr:FireServer(-649, 0) -- -64.9 degrees (mspaint exact within server [-65, 65] clamp)
+                    mr:FireServer(-649) -- -64.9 degrees (mspaint exact single argument within server [-65, 65] clamp)
                 end
             end)
         end
