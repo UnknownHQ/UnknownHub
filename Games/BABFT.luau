@@ -251,9 +251,8 @@ task.spawn(function()
             local hum = getHumanoid()
 
             if char and root and hum and hum.Health > 0 then
-                -- 1. Anti-Death & Water Collision Immunity
+                -- 1. Part Collision & Damage Shield
                 pcall(function()
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
                     for _, p in ipairs(char:GetDescendants()) do
                         if p:IsA("BasePart") then p.CanCollide = false end
                     end
@@ -551,8 +550,8 @@ end)
 RunService.Heartbeat:Connect(function()
     if State.Water_Godmode or State.AutoFarm_Enabled then
         local hum = getHumanoid()
-        if hum and hum.Health > 0 then
-            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        if hum and hum.Health > 0 and hum.Health < 100 then
+            hum.Health = 100
         end
     end
 end)
