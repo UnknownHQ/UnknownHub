@@ -2728,49 +2728,56 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart") or nearbyHits[1][1]:FindFirstChild("RootPart") or nearbyHits[1][1].PrimaryPart or nearbyHits[1][1]:FindFirstChildWhichIsA("BasePart")))
     if not primaryPart then return end
 
-    -- 1. Net Module (Wrapped Remote Events)
+    -- 1. Net Module (Primary efficient wrapped remote call)
+    local sent = false
     pcall(function()
         if not _G.Unknown_WrappedAtk or not _G.Unknown_WrappedHit then
             local netM = require(ReplicatedStorage.Modules.Net)
             _G.Unknown_WrappedAtk = netM:RemoteEvent("RegisterAttack")
             _G.Unknown_WrappedHit = netM:RemoteEvent("RegisterHit")
         end
-        if _G.Unknown_WrappedAtk then
+        if _G.Unknown_WrappedAtk and _G.Unknown_WrappedHit then
             if typeof(_G.Unknown_WrappedAtk) == "Instance" then
                 _G.Unknown_WrappedAtk:FireServer(0)
             elseif type(_G.Unknown_WrappedAtk) == "table" and _G.Unknown_WrappedAtk.FireServer then
                 _G.Unknown_WrappedAtk:FireServer(0)
             end
-        end
-        if _G.Unknown_WrappedHit then
             if typeof(_G.Unknown_WrappedHit) == "Instance" then
                 _G.Unknown_WrappedHit:FireServer(primaryPart, nearbyHits)
             elseif type(_G.Unknown_WrappedHit) == "table" and _G.Unknown_WrappedHit.FireServer then
                 _G.Unknown_WrappedHit:FireServer(primaryPart, nearbyHits)
             end
+            sent = true
         end
     end)
 
-    -- 2. Direct RE child instances fallback
-    pcall(function()
-        local netFolder = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
-        if netFolder then
-            local rAtk = netFolder:FindFirstChild("RE/RegisterAttack") or netFolder:FindFirstChild("RegisterAttack")
-            local rHit = netFolder:FindFirstChild("RE/RegisterHit") or netFolder:FindFirstChild("RegisterHit")
-            if rAtk then rAtk:FireServer(0) end
-            if rHit then rHit:FireServer(primaryPart, nearbyHits) end
-        end
-    end)
+    -- 2. Direct RE child instances fallback (ONLY if Net module did not send)
+    if not sent then
+        pcall(function()
+            local netFolder = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+            if netFolder then
+                local rAtk = netFolder:FindFirstChild("RE/RegisterAttack") or netFolder:FindFirstChild("RegisterAttack")
+                local rHit = netFolder:FindFirstChild("RE/RegisterHit") or netFolder:FindFirstChild("RegisterHit")
+                if rAtk and rHit then
+                    rAtk:FireServer(0)
+                    rHit:FireServer(primaryPart, nearbyHits)
+                    sent = true
+                end
+            end
+        end)
+    end
 
-    -- 3. CommE / Remotes fallback
-    pcall(function()
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        local commE = remotes and remotes:FindFirstChild("CommE")
-        if commE then
-            commE:FireServer("RegisterAttack", 0)
-            commE:FireServer("RegisterHit", primaryPart, nearbyHits)
-        end
-    end)
+    -- 3. CommE / Remotes fallback (ONLY if still not sent)
+    if not sent then
+        pcall(function()
+            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+            local commE = remotes and remotes:FindFirstChild("CommE")
+            if commE then
+                commE:FireServer("RegisterAttack", 0)
+                commE:FireServer("RegisterHit", primaryPart, nearbyHits)
+            end
+        end)
+    end
 
     -- 4. CombatFramework controller bypass
     pcall(function()
@@ -2865,7 +2872,8 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
         if not isAuraHitOn then return end
 
         local now = tick()
-        if now - (_G.Unknown_LastHitTime or 0) < 0.08 then return end
+        if now - (_G.Unknown_LastHitTime or 0) < 0.12 then return end
+        _G.Unknown_LastHitTime = now
 
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -4392,8 +4400,9 @@ end
 
 -- UNIFIED PRIORITIZED EVENT ENGINE (PUMPKIN NPCS PRIORITY -> PUMPKIN HEADS)
 local brokenPumpkins = {}
-local pumpkinHitCounts = {}
 local lastEventAttackTime = 0
+local currentPumpkinTarget = nil
+local currentPumpkinStartTime = 0
 
 task.spawn(function()
     while true do
@@ -4478,7 +4487,7 @@ task.spawn(function()
 
                         if heldTool and #hitList > 0 then
                             local now = tick()
-                            if now - lastEventAttackTime >= 0.08 then
+                            if now - lastEventAttackTime >= 0.12 then
                                 lastEventAttackTime = now
                                 pcall(function() heldTool:Activate() end)
                                 local primaryHRP = hitList[1][2]
@@ -4506,42 +4515,64 @@ task.spawn(function()
                     return
                 end
 
-                local targetPumpkin = nil
-                local targetPart = nil
-                local closestDist = math.huge
-                local activeCount = 0
                 local now = tick()
 
-                -- Clean expired broken pumpkin debounces (> 15 seconds)
+                -- Clean expired broken pumpkin debounces (> 20 seconds)
                 for p, ts in pairs(brokenPumpkins) do
-                    if now - ts > 15 or not p.Parent then
+                    if now - ts > 20 or not p.Parent then
                         brokenPumpkins[p] = nil
-                        pumpkinHitCounts[p] = nil
                     end
                 end
 
-                for _, p in ipairs(pumpkinFolder:GetChildren()) do
-                    if p:IsA("Model") and (p.Name == "Pumpkin" or string.find(string.lower(p.Name), "pump")) then
-                        if not brokenPumpkins[p] then
-                            local state = p:GetAttribute("PumpkinState")
-                            local hitsAttr = p:GetAttribute("PumpkinHits") or 0
-                            local localHits = pumpkinHitCounts[p] or 0
+                -- Verify current target pumpkin is still alive and unbroken
+                if currentPumpkinTarget then
+                    if not currentPumpkinTarget.Parent then
+                        brokenPumpkins[currentPumpkinTarget] = now
+                        currentPumpkinTarget = nil
+                    else
+                        local sHits = currentPumpkinTarget:GetAttribute("PumpkinHits") or 0
+                        local sState = currentPumpkinTarget:GetAttribute("PumpkinState")
+                        if sHits >= 3 or (sState and sState ~= "Idle") then
+                            brokenPumpkins[currentPumpkinTarget] = now
+                            currentPumpkinTarget = nil
+                        end
+                    end
+                end
 
-                            if hitsAttr >= 3 or localHits >= 3 or (state and state ~= "Idle") then
-                                brokenPumpkins[p] = now
-                            else
-                                local pPart = p:FindFirstChild("RootPart") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
-                                if pPart then
-                                    activeCount = activeCount + 1
-                                    local d = (pPart.Position - hrp.Position).Magnitude
-                                    if d < closestDist then
-                                        closestDist = d
-                                        targetPumpkin = p
-                                        targetPart = pPart
+                -- Find closest active, unbroken pumpkin head
+                local targetPumpkin = currentPumpkinTarget
+                local targetPart = targetPumpkin and (targetPumpkin:FindFirstChild("RootPart") or targetPumpkin.PrimaryPart or targetPumpkin:FindFirstChildWhichIsA("BasePart"))
+                local activeCount = 0
+
+                if not targetPumpkin or not targetPart then
+                    local closestDist = math.huge
+                    for _, p in ipairs(pumpkinFolder:GetChildren()) do
+                        if p:IsA("Model") and (p.Name == "Pumpkin" or string.find(string.lower(p.Name), "pump")) then
+                            if not brokenPumpkins[p] and p.Parent then
+                                local state = p:GetAttribute("PumpkinState")
+                                local hitsAttr = p:GetAttribute("PumpkinHits") or 0
+
+                                if hitsAttr >= 3 or (state and state ~= "Idle") then
+                                    brokenPumpkins[p] = now
+                                else
+                                    local pPart = p:FindFirstChild("RootPart") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
+                                    if pPart then
+                                        activeCount = activeCount + 1
+                                        local d = (pPart.Position - hrp.Position).Magnitude
+                                        if d < closestDist then
+                                            closestDist = d
+                                            targetPumpkin = p
+                                            targetPart = pPart
+                                        end
                                     end
                                 end
                             end
                         end
+                    end
+
+                    if targetPumpkin and targetPumpkin ~= currentPumpkinTarget then
+                        currentPumpkinTarget = targetPumpkin
+                        currentPumpkinStartTime = now
                     end
                 end
 
@@ -4555,30 +4586,20 @@ task.spawn(function()
                 local hoverCF = CFrame.new(targetPart.Position + Vector3.new(0, farmDist, 0))
                 local distToPumpkin = (hrp.Position - hoverCF.Position).Magnitude
                 local directDist = (hrp.Position - targetPart.Position).Magnitude
+                local curHits = targetPumpkin:GetAttribute("PumpkinHits") or 0
 
                 if pumpkinEventStatus then
-                    pumpkinEventStatus.Text = string.format("Status: Slaying Pumpkin Head (%d left, %.0f studs)...", activeCount, distToPumpkin)
+                    pumpkinEventStatus.Text = string.format("Status: Slaying Pumpkin Head [Hits: %d/3] (%d left)...", curHits, activeCount)
                 end
 
-                -- Start attacking as soon as within 50 studs! (Zero delay on approach)
-                if heldTool and directDist <= 50 then
-                    local nowTime = tick()
-                    if nowTime - lastEventAttackTime >= 0.08 then
-                        lastEventAttackTime = nowTime
-                        pcall(function() heldTool:Activate() end)
-                        local hits = { {targetPumpkin, targetPart} }
-                        _G.Unknown_PerformFastAttack(hits, targetPart)
-                        pumpkinHitCounts[targetPumpkin] = (pumpkinHitCounts[targetPumpkin] or 0) + 1
-
-                        local serverHits = targetPumpkin:GetAttribute("PumpkinHits") or 0
-                        local serverState = targetPumpkin:GetAttribute("PumpkinState")
-                        if serverHits >= 3 or pumpkinHitCounts[targetPumpkin] >= 3 or (serverState and serverState ~= "Idle") then
-                            brokenPumpkins[targetPumpkin] = nowTime
-                        end
-                    end
+                -- Safety watchdog: if stuck attacking single stubborn/unhittable pumpkin for > 4.5s, skip it
+                if now - (currentPumpkinStartTime or now) > 4.5 then
+                    brokenPumpkins[targetPumpkin] = now
+                    currentPumpkinTarget = nil
+                    return
                 end
 
-                if distToPumpkin > 18 then
+                if distToPumpkin > 16 then
                     if not isTraveling then
                         safeTweenToIsland(hoverCF)
                     end
@@ -4587,7 +4608,25 @@ task.spawn(function()
                         if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
                         isTraveling = false
                     end
-                    hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.2)
+                    hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.25)
+
+                    -- Attack continuously while hovering directly overhead (within 25 studs)
+                    if heldTool and directDist <= 25 then
+                        local nowTime = tick()
+                        if nowTime - lastEventAttackTime >= 0.12 then
+                            lastEventAttackTime = nowTime
+                            pcall(function() heldTool:Activate() end)
+                            local hits = { {targetPumpkin, targetPart} }
+                            _G.Unknown_PerformFastAttack(hits, targetPart)
+
+                            local serverHits = targetPumpkin:GetAttribute("PumpkinHits") or 0
+                            local serverState = targetPumpkin:GetAttribute("PumpkinState")
+                            if serverHits >= 3 or (serverState and serverState ~= "Idle") or not targetPumpkin.Parent then
+                                brokenPumpkins[targetPumpkin] = nowTime
+                                currentPumpkinTarget = nil
+                            end
+                        end
+                    end
                 end
             end)
         end
