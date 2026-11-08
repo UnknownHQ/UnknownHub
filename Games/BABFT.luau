@@ -112,7 +112,7 @@ local State = {
     -- Auto Farm
     AutoFarm_Enabled = true,        -- Starts ENABLED so daddy can sleep right away!
     Farm_StageDelay = 1.15,         -- 1.15s per stage for maximum gold throughput
-    Farm_FlightHeight = 2.5,        -- Snug in-volume glide through DarknessPart
+    Farm_FlightHeight = 55,        -- Snug in-volume glide through DarknessPart
     Farm_AutoLaunch = true,         -- Auto triggers team dock launch
     Farm_AutoClaim = true,          -- Fires ClaimRiverResultsGold on every stage!
     Farm_InstantStageMoney = true,  -- Instant Stage Money Core
@@ -358,6 +358,8 @@ task.spawn(function()
                     -- Every stage requires entering its mid-corridor followed by darkness part handshake
                     local abort = false
 
+                    local flightHeight = State.Farm_FlightHeight or 55
+
                     for stageIdx = 1, 10 do
                         if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                             abort = true
@@ -370,18 +372,18 @@ task.spawn(function()
                             local stageName = stage.Name
                             updateStatus(string.format("Traversing Stage %d/10 (%s)...", stageIdx, stageName))
 
-                            -- Step A: Glide through mid-stage corridor (Z = dp.Position.Z - 380)
+                            -- Step A: Glide high above obstacles through mid-stage corridor (Z = dp.Position.Z - 380)
                             local midZ = dp.Position.Z - 380
                             root.Anchored = false
-                            tweenCharacter(root, CFrame.new(-53.5, 10, midZ), 0.65)
+                            tweenCharacter(root, CFrame.new(-53.5, flightHeight, midZ), 0.65)
 
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                                 abort = true
                                 break
                             end
 
-                            -- Step B: Smoothly enter DarknessPart boundary
-                            tweenCharacter(root, CFrame.new(dp.Position.X, 10, dp.Position.Z), 0.65)
+                            -- Step B: Smoothly enter DarknessPart boundary (DarknessPart spans up to Y=192)
+                            tweenCharacter(root, CFrame.new(dp.Position.X, flightHeight, dp.Position.Z), 0.65)
 
                             -- Physical touch registration
                             root.AssemblyLinearVelocity = Vector3.zero
@@ -402,30 +404,33 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 4. Claim The End & Golden Chest (Full Opening Window & Zero Pre-Reset)
+                    -- 4. High-Altitude Approach to The End (Bypasses 210 Waterfall Rocks & DestroyBoatPart)
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
 
                     if trigger then
-                        updateStatus("Opening Golden Chest & Collecting Treasure...")
+                        updateStatus("Approaching Golden Chest Above Waterfall...")
 
-                        -- Disarm lethal kill parts at TheEnd so daddy never dies prematurely
+                        -- Fly high in open sky (Y=55) directly above the chest to bypass all waterfall rocks
+                        root.Anchored = false
+                        bv.Velocity = Vector3.zero
+                        tweenCharacter(root, CFrame.new(trigger.Position.X, flightHeight, trigger.Position.Z), 0.85)
+
+                        -- Obliterate lethal obstacles locally so they can never kill daddy
                         pcall(function()
-                            local dbp = theEnd:FindFirstChild("DestroyBoatPart")
-                            if dbp then dbp.CanTouch = false; dbp.CanCollide = false end
-                            for _, obj in ipairs(theEnd:GetDescendants()) do
-                                if obj:IsA("BasePart") and obj ~= trigger and not obj:IsDescendantOf(chest) then
-                                    obj.CanTouch = false
-                                    obj.CanCollide = false
+                            if theEnd:FindFirstChild("DestroyBoatPart") then theEnd.DestroyBoatPart:Destroy() end
+                            if theEnd:FindFirstChild("PointedRocks") then theEnd.PointedRocks:Destroy() end
+                            for _, ch in ipairs(theEnd:GetChildren()) do
+                                if ch.Name == "Rock1" or ch.Name == "Rock2" or ch.Name == "Rock3" or ch.Name == "Water" then
+                                    ch:Destroy()
                                 end
                             end
                         end)
 
-                        -- Elevate character safely 2.5 studs above trigger
-                        root.Anchored = false
-                        bv.Velocity = Vector3.zero
-                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0))
+                        -- Smooth vertical descent directly onto chest trigger
+                        updateStatus("Descending to Golden Chest...")
+                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0)), 0.45)
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
