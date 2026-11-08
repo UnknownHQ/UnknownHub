@@ -4107,11 +4107,13 @@ _G.startUnknownFarm = function()
                 else
                     local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
                     
-                    -- Detect target mobs map-wide so player directly tweens to live NPCs
+                    -- Detect target mobs: STRICT EXACT MATCH ONLY (ONLY THE SAME TARGETED MOB, ZERO BOSSES OR DIFFERENT VARIANTS)
+                    local targetNameLower = string.lower(exactMobName)
                     for i = 1, #enemies do
                         local mob = enemies[i]
                         if mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChildOfClass("Humanoid") and mob.Humanoid.Health > 0 then
-                            if mob.Name == exactMobName or string.find(mob.Name, "^" .. exactMobName .. " ") then
+                            local mobBaseName = string.lower(mob.Name:match("^(.-)%s*%[") or mob.Name):gsub("%s+$", "")
+                            if mobBaseName == targetNameLower then
                                 table.insert(targetMobs, mob)
                             end
                         end
@@ -4199,8 +4201,16 @@ _G.startUnknownFarm = function()
             -- Lock player overhead facing straight down at the mob cluster
             playerHRP.CFrame = hoverAnchorCF
 
-            -- COLLECT & CLUSTER EVERY SINGLE TARGETED NPC ON THE ISLAND INTO ONE SINGLE STACK
-            local bringCF = CFrame.new(playerHRP.Position - Vector3.new(0, farmDist, 0))
+            -- EXTEND CLIENT PHYSICS SIMULATION TO ALL MOBS ON THE ISLAND
+            pcall(function()
+                if sethiddenproperty then
+                    sethiddenproperty(LocalPlayer, "SimulationRadius", math.huge)
+                    sethiddenproperty(LocalPlayer, "MaxSimulationRadius", math.huge)
+                end
+            end)
+
+            -- COLLECT & CLUSTER EVERY SINGLE TARGETED NPC THAT IS THE SAME INTO ONE SINGLE STACK
+            local bringCF = CFrame.new(playerHRP.Position.X, playerHRP.Position.Y - farmDist, playerHRP.Position.Z)
             local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
             local hitList = {}
             local primaryHRP = nil
@@ -4210,8 +4220,10 @@ _G.startUnknownFarm = function()
                 local mobHRP = mob:FindFirstChild("HumanoidRootPart")
                 local mobHum = mob:FindFirstChildOfClass("Humanoid")
                 if mobHRP and mobHum and mobHum.Health > 0 then
-                    local mobNameLower = string.lower(mob.Name)
-                    if string.find(mobNameLower, targetNameLower, 1, true) then
+                    -- STRICT BASE-NAME MATCHING: Strips [Lv. XX] and verifies EXACT match
+                    -- (e.g. "Gorilla [Lv. 20]" -> "Gorilla", matches "Gorilla", NEVER "Gorilla King [Lv. 25]")
+                    local mobBaseName = string.lower(mob.Name:match("^(.-)%s*%[") or mob.Name):gsub("%s+$", "")
+                    if mobBaseName == targetNameLower then
                         if not primaryHRP then primaryHRP = mobHRP end
                         table.insert(hitList, {mob, mobHRP})
 
@@ -4226,7 +4238,7 @@ _G.startUnknownFarm = function()
                         if mobHum.WalkSpeed ~= 0 then mobHum.WalkSpeed = 0 end
                         if not mobHum.PlatformStand then mobHum.PlatformStand = true end
 
-                        -- Snap every single targeted mob directly into the single stack beneath player
+                        -- Snap every single same-type targeted mob directly into the single stack beneath player
                         mobHRP.CFrame = bringCF
                         mobHRP.Velocity = Vector3.zero
                         mobHRP.RotVelocity = Vector3.zero
