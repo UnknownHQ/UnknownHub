@@ -122,10 +122,14 @@ local State = {
     TotalRuns = 0,
     CurrentStatus = "Active",
 
-    -- Build Stealer
+    -- Build Stealer (Real Server-Side Block Construction)
     SelectedTargetPlayer = nil,
     SelectedSavedBuild = nil,
     SelectedGameSaveSlot = 1,
+    Build_Anchored = true,
+    Build_AutoSubstitute = true,
+    Build_ScaleEnabled = true,
+    Build_PaintEnabled = true,
 
     -- OP Functions & Exploits
     Water_Godmode = true,
@@ -700,7 +704,32 @@ Hub.CreateButton(buildTab, "💾 Export & Save Selected Player's Build", functio
     exportPlayerBuild(State.SelectedTargetPlayer)
 end)
 
--- Reconstruct / Clone build onto LocalPlayer's plot
+-- Clean up any obsolete client dummy containers
+pcall(function()
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name:find("StolenBuild_") then
+            obj:Destroy()
+        end
+    end
+end)
+
+-- Helper to find player's most abundant block as fallback
+local function getBestAvailableBlock()
+    local bestName = "TitaniumBlock"
+    local maxCount = 0
+    local dataFolder = LocalPlayer:FindFirstChild("Data")
+    if dataFolder then
+        for _, item in ipairs(dataFolder:GetChildren()) do
+            if item:IsA("IntValue") and item.Value > maxCount and item.Name:find("Block") then
+                maxCount = item.Value
+                bestName = item.Name
+            end
+        end
+    end
+    return bestName, maxCount
+end
+
+-- Reconstruct REAL server-recognized blocks onto LocalPlayer's plot
 local function constructBuildOnMyIsland(buildKey)
     local data = SavedBuilds[buildKey]
     if not data then
@@ -717,39 +746,120 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    local myZoneCF = myZone.CFrame
-    local myBlocksFolder = Workspace:FindFirstChild("Blocks") and Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
-
-    local container = Instance.new("Model")
-    container.Name = "StolenBuild_" .. data.Author
-    container.Parent = Workspace
-
-    local count = 0
-    for _, block in ipairs(data.Blocks) do
-        local relCF = CFrame.new(unpack(block.RelativeCF))
-        local worldCF = myZoneCF:ToWorldSpace(relCF)
-
-        local part = Instance.new("Part")
-        part.Name = block.Name
-        part.Size = Vector3.new(unpack(block.Size))
-        part.CFrame = worldCF
-        part.Color = Color3.new(unpack(block.Color))
-        pcall(function() part.Material = Enum.Material[block.Material] end)
-        part.Transparency = block.Transparency or 0
-        part.Anchored = true
-        part.CanCollide = true
-        part.Parent = container
-        count = count + 1
+    -- Locate Building Tools
+    local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("BuildingTool"))
+    local bRF = bTool and bTool:FindFirstChild("RF")
+    if not bRF then
+        Hub.Notify({ Title = "Build Stealer", Content = "BuildingTool RF not found! Please equip or check inventory.", Duration = 3 })
+        return
     end
 
+    local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("ScalingTool"))
+    local sRF = sTool and sTool:FindFirstChild("RF")
+
+    local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("PaintingTool"))
+    local pRF = pTool and pTool:FindFirstChild("RF")
+
+    local myZoneCF = myZone.CFrame
+    local bestFallback, fallbackCount = getBestAvailableBlock()
+    local myBlocksFolder = Workspace:FindFirstChild("Blocks") and Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+
     Hub.Notify({
-        Title = "Build Reconstructed!",
-        Content = string.format("Placed %d blocks onto your island!", count),
-        Duration = 4
+        Title = "Build Stealer",
+        Content = string.format("Constructing %d REAL blocks onto your plot...", #data.Blocks),
+        Duration = 3
     })
+
+    task.spawn(function()
+        local count = 0
+        local substituted = 0
+        local isAnchored = State.Build_Anchored ~= false
+
+        for _, block in ipairs(data.Blocks) do
+            local relCF = CFrame.new(unpack(block.RelativeCF))
+            local worldCF = myZoneCF:ToWorldSpace(relCF)
+
+            local targetBlockName = block.Name
+            local invItem = LocalPlayer.Data:FindFirstChild(targetBlockName)
+            local invCount = invItem and invItem.Value or 0
+
+            -- Auto-substitute with highest owned block if daddy doesn't own this block
+            if invCount <= 0 then
+                if State.Build_AutoSubstitute then
+                    targetBlockName = bestFallback
+                    invCount = fallbackCount
+                    substituted = substituted + 1
+                else
+                    continue
+                end
+            end
+
+            -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
+            pcall(function()
+                bRF:InvokeServer(targetBlockName, invCount, nil, nil, isAnchored, worldCF, nil, true)
+            end)
+            count = count + 1
+
+            -- Optional: Apply Scaling if block was resized
+            if State.Build_ScaleEnabled and sRF and myBlocksFolder and block.Size then
+                local bSize = Vector3.new(unpack(block.Size))
+                if math.abs(bSize.X - 2) > 0.05 or math.abs(bSize.Y - 2) > 0.05 or math.abs(bSize.Z - 2) > 0.05 then
+                    local children = myBlocksFolder:GetChildren()
+                    local newestBlock = children[#children]
+                    if newestBlock then
+                        pcall(function()
+                            sRF:InvokeServer(newestBlock, bSize, worldCF)
+                        end)
+                    end
+                end
+            end
+
+            -- Optional: Apply Painting color
+            if State.Build_PaintEnabled and pRF and myBlocksFolder and block.Color then
+                local bColor = Color3.new(unpack(block.Color))
+                local children = myBlocksFolder:GetChildren()
+                local newestBlock = children[#children]
+                local ppart = newestBlock and newestBlock:FindFirstChild("PPart")
+                if ppart then
+                    pcall(function()
+                        pRF:InvokeServer({{ppart, bColor}})
+                    end)
+                end
+            end
+
+            -- Pace placements to prevent remote dropping
+            if count % 5 == 0 then
+                task.wait(0.04)
+            else
+                task.wait(0.01)
+            end
+        end
+
+        Hub.Notify({
+            Title = "Build Completed!",
+            Content = string.format("Successfully built %d REAL blocks onto your plot! (%d substituted)", count, substituted),
+            Duration = 5
+        })
+    end)
 end
 
-Hub.CreateButton(buildTab, "🔨 Construct Selected Build on My Island", function()
+Hub.CreateToggle(buildTab, "Auto-Substitute Missing Blocks", State.Build_AutoSubstitute, function(v)
+    State.Build_AutoSubstitute = v
+end)
+
+Hub.CreateToggle(buildTab, "Build Anchored", State.Build_Anchored, function(v)
+    State.Build_Anchored = v
+end)
+
+Hub.CreateToggle(buildTab, "Apply Scaling (ScalingTool)", State.Build_ScaleEnabled, function(v)
+    State.Build_ScaleEnabled = v
+end)
+
+Hub.CreateToggle(buildTab, "Apply Painting (PaintingTool)", State.Build_PaintEnabled, function(v)
+    State.Build_PaintEnabled = v
+end)
+
+Hub.CreateButton(buildTab, "🔨 Build Stolen Ship with REAL BLOCKS", function()
     if State.SelectedSavedBuild then
         constructBuildOnMyIsland(State.SelectedSavedBuild)
     else
