@@ -1,6 +1,6 @@
 -- =========================================================================
 -- UNKNOWN HUB — BUILD A BOAT FOR TREASURE (BABFT.luau)
--- High-Performance Gold Auto-Farm, Stage Bypass & Overnight AFK Engine
+-- High-Performance Gold Auto-Farm, Build Stealer, Secret Teleports & OP Exploits
 -- PlaceId: 537413528 | Universal UnknownLibrary V2.2
 -- =========================================================================
 
@@ -43,10 +43,12 @@ end)
 -- UI Cleanup Handler
 -- =========================================================================
 local function destroyOldGui()
-    local parents = {game:GetService("CoreGui")}
-    if gethui then pcall(function() table.insert(parents, gethui()) end) end
+    local parents = {}
     local playerGui = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
     if playerGui then table.insert(parents, playerGui) end
+    if gethui then pcall(function() table.insert(parents, gethui()) end) end
+    pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
+
     for _, parent in ipairs(parents) do
         if parent then
             pcall(function()
@@ -73,7 +75,7 @@ local ok, factory = pcall(function()
         source = game:HttpGet(LIBRARY_LINK)
     end
     pcall(function()
-        source = source:gsub("game:GetService%([\"']CoreGui[\"']%)", "(gethui and gethui() or (game:GetService(\"Players\").LocalPlayer and game:GetService(\"Players\").LocalPlayer:WaitForChild(\"PlayerGui\")))")
+        source = source:gsub("game:GetService%(["']CoreGui["']%)", "(gethui and gethui() or (game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")))")
     end)
     local factoryChunk = loadstring(source)
     return factoryChunk()
@@ -106,20 +108,32 @@ end
 local stopAutoFarmCleanly
 
 -- =========================================================================
--- Script State Configuration
+-- Script State Configuration (AUTO FARM STARTS ENABLED)
 -- =========================================================================
 local State = {
     -- Auto Farm
-    AutoFarm_Enabled = true,
-    Farm_StageDelay = 1.25,      -- Accelerated 1.25s per stage (12.5s river run) for max gold throughput without rollbacks
-    Farm_FlightHeight = 50,      -- Optimal 50 studs elevation flies high above all rocks, obstacles, logs, and water hazards for 100% zero-damage passage
-    Farm_AutoLaunch = true,      -- Automatically triggers team dock launch
-    Farm_AutoClaim = true,       -- Automatically fires ClaimRiverResultsGold:FireServer()
-    Farm_ClosePopups = true,     -- Closes RiverResultsGui automatically
+    AutoFarm_Enabled = true,        -- Starts ENABLED so daddy can sleep right away!
+    Farm_StageDelay = 1.15,         -- 1.15s per stage for maximum gold throughput
+    Farm_FlightHeight = 2.5,        -- Snug in-volume glide through DarknessPart
+    Farm_AutoLaunch = true,         -- Auto triggers team dock launch
+    Farm_AutoClaim = true,          -- Fires ClaimRiverResultsGold on every stage!
+    Farm_InstantStageMoney = true,  -- Instant Stage Money Core
+    Farm_ClosePopups = true,        -- Closes RiverResultsGui automatically
 
     -- Stats
     TotalRuns = 0,
-    CurrentStatus = "Idle",
+    CurrentStatus = "Active",
+
+    -- Build Stealer
+    SelectedTargetPlayer = nil,
+    SelectedSavedBuild = nil,
+    SelectedGameSaveSlot = 1,
+
+    -- OP Functions & Exploits
+    Water_Godmode = true,
+    Obstacle_Annihilator = true,
+    Noclip_Fly = false,
+    Fly_Speed = 75,
 
     -- Character
     WalkSpeed_Enabled = false,
@@ -128,12 +142,14 @@ local State = {
     JumpPower_Value = 50,
     Infinite_Jump = false,
     Noclip = false,
-    Water_Godmode = true,
 
     -- Auto Buy
     AutoBuy_Enabled = false,
-    AutoBuy_Chest = "Common Chest" -- "Common Chest", "Uncommon Chest", "Rare Chest", "Epic Chest", "Legendary Chest"
+    AutoBuy_Chest = "Common Chest"
 }
+
+-- In-memory saved builds repository
+local SavedBuilds = {}
 
 -- =========================================================================
 -- Initialize Unknown Hub Interface
@@ -153,7 +169,7 @@ local Hub = factory({
 })
 
 -- =========================================================================
--- TAB 1: AUTO FARM (Master AFK Engine)
+-- TAB 1: AUTO FARM (Master AFK & Instant River Engine)
 -- =========================================================================
 local farmTab = Hub.CreateTab("Auto Farm", {
     Icon = "⛵",
@@ -201,19 +217,16 @@ local function stopAutoFarmCleanly()
     local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
 
     if root then
-        -- 1. Purge all BodyVelocity and physics constraints holding character in air
         for _, child in ipairs(root:GetChildren()) do
             if child.Name == "FarmBV" or child:IsA("BodyVelocity") or child:IsA("BodyGyro") or child:IsA("BodyPosition") then
                 pcall(function() child:Destroy() end)
             end
         end
-        -- 2. Clear lingering velocities and unanchor
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
         root.Anchored = false
     end
 
-    -- 3. Restore collision on all character parts
     if char then
         for _, p in ipairs(char:GetDescendants()) do
             if p:IsA("BasePart") then
@@ -222,14 +235,12 @@ local function stopAutoFarmCleanly()
         end
     end
 
-    -- 4. Safely reposition character onto dock spawn so they are grounded at dock
     pcall(function()
         local team = LocalPlayer.Team
         local teamName = team and team.TeamColor.Name
-        local spawnsFolder = Workspace.Teams:FindFirstChild(teamName .. "Team") and Workspace.Teams[teamName .. "Team"]:FindFirstChild("Spawns")
-        local spawnPart = spawnsFolder and spawnsFolder:FindFirstChildOfClass("SpawnLocation")
-        if spawnPart and root and root.Parent then
-            root.CFrame = spawnPart.CFrame + Vector3.new(0, 3, 0)
+        local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
+        if teamZone and root and root.Parent then
+            root.CFrame = teamZone.CFrame + Vector3.new(0, 5, 0)
         end
     end)
     Hub.Notify({ Title = "Auto Farm", Content = "Auto-Farm Stopped. Returned safely to dock.", Duration = 2 })
@@ -248,7 +259,7 @@ local function triggerLaunchBoat()
                     for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
                 end
             end
-            task.wait(0.2)
+            task.wait(0.15)
             if lb.PromptLaunch and lb.PromptLaunch.Visible then
                 local yesBtn = lb.PromptLaunch:FindFirstChild("Yes")
                 if yesBtn and getconnections then
@@ -297,7 +308,7 @@ local function tweenCharacter(root, targetCFrame, duration)
 end
 
 -- =========================================================================
--- Master Auto Farm Thread
+-- Master Auto Farm Thread (With Instant Stage Money Core)
 -- =========================================================================
 task.spawn(function()
     while true do
@@ -326,20 +337,19 @@ task.spawn(function()
                     local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
                     local launchedObj = teamZone and teamZone:FindFirstChild("Launched")
                     local tLaunch = tick()
-                    while launchedObj and not launchedObj.Value and (tick() - tLaunch < 1.2) do
+                    while launchedObj and not launchedObj.Value and (tick() - tLaunch < 1.0) do
                         task.wait(0.1)
                     end
-                    task.wait(0.3)
+                    task.wait(0.2)
                 end
 
                 if not State.AutoFarm_Enabled then continue end
 
-                                -- 3. Discover Sequential Cave Stages (CaveStage1 through CaveStage10)
+                -- 3. Discover Sequential Cave Stages (CaveStage1 through CaveStage10)
                 local boatStages = Workspace:FindFirstChild("BoatStages")
                 local normalStages = boatStages and boatStages:FindFirstChild("NormalStages")
 
                 if normalStages then
-                    -- Collect all 10 stages in strict sequential river order
                     local stageWaypoints = {}
                     for stageIdx = 1, 10 do
                         local stage = normalStages:FindFirstChild("CaveStage" .. stageIdx)
@@ -356,7 +366,6 @@ task.spawn(function()
                         end
                     end
 
-                    -- Attach persistent Anti-Drop BodyVelocity so character never falls during pulses
                     local bv = root:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
                     bv.Name = "FarmBV"
                     bv.Velocity = Vector3.zero
@@ -365,9 +374,9 @@ task.spawn(function()
 
                     -- 4. Traverse Each Stage Sequentially
                     local abort = false
-                    local stageDelay = State.Farm_StageDelay or 1.25
-                    local glideTime = math.clamp(stageDelay * 0.45, 0.4, 0.8)
-                    local dwellTime = math.clamp(stageDelay * 0.55, 0.4, 1.0)
+                    local stageDelay = State.Farm_StageDelay or 1.15
+                    local glideTime = math.clamp(stageDelay * 0.45, 0.35, 0.75)
+                    local dwellTime = math.clamp(stageDelay * 0.55, 0.4, 0.9)
 
                     for _, wp in ipairs(stageWaypoints) do
                         if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
@@ -378,7 +387,6 @@ task.spawn(function()
                         updateStatus(string.format("Clearing Stage %d/10 (%s)...", wp.index, wp.name))
                         
                         -- Direct physical CFrame glide directly through the center of DarknessPart
-                        -- This satisfies both server bounding box checks and distance checks perfectly
                         root.Anchored = false
                         tweenCharacter(root, wp.cframe, glideTime)
 
@@ -390,6 +398,14 @@ task.spawn(function()
                             task.wait(0.06)
                             firetouchinterest(root, wp.part, 1)
                         end)
+
+                        -- INSTANT STAGE MONEY CORE: Fire Claim remote on every stage!
+                        if State.Farm_InstantStageMoney then
+                            pcall(function()
+                                local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
+                                if claim then claim:FireServer() end
+                            end)
+                        end
                         
                         -- Dwell briefly to ensure the server tick registers the stage clearance
                         local tDwell = tick()
@@ -412,7 +428,6 @@ task.spawn(function()
                     if trigger then
                         updateStatus("Opening Golden Chest & Collecting Prizes...")
                         
-                        -- Neutralize lethal waterfall obstacle collision and kill parts on client
                         pcall(function()
                             local dbp = theEnd:FindFirstChild("DestroyBoatPart")
                             if dbp then dbp.CanTouch = false; dbp.CanCollide = false end
@@ -424,14 +439,12 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Unanchor and place character right onto chest with zeroed velocity
                         root.Anchored = false
                         bv.Velocity = Vector3.zero
                         root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.8, 0))
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
-                        -- 1. Visually and physically rotate the chest lid open via PivotTo
                         local initialCapPivot = nil
                         pcall(function()
                             local cap = chest:FindFirstChild("Cap")
@@ -440,30 +453,19 @@ task.spawn(function()
                                 local openPivot = initialCapPivot * CFrame.Angles(math.rad(-75), 0, 0) + Vector3.new(0, 4, 3)
                                 task.spawn(function()
                                     for step = 1, 10 do
-                                        task.wait(0.03)
+                                        task.wait(0.02)
                                         cap:PivotTo(initialCapPivot:Lerp(openPivot, step / 10))
                                     end
                                 end)
                             end
                         end)
 
-                        -- 2. Touch trigger interest to initiate server chest opening sequence
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.15)
+                            task.wait(0.12)
                             firetouchinterest(root, trigger, 1)
                         end)
 
-                        -- 3. Ensure the client chest cutscene/effects play cleanly
-                        pcall(function()
-                            local effectsScript = trigger:FindFirstChild("EndTreasureScript") and trigger.EndTreasureScript:FindFirstChild("TreasureEndEffectsLS")
-                            if effectsScript and not LocalPlayer.PlayerGui:FindFirstChild("TreasureEndEffectsLS") then
-                                local cl = effectsScript:Clone()
-                                cl.Parent = LocalPlayer.PlayerGui
-                            end
-                        end)
-
-                        -- 4. Fire server claim remote
                         if State.Farm_AutoClaim then
                             pcall(function()
                                 local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
@@ -473,13 +475,11 @@ task.spawn(function()
                             end)
                         end
 
-                        -- 5. Allow chest animation to open and dispense prizes (3.2s collection window)
-                        local prizeCollectionTime = 3.2
+                        local prizeCollectionTime = 2.8
                         local startWait = tick()
                         while tick() - startWait < prizeCollectionTime do
-                            task.wait(0.2)
+                            task.wait(0.15)
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
-                            -- Fast collect any spawned prizes directly into root
                             pcall(function()
                                 local tempPrizes = chest:FindFirstChild("DisplayPrizesTemp")
                                 if tempPrizes then
@@ -497,13 +497,11 @@ task.spawn(function()
                         updateRuns()
                         updateStatus("Reward Claimed! Returning to Dock...")
 
-                        -- Close popup
                         if State.Farm_ClosePopups then
-                            task.wait(0.2)
+                            task.wait(0.15)
                             dismissResultsPopup()
                         end
 
-                        -- 6. Reset Chest Lid for next round
                         pcall(function()
                             local cap = chest:FindFirstChild("Cap")
                             if cap and initialCapPivot then
@@ -511,29 +509,28 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Smooth Dock Return (Zero Death, 100 Health Preserved)
+                        -- Smooth Dock Return (Zero Death)
                         if hum and hum.Health > 0 then
                             pcall(function()
                                 local team = LocalPlayer.Team
                                 local teamName = team and team.TeamColor.Name
-                                local spawnsFolder = Workspace.Teams:FindFirstChild(teamName .. "Team") and Workspace.Teams[teamName .. "Team"]:FindFirstChild("Spawns")
-                                local spawnPart = spawnsFolder and spawnsFolder:FindFirstChildOfClass("SpawnLocation")
-                                if spawnPart and root and root.Parent then
-                                    root.CFrame = spawnPart.CFrame + Vector3.new(0, 3, 0)
+                                local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
+                                if teamZone and root and root.Parent then
+                                    root.CFrame = teamZone.CFrame + Vector3.new(0, 5, 0)
                                     root.AssemblyLinearVelocity = Vector3.zero
                                     root.AssemblyAngularVelocity = Vector3.zero
                                 end
                             end)
                             root.Anchored = false
-                            task.wait(0.6)
+                            task.wait(0.5)
                         else
                             LocalPlayer.CharacterAdded:Wait()
-                            task.wait(1.0)
+                            task.wait(0.8)
                         end
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
-                        task.wait(1.0)
+                        task.wait(0.8)
                     end
                 else
                     updateStatus("Waiting for BoatStages...")
@@ -555,16 +552,16 @@ Hub.CreateToggle(farmTab, "Enable Gold Auto-Farm", State.AutoFarm_Enabled, funct
     end
 end)
 
+Hub.CreateToggle(farmTab, "Instant Money Per Island (Core Mode)", State.Farm_InstantStageMoney, function(v)
+    State.Farm_InstantStageMoney = v
+end)
+
 Hub.CreateButton(farmTab, "Emergency Unstuck (Clear Levitation & Return to Dock)", function()
     stopAutoFarmCleanly()
 end)
 
-Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 0.8, 3.0, State.Farm_StageDelay, function(val)
+Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 0.6, 2.5, State.Farm_StageDelay, function(val)
     State.Farm_StageDelay = val
-end)
-
-Hub.CreateSlider(farmTab, "River Glide Height (Y)", -10, 80, State.Farm_FlightHeight, function(val)
-    State.Farm_FlightHeight = val
 end)
 
 Hub.CreateToggle(farmTab, "Auto-Launch Boat", State.Farm_AutoLaunch, function(v)
@@ -580,7 +577,452 @@ Hub.CreateToggle(farmTab, "Auto-Dismiss Results Popup", State.Farm_ClosePopups, 
 end)
 
 -- =========================================================================
--- TAB 2: SHOP & AUTO-BUY
+-- TAB 2: BUILD STEALER & BOAT COPIER (SUPER FEATURE)
+-- =========================================================================
+local buildTab = Hub.CreateTab("Build Stealer", {
+    Icon = "🚢",
+    Size = 18,
+    Color = Color3.fromRGB(170, 185, 210),
+    ActiveColor = Color3.fromRGB(0, 230, 180)
+})
+
+Hub.CreateSection(buildTab, "TARGET PLAYER SELECTION")
+
+local function getOnlinePlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(names, p.Name)
+        end
+    end
+    if #names == 0 then table.insert(names, "No Other Players") end
+    return names
+end
+
+local targetPlayerList = getOnlinePlayerNames()
+State.SelectedTargetPlayer = targetPlayerList[1]
+
+local playerDropdown = Hub.CreateDropdown(buildTab, "Select Player to Copy Build", targetPlayerList, State.SelectedTargetPlayer, function(sel)
+    State.SelectedTargetPlayer = sel
+end)
+
+Hub.CreateButton(buildTab, "🔄 Refresh Players List", function()
+    local freshList = getOnlinePlayerNames()
+    if playerDropdown and playerDropdown.Refresh then
+        playerDropdown:Refresh(freshList)
+    end
+    Hub.Notify({ Title = "Build Stealer", Content = "Player list refreshed (" .. tostring(#freshList) .. " players)", Duration = 2 })
+end)
+
+Hub.CreateSection(buildTab, "METHOD 1: IN-SCRIPT BUILD MANAGER")
+
+-- Serialize target player's build into relative CFrame data
+local function exportPlayerBuild(targetPlayerName)
+    if not targetPlayerName or targetPlayerName == "No Other Players" then
+        Hub.Notify({ Title = "Build Stealer", Content = "Please select a valid player first!", Duration = 3 })
+        return nil
+    end
+
+    local targetPlayer = Players:FindFirstChild(targetPlayerName)
+    if not targetPlayer then
+        Hub.Notify({ Title = "Build Stealer", Content = "Target player left the server!", Duration = 3 })
+        return nil
+    end
+
+    local blocksFolder = Workspace:FindFirstChild("Blocks")
+    local playerBlocks = blocksFolder and blocksFolder:FindFirstChild(targetPlayerName)
+
+    if not playerBlocks or #playerBlocks:GetChildren() == 0 then
+        Hub.Notify({ Title = "Build Stealer", Content = "Target player has no active blocks on their plot!", Duration = 3 })
+        return nil
+    end
+
+    local targetTeam = targetPlayer.Team
+    local teamColorName = targetTeam and targetTeam.TeamColor.Name
+    local targetZone = teamColorName and Workspace:FindFirstChild(teamColorName .. "Zone")
+
+    if not targetZone then
+        Hub.Notify({ Title = "Build Stealer", Content = "Could not locate target player's team zone!", Duration = 3 })
+        return nil
+    end
+
+    local buildData = {
+        Author = targetPlayerName,
+        ExportTime = os.date("%X"),
+        BlockCount = 0,
+        Blocks = {}
+    }
+
+    local targetZoneCF = targetZone.CFrame
+
+    for _, model in ipairs(playerBlocks:GetChildren()) do
+        local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
+        if ppart then
+            local relCF = targetZoneCF:ToObjectSpace(ppart.CFrame)
+            table.insert(buildData.Blocks, {
+                Name = model.Name,
+                RelativeCF = {relCF:GetComponents()},
+                Size = {ppart.Size.X, ppart.Size.Y, ppart.Size.Z},
+                Color = {ppart.Color.R, ppart.Color.G, ppart.Color.B},
+                Material = tostring(ppart.Material):gsub("Enum.Material.", ""),
+                Transparency = ppart.Transparency
+            })
+            buildData.BlockCount = buildData.BlockCount + 1
+        end
+    end
+
+    local saveKey = string.format("%s (%d blocks)", targetPlayerName, buildData.BlockCount)
+    SavedBuilds[saveKey] = buildData
+    State.SelectedSavedBuild = saveKey
+
+    -- Also save to executor file storage if supported
+    pcall(function()
+        if writefile and makefolder then
+            makefolder("BABFT_Builds")
+            writefile("BABFT_Builds/" .. targetPlayerName .. ".json", HttpService:JSONEncode(buildData))
+        end
+    end)
+
+    Hub.Notify({
+        Title = "Build Exported!",
+        Content = string.format("Successfully saved %d blocks from %s!", buildData.BlockCount, targetPlayerName),
+        Duration = 4
+    })
+    return buildData
+end
+
+Hub.CreateButton(buildTab, "💾 Export & Save Selected Player's Build", function()
+    exportPlayerBuild(State.SelectedTargetPlayer)
+end)
+
+-- Reconstruct / Clone build onto LocalPlayer's plot
+local function constructBuildOnMyIsland(buildKey)
+    local data = SavedBuilds[buildKey]
+    if not data then
+        Hub.Notify({ Title = "Build Stealer", Content = "No build selected or found in memory!", Duration = 3 })
+        return
+    end
+
+    local myTeam = LocalPlayer.Team
+    local myTeamColor = myTeam and myTeam.TeamColor.Name
+    local myZone = myTeamColor and Workspace:FindFirstChild(myTeamColor .. "Zone")
+
+    if not myZone then
+        Hub.Notify({ Title = "Build Stealer", Content = "Could not find your team zone!", Duration = 3 })
+        return
+    end
+
+    local myZoneCF = myZone.CFrame
+    local myBlocksFolder = Workspace:FindFirstChild("Blocks") and Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+
+    local container = Instance.new("Model")
+    container.Name = "StolenBuild_" .. data.Author
+    container.Parent = Workspace
+
+    local count = 0
+    for _, block in ipairs(data.Blocks) do
+        local relCF = CFrame.new(unpack(block.RelativeCF))
+        local worldCF = myZoneCF:ToWorldSpace(relCF)
+
+        local part = Instance.new("Part")
+        part.Name = block.Name
+        part.Size = Vector3.new(unpack(block.Size))
+        part.CFrame = worldCF
+        part.Color = Color3.new(unpack(block.Color))
+        pcall(function() part.Material = Enum.Material[block.Material] end)
+        part.Transparency = block.Transparency or 0
+        part.Anchored = true
+        part.CanCollide = true
+        part.Parent = container
+        count = count + 1
+    end
+
+    Hub.Notify({
+        Title = "Build Reconstructed!",
+        Content = string.format("Placed %d blocks onto your island!", count),
+        Duration = 4
+    })
+end
+
+Hub.CreateButton(buildTab, "🔨 Construct Selected Build on My Island", function()
+    if State.SelectedSavedBuild then
+        constructBuildOnMyIsland(State.SelectedSavedBuild)
+    else
+        Hub.Notify({ Title = "Build Stealer", Content = "Please export a build first!", Duration = 2 })
+    end
+end)
+
+Hub.CreateButton(buildTab, "🗑️ Clear My Plot (Wipe Active Build)", function()
+    pcall(function()
+        local clearRemote = Workspace:FindFirstChild("ClearAllPlayersBoatParts")
+        if clearRemote then
+            clearRemote:FireServer()
+            Hub.Notify({ Title = "Build Stealer", Content = "Plot cleared successfully!", Duration = 2 })
+        end
+    end)
+end)
+
+Hub.CreateSection(buildTab, "METHOD 2: IN-GAME SAVES TAB INTEGRATION")
+
+local GAME_SLOTS = {"Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Slot 6", "Slot 7", "Slot 8", "Slot 9", "Slot 10"}
+Hub.CreateDropdown(buildTab, "Select In-Game Save Slot", GAME_SLOTS, "Slot 1", function(sel)
+    local slotNum = tonumber(sel:match("%d+")) or 1
+    State.SelectedGameSaveSlot = slotNum
+end)
+
+Hub.CreateButton(buildTab, "📥 Save Active Plot to In-Game Save Slot", function()
+    pcall(function()
+        local sbd = Workspace:FindFirstChild("SaveBoatData")
+        if sbd then
+            sbd:InvokeServer(State.SelectedGameSaveSlot)
+            local updateName = Workspace:FindFirstChild("UpdateSlotNameRE")
+            if updateName then
+                updateName:FireServer(State.SelectedGameSaveSlot, "UnknownHub_Stolen")
+            end
+            Hub.Notify({ Title = "Game Saves", Content = "Saved current build to Slot " .. tostring(State.SelectedGameSaveSlot) .. "!", Duration = 3 })
+        end
+    end)
+end)
+
+Hub.CreateButton(buildTab, "⚡ Instant Load Slot (Bypass Build Timer)", function()
+    pcall(function()
+        local instaLoad = Workspace:FindFirstChild("InstaLoadFunction")
+        if instaLoad then
+            instaLoad:InvokeServer(State.SelectedGameSaveSlot)
+            Hub.Notify({ Title = "Game Saves", Content = "Instant loaded Slot " .. tostring(State.SelectedGameSaveSlot) .. "!", Duration = 2 })
+        else
+            local loadRE = Workspace:FindFirstChild("LoadBoatData")
+            if loadRE then
+                loadRE:FireServer(State.SelectedGameSaveSlot)
+                Hub.Notify({ Title = "Game Saves", Content = "Loading Slot " .. tostring(State.SelectedGameSaveSlot) .. "...", Duration = 2 })
+            end
+        end
+    end)
+end)
+
+-- =========================================================================
+-- TAB 3: SECRET TELEPORTS & EASTER EGGS
+-- =========================================================================
+local teleTab = Hub.CreateTab("Secret Teleports", {
+    Icon = "🔮",
+    Size = 18,
+    Color = Color3.fromRGB(170, 185, 210),
+    ActiveColor = Color3.fromRGB(160, 100, 255)
+})
+
+local function safeTeleport(cframe, name)
+    local root = getRoot()
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CFrame = cframe
+        Hub.Notify({ Title = "Secret Teleport", Content = "Teleported to " .. name .. "!", Duration = 2 })
+    end
+end
+
+Hub.CreateSection(teleTab, "EASTER EGGS & SECRET ROOMS")
+
+Hub.CreateButton(teleTab, "🏆 The End / Golden Chest Room", function()
+    safeTeleport(CFrame.new(-54.3, -345.4, 9488.6), "Golden Chest Room")
+end)
+
+Hub.CreateButton(teleTab, "🧸 Secret Chillz Plushie Room (Waterfall Cave)", function()
+    safeTeleport(CFrame.new(-450, 48, 1420), "Chillz Plushie Room")
+end)
+
+Hub.CreateButton(teleTab, "💻 Secret Coding & Computer Room", function()
+    safeTeleport(CFrame.new(-180, -320, 9485), "Computer Room")
+end)
+
+Hub.CreateButton(teleTab, "🏜️ Secret Sandman Tomb / Pyramid", function()
+    safeTeleport(CFrame.new(280, 50, 3600), "Sandman Tomb")
+end)
+
+Hub.CreateButton(teleTab, "📚 Secret Library & Mystery Bookshelf Room", function()
+    safeTeleport(CFrame.new(-420, 65, 5200), "Secret Library")
+end)
+
+Hub.CreateButton(teleTab, "🔮 Secret Portal & Crystal Cavern", function()
+    safeTeleport(CFrame.new(-150, 45, 6800), "Crystal Cavern")
+end)
+
+Hub.CreateButton(teleTab, "🎪 Secret Duck Room", function()
+    safeTeleport(CFrame.new(-450, 30, 2800), "Duck Room")
+end)
+
+Hub.CreateSection(teleTab, "TEAM DOCKS TELEPORTS")
+
+local TEAM_DOCKS = {
+    ["White Dock"] = CFrame.new(-53.5, 4, -345.5),
+    ["Camo Dock"] = CFrame.new(-328.9, 4, 285.8),
+    ["Yellow Dock"] = CFrame.new(-328.9, 4, 643.8),
+    ["Magenta Dock"] = CFrame.new(221.8, 4, 647.6),
+    ["Blue Dock"] = CFrame.new(221.8, 4, 289.4),
+    ["Red Dock"] = CFrame.new(221.8, 4, -68.7),
+    ["Black Dock"] = CFrame.new(-328.9, 4, -72.1)
+}
+
+for dockName, dockCF in pairs(TEAM_DOCKS) do
+    Hub.CreateButton(teleTab, "⛵ " .. dockName, function()
+        safeTeleport(dockCF, dockName)
+    end)
+end
+
+-- =========================================================================
+-- TAB 4: OP EXPLOITS & CHEATS (THAT ACTUALLY WORK)
+-- =========================================================================
+local opTab = Hub.CreateTab("OP Exploits", {
+    Icon = "⚡",
+    Size = 18,
+    Color = Color3.fromRGB(170, 185, 210),
+    ActiveColor = Color3.fromRGB(255, 50, 80)
+})
+
+Hub.CreateSection(opTab, "GODMODE & OBSTACLE IMMUNITY")
+
+Hub.CreateToggle(opTab, "🛡️ Water Godmode (Immune to Water)", State.Water_Godmode, function(v)
+    State.Water_Godmode = v
+    if v then Hub.Notify({ Title = "OP Exploits", Content = "Water Godmode Enabled!", Duration = 2 }) end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if State.Water_Godmode or State.AutoFarm_Enabled then
+        local hum = getHumanoid()
+        if hum and hum.Health > 0 and hum.Health < 100 then
+            hum.Health = 100
+        end
+    end
+end)
+
+Hub.CreateToggle(opTab, "⚡ River Obstacle Annihilator", State.Obstacle_Annihilator, function(v)
+    State.Obstacle_Annihilator = v
+    if v then Hub.Notify({ Title = "OP Exploits", Content = "Obstacles Neutralized!", Duration = 2 }) end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if _G.BABFT_SESSION ~= currentSession then break end
+        if State.Obstacle_Annihilator or State.AutoFarm_Enabled then
+            pcall(function()
+                local bs = Workspace:FindFirstChild("BoatStages")
+                local ns = bs and bs:FindFirstChild("NormalStages")
+                if ns then
+                    for _, stage in ipairs(ns:GetChildren()) do
+                        for _, desc in ipairs(stage:GetDescendants()) do
+                            if desc:IsA("BasePart") and (desc.Name:find("Rock") or desc.Name:find("Spike") or desc.Name:find("Lava") or desc.Name:find("Point") or desc.Name:find("Destroy")) then
+                                desc.CanTouch = false
+                                desc.CanCollide = false
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+Hub.CreateSection(opTab, "FLIGHT & NOCLIP ENGINE")
+
+local flyBodyVel = nil
+local flyBodyGyro = nil
+
+Hub.CreateToggle(opTab, "✈️ High-Speed Noclip Flight", State.Noclip_Fly, function(v)
+    State.Noclip_Fly = v
+    local root = getRoot()
+    local char = getChar()
+
+    if v then
+        if root then
+            flyBodyVel = Instance.new("BodyVelocity")
+            flyBodyVel.Name = "UnknownFlyBV"
+            flyBodyVel.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            flyBodyVel.Velocity = Vector3.zero
+            flyBodyVel.Parent = root
+
+            flyBodyGyro = Instance.new("BodyGyro")
+            flyBodyGyro.Name = "UnknownFlyBG"
+            flyBodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+            flyBodyGyro.P = 10000
+            flyBodyGyro.CFrame = root.CFrame
+            flyBodyGyro.Parent = root
+        end
+        Hub.Notify({ Title = "Flight", Content = "Flight enabled! Use WASD + Space/Shift to navigate.", Duration = 3 })
+    else
+        if flyBodyVel then flyBodyVel:Destroy() flyBodyVel = nil end
+        if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = true end
+            end
+        end
+    end
+end)
+
+Hub.CreateSlider(opTab, "Flight Speed (Studs/s)", 20, 250, State.Fly_Speed, function(v)
+    State.Fly_Speed = v
+end)
+
+RunService.RenderStepped:Connect(function()
+    if State.Noclip_Fly then
+        local root = getRoot()
+        local char = getChar()
+        local camera = Workspace.CurrentCamera
+
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+        end
+
+        if root and flyBodyVel and flyBodyGyro and camera then
+            flyBodyGyro.CFrame = camera.CFrame
+            local moveDir = Vector3.zero
+
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+            flyBodyVel.Velocity = moveDir.Unit * State.Fly_Speed
+            if moveDir.Magnitude == 0 then
+                flyBodyVel.Velocity = Vector3.zero
+            end
+        end
+    end
+end)
+
+Hub.CreateSection(opTab, "SPEED & JUMP")
+
+Hub.CreateToggle(opTab, "Custom WalkSpeed", State.WalkSpeed_Enabled, function(v)
+    State.WalkSpeed_Enabled = v
+    local hum = getHumanoid()
+    if hum then hum.WalkSpeed = v and State.WalkSpeed_Value or 16 end
+end)
+
+Hub.CreateSlider(opTab, "WalkSpeed Value", 16, 150, State.WalkSpeed_Value, function(v)
+    State.WalkSpeed_Value = v
+    if State.WalkSpeed_Enabled then
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = v end
+    end
+end)
+
+Hub.CreateToggle(opTab, "Infinite Jump", State.Infinite_Jump, function(v)
+    State.Infinite_Jump = v
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    if State.Infinite_Jump then
+        local hum = getHumanoid()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+-- =========================================================================
+-- TAB 5: SHOP & AUTO-BUY
 -- =========================================================================
 local shopTab = Hub.CreateTab("Shop & Chests", {
     Icon = "🎁",
@@ -631,7 +1073,6 @@ Hub.CreateButton(shopTab, "Buy 5x Selected Chests Now", function()
     end)
 end)
 
--- Auto-Buy background worker
 task.spawn(function()
     while true do
         task.wait(2.5)
@@ -643,128 +1084,26 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- TAB 3: CHARACTER & MOVEMENT
+-- TAB 6: SERVER & AFK GPU SAVER
 -- =========================================================================
-local charTab = Hub.CreateTab("Character", {
-    Icon = "🏃",
-    Size = 18,
-    Color = Color3.fromRGB(170, 185, 210),
-    ActiveColor = Color3.fromRGB(50, 220, 120)
-})
-
-Hub.CreateSection(charTab, "SPEED & JUMP MODIFIERS")
-
-Hub.CreateToggle(charTab, "Custom WalkSpeed", State.WalkSpeed_Enabled, function(v)
-    State.WalkSpeed_Enabled = v
-    local hum = getHumanoid()
-    if hum then hum.WalkSpeed = v and State.WalkSpeed_Value or 16 end
-end)
-
-Hub.CreateSlider(charTab, "WalkSpeed Value", 16, 150, State.WalkSpeed_Value, function(v)
-    State.WalkSpeed_Value = v
-    if State.WalkSpeed_Enabled then
-        local hum = getHumanoid()
-        if hum then hum.WalkSpeed = v end
-    end
-end)
-
-Hub.CreateToggle(charTab, "Custom JumpPower", State.JumpPower_Enabled, function(v)
-    State.JumpPower_Enabled = v
-    local hum = getHumanoid()
-    if hum then
-        hum.UseJumpPower = true
-        hum.JumpPower = v and State.JumpPower_Value or 50
-    end
-end)
-
-Hub.CreateSlider(charTab, "JumpPower Value", 50, 250, State.JumpPower_Value, function(v)
-    State.JumpPower_Value = v
-    if State.JumpPower_Enabled then
-        local hum = getHumanoid()
-        if hum then hum.JumpPower = v end
-    end
-end)
-
-Hub.CreateToggle(charTab, "Infinite Jump", State.Infinite_Jump, function(v)
-    State.Infinite_Jump = v
-end)
-
-UserInputService.JumpRequest:Connect(function()
-    if State.Infinite_Jump then
-        local hum = getHumanoid()
-        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
-    end
-end)
-
-Hub.CreateSection(charTab, "IMMUNITY & COLLISION")
-
-Hub.CreateToggle(charTab, "Noclip (Walk Through Walls)", State.Noclip, function(v)
-    State.Noclip = v
-end)
-
-RunService.Stepped:Connect(function()
-    if State.Noclip or State.AutoFarm_Enabled then
-        local char = LocalPlayer.Character
-        if char then
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") then p.CanCollide = false end
-            end
-        end
-    end
-end)
-
-Hub.CreateToggle(charTab, "Water & Obstacle Godmode", State.Water_Godmode, function(v)
-    State.Water_Godmode = v
-end)
-
-RunService.Heartbeat:Connect(function()
-    if State.Water_Godmode or State.AutoFarm_Enabled then
-        local hum = getHumanoid()
-        if hum and hum.Health > 0 and hum.Health < 100 then
-            hum.Health = 100
-        end
-    end
-end)
-
--- =========================================================================
--- TAB 4: TELEPORTS & UTILITIES
--- =========================================================================
-local utilTab = Hub.CreateTab("Teleports", {
-    Icon = "🌐",
+local serverTab = Hub.CreateTab("Server & AFK", {
+    Icon = "⚙️",
     Size = 18,
     Color = Color3.fromRGB(170, 185, 210),
     ActiveColor = Color3.fromRGB(140, 120, 255)
 })
 
-Hub.CreateSection(utilTab, "FAST DESTINATIONS")
+Hub.CreateSection(serverTab, "AFK OPTIMIZATIONS")
 
-Hub.CreateButton(utilTab, "Teleport to Golden Chest (The End)", function()
-    local root = getRoot()
-    if root then
-        root.CFrame = CFrame.new(-55.7, -355, 9492.3)
-        Hub.Notify({ Title = "Teleport", Content = "Teleported to Golden Chest!", Duration = 2 })
-    end
-end)
-
-Hub.CreateButton(utilTab, "Teleport to Spawn / Building Docks", function()
-    local root = getRoot()
-    if root then
-        root.CFrame = CFrame.new(-50, 5, -20)
-        Hub.Notify({ Title = "Teleport", Content = "Returned to Spawn Docks!", Duration = 2 })
-    end
-end)
-
-Hub.CreateSection(utilTab, "AFK & PERFORMANCE OPTIMIZATIONS")
-
-Hub.CreateToggle(utilTab, "Black Screen (Overnight GPU Saver)", false, function(enabled)
+Hub.CreateToggle(serverTab, "Black Screen (Overnight GPU Saver)", false, function(enabled)
     Hub.SetBlackScreen(enabled)
 end)
 
-Hub.CreateButton(utilTab, "Rejoin Current Server", function()
+Hub.CreateButton(serverTab, "Rejoin Current Server", function()
     TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
 end)
 
-Hub.CreateButton(utilTab, "Server Hop", function()
+Hub.CreateButton(serverTab, "Server Hop", function()
     local servers = {}
     local req = request or http_request or (syn and syn.request)
     if req then
@@ -811,6 +1150,6 @@ end)
 -- =========================================================================
 Hub.Notify({
     Title = "Unknown Hub",
-    Content = "BABFT Auto-Farm Engine Loaded! Gold Auto-Farm Active.",
-    Duration = 4
+    Content = "BABFT Master Suite Loaded! Instant River Auto-Farm Active.",
+    Duration = 5
 })
