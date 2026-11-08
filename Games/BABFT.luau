@@ -110,7 +110,7 @@ local stopAutoFarmCleanly
 -- =========================================================================
 local State = {
     -- Auto Farm
-    AutoFarm_Enabled = false,
+    AutoFarm_Enabled = true,
     Farm_StageDelay = 1.25,      -- Accelerated 1.25s per stage (12.5s river run) for max gold throughput without rollbacks
     Farm_FlightHeight = 50,      -- Optimal 50 studs elevation flies high above all rocks, obstacles, logs, and water hazards for 100% zero-damage passage
     Farm_AutoLaunch = true,      -- Automatically triggers team dock launch
@@ -142,6 +142,7 @@ local Hub = factory({
     name = LIBRARY_NAME,
     title = "UNKNOWN HUB",
     subTitle = "Build A Boat For Treasure",
+    parent = (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (gethui and gethui()),
     theme = Color3.fromRGB(245, 142, 32),          -- Vibrant Gold / Amber
     secondaryTheme = Color3.fromRGB(0, 195, 245), -- Cyber Cyan
     onClose = function()
@@ -163,14 +164,18 @@ local farmTab = Hub.CreateTab("Auto Farm", {
 
 Hub.CreateSection(farmTab, "STATUS & PERFORMANCE")
 
-local statusSection = Hub.CreateSection(farmTab, "STATUS: IDLE | RUNS: 0")
+local statusSection = Hub.CreateSection(farmTab, "STATUS: ACTIVE | RUNS: 0 | GOLD: +0")
+
+local initialGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or 0
 
 local function updateStatus(text)
     State.CurrentStatus = text
     pcall(function()
         local lbl = statusSection:FindFirstChild("Title")
         if lbl then
-            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d", text, State.TotalRuns))
+            local currGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or initialGold
+            local earned = math.max(0, currGold - initialGold)
+            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d | GOLD: +%d", text, State.TotalRuns, earned))
         end
     end)
 end
@@ -180,7 +185,9 @@ local function updateRuns()
     pcall(function()
         local lbl = statusSection:FindFirstChild("Title")
         if lbl then
-            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d", State.CurrentStatus, State.TotalRuns))
+            local currGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or initialGold
+            local earned = math.max(0, currGold - initialGold)
+            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d | GOLD: +%d", State.CurrentStatus, State.TotalRuns, earned))
         end
     end)
 end
@@ -783,10 +790,27 @@ Hub.CreateButton(utilTab, "Server Hop", function()
 end)
 
 -- =========================================================================
+-- Auto-Rejoin Safeguard (Overnight AFK Disconnection Shield)
+-- =========================================================================
+pcall(function()
+    local GuiService = game:GetService("GuiService")
+    GuiService.ErrorMessageChanged:Connect(function()
+        task.wait(1)
+        pcall(function()
+            if #Players:GetPlayers() <= 1 then
+                TeleportService:Teleport(game.PlaceId, LocalPlayer)
+            else
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+            end
+        end)
+    end)
+end)
+
+-- =========================================================================
 -- Startup Notification
 -- =========================================================================
 Hub.Notify({
     Title = "Unknown Hub",
-    Content = "BABFT Auto-Farm Engine Loaded! Toggle 'Enable Gold Auto-Farm' to start.",
+    Content = "BABFT Auto-Farm Engine Loaded! Gold Auto-Farm Active.",
     Duration = 4
 })
