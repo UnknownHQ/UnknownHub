@@ -3281,7 +3281,25 @@ local LevelData = {
 local function getDynamicIslandCFrame(targetEntry)
     if not targetEntry then return CFrame.new(0, 50, 0) end
     
-    -- 1. Try exact enemy spawner part CFrame from workspace._WorldOrigin.EnemySpawns / EnemySpawns
+    -- 1. Try active live mob in workspace.Enemies (Guarantees 100% exact revamped position)
+    local liveMobCF = nil
+    pcall(function()
+        local enemies = workspace:FindFirstChild("Enemies")
+        if enemies then
+            for _, mob in ipairs(enemies:GetChildren()) do
+                if (mob.Name == targetEntry.ExactName or string.find(mob.Name, "^" .. targetEntry.ExactName .. " ")) 
+                    and mob:FindFirstChild("HumanoidRootPart") 
+                    and mob:FindFirstChildOfClass("Humanoid") 
+                    and mob.Humanoid.Health > 0 then
+                    liveMobCF = mob.HumanoidRootPart.CFrame
+                    break
+                end
+            end
+        end
+    end)
+    if liveMobCF then return liveMobCF end
+
+    -- 2. Try exact enemy spawner part CFrame from workspace._WorldOrigin.EnemySpawns / EnemySpawns
     local spCFrame = nil
     pcall(function()
         local mobSpawners = getSpawnersForMob(targetEntry.ExactName)
@@ -3291,8 +3309,48 @@ local function getDynamicIslandCFrame(targetEntry)
     end)
     if spCFrame then return spCFrame end
 
-    -- 2. Direct exact mob spawn CFrame
-    return targetEntry.IslandCFrame
+    -- 3. Try finding corresponding Quest Giver NPC in workspace.NPCs (Dynamic anchor on revamped islands)
+    local npcCF = nil
+    pcall(function()
+        local npcs = workspace:FindFirstChild("NPCs")
+        if npcs then
+            local qKeyword = targetEntry.QuestName and string.lower(targetEntry.QuestName:gsub("Quest.*", "")) or ""
+            local mKeyword = string.lower(targetEntry.ExactName:gsub("%s.*", ""))
+            for _, npc in ipairs(npcs:GetChildren()) do
+                local nName = string.lower(npc.Name)
+                if (qKeyword ~= "" and string.find(nName, qKeyword)) or string.find(nName, mKeyword) or string.find(nName, "quest") then
+                    local root = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+                    if root then
+                        local distToOld = targetEntry.IslandCFrame and (root.Position - targetEntry.IslandCFrame.Position).Magnitude or 0
+                        if distToOld < 2500 then
+                            npcCF = root.CFrame + Vector3.new(0, 25, 0)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    if npcCF then return npcCF end
+
+    -- 4. Try workspace._WorldOrigin.Locations
+    local locCF = nil
+    pcall(function()
+        local locs = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("Locations")
+        if locs then
+            local qKeyword = targetEntry.QuestName and string.lower(targetEntry.QuestName:gsub("Quest.*", "")) or ""
+            for _, loc in ipairs(locs:GetChildren()) do
+                if loc:IsA("BasePart") and qKeyword ~= "" and string.find(string.lower(loc.Name), qKeyword) then
+                    locCF = loc.CFrame + Vector3.new(0, 30, 0)
+                    break
+                end
+            end
+        end
+    end)
+    if locCF then return locCF end
+
+    -- 5. Direct exact mob spawn CFrame (elevated safely above new terrain meshes)
+    return (targetEntry.IslandCFrame and (targetEntry.IslandCFrame + Vector3.new(0, 25, 0))) or CFrame.new(0, 50, 0)
 end
 
 local function getTargetData()
@@ -3615,18 +3673,67 @@ safeTweenToIsland = function(targetCFrame, callback)
     local currentTweenID = tick()
     _G.Unknown_TravelTweenID = currentTweenID
 
-    -- Fast smooth travel (320 studs/sec)
-    local speed = 320
-    local travelTime = math.clamp(dist / speed, 0.1, 45)
-    local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+    local speed = 325
 
-    _G.Unknown_TravelTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCF})
-    _G.Unknown_TravelTween.Completed:Connect(function()
-        if _G.Unknown_TravelTweenID ~= currentTweenID then return end
-        isTraveling = false
-        if callback then callback() end
-    end)
-    _G.Unknown_TravelTween:Play()
+    -- SKY CORRIDOR 3-PHASE FLIGHT SOLVER FOR REVAMPED SEAS:
+    -- Overcomes all revamped terrain, high mountains, rock meshes, and ocean water killzones.
+    if dist > 220 and currentPos.X < 45000 and targetPos.X < 45000 then
+        task.spawn(function()
+            -- Safe cruising altitude above all revamped islands and mountains (default 285, higher if in Skylands)
+            local cruiseY = 285
+            if currentPos.Y > 500 or targetPos.Y > 500 then
+                cruiseY = math.max(currentPos.Y, targetPos.Y) + 60
+            end
+
+            -- Phase 1: Rapid vertical ascent into open sky corridor
+            local ascentCF = CFrame.new(currentPos.X, cruiseY, currentPos.Z)
+            local ascentDist = math.abs(cruiseY - currentPos.Y)
+            if ascentDist > 15 then
+                local ascentTime = math.clamp(ascentDist / speed, 0.1, 3.0)
+                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentTime, Enum.EasingStyle.Linear), {CFrame = ascentCF})
+                _G.Unknown_TravelTween = twAscent
+                twAscent:Play()
+                twAscent.Completed:Wait()
+                if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
+            end
+
+            -- Phase 2: High-speed horizontal cruising across unobstructed sky
+            local horizontalTargetCF = CFrame.new(targetPos.X, cruiseY, targetPos.Z)
+            local horizontalDist = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
+            local cruiseTime = math.clamp(horizontalDist / speed, 0.1, 45)
+            local twCruise = TweenService:Create(hrp, TweenInfo.new(cruiseTime, Enum.EasingStyle.Linear), {CFrame = horizontalTargetCF})
+            _G.Unknown_TravelTween = twCruise
+            twCruise:Play()
+            twCruise.Completed:Wait()
+            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
+
+            -- Phase 3: Vertical descent directly onto target position
+            local descentDist = math.abs(cruiseY - targetPos.Y)
+            local descentTime = math.clamp(descentDist / speed, 0.1, 4.0)
+            local twDescent = TweenService:Create(hrp, TweenInfo.new(descentTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
+            _G.Unknown_TravelTween = twDescent
+            twDescent:Play()
+            twDescent.Completed:Wait()
+            if _G.Unknown_TravelTweenID ~= currentTweenID then return end
+
+            isTraveling = false
+            _G.Unknown_TravelTween = nil
+            if callback then callback() end
+        end)
+    else
+        -- Short distance / local mob repositioning: Direct smooth linear tween
+        local travelTime = math.clamp(dist / speed, 0.05, 15)
+        local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear)
+
+        _G.Unknown_TravelTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCF})
+        _G.Unknown_TravelTween.Completed:Connect(function()
+            if _G.Unknown_TravelTweenID ~= currentTweenID then return end
+            isTraveling = false
+            _G.Unknown_TravelTween = nil
+            if callback then callback() end
+        end)
+        _G.Unknown_TravelTween:Play()
+    end
 end
 
 local function autoEquipSelectedWeapon(forceType)
