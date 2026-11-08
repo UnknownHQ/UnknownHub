@@ -110,7 +110,7 @@ local stopAutoFarmCleanly
 -- =========================================================================
 local State = {
     -- Auto Farm
-    AutoFarm_Enabled = true,        -- Starts ENABLED so daddy can sleep right away!
+    AutoFarm_Enabled = false,       -- Defaults to OFF per daddy's preference
     Farm_StageDelay = 1.15,         -- 1.15s per stage for maximum gold throughput
     Farm_FlightHeight = 55,        -- Snug in-volume glide through DarknessPart
     Farm_AutoLaunch = true,         -- Auto triggers team dock launch
@@ -127,7 +127,7 @@ local State = {
     SelectedSavedBuild = nil,
     SelectedGameSaveSlot = 1,
     Build_Anchored = true,
-    Build_AutoSubstitute = false,
+    Build_AutoSubstitute = true,
     Build_ExactMaterial = true,
     Build_ScaleEnabled = true,
     Build_PaintEnabled = true,
@@ -667,13 +667,19 @@ local MATERIAL_FAMILIES = {
 
 local FAMILY_SUBSTITUTES = {
     Wood = {"SmoothWoodBlock", "WoodBlock"},
-    SmoothPlastic = {"PlasticBlock", "SmoothWoodBlock"},
-    Metal = {"TitaniumBlock", "MetalBlock", "RustedBlock"},
-    Stone = {"StoneBlock", "ConcreteBlock", "ObsidianBlock"},
-    Brick = {"BrickBlock"},
-    Glass = {"GlassBlock"},
-    Ice = {"IceBlock"},
-    Fabric = {"FabricBlock"}
+    SmoothPlastic = {"PlasticBlock", "SmoothWoodBlock", "IceBlock"},
+    Metal = {"TitaniumBlock", "MetalBlock", "RustedBlock", "GoldBlock"},
+    Stone = {"ConcreteBlock", "StoneBlock", "ObsidianBlock", "MarbleBlock"},
+    Brick = {"BrickBlock", "ConcreteBlock"},
+    Glass = {"GlassBlock", "IceBlock"},
+    Ice = {"IceBlock", "GlassBlock"},
+    Fabric = {"FabricBlock", "PlasticBlock"},
+    Sand = {"SandBlock", "ConcreteBlock", "SmoothWoodBlock", "WoodBlock"},
+    Coal = {"CoalBlock", "ObsidianBlock", "ConcreteBlock"},
+    Neon = {"NeonBlock", "PlasticBlock", "GlassBlock"},
+    Gold = {"GoldBlock", "TitaniumBlock", "MetalBlock", "PlasticBlock"},
+    Bouncy = {"BouncyBlock", "PlasticBlock"},
+    Grass = {"GrassBlock", "SandBlock", "PlasticBlock"}
 }
 
 local SHOP_ITEMS_MAP = {
@@ -1176,7 +1182,9 @@ local function exportPlayerBuild(targetPlayerName)
             Size = {ppart.Size.X, ppart.Size.Y, ppart.Size.Z},
             Color = {ppart.Color.R, ppart.Color.G, ppart.Color.B},
             Material = tostring(ppart.Material):gsub("Enum.Material.", ""),
-            Transparency = ppart.Transparency
+            Transparency = ppart.Transparency,
+            CanCollide = ppart.CanCollide,
+            CastShadow = ppart.CastShadow
         })
         buildData.BlockCount = buildData.BlockCount + 1
     end
@@ -1403,6 +1411,16 @@ local function constructBuildOnMyIsland(buildKey)
                             break
                         end
                     end
+                    -- If exact family substitute is depleted, fall back to solid structural block (painted in Phase 3)
+                    if curVal <= 0 and State.Build_AutoSubstitute then
+                        local fallback = getBestFallback()
+                        blockToUse = fallback
+                        itemData = LocalPlayer.Data:FindFirstChild(blockToUse)
+                        curVal = itemData and itemData.Value or 0
+                        if curVal > 0 then
+                            substituted = substituted + 1
+                        end
+                    end
                 elseif State.Build_AutoSubstitute then
                     local fallback = getBestFallback()
                     blockToUse = fallback
@@ -1443,7 +1461,10 @@ local function constructBuildOnMyIsland(buildKey)
                 worldCF = worldCF,
                 targetPos = worldCF.Position,
                 size = block.Size and Vector3.new(unpack(block.Size)) or nil,
-                color = block.Color and Color3.new(unpack(block.Color)) or nil
+                color = block.Color and Color3.new(unpack(block.Color)) or nil,
+                transparency = block.Transparency,
+                canCollide = block.CanCollide,
+                castShadow = block.CastShadow
             })
             count = count + 1
 
@@ -1501,7 +1522,10 @@ local function constructBuildOnMyIsland(buildKey)
                     block = bestBlk,
                     size = meta.size,
                     worldCF = meta.worldCF,
-                    color = meta.color
+                    color = meta.color,
+                    transparency = meta.transparency,
+                    canCollide = meta.canCollide,
+                    castShadow = meta.castShadow
                 })
             end
         end
@@ -1559,6 +1583,59 @@ local function constructBuildOnMyIsland(buildKey)
                     paintedCount = paintedCount + #slice
                     task.wait(0.08)
                 end
+            end
+        end
+
+        -- Phase 4: Property Configuration (Equip PropertiesTool / Screwdriver)
+        local propTool = LocalPlayer.Backpack:FindFirstChild("PropertiesTool") or char:FindFirstChild("PropertiesTool")
+        local propRF = propTool and propTool:FindFirstChild("SetPropertieRF")
+        local propCount = 0
+        if propTool and propRF and #matched > 0 then
+            if hum then
+                hum:EquipTool(propTool)
+                task.wait(0.2)
+            end
+
+            local nonCollideModels = {}
+            local noShadowModels = {}
+            local transparencyGroups = {}
+
+            for _, m in ipairs(matched) do
+                if m.canCollide == false then
+                    table.insert(nonCollideModels, m.block)
+                end
+                if m.castShadow == false then
+                    table.insert(noShadowModels, m.block)
+                end
+                if m.transparency and m.transparency > 0.05 then
+                    local roundedT = math.floor(m.transparency * 10 + 0.5) / 10
+                    transparencyGroups[roundedT] = transparencyGroups[roundedT] or {}
+                    table.insert(transparencyGroups[roundedT], m.block)
+                end
+            end
+
+            if #nonCollideModels > 0 then
+                pcall(function()
+                    propRF:InvokeServer("Collision", nonCollideModels, false)
+                end)
+                propCount = propCount + #nonCollideModels
+                task.wait(0.08)
+            end
+
+            if #noShadowModels > 0 then
+                pcall(function()
+                    propRF:InvokeServer("Cast shadow", noShadowModels, false)
+                end)
+                propCount = propCount + #noShadowModels
+                task.wait(0.08)
+            end
+
+            for tVal, models in pairs(transparencyGroups) do
+                pcall(function()
+                    propRF:InvokeServer("Transparency", models, tVal)
+                end)
+                propCount = propCount + #models
+                task.wait(0.08)
             end
         end
 
