@@ -416,25 +416,27 @@ task.spawn(function()
                     if trigger then
                         updateStatus("Approaching Golden Chest Above Waterfall...")
 
-                        -- Fly high in open sky (Y=55) directly above the chest to bypass all waterfall rocks
-                        root.Anchored = false
-                        bv.Velocity = Vector3.zero
-                        tweenCharacter(root, CFrame.new(trigger.Position.X, flightHeight, trigger.Position.Z), 0.85)
-
-                        -- Obliterate lethal obstacles locally so they can never kill daddy
+                        -- Neutralize ALL lethal obstacles in TheEnd BEFORE flying in
                         pcall(function()
-                            if theEnd:FindFirstChild("DestroyBoatPart") then theEnd.DestroyBoatPart:Destroy() end
-                            if theEnd:FindFirstChild("PointedRocks") then theEnd.PointedRocks:Destroy() end
-                            for _, ch in ipairs(theEnd:GetChildren()) do
-                                if ch.Name == "Rock1" or ch.Name == "Rock2" or ch.Name == "Rock3" or ch.Name == "Water" then
-                                    ch:Destroy()
+                            if theEnd then
+                                for _, desc in ipairs(theEnd:GetDescendants()) do
+                                    if desc:IsA("BasePart") and desc ~= trigger then
+                                        if desc.Name:find("Rock") or desc.Name:find("Destroy") or desc.Name:find("Water") or desc.Name:find("Point") or desc.Name:find("Spike") then
+                                            desc.CanTouch = false
+                                        end
+                                    end
                                 end
                             end
                         end)
 
+                        -- Fly high above mountains and cave roofs (Y=240) directly to chest X/Z
+                        root.Anchored = false
+                        bv.Velocity = Vector3.zero
+                        tweenCharacter(root, CFrame.new(trigger.Position.X, 240, trigger.Position.Z), 0.85)
+
                         -- Smooth vertical descent directly onto chest trigger
                         updateStatus("Descending to Golden Chest...")
-                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0)), 0.45)
+                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0)), 0.6)
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
@@ -639,6 +641,23 @@ end)
 Hub.CreateSection(buildTab, "METHOD 1: IN-SCRIPT BUILD MANAGER")
 
 -- Serialize target player's build into relative CFrame data (Centered & Zone-Aligned)
+-- Canonical dock coordinate system for any plot
+local function getZoneDockCF(zone)
+    local pos = zone.Position
+    local surfaceY = pos.Y + (zone.Size.Y / 2)
+    local center = Vector3.new(pos.X, surfaceY, pos.Z)
+    local forward
+    if zone.Name == "WhiteZone" then
+        forward = Vector3.new(0, 0, 1)
+    elseif pos.X < -100 then
+        forward = Vector3.new(1, 0, 0)
+    else
+        forward = Vector3.new(-1, 0, 0)
+    end
+    return CFrame.lookAt(center, center + forward, Vector3.new(0, 1, 0))
+end
+
+-- Serialize target player's build into relative CFrame data (Centered & Zone-Aligned)
 local function exportPlayerBuild(targetPlayerName)
     if not targetPlayerName or targetPlayerName == "No Other Players" then
         Hub.Notify({ Title = "Build Stealer", Content = "Please select a valid player first!", Duration = 3 })
@@ -668,10 +687,12 @@ local function exportPlayerBuild(targetPlayerName)
         return nil
     end
 
-    -- Collect all valid block parts and compute bounding box center
+    local targetDockCF = getZoneDockCF(targetZone)
+
+    -- Collect all valid block parts and compute dock-space bounding box
     local validEntries = {}
-    local minPos = Vector3.new(math.huge, math.huge, math.huge)
-    local maxPos = Vector3.new(-math.huge, -math.huge, -math.huge)
+    local minRel = Vector3.new(math.huge, math.huge, math.huge)
+    local maxRel = Vector3.new(-math.huge, -math.huge, -math.huge)
 
     for _, model in ipairs(playerBlocks:GetChildren()) do
         local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
@@ -679,9 +700,10 @@ local function exportPlayerBuild(targetPlayerName)
             local pos = ppart.Position
             -- Sanity filter: Ignore physics flung / void parts (e.g. glitch boats at millions of studs)
             if math.abs(pos.X) <= 1500 and pos.Y >= -500 and pos.Y <= 2000 and pos.Z >= -1000 and pos.Z <= 12000 then
-                table.insert(validEntries, {model = model, ppart = ppart})
-                minPos = minPos:Min(pos)
-                maxPos = maxPos:Max(pos)
+                local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
+                minRel = minRel:Min(rel.Position)
+                maxRel = maxRel:Max(rel.Position)
+                table.insert(validEntries, {model = model, ppart = ppart, relCF = rel})
             end
         end
     end
@@ -691,10 +713,12 @@ local function exportPlayerBuild(targetPlayerName)
         return nil
     end
 
-    -- Calculate build center and orient using target zone rotation
-    local buildCenter = (minPos + maxPos) / 2
-    local targetZoneRot = targetZone.CFrame.Rotation
-    local targetBaseCF = CFrame.new(buildCenter.X, minPos.Y, buildCenter.Z) * targetZoneRot
+    -- Canonical alignment: center X and Z, ground Y with bottom surface 0.5 above dock floor
+    local offsetX = (minRel.X + maxRel.X) / 2
+    local offsetZ = (minRel.Z + maxRel.Z) / 2
+    local lowestBottomY = minRel.Y - 1.0
+    local targetBottomY = 0.5
+    local offsetY = lowestBottomY - targetBottomY
 
     local buildData = {
         Author = targetPlayerName,
@@ -706,10 +730,11 @@ local function exportPlayerBuild(targetPlayerName)
     for _, entry in ipairs(validEntries) do
         local model = entry.model
         local ppart = entry.ppart
-        local relCF = targetBaseCF:ToObjectSpace(ppart.CFrame)
+        local adjPos = Vector3.new(entry.relCF.X - offsetX, entry.relCF.Y - offsetY, entry.relCF.Z - offsetZ)
+        local adjCF = CFrame.new(adjPos) * entry.relCF.Rotation
         table.insert(buildData.Blocks, {
             Name = model.Name,
-            RelativeCF = {relCF:GetComponents()},
+            RelativeCF = {adjCF:GetComponents()},
             Size = {ppart.Size.X, ppart.Size.Y, ppart.Size.Z},
             Color = {ppart.Color.R, ppart.Color.G, ppart.Color.B},
             Material = tostring(ppart.Material):gsub("Enum.Material.", ""),
@@ -806,7 +831,7 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    -- Locate & Equip BuildingTool (Server REQUIRES tool equipped in Character)
+    -- Locate & Equip BuildingTool (Direct parent assignment is instant and never hangs)
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local hum = char:WaitForChild("Humanoid", 3)
     local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or char:FindFirstChild("BuildingTool")
@@ -815,9 +840,9 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    if bTool.Parent ~= char and hum then
-        hum:EquipTool(bTool)
-        task.wait(0.25)
+    if bTool.Parent ~= char then
+        bTool.Parent = char
+        task.wait(0.15)
     end
 
     local bRF = bTool:FindFirstChild("RF")
@@ -833,11 +858,7 @@ local function constructBuildOnMyIsland(buildKey)
         Hub.Notify({ Title = "Build Stealer", Content = "Paused Auto Farm during construction!", Duration = 3 })
     end
 
-    local myRot = myZone.CFrame.Rotation
-    local mySurfaceY = myZone.Position.Y + (myZone.Size.Y / 2) + 2.0
-    local myBaseCF = CFrame.new(myZone.Position.X, mySurfaceY, myZone.Position.Z) * myRot
-
-    local inv = getLocalInventory()
+    local myDockCF = getZoneDockCF(myZone)
     local isAnchored = State.Build_Anchored ~= false
 
     Hub.Notify({
@@ -850,96 +871,134 @@ local function constructBuildOnMyIsland(buildKey)
         local count = 0
         local substituted = 0
         local skipped = 0
-        local placedMeta = {}
+        local placedList = {}
+        local metaList = {}
+
+        local myBlocks = Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+        local conn
+        if myBlocks then
+            conn = myBlocks.ChildAdded:Connect(function(child)
+                table.insert(placedList, child)
+            end)
+        end
+
+        local function getBestFallback()
+            local inv = getLocalInventory()
+            local bestName, bestCount = getBestSolidBlock(inv)
+            return bestName or "TitaniumBlock"
+        end
 
         -- Phase 1: Structural Placement (BuildingTool Equipped)
         for _, block in ipairs(data.Blocks) do
-            local relCF = CFrame.new(unpack(block.RelativeCF))
-            local worldCF = myBaseCF:ToWorldSpace(relCF)
+            local adjRelCF = CFrame.new(unpack(block.RelativeCF))
+            local worldCF = myDockCF:ToWorldSpace(adjRelCF)
             local relToZone = myZone.CFrame:ToObjectSpace(worldCF)
 
             local blockToUse = block.Name
-            local available = inv[blockToUse] or 0
+            local itemData = LocalPlayer.Data:FindFirstChild(blockToUse)
+            local curVal = itemData and itemData.Value or 0
 
-            -- If player does not own this block, safely substitute ONLY with solid building blocks or seats
-            if available <= 0 then
+            -- If player does not own this block, safely substitute ONLY with solid building blocks or seats/wheels
+            if curVal <= 0 then
                 if State.Build_AutoSubstitute then
                     if blockToUse:lower():find("seat") then
-                        if (inv["CarSeat"] or 0) > 0 then blockToUse = "CarSeat"
-                        elseif (inv["PilotSeat"] or 0) > 0 then blockToUse = "PilotSeat"
+                        if (LocalPlayer.Data:FindFirstChild("Throne") and LocalPlayer.Data.Throne.Value > 0) then
+                            blockToUse = "Throne"
+                        elseif (LocalPlayer.Data:FindFirstChild("CarSeat") and LocalPlayer.Data.CarSeat.Value > 0) then
+                            blockToUse = "CarSeat"
+                        elseif (LocalPlayer.Data:FindFirstChild("PilotSeat") and LocalPlayer.Data.PilotSeat.Value > 0) then
+                            blockToUse = "PilotSeat"
                         else
-                            local fallbackName, fallbackCount = getBestSolidBlock(inv)
-                            blockToUse = fallbackName or "TitaniumBlock"
+                            blockToUse = getBestFallback()
+                        end
+                    elseif blockToUse:lower():find("wheel") then
+                        local foundWheel = false
+                        for _, it in ipairs(LocalPlayer.Data:GetChildren()) do
+                            if it.Name:lower():find("wheel") and it.Value > 0 then
+                                blockToUse = it.Name
+                                foundWheel = true
+                                break
+                            end
+                        end
+                        if not foundWheel then
+                            blockToUse = getBestFallback()
                         end
                     else
-                        local fallbackName, fallbackCount = getBestSolidBlock(inv)
-                        if fallbackName and fallbackCount > 0 then
-                            blockToUse = fallbackName
-                            available = fallbackCount
-                            substituted = substituted + 1
-                        else
-                            skipped = skipped + 1
-                            continue
-                        end
+                        blockToUse = getBestFallback()
                     end
-                    available = inv[blockToUse] or 100
+
+                    itemData = LocalPlayer.Data:FindFirstChild(blockToUse)
+                    curVal = itemData and itemData.Value or 0
+                    if curVal <= 0 then
+                        skipped = skipped + 1
+                        continue
+                    end
+                    substituted = substituted + 1
                 else
                     skipped = skipped + 1
                     continue
                 end
             end
 
-            -- Decrement local tracking table so we never exhaust inventory silently
-            inv[blockToUse] = math.max(0, (inv[blockToUse] or 1) - 1)
-
-            -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
-            pcall(function()
-                bRF:InvokeServer(blockToUse, available, myZone, relToZone, isAnchored, worldCF, nil, true)
-            end)
-            count = count + 1
-
-            table.insert(placedMeta, {
+            table.insert(metaList, {
                 worldCF = worldCF,
                 targetPos = worldCF.Position,
                 size = block.Size and Vector3.new(unpack(block.Size)) or nil,
                 color = block.Color and Color3.new(unpack(block.Color)) or nil
             })
 
+            -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
+            pcall(function()
+                bRF:InvokeServer(blockToUse, curVal, myZone, relToZone, isAnchored, worldCF, nil, true)
+            end)
+            count = count + 1
+
             task.wait(0.035)
         end
 
         -- Allow server replication to settle
         task.wait(0.6)
+        if conn then conn:Disconnect() end
 
-        local myBlocks = Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
-        local allChildren = myBlocks and myBlocks:GetChildren() or {}
-
-        -- Match placed blocks to metadata by closest Euclidean position
-        local used = {}
+        -- Build matched list (prefer exact ChildAdded list, fallback to spatial proximity)
         local matched = {}
-        for _, meta in ipairs(placedMeta) do
-            local closest = nil
-            local closestDist = 9999
-            for _, blk in ipairs(allChildren) do
-                if not used[blk] then
-                    local p = blk:FindFirstChild("PPart") or blk:FindFirstChildWhichIsA("BasePart")
-                    if p then
-                        local dist = (p.Position - meta.targetPos).Magnitude
-                        if dist < closestDist then
-                            closestDist = dist
-                            closest = blk
-                        end
-                    end
-                end
-            end
-            if closest and closestDist < 12 then
-                used[closest] = true
+        if #placedList == #metaList then
+            for idx, blk in ipairs(placedList) do
+                local meta = metaList[idx]
                 table.insert(matched, {
-                    block = closest,
+                    block = blk,
                     size = meta.size,
                     worldCF = meta.worldCF,
                     color = meta.color
                 })
+            end
+        else
+            local allChildren = myBlocks and myBlocks:GetChildren() or {}
+            local used = {}
+            for _, meta in ipairs(metaList) do
+                local closest = nil
+                local closestDist = 9999
+                for _, blk in ipairs(allChildren) do
+                    if not used[blk] then
+                        local p = blk:FindFirstChild("PPart") or blk:FindFirstChildWhichIsA("BasePart")
+                        if p then
+                            local dist = (p.Position - meta.targetPos).Magnitude
+                            if dist < closestDist then
+                                closestDist = dist
+                                closest = blk
+                            end
+                        end
+                    end
+                end
+                if closest and closestDist < 15 then
+                    used[closest] = true
+                    table.insert(matched, {
+                        block = closest,
+                        size = meta.size,
+                        worldCF = meta.worldCF,
+                        color = meta.color
+                    })
+                end
             end
         end
 
@@ -947,8 +1006,10 @@ local function constructBuildOnMyIsland(buildKey)
         local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or char:FindFirstChild("ScalingTool")
         local scaledCount = 0
         if sTool and #matched > 0 then
-            hum:EquipTool(sTool)
-            task.wait(0.25)
+            if sTool.Parent ~= char then
+                sTool.Parent = char
+                task.wait(0.15)
+            end
             local sRF = sTool:FindFirstChild("RF")
             if sRF then
                 for _, m in ipairs(matched) do
@@ -968,8 +1029,10 @@ local function constructBuildOnMyIsland(buildKey)
         local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or char:FindFirstChild("PaintingTool")
         local paintedCount = 0
         if pTool and #matched > 0 then
-            hum:EquipTool(pTool)
-            task.wait(0.25)
+            if pTool.Parent ~= char then
+                pTool.Parent = char
+                task.wait(0.15)
+            end
             local pRF = pTool:FindFirstChild("RF")
             if pRF then
                 local batch = {}
