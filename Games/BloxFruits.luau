@@ -3566,12 +3566,9 @@ end
 
 
 local function autoClaimQuest(questName, questLevel)
+    if not questName or not questLevel then return end
     pcall(function()
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        local mainUI = playerGui and playerGui:FindFirstChild("Main")
-        local questFrame = mainUI and mainUI:FindFirstChild("Quest")
-
-        if not questFrame or not questFrame.Visible then
+        if not hasActivePlayerQuest() then
             CommF:InvokeServer("StartQuest", questName, questLevel)
         end
     end)
@@ -4195,43 +4192,38 @@ _G.startUnknownFarm = function()
             local bv = getTabBV(playerHRP)
             bv.Velocity = Vector3.zero
 
-            -- ROCK-SOLID MOB SPAWNER ANCHOR & SMART COMBAT STACK ENGINE
-            local targetDestinationCF = spawnerCF or islandCFrame
-            if not targetDestinationCF then
+            -- 100% REMOTE INSTANT QUEST CLAIMING (ZERO PHYSICAL FLYING TO QUEST GIVERS!)
+            if isAutoQuestOn and not hasActivePlayerQuest() and tick() - lastQuestClaim > 1.5 then
+                lastQuestClaim = tick()
+                task.spawn(function()
+                    if bossData and bossData.QuestName and bossData.QuestLevel then
+                        autoClaimQuest(bossData.QuestName, bossData.QuestLevel)
+                    elseif targetData and targetData.QuestName and targetData.QuestLevel then
+                        autoClaimQuest(targetData.QuestName, targetData.QuestLevel)
+                    end
+                end)
+            end
+
+            -- RESOLVE DESTINATION ANCHOR: Hover directly above live mobs or designated spawner
+            local anchorPos
+            if #targetMobs > 0 and targetMobs[1]:FindFirstChild("HumanoidRootPart") then
+                anchorPos = targetMobs[1].HumanoidRootPart.Position
+            elseif spawnerCF then
+                anchorPos = spawnerCF.Position
+            elseif islandCFrame then
+                anchorPos = islandCFrame.Position
+            end
+
+            if not anchorPos then
                 farmStatusLabel.Text = string.format("Lvl %d | Locating %s destination...", currentLevel, displayName)
                 return
             end
 
-            local hoverAnchorCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
+            local hoverAnchorCF = CFrame.new(anchorPos + Vector3.new(0, farmDist, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
             local distToAnchor = (playerHRP.Position - hoverAnchorCF.Position).Magnitude
 
-            -- 1. SMART QUEST PRE-CHECK: Verified via TrackedQuestFrame & Main.Quest
-            local hasActiveQuest = hasActivePlayerQuest()
-
-            if isAutoQuestOn and not hasActiveQuest then
-                local questGiverCF = getQuestGiverCFrame(targetData)
-                if questGiverCF then
-                    local distToQG = (playerHRP.Position - questGiverCF.Position).Magnitude
-                    if distToQG > 45 then
-                        farmStatusLabel.Text = string.format("Lvl %d | Traveling to %s Quest Giver...", currentLevel, displayName)
-                        if not isTraveling then
-                            safeTweenToIsland(questGiverCF + Vector3.new(0, 5, 0))
-                        end
-                        return
-                    else
-                        if isTraveling then _G.Unknown_CancelTween() isTraveling = false end
-                        farmStatusLabel.Text = string.format("Lvl %d | Claiming %s Quest...", currentLevel, displayName)
-                        if tick() - lastQuestClaim > 1.2 then
-                            lastQuestClaim = tick()
-                            autoClaimQuest(targetData.QuestName, targetData.QuestLevel)
-                        end
-                        return
-                    end
-                end
-            end
-
-            -- 2. INTER-ISLAND FLIGHT: If distant from mob spawn zone (> 75 studs), fly smoothly directly there!
-            if distToAnchor > 75 then
+            -- DIRECT HIGH-SPEED FLIGHT TO MOBS: If distant (> 60 studs), fly directly to combat zone
+            if distToAnchor > 60 then
                 farmStatusLabel.Text = string.format("Lvl %d | Flying to %s...", currentLevel, displayName)
                 if not isTraveling then
                     safeTweenToIsland(hoverAnchorCF)
@@ -4239,22 +4231,22 @@ _G.startUnknownFarm = function()
                 return
             end
 
-            -- 3. IN MOB COMBAT ZONE: Cancel long-distance travel and lock rock-solid hover over spawner anchor!
+            -- IN COMBAT ZONE: Cancel long-distance tween and lock rock-solid hover overhead
             if isTraveling then
                 _G.Unknown_CancelTween()
                 isTraveling = false
             end
 
-            -- Stable hover over mob spawner (ZERO rubberbanding, ZERO ping-ponging!)
-            playerHRP.CFrame = playerHRP.CFrame:Lerp(hoverAnchorCF, 0.15)
+            -- Lock player overhead facing straight down at mobs
+            playerHRP.CFrame = hoverAnchorCF
 
             if #targetMobs > 0 then
-                farmStatusLabel.Text = string.format("Lvl %d | Farming %s (%d alive)...", currentLevel, displayName, #targetMobs)
+                farmStatusLabel.Text = string.format("Lvl %d | Stack-Farming %s (%d alive)...", currentLevel, displayName, #targetMobs)
 
-                -- Bring all target mobs directly into stacked cluster beneath player
-                local bringCF = playerHRP.CFrame * CFrame.new(0, -farmDist, 0)
-                local now = tick()
+                -- The single unified stack anchor directly beneath player
+                local bringCF = CFrame.new(playerHRP.Position - Vector3.new(0, farmDist, 0))
 
+                -- BRING & CLUSTER EVERY SINGLE TARGETED NPC INTO ONE UNIFIED PINNED STACK
                 for i = 1, #targetMobs do
                     local mob = targetMobs[i]
                     local mobHRP = mob:FindFirstChild("HumanoidRootPart")
@@ -4262,36 +4254,40 @@ _G.startUnknownFarm = function()
 
                     if mobHRP and mobHum and mobHum.Health > 0 then
                         pcall(function()
-                            local distToStack = (mobHRP.Position - bringCF.Position).Magnitude
-                            if distToStack <= 350 then
-                                -- Disable collisions across all mob parts so they don't fling each other
-                                for _, part in ipairs(mob:GetChildren()) do
-                                    if part:IsA("BasePart") and part.CanCollide then
-                                        part.CanCollide = false
-                                    end
+                            -- 1. Disable collisions across all mob parts so they cluster together with zero physics bounce
+                            for _, part in ipairs(mob:GetChildren()) do
+                                if part:IsA("BasePart") then
+                                    part.CanCollide = false
                                 end
-                                -- Freeze pathfinding and physics to prevent anti-cheat leash reset and invulnerability
-                                if mobHum.WalkSpeed ~= 0 then mobHum.WalkSpeed = 0 end
-                                if not mobHum.PlatformStand then mobHum.PlatformStand = true end
+                            end
 
-                                if distToStack > 2.5 then
-                                    mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.45)
-                                else
-                                    mobHRP.CFrame = bringCF
-                                end
-                                mobHRP.Velocity = Vector3.zero
-                                mobHRP.RotVelocity = Vector3.zero
-                                if mobHRP:IsA("BasePart") then
-                                    mobHRP.AssemblyLinearVelocity = Vector3.zero
-                                    mobHRP.AssemblyAngularVelocity = Vector3.zero
-                                end
+                            -- 2. Freeze humanoid pathfinding & physics to prevent server leash reset and invulnerability
+                            if mobHum.WalkSpeed ~= 0 then mobHum.WalkSpeed = 0 end
+                            if not mobHum.PlatformStand then mobHum.PlatformStand = true end
+
+                            -- 3. Snap directly into the exact single stack point
+                            mobHRP.CFrame = bringCF
+                            mobHRP.Velocity = Vector3.zero
+                            mobHRP.RotVelocity = Vector3.zero
+                            if mobHRP:IsA("BasePart") then
+                                mobHRP.AssemblyLinearVelocity = Vector3.zero
+                                mobHRP.AssemblyAngularVelocity = Vector3.zero
                             end
                         end)
                     end
                 end
 
-                -- Hit all stacked mobs simultaneously via paired RegisterHit targets
+                -- ATTACK AND OBLITERATE ALL MOBS SIMULTANEOUSLY (KILL OF THEM!)
                 pcall(function()
+                    -- Ensure weapon is in hand and swinging
+                    local heldTool = char:FindFirstChildOfClass("Tool")
+                    if not heldTool then
+                        heldTool = autoEquipSelectedWeapon()
+                    end
+                    if heldTool then
+                        pcall(function() heldTool:Activate() end)
+                    end
+
                     local hitList = {}
                     local primaryHRP = targetMobs[1]:FindFirstChild("HumanoidRootPart")
                     for i = 1, #targetMobs do
