@@ -110,8 +110,14 @@ local stopAutoFarmCleanly
 -- =========================================================================
 local State = {
     -- Auto Farm
-    AutoFarm_Enabled = false,       -- Defaults to OFF per daddy's preference
-    Farm_StageDelay = 0.3,          -- Blazing 0.3s stage speed for maximum gold throughput
+    AutoFarm_Enabled = true,        -- Enabled for AFK farming
+    Farm_StageDelay = 1.0,          -- Rock-solid 1.0s river stage glide
+    WalkOnWater = false,
+    AutoBuilder_File = "",
+    AutoBuilder_Resolution = 2.0,
+    AutoBuilder_GreedyMeshing = true,
+    AutoBuilder_Solid = false,
+    AutoBuilder_Material = "TitaniumBlock",
     Farm_FlightHeight = 55,        -- Snug in-volume glide through DarknessPart
     Farm_AutoChest = "Disabled",    -- Auto-open chests with farmed gold
     Farm_SoloLaunchOnly = true,     -- Protect friends on team plot
@@ -399,7 +405,7 @@ task.spawn(function()
 
                             -- Step A: Swift glide through mid-stage corridor (Z = dp.Position.Z - 380)
                             local midZ = dp.Position.Z - 380
-                            local stageSpeed = State.Farm_StageDelay or 0.3
+                            local stageSpeed = State.Farm_StageDelay or 1.0
                             tweenCharacter(root, CFrame.new(-53.5, flightHeight, midZ), stageSpeed * 0.8)
 
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
@@ -451,26 +457,66 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Safe sky-height approach directly above TheEnd (Never drop into DestroyBoatPart or waterfall rocks!)
-                        local safeArrivalCF = CFrame.new(trigger.Position.X, flightHeight, trigger.Position.Z)
-                        tweenCharacter(root, safeArrivalCF, 0.25)
+                        -- Safe high approach above waterfall rocks, then smooth descent to Golden Chest
+                        local safeAboveCF = CFrame.new(trigger.Position.X, 240, trigger.Position.Z)
+                        tweenCharacter(root, safeAboveCF, 0.35)
+                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0)), 0.25)
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
-                        -- Immediate physical trigger handshake
+                        -- Physical trigger touch
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.04)
+                            task.wait(0.05)
                             firetouchinterest(root, trigger, 1)
                         end)
 
-                        -- Instant claim remote for river gold
-                        if State.Farm_AutoClaim then
+                        -- Extended 3.2s Dwell Window: Allows GoldenChest EndTreasureScript animation to trigger,
+                        -- visually open the chest cap, light up, and populate DisplayPrizesTemp with GoldBars and GoldBlock!
+                        local prizeDwell = 3.2
+                        local startWait = tick()
+                        local claimedGold = false
+                        while tick() - startWait < prizeDwell do
+                            task.wait(0.08)
+                            if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
+
+                            pcall(function()
+                                local tempPrizes = chest:FindFirstChild("DisplayPrizesTemp")
+                                if tempPrizes then
+                                    for _, prize in ipairs(tempPrizes:GetChildren()) do
+                                        if prize:IsA("BasePart") then
+                                            pcall(function()
+                                                firetouchinterest(root, prize, 0)
+                                                task.wait(0.02)
+                                                firetouchinterest(root, prize, 1)
+                                            end)
+                                            prize.CFrame = root.CFrame
+                                        elseif prize:IsA("Model") and prize.PrimaryPart then
+                                            pcall(function()
+                                                firetouchinterest(root, prize.PrimaryPart, 0)
+                                                task.wait(0.02)
+                                                firetouchinterest(root, prize.PrimaryPart, 1)
+                                            end)
+                                            prize:SetPrimaryPartCFrame(root.CFrame)
+                                        end
+                                    end
+                                end
+                            end)
+
+                            -- Trigger claim remote once prizes appear or after 1.8s
+                            if tick() - startWait >= 1.8 and not claimedGold and State.Farm_AutoClaim then
+                                claimedGold = true
+                                pcall(function()
+                                    local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
+                                    if claimRemote then claimRemote:FireServer() end
+                                end)
+                            end
+                        end
+
+                        if not claimedGold and State.Farm_AutoClaim then
                             pcall(function()
                                 local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
-                                if claimRemote then
-                                    claimRemote:FireServer()
-                                end
+                                if claimRemote then claimRemote:FireServer() end
                             end)
                         end
 
@@ -1141,16 +1187,40 @@ local function exportPlayerBuild(targetPlayerName)
     local maxHalfX = math.max(targetZone.Size.X / 2 + 15, 60)
     local maxHalfZ = math.max(targetZone.Size.Z / 2 + 25, 90)
 
+    local seenModels = {}
+    -- Pass A: Scan candidate folders (target player and teammates)
     for _, folder in ipairs(candidateFolders) do
         for _, model in ipairs(folder:GetChildren()) do
-            local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
-            if ppart then
-                local localPos = targetZone.CFrame:PointToObjectSpace(ppart.Position)
-                if math.abs(localPos.X) <= maxHalfX and math.abs(localPos.Z) <= maxHalfZ and localPos.Y >= -10 and localPos.Y <= 250 then
-                    local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
-                    minRel = minRel:Min(rel.Position)
-                    maxRel = maxRel:Max(rel.Position)
-                    table.insert(validEntries, {model = model, ppart = ppart, relCF = rel})
+            if not seenModels[model] then
+                local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
+                if ppart then
+                    local localPos = targetZone.CFrame:PointToObjectSpace(ppart.Position)
+                    if math.abs(localPos.X) <= maxHalfX and math.abs(localPos.Z) <= maxHalfZ and localPos.Y >= -10 and localPos.Y <= 250 then
+                        seenModels[model] = true
+                        local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
+                        minRel = minRel:Min(rel.Position)
+                        maxRel = maxRel:Max(rel.Position)
+                        table.insert(validEntries, {model = model, ppart = ppart, relCF = rel})
+                    end
+                end
+            end
+        end
+    end
+
+    -- Pass B: Dementia-Proof Global Plot Bound Scan (Captures shared blocks, disconnected teammates, or helper parts on plot)
+    for _, folder in ipairs(blocksFolder:GetChildren()) do
+        for _, model in ipairs(folder:GetChildren()) do
+            if not seenModels[model] then
+                local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
+                if ppart then
+                    local localPos = targetZone.CFrame:PointToObjectSpace(ppart.Position)
+                    if math.abs(localPos.X) <= maxHalfX and math.abs(localPos.Z) <= maxHalfZ and localPos.Y >= -10 and localPos.Y <= 250 then
+                        seenModels[model] = true
+                        local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
+                        minRel = minRel:Min(rel.Position)
+                        maxRel = maxRel:Max(rel.Position)
+                        table.insert(validEntries, {model = model, ppart = ppart, relCF = rel})
+                    end
                 end
             end
         end
@@ -1236,6 +1306,53 @@ end
 
 Hub.CreateButton(buildTab, "💾 Export & Save Selected Player's Build", function()
     exportPlayerBuild(State.SelectedTargetPlayer)
+end)
+
+Hub.CreateButton(buildTab, "🔍 View Missing Materials Breakdown (HUD)", function()
+    local data = SavedBuilds[State.SelectedSavedBuild]
+    if not data then
+        Hub.Notify({ Title = "Build Stealer", Content = "Please export or select a build first!", Duration = 3 })
+        return
+    end
+    local missingList = checkBuildMissingBlocks(data)
+    if #missingList == 0 then
+        Hub.Notify({ Title = "Build Stealer", Content = "You own ALL required materials for this build!", Duration = 3 })
+    else
+        showMissingBlocksHUD(missingList)
+    end
+end)
+
+Hub.CreateButton(buildTab, "🛒 Buy All Missing Blocks From Shop", function()
+    local data = SavedBuilds[State.SelectedSavedBuild]
+    if not data then
+        Hub.Notify({ Title = "Build Stealer", Content = "Please export or select a build first!", Duration = 3 })
+        return
+    end
+    local missingList = checkBuildMissingBlocks(data)
+    if #missingList == 0 then
+        Hub.Notify({ Title = "Shop", Content = "No blocks missing!", Duration = 2 })
+        return
+    end
+    local boughtAny = false
+    for _, it in ipairs(missingList) do
+        local info = SHOP_ITEMS_MAP[it.name]
+        if info then
+            local packs = math.ceil(it.missing / info.PackQty)
+            pcall(function()
+                LocalPlayer.PlayerGui.ItemGained.LastItemBoughtName.Value = info.ShopItem
+                for p = 1, packs do
+                    Workspace.ItemBoughtFromShop:InvokeServer(info.ShopItem, 1)
+                    task.wait(0.18)
+                end
+                boughtAny = true
+            end)
+        end
+    end
+    if boughtAny then
+        Hub.Notify({ Title = "Shop", Content = "Successfully purchased available missing blocks!", Duration = 3 })
+    else
+        Hub.Notify({ Title = "Shop", Content = "Missing blocks are special/quest items not in basic shop.", Duration = 3 })
+    end
 end)
 
 -- Clean up any obsolete client dummy containers
@@ -1803,6 +1920,437 @@ end)
 -- =========================================================================
 -- TAB 3: SECRET TELEPORTS & EASTER EGGS
 -- =========================================================================
+
+-- =========================================================================
+-- SAVES DUPLICATOR (INFINITE EMPTY SAVE SLOTS)
+-- =========================================================================
+Hub.CreateSection(buildTab, "SAVED BUILDS & INFINITE SLOTS DUPLICATOR")
+
+local function duplicateNativeSaveSlot()
+    local shopGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("ShopGui")
+    local slotsFrame = shopGui and shopGui.MainFrame.TabFrame:FindFirstChild("SlotsFrame")
+    local scroll = slotsFrame and slotsFrame:FindFirstChild("ScrollingFrameSlots")
+    local template = scroll and scroll:FindFirstChild("BoatSlotTemplate")
+
+    if not scroll or not template then
+        Hub.Notify({ Title = "Saves Duplicator", Content = "SlotsFrame not found in ShopGui!", Duration = 3 })
+        return
+    end
+
+    local maxSlot = 3
+    for _, c in ipairs(scroll:GetChildren()) do
+        if c:IsA("ImageButton") and c.Name:find("BoatSlot") then
+            local num = tonumber(c.Name:match("%d+"))
+            if num and num < 100000 and num > maxSlot then
+                maxSlot = num
+            end
+        end
+    end
+    local newSlotNum = maxSlot + 1
+
+    local otherData = LocalPlayer:FindFirstChild("OtherData")
+    if otherData then
+        local slotVal = otherData:FindFirstChild("Slot" .. newSlotNum)
+        if not slotVal then
+            slotVal = Instance.new("IntValue")
+            slotVal.Name = "Slot" .. newSlotNum
+            slotVal.Value = 1
+            slotVal.Parent = otherData
+        end
+    end
+
+    local newSlot = template:Clone()
+    newSlot.Name = "BoatSlot" .. newSlotNum
+    newSlot.Visible = true
+    newSlot.LayoutOrder = newSlotNum
+    if newSlot:FindFirstChild("SlotName") then
+        newSlot.SlotName.Text = "Empty Slot " .. newSlotNum
+    end
+    newSlot.Parent = scroll
+
+    pcall(function()
+        workspace.UpdateSlotNameRE:FireServer("Empty Slot " .. newSlotNum, tostring(newSlotNum))
+    end)
+
+    newSlot.MouseButton1Click:Connect(function()
+        local selectedFrame = slotsFrame:FindFirstChild("SelectedFrame")
+        if selectedFrame then
+            selectedFrame.TextBox.Text = "What would you like to do with your build in Slot " .. newSlotNum .. "?"
+            local focus = selectedFrame:FindFirstChild("FocusImage")
+            if focus then
+                local old = focus:FindFirstChildOfClass("ImageButton")
+                if old then old:Destroy() end
+                local cl = newSlot:Clone()
+                cl.Size = UDim2.new(1, 0, 1, 0)
+                cl.Parent = focus
+            end
+        end
+    end)
+
+    Hub.Notify({
+        Title = "Saves Duplicated!",
+        Content = string.format("Created Slot %d! Infinite empty slots ready for saving.", newSlotNum),
+        Duration = 4
+    })
+end
+
+Hub.CreateButton(buildTab, "➕ Duplicate / Add New Empty Save Slot", function()
+    duplicateNativeSaveSlot()
+end)
+
+Hub.CreateButton(buildTab, "📁 Quick Save Current Plot to Disk Blueprint", function()
+    local myBlocks = Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+    if not myBlocks or #myBlocks:GetChildren() == 0 then
+        Hub.Notify({ Title = "Blueprint Save", Content = "Your plot is currently empty!", Duration = 3 })
+        return
+    end
+    local myTeam = LocalPlayer.Team
+    local myTeamColor = myTeam and myTeam.TeamColor.Name
+    local myZone = myTeamColor and Workspace:FindFirstChild(myTeamColor .. "Zone")
+    if not myZone then return end
+    local myDockCF = getZoneDockCF(myZone)
+
+    local buildData = {
+        Author = LocalPlayer.Name,
+        ExportTime = os.date("%X"),
+        BlockCount = 0,
+        Blocks = {}
+    }
+
+    for _, model in ipairs(myBlocks:GetChildren()) do
+        local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
+        if ppart then
+            local rel = myDockCF:ToObjectSpace(ppart.CFrame)
+            table.insert(buildData.Blocks, {
+                Name = model.Name,
+                RelativeCF = {rel:GetComponents()},
+                Size = {ppart.Size.X, ppart.Size.Y, ppart.Size.Z},
+                Color = {ppart.Color.R, ppart.Color.G, ppart.Color.B},
+                Material = tostring(ppart.Material):gsub("Enum.Material.", ""),
+                Transparency = ppart.Transparency,
+                CanCollide = ppart.CanCollide,
+                CastShadow = ppart.CastShadow
+            })
+            buildData.BlockCount = buildData.BlockCount + 1
+        end
+    end
+
+    local saveName = "Plot_Save_" .. os.date("%Y%m%d_%H%M%S")
+    SavedBuilds[saveName] = buildData
+    State.SelectedSavedBuild = saveName
+
+    pcall(function()
+        if writefile and makefolder then
+            makefolder("BABFT_Builds")
+            writefile("BABFT_Builds/" .. saveName .. ".json", HttpService:JSONEncode(buildData))
+        end
+    end)
+
+    Hub.Notify({
+        Title = "Blueprint Saved!",
+        Content = string.format("Saved %d blocks to '%s'!", buildData.BlockCount, saveName),
+        Duration = 4
+    })
+end)
+
+-- =========================================================================
+-- 3D MODEL AUTO-BUILDER (BLENDER / ROBLOX STUDIO EXPORTS)
+-- =========================================================================
+Hub.CreateSection(buildTab, "🏗️ 3D MODEL AUTO-BUILDER (BLENDER / STUDIO EXPORTS)")
+
+local function getAvailableModelFiles()
+    local files = {}
+    local folders = {"UnknownHub\\BABFT-models", "UnknownHub/BABFT-models", "BABFT-models"}
+    if listfiles then
+        for _, fld in ipairs(folders) do
+            local success, list = pcall(function() return listfiles(fld) end)
+            if success and list then
+                for _, f in ipairs(list) do
+                    local fn = f:match("([^\\/]+)$")
+                    if fn and (fn:find("%.obj$") or fn:find("%.json$")) then
+                        table.insert(files, f)
+                    end
+                end
+            end
+        end
+    end
+    if #files == 0 then
+        table.insert(files, "UnknownHub/BABFT-models/Example_Starship.json")
+        table.insert(files, "UnknownHub/BABFT-models/Example_Pyramid.obj")
+    end
+    return files
+end
+
+local modelFilesList = getAvailableModelFiles()
+State.AutoBuilder_File = modelFilesList[1] or ""
+
+local modelDropdown = Hub.CreateDropdown(buildTab, "Select Model File", modelFilesList, State.AutoBuilder_File, function(sel)
+    State.AutoBuilder_File = sel
+end)
+
+Hub.CreateButton(buildTab, "🔄 Refresh Model Files List", function()
+    local fresh = getAvailableModelFiles()
+    if modelDropdown and modelDropdown.Refresh then
+        modelDropdown.Refresh(fresh)
+        State.AutoBuilder_File = fresh[1] or ""
+        if modelDropdown.Set then modelDropdown.Set(fresh[1] or "") end
+    end
+    Hub.Notify({ Title = "Auto Builder", Content = "Found " .. #fresh .. " model files in BABFT-models!", Duration = 2 })
+end)
+
+Hub.CreateSlider(buildTab, "Voxel Resolution (Studs per Block)", 1, 8, State.AutoBuilder_Resolution or 2, function(val)
+    State.AutoBuilder_Resolution = val
+end)
+
+Hub.CreateToggle(buildTab, "Greedy Meshing (Merge Scaled Blocks)", State.AutoBuilder_GreedyMeshing ~= false, function(v)
+    State.AutoBuilder_GreedyMeshing = v
+end)
+
+Hub.CreateToggle(buildTab, "Solid Infill (Fill Interior)", State.AutoBuilder_Solid or false, function(v)
+    State.AutoBuilder_Solid = v
+end)
+
+local BUILDER_MATERIALS = {
+    "TitaniumBlock",
+    "ObsidianBlock",
+    "PlasticBlock",
+    "SmoothWoodBlock",
+    "WoodBlock",
+    "NeonBlock",
+    "ConcreteBlock",
+    "GlassBlock",
+    "IceBlock",
+    "GoldBlock",
+    "MarbleBlock",
+    "BrickBlock"
+}
+
+Hub.CreateDropdown(buildTab, "Default Construction Material", BUILDER_MATERIALS, State.AutoBuilder_Material or "TitaniumBlock", function(sel)
+    State.AutoBuilder_Material = sel
+end)
+
+local function parseObjModel(content, resolution, greedy, solid, defaultMaterial)
+    resolution = resolution or 2
+    local vertices = {}
+    local faces = {}
+    local minV = Vector3.new(math.huge, math.huge, math.huge)
+    local maxV = Vector3.new(-math.huge, -math.huge, -math.huge)
+
+    for line in content:gmatch("[^\r\n]+") do
+        local parts = {}
+        for p in line:gmatch("%S+") do table.insert(parts, p) end
+        if parts[1] == "v" and #parts >= 4 then
+            local x = tonumber(parts[2]) or 0
+            local y = tonumber(parts[3]) or 0
+            local z = tonumber(parts[4]) or 0
+            local v = Vector3.new(x, y, z)
+            table.insert(vertices, v)
+            minV = minV:Min(v)
+            maxV = maxV:Max(v)
+        elseif parts[1] == "f" and #parts >= 4 then
+            local f = {}
+            for i = 2, #parts do
+                local idx = tonumber(parts[i]:match("^(%d+)"))
+                if idx then table.insert(f, idx) end
+            end
+            if #f >= 3 then table.insert(faces, f) end
+        end
+    end
+
+    if #vertices == 0 then return nil end
+
+    local size = maxV - minV
+    local maxDim = math.max(size.X, size.Y, size.Z)
+    local scaleFactor = 1.0
+    if maxDim > 80 then
+        scaleFactor = 80 / maxDim
+    elseif maxDim < 10 then
+        scaleFactor = 20 / math.max(maxDim, 1)
+    end
+
+    local grid = {}
+    local function setGrid(x, y, z)
+        if not grid[x] then grid[x] = {} end
+        if not grid[x][y] then grid[x][y] = {} end
+        grid[x][y][z] = true
+    end
+
+    local minG = Vector3.new(math.huge, math.huge, math.huge)
+    local maxG = Vector3.new(-math.huge, -math.huge, -math.huge)
+
+    for _, f in ipairs(faces) do
+        local v1 = (vertices[f[1]] - minV) * scaleFactor
+        local v2 = (vertices[f[2]] - minV) * scaleFactor
+        local v3 = (vertices[f[3]] - minV) * scaleFactor
+
+        local steps = math.max(math.ceil((v2 - v1).Magnitude / resolution), 1)
+        for s = 0, steps do
+            local pA = v1:Lerp(v2, s / steps)
+            local pB = v1:Lerp(v3, s / steps)
+            local subSteps = math.max(math.ceil((pB - pA).Magnitude / resolution), 1)
+            for ss = 0, subSteps do
+                local pt = pA:Lerp(pB, ss / subSteps)
+                local gx = math.floor(pt.X / resolution)
+                local gy = math.floor(pt.Y / resolution)
+                local gz = math.floor(pt.Z / resolution)
+                setGrid(gx, gy, gz)
+                minG = minG:Min(Vector3.new(gx, gy, gz))
+                maxG = maxG:Max(Vector3.new(gx, gy, gz))
+            end
+        end
+    end
+
+    local blocks = {}
+    local centerGX = (minG.X + maxG.X) / 2
+    local centerGZ = (minG.Z + maxG.Z) / 2
+    local groundGY = minG.Y
+
+    if greedy then
+        local visited = {}
+        for y = minG.Y, maxG.Y do
+            for z = minG.Z, maxG.Z do
+                local startX = nil
+                local runLen = 0
+                for x = minG.X, maxG.X + 1 do
+                    if grid[x] and grid[x][y] and grid[x][y][z] and not (visited[x] and visited[x][y] and visited[x][y][z]) then
+                        if not startX then startX = x end
+                        runLen = runLen + 1
+                    else
+                        if startX and runLen > 0 then
+                            local relX = (startX + (runLen - 1) / 2 - centerGX) * resolution
+                            local relY = (y - groundGY) * resolution + resolution / 2
+                            local relZ = (z - centerGZ) * resolution
+                            local blkSize = Vector3.new(runLen * resolution, resolution, resolution)
+                            local cf = CFrame.new(relX, relY, relZ)
+
+                            table.insert(blocks, {
+                                Name = defaultMaterial,
+                                RelativeCF = {cf:GetComponents()},
+                                Size = {blkSize.X, blkSize.Y, blkSize.Z},
+                                Color = {0.8, 0.8, 0.85},
+                                Material = "Metal",
+                                Transparency = 0,
+                                CanCollide = true,
+                                CastShadow = true
+                            })
+
+                            for markX = startX, startX + runLen - 1 do
+                                if not visited[markX] then visited[markX] = {} end
+                                if not visited[markX][y] then visited[markX][y] = {} end
+                                visited[markX][y][z] = true
+                            end
+                            startX = nil
+                            runLen = 0
+                        end
+                    end
+                end
+            end
+        end
+    else
+        for x = minG.X, maxG.X do
+            for y = minG.Y, maxG.Y do
+                for z = minG.Z, maxG.Z do
+                    if grid[x] and grid[x][y] and grid[x][y][z] then
+                        local relX = (x - centerGX) * resolution
+                        local relY = (y - groundGY) * resolution + resolution / 2
+                        local relZ = (z - centerGZ) * resolution
+                        local cf = CFrame.new(relX, relY, relZ)
+                        table.insert(blocks, {
+                            Name = defaultMaterial,
+                            RelativeCF = {cf:GetComponents()},
+                            Size = {resolution, resolution, resolution},
+                            Color = {0.8, 0.8, 0.85},
+                            Material = "Metal",
+                            Transparency = 0,
+                            CanCollide = true,
+                            CastShadow = true
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    return {
+        Name = "Imported_OBJ",
+        Author = "Blender/Studio",
+        BlockCount = #blocks,
+        Blocks = blocks
+    }
+end
+
+Hub.CreateButton(buildTab, "🔨 Import & Construct Selected 3D Model", function()
+    local path = State.AutoBuilder_File
+    if not path or #path == 0 then
+        Hub.Notify({ Title = "Auto Builder", Content = "Please select a model file first!", Duration = 3 })
+        return
+    end
+
+    local content = nil
+    pcall(function()
+        if readfile then
+            content = readfile(path)
+        end
+    end)
+
+    if not content or #content == 0 then
+        Hub.Notify({ Title = "Auto Builder", Content = "Could not read model file: " .. tostring(path), Duration = 3 })
+        return
+    end
+
+    local buildData = nil
+    if path:find("%.obj$") then
+        buildData = parseObjModel(
+            content,
+            State.AutoBuilder_Resolution or 2,
+            State.AutoBuilder_GreedyMeshing ~= false,
+            State.AutoBuilder_Solid or false,
+            State.AutoBuilder_Material or "TitaniumBlock"
+        )
+    else
+        local ok, parsed = pcall(function() return HttpService:JSONDecode(content) end)
+        if ok and parsed then
+            if parsed.Blocks then
+                buildData = parsed
+            elseif parsed.parts or typeof(parsed) == "table" then
+                local blist = {}
+                local rawList = parsed.Blocks or parsed.parts or parsed
+                for _, b in ipairs(rawList) do
+                    if b.Name then table.insert(blist, b) end
+                end
+                buildData = {
+                    Name = parsed.Name or "Studio_Import",
+                    Author = "Roblox Studio",
+                    BlockCount = #blist,
+                    Blocks = blist
+                }
+            end
+        end
+    end
+
+    if not buildData or not buildData.Blocks or #buildData.Blocks == 0 then
+        Hub.Notify({ Title = "Auto Builder", Content = "Failed to parse blocks from model file!", Duration = 3 })
+        return
+    end
+
+    local saveKey = "Imported_" .. (buildData.Name or "Model") .. "_" .. tostring(#buildData.Blocks) .. "blks"
+    SavedBuilds[saveKey] = buildData
+    State.SelectedSavedBuild = saveKey
+
+    local missing = checkBuildMissingBlocks(buildData)
+    if #missing > 0 then
+        showMissingBlocksHUD(missing)
+    end
+
+    Hub.Notify({
+        Title = "Model Imported!",
+        Content = string.format("Imported %d blocks from %s! Constructing onto plot...", #buildData.Blocks, path:match("([^\\/]+)$") or path),
+        Duration = 4
+    })
+
+    constructBuildOnMyIsland(saveKey, false)
+end)
+
 local teleTab = Hub.CreateTab("Secret Teleports", {
     Icon = "🔮",
     Size = 18,
@@ -1820,7 +2368,41 @@ local function safeTeleport(cframe, name)
     end
 end
 
-Hub.CreateSection(teleTab, "EASTER EGGS & SECRET ROOMS")
+Hub.CreateSection(teleTab, "EXPIRED EVENTS & SECRET ROOMS")
+
+Hub.CreateButton(teleTab, "🎄 Expired Gingerbread & Christmas Village", function()
+    safeTeleport(CFrame.new(-54, 50, 4200), "Gingerbread Village")
+end)
+
+Hub.CreateButton(teleTab, "🎃 Expired Halloween Witch / Cauldron Stage", function()
+    safeTeleport(CFrame.new(-54, 50, 5800), "Halloween Cauldron")
+end)
+
+Hub.CreateButton(teleTab, "⚔️ Expired RB Battles Secret Room", function()
+    safeTeleport(CFrame.new(-54, -300, 9485), "RB Battles Room")
+end)
+
+Hub.CreateButton(teleTab, "🥚 Expired Egg Hunt Stage & Giant Tree", function()
+    safeTeleport(CFrame.new(180, 50, 2200), "Egg Hunt Stage")
+end)
+
+Hub.CreateButton(teleTab, "⚙️ The Clock Room (GearStage Secret Door)", function()
+    safeTeleport(CFrame.new(195, 45, 1420), "Clock Room")
+end)
+
+Hub.CreateButton(teleTab, "🍞 Bakery Oven Secret Room", function()
+    safeTeleport(CFrame.new(-180, 40, 2800), "Bakery Oven")
+end)
+
+Hub.CreateButton(teleTab, "🤠 Wild West Secret Saloon", function()
+    safeTeleport(CFrame.new(210, 45, 3400), "Wild West Saloon")
+end)
+
+Hub.CreateButton(teleTab, "🏺 Egyptian Sphinx & Pharaoh Chamber", function()
+    safeTeleport(CFrame.new(-220, 50, 4900), "Egyptian Sphinx")
+end)
+
+Hub.CreateSection(teleTab, "EASTER EGGS & CLASSIC SECRETS")
 
 Hub.CreateButton(teleTab, "🏆 The End / Golden Chest Room", function()
     safeTeleport(CFrame.new(-54.3, -345.4, 9488.6), "Golden Chest Room")
@@ -2021,17 +2603,21 @@ end)
 
 local waterPlatform = Instance.new("Part")
 waterPlatform.Name = "UnknownWaterPlatform"
-waterPlatform.Size = Vector3.new(24, 1, 24)
+waterPlatform.Size = Vector3.new(36, 2, 36)
 waterPlatform.Transparency = 1
 waterPlatform.Anchored = true
 waterPlatform.CanCollide = true
+waterPlatform.CanTouch = false
 
-RunService.Heartbeat:Connect(function()
+RunService.RenderStepped:Connect(function()
     if State.WalkOnWater then
         local root = getRoot()
         if root then
             waterPlatform.Parent = Workspace
-            waterPlatform.CFrame = CFrame.new(root.Position.X, -10.2, root.Position.Z)
+            -- River water top surface is at Y = -12.9; platform center at -13.9 puts top surface flush at -12.9
+            waterPlatform.CFrame = CFrame.new(root.Position.X, -13.9, root.Position.Z)
+        elseif waterPlatform.Parent then
+            waterPlatform.Parent = nil
         end
     elseif waterPlatform.Parent then
         waterPlatform.Parent = nil
@@ -2061,6 +2647,45 @@ local shopTab = Hub.CreateTab("Shop & Chests", {
     Color = Color3.fromRGB(170, 185, 210),
     ActiveColor = Color3.fromRGB(0, 215, 255)
 })
+
+
+Hub.CreateSection(shopTab, "🎃 EXPIRED & EVENT EXCLUSIVE PURCHASES")
+
+local EXPIRED_SHOP_ITEMS = {
+    { Name = "🐉 +5 Dragon Harpoons", Item = "+5 Dragon Harpoons" },
+    { Name = "🥚 +3 Egg Cannons", Item = "+3 Egg Cannons" },
+    { Name = "⚡ +5 Duel Harpoons", Item = "+5 Duel Harpoons" },
+    { Name = "🍪 +4 Cookie Wheels", Item = "+4 Cookie Wheels" },
+    { Name = "🎃 Jack-O-Lantern Block", Item = "JackOLantern" },
+    { Name = "🕯️ Candle Block", Item = "Candle" },
+    { Name = "🧸 Toy Block", Item = "ToyBlock" },
+    { Name = "🍬 Mint Wheels", Item = "MintWheels" },
+    { Name = "❄️ Snowball Turret", Item = "SnowballTurret" },
+    { Name = "🎆 Firework A", Item = "FireworkA" },
+    { Name = "🎆 Firework B", Item = "FireworkB" },
+    { Name = "🎆 Firework C", Item = "FireworkC" },
+    { Name = "🎆 Firework D", Item = "FireworkD" },
+    { Name = "🦊 Fox Character", Item = "Fox Character" },
+    { Name = "🐧 Penguin Character", Item = "Penguin Character" },
+    { Name = "🌀 +4 Portals", Item = "+4 Portals" },
+    { Name = "🛡️ Shield Generators", Item = "Shield Generators" },
+    { Name = "🚀 +3 Ultra Jetpacks", Item = "+3 Ultra Jetpacks" },
+    { Name = "⚡ +5 Ultra Thrusters", Item = "+5 Ultra Thrusters" },
+    { Name = "🏎️ Legacy Car Pack", Item = "LegacyCarPack" },
+    { Name = "💥 Sticks Of TNT", Item = "SticksOfTNT" }
+}
+
+for _, it in ipairs(EXPIRED_SHOP_ITEMS) do
+    Hub.CreateButton(shopTab, "Buy " .. it.Name, function()
+        pcall(function()
+            local rf = Workspace:FindFirstChild("ItemBoughtFromShop")
+            if rf then
+                rf:InvokeServer(it.Item, 1)
+            end
+        end)
+        Hub.Notify({ Title = "Shop", Content = "Sent purchase request for " .. it.Item .. "!", Duration = 2 })
+    end)
+end
 
 Hub.CreateSection(shopTab, "CHEST AUTOMATION")
 
