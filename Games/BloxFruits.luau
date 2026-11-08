@@ -106,14 +106,19 @@ Hub.CreateList = function(parent, titleText, itemsList, ...)
 
         local origAddItem = listObj.AddItem
         if type(origAddItem) == "function" then
-            listObj.AddItem = function(text, subtext, itemCallback, ...)
+            listObj.AddItem = function(a1, a2, a3, ...)
+                local selfPassed = (type(a1) == "table" and (a1 == listObj or a1.AddItem or a1.SetSelected or a1.Items))
+                local text = selfPassed and a2 or a1
+                local subtext = selfPassed and a3 or a2
+                local itemCallback = selfPassed and select(1, ...) or a3
+
                 local cleanText = toCleanDisplayString(text)
                 local cleanSub = subtext and toCleanDisplayString(subtext) or nil
                 return origAddItem(cleanText, cleanSub, function(...)
                     if type(itemCallback) == "function" then
                         pcall(itemCallback, cleanText, ...)
                     end
-                end, ...)
+                end)
             end
             listObj.addItem = listObj.AddItem
         end
@@ -407,7 +412,7 @@ local stopChestFarm = nil
 local farmPage = Hub.CreateTab("Auto Farm", { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 215, 255) })
 local questPage = Hub.CreateTab("Quests", { Icon = "📜", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
 local playerPage = Hub.CreateTab("Player", { Icon = "👤", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(80, 220, 140) })
-local statsPage = Hub.CreateTab("Auto Stats", { Icon = "📊", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 140, 50) })
+local eventPage = Hub.CreateTab("Event", { Icon = "🎃", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 120, 0) })
 local bossPage = Hub.CreateTab("Auto Boss", { Icon = "👹", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 60, 60) })
 local fruitPage = Hub.CreateTab("Fruit", { Icon = "🍎", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 100, 120) })
 local espPage = Hub.CreateTab("ESP", { Icon = "👁️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(160, 95, 255) })
@@ -1751,40 +1756,38 @@ end
 
 
 
--- STATS PAGE SETUP
-do
-    Hub.CreateSection(statsPage, "📊 Auto Stats Allocation")
-    
-    createSliderToggle(statsPage, "Enable Auto Stats Allocation", false, function(newState)
-        isStatsOn = newState
-    end, "AutoStats")
+-- EVENT PAGE SETUP (HALLOWEEN & PUMPKIN EVENT)
+local isAutoPumpkinHeadsOn = false
+local isAutoPumpkinNPCsOn = false
+local pumpkinEventStatus = nil
 
-    Hub.CreateSlider(statsPage, "Points per Upgrade Step", 1, 100, pointsPerUpgrade or 3, "pts", function(val)
-        pointsPerUpgrade = val
-    end)
-    
-    local statTypes = {"Melee", "Defense", "Sword", "Gun", "DemonFruit"}
-    local statList = Hub.CreateList(statsPage, "📊 Target Stats to Upgrade", {}, 180, true, {MultiSelect = true})
-    for _, sName in ipairs(statTypes) do
-        local isSelected = selectedStats[sName] or false
-        local initialBadge = isSelected and "[SELECTED]" or "[OFF]"
-        local row, entryData = statList:AddItem(sName, initialBadge, function()
-            selectedStats[sName] = not selectedStats[sName]
-            if row then
-                local badge = row:FindFirstChild("ItemSubtitle") or row:FindFirstChildWhichIsA("TextLabel")
-                if badge and badge ~= row:FindFirstChild("Title") then
-                    badge.Text = selectedStats[sName] and "[SELECTED]" or "[OFF]"
-                    badge.TextColor3 = selectedStats[sName] and Color3.fromRGB(0, 230, 120) or Color3.fromRGB(160, 170, 185)
-                end
-            end
-        end)
-        if row then
-            local badge = row:FindFirstChild("ItemSubtitle") or row:FindFirstChildWhichIsA("TextLabel")
-            if badge and badge ~= row:FindFirstChild("Title") then
-                badge.TextColor3 = isSelected and Color3.fromRGB(0, 230, 120) or Color3.fromRGB(160, 170, 185)
-            end
+do
+    Hub.CreateSection(eventPage, "🎃 Halloween & Pumpkin Event")
+
+    pumpkinEventStatus = Instance.new("TextLabel")
+    pumpkinEventStatus.Name = "EventStatusLabel"
+    pumpkinEventStatus.Size = UDim2.new(1, -16, 0, 28)
+    pumpkinEventStatus.BackgroundTransparency = 1
+    pumpkinEventStatus.Font = Enum.Font.GothamMedium
+    pumpkinEventStatus.TextSize = 13
+    pumpkinEventStatus.TextColor3 = Color3.fromRGB(255, 160, 40)
+    pumpkinEventStatus.Text = "Status: Event Automation Idle"
+    pumpkinEventStatus.TextXAlignment = Enum.TextXAlignment.Left
+    pcall(function() pumpkinEventStatus.Parent = eventPage.content or eventPage end)
+
+    createSliderToggle(eventPage, "Auto Kill Pumpkin Heads", false, function(newState)
+        isAutoPumpkinHeadsOn = newState
+        if not newState and pumpkinEventStatus then
+            pumpkinEventStatus.Text = "Status: Auto Pumpkin Heads OFF"
         end
-    end
+    end, "AutoPumpkinHeads")
+
+    createSliderToggle(eventPage, "Auto Kill Pumpkin NPCs", false, function(newState)
+        isAutoPumpkinNPCsOn = newState
+        if not newState and pumpkinEventStatus then
+            pumpkinEventStatus.Text = "Status: Auto Pumpkin NPCs OFF"
+        end
+    end, "AutoPumpkinNPCs")
 end
 
 -- SHOP PAGE SETUP
@@ -2333,7 +2336,43 @@ end
 
 -- MISC PAGE SETUP (POTATO MODE & PERFORMANCE)
 do
-    Hub.CreateSection(miscPage, "⚙️ Misc & Performance Settings")
+    -- STATS PAGE SETUP
+do
+    Hub.CreateSection(miscPage, "📊 Auto Stats Allocation")
+    
+    createSliderToggle(miscPage, "Enable Auto Stats Allocation", false, function(newState)
+        isStatsOn = newState
+    end, "AutoStats")
+
+    Hub.CreateSlider(miscPage, "Points per Upgrade Step", 1, 100, pointsPerUpgrade or 3, "pts", function(val)
+        pointsPerUpgrade = val
+    end)
+    
+    local statTypes = {"Melee", "Defense", "Sword", "Gun", "DemonFruit"}
+    local statList = Hub.CreateList(miscPage, "📊 Target Stats to Upgrade", {}, 180, true, {MultiSelect = true})
+    for _, sName in ipairs(statTypes) do
+        local isSelected = selectedStats[sName] or false
+        local initialBadge = isSelected and "[SELECTED]" or "[OFF]"
+        local row, entryData = statList:AddItem(sName, initialBadge, function()
+            selectedStats[sName] = not selectedStats[sName]
+            if row then
+                local badge = row:FindFirstChild("ItemSubtitle") or row:FindFirstChildWhichIsA("TextLabel")
+                if badge and badge ~= row:FindFirstChild("Title") then
+                    badge.Text = selectedStats[sName] and "[SELECTED]" or "[OFF]"
+                    badge.TextColor3 = selectedStats[sName] and Color3.fromRGB(0, 230, 120) or Color3.fromRGB(160, 170, 185)
+                end
+            end
+        end)
+        if row then
+            local badge = row:FindFirstChild("ItemSubtitle") or row:FindFirstChildWhichIsA("TextLabel")
+            if badge and badge ~= row:FindFirstChild("Title") then
+                badge.TextColor3 = isSelected and Color3.fromRGB(0, 230, 120) or Color3.fromRGB(160, 170, 185)
+            end
+        end
+    end
+end
+
+Hub.CreateSection(miscPage, "⚙️ Misc & Performance Settings")
 
     local miscPotatoSaved = {}
     createSliderToggle(miscPage, "⚡ Potato Mode", false, function(newState)
@@ -2686,7 +2725,7 @@ _G.Unknown_IsManualAttacking = false
 -- Global performFastAttack function callable anywhere (Auto Farm, Bosses, Raids, Fast Attack)
 _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     if not nearbyHits or #nearbyHits == 0 then return end
-    primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart")))
+    primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart") or nearbyHits[1][1]:FindFirstChild("RootPart") or nearbyHits[1][1].PrimaryPart or nearbyHits[1][1]:FindFirstChildWhichIsA("BasePart")))
     if not primaryPart then return end
 
     -- 1. Net Module (Wrapped Remote Events)
@@ -2855,6 +2894,26 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
             end
         end
 
+        -- Pumpkin Heads from workspace.PumpkinHunt (ALWAYS get damage from hit aura!)
+        local pumpkinFolder = workspace:FindFirstChild("PumpkinHunt")
+        if pumpkinFolder then
+            for _, p in ipairs(pumpkinFolder:GetChildren()) do
+                if p:IsA("Model") and (p.Name == "Pumpkin" or string.find(string.lower(p.Name), "pump")) then
+                    local state = p:GetAttribute("PumpkinState")
+                    if state ~= "Broken" and state ~= "Dead" then
+                        local pPart = p:FindFirstChild("RootPart") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
+                        if pPart then
+                            local dist = (pPart.Position - hrp.Position).Magnitude
+                            if dist <= 60 then
+                                if not primaryHRP then primaryHRP = pPart end
+                                table.insert(nearbyHits, {p, pPart})
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
         if selectedFastAttackTarget == "Players" or selectedFastAttackTarget == "Everyone" then
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") then
@@ -2871,6 +2930,7 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
         end
 
         if primaryHRP and #nearbyHits > 0 then
+            pcall(function() tool:Activate() end)
             _G.Unknown_PerformFastAttack(nearbyHits, primaryHRP)
         end
     end)
@@ -4327,6 +4387,179 @@ _G.startUnknownFarm = function()
         end)
     end)
 end
+
+-- INDEPENDENT AUTO KILL PUMPKIN HEADS ENGINE
+task.spawn(function()
+    while true do
+        task.wait(0.12)
+        if isAutoPumpkinHeadsOn then
+            pcall(function()
+                local char = LocalPlayer.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                local hrp = char.HumanoidRootPart
+
+                local pumpkinFolder = workspace:FindFirstChild("PumpkinHunt")
+                if not pumpkinFolder then
+                    if pumpkinEventStatus then pumpkinEventStatus.Text = "Status: PumpkinHunt folder not found" end
+                    return
+                end
+
+                local targetPumpkin = nil
+                local targetPart = nil
+                local closestDist = math.huge
+                local activeCount = 0
+
+                for _, p in ipairs(pumpkinFolder:GetChildren()) do
+                    if p:IsA("Model") and (p.Name == "Pumpkin" or string.find(string.lower(p.Name), "pump")) then
+                        local state = p:GetAttribute("PumpkinState")
+                        if state ~= "Broken" and state ~= "Dead" then
+                            local pPart = p:FindFirstChild("RootPart") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
+                            if pPart then
+                                activeCount = activeCount + 1
+                                local d = (pPart.Position - hrp.Position).Magnitude
+                                if d < closestDist then
+                                    closestDist = d
+                                    targetPumpkin = p
+                                    targetPart = pPart
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if not targetPumpkin or not targetPart then
+                    if pumpkinEventStatus then
+                        pumpkinEventStatus.Text = "Status: All Pumpkin Heads broken! Waiting for respawns..."
+                    end
+                    return
+                end
+
+                local farmDist = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
+                local hoverCF = CFrame.new(targetPart.Position + Vector3.new(0, farmDist, 0))
+                local distToPumpkin = (hrp.Position - hoverCF.Position).Magnitude
+
+                if pumpkinEventStatus then
+                    pumpkinEventStatus.Text = string.format("Status: Slaying Pumpkin Head (%d left, %.0f studs)...", activeCount, distToPumpkin)
+                end
+
+                if distToPumpkin > 14 then
+                    if not isTraveling then
+                        safeTweenToIsland(hoverCF)
+                    end
+                else
+                    if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
+                        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                        isTraveling = false
+                    end
+                    hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.15)
+
+                    local heldTool = char:FindFirstChildOfClass("Tool") or autoEquipSelectedWeapon()
+                    if heldTool then
+                        pcall(function() heldTool:Activate() end)
+                        local hits = { {targetPumpkin, targetPart} }
+                        _G.Unknown_PerformFastAttack(hits, targetPart)
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- INDEPENDENT AUTO KILL PUMPKIN NPCS ENGINE
+task.spawn(function()
+    while true do
+        task.wait(0.12)
+        if isAutoPumpkinNPCsOn then
+            pcall(function()
+                local char = LocalPlayer.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                local hrp = char.HumanoidRootPart
+
+                local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
+                local targetNPCs = {}
+
+                for _, mob in ipairs(enemies) do
+                    if mob:IsA("Model") and mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChildOfClass("Humanoid") and mob.Humanoid.Health > 0 then
+                        local nLower = string.lower(mob.Name)
+                        if string.find(nLower, "jack") or string.find(nLower, "pump") or string.find(nLower, "lantern") or string.find(nLower, "evil slime") or string.find(nLower, "snowman") or mob:FindFirstChild("PumpkinMask") or mob:FindFirstChild("GoofyPumpkinHead") then
+                            table.insert(targetNPCs, mob)
+                        end
+                    end
+                end
+
+                if #targetNPCs == 0 then
+                    if pumpkinEventStatus then
+                        pumpkinEventStatus.Text = "Status: Waiting for Pumpkin NPCs / Jack o' Lantern spawns..."
+                    end
+                    return
+                end
+
+                local firstMob = targetNPCs[1]
+                local firstHRP = firstMob:FindFirstChild("HumanoidRootPart")
+                if not firstHRP then return end
+
+                local farmDist = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
+                local hoverCF = CFrame.new(firstHRP.Position + Vector3.new(0, farmDist, 0))
+                local distToMob = (hrp.Position - hoverCF.Position).Magnitude
+
+                if pumpkinEventStatus then
+                    pumpkinEventStatus.Text = string.format("Status: Slaying %s (%d clustered)...", firstMob.Name, #targetNPCs)
+                end
+
+                if distToMob > 14 then
+                    if not isTraveling then
+                        safeTweenToIsland(hoverCF)
+                    end
+                else
+                    if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
+                        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                        isTraveling = false
+                    end
+                    hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.15)
+
+                    -- Bring and cluster all pumpkin NPCs beneath player
+                    local bringCF = hrp.CFrame * CFrame.new(0, -farmDist, 0)
+                    local hitList = {}
+
+                    for _, mob in ipairs(targetNPCs) do
+                        local mHrp = mob:FindFirstChild("HumanoidRootPart")
+                        local mHum = mob:FindFirstChildOfClass("Humanoid")
+                        if mHrp and mHum and mHum.Health > 0 then
+                            pcall(function()
+                                local d = (mHrp.Position - bringCF.Position).Magnitude
+                                if d > 350 then return end
+
+                                if d > 2.5 then
+                                    mHrp.CFrame = mHrp.CFrame:Lerp(bringCF, 0.35)
+                                end
+                                mHrp.Velocity = Vector3.zero
+                                if mHrp:IsA("BasePart") then
+                                    mHrp.AssemblyLinearVelocity = Vector3.zero
+                                    mHrp.AssemblyAngularVelocity = Vector3.zero
+                                end
+
+                                for _, part in ipairs(mob:GetChildren()) do
+                                    if part:IsA("BasePart") then part.CanCollide = false end
+                                end
+                                mHum.PlatformStand = true
+                                mHum.WalkSpeed = 0
+
+                                table.insert(hitList, {mob, mHrp})
+                            end)
+                        end
+                    end
+
+                    local heldTool = char:FindFirstChildOfClass("Tool") or autoEquipSelectedWeapon()
+                    if heldTool and #hitList > 0 then
+                        pcall(function() heldTool:Activate() end)
+                        local primaryHRP = hitList[1][2]
+                        _G.Unknown_PerformFastAttack(hitList, primaryHRP)
+                    end
+                end
+            end)
+        end
+    end
+end)
 
 -- INDEPENDENT STANDALONE AUTO ROLL RANDOM FRUIT ENGINE (RUNS EVEN IF AUTO FARM IS OFF)
 task.spawn(function()
