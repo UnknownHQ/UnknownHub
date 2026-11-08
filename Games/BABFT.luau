@@ -954,23 +954,42 @@ local function checkBuildMissingBlocks(buildData)
         local itemData = LocalPlayer.Data:FindFirstChild(name)
         local owned = itemData and itemData.Value or 0
 
-        -- If seat is missing, check if user has Thrones or CarSeats (built-in usable seating)
+        -- If seat is missing, check if user has Thrones, CarSeats, or PilotSeats
         if name:lower():find("seat") and owned < count then
             local altSeats = (LocalPlayer.Data:FindFirstChild("CarSeat") and LocalPlayer.Data.CarSeat.Value or 0)
                 + (LocalPlayer.Data:FindFirstChild("Throne") and LocalPlayer.Data.Throne.Value or 0)
                 + (LocalPlayer.Data:FindFirstChild("PilotSeat") and LocalPlayer.Data.PilotSeat.Value or 0)
             if altSeats >= count then
-                continue -- User has usable seats, do not bother them or buy wrong items
+                continue -- User has usable seats, do not bother them
             end
         end
 
+        -- If wheel is missing, check if user has other wheels
+        if name:lower():find("wheel") and owned < count then
+            local totalWheels = 0
+            for _, it in ipairs(LocalPlayer.Data:GetChildren()) do
+                if it.Name:lower():find("wheel") and it.Value > 0 then
+                    totalWheels = totalWheels + it.Value
+                end
+            end
+            if totalWheels >= count then
+                continue -- User has usable wheels
+            end
+        end
+
+        -- ONLY flag items that can ACTUALLY be bought for gold in the regular shop!
+        -- Never demand Robux, and never display quest/badge items (like Plushies) as shop-missing!
         if owned < count then
-            table.insert(missingList, {
-                name = name,
-                needed = count,
-                owned = owned,
-                missing = count - owned
-            })
+            local shopInfo = SHOP_ITEMS_MAP[name]
+            if shopInfo then
+                table.insert(missingList, {
+                    name = name,
+                    needed = count,
+                    owned = owned,
+                    missing = count - owned,
+                    price = shopInfo.Price
+                })
+            end
         end
     end
 
@@ -1008,10 +1027,8 @@ local function exportPlayerBuild(targetPlayerName)
     end
 
     local blocksFolder = Workspace:FindFirstChild("Blocks")
-    local playerBlocks = blocksFolder and blocksFolder:FindFirstChild(targetPlayerName)
-
-    if not playerBlocks or #playerBlocks:GetChildren() == 0 then
-        Hub.Notify({ Title = "Build Stealer", Content = "Target player has no active blocks on their plot!", Duration = 3 })
+    if not blocksFolder then
+        Hub.Notify({ Title = "Build Stealer", Content = "Workspace.Blocks not found!", Duration = 3 })
         return nil
     end
 
@@ -1026,27 +1043,46 @@ local function exportPlayerBuild(targetPlayerName)
 
     local targetDockCF = getZoneDockCF(targetZone)
 
-    -- Collect all valid block parts and compute dock-space bounding box
+    -- Collect all folders belonging to this team (supports multi-builder teams and friends)
+    local candidateFolders = {}
+    if targetTeam then
+        for _, pl in ipairs(targetTeam:GetPlayers()) do
+            local f = blocksFolder:FindFirstChild(pl.Name)
+            if f and #f:GetChildren() > 0 then
+                table.insert(candidateFolders, f)
+            end
+        end
+    end
+    if #candidateFolders == 0 then
+        local f = blocksFolder:FindFirstChild(targetPlayerName)
+        if f and #f:GetChildren() > 0 then
+            table.insert(candidateFolders, f)
+        end
+    end
+
+    -- Collect all valid block parts strictly on the team's plot (bounds check eliminates river debris & remote plushies)
     local validEntries = {}
     local minRel = Vector3.new(math.huge, math.huge, math.huge)
     local maxRel = Vector3.new(-math.huge, -math.huge, -math.huge)
 
-    for _, model in ipairs(playerBlocks:GetChildren()) do
-        local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
-        if ppart then
-            local pos = ppart.Position
-            -- Sanity filter: Ignore physics flung / void parts (e.g. glitch boats at millions of studs)
-            if math.abs(pos.X) <= 1500 and pos.Y >= -500 and pos.Y <= 2000 and pos.Z >= -1000 and pos.Z <= 12000 then
-                local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
-                minRel = minRel:Min(rel.Position)
-                maxRel = maxRel:Max(rel.Position)
-                table.insert(validEntries, {model = model, ppart = ppart, relCF = rel})
+    for _, folder in ipairs(candidateFolders) do
+        for _, model in ipairs(folder:GetChildren()) do
+            local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
+            if ppart then
+                -- Bounding box check: strictly within dock plot area
+                local relFromZone = targetZone.CFrame:PointToObjectSpace(ppart.Position)
+                if math.abs(relFromZone.X) <= 160 and math.abs(relFromZone.Z) <= 180 and relFromZone.Y >= -15 and relFromZone.Y <= 250 then
+                    local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
+                    minRel = minRel:Min(rel.Position)
+                    maxRel = maxRel:Max(rel.Position)
+                    table.insert(validEntries, {model = model, ppart = ppart, relCF = rel})
+                end
             end
         end
     end
 
     if #validEntries == 0 then
-        Hub.Notify({ Title = "Build Stealer", Content = "No valid block parts found in target build!", Duration = 3 })
+        Hub.Notify({ Title = "Build Stealer", Content = "No active blocks found on " .. targetPlayerName .. "'s plot!", Duration = 3 })
         return nil
     end
 
@@ -1326,6 +1362,7 @@ local function constructBuildOnMyIsland(buildKey)
             end
 
             table.insert(metaList, {
+                blockName = blockToUse,
                 worldCF = worldCF,
                 targetPos = worldCF.Position,
                 size = block.Size and Vector3.new(unpack(block.Size)) or nil,
@@ -1333,54 +1370,62 @@ local function constructBuildOnMyIsland(buildKey)
             })
             count = count + 1
 
-            task.wait(0.04)
+            task.wait(0.035)
         end
 
         -- Allow server replication to settle
-        task.wait(0.6)
+        task.wait(0.5)
         if conn then conn:Disconnect() end
 
         local finalBlockCount = myBlocks and #myBlocks:GetChildren() or 0
 
-        -- Build matched list (prefer exact ChildAdded list, fallback to spatial proximity)
+        -- 2-Pass Robust Spatial & BlockType Matching (Zero color/size scramble)
+        local allChildren = myBlocks and myBlocks:GetChildren() or {}
+        local used = {}
         local matched = {}
-        if #placedList > 0 and #placedList == #metaList then
-            for idx, blk in ipairs(placedList) do
-                local meta = metaList[idx]
-                table.insert(matched, {
-                    block = blk,
-                    size = meta.size,
-                    worldCF = meta.worldCF,
-                    color = meta.color
-                })
+
+        for _, meta in ipairs(metaList) do
+            local bestBlk = nil
+            local bestDist = 9999
+
+            -- Pass 1: Match by exact block model name and closest coordinate
+            for _, blk in ipairs(allChildren) do
+                if not used[blk] and blk.Name == meta.blockName then
+                    local p = blk:FindFirstChild("PPart") or blk:FindFirstChildWhichIsA("BasePart")
+                    if p then
+                        local d = (p.Position - meta.targetPos).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            bestBlk = blk
+                        end
+                    end
+                end
             end
-        else
-            local allChildren = myBlocks and myBlocks:GetChildren() or {}
-            local used = {}
-            for _, meta in ipairs(metaList) do
-                local closest = nil
-                local closestDist = 9999
+
+            -- Pass 2: If substituted, match closest unused block
+            if not bestBlk or bestDist > 3.5 then
                 for _, blk in ipairs(allChildren) do
                     if not used[blk] then
                         local p = blk:FindFirstChild("PPart") or blk:FindFirstChildWhichIsA("BasePart")
                         if p then
-                            local dist = (p.Position - meta.targetPos).Magnitude
-                            if dist < closestDist then
-                                closestDist = dist
-                                closest = blk
+                            local d = (p.Position - meta.targetPos).Magnitude
+                            if d < bestDist then
+                                bestDist = d
+                                bestBlk = blk
                             end
                         end
                     end
                 end
-                if closest and closestDist < 15 then
-                    used[closest] = true
-                    table.insert(matched, {
-                        block = closest,
-                        size = meta.size,
-                        worldCF = meta.worldCF,
-                        color = meta.color
-                    })
-                end
+            end
+
+            if bestBlk then
+                used[bestBlk] = true
+                table.insert(matched, {
+                    block = bestBlk,
+                    size = meta.size,
+                    worldCF = meta.worldCF,
+                    color = meta.color
+                })
             end
         end
 
@@ -1401,13 +1446,13 @@ local function constructBuildOnMyIsland(buildKey)
                             sRF:InvokeServer(m.block, sz, m.worldCF)
                         end)
                         scaledCount = scaledCount + 1
-                        task.wait(0.035)
+                        task.wait(0.025)
                     end
                 end
             end
         end
 
-        -- Phase 3: Instant Batch Painting (Equip PaintingTool)
+        -- Phase 3: Reliable Chunked Batch Painting (Equip PaintingTool)
         local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or char:FindFirstChild("PaintingTool")
         local paintedCount = 0
         if pTool and #matched > 0 then
@@ -1423,11 +1468,17 @@ local function constructBuildOnMyIsland(buildKey)
                         table.insert(batch, {m.block, m.color})
                     end
                 end
-                if #batch > 0 then
+                -- Send in safe chunks of 25 with 80ms delay for 100% server replication
+                for i = 1, #batch, 25 do
+                    local slice = {}
+                    for j = i, math.min(i + 24, #batch) do
+                        table.insert(slice, batch[j])
+                    end
                     pcall(function()
-                        pRF:InvokeServer(batch)
+                        pRF:InvokeServer(slice)
                     end)
-                    paintedCount = #batch
+                    paintedCount = paintedCount + #slice
+                    task.wait(0.08)
                 end
             end
         end
