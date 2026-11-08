@@ -375,7 +375,7 @@ task.spawn(function()
                             -- Step A: Glide high above obstacles through mid-stage corridor (Z = dp.Position.Z - 380)
                             local midZ = dp.Position.Z - 380
                             root.Anchored = false
-                            tweenCharacter(root, CFrame.new(-53.5, flightHeight, midZ), 0.65)
+                            tweenCharacter(root, CFrame.new(-53.5, flightHeight, midZ), 0.85)
 
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                                 abort = true
@@ -383,7 +383,7 @@ task.spawn(function()
                             end
 
                             -- Step B: Smoothly enter DarknessPart boundary (DarknessPart spans up to Y=192)
-                            tweenCharacter(root, CFrame.new(dp.Position.X, flightHeight, dp.Position.Z), 0.65)
+                            tweenCharacter(root, CFrame.new(dp.Position.X, flightHeight, dp.Position.Z), 0.85)
 
                             -- Physical touch registration
                             root.AssemblyLinearVelocity = Vector3.zero
@@ -395,7 +395,7 @@ task.spawn(function()
                             end)
 
                             -- Brief spatial stabilization dwell
-                            task.wait(0.35)
+                            task.wait(0.45)
                         end
                     end
 
