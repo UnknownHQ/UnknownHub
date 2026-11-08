@@ -692,10 +692,9 @@ local SHOP_ITEMS_MAP = {
     SandBlock = { ShopItem = "SandBlock", PackQty = 50, Price = 150 },
     StoneBlock = { ShopItem = "StoneBlock", PackQty = 50, Price = 200 },
     FabricBlock = { ShopItem = "FabricBlock", PackQty = 50, Price = 300 },
-    FrontWheel = { ShopItem = "Car Parts", PackQty = 4, Price = 750 },
-    BackWheel = { ShopItem = "Car Parts", PackQty = 4, Price = 750 },
-    CarSeat = { ShopItem = "Car Parts", PackQty = 1, Price = 750 },
-    Seat = { ShopItem = "Car Parts", PackQty = 1, Price = 750 },
+    CoalBlock = { ShopItem = "CoalBlock", PackQty = 50, Price = 200 },
+    GrassBlock = { ShopItem = "GrassBlock", PackQty = 50, Price = 200 },
+    BouncyBlock = { ShopItem = "BouncyBlock", PackQty = 50, Price = 200 },
     Piston = { ShopItem = "Pistons", PackQty = 4, Price = 450 },
     Hinge = { ShopItem = "HingeBlocks", PackQty = 4, Price = 400 },
     Balloons = { ShopItem = "Balloons", PackQty = 25, Price = 250 }
@@ -954,6 +953,17 @@ local function checkBuildMissingBlocks(buildData)
     for name, count in pairs(needed) do
         local itemData = LocalPlayer.Data:FindFirstChild(name)
         local owned = itemData and itemData.Value or 0
+
+        -- If seat is missing, check if user has Thrones or CarSeats (built-in usable seating)
+        if name:lower():find("seat") and owned < count then
+            local altSeats = (LocalPlayer.Data:FindFirstChild("CarSeat") and LocalPlayer.Data.CarSeat.Value or 0)
+                + (LocalPlayer.Data:FindFirstChild("Throne") and LocalPlayer.Data.Throne.Value or 0)
+                + (LocalPlayer.Data:FindFirstChild("PilotSeat") and LocalPlayer.Data.PilotSeat.Value or 0)
+            if altSeats >= count then
+                continue -- User has usable seats, do not bother them or buy wrong items
+            end
+        end
+
         if owned < count then
             table.insert(missingList, {
                 name = name,
@@ -1163,7 +1173,6 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    -- Locate & Equip BuildingTool (Direct parent assignment is instant and never hangs)
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local hum = char:WaitForChild("Humanoid", 3)
     local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or char:FindFirstChild("BuildingTool")
@@ -1172,9 +1181,10 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    if bTool.Parent ~= char then
-        bTool.Parent = char
-        task.wait(0.15)
+    -- Explicit Humanoid:EquipTool with verification
+    if bTool.Parent ~= char and hum then
+        hum:EquipTool(bTool)
+        task.wait(0.25)
     end
 
     local bRF = bTool:FindFirstChild("RF")
@@ -1225,6 +1235,12 @@ local function constructBuildOnMyIsland(buildKey)
             return bestName or "TitaniumBlock"
         end
 
+        -- Ensure hammer is equipped on humanoid
+        if bTool.Parent ~= char and hum then
+            hum:EquipTool(bTool)
+            task.wait(0.2)
+        end
+
         -- Phase 1: Structural Placement (BuildingTool Equipped)
         for _, block in ipairs(data.Blocks) do
             local adjRelCF = CFrame.new(unpack(block.RelativeCF))
@@ -1235,13 +1251,34 @@ local function constructBuildOnMyIsland(buildKey)
             local itemData = LocalPlayer.Data:FindFirstChild(blockToUse)
             local curVal = itemData and itemData.Value or 0
 
-            -- If player does not own this block, enforce material matching or handle substitution
+            -- If player does not own this block, handle substitutions
             if curVal <= 0 then
-                if State.Build_ExactMaterial then
-                    -- Strict material match: ONLY allow blocks from the EXACT same material family
+                if blockToUse:lower():find("seat") then
+                    if (LocalPlayer.Data:FindFirstChild("CarSeat") and LocalPlayer.Data.CarSeat.Value > 0) then
+                        blockToUse = "CarSeat"
+                        curVal = LocalPlayer.Data.CarSeat.Value
+                        substituted = substituted + 1
+                    elseif (LocalPlayer.Data:FindFirstChild("Throne") and LocalPlayer.Data.Throne.Value > 0) then
+                        blockToUse = "Throne"
+                        curVal = LocalPlayer.Data.Throne.Value
+                        substituted = substituted + 1
+                    elseif (LocalPlayer.Data:FindFirstChild("PilotSeat") and LocalPlayer.Data.PilotSeat.Value > 0) then
+                        blockToUse = "PilotSeat"
+                        curVal = LocalPlayer.Data.PilotSeat.Value
+                        substituted = substituted + 1
+                    end
+                elseif blockToUse:lower():find("wheel") then
+                    for _, it in ipairs(LocalPlayer.Data:GetChildren()) do
+                        if it.Name:lower():find("wheel") and it.Value > 0 then
+                            blockToUse = it.Name
+                            curVal = it.Value
+                            substituted = substituted + 1
+                            break
+                        end
+                    end
+                elseif State.Build_ExactMaterial then
                     local family = MATERIAL_FAMILIES[blockToUse]
                     local familySubstitutes = family and FAMILY_SUBSTITUTES[family] or {}
-                    local foundSameMaterial = false
 
                     for _, altName in ipairs(familySubstitutes) do
                         local altData = LocalPlayer.Data:FindFirstChild(altName)
@@ -1249,63 +1286,43 @@ local function constructBuildOnMyIsland(buildKey)
                             blockToUse = altName
                             itemData = altData
                             curVal = altData.Value
-                            foundSameMaterial = true
                             substituted = substituted + 1
                             break
                         end
                     end
-
-                    if not foundSameMaterial then
-                        -- For seats/wheels:
-                        if blockToUse:lower():find("seat") then
-                            if (LocalPlayer.Data:FindFirstChild("Throne") and LocalPlayer.Data.Throne.Value > 0) then
-                                blockToUse = "Throne"
-                                curVal = LocalPlayer.Data.Throne.Value
-                                substituted = substituted + 1
-                            elseif (LocalPlayer.Data:FindFirstChild("CarSeat") and LocalPlayer.Data.CarSeat.Value > 0) then
-                                blockToUse = "CarSeat"
-                                curVal = LocalPlayer.Data.CarSeat.Value
-                                substituted = substituted + 1
-                            else
-                                skipped = skipped + 1
-                                continue
-                            end
-                        elseif blockToUse:lower():find("wheel") then
-                            local foundWheel = false
-                            for _, it in ipairs(LocalPlayer.Data:GetChildren()) do
-                                if it.Name:lower():find("wheel") and it.Value > 0 then
-                                    blockToUse = it.Name
-                                    curVal = it.Value
-                                    foundWheel = true
-                                    substituted = substituted + 1
-                                    break
-                                end
-                            end
-                            if not foundWheel then
-                                skipped = skipped + 1
-                                continue
-                            end
-                        else
-                            -- Do NOT substitute with mismatched texture (e.g. no Brick on Wood/Plastic)
-                            skipped = skipped + 1
-                            continue
-                        end
-                    end
                 elseif State.Build_AutoSubstitute then
-                    -- Loose fallback: only active if user explicitly allows loose substitution
                     local fallback = getBestFallback()
                     blockToUse = fallback
                     itemData = LocalPlayer.Data:FindFirstChild(blockToUse)
                     curVal = itemData and itemData.Value or 0
-                    if curVal <= 0 then
-                        skipped = skipped + 1
-                        continue
+                    if curVal > 0 then
+                        substituted = substituted + 1
                     end
-                    substituted = substituted + 1
-                else
+                end
+
+                if curVal <= 0 then
                     skipped = skipped + 1
                     continue
                 end
+            end
+
+            -- Ensure tool remains equipped
+            if bTool.Parent ~= char and hum then
+                hum:EquipTool(bTool)
+                task.wait(0.1)
+            end
+
+            -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
+            local success, err = pcall(function()
+                return bRF:InvokeServer(blockToUse, curVal, myZone, relToZone, isAnchored, worldCF, nil, true)
+            end)
+
+            if not success and hum then
+                hum:EquipTool(bTool)
+                task.wait(0.2)
+                pcall(function()
+                    bRF:InvokeServer(blockToUse, curVal, myZone, relToZone, isAnchored, worldCF, nil, true)
+                end)
             end
 
             table.insert(metaList, {
@@ -1314,23 +1331,20 @@ local function constructBuildOnMyIsland(buildKey)
                 size = block.Size and Vector3.new(unpack(block.Size)) or nil,
                 color = block.Color and Color3.new(unpack(block.Color)) or nil
             })
-
-            -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
-            pcall(function()
-                bRF:InvokeServer(blockToUse, curVal, myZone, relToZone, isAnchored, worldCF, nil, true)
-            end)
             count = count + 1
 
-            task.wait(0.035)
+            task.wait(0.04)
         end
 
         -- Allow server replication to settle
         task.wait(0.6)
         if conn then conn:Disconnect() end
 
+        local finalBlockCount = myBlocks and #myBlocks:GetChildren() or 0
+
         -- Build matched list (prefer exact ChildAdded list, fallback to spatial proximity)
         local matched = {}
-        if #placedList == #metaList then
+        if #placedList > 0 and #placedList == #metaList then
             for idx, blk in ipairs(placedList) do
                 local meta = metaList[idx]
                 table.insert(matched, {
@@ -1374,9 +1388,9 @@ local function constructBuildOnMyIsland(buildKey)
         local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or char:FindFirstChild("ScalingTool")
         local scaledCount = 0
         if sTool and #matched > 0 then
-            if sTool.Parent ~= char then
-                sTool.Parent = char
-                task.wait(0.15)
+            if hum then
+                hum:EquipTool(sTool)
+                task.wait(0.2)
             end
             local sRF = sTool:FindFirstChild("RF")
             if sRF then
@@ -1397,9 +1411,9 @@ local function constructBuildOnMyIsland(buildKey)
         local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or char:FindFirstChild("PaintingTool")
         local paintedCount = 0
         if pTool and #matched > 0 then
-            if pTool.Parent ~= char then
-                pTool.Parent = char
-                task.wait(0.15)
+            if hum then
+                hum:EquipTool(pTool)
+                task.wait(0.2)
             end
             local pRF = pTool:FindFirstChild("RF")
             if pRF then
@@ -1419,13 +1433,29 @@ local function constructBuildOnMyIsland(buildKey)
         end
 
         -- Clean unequip tools
-        pcall(function() hum:UnequipTools() end)
+        pcall(function() if hum then hum:UnequipTools() end end)
 
-        Hub.Notify({
-            Title = "Build Completed!",
-            Content = string.format("Successfully built %d blocks! (Scaled: %d, Painted: %d, Substituted: %d)", count, scaledCount, paintedCount, substituted),
-            Duration = 5
-        })
+        if finalBlockCount == 0 and skipped > 0 then
+            Hub.Notify({
+                Title = "Blueprint Incomplete",
+                Content = string.format("Could not build: all %d blocks are missing from your inventory! Click 'Buy in Shop' on the blueprint to get them.", skipped),
+                Duration = 5
+            })
+        elseif finalBlockCount == 0 then
+            Hub.Notify({
+                Title = "Build Failed",
+                Content = "No blocks were placed on your plot. Please check tool and plot permissions.",
+                Duration = 5
+            })
+        else
+            Hub.Notify({
+                Title = "Build Completed!",
+                Content = string.format("Successfully built %d blocks onto plot! (Scaled: %d, Painted: %d%s)",
+                    finalBlockCount, scaledCount, paintedCount,
+                    skipped > 0 and (", Skipped: " .. skipped .. " missing") or ""),
+                Duration = 5
+            })
+        end
     end)
 end
 
@@ -1441,64 +1471,6 @@ Hub.CreateToggle(buildTab, "Build Anchored", State.Build_Anchored, function(v)
     State.Build_Anchored = v
 end)
 
-Hub.CreateButton(buildTab, "📋 Check Missing Blocks for Selected Build", function()
-    local targetName = State.SelectedTargetPlayer
-    if not targetName or targetName == "No Other Players" then
-        Hub.Notify({ Title = "Build Stealer", Content = "Please select a target player first!", Duration = 3 })
-        return
-    end
-    local activeData = State.SelectedSavedBuild and SavedBuilds[State.SelectedSavedBuild]
-    if not activeData or activeData.Author ~= targetName then
-        activeData = exportPlayerBuild(targetName)
-        if not activeData then return end
-    end
-    local missing = checkBuildMissingBlocks(activeData)
-    if #missing == 0 then
-        Hub.Notify({ Title = "Build Stealer", Content = "You own 100% of the blocks for this build!", Duration = 3 })
-    else
-        showMissingBlocksHUD(missing)
-    end
-end)
-
-Hub.CreateButton(buildTab, "🛒 Auto-Buy Missing Blocks with Gold", function()
-    local targetName = State.SelectedTargetPlayer
-    if not targetName or targetName == "No Other Players" then
-        Hub.Notify({ Title = "Build Stealer", Content = "Please select a target player first!", Duration = 3 })
-        return
-    end
-    local activeData = State.SelectedSavedBuild and SavedBuilds[State.SelectedSavedBuild]
-    if not activeData or activeData.Author ~= targetName then
-        activeData = exportPlayerBuild(targetName)
-        if not activeData then return end
-    end
-    local missing = checkBuildMissingBlocks(activeData)
-    if #missing == 0 then
-        Hub.Notify({ Title = "Build Stealer", Content = "No missing blocks! Ready to build.", Duration = 3 })
-        return
-    end
-    task.spawn(function()
-        local boughtAny = false
-        for _, it in ipairs(missing) do
-            local info = SHOP_ITEMS_MAP[it.name]
-            if info then
-                local packsNeeded = math.ceil(it.missing / info.PackQty)
-                LocalPlayer.PlayerGui.ItemGained.LastItemBoughtName.Value = info.ShopItem
-                for p = 1, packsNeeded do
-                    Workspace.ItemBoughtFromShop:InvokeServer(info.ShopItem, 1)
-                    task.wait(0.2)
-                end
-                boughtAny = true
-            end
-        end
-        if boughtAny then
-            Hub.Notify({ Title = "Build Stealer", Content = "Purchased missing blocks from shop!", Duration = 3 })
-        else
-            Hub.Notify({ Title = "Build Stealer", Content = "Items could not be purchased from shop.", Duration = 3 })
-        end
-    end)
-end)
-
--- One-Click Build: Auto-exports target build if not yet cached, then builds immediately!
 Hub.CreateButton(buildTab, "🔨 Build Stolen Ship with REAL BLOCKS", function()
     local targetName = State.SelectedTargetPlayer
     if not targetName or targetName == "No Other Players" then
