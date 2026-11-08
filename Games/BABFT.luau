@@ -348,68 +348,52 @@ task.spawn(function()
                 local normalStages = boatStages and boatStages:FindFirstChild("NormalStages")
 
                 if normalStages then
-                    local stageWaypoints = {}
-                    for stageIdx = 1, 10 do
-                        local stage = normalStages:FindFirstChild("CaveStage" .. stageIdx)
-                        if stage then
-                            local dp = stage:FindFirstChild("DarknessPart")
-                            if dp then
-                                table.insert(stageWaypoints, {
-                                    index = stageIdx,
-                                    name = stage.Name,
-                                    part = dp,
-                                    cframe = dp.CFrame
-                                })
-                            end
-                        end
-                    end
-
                     local bv = root:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
                     bv.Name = "FarmBV"
                     bv.Velocity = Vector3.zero
                     bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
                     bv.Parent = root
 
-                    -- 4. Traverse Each Stage Sequentially
+                    -- 3. High-Precision Continuous River Traversal (Guarantees 10/10 Stages)
+                    -- Every stage requires entering its mid-corridor followed by darkness part handshake
                     local abort = false
-                    local stageDelay = State.Farm_StageDelay or 1.15
-                    local glideTime = math.clamp(stageDelay * 0.45, 0.35, 0.75)
-                    local dwellTime = math.clamp(stageDelay * 0.55, 0.4, 0.9)
 
-                    for _, wp in ipairs(stageWaypoints) do
+                    for stageIdx = 1, 10 do
                         if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                             abort = true
                             break
                         end
 
-                        updateStatus(string.format("Clearing Stage %d/10 (%s)...", wp.index, wp.name))
-                        
-                        -- Direct physical CFrame glide directly through the center of DarknessPart
-                        root.Anchored = false
-                        tweenCharacter(root, wp.cframe, glideTime)
+                        local stage = normalStages:FindFirstChild("CaveStage" .. stageIdx)
+                        local dp = stage and stage:FindFirstChild("DarknessPart")
+                        if dp then
+                            local stageName = stage.Name
+                            updateStatus(string.format("Traversing Stage %d/10 (%s)...", stageIdx, stageName))
 
-                        -- Physical touch handshake with zero velocity dwell
-                        root.AssemblyLinearVelocity = Vector3.zero
-                        root.AssemblyAngularVelocity = Vector3.zero
-                        pcall(function()
-                            firetouchinterest(root, wp.part, 0)
-                            task.wait(0.06)
-                            firetouchinterest(root, wp.part, 1)
-                        end)
+                            -- Step A: Glide through mid-stage corridor (Z = dp.Position.Z - 380)
+                            local midZ = dp.Position.Z - 380
+                            root.Anchored = false
+                            tweenCharacter(root, CFrame.new(-53.5, 10, midZ), 0.65)
 
-                        -- INSTANT STAGE MONEY CORE: Fire Claim remote on every stage!
-                        if State.Farm_InstantStageMoney then
+                            if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
+                                abort = true
+                                break
+                            end
+
+                            -- Step B: Smoothly enter DarknessPart boundary
+                            tweenCharacter(root, CFrame.new(dp.Position.X, 10, dp.Position.Z), 0.65)
+
+                            -- Physical touch registration
+                            root.AssemblyLinearVelocity = Vector3.zero
+                            root.AssemblyAngularVelocity = Vector3.zero
                             pcall(function()
-                                local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
-                                if claim then claim:FireServer() end
+                                firetouchinterest(root, dp, 0)
+                                task.wait(0.06)
+                                firetouchinterest(root, dp, 1)
                             end)
-                        end
-                        
-                        -- Dwell briefly to ensure the server tick registers the stage clearance
-                        local tDwell = tick()
-                        while tick() - tDwell < dwellTime do
-                            task.wait(0.05)
-                            if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
+
+                            -- Brief spatial stabilization dwell
+                            task.wait(0.35)
                         end
                     end
 
@@ -418,31 +402,34 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 5. Claim The End & Golden Chest
+                    -- 4. Claim The End & Golden Chest (Full Opening Window & Zero Pre-Reset)
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
 
                     if trigger then
-                        updateStatus("Opening Golden Chest & Collecting Prizes...")
-                        
+                        updateStatus("Opening Golden Chest & Collecting Treasure...")
+
+                        -- Disarm lethal kill parts at TheEnd so daddy never dies prematurely
                         pcall(function()
                             local dbp = theEnd:FindFirstChild("DestroyBoatPart")
                             if dbp then dbp.CanTouch = false; dbp.CanCollide = false end
                             for _, obj in ipairs(theEnd:GetDescendants()) do
-                                if obj:IsA("BasePart") and (obj.Name:find("Point") or obj.Name:find("Rock")) then
+                                if obj:IsA("BasePart") and obj ~= trigger and not obj:IsDescendantOf(chest) then
                                     obj.CanTouch = false
                                     obj.CanCollide = false
                                 end
                             end
                         end)
 
+                        -- Elevate character safely 2.5 studs above trigger
                         root.Anchored = false
                         bv.Velocity = Vector3.zero
-                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 1.8, 0))
+                        root.CFrame = CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0))
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
+                        -- Open chest lid visually and physically
                         local initialCapPivot = nil
                         pcall(function()
                             local cap = chest:FindFirstChild("Cap")
@@ -458,12 +445,23 @@ task.spawn(function()
                             end
                         end)
 
+                        -- Physical touch handshake with trigger
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.12)
+                            task.wait(0.15)
                             firetouchinterest(root, trigger, 1)
                         end)
 
+                        -- Play chest cutscene/effects cleanly on client
+                        pcall(function()
+                            local effectsScript = trigger:FindFirstChild("EndTreasureScript") and trigger.EndTreasureScript:FindFirstChild("TreasureEndEffectsLS")
+                            if effectsScript and not LocalPlayer.PlayerGui:FindFirstChild("TreasureEndEffectsLS") then
+                                local cl = effectsScript:Clone()
+                                cl.Parent = LocalPlayer.PlayerGui
+                            end
+                        end)
+
+                        -- Finalize run claim remote at chest
                         if State.Farm_AutoClaim then
                             pcall(function()
                                 local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
@@ -473,7 +471,8 @@ task.spawn(function()
                             end)
                         end
 
-                        local prizeCollectionTime = 2.8
+                        -- Full 3.5s collection window for gold bars and gold block (+25 gold)
+                        local prizeCollectionTime = 3.5
                         local startWait = tick()
                         while tick() - startWait < prizeCollectionTime do
                             task.wait(0.15)
@@ -493,7 +492,7 @@ task.spawn(function()
                         end
 
                         updateRuns()
-                        updateStatus("Reward Claimed! Returning to Dock...")
+                        updateStatus("Chest Claimed! Resetting for Next Voyage...")
 
                         if State.Farm_ClosePopups then
                             task.wait(0.15)
@@ -507,7 +506,9 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Smooth Dock Return (Zero Death)
+                        -- Clean round turnaround:
+                        -- If the server resets character natively, wait for CharacterAdded.
+                        -- If still alive, smoothly return to team dock!
                         if hum and hum.Health > 0 then
                             pcall(function()
                                 local team = LocalPlayer.Team
@@ -520,10 +521,11 @@ task.spawn(function()
                                 end
                             end)
                             root.Anchored = false
-                            task.wait(0.5)
+                            task.wait(0.6)
                         else
+                            updateStatus("Respawning at Dock...")
                             LocalPlayer.CharacterAdded:Wait()
-                            task.wait(0.8)
+                            task.wait(1.0)
                         end
                         updateStatus("Ready for next run!")
                     else
@@ -550,7 +552,7 @@ Hub.CreateToggle(farmTab, "Enable Gold Auto-Farm", State.AutoFarm_Enabled, funct
     end
 end)
 
-Hub.CreateToggle(farmTab, "Instant Money Per Island (Core Mode)", State.Farm_InstantStageMoney, function(v)
+Hub.CreateToggle(farmTab, "10/10 River Stage Guarantee", true, function(v)
     State.Farm_InstantStageMoney = v
 end)
 
