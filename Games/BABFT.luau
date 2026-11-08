@@ -625,7 +625,7 @@ end)
 
 Hub.CreateSection(buildTab, "METHOD 1: IN-SCRIPT BUILD MANAGER")
 
--- Serialize target player's build into relative CFrame data
+-- Serialize target player's build into relative CFrame data (Centered & Zone-Aligned)
 local function exportPlayerBuild(targetPlayerName)
     if not targetPlayerName or targetPlayerName == "No Other Players" then
         Hub.Notify({ Title = "Build Stealer", Content = "Please select a valid player first!", Duration = 3 })
@@ -655,6 +655,30 @@ local function exportPlayerBuild(targetPlayerName)
         return nil
     end
 
+    -- Collect all valid block parts and compute bounding box center
+    local validEntries = {}
+    local minPos = Vector3.new(math.huge, math.huge, math.huge)
+    local maxPos = Vector3.new(-math.huge, -math.huge, -math.huge)
+
+    for _, model in ipairs(playerBlocks:GetChildren()) do
+        local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
+        if ppart then
+            table.insert(validEntries, {model = model, ppart = ppart})
+            minPos = minPos:Min(ppart.Position)
+            maxPos = maxPos:Max(ppart.Position)
+        end
+    end
+
+    if #validEntries == 0 then
+        Hub.Notify({ Title = "Build Stealer", Content = "No valid block parts found in target build!", Duration = 3 })
+        return nil
+    end
+
+    -- Calculate build center and orient using target zone rotation
+    local buildCenter = (minPos + maxPos) / 2
+    local targetZoneRot = targetZone.CFrame.Rotation
+    local targetBaseCF = CFrame.new(buildCenter.X, minPos.Y, buildCenter.Z) * targetZoneRot
+
     local buildData = {
         Author = targetPlayerName,
         ExportTime = os.date("%X"),
@@ -662,22 +686,19 @@ local function exportPlayerBuild(targetPlayerName)
         Blocks = {}
     }
 
-    local targetZoneCF = targetZone.CFrame
-
-    for _, model in ipairs(playerBlocks:GetChildren()) do
-        local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
-        if ppart then
-            local relCF = targetZoneCF:ToObjectSpace(ppart.CFrame)
-            table.insert(buildData.Blocks, {
-                Name = model.Name,
-                RelativeCF = {relCF:GetComponents()},
-                Size = {ppart.Size.X, ppart.Size.Y, ppart.Size.Z},
-                Color = {ppart.Color.R, ppart.Color.G, ppart.Color.B},
-                Material = tostring(ppart.Material):gsub("Enum.Material.", ""),
-                Transparency = ppart.Transparency
-            })
-            buildData.BlockCount = buildData.BlockCount + 1
-        end
+    for _, entry in ipairs(validEntries) do
+        local model = entry.model
+        local ppart = entry.ppart
+        local relCF = targetBaseCF:ToObjectSpace(ppart.CFrame)
+        table.insert(buildData.Blocks, {
+            Name = model.Name,
+            RelativeCF = {relCF:GetComponents()},
+            Size = {ppart.Size.X, ppart.Size.Y, ppart.Size.Z},
+            Color = {ppart.Color.R, ppart.Color.G, ppart.Color.B},
+            Material = tostring(ppart.Material):gsub("Enum.Material.", ""),
+            Transparency = ppart.Transparency
+        })
+        buildData.BlockCount = buildData.BlockCount + 1
     end
 
     local saveKey = string.format("%s (%d blocks)", targetPlayerName, buildData.BlockCount)
@@ -713,20 +734,42 @@ pcall(function()
     end
 end)
 
--- Helper to find player's most abundant block as fallback
-local function getBestAvailableBlock()
-    local bestName = "TitaniumBlock"
-    local maxCount = 0
+-- Track inventory counts dynamically
+local function getLocalInventory()
+    local inv = {}
     local dataFolder = LocalPlayer:FindFirstChild("Data")
     if dataFolder then
         for _, item in ipairs(dataFolder:GetChildren()) do
-            if item:IsA("IntValue") and item.Value > maxCount and item.Name:find("Block") then
-                maxCount = item.Value
-                bestName = item.Name
+            if item:IsA("IntValue") then
+                inv[item.Name] = item.Value
             end
         end
     end
-    return bestName, maxCount
+    return inv
+end
+
+-- Allowed solid structural fallback blocks in descending priority (NEVER BALLOONS OR FURNITURE)
+local SOLID_FALLBACKS = {
+    "TitaniumBlock",
+    "ObsidianBlock",
+    "BrickBlock",
+    "WoodBlock",
+    "ConcreteBlock",
+    "RustedBlock",
+    "IceBlock"
+}
+
+local function getBestSolidBlock(inv)
+    local bestName = nil
+    local bestCount = 0
+    for _, name in ipairs(SOLID_FALLBACKS) do
+        local count = inv[name] or 0
+        if count > bestCount then
+            bestCount = count
+            bestName = name
+        end
+    end
+    return bestName, bestCount
 end
 
 -- Reconstruct REAL server-recognized blocks onto LocalPlayer's plot
@@ -754,15 +797,19 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("ScalingTool"))
-    local sRF = sTool and sTool:FindFirstChild("RF")
+    -- SAFETY: Temporarily pause AutoFarm so character resets do not destroy plot
+    local wasFarming = State.AutoFarm_Enabled
+    if wasFarming then
+        State.AutoFarm_Enabled = false
+        Hub.Notify({ Title = "Build Stealer", Content = "Paused Auto Farm during construction!", Duration = 3 })
+    end
 
-    local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("PaintingTool"))
-    local pRF = pTool and pTool:FindFirstChild("RF")
+    local myRot = myZone.CFrame.Rotation
+    local mySurfaceY = myZone.Position.Y + (myZone.Size.Y / 2) + 2.0
+    local myBaseCF = CFrame.new(myZone.Position.X, mySurfaceY, myZone.Position.Z) * myRot
 
-    local myZoneCF = myZone.CFrame
-    local bestFallback, fallbackCount = getBestAvailableBlock()
-    local myBlocksFolder = Workspace:FindFirstChild("Blocks") and Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+    local inv = getLocalInventory()
+    local isAnchored = State.Build_Anchored ~= false
 
     Hub.Notify({
         Title = "Build Stealer",
@@ -773,71 +820,49 @@ local function constructBuildOnMyIsland(buildKey)
     task.spawn(function()
         local count = 0
         local substituted = 0
-        local isAnchored = State.Build_Anchored ~= false
+        local skipped = 0
 
         for _, block in ipairs(data.Blocks) do
             local relCF = CFrame.new(unpack(block.RelativeCF))
-            local worldCF = myZoneCF:ToWorldSpace(relCF)
+            local worldCF = myBaseCF:ToWorldSpace(relCF)
 
-            local targetBlockName = block.Name
-            local invItem = LocalPlayer.Data:FindFirstChild(targetBlockName)
-            local invCount = invItem and invItem.Value or 0
+            local blockToUse = block.Name
+            local available = inv[blockToUse] or 0
 
-            -- Auto-substitute with highest owned block if daddy doesn't own this block
-            if invCount <= 0 then
+            -- If player does not own this block, safely substitute ONLY with solid building blocks
+            if available <= 0 then
                 if State.Build_AutoSubstitute then
-                    targetBlockName = bestFallback
-                    invCount = fallbackCount
-                    substituted = substituted + 1
+                    local fallbackName, fallbackCount = getBestSolidBlock(inv)
+                    if fallbackName and fallbackCount > 0 then
+                        blockToUse = fallbackName
+                        available = fallbackCount
+                        substituted = substituted + 1
+                    else
+                        skipped = skipped + 1
+                        continue
+                    end
                 else
+                    skipped = skipped + 1
                     continue
                 end
             end
 
+            -- Decrement local tracking table so we never exhaust inventory silently
+            inv[blockToUse] = math.max(0, (inv[blockToUse] or 1) - 1)
+
             -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
             pcall(function()
-                bRF:InvokeServer(targetBlockName, invCount, nil, nil, isAnchored, worldCF, nil, true)
+                bRF:InvokeServer(blockToUse, available, nil, nil, isAnchored, worldCF, nil, true)
             end)
             count = count + 1
 
-            -- Optional: Apply Scaling if block was resized
-            if State.Build_ScaleEnabled and sRF and myBlocksFolder and block.Size then
-                local bSize = Vector3.new(unpack(block.Size))
-                if math.abs(bSize.X - 2) > 0.05 or math.abs(bSize.Y - 2) > 0.05 or math.abs(bSize.Z - 2) > 0.05 then
-                    local children = myBlocksFolder:GetChildren()
-                    local newestBlock = children[#children]
-                    if newestBlock then
-                        pcall(function()
-                            sRF:InvokeServer(newestBlock, bSize, worldCF)
-                        end)
-                    end
-                end
-            end
-
-            -- Optional: Apply Painting color
-            if State.Build_PaintEnabled and pRF and myBlocksFolder and block.Color then
-                local bColor = Color3.new(unpack(block.Color))
-                local children = myBlocksFolder:GetChildren()
-                local newestBlock = children[#children]
-                local ppart = newestBlock and newestBlock:FindFirstChild("PPart")
-                if ppart then
-                    pcall(function()
-                        pRF:InvokeServer({{ppart, bColor}})
-                    end)
-                end
-            end
-
-            -- Pace placements to prevent remote dropping
-            if count % 5 == 0 then
-                task.wait(0.04)
-            else
-                task.wait(0.01)
-            end
+            -- Fast controlled pacing: 20ms ensures zero remote dropping without desync
+            task.wait(0.02)
         end
 
         Hub.Notify({
             Title = "Build Completed!",
-            Content = string.format("Successfully built %d REAL blocks onto your plot! (%d substituted)", count, substituted),
+            Content = string.format("Successfully built %d REAL blocks! (%d substituted, %d skipped)", count, substituted, skipped),
             Duration = 5
         })
     end)
@@ -849,14 +874,6 @@ end)
 
 Hub.CreateToggle(buildTab, "Build Anchored", State.Build_Anchored, function(v)
     State.Build_Anchored = v
-end)
-
-Hub.CreateToggle(buildTab, "Apply Scaling (ScalingTool)", State.Build_ScaleEnabled, function(v)
-    State.Build_ScaleEnabled = v
-end)
-
-Hub.CreateToggle(buildTab, "Apply Painting (PaintingTool)", State.Build_PaintEnabled, function(v)
-    State.Build_PaintEnabled = v
 end)
 
 Hub.CreateButton(buildTab, "🔨 Build Stolen Ship with REAL BLOCKS", function()
@@ -885,14 +902,19 @@ Hub.CreateDropdown(buildTab, "Select In-Game Save Slot", GAME_SLOTS, "Slot 1", f
     State.SelectedGameSaveSlot = slotNum
 end)
 
+local function getSlotExt(slotNum)
+    return slotNum == 1 and "" or tostring(slotNum)
+end
+
 Hub.CreateButton(buildTab, "📥 Save Active Plot to In-Game Save Slot", function()
     pcall(function()
         local sbd = Workspace:FindFirstChild("SaveBoatData")
         if sbd then
-            sbd:InvokeServer(State.SelectedGameSaveSlot)
+            local ext = getSlotExt(State.SelectedGameSaveSlot)
+            sbd:InvokeServer(ext)
             local updateName = Workspace:FindFirstChild("UpdateSlotNameRE")
             if updateName then
-                updateName:FireServer(State.SelectedGameSaveSlot, "UnknownHub_Stolen")
+                updateName:FireServer(ext, "UnknownHub_Slot" .. tostring(State.SelectedGameSaveSlot))
             end
             Hub.Notify({ Title = "Game Saves", Content = "Saved current build to Slot " .. tostring(State.SelectedGameSaveSlot) .. "!", Duration = 3 })
         end
@@ -901,14 +923,15 @@ end)
 
 Hub.CreateButton(buildTab, "⚡ Instant Load Slot (Bypass Build Timer)", function()
     pcall(function()
+        local ext = getSlotExt(State.SelectedGameSaveSlot)
         local instaLoad = Workspace:FindFirstChild("InstaLoadFunction")
         if instaLoad then
-            instaLoad:InvokeServer(State.SelectedGameSaveSlot)
+            instaLoad:InvokeServer(ext)
             Hub.Notify({ Title = "Game Saves", Content = "Instant loaded Slot " .. tostring(State.SelectedGameSaveSlot) .. "!", Duration = 2 })
         else
             local loadRE = Workspace:FindFirstChild("LoadBoatData")
             if loadRE then
-                loadRE:FireServer(State.SelectedGameSaveSlot)
+                loadRE:FireServer(ext, 0)
                 Hub.Notify({ Title = "Game Saves", Content = "Loading Slot " .. tostring(State.SelectedGameSaveSlot) .. "...", Duration = 2 })
             end
         end
