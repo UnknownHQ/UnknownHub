@@ -1021,22 +1021,38 @@ local function exportPlayerBuild(targetPlayerName)
     end
 
     local targetPlayer = Players:FindFirstChild(targetPlayerName)
-    if not targetPlayer then
-        Hub.Notify({ Title = "Build Stealer", Content = "Target player left the server!", Duration = 3 })
-        return nil
-    end
-
     local blocksFolder = Workspace:FindFirstChild("Blocks")
     if not blocksFolder then
         Hub.Notify({ Title = "Build Stealer", Content = "Workspace.Blocks not found!", Duration = 3 })
         return nil
     end
 
-    local targetTeam = targetPlayer.Team
-    local teamColorName = targetTeam and targetTeam.TeamColor.Name
-    local targetZone = teamColorName and Workspace:FindFirstChild(teamColorName .. "Zone")
+    -- 1. Candidate folders: target player, teammates, and plot builders
+    local candidateFolders = {}
+    local seenFolders = {}
 
-    -- Robust fallback mapping for BABFT custom zone names (CamoZone, New YellerZone, Really redZone, Really blueZone)
+    local function addFolder(folder)
+        if folder and not seenFolders[folder] and #folder:GetChildren() > 0 then
+            seenFolders[folder] = true
+            table.insert(candidateFolders, folder)
+        end
+    end
+
+    -- Always include target player's direct folder
+    addFolder(blocksFolder:FindFirstChild(targetPlayerName))
+
+    -- Check all teammates on target player's team
+    local targetTeam = targetPlayer and targetPlayer.Team
+    if targetTeam then
+        for _, pl in ipairs(targetTeam:GetPlayers()) do
+            if pl ~= LocalPlayer or pl.Name == targetPlayerName then
+                addFolder(blocksFolder:FindFirstChild(pl.Name))
+            end
+        end
+    end
+
+    -- 2. Resolve target team zone
+    local targetZone = nil
     local TEAM_ZONE_MAP = {
         white = "WhiteZone",
         blue = "Really blueZone",
@@ -1046,46 +1062,64 @@ local function exportPlayerBuild(targetPlayerName)
         yellow = "New YellerZone",
         magenta = "MagentaZone"
     }
-    if not targetZone and targetTeam then
-        local mappedName = TEAM_ZONE_MAP[targetTeam.Name:lower()]
-        targetZone = mappedName and Workspace:FindFirstChild(mappedName)
-    end
-    if not targetZone then
-        for _, z in ipairs(Workspace:GetChildren()) do
-            if z.Name:find("Zone") and targetTeam and (z.Name:lower():find(targetTeam.Name:lower()) or (teamColorName and z.Name:lower():find(teamColorName:lower()))) then
-                targetZone = z
-                break
-            end
-        end
-    end
 
-    if not targetZone then
-        Hub.Notify({ Title = "Build Stealer", Content = "Could not locate target player's team zone!", Duration = 3 })
-        return nil
-    end
-
-    local targetDockCF = getZoneDockCF(targetZone)
-
-    -- Collect all folders belonging to this team (supports multi-builder teams, friends, and guest builders)
-    local candidateFolders = {}
     if targetTeam then
-        for _, pl in ipairs(targetTeam:GetPlayers()) do
-            if pl ~= LocalPlayer or pl.Name == targetPlayerName then
-                local f = blocksFolder:FindFirstChild(pl.Name)
-                if f and #f:GetChildren() > 0 then
-                    table.insert(candidateFolders, f)
+        local teamColorName = targetTeam.TeamColor and targetTeam.TeamColor.Name
+        if teamColorName then
+            targetZone = Workspace:FindFirstChild(teamColorName .. "Zone")
+        end
+        if not targetZone then
+            local mappedName = TEAM_ZONE_MAP[targetTeam.Name:lower()]
+            targetZone = mappedName and Workspace:FindFirstChild(mappedName)
+        end
+        if not targetZone then
+            for _, z in ipairs(Workspace:GetChildren()) do
+                if z.Name:find("Zone") and (z.Name:lower():find(targetTeam.Name:lower()) or (teamColorName and z.Name:lower():find(teamColorName:lower()))) then
+                    targetZone = z
+                    break
                 end
             end
         end
     end
-    if #candidateFolders == 0 then
-        local f = blocksFolder:FindFirstChild(targetPlayerName)
-        if f and #f:GetChildren() > 0 then
-            table.insert(candidateFolders, f)
+
+    -- Fallback: check if target player's character is standing near a zone
+    if not targetZone and targetPlayer and targetPlayer.Character then
+        local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local closestZ = nil
+            local closestDist = 9999
+            for _, z in ipairs(Workspace:GetChildren()) do
+                if z.Name:find("Zone") and z:IsA("BasePart") then
+                    local d = (z.Position - hrp.Position).Magnitude
+                    if d < closestDist then
+                        closestDist = d
+                        closestZ = z
+                    end
+                end
+            end
+            if closestDist < 400 then
+                targetZone = closestZ
+            end
         end
     end
 
-    -- Collect all valid block parts strictly on the team's plot (bounds check eliminates river debris & remote plushies)
+    -- Default fallback zone if unassigned
+    if not targetZone then
+        targetZone = Workspace:FindFirstChild("WhiteZone")
+    end
+
+    local targetDockCF = getZoneDockCF(targetZone)
+
+    -- If no candidate folders were found for the player, scan all folders near the zone
+    if #candidateFolders == 0 then
+        for _, f in ipairs(blocksFolder:GetChildren()) do
+            if f.Name ~= LocalPlayer.Name or targetPlayerName == LocalPlayer.Name then
+                addFolder(f)
+            end
+        end
+    end
+
+    -- 3. Collect valid block parts within dock bounds (400-stud radius covers full plot + dock, eliminates river debris)
     local validEntries = {}
     local minRel = Vector3.new(math.huge, math.huge, math.huge)
     local maxRel = Vector3.new(-math.huge, -math.huge, -math.huge)
@@ -1094,9 +1128,24 @@ local function exportPlayerBuild(targetPlayerName)
         for _, model in ipairs(folder:GetChildren()) do
             local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
             if ppart then
-                -- Bounding box check: strictly within dock plot area
-                local relFromZone = targetZone.CFrame:PointToObjectSpace(ppart.Position)
-                if math.abs(relFromZone.X) <= 160 and math.abs(relFromZone.Z) <= 180 and relFromZone.Y >= -15 and relFromZone.Y <= 250 then
+                local distFromZone = (ppart.Position - targetZone.Position).Magnitude
+                if distFromZone <= 400 then
+                    local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
+                    minRel = minRel:Min(rel.Position)
+                    maxRel = maxRel:Max(rel.Position)
+                    table.insert(validEntries, {model = model, ppart = ppart, relCF = rel})
+                end
+            end
+        end
+    end
+
+    -- 4. Ultimate safety fallback: if distance check excluded parts, grab target player's direct folder blocks unconditionally!
+    if #validEntries == 0 then
+        local directFolder = blocksFolder:FindFirstChild(targetPlayerName)
+        if directFolder and #directFolder:GetChildren() > 0 then
+            for _, model in ipairs(directFolder:GetChildren()) do
+                local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
+                if ppart then
                     local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
                     minRel = minRel:Min(rel.Position)
                     maxRel = maxRel:Max(rel.Position)
@@ -1107,7 +1156,7 @@ local function exportPlayerBuild(targetPlayerName)
     end
 
     if #validEntries == 0 then
-        Hub.Notify({ Title = "Build Stealer", Content = "No active blocks found on " .. targetPlayerName .. "'s plot!", Duration = 3 })
+        Hub.Notify({ Title = "Build Stealer", Content = "No blocks found on " .. targetPlayerName .. "'s plot!", Duration = 3 })
         return nil
     end
 
