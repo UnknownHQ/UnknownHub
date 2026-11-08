@@ -817,7 +817,7 @@ local function constructBuildOnMyIsland(buildKey)
 
     if bTool.Parent ~= char and hum then
         hum:EquipTool(bTool)
-        task.wait(0.2)
+        task.wait(0.25)
     end
 
     local bRF = bTool:FindFirstChild("RF")
@@ -850,7 +850,9 @@ local function constructBuildOnMyIsland(buildKey)
         local count = 0
         local substituted = 0
         local skipped = 0
+        local placedMeta = {}
 
+        -- Phase 1: Structural Placement (BuildingTool Equipped)
         for _, block in ipairs(data.Blocks) do
             local relCF = CFrame.new(unpack(block.RelativeCF))
             local worldCF = myBaseCF:ToWorldSpace(relCF)
@@ -859,18 +861,28 @@ local function constructBuildOnMyIsland(buildKey)
             local blockToUse = block.Name
             local available = inv[blockToUse] or 0
 
-            -- If player does not own this block, safely substitute ONLY with solid building blocks
+            -- If player does not own this block, safely substitute ONLY with solid building blocks or seats
             if available <= 0 then
                 if State.Build_AutoSubstitute then
-                    local fallbackName, fallbackCount = getBestSolidBlock(inv)
-                    if fallbackName and fallbackCount > 0 then
-                        blockToUse = fallbackName
-                        available = fallbackCount
-                        substituted = substituted + 1
+                    if blockToUse:lower():find("seat") then
+                        if (inv["CarSeat"] or 0) > 0 then blockToUse = "CarSeat"
+                        elseif (inv["PilotSeat"] or 0) > 0 then blockToUse = "PilotSeat"
+                        else
+                            local fallbackName, fallbackCount = getBestSolidBlock(inv)
+                            blockToUse = fallbackName or "TitaniumBlock"
+                        end
                     else
-                        skipped = skipped + 1
-                        continue
+                        local fallbackName, fallbackCount = getBestSolidBlock(inv)
+                        if fallbackName and fallbackCount > 0 then
+                            blockToUse = fallbackName
+                            available = fallbackCount
+                            substituted = substituted + 1
+                        else
+                            skipped = skipped + 1
+                            continue
+                        end
                     end
+                    available = inv[blockToUse] or 100
                 else
                     skipped = skipped + 1
                     continue
@@ -886,13 +898,101 @@ local function constructBuildOnMyIsland(buildKey)
             end)
             count = count + 1
 
-            -- Fast controlled pacing: 20ms ensures zero remote dropping without desync
-            task.wait(0.02)
+            table.insert(placedMeta, {
+                worldCF = worldCF,
+                targetPos = worldCF.Position,
+                size = block.Size and Vector3.new(unpack(block.Size)) or nil,
+                color = block.Color and Color3.new(unpack(block.Color)) or nil
+            })
+
+            task.wait(0.035)
         end
+
+        -- Allow server replication to settle
+        task.wait(0.6)
+
+        local myBlocks = Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+        local allChildren = myBlocks and myBlocks:GetChildren() or {}
+
+        -- Match placed blocks to metadata by closest Euclidean position
+        local used = {}
+        local matched = {}
+        for _, meta in ipairs(placedMeta) do
+            local closest = nil
+            local closestDist = 9999
+            for _, blk in ipairs(allChildren) do
+                if not used[blk] then
+                    local p = blk:FindFirstChild("PPart") or blk:FindFirstChildWhichIsA("BasePart")
+                    if p then
+                        local dist = (p.Position - meta.targetPos).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = blk
+                        end
+                    end
+                end
+            end
+            if closest and closestDist < 12 then
+                used[closest] = true
+                table.insert(matched, {
+                    block = closest,
+                    size = meta.size,
+                    worldCF = meta.worldCF,
+                    color = meta.color
+                })
+            end
+        end
+
+        -- Phase 2: Sequential Scaling (Equip ScalingTool)
+        local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or char:FindFirstChild("ScalingTool")
+        local scaledCount = 0
+        if sTool and #matched > 0 then
+            hum:EquipTool(sTool)
+            task.wait(0.25)
+            local sRF = sTool:FindFirstChild("RF")
+            if sRF then
+                for _, m in ipairs(matched) do
+                    local sz = m.size
+                    if sz and (math.abs(sz.X - 2) > 0.05 or math.abs(sz.Y - 2) > 0.05 or math.abs(sz.Z - 2) > 0.05) then
+                        pcall(function()
+                            sRF:InvokeServer(m.block, sz, m.worldCF)
+                        end)
+                        scaledCount = scaledCount + 1
+                        task.wait(0.035)
+                    end
+                end
+            end
+        end
+
+        -- Phase 3: Instant Batch Painting (Equip PaintingTool)
+        local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or char:FindFirstChild("PaintingTool")
+        local paintedCount = 0
+        if pTool and #matched > 0 then
+            hum:EquipTool(pTool)
+            task.wait(0.25)
+            local pRF = pTool:FindFirstChild("RF")
+            if pRF then
+                local batch = {}
+                for _, m in ipairs(matched) do
+                    if m.color then
+                        table.insert(batch, {m.block, m.color})
+                    end
+                end
+                if #batch > 0 then
+                    pcall(function()
+                        pRF:InvokeServer(batch)
+                    end)
+                    paintedCount = #batch
+                end
+            end
+        end
+
+        -- Clean unequip tools
+        pcall(function() hum:UnequipTools() end)
 
         Hub.Notify({
             Title = "Build Completed!",
-            Content = string.format("Successfully built %d REAL blocks! (%d substituted, %d skipped)", count, substituted, skipped),
+            Content = string.format("Successfully built %d blocks! (Scaled: %d, Painted: %d, Substituted: %d)", count, scaledCount, paintedCount, substituted),
             Duration = 5
         })
     end)
