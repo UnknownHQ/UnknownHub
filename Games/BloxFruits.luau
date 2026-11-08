@@ -1777,15 +1777,24 @@ do
 
     createSliderToggle(eventPage, "Auto Kill Pumpkin Heads", false, function(newState)
         isAutoPumpkinHeadsOn = newState
-        if not newState and pumpkinEventStatus then
-            pumpkinEventStatus.Text = "Status: Auto Pumpkin Heads OFF"
+        if not newState then
+            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+            isTraveling = false
+            currentPumpkinTarget = nil
+            if pumpkinEventStatus then
+                pumpkinEventStatus.Text = "Status: Auto Pumpkin Heads OFF"
+            end
         end
     end, "AutoPumpkinHeads")
 
     createSliderToggle(eventPage, "Auto Kill Pumpkin NPCs", false, function(newState)
         isAutoPumpkinNPCsOn = newState
-        if not newState and pumpkinEventStatus then
-            pumpkinEventStatus.Text = "Status: Auto Pumpkin NPCs OFF"
+        if not newState then
+            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+            isTraveling = false
+            if pumpkinEventStatus then
+                pumpkinEventStatus.Text = "Status: Auto Pumpkin NPCs OFF"
+            end
         end
     end, "AutoPumpkinNPCs")
 end
@@ -3428,11 +3437,15 @@ local LevelData = {
 local function getSpawnersForMob(mobName)
     local spawners = {}
     local searched = {}
+    local targetBase = string.lower(mobName or ""):gsub("%s+$", "")
 
     local function addSpawn(s)
-        if s:IsA("BasePart") and string.find(string.lower(s.Name), string.lower(mobName)) and not searched[s] then
-            searched[s] = true
-            table.insert(spawners, s.CFrame)
+        if s:IsA("BasePart") and not searched[s] then
+            local sBase = string.lower(s.Name:match("^(.-)%s*%[") or s.Name):gsub("%s+$", "")
+            if sBase == targetBase then
+                searched[s] = true
+                table.insert(spawners, s.CFrame)
+            end
         end
     end
 
@@ -3467,14 +3480,15 @@ local function getDynamicIslandCFrame(targetEntry)
         return targetEntry.IslandCFrame
     end
 
-    -- Priority 3: Active live mob location in workspace.Enemies
+    -- Priority 3: Active live mob location in workspace.Enemies (STRICT EXACT BASE NAME MATCH)
     local liveMobCF = nil
     pcall(function()
         local enemies = workspace:FindFirstChild("Enemies")
         if enemies then
-            local targetNameLower = string.lower(targetEntry.ExactName)
+            local targetNameLower = string.lower(targetEntry.ExactName or ""):gsub("%s+$", "")
             for _, mob in ipairs(enemies:GetChildren()) do
-                if string.find(string.lower(mob.Name), targetNameLower, 1, true) 
+                local mobBase = string.lower(mob.Name:match("^(.-)%s*%[") or mob.Name):gsub("%s+$", "")
+                if mobBase == targetNameLower 
                     and mob:FindFirstChild("HumanoidRootPart") 
                     and mob:FindFirstChildOfClass("Humanoid") 
                     and mob.Humanoid.Health > 0 then
@@ -3658,8 +3672,9 @@ _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function
         local hum = char:FindFirstChildOfClass("Humanoid")
         local hrp = char:FindFirstChild("HumanoidRootPart")
 
-        if isTraveling or isFarmOn or isAutoChestOn then
-            for _, p in ipairs(char:GetChildren()) do
+        local isActive = isTraveling or isFarmOn or isAutoChestOn or isAutoPumpkinHeadsOn or isAutoPumpkinNPCsOn or isAutoTravelOn
+        if isActive then
+            for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then p.CanCollide = false end
             end
             if hum then
@@ -3669,19 +3684,18 @@ _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function
             if hrp then
                 local bv = getTabBV(hrp)
                 if isTraveling then
-                    -- Zero physics resistance during tween so TweenService is 100% smooth without jitter or rubberband!
                     if bv then bv.MaxForce = Vector3.zero end
                 else
-                    -- Stable hover when stationary at combat destination
                     if bv then
                         bv.Velocity = Vector3.zero
                         bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
                     end
-                    hrp.Velocity = Vector3.zero
-                    if hrp:IsA("BasePart") then
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                        hrp.AssemblyAngularVelocity = Vector3.zero
-                    end
+                end
+                -- Always zero physics velocities to prevent gravity accumulation & PhysX rubberband conflict
+                hrp.Velocity = Vector3.zero
+                if hrp:IsA("BasePart") then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
                 end
             end
         else
@@ -3862,6 +3876,22 @@ safeTweenToIsland = function(targetCFrame, callback)
         return
     end
 
+    -- Ensure character parts are strictly noclipped & zeroed before tween launch
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then part.CanCollide = false end
+    end
+    hrp.Velocity = Vector3.zero
+    if hrp:IsA("BasePart") then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
+
+    -- Cruising altitude adjustment: For long flights (> 180 studs) across ocean, elevate flight path above water (min Y = 60)
+    local flightCF = targetCF
+    if dist > 180 and flightCF.Position.Y < 60 and currentPos.X < 45000 and targetPos.X < 45000 then
+        flightCF = CFrame.new(flightCF.Position.X, 60, flightCF.Position.Z) * flightCF.Rotation
+    end
+
     isTraveling = true
     local currentTweenID = tick()
     _G.Unknown_TravelTweenID = currentTweenID
@@ -3870,18 +3900,20 @@ safeTweenToIsland = function(targetCFrame, callback)
     local duration = math.clamp(dist / speed, 0.1, 45)
 
     -- SINGLE CONTINUOUS LINEAR TWEEN (100% FLUID, ZERO SHAKING, DIRECT TO DESTINATION)
-    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCF})
+    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = flightCF})
     _G.Unknown_TravelTween = tw
-    tw.Completed:Connect(function()
+    tw.Completed:Connect(function(playbackState)
         if _G.Unknown_TravelTweenID ~= currentTweenID then return end
-        hrp.CFrame = targetCF
+        if playbackState == Enum.PlaybackState.Completed then
+            hrp.CFrame = targetCF
+            if callback then callback() end
+        end
         if bv then
             bv.Velocity = Vector3.zero
             bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
         end
         isTraveling = false
         _G.Unknown_TravelTween = nil
-        if callback then callback() end
     end)
     tw:Play()
 end
@@ -4377,7 +4409,7 @@ _G.startUnknownFarm = function()
                     local spawnerTargetCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
                     local distToSpawner = (playerHRP.Position - spawnerTargetCF.Position).Magnitude
 
-                    if distToSpawner > 15 then
+                    if distToSpawner > 280 then
                         farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Flying smoothly to " .. displayName .. " island..."
                         if not isTraveling then
                             safeTweenToIsland(spawnerTargetCF)
@@ -4388,7 +4420,9 @@ _G.startUnknownFarm = function()
                             isTraveling = false
                         end
                         farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Hovering at " .. displayName .. "... Waiting for spawns."
-                        playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.12)
+                        if distToSpawner > 15 then
+                            playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.05)
+                        end
                     end
                 else
                     farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Waiting for " .. displayName .. " spawns..."
@@ -4528,16 +4562,21 @@ task.spawn(function()
 
                 -- Verify current target pumpkin is still alive and unbroken
                 if currentPumpkinTarget then
+                    local shouldReset = false
                     if not currentPumpkinTarget.Parent then
-                        brokenPumpkins[currentPumpkinTarget] = now
-                        currentPumpkinTarget = nil
+                        shouldReset = true
                     else
                         local sHits = currentPumpkinTarget:GetAttribute("PumpkinHits") or 0
                         local sState = currentPumpkinTarget:GetAttribute("PumpkinState")
                         if sHits >= 3 or (sState and sState ~= "Idle") then
-                            brokenPumpkins[currentPumpkinTarget] = now
-                            currentPumpkinTarget = nil
+                            shouldReset = true
                         end
+                    end
+                    if shouldReset then
+                        brokenPumpkins[currentPumpkinTarget] = now
+                        currentPumpkinTarget = nil
+                        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                        isTraveling = false
                     end
                 end
 
@@ -4573,12 +4612,16 @@ task.spawn(function()
                     end
 
                     if targetPumpkin and targetPumpkin ~= currentPumpkinTarget then
+                        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                        isTraveling = false
                         currentPumpkinTarget = targetPumpkin
                         currentPumpkinStartTime = now
                     end
                 end
 
                 if not targetPumpkin or not targetPart then
+                    if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                    isTraveling = false
                     if pumpkinEventStatus then
                         pumpkinEventStatus.Text = "Status: All Pumpkin Heads broken! Waiting for respawns..."
                     end
@@ -4598,10 +4641,12 @@ task.spawn(function()
                 if now - (currentPumpkinStartTime or now) > 4.5 then
                     brokenPumpkins[targetPumpkin] = now
                     currentPumpkinTarget = nil
+                    if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                    isTraveling = false
                     return
                 end
 
-                if distToPumpkin > 16 then
+                if distToPumpkin > 22 then
                     if not isTraveling then
                         safeTweenToIsland(hoverCF)
                     end
