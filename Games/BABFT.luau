@@ -137,6 +137,7 @@ local State = {
     -- OP Functions & Exploits
     Water_Godmode = true,
     Obstacle_Annihilator = true,
+    WalkOnWater = false,
     Noclip_Fly = false,
     Fly_Speed = 75,
 
@@ -298,6 +299,7 @@ end
 -- Tween Helper for Character
 local function tweenCharacter(root, targetCFrame, duration)
     if not root or not root.Parent then return false end
+    root.Anchored = true
     root.AssemblyLinearVelocity = Vector3.zero
     root.AssemblyAngularVelocity = Vector3.zero
     
@@ -306,6 +308,7 @@ local function tweenCharacter(root, targetCFrame, duration)
     tw.Completed:Wait()
 
     if root and root.Parent then
+        root.Anchored = false
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
     end
@@ -335,10 +338,15 @@ task.spawn(function()
             end
 
             if char and root and hum and hum.Health > 0 then
-                -- 1. Part Collision & Damage Shield
+                -- 1. Universal Entity Immunity (Zero Death State & Clean Collision)
                 pcall(function()
+                    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
                     for _, p in ipairs(char:GetDescendants()) do
-                        if p:IsA("BasePart") then p.CanCollide = false end
+                        if p:IsA("BasePart") then
+                            p.CanCollide = false
+                            p.CanTouch = true
+                            p.CanQuery = true
+                        end
                     end
                 end)
 
@@ -424,32 +432,33 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 4. High-Altitude Approach to The End (Bypasses 210 Waterfall Rocks & DestroyBoatPart)
+                    -- 4. High-Altitude Safe Approach to The End (Zero Death Invariant)
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
 
                     if trigger then
-                        updateStatus("Approaching Golden Chest Above Waterfall...")
+                        updateStatus("Approaching Golden Chest...")
 
-                        -- Neutralize ALL lethal obstacles in TheEnd BEFORE flying in
+                        -- Annihilate ALL lethal TouchTransmitters in TheEnd (Bypasses DestroyBoatPart & 210 Waterfall Rocks)
                         pcall(function()
                             if theEnd then
                                 for _, desc in ipairs(theEnd:GetDescendants()) do
                                     if desc:IsA("BasePart") and desc ~= trigger then
-                                        if desc.Name:find("Rock") or desc.Name:find("Destroy") or desc.Name:find("Water") or desc.Name:find("Point") or desc.Name:find("Spike") then
-                                            desc.CanTouch = false
-                                        end
+                                        desc.CanTouch = false
+                                        desc.CanCollide = false
+                                        local tt = desc:FindFirstChildWhichIsA("TouchTransmitter")
+                                        if tt then pcall(function() tt:Destroy() end) end
                                     end
                                 end
                             end
                         end)
 
-                        -- Rapid direct approach to chest
+                        -- Safe precision glide to chest room: Stay 5 studs in front of chest (Outside Cap lid radius)
                         root.Anchored = false
                         bv.Velocity = Vector3.zero
-                        tweenCharacter(root, CFrame.new(trigger.Position.X, 240, trigger.Position.Z), 0.3)
-                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0)), 0.2)
+                        local safeArrivalCF = CFrame.new(trigger.Position.X, trigger.Position.Y + 1.5, trigger.Position.Z - 6)
+                        tweenCharacter(root, safeArrivalCF, 0.25)
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
@@ -460,7 +469,7 @@ task.spawn(function()
                             firetouchinterest(root, trigger, 1)
                         end)
 
-                        -- Instant claim remote
+                        -- Instant claim remote for river gold
                         if State.Farm_AutoClaim then
                             pcall(function()
                                 local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
@@ -470,29 +479,9 @@ task.spawn(function()
                             end)
                         end
 
-                        -- Fast 0.5s collection window for gold block & floating gold
-                        local prizeCollectionTime = 0.5
-                        local startWait = tick()
-                        while tick() - startWait < prizeCollectionTime do
-                            task.wait(0.06)
-                            if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
-                            pcall(function()
-                                local tempPrizes = chest:FindFirstChild("DisplayPrizesTemp")
-                                if tempPrizes then
-                                    for _, prize in ipairs(tempPrizes:GetChildren()) do
-                                        if prize:IsA("BasePart") then
-                                            prize.CFrame = root.CFrame
-                                        elseif prize:IsA("Model") and prize.PrimaryPart then
-                                            prize:SetPrimaryPartCFrame(root.CFrame)
-                                        end
-                                    end
-                                end
-                            end)
-                        end
-
                         updateRuns()
 
-                        -- Optional Auto-Buy Chests with Farmed Gold for continuous income expansion!
+                        -- Optional Auto-Buy Chests with Farmed Gold
                         if State.Farm_AutoChest and State.Farm_AutoChest ~= "Disabled" then
                             pcall(function()
                                 Workspace.ItemBoughtFromShop:InvokeServer(State.Farm_AutoChest, 1)
@@ -504,7 +493,7 @@ task.spawn(function()
                         end
 
                         -- Lightning-Fast Turnaround to Dock:
-                        -- Instant teleport straight onto team dock without waiting or dying
+                        -- Instant teleport straight onto team dock without waiting for chest death timer!
                         pcall(function()
                             local team = LocalPlayer.Team
                             local teamName = team and team.TeamColor.Name
@@ -1904,8 +1893,11 @@ end)
 RunService.Heartbeat:Connect(function()
     if State.Water_Godmode or State.AutoFarm_Enabled then
         local hum = getHumanoid()
-        if hum and hum.Health > 0 and hum.Health < 100 then
-            hum.Health = 100
+        if hum then
+            pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
+            if hum.Health > 0 and hum.Health < 100 then
+                hum.Health = 100
+            end
         end
     end
 end)
@@ -1926,9 +1918,11 @@ task.spawn(function()
                 if ns then
                     for _, stage in ipairs(ns:GetChildren()) do
                         for _, desc in ipairs(stage:GetDescendants()) do
-                            if desc:IsA("BasePart") and (desc.Name:find("Rock") or desc.Name:find("Spike") or desc.Name:find("Lava") or desc.Name:find("Point") or desc.Name:find("Destroy")) then
+                            if desc:IsA("BasePart") and desc.Name ~= "Trigger" and (desc.Name:find("Rock") or desc.Name:find("Spike") or desc.Name:find("Lava") or desc.Name:find("Point") or desc.Name:find("Destroy") or desc.Name:find("Water")) then
                                 desc.CanTouch = false
                                 desc.CanCollide = false
+                                local tt = desc:FindFirstChildWhichIsA("TouchTransmitter")
+                                if tt then pcall(function() tt:Destroy() end) end
                             end
                         end
                     end
@@ -2028,6 +2022,32 @@ end)
 
 Hub.CreateToggle(opTab, "Infinite Jump", State.Infinite_Jump, function(v)
     State.Infinite_Jump = v
+end)
+
+local waterPlatform = Instance.new("Part")
+waterPlatform.Name = "UnknownWaterPlatform"
+waterPlatform.Size = Vector3.new(24, 1, 24)
+waterPlatform.Transparency = 1
+waterPlatform.Anchored = true
+waterPlatform.CanCollide = true
+
+RunService.Heartbeat:Connect(function()
+    if State.WalkOnWater then
+        local root = getRoot()
+        if root then
+            waterPlatform.Parent = Workspace
+            waterPlatform.CFrame = CFrame.new(root.Position.X, -10.2, root.Position.Z)
+        end
+    elseif waterPlatform.Parent then
+        waterPlatform.Parent = nil
+    end
+end)
+
+Hub.CreateToggle(opTab, "🌊 Walk on Water", State.WalkOnWater, function(v)
+    State.WalkOnWater = v
+    if not v and waterPlatform.Parent then
+        waterPlatform.Parent = nil
+    end
 end)
 
 UserInputService.JumpRequest:Connect(function()
