@@ -999,18 +999,9 @@ end
 
 -- Canonical dock coordinate system for any plot
 local function getZoneDockCF(zone)
-    local pos = zone.Position
-    local surfaceY = pos.Y + (zone.Size.Y / 2)
-    local center = Vector3.new(pos.X, surfaceY, pos.Z)
-    local forward
-    if zone.Name == "WhiteZone" then
-        forward = Vector3.new(0, 0, 1)
-    elseif pos.X < -100 then
-        forward = Vector3.new(1, 0, 0)
-    else
-        forward = Vector3.new(-1, 0, 0)
-    end
-    return CFrame.lookAt(center, center + forward, Vector3.new(0, 1, 0))
+    local surfaceY = zone.Size.Y / 2
+    -- Use zone native CFrame shifted to dock surface (preserves 100% true yaw/pitch/roll across all plots)
+    return zone.CFrame * CFrame.new(0, surfaceY, 0)
 end
 
 -- Serialize target player's build into relative CFrame data (Centered & Zone-Aligned)
@@ -1301,6 +1292,18 @@ local function constructBuildOnMyIsland(buildKey)
     if not bRF then
         Hub.Notify({ Title = "Build Stealer", Content = "BuildingTool RF remote not found!", Duration = 3 })
         return
+    end
+
+    -- Auto-clear plot before building so old leftover blocks (e.g. wheels, TNT) never get merged into new builds
+    local myBlocks = Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+    if myBlocks and #myBlocks:GetChildren() > 0 then
+        pcall(function()
+            local clearRemote = Workspace:FindFirstChild("ClearAllPlayersBoatParts")
+            if clearRemote then
+                clearRemote:FireServer()
+                task.wait(0.35)
+            end
+        end)
     end
 
     -- SAFETY: Temporarily pause AutoFarm so character resets do not destroy plot
