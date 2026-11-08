@@ -454,10 +454,10 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Safe precision glide to chest room: Stay 5 studs in front of chest (Outside Cap lid radius)
+                        -- Safe sky-height approach directly above TheEnd (Never drop into DestroyBoatPart or waterfall rocks!)
                         root.Anchored = false
                         bv.Velocity = Vector3.zero
-                        local safeArrivalCF = CFrame.new(trigger.Position.X, trigger.Position.Y + 1.5, trigger.Position.Z - 6)
+                        local safeArrivalCF = CFrame.new(trigger.Position.X, flightHeight, trigger.Position.Z)
                         tweenCharacter(root, safeArrivalCF, 0.25)
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
