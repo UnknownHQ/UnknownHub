@@ -72,7 +72,7 @@ local ok, factory = pcall(function()
     elseif isfile and isfile("UnknownLibrary") then
         source = readfile("UnknownLibrary")
     else
-        source = game:HttpGet(LIBRARY_LINK)
+        source = game:HttpGet(LIBRARY_LINK .. "?v=" .. tostring(tick()))
     end
     -- CoreGui handled via factory parent
     local factoryChunk = loadstring(source)
@@ -618,7 +618,7 @@ end)
 Hub.CreateButton(buildTab, "🔄 Refresh Players List", function()
     local freshList = getOnlinePlayerNames()
     if playerDropdown and playerDropdown.Refresh then
-        playerDropdown.Refresh(playerDropdown, freshList)
+        playerDropdown.Refresh(freshList)
         local found = false
         for _, n in ipairs(freshList) do
             if n == State.SelectedTargetPlayer then
@@ -629,7 +629,7 @@ Hub.CreateButton(buildTab, "🔄 Refresh Players List", function()
         if not found then
             State.SelectedTargetPlayer = freshList[1]
             if playerDropdown.Set then
-                playerDropdown:Set(freshList[1])
+                playerDropdown.Set(freshList[1])
             end
         end
     end
