@@ -4415,95 +4415,97 @@ task.spawn(function()
                 local farmDist = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
                 local heldTool = char:FindFirstChildOfClass("Tool") or autoEquipSelectedWeapon()
 
-                -- PRIORITY 1: CHECK FOR ALIVE PUMPKIN / EVENT NPCS IN workspace.Enemies
-                local eventNPCs = {}
-                local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
-                for _, mob in ipairs(enemies) do
-                    if mob:IsA("Model") and mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChildOfClass("Humanoid") and mob.Humanoid.Health > 0 then
-                        local nLower = string.lower(mob.Name)
-                        if string.find(nLower, "jack") or string.find(nLower, "pump") or string.find(nLower, "lantern") or string.find(nLower, "evil slime") or string.find(nLower, "snowman") or mob:FindFirstChild("PumpkinMask") or mob:FindFirstChild("GoofyPumpkinHead") then
-                            table.insert(eventNPCs, mob)
-                        end
-                    end
-                end
-
-                if #eventNPCs > 0 then
-                    -- PRIORITY 1 ACTIVE: DESTROY EVENT NPCS FIRST!
-                    local firstMob = eventNPCs[1]
-                    local firstHRP = firstMob:FindFirstChild("HumanoidRootPart")
-                    if not firstHRP then return end
-
-                    -- Clean ground height calculation: locks bring point strictly to NPC ground level, NEVER underground!
-                    local groundY = firstHRP.Position.Y
-                    local hoverCF = CFrame.new(firstHRP.Position.X, groundY + farmDist, firstHRP.Position.Z)
-                    local distToMob = (hrp.Position - hoverCF.Position).Magnitude
-
-                    if pumpkinEventStatus then
-                        pumpkinEventStatus.Text = string.format("Status: [NPC Priority] Slaying %s (%d clustered)...", firstMob.Name, #eventNPCs)
-                    end
-
-                    if distToMob > 18 then
-                        if not isTraveling then
-                            safeTweenToIsland(hoverCF)
-                        end
-                    else
-                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-                            isTraveling = false
-                        end
-                        hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.15)
-
-                        -- Bring all target pumpkin NPCs to clean upright stack on the ground (groundY)
-                        local bringCF = CFrame.new(hrp.Position.X, groundY, hrp.Position.Z)
-                        local hitList = {}
-
-                        for _, mob in ipairs(eventNPCs) do
-                            local mHrp = mob:FindFirstChild("HumanoidRootPart")
-                            local mHum = mob:FindFirstChildOfClass("Humanoid")
-                            if mHrp and mHum and mHum.Health > 0 then
-                                pcall(function()
-                                    local d = (mHrp.Position - bringCF.Position).Magnitude
-                                    if d > 350 then return end
-
-                                    if d > 2.5 then
-                                        mHrp.CFrame = mHrp.CFrame:Lerp(bringCF, 0.35)
-                                    end
-                                    mHrp.Velocity = Vector3.zero
-                                    if mHrp:IsA("BasePart") then
-                                        mHrp.AssemblyLinearVelocity = Vector3.zero
-                                        mHrp.AssemblyAngularVelocity = Vector3.zero
-                                    end
-
-                                    for _, part in ipairs(mob:GetChildren()) do
-                                        if part:IsA("BasePart") then part.CanCollide = false end
-                                    end
-                                    mHum.PlatformStand = true
-                                    mHum.WalkSpeed = 0
-
-                                    table.insert(hitList, {mob, mHrp})
-                                end)
-                            end
-                        end
-
-                        if heldTool and #hitList > 0 then
-                            local now = tick()
-                            if now - lastEventAttackTime >= 0.12 then
-                                lastEventAttackTime = now
-                                pcall(function() heldTool:Activate() end)
-                                local primaryHRP = hitList[1][2]
-                                _G.Unknown_PerformFastAttack(hitList, primaryHRP)
+                -- PRIORITY 1: CHECK FOR ALIVE PUMPKIN / EVENT NPCS IN workspace.Enemies ONLY IF isAutoPumpkinNPCsOn IS ENABLED!
+                if isAutoPumpkinNPCsOn then
+                    local eventNPCs = {}
+                    local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
+                    for _, mob in ipairs(enemies) do
+                        if mob:IsA("Model") and mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChildOfClass("Humanoid") and mob.Humanoid.Health > 0 then
+                            local nLower = string.lower(mob.Name)
+                            if string.find(nLower, "jack") or string.find(nLower, "pump") or string.find(nLower, "lantern") or string.find(nLower, "evil slime") or string.find(nLower, "snowman") or mob:FindFirstChild("PumpkinMask") or mob:FindFirstChild("GoofyPumpkinHead") then
+                                table.insert(eventNPCs, mob)
                             end
                         end
                     end
-                    return -- Do not touch pumpkin heads while NPCs exist!
-                end
 
-                -- If Auto Kill Pumpkin NPCs is ON, but Auto Pumpkin Heads is OFF, we wait for NPCs
-                if isAutoPumpkinNPCsOn and not isAutoPumpkinHeadsOn then
-                    if pumpkinEventStatus then
-                        pumpkinEventStatus.Text = "Status: Waiting for Pumpkin NPCs / Jack o' Lantern spawns..."
+                    if #eventNPCs > 0 then
+                        -- PRIORITY 1 ACTIVE: DESTROY EVENT NPCS FIRST!
+                        local firstMob = eventNPCs[1]
+                        local firstHRP = firstMob:FindFirstChild("HumanoidRootPart")
+                        if not firstHRP then return end
+
+                        -- Clean ground height calculation: locks bring point strictly to NPC ground level, NEVER underground!
+                        local groundY = firstHRP.Position.Y
+                        local hoverCF = CFrame.new(firstHRP.Position.X, groundY + farmDist, firstHRP.Position.Z)
+                        local distToMob = (hrp.Position - hoverCF.Position).Magnitude
+
+                        if pumpkinEventStatus then
+                            pumpkinEventStatus.Text = string.format("Status: [NPC Priority] Slaying %s (%d clustered)...", firstMob.Name, #eventNPCs)
+                        end
+
+                        if distToMob > 18 then
+                            if not isTraveling then
+                                safeTweenToIsland(hoverCF)
+                            end
+                        else
+                            if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
+                                if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                                isTraveling = false
+                            end
+                            hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.15)
+
+                            -- Bring all target pumpkin NPCs to clean upright stack on the ground (groundY)
+                            local bringCF = CFrame.new(hrp.Position.X, groundY, hrp.Position.Z)
+                            local hitList = {}
+
+                            for _, mob in ipairs(eventNPCs) do
+                                local mHrp = mob:FindFirstChild("HumanoidRootPart")
+                                local mHum = mob:FindFirstChildOfClass("Humanoid")
+                                if mHrp and mHum and mHum.Health > 0 then
+                                    pcall(function()
+                                        local d = (mHrp.Position - bringCF.Position).Magnitude
+                                        if d > 350 then return end
+
+                                        if d > 2.5 then
+                                            mHrp.CFrame = mHrp.CFrame:Lerp(bringCF, 0.35)
+                                        end
+                                        mHrp.Velocity = Vector3.zero
+                                        if mHrp:IsA("BasePart") then
+                                            mHrp.AssemblyLinearVelocity = Vector3.zero
+                                            mHrp.AssemblyAngularVelocity = Vector3.zero
+                                        end
+
+                                        for _, part in ipairs(mob:GetChildren()) do
+                                            if part:IsA("BasePart") then part.CanCollide = false end
+                                        end
+                                        mHum.PlatformStand = true
+                                        mHum.WalkSpeed = 0
+
+                                        table.insert(hitList, {mob, mHrp})
+                                    end)
+                                end
+                            end
+
+                            if heldTool and #hitList > 0 then
+                                local now = tick()
+                                if now - lastEventAttackTime >= 0.12 then
+                                    lastEventAttackTime = now
+                                    pcall(function() heldTool:Activate() end)
+                                    local primaryHRP = hitList[1][2]
+                                    _G.Unknown_PerformFastAttack(hitList, primaryHRP)
+                                end
+                            end
+                        end
+                        return -- Do not touch pumpkin heads while NPCs exist!
                     end
-                    return
+
+                    -- If Auto Kill Pumpkin NPCs is ON, but Auto Pumpkin Heads is OFF, we wait for NPCs
+                    if not isAutoPumpkinHeadsOn then
+                        if pumpkinEventStatus then
+                            pumpkinEventStatus.Text = "Status: Waiting for Pumpkin NPCs / Jack o' Lantern spawns..."
+                        end
+                        return
+                    end
                 end
 
                 -- PRIORITY 2: AUTO KILL PUMPKIN HEADS (When no event NPCs are alive)
