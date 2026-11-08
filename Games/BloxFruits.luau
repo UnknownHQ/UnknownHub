@@ -58,6 +58,33 @@ local Hub = result({
 
 assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
 
+-- Bulletproof CreateList wrapper guaranteeing SetSelected and SetSelectedItems
+local origCreateList = Hub.CreateList
+Hub.CreateList = function(parent, ...)
+    local listObj = origCreateList(parent, ...)
+    if type(listObj) == "table" then
+        if not listObj.SetSelected then
+            listObj.SetSelected = function(self, val)
+                if type(self) ~= "table" then val = self end
+                listObj.SelectedItem = val
+                if type(listObj.OnSelect) == "function" then
+                    pcall(listObj.OnSelect, val)
+                end
+            end
+            listObj.setSelected = listObj.SetSelected
+        end
+        if not listObj.SetSelectedItems then
+            listObj.SetSelectedItems = function(self, vals)
+                if type(self) ~= "table" then vals = self end
+                listObj.SelectedItems = vals or {}
+            end
+            listObj.setSelectedItems = listObj.SetSelectedItems
+        end
+    end
+    return listObj
+end
+Hub.createList = Hub.CreateList
+
 -- Anti-AFK Connection
 local VirtualUser = game:GetService("VirtualUser")
 LocalPlayer.Idled:Connect(function()

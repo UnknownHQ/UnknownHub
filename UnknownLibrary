@@ -2538,6 +2538,47 @@ return function(opts)
             return itmBtn
         end
 
+        function listObj.SetSelected(self, selectedText)
+            local target = (type(selectedText) == "table" and (selectedText.Name or selectedText.Title or selectedText[1])) or tostring(selectedText)
+            listObj.SelectedItem = selectedText
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local cleanName = child.Name:gsub("^Item_", "")
+                    local isMatch = (cleanName == target or child.Text:gsub("^%s*", "") == target)
+                    if isMatch then
+                        tween(child, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover or Color3.fromRGB(30, 36, 48), TextColor3 = primaryTheme})
+                    else
+                        tween(child, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(18, 21, 28), TextColor3 = DEFAULT_THEME.TextSecondary})
+                    end
+                end
+            end
+            if type(listObj.OnSelect) == "function" then
+                pcall(listObj.OnSelect, selectedText)
+            end
+        end
+        listObj.setSelected = listObj.SetSelected
+
+        function listObj.SetSelectedItems(self, itemsArray)
+            listObj.SelectedItems = itemsArray or {}
+            local lookup = {}
+            for _, itm in ipairs(listObj.SelectedItems) do
+                local val = (type(itm) == "table" and (itm.Name or itm.Title or itm[1])) or tostring(itm)
+                lookup[val] = true
+            end
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local cleanName = child.Name:gsub("^Item_", "")
+                    local isMatch = lookup[cleanName] or lookup[child.Text:gsub("^%s*", "")]
+                    if isMatch then
+                        tween(child, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover or Color3.fromRGB(30, 36, 48), TextColor3 = primaryTheme})
+                    else
+                        tween(child, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(18, 21, 28), TextColor3 = DEFAULT_THEME.TextSecondary})
+                    end
+                end
+            end
+        end
+        listObj.setSelectedItems = listObj.SetSelectedItems
+
         for _, itm in ipairs(items) do
             listObj.AddItem(itm)
         end
