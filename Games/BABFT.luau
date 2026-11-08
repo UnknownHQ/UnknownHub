@@ -1004,19 +1004,16 @@ local function checkBuildMissingBlocks(buildData)
             end
         end
 
-        -- ONLY flag items that can ACTUALLY be bought for gold in the regular shop!
-        -- Never demand Robux, and never display quest/badge items (like Plushies) as shop-missing!
+        -- Report ALL missing blocks (shop purchasable or special/inventory) so incomplete builds are stopped
         if owned < count then
             local shopInfo = SHOP_ITEMS_MAP[name]
-            if shopInfo then
-                table.insert(missingList, {
-                    name = name,
-                    needed = count,
-                    owned = owned,
-                    missing = count - owned,
-                    price = shopInfo.Price
-                })
-            end
+            table.insert(missingList, {
+                name = name,
+                needed = count,
+                owned = owned,
+                missing = count - owned,
+                price = shopInfo and shopInfo.Price or "Special / Inventory"
+            })
         end
     end
 
@@ -1128,26 +1125,27 @@ local function exportPlayerBuild(targetPlayerName)
 
     local targetDockCF = getZoneDockCF(targetZone)
 
-    -- If no candidate folders were found for the player, scan all folders near the zone
+    -- If no candidate folders were found for the player, check direct folder (never add unrelated player folders)
     if #candidateFolders == 0 then
-        for _, f in ipairs(blocksFolder:GetChildren()) do
-            if f.Name ~= LocalPlayer.Name or targetPlayerName == LocalPlayer.Name then
-                addFolder(f)
-            end
+        local directFolder = blocksFolder:FindFirstChild(targetPlayerName)
+        if directFolder and #directFolder:GetChildren() > 0 then
+            addFolder(directFolder)
         end
     end
 
-    -- 3. Collect valid block parts within dock bounds (400-stud radius covers full plot + dock, eliminates river debris)
+    -- 3. Collect valid block parts strictly within target dock plot bounds (prevents capturing neighbor plots, plushies, or river debris)
     local validEntries = {}
     local minRel = Vector3.new(math.huge, math.huge, math.huge)
     local maxRel = Vector3.new(-math.huge, -math.huge, -math.huge)
+    local maxHalfX = math.max(targetZone.Size.X / 2 + 15, 60)
+    local maxHalfZ = math.max(targetZone.Size.Z / 2 + 25, 90)
 
     for _, folder in ipairs(candidateFolders) do
         for _, model in ipairs(folder:GetChildren()) do
             local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
             if ppart then
-                local distFromZone = (ppart.Position - targetZone.Position).Magnitude
-                if distFromZone <= 400 then
+                local localPos = targetZone.CFrame:PointToObjectSpace(ppart.Position)
+                if math.abs(localPos.X) <= maxHalfX and math.abs(localPos.Z) <= maxHalfZ and localPos.Y >= -10 and localPos.Y <= 250 then
                     local rel = targetDockCF:ToObjectSpace(ppart.CFrame)
                     minRel = minRel:Min(rel.Position)
                     maxRel = maxRel:Max(rel.Position)
@@ -1157,7 +1155,7 @@ local function exportPlayerBuild(targetPlayerName)
         end
     end
 
-    -- 4. Ultimate safety fallback: if distance check excluded parts, grab target player's direct folder blocks unconditionally!
+    -- 4. Ultimate safety fallback: if local bounds excluded parts, grab target player's direct folder blocks
     if #validEntries == 0 then
         local directFolder = blocksFolder:FindFirstChild(targetPlayerName)
         if directFolder and #directFolder:GetChildren() > 0 then
@@ -1303,6 +1301,22 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
+    -- 1. STRICT INVENTORY PRE-CHECK: Halt immediately if blocks are missing! (Zero plot wipe, Zero broken builds)
+    local missingList = checkBuildMissingBlocks(data)
+    if #missingList > 0 then
+        showMissingBlocksHUD(missingList)
+        local totalMissing = 0
+        for _, it in ipairs(missingList) do
+            totalMissing = totalMissing + (it.missing or 1)
+        end
+        Hub.Notify({
+            Title = "Not Enough Blocks!",
+            Content = string.format("Cannot build: Missing %d blocks (%d types). Check the blueprint panel above!", totalMissing, #missingList),
+            Duration = 5
+        })
+        return
+    end
+
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local hum = char:WaitForChild("Humanoid", 3)
     local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or char:FindFirstChild("BuildingTool")
@@ -1344,11 +1358,6 @@ local function constructBuildOnMyIsland(buildKey)
 
     local myDockCF = getZoneDockCF(myZone)
     local isAnchored = State.Build_Anchored ~= false
-
-    local missingList = checkBuildMissingBlocks(data)
-    if #missingList > 0 then
-        showMissingBlocksHUD(missingList)
-    end
 
     Hub.Notify({
         Title = "Build Stealer",
