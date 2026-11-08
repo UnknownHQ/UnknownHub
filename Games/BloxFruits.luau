@@ -3554,6 +3554,25 @@ end
 
 
 
+local function hasActivePlayerQuest()
+    local p = LocalPlayer
+    local pg = p and p:FindFirstChild("PlayerGui")
+    if not pg then return false end
+
+    local tqf = pg:FindFirstChild("TrackedQuestFrame")
+    if tqf and tqf.Enabled and tqf:FindFirstChild("Frame") and tqf.Frame.Visible then
+        return true
+    end
+
+    local main = pg:FindFirstChild("Main")
+    local quest = main and main:FindFirstChild("Quest")
+    if quest and quest.Visible then
+        return true
+    end
+
+    return false
+end
+
 local function autoClaimQuest(questName, questLevel)
     if not questName or not questLevel then return end
     pcall(function()
@@ -3627,24 +3646,7 @@ local function customDistributeStats()
     end)
 end
 
-local function hasActivePlayerQuest()
-    local p = LocalPlayer
-    local pg = p and p:FindFirstChild("PlayerGui")
-    if not pg then return false end
 
-    local tqf = pg:FindFirstChild("TrackedQuestFrame")
-    if tqf and tqf.Enabled and tqf:FindFirstChild("Frame") and tqf.Frame.Visible then
-        return true
-    end
-
-    local main = pg:FindFirstChild("Main")
-    local quest = main and main:FindFirstChild("Quest")
-    if quest and quest.Visible then
-        return true
-    end
-
-    return false
-end
 
 local QUEST_GIVER_CFRAMES = {
     ["BanditQuest1"] = CFrame.new(1060, 16.5, 1548),
@@ -3798,14 +3800,8 @@ safeTweenToIsland = function(targetCFrame, callback)
     local speed = _G.Unknown_TravelSpeed or 260
     local duration = math.clamp(dist / speed, 0.1, 45)
 
-    -- SINGLE CONTINUOUS LINEAR TWEEN (100% FLUID, ZERO SHAKING, ZERO RUBBERBAND)
-    -- Elevate target altitude above water level (min Y = 45) so character glides smoothly over ocean
-    local flightCF = targetCF
-    if dist > 200 and flightCF.Position.Y < 45 then
-        flightCF = CFrame.new(flightCF.Position.X, 45, flightCF.Position.Z) * flightCF.Rotation
-    end
-
-    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = flightCF})
+    -- SINGLE CONTINUOUS LINEAR TWEEN (100% FLUID, ZERO SHAKING, DIRECT TO DESTINATION)
+    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCF})
     _G.Unknown_TravelTween = tw
     tw.Completed:Connect(function()
         if _G.Unknown_TravelTweenID ~= currentTweenID then return end
@@ -3916,6 +3912,7 @@ _G.startUnknownFarm = function()
     local lastToolRefresh = 0
     local lastStatAlloc = 0
     local lastRollTime = 0
+    local lastFarmHit = 0
     local groundCFrame = nil
     local currentTargetName = nil
     local lastSkillTime = 0
@@ -4153,16 +4150,20 @@ _G.startUnknownFarm = function()
             end
 
             -- Respect user's active tool without constantly force-equipping punch
-            local activeTool = char:FindFirstChildOfClass("Tool")
+            local activeTool = char:FindFirstChildOfClass("Tool") or autoEquipSelectedWeapon(weaponToEquip)
 
             local bv = getTabBV(playerHRP)
-            bv.Velocity = Vector3.zero
-
-            local bv = getTabBV(playerHRP)
-            bv.Velocity = Vector3.zero
+            if isTraveling then
+                if bv then bv.MaxForce = Vector3.zero end
+            else
+                if bv then
+                    bv.Velocity = Vector3.zero
+                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                end
+            end
 
             -- 100% REMOTE INSTANT QUEST CLAIMING (ZERO PHYSICAL FLYING TO QUEST GIVERS!)
-            if isAutoQuestOn and not hasActivePlayerQuest() and tick() - lastQuestClaim > 1.5 then
+            if isAutoQuestOn and not hasActivePlayerQuest() and tick() - lastQuestClaim > 2 then
                 lastQuestClaim = tick()
                 task.spawn(function()
                     if bossData and bossData.QuestName and bossData.QuestLevel then
@@ -4173,101 +4174,155 @@ _G.startUnknownFarm = function()
                 end)
             end
 
-            -- ROCK-SOLID FIXED MOB ZONE ANCHOR (NEVER TELEPORTS, NEVER FOLLOWS INDIVIDUAL MOBS)
-            local targetMobZoneCF = islandCFrame or (targetData and targetData.IslandCFrame)
-            if not targetMobZoneCF then
-                farmStatusLabel.Text = string.format("Lvl %d | Locating %s destination...", currentLevel, displayName)
-                return
-            end
+            -- COMBAT MODE & MOB SPAWNER DIRECT TARGETING (ZERO ISLAND CENTER TWEENS AT ALL LEVELS)
+            local mobSpawners = getSpawnersForMob(exactMobName)
+            local spawnerCF = (#mobSpawners > 0) and mobSpawners[1] or nil
+            local farmDist = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
 
-            local hoverAnchorCF = CFrame.new(targetMobZoneCF.Position + Vector3.new(0, farmDist, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
-            local distToAnchor = (playerHRP.Position - hoverAnchorCF.Position).Magnitude
+            if #targetMobs > 0 then
+                local firstMobHRP = targetMobs[1]:FindFirstChild("HumanoidRootPart")
+                if firstMobHRP then
+                    local targetMobCF = CFrame.new(firstMobHRP.Position + Vector3.new(0, farmDist, 0))
+                    local distToMob = (playerHRP.Position - targetMobCF.Position).Magnitude
 
-            -- DIRECT FLUID FLIGHT TO MOB ISLAND: Only tweens if player is distant from mob zone (> 50 studs)
-            if distToAnchor > 50 then
-                farmStatusLabel.Text = string.format("Lvl %d | Flying to %s...", currentLevel, displayName)
-                if not isTraveling then
-                    safeTweenToIsland(hoverAnchorCF)
-                end
-                return
-            end
-
-            -- IN COMBAT ZONE: Cancel long-distance tween and lock overhead hover at mob zone
-            if isTraveling then
-                _G.Unknown_CancelTween()
-                isTraveling = false
-            end
-
-            -- Lock player overhead facing straight down at the mob cluster
-            playerHRP.CFrame = hoverAnchorCF
-
-            -- EXTEND CLIENT PHYSICS SIMULATION TO ALL MOBS ON THE ISLAND
-            pcall(function()
-                if sethiddenproperty then
-                    sethiddenproperty(LocalPlayer, "SimulationRadius", math.huge)
-                    sethiddenproperty(LocalPlayer, "MaxSimulationRadius", math.huge)
-                end
-            end)
-
-            -- COLLECT & CLUSTER EVERY SINGLE TARGETED NPC THAT IS THE SAME INTO ONE SINGLE STACK
-            local bringCF = CFrame.new(playerHRP.Position.X, playerHRP.Position.Y - farmDist, playerHRP.Position.Z)
-            local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
-            local hitList = {}
-            local primaryHRP = nil
-            local targetNameLower = string.lower(exactMobName)
-
-            for _, mob in ipairs(enemies) do
-                local mobHRP = mob:FindFirstChild("HumanoidRootPart")
-                local mobHum = mob:FindFirstChildOfClass("Humanoid")
-                if mobHRP and mobHum and mobHum.Health > 0 then
-                    -- STRICT BASE-NAME MATCHING: Strips [Lv. XX] and verifies EXACT match
-                    -- (e.g. "Gorilla [Lv. 20]" -> "Gorilla", matches "Gorilla", NEVER "Gorilla King [Lv. 25]")
-                    local mobBaseName = string.lower(mob.Name:match("^(.-)%s*%[") or mob.Name):gsub("%s+$", "")
-                    if mobBaseName == targetNameLower then
-                        if not primaryHRP then primaryHRP = mobHRP end
-                        table.insert(hitList, {mob, mobHRP})
-
-                        -- Disable collisions across all mob parts so they cluster together with zero bounce
-                        for _, part in ipairs(mob:GetChildren()) do
-                            if part:IsA("BasePart") then
-                                part.CanCollide = false
-                            end
+                    -- If > 12 studs away, fly smoothly directly to target NPC model!
+                    if distToMob > 12 then
+                        farmStatusLabel.Text = string.format("Lvl %d | Flying to %s NPC...", currentLevel, displayName)
+                        if not isTraveling then
+                            safeTweenToIsland(targetMobCF)
                         end
-
-                        -- Freeze humanoid pathfinding & physics to prevent server leash reset and invulnerability
-                        if mobHum.WalkSpeed ~= 0 then mobHum.WalkSpeed = 0 end
-                        if not mobHum.PlatformStand then mobHum.PlatformStand = true end
-
-                        -- Snap every single same-type targeted mob directly into the single stack beneath player
-                        mobHRP.CFrame = bringCF
-                        mobHRP.Velocity = Vector3.zero
-                        mobHRP.RotVelocity = Vector3.zero
-                        if mobHRP:IsA("BasePart") then
-                            mobHRP.AssemblyLinearVelocity = Vector3.zero
-                            mobHRP.AssemblyAngularVelocity = Vector3.zero
+                        return
+                    else
+                        -- Arrived within combat range: cancel travel tween immediately and snap into exact distance position
+                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
+                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                            isTraveling = false
                         end
+                        playerHRP.CFrame = playerHRP.CFrame:Lerp(targetMobCF, 0.12)
                     end
                 end
-            end
 
-            -- ATTACK AND OBLITERATE ALL MOBS SIMULTANEOUSLY (KILL OF THEM!)
-            if primaryHRP and #hitList > 0 then
-                farmStatusLabel.Text = string.format("Lvl %d | Stack-Killing %s (%d clustered)...", currentLevel, displayName, #hitList)
+                -- Bring all target mobs to stack point (gentle lerp bringing to prevent server desync & freeze)
+                local bringCF = playerHRP.CFrame * CFrame.new(0, -farmDist, 0)
+                local now = tick()
 
-                -- Ensure weapon is in hand and swinging
-                local heldTool = char:FindFirstChildOfClass("Tool")
-                if not heldTool then
-                    heldTool = autoEquipSelectedWeapon()
+                for i = 1, #targetMobs do
+                    local mob = targetMobs[i]
+                    local mobHRP = mob:FindFirstChild("HumanoidRootPart")
+                    local mobHum = mob:FindFirstChildOfClass("Humanoid")
+                    
+                    if mobHRP and mobHum and mobHum.Health > 0 then
+                        pcall(function()
+                            local distToStack = (mobHRP.Position - bringCF.Position).Magnitude
+                            
+                            -- Skip bringing if mob is too far away to prevent physics freeze and network desync
+                            if distToStack > 350 then
+                                return
+                            end
+                            
+                            -- Anti-Lock Watchdog: Track if mob is stuck/unhittable for > 3 seconds
+                            local bringStart = mob:GetAttribute("Unknown_BringStart") or now
+                            if not mob:GetAttribute("Unknown_BringStart") then
+                                mob:SetAttribute("Unknown_BringStart", now)
+                            end
+
+                            local lastHealth = mob:GetAttribute("ENI_LastHP") or mobHum.Health
+                            if mobHum.Health < lastHealth then
+                                mob:SetAttribute("ENI_LastHP", mobHum.Health)
+                                mob:SetAttribute("Unknown_BringStart", now) -- Reset timer when damage is taking place!
+                            end
+
+                            -- If mob is frozen/unhittable for > 3.0s, momentarily release it so physics syncs!
+                            if now - bringStart > 3.0 then
+                                mob:SetAttribute("Unknown_BringStart", now)
+                                for _, part in ipairs(mob:GetChildren()) do
+                                    if part:IsA("BasePart") then part.CanCollide = true end
+                                end
+                                mobHum.PlatformStand = false
+                                mobHum.WalkSpeed = 16
+                                mobHum.JumpPower = 50
+                            else
+                                -- Normal Bring: Smoothly lerp HRP position to stack point
+                                if distToStack > 2.5 then
+                                    mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.35)
+                                end
+
+                                mobHRP.Velocity = Vector3.zero
+                                mobHRP.RotVelocity = Vector3.zero
+                                if mobHRP:IsA("BasePart") then
+                                    mobHRP.AssemblyLinearVelocity = Vector3.zero
+                                    mobHRP.AssemblyAngularVelocity = Vector3.zero
+                                end
+                                
+                                -- Disable collision so mobs stack neatly without clipping
+                                for _, part in ipairs(mob:GetChildren()) do
+                                    if part:IsA("BasePart") then
+                                        part.CanCollide = false
+                                    end
+                                end
+
+                                mobHum.PlatformStand = true
+                                mobHum.WalkSpeed = 0
+                                mobHum.JumpPower = 0
+                            end
+                        end)
+                    end
                 end
-                if heldTool then
-                    pcall(function() heldTool:Activate() end)
-                end
 
-                if _G.Unknown_PerformFastAttack then
-                    _G.Unknown_PerformFastAttack(hitList, primaryHRP)
+                farmStatusLabel.Text = string.format("Lvl %d | Farming %d %s (Stack Kill Aura)", currentLevel, #targetMobs, displayName)
+
+                -- BLOX FRUIT & WEAPON PURE MULTI-TARGET FAST ATTACK ENGINE
+                if activeTool then
+                    pcall(function() activeTool:Activate() end)
+                    pcall(function()
+                        local hitList = {}
+                        local now = tick()
+
+                        for i = 1, math.min(#targetMobs, 15) do
+                            local mob = targetMobs[i]
+                            local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
+                            local mHum = mob:FindFirstChildOfClass("Humanoid")
+                            
+                            if mHrp and mHum and mHum.Health > 0 then
+                                local distFromPlayer = (mHrp.Position - playerHRP.Position).Magnitude
+                                if distFromPlayer <= (farmDist + 18) then
+                                    table.insert(hitList, {mob, mHrp})
+                                end
+                            end
+                        end
+                        
+                        if #hitList > 0 and (now - (lastFarmHit or 0) >= 0.08) then
+                            lastFarmHit = now
+                            local primaryHRP = hitList[1][2]
+                            _G.Unknown_PerformFastAttack(hitList, primaryHRP)
+                        end
+                    end)
                 end
             else
-                farmStatusLabel.Text = string.format("Lvl %d | Hovering at %s... Waiting for respawns.", currentLevel, displayName)
+                -- ZERO MOBS ALIVE / UNSTREAMED: Fly smoothly to target island spawner or island CFrame!
+                groundCFrame = nil
+                
+                local targetDestinationCF = spawnerCF or islandCFrame
+                if targetDestinationCF then
+                    local spawnerTargetCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
+                    local distToSpawner = (playerHRP.Position - spawnerTargetCF.Position).Magnitude
+
+                    if distToSpawner > 15 then
+                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Flying smoothly to " .. displayName .. " island..."
+                        if not isTraveling then
+                            safeTweenToIsland(spawnerTargetCF)
+                        end
+                    else
+                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
+                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
+                            isTraveling = false
+                        end
+                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Hovering at " .. displayName .. "... Waiting for spawns."
+                        playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.12)
+                    end
+                else
+                    farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Waiting for " .. displayName .. " spawns..."
+                end
             end
         end)
     end)
