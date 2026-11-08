@@ -3356,16 +3356,56 @@ local LevelData = {
     {MinLevel = 1450, MaxLevel = 2600, ExactName = "Water Fighter", Display = "Water Fighter [Lv. 1450]", QuestName = "ForgottenQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-3300, 10, -10200)}
 }
 
+local function getSpawnersForMob(mobName)
+    local spawners = {}
+    local searched = {}
+
+    local function addSpawn(s)
+        if s:IsA("BasePart") and string.find(string.lower(s.Name), string.lower(mobName)) and not searched[s] then
+            searched[s] = true
+            table.insert(spawners, s.CFrame)
+        end
+    end
+
+    local enemySpawns = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("EnemySpawns")
+    if enemySpawns then
+        for _, s in ipairs(enemySpawns:GetChildren()) do addSpawn(s) end
+    end
+
+    local rootSpawns = workspace:FindFirstChild("EnemySpawns")
+    if rootSpawns then
+        for _, s in ipairs(rootSpawns:GetChildren()) do addSpawn(s) end
+    end
+
+    return spawners
+end
+
 local function getDynamicIslandCFrame(targetEntry)
     if not targetEntry then return CFrame.new(0, 50, 0) end
     
-    -- 1. Try active live mob in workspace.Enemies (Guarantees 100% exact revamped position)
+    -- Priority 1: Exact mob spawner location from _WorldOrigin.EnemySpawns (MOB SPAWN ZONE, NEVER QUEST GIVERS!)
+    local spCFrame = nil
+    pcall(function()
+        local mobSpawners = getSpawnersForMob(targetEntry.ExactName)
+        if mobSpawners and #mobSpawners > 0 then
+            spCFrame = mobSpawners[1]
+        end
+    end)
+    if spCFrame then return spCFrame end
+
+    -- Priority 2: Verified static mob spawn coordinates from LevelData
+    if targetEntry.IslandCFrame then
+        return targetEntry.IslandCFrame
+    end
+
+    -- Priority 3: Active live mob location in workspace.Enemies
     local liveMobCF = nil
     pcall(function()
         local enemies = workspace:FindFirstChild("Enemies")
         if enemies then
+            local targetNameLower = string.lower(targetEntry.ExactName)
             for _, mob in ipairs(enemies:GetChildren()) do
-                if (mob.Name == targetEntry.ExactName or string.find(mob.Name, "^" .. targetEntry.ExactName .. " ")) 
+                if string.find(string.lower(mob.Name), targetNameLower, 1, true) 
                     and mob:FindFirstChild("HumanoidRootPart") 
                     and mob:FindFirstChildOfClass("Humanoid") 
                     and mob.Humanoid.Health > 0 then
@@ -3377,58 +3417,7 @@ local function getDynamicIslandCFrame(targetEntry)
     end)
     if liveMobCF then return liveMobCF end
 
-    -- 2. Try exact enemy spawner part CFrame from workspace._WorldOrigin.EnemySpawns / EnemySpawns
-    local spCFrame = nil
-    pcall(function()
-        local mobSpawners = getSpawnersForMob(targetEntry.ExactName)
-        if #mobSpawners > 0 then
-            spCFrame = mobSpawners[1]
-        end
-    end)
-    if spCFrame then return spCFrame end
-
-    -- 3. Try finding corresponding Quest Giver NPC in workspace.NPCs (Dynamic anchor on revamped islands)
-    local npcCF = nil
-    pcall(function()
-        local npcs = workspace:FindFirstChild("NPCs")
-        if npcs then
-            local qKeyword = targetEntry.QuestName and string.lower(targetEntry.QuestName:gsub("Quest.*", "")) or ""
-            local mKeyword = string.lower(targetEntry.ExactName:gsub("%s.*", ""))
-            for _, npc in ipairs(npcs:GetChildren()) do
-                local nName = string.lower(npc.Name)
-                if (qKeyword ~= "" and string.find(nName, qKeyword)) or string.find(nName, mKeyword) or string.find(nName, "quest") then
-                    local root = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
-                    if root then
-                        local distToOld = targetEntry.IslandCFrame and (root.Position - targetEntry.IslandCFrame.Position).Magnitude or 0
-                        if distToOld < 2500 then
-                            npcCF = root.CFrame + Vector3.new(0, 25, 0)
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end)
-    if npcCF then return npcCF end
-
-    -- 4. Try workspace._WorldOrigin.Locations
-    local locCF = nil
-    pcall(function()
-        local locs = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("Locations")
-        if locs then
-            local qKeyword = targetEntry.QuestName and string.lower(targetEntry.QuestName:gsub("Quest.*", "")) or ""
-            for _, loc in ipairs(locs:GetChildren()) do
-                if loc:IsA("BasePart") and qKeyword ~= "" and string.find(string.lower(loc.Name), qKeyword) then
-                    locCF = loc.CFrame + Vector3.new(0, 30, 0)
-                    break
-                end
-            end
-        end
-    end)
-    if locCF then return locCF end
-
-    -- 5. Direct exact mob spawn CFrame (elevated safely above new terrain meshes)
-    return (targetEntry.IslandCFrame and (targetEntry.IslandCFrame + Vector3.new(0, 25, 0))) or CFrame.new(0, 50, 0)
+    return CFrame.new(0, 50, 0)
 end
 
 local function getTargetData()
@@ -3868,29 +3857,7 @@ local function autoEquipSelectedWeapon(forceType)
     return heldTool
 end
 
-local function getSpawnersForMob(mobName)
-    local spawners = {}
-    local searched = {}
-
-    local function addSpawn(s)
-        if s:IsA("BasePart") and string.find(string.lower(s.Name), string.lower(mobName)) and not searched[s] then
-            searched[s] = true
-            table.insert(spawners, s.CFrame)
-        end
-    end
-
-    local enemySpawns = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("EnemySpawns")
-    if enemySpawns then
-        for _, s in ipairs(enemySpawns:GetChildren()) do addSpawn(s) end
-    end
-
-    local rootSpawns = workspace:FindFirstChild("EnemySpawns")
-    if rootSpawns then
-        for _, s in ipairs(rootSpawns:GetChildren()) do addSpawn(s) end
-    end
-
-    return spawners
-end
+-- (getSpawnersForMob defined above getDynamicIslandCFrame)
 
 _G.stopUnknownFarm = function()
     isFarmOn = false
@@ -4204,26 +4171,18 @@ _G.startUnknownFarm = function()
                 end)
             end
 
-            -- RESOLVE DESTINATION ANCHOR: Hover directly above live mobs or designated spawner
-            local anchorPos
-            if #targetMobs > 0 and targetMobs[1]:FindFirstChild("HumanoidRootPart") then
-                anchorPos = targetMobs[1].HumanoidRootPart.Position
-            elseif spawnerCF then
-                anchorPos = spawnerCF.Position
-            elseif islandCFrame then
-                anchorPos = islandCFrame.Position
-            end
-
-            if not anchorPos then
+            -- ROCK-SOLID FIXED MOB ZONE ANCHOR (NEVER TELEPORTS, NEVER FOLLOWS INDIVIDUAL MOBS)
+            local targetMobZoneCF = islandCFrame or (targetData and targetData.IslandCFrame)
+            if not targetMobZoneCF then
                 farmStatusLabel.Text = string.format("Lvl %d | Locating %s destination...", currentLevel, displayName)
                 return
             end
 
-            local hoverAnchorCF = CFrame.new(anchorPos + Vector3.new(0, farmDist, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
+            local hoverAnchorCF = CFrame.new(targetMobZoneCF.Position + Vector3.new(0, farmDist, 0)) * CFrame.Angles(math.rad(-90), 0, 0)
             local distToAnchor = (playerHRP.Position - hoverAnchorCF.Position).Magnitude
 
-            -- DIRECT HIGH-SPEED FLIGHT TO MOBS: If distant (> 60 studs), fly directly to combat zone
-            if distToAnchor > 60 then
+            -- DIRECT FLUID FLIGHT TO MOB ISLAND: Only tweens if player is distant from mob zone (> 50 studs)
+            if distToAnchor > 50 then
                 farmStatusLabel.Text = string.format("Lvl %d | Flying to %s...", currentLevel, displayName)
                 if not isTraveling then
                     safeTweenToIsland(hoverAnchorCF)
@@ -4231,75 +4190,70 @@ _G.startUnknownFarm = function()
                 return
             end
 
-            -- IN COMBAT ZONE: Cancel long-distance tween and lock rock-solid hover overhead
+            -- IN COMBAT ZONE: Cancel long-distance tween and lock overhead hover at mob zone
             if isTraveling then
                 _G.Unknown_CancelTween()
                 isTraveling = false
             end
 
-            -- Lock player overhead facing straight down at mobs
+            -- Lock player overhead facing straight down at the mob cluster
             playerHRP.CFrame = hoverAnchorCF
 
-            if #targetMobs > 0 then
-                farmStatusLabel.Text = string.format("Lvl %d | Stack-Farming %s (%d alive)...", currentLevel, displayName, #targetMobs)
+            -- COLLECT & CLUSTER EVERY SINGLE TARGETED NPC ON THE ISLAND INTO ONE SINGLE STACK
+            local bringCF = CFrame.new(playerHRP.Position - Vector3.new(0, farmDist, 0))
+            local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
+            local hitList = {}
+            local primaryHRP = nil
+            local targetNameLower = string.lower(exactMobName)
 
-                -- The single unified stack anchor directly beneath player
-                local bringCF = CFrame.new(playerHRP.Position - Vector3.new(0, farmDist, 0))
+            for _, mob in ipairs(enemies) do
+                local mobHRP = mob:FindFirstChild("HumanoidRootPart")
+                local mobHum = mob:FindFirstChildOfClass("Humanoid")
+                if mobHRP and mobHum and mobHum.Health > 0 then
+                    local mobNameLower = string.lower(mob.Name)
+                    if string.find(mobNameLower, targetNameLower, 1, true) then
+                        if not primaryHRP then primaryHRP = mobHRP end
+                        table.insert(hitList, {mob, mobHRP})
 
-                -- BRING & CLUSTER EVERY SINGLE TARGETED NPC INTO ONE UNIFIED PINNED STACK
-                for i = 1, #targetMobs do
-                    local mob = targetMobs[i]
-                    local mobHRP = mob:FindFirstChild("HumanoidRootPart")
-                    local mobHum = mob:FindFirstChildOfClass("Humanoid")
-
-                    if mobHRP and mobHum and mobHum.Health > 0 then
-                        pcall(function()
-                            -- 1. Disable collisions across all mob parts so they cluster together with zero physics bounce
-                            for _, part in ipairs(mob:GetChildren()) do
-                                if part:IsA("BasePart") then
-                                    part.CanCollide = false
-                                end
+                        -- Disable collisions across all mob parts so they cluster together with zero bounce
+                        for _, part in ipairs(mob:GetChildren()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
                             end
+                        end
 
-                            -- 2. Freeze humanoid pathfinding & physics to prevent server leash reset and invulnerability
-                            if mobHum.WalkSpeed ~= 0 then mobHum.WalkSpeed = 0 end
-                            if not mobHum.PlatformStand then mobHum.PlatformStand = true end
+                        -- Freeze humanoid pathfinding & physics to prevent server leash reset and invulnerability
+                        if mobHum.WalkSpeed ~= 0 then mobHum.WalkSpeed = 0 end
+                        if not mobHum.PlatformStand then mobHum.PlatformStand = true end
 
-                            -- 3. Snap directly into the exact single stack point
-                            mobHRP.CFrame = bringCF
-                            mobHRP.Velocity = Vector3.zero
-                            mobHRP.RotVelocity = Vector3.zero
-                            if mobHRP:IsA("BasePart") then
-                                mobHRP.AssemblyLinearVelocity = Vector3.zero
-                                mobHRP.AssemblyAngularVelocity = Vector3.zero
-                            end
-                        end)
-                    end
-                end
-
-                -- ATTACK AND OBLITERATE ALL MOBS SIMULTANEOUSLY (KILL OF THEM!)
-                pcall(function()
-                    -- Ensure weapon is in hand and swinging
-                    local heldTool = char:FindFirstChildOfClass("Tool")
-                    if not heldTool then
-                        heldTool = autoEquipSelectedWeapon()
-                    end
-                    if heldTool then
-                        pcall(function() heldTool:Activate() end)
-                    end
-
-                    local hitList = {}
-                    local primaryHRP = targetMobs[1]:FindFirstChild("HumanoidRootPart")
-                    for i = 1, #targetMobs do
-                        local mHRP = targetMobs[i]:FindFirstChild("HumanoidRootPart")
-                        if mHRP then
-                            table.insert(hitList, {targetMobs[i], mHRP})
+                        -- Snap every single targeted mob directly into the single stack beneath player
+                        mobHRP.CFrame = bringCF
+                        mobHRP.Velocity = Vector3.zero
+                        mobHRP.RotVelocity = Vector3.zero
+                        if mobHRP:IsA("BasePart") then
+                            mobHRP.AssemblyLinearVelocity = Vector3.zero
+                            mobHRP.AssemblyAngularVelocity = Vector3.zero
                         end
                     end
-                    if _G.Unknown_PerformFastAttack and primaryHRP and #hitList > 0 then
-                        _G.Unknown_PerformFastAttack(hitList, primaryHRP)
-                    end
-                end)
+                end
+            end
+
+            -- ATTACK AND OBLITERATE ALL MOBS SIMULTANEOUSLY (KILL OF THEM!)
+            if primaryHRP and #hitList > 0 then
+                farmStatusLabel.Text = string.format("Lvl %d | Stack-Killing %s (%d clustered)...", currentLevel, displayName, #hitList)
+
+                -- Ensure weapon is in hand and swinging
+                local heldTool = char:FindFirstChildOfClass("Tool")
+                if not heldTool then
+                    heldTool = autoEquipSelectedWeapon()
+                end
+                if heldTool then
+                    pcall(function() heldTool:Activate() end)
+                end
+
+                if _G.Unknown_PerformFastAttack then
+                    _G.Unknown_PerformFastAttack(hitList, primaryHRP)
+                end
             else
                 farmStatusLabel.Text = string.format("Lvl %d | Hovering at %s... Waiting for respawns.", currentLevel, displayName)
             end
