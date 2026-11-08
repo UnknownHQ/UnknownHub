@@ -111,8 +111,10 @@ local stopAutoFarmCleanly
 local State = {
     -- Auto Farm
     AutoFarm_Enabled = false,       -- Defaults to OFF per daddy's preference
-    Farm_StageDelay = 1.15,         -- 1.15s per stage for maximum gold throughput
+    Farm_StageDelay = 0.3,          -- Blazing 0.3s stage speed for maximum gold throughput
     Farm_FlightHeight = 55,        -- Snug in-volume glide through DarknessPart
+    Farm_AutoChest = "Disabled",    -- Auto-open chests with farmed gold
+    Farm_SoloLaunchOnly = true,     -- Protect friends on team plot
     Farm_AutoLaunch = true,         -- Auto triggers team dock launch
     Farm_AutoClaim = true,          -- Fires ClaimRiverResultsGold on every stage!
     Farm_InstantStageMoney = true,  -- Instant Stage Money Core
@@ -326,9 +328,9 @@ task.spawn(function()
             if not char or not root or not hum or hum.Health <= 0 then
                 updateStatus("Waiting for Character Respawn...")
                 local newChar = LocalPlayer.CharacterAdded:Wait()
-                newChar:WaitForChild("HumanoidRootPart", 6)
-                newChar:WaitForChild("Humanoid", 6)
-                task.wait(1.2)
+                newChar:WaitForChild("HumanoidRootPart", 4)
+                newChar:WaitForChild("Humanoid", 4)
+                task.wait(0.3)
                 continue
             end
 
@@ -340,19 +342,22 @@ task.spawn(function()
                     end
                 end)
 
-                -- 2. Launch Boat and synchronize round start
-                if State.Farm_AutoLaunch then
-                    updateStatus("Launching Boat...")
+                -- 2. Launch Boat ONLY IF SOLO (Never launch boat if friend/teammate is on plot!)
+                local team = LocalPlayer.Team
+                local hasTeammates = team and (#team:GetPlayers() > 1)
+
+                if State.Farm_AutoLaunch and not hasTeammates then
+                    updateStatus("Launching Boat (Solo Mode)...")
                     triggerLaunchBoat()
-                    local team = LocalPlayer.Team
                     local teamName = team and team.TeamColor.Name
                     local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
                     local launchedObj = teamZone and teamZone:FindFirstChild("Launched")
                     local tLaunch = tick()
-                    while launchedObj and not launchedObj.Value and (tick() - tLaunch < 1.0) do
-                        task.wait(0.1)
+                    while launchedObj and not launchedObj.Value and (tick() - tLaunch < 0.6) do
+                        task.wait(0.06)
                     end
-                    task.wait(0.2)
+                elseif hasTeammates then
+                    updateStatus("Teammates on plot! Safe flight mode (boat untouched).")
                 end
 
                 if not State.AutoFarm_Enabled then continue end
@@ -386,30 +391,31 @@ task.spawn(function()
                             local stageName = stage.Name
                             updateStatus(string.format("Traversing Stage %d/10 (%s)...", stageIdx, stageName))
 
-                            -- Step A: Glide high above obstacles through mid-stage corridor (Z = dp.Position.Z - 380)
+                            -- Step A: Swift glide through mid-stage corridor (Z = dp.Position.Z - 380)
                             local midZ = dp.Position.Z - 380
                             root.Anchored = false
-                            tweenCharacter(root, CFrame.new(-53.5, flightHeight, midZ), 0.85)
+                            local stageSpeed = State.Farm_StageDelay or 0.3
+                            tweenCharacter(root, CFrame.new(-53.5, flightHeight, midZ), stageSpeed * 0.8)
 
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                                 abort = true
                                 break
                             end
 
-                            -- Step B: Smoothly enter DarknessPart boundary (DarknessPart spans up to Y=192)
-                            tweenCharacter(root, CFrame.new(dp.Position.X, flightHeight, dp.Position.Z), 0.85)
+                            -- Step B: Rapid touch of DarknessPart boundary
+                            tweenCharacter(root, CFrame.new(dp.Position.X, flightHeight, dp.Position.Z), stageSpeed * 0.8)
 
                             -- Physical touch registration
                             root.AssemblyLinearVelocity = Vector3.zero
                             root.AssemblyAngularVelocity = Vector3.zero
                             pcall(function()
                                 firetouchinterest(root, dp, 0)
-                                task.wait(0.06)
+                                task.wait(0.03)
                                 firetouchinterest(root, dp, 1)
                             end)
 
-                            -- Brief spatial stabilization dwell
-                            task.wait(0.45)
+                            -- Ultra-brief replication dwell
+                            task.wait(0.04)
                         end
                     end
 
@@ -439,50 +445,22 @@ task.spawn(function()
                             end
                         end)
 
-                        -- Fly high above mountains and cave roofs (Y=240) directly to chest X/Z
+                        -- Rapid direct approach to chest
                         root.Anchored = false
                         bv.Velocity = Vector3.zero
-                        tweenCharacter(root, CFrame.new(trigger.Position.X, 240, trigger.Position.Z), 0.85)
-
-                        -- Smooth vertical descent directly onto chest trigger
-                        updateStatus("Descending to Golden Chest...")
-                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0)), 0.6)
+                        tweenCharacter(root, CFrame.new(trigger.Position.X, 240, trigger.Position.Z), 0.3)
+                        tweenCharacter(root, CFrame.new(trigger.Position + Vector3.new(0, 2.5, 0)), 0.2)
                         root.AssemblyLinearVelocity = Vector3.zero
                         root.AssemblyAngularVelocity = Vector3.zero
 
-                        -- Open chest lid visually and physically
-                        local initialCapPivot = nil
-                        pcall(function()
-                            local cap = chest:FindFirstChild("Cap")
-                            if cap then
-                                initialCapPivot = cap:GetPivot()
-                                local openPivot = initialCapPivot * CFrame.Angles(math.rad(-75), 0, 0) + Vector3.new(0, 4, 3)
-                                task.spawn(function()
-                                    for step = 1, 10 do
-                                        task.wait(0.02)
-                                        cap:PivotTo(initialCapPivot:Lerp(openPivot, step / 10))
-                                    end
-                                end)
-                            end
-                        end)
-
-                        -- Physical touch handshake with trigger
+                        -- Immediate physical trigger handshake
                         pcall(function()
                             firetouchinterest(root, trigger, 0)
-                            task.wait(0.15)
+                            task.wait(0.04)
                             firetouchinterest(root, trigger, 1)
                         end)
 
-                        -- Play chest cutscene/effects cleanly on client
-                        pcall(function()
-                            local effectsScript = trigger:FindFirstChild("EndTreasureScript") and trigger.EndTreasureScript:FindFirstChild("TreasureEndEffectsLS")
-                            if effectsScript and not LocalPlayer.PlayerGui:FindFirstChild("TreasureEndEffectsLS") then
-                                local cl = effectsScript:Clone()
-                                cl.Parent = LocalPlayer.PlayerGui
-                            end
-                        end)
-
-                        -- Finalize run claim remote at chest
+                        -- Instant claim remote
                         if State.Farm_AutoClaim then
                             pcall(function()
                                 local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
@@ -492,11 +470,11 @@ task.spawn(function()
                             end)
                         end
 
-                        -- Full 3.5s collection window for gold bars and gold block (+25 gold)
-                        local prizeCollectionTime = 3.5
+                        -- Fast 0.5s collection window for gold block & floating gold
+                        local prizeCollectionTime = 0.5
                         local startWait = tick()
                         while tick() - startWait < prizeCollectionTime do
-                            task.wait(0.15)
+                            task.wait(0.06)
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
                             pcall(function()
                                 local tempPrizes = chest:FindFirstChild("DisplayPrizesTemp")
@@ -513,35 +491,32 @@ task.spawn(function()
                         end
 
                         updateRuns()
-                        updateStatus("Chest Claimed! Resetting for Next Voyage...")
+
+                        -- Optional Auto-Buy Chests with Farmed Gold for continuous income expansion!
+                        if State.Farm_AutoChest and State.Farm_AutoChest ~= "Disabled" then
+                            pcall(function()
+                                Workspace.ItemBoughtFromShop:InvokeServer(State.Farm_AutoChest, 1)
+                            end)
+                        end
 
                         if State.Farm_ClosePopups then
-                            task.wait(0.15)
                             dismissResultsPopup()
                         end
 
+                        -- Lightning-Fast Turnaround to Dock:
+                        -- Instant teleport straight onto team dock without waiting or dying
                         pcall(function()
-                            local cap = chest:FindFirstChild("Cap")
-                            if cap and initialCapPivot then
-                                cap:PivotTo(initialCapPivot)
+                            local team = LocalPlayer.Team
+                            local teamName = team and team.TeamColor.Name
+                            local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
+                            if teamZone and root and root.Parent then
+                                root.CFrame = teamZone.CFrame + Vector3.new(0, 5, 0)
+                                root.AssemblyLinearVelocity = Vector3.zero
+                                root.AssemblyAngularVelocity = Vector3.zero
                             end
                         end)
-
-                        -- Clean round turnaround:
-                        -- Force an immediate clean reset so the server natively ends the voyage,
-                        -- clears the river state, and respawns the character fresh at the dock
-                        updateStatus("Chest Claimed! Resetting for Next Voyage...")
-                        pcall(function()
-                            if char then
-                                char:BreakJoints()
-                            end
-                        end)
-                        updateStatus("Respawning at Dock...")
-                        local newChar = LocalPlayer.CharacterAdded:Wait()
-                        newChar:WaitForChild("HumanoidRootPart", 6)
-                        newChar:WaitForChild("Humanoid", 6)
-                        -- 1.5s buffer for server round re-initialization (prevents premature launch failure)
-                        task.wait(1.5)
+                        root.Anchored = false
+                        task.wait(0.2)
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
@@ -575,12 +550,17 @@ Hub.CreateButton(farmTab, "Emergency Unstuck (Clear Levitation & Return to Dock)
     stopAutoFarmCleanly()
 end)
 
-Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 0.6, 2.5, State.Farm_StageDelay, function(val)
+Hub.CreateSlider(farmTab, "Stage Glide Duration (Seconds)", 0.2, 1.5, State.Farm_StageDelay, function(val)
     State.Farm_StageDelay = val
 end)
 
-Hub.CreateToggle(farmTab, "Auto-Launch Boat", State.Farm_AutoLaunch, function(v)
+Hub.CreateToggle(farmTab, "Auto-Launch Boat (Solo Only)", State.Farm_AutoLaunch, function(v)
     State.Farm_AutoLaunch = v
+end)
+
+local CHEST_OPTIONS = {"Disabled", "Common Chest", "Uncommon Chest", "Rare Chest", "Epic Chest", "Legendary Chest"}
+Hub.CreateDropdown(farmTab, "🎁 Auto-Open Chest with Farmed Gold", CHEST_OPTIONS, State.Farm_AutoChest, function(sel)
+    State.Farm_AutoChest = sel
 end)
 
 Hub.CreateToggle(farmTab, "Auto-Claim Gold Remote", State.Farm_AutoClaim, function(v)
@@ -736,7 +716,7 @@ local function showMissingBlocksHUD(missingList)
     mainFrame.Name = "MainFrame"
     mainFrame.AnchorPoint = Vector2.new(0.5, 0)
     mainFrame.Position = UDim2.new(0.5, 0, 0, -160)
-    mainFrame.Size = UDim2.new(0, math.min(560, math.max(440, #missingList * 85 + 160)), 0, 135)
+    mainFrame.Size = UDim2.new(0, math.min(580, math.max(460, #missingList * 85 + 175)), 0, 142)
     mainFrame.BackgroundColor3 = Color3.fromRGB(36, 42, 56)
     mainFrame.BorderSizePixel = 0
     mainFrame.Parent = screenGui
@@ -808,7 +788,7 @@ local function showMissingBlocksHUD(missingList)
     -- Block Slot Gallery (Styled like BABFT's native inventory grid)
     local scroll = Instance.new("ScrollingFrame")
     scroll.Position = UDim2.new(0, 12, 0, 40)
-    scroll.Size = UDim2.new(1, -150, 0, 85)
+    scroll.Size = UDim2.new(1, -165, 0, 92)
     scroll.BackgroundTransparency = 1
     scroll.BorderSizePixel = 0
     scroll.ScrollBarThickness = 4
@@ -868,40 +848,55 @@ local function showMissingBlocksHUD(missingList)
         countBadge.Parent = slot
     end
 
-    -- Action Frame (Innocent shop / dismiss actions)
+    -- Action Frame (Build Anyway / Buy in Shop / Dismiss)
     local actionFrame = Instance.new("Frame")
-    actionFrame.Position = UDim2.new(1, -132, 0, 40)
-    actionFrame.Size = UDim2.new(0, 120, 0, 85)
+    actionFrame.Position = UDim2.new(1, -150, 0, 36)
+    actionFrame.Size = UDim2.new(0, 140, 0, 98)
     actionFrame.BackgroundTransparency = 1
     actionFrame.Parent = mainFrame
 
+    local buildAnywayBtn = Instance.new("TextButton")
+    buildAnywayBtn.Size = UDim2.new(1, 0, 0, 30)
+    buildAnywayBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 240)
+    buildAnywayBtn.BorderSizePixel = 0
+    buildAnywayBtn.Font = Enum.Font.SourceSansBold
+    buildAnywayBtn.TextSize = 13
+    buildAnywayBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    buildAnywayBtn.Text = "🔨 Build Anyway"
+    buildAnywayBtn.Parent = actionFrame
+
+    local baCorner = Instance.new("UICorner")
+    baCorner.CornerRadius = UDim.new(0, 6)
+    baCorner.Parent = buildAnywayBtn
+
     local buyBtn = Instance.new("TextButton")
-    buyBtn.Size = UDim2.new(1, 0, 0, 38)
+    buyBtn.Position = UDim2.new(0, 0, 0, 34)
+    buyBtn.Size = UDim2.new(1, 0, 0, 30)
     buyBtn.BackgroundColor3 = Color3.fromRGB(38, 166, 91)
     buyBtn.BorderSizePixel = 0
     buyBtn.Font = Enum.Font.SourceSansBold
-    buyBtn.TextSize = 14
+    buyBtn.TextSize = 13
     buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     buyBtn.Text = "🛒 Buy in Shop"
     buyBtn.Parent = actionFrame
 
     local bCorner = Instance.new("UICorner")
-    bCorner.CornerRadius = UDim.new(0, 8)
+    bCorner.CornerRadius = UDim.new(0, 6)
     bCorner.Parent = buyBtn
 
     local dismissBtn = Instance.new("TextButton")
-    dismissBtn.Position = UDim2.new(0, 0, 0, 44)
-    dismissBtn.Size = UDim2.new(1, 0, 0, 32)
+    dismissBtn.Position = UDim2.new(0, 0, 0, 68)
+    dismissBtn.Size = UDim2.new(1, 0, 0, 26)
     dismissBtn.BackgroundColor3 = Color3.fromRGB(50, 58, 76)
     dismissBtn.BorderSizePixel = 0
     dismissBtn.Font = Enum.Font.SourceSans
-    dismissBtn.TextSize = 13
+    dismissBtn.TextSize = 12
     dismissBtn.TextColor3 = Color3.fromRGB(200, 210, 225)
     dismissBtn.Text = "Dismiss"
     dismissBtn.Parent = actionFrame
 
     local dCorner = Instance.new("UICorner")
-    dCorner.CornerRadius = UDim.new(0, 8)
+    dCorner.CornerRadius = UDim.new(0, 6)
     dCorner.Parent = dismissBtn
 
     local function dismiss()
@@ -912,6 +907,11 @@ local function showMissingBlocksHUD(missingList)
 
     closeBtn.MouseButton1Click:Connect(dismiss)
     dismissBtn.MouseButton1Click:Connect(dismiss)
+
+    buildAnywayBtn.MouseButton1Click:Connect(function()
+        dismiss()
+        constructBuildOnMyIsland(State.SelectedSavedBuild, true)
+    end)
 
     buyBtn.MouseButton1Click:Connect(function()
         buyBtn.Text = "Buying..."
@@ -1302,7 +1302,7 @@ local function getBestSolidBlock(inv)
 end
 
 -- Reconstruct REAL server-recognized blocks onto LocalPlayer's plot
-local function constructBuildOnMyIsland(buildKey)
+local function constructBuildOnMyIsland(buildKey, forceBuild)
     local data = SavedBuilds[buildKey]
     if not data then
         Hub.Notify({ Title = "Build Stealer", Content = "No build selected or found in memory!", Duration = 3 })
@@ -1318,9 +1318,9 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    -- 1. STRICT INVENTORY PRE-CHECK: Halt immediately if blocks are missing! (Zero plot wipe, Zero broken builds)
+    -- 1. STRICT INVENTORY PRE-CHECK: Halt immediately if blocks are missing unless forceBuild is set!
     local missingList = checkBuildMissingBlocks(data)
-    if #missingList > 0 then
+    if #missingList > 0 and not forceBuild then
         showMissingBlocksHUD(missingList)
         local totalMissing = 0
         for _, it in ipairs(missingList) do
@@ -1328,24 +1328,17 @@ local function constructBuildOnMyIsland(buildKey)
         end
         Hub.Notify({
             Title = "Not Enough Blocks!",
-            Content = string.format("Cannot build: Missing %d blocks (%d types). Check the blueprint panel above!", totalMissing, #missingList),
+            Content = string.format("Missing %d blocks (%d types). Check the blueprint panel above to Build Anyway or Buy in Shop!", totalMissing, #missingList),
             Duration = 5
         })
         return
     end
 
-    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local hum = char:WaitForChild("Humanoid", 3)
-    local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or char:FindFirstChild("BuildingTool")
+    local char = LocalPlayer.Character
+    local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or (char and char:FindFirstChild("BuildingTool"))
     if not bTool then
         Hub.Notify({ Title = "Build Stealer", Content = "BuildingTool not found! Please check inventory.", Duration = 3 })
         return
-    end
-
-    -- Explicit Humanoid:EquipTool with verification
-    if bTool.Parent ~= char and hum then
-        hum:EquipTool(bTool)
-        task.wait(0.25)
     end
 
     local bRF = bTool:FindFirstChild("RF")
@@ -1403,13 +1396,7 @@ local function constructBuildOnMyIsland(buildKey)
             return bestName or "TitaniumBlock"
         end
 
-        -- Ensure hammer is equipped on humanoid
-        if bTool.Parent ~= char and hum then
-            hum:EquipTool(bTool)
-            task.wait(0.2)
-        end
-
-        -- Phase 1: Structural Placement (BuildingTool Equipped)
+        -- Phase 1: Silent Remote Structural Placement (100% Stealth, Zero Tool Equipping)
         for _, block in ipairs(data.Blocks) do
             local adjRelCF = CFrame.new(unpack(block.RelativeCF))
             local worldCF = myDockCF:ToWorldSpace(adjRelCF)
@@ -1484,20 +1471,13 @@ local function constructBuildOnMyIsland(buildKey)
                 end
             end
 
-            -- Ensure tool remains equipped
-            if bTool.Parent ~= char and hum then
-                hum:EquipTool(bTool)
-                task.wait(0.1)
-            end
-
-            -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
+            -- Place real server block directly via RF (Fast & Silent)
             local success, err = pcall(function()
                 return bRF:InvokeServer(blockToUse, curVal, myZone, relToZone, isAnchored, worldCF, nil, true)
             end)
 
-            if not success and hum then
-                hum:EquipTool(bTool)
-                task.wait(0.2)
+            if not success then
+                task.wait(0.02)
                 pcall(function()
                     bRF:InvokeServer(blockToUse, curVal, myZone, relToZone, isAnchored, worldCF, nil, true)
                 end)
@@ -1515,11 +1495,11 @@ local function constructBuildOnMyIsland(buildKey)
             })
             count = count + 1
 
-            task.wait(0.035)
+            task.wait(0.015)
         end
 
         -- Allow server replication to settle
-        task.wait(0.5)
+        task.wait(0.25)
         if conn then conn:Disconnect() end
 
         local finalBlockCount = myBlocks and #myBlocks:GetChildren() or 0
@@ -1577,43 +1557,30 @@ local function constructBuildOnMyIsland(buildKey)
             end
         end
 
-        -- Phase 2: Sequential Scaling (Equip ScalingTool)
-        local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or char:FindFirstChild("ScalingTool")
+        -- Phase 2: Silent Remote Scaling (Zero Tool Equipping)
+        local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or (char and char:FindFirstChild("ScalingTool"))
+        local sRF = sTool and sTool:FindFirstChild("RF")
         local scaledCount = 0
-        if sTool and #matched > 0 then
-            if hum and sTool.Parent ~= char then
-                hum:EquipTool(sTool)
-                local tEquip = tick()
-                while sTool.Parent ~= char and tick() - tEquip < 1.0 do
-                    task.wait(0.05)
-                end
-            end
-            local sRF = sTool:FindFirstChild("RF")
-            if sRF then
-                for _, m in ipairs(matched) do
-                    local sz = m.size
-                    local p = m.block:FindFirstChild("PPart") or m.block:FindFirstChildWhichIsA("BasePart")
-                    local curSz = p and p.Size or Vector3.new(2, 2, 2)
-                    if sz and (math.abs(sz.X - curSz.X) > 0.05 or math.abs(sz.Y - curSz.Y) > 0.05 or math.abs(sz.Z - curSz.Z) > 0.05) then
-                        pcall(function()
-                            sRF:InvokeServer(m.block, sz, m.worldCF)
-                        end)
-                        scaledCount = scaledCount + 1
-                        task.wait(0.05)
-                    end
+        if sRF and #matched > 0 then
+            for _, m in ipairs(matched) do
+                local sz = m.size
+                local p = m.block:FindFirstChild("PPart") or m.block:FindFirstChildWhichIsA("BasePart")
+                local curSz = p and p.Size or Vector3.new(2, 2, 2)
+                if sz and (math.abs(sz.X - curSz.X) > 0.05 or math.abs(sz.Y - curSz.Y) > 0.05 or math.abs(sz.Z - curSz.Z) > 0.05) then
+                    pcall(function()
+                        sRF:InvokeServer(m.block, sz, m.worldCF)
+                    end)
+                    scaledCount = scaledCount + 1
+                    task.wait(0.015)
                 end
             end
         end
 
-        -- Phase 3: Reliable Chunked Batch Painting (Equip PaintingTool)
-        local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or char:FindFirstChild("PaintingTool")
+        -- Phase 3: Silent Chunked Batch Painting (Zero Tool Equipping)
+        local pTool = LocalPlayer.Backpack:FindFirstChild("PaintingTool") or (char and char:FindFirstChild("PaintingTool"))
+        local pRF = pTool and pTool:FindFirstChild("RF")
         local paintedCount = 0
-        if pTool and #matched > 0 then
-            if hum then
-                hum:EquipTool(pTool)
-                task.wait(0.2)
-            end
-            local pRF = pTool:FindFirstChild("RF")
+        if pRF and #matched > 0 then
             if pRF then
                 local batch = {}
                 for _, m in ipairs(matched) do
@@ -1636,15 +1603,11 @@ local function constructBuildOnMyIsland(buildKey)
             end
         end
 
-        -- Phase 4: Property Configuration (Equip PropertiesTool / Screwdriver)
-        local propTool = LocalPlayer.Backpack:FindFirstChild("PropertiesTool") or char:FindFirstChild("PropertiesTool")
+        -- Phase 4: Silent Property Configuration (Zero Tool Equipping)
+        local propTool = LocalPlayer.Backpack:FindFirstChild("PropertiesTool") or (char and char:FindFirstChild("PropertiesTool"))
         local propRF = propTool and propTool:FindFirstChild("SetPropertieRF")
         local propCount = 0
-        if propTool and propRF and #matched > 0 then
-            if hum then
-                hum:EquipTool(propTool)
-                task.wait(0.2)
-            end
+        if propRF and #matched > 0 then
 
             local nonCollideModels = {}
             local noShadowModels = {}
@@ -1689,8 +1652,7 @@ local function constructBuildOnMyIsland(buildKey)
             end
         end
 
-        -- Clean unequip tools
-        pcall(function() if hum then hum:UnequipTools() end end)
+        -- Done (Tools remained in backpack silently the entire time)
 
         if finalBlockCount == 0 and skipped > 0 then
             Hub.Notify({
