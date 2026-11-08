@@ -308,7 +308,6 @@ local function tweenCharacter(root, targetCFrame, duration)
     tw.Completed:Wait()
 
     if root and root.Parent then
-        root.Anchored = false
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
     end
@@ -375,11 +374,10 @@ task.spawn(function()
                 local normalStages = boatStages and boatStages:FindFirstChild("NormalStages")
 
                 if normalStages then
-                    local bv = root:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
-                    bv.Name = "FarmBV"
-                    bv.Velocity = Vector3.zero
-                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                    bv.Parent = root
+                    -- Lock physics for entire flight run (100% immune to falling, rocks, gravity & rubberbanding)
+                    root.Anchored = true
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
 
                     -- 3. High-Precision Continuous River Traversal (Guarantees 10/10 Stages)
                     -- Every stage requires entering its mid-corridor followed by darkness part handshake
@@ -401,7 +399,6 @@ task.spawn(function()
 
                             -- Step A: Swift glide through mid-stage corridor (Z = dp.Position.Z - 380)
                             local midZ = dp.Position.Z - 380
-                            root.Anchored = false
                             local stageSpeed = State.Farm_StageDelay or 0.3
                             tweenCharacter(root, CFrame.new(-53.5, flightHeight, midZ), stageSpeed * 0.8)
 
@@ -455,8 +452,6 @@ task.spawn(function()
                         end)
 
                         -- Safe sky-height approach directly above TheEnd (Never drop into DestroyBoatPart or waterfall rocks!)
-                        root.Anchored = false
-                        bv.Velocity = Vector3.zero
                         local safeArrivalCF = CFrame.new(trigger.Position.X, flightHeight, trigger.Position.Z)
                         tweenCharacter(root, safeArrivalCF, 0.25)
                         root.AssemblyLinearVelocity = Vector3.zero
