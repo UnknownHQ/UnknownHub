@@ -323,6 +323,15 @@ task.spawn(function()
             local root = getRoot()
             local hum = getHumanoid()
 
+            if not char or not root or not hum or hum.Health <= 0 then
+                updateStatus("Waiting for Character Respawn...")
+                local newChar = LocalPlayer.CharacterAdded:Wait()
+                newChar:WaitForChild("HumanoidRootPart", 6)
+                newChar:WaitForChild("Humanoid", 6)
+                task.wait(1.2)
+                continue
+            end
+
             if char and root and hum and hum.Health > 0 then
                 -- 1. Part Collision & Damage Shield
                 pcall(function()
@@ -519,26 +528,20 @@ task.spawn(function()
                         end)
 
                         -- Clean round turnaround:
-                        -- If the server resets character natively, wait for CharacterAdded.
-                        -- If still alive, smoothly return to team dock!
-                        if hum and hum.Health > 0 then
-                            pcall(function()
-                                local team = LocalPlayer.Team
-                                local teamName = team and team.TeamColor.Name
-                                local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
-                                if teamZone and root and root.Parent then
-                                    root.CFrame = teamZone.CFrame + Vector3.new(0, 5, 0)
-                                    root.AssemblyLinearVelocity = Vector3.zero
-                                    root.AssemblyAngularVelocity = Vector3.zero
-                                end
-                            end)
-                            root.Anchored = false
-                            task.wait(0.6)
-                        else
-                            updateStatus("Respawning at Dock...")
-                            LocalPlayer.CharacterAdded:Wait()
-                            task.wait(1.0)
-                        end
+                        -- Force an immediate clean reset so the server natively ends the voyage,
+                        -- clears the river state, and respawns the character fresh at the dock
+                        updateStatus("Chest Claimed! Resetting for Next Voyage...")
+                        pcall(function()
+                            if char then
+                                char:BreakJoints()
+                            end
+                        end)
+                        updateStatus("Respawning at Dock...")
+                        local newChar = LocalPlayer.CharacterAdded:Wait()
+                        newChar:WaitForChild("HumanoidRootPart", 6)
+                        newChar:WaitForChild("Humanoid", 6)
+                        -- 1.5s buffer for server round re-initialization (prevents premature launch failure)
+                        task.wait(1.5)
                         updateStatus("Ready for next run!")
                     else
                         root.Anchored = false
@@ -964,11 +967,25 @@ local function checkBuildMissingBlocks(buildData)
     }
 
     for _, b in ipairs(buildData.Blocks) do
+        local sx, sy, sz = 2, 2, 2
+        if typeof(b.Size) == "Vector3" then
+            sx, sy, sz = b.Size.X, b.Size.Y, b.Size.Z
+        elseif typeof(b.Size) == "table" then
+            sx = tonumber(b.Size[1] or b.Size.X) or 2
+            sy = tonumber(b.Size[2] or b.Size.Y) or 2
+            sz = tonumber(b.Size[3] or b.Size.Z) or 2
+        end
+
+        local isScalable = SCALABLE_BLOCKS[b.Name]
+        if not isScalable and b.Name then
+            local low = b.Name:lower()
+            if low:find("block") or low:find("wedge") or low:find("truss") or low:find("pillar") or low:find("wall") or low:find("ramp") then
+                isScalable = true
+            end
+        end
+
         local blockCost = 1
-        if SCALABLE_BLOCKS[b.Name] and b.Size then
-            local sx = b.Size[1] or 2
-            local sy = b.Size[2] or 2
-            local sz = b.Size[3] or 2
+        if isScalable then
             local volume = sx * sy * sz
             -- Calculate true volume-adjusted block consumption (8 cubic studs per inventory block)
             blockCost = math.max(1, math.ceil((volume / 8) - 0.05))
@@ -1564,9 +1581,12 @@ local function constructBuildOnMyIsland(buildKey)
         local sTool = LocalPlayer.Backpack:FindFirstChild("ScalingTool") or char:FindFirstChild("ScalingTool")
         local scaledCount = 0
         if sTool and #matched > 0 then
-            if hum then
+            if hum and sTool.Parent ~= char then
                 hum:EquipTool(sTool)
-                task.wait(0.2)
+                local tEquip = tick()
+                while sTool.Parent ~= char and tick() - tEquip < 1.0 do
+                    task.wait(0.05)
+                end
             end
             local sRF = sTool:FindFirstChild("RF")
             if sRF then
@@ -1579,7 +1599,7 @@ local function constructBuildOnMyIsland(buildKey)
                             sRF:InvokeServer(m.block, sz, m.worldCF)
                         end)
                         scaledCount = scaledCount + 1
-                        task.wait(0.025)
+                        task.wait(0.05)
                     end
                 end
             end
