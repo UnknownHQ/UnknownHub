@@ -611,14 +611,27 @@ end
 local targetPlayerList = getOnlinePlayerNames()
 State.SelectedTargetPlayer = targetPlayerList[1]
 
-local playerDropdown = Hub.CreateDropdown(buildTab, "Select Player to Copy Build", targetPlayerList, State.SelectedTargetPlayer, function(sel)
+local playerDropdown = Hub.CreateDropdown(buildTab, "Select Target Player", targetPlayerList, State.SelectedTargetPlayer, function(sel)
     State.SelectedTargetPlayer = sel
 end)
 
 Hub.CreateButton(buildTab, "🔄 Refresh Players List", function()
     local freshList = getOnlinePlayerNames()
     if playerDropdown and playerDropdown.Refresh then
-        playerDropdown:Refresh(freshList)
+        playerDropdown.Refresh(playerDropdown, freshList)
+        local found = false
+        for _, n in ipairs(freshList) do
+            if n == State.SelectedTargetPlayer then
+                found = true
+                break
+            end
+        end
+        if not found then
+            State.SelectedTargetPlayer = freshList[1]
+            if playerDropdown.Set then
+                playerDropdown:Set(freshList[1])
+            end
+        end
     end
     Hub.Notify({ Title = "Build Stealer", Content = "Player list refreshed (" .. tostring(#freshList) .. " players)", Duration = 2 })
 end)
@@ -789,11 +802,23 @@ local function constructBuildOnMyIsland(buildKey)
         return
     end
 
-    -- Locate Building Tools
-    local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("BuildingTool"))
-    local bRF = bTool and bTool:FindFirstChild("RF")
+    -- Locate & Equip BuildingTool (Server REQUIRES tool equipped in Character)
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hum = char:WaitForChild("Humanoid", 3)
+    local bTool = LocalPlayer.Backpack:FindFirstChild("BuildingTool") or char:FindFirstChild("BuildingTool")
+    if not bTool then
+        Hub.Notify({ Title = "Build Stealer", Content = "BuildingTool not found! Please check inventory.", Duration = 3 })
+        return
+    end
+
+    if bTool.Parent ~= char and hum then
+        hum:EquipTool(bTool)
+        task.wait(0.2)
+    end
+
+    local bRF = bTool:FindFirstChild("RF")
     if not bRF then
-        Hub.Notify({ Title = "Build Stealer", Content = "BuildingTool RF not found! Please equip or check inventory.", Duration = 3 })
+        Hub.Notify({ Title = "Build Stealer", Content = "BuildingTool RF remote not found!", Duration = 3 })
         return
     end
 
@@ -825,6 +850,7 @@ local function constructBuildOnMyIsland(buildKey)
         for _, block in ipairs(data.Blocks) do
             local relCF = CFrame.new(unpack(block.RelativeCF))
             local worldCF = myBaseCF:ToWorldSpace(relCF)
+            local relToZone = myZone.CFrame:ToObjectSpace(worldCF)
 
             local blockToUse = block.Name
             local available = inv[blockToUse] or 0
@@ -852,7 +878,7 @@ local function constructBuildOnMyIsland(buildKey)
 
             -- Place real server block: RF:InvokeServer(name, count, targetPart, relCF, anchor, worldCF, secondaryCF, makeBinds)
             pcall(function()
-                bRF:InvokeServer(blockToUse, available, nil, nil, isAnchored, worldCF, nil, true)
+                bRF:InvokeServer(blockToUse, available, myZone, relToZone, isAnchored, worldCF, nil, true)
             end)
             count = count + 1
 
@@ -876,12 +902,22 @@ Hub.CreateToggle(buildTab, "Build Anchored", State.Build_Anchored, function(v)
     State.Build_Anchored = v
 end)
 
+-- One-Click Build: Auto-exports target build if not yet cached, then builds immediately!
 Hub.CreateButton(buildTab, "🔨 Build Stolen Ship with REAL BLOCKS", function()
-    if State.SelectedSavedBuild then
-        constructBuildOnMyIsland(State.SelectedSavedBuild)
-    else
-        Hub.Notify({ Title = "Build Stealer", Content = "Please export a build first!", Duration = 2 })
+    local targetName = State.SelectedTargetPlayer
+    if not targetName or targetName == "No Other Players" then
+        Hub.Notify({ Title = "Build Stealer", Content = "Please select a target player first!", Duration = 3 })
+        return
     end
+
+    local activeData = State.SelectedSavedBuild and SavedBuilds[State.SelectedSavedBuild]
+    if not activeData or activeData.Author ~= targetName then
+        Hub.Notify({ Title = "Build Stealer", Content = "Auto-exporting " .. targetName .. "'s ship...", Duration = 2 })
+        activeData = exportPlayerBuild(targetName)
+        if not activeData then return end
+    end
+
+    constructBuildOnMyIsland(State.SelectedSavedBuild)
 end)
 
 Hub.CreateButton(buildTab, "🗑️ Clear My Plot (Wipe Active Build)", function()
@@ -909,15 +945,34 @@ end
 Hub.CreateButton(buildTab, "📥 Save Active Plot to In-Game Save Slot", function()
     pcall(function()
         local sbd = Workspace:FindFirstChild("SaveBoatData")
-        if sbd then
-            local ext = getSlotExt(State.SelectedGameSaveSlot)
-            sbd:InvokeServer(ext)
-            local updateName = Workspace:FindFirstChild("UpdateSlotNameRE")
-            if updateName then
-                updateName:FireServer(ext, "UnknownHub_Slot" .. tostring(State.SelectedGameSaveSlot))
-            end
-            Hub.Notify({ Title = "Game Saves", Content = "Saved current build to Slot " .. tostring(State.SelectedGameSaveSlot) .. "!", Duration = 3 })
+        if not sbd then
+            Hub.Notify({ Title = "Game Saves", Content = "SaveBoatData remote not found!", Duration = 3 })
+            return
         end
+
+        local myBlocks = Workspace.Blocks:FindFirstChild(LocalPlayer.Name)
+        local count = myBlocks and #myBlocks:GetChildren() or 0
+        if count == 0 then
+            Hub.Notify({ Title = "Game Saves", Content = "Plot is empty! Build or load blocks first before saving.", Duration = 3 })
+            return
+        end
+
+        local ext = getSlotExt(State.SelectedGameSaveSlot)
+        
+        local savingGui = LocalPlayer.PlayerGui:FindFirstChild("SavingBoatGui")
+        local savingFrame = savingGui and savingGui:FindFirstChild("Frame")
+        if savingFrame then savingFrame.Visible = true end
+
+        sbd:InvokeServer(ext)
+
+        if savingFrame then savingFrame.Visible = false end
+
+        local updateName = Workspace:FindFirstChild("UpdateSlotNameRE")
+        if updateName then
+            updateName:FireServer(ext, "UnknownHub_Slot" .. tostring(State.SelectedGameSaveSlot))
+        end
+
+        Hub.Notify({ Title = "Game Saves", Content = string.format("Successfully saved %d blocks to Slot %d!", count, State.SelectedGameSaveSlot), Duration = 3 })
     end)
 end)
 

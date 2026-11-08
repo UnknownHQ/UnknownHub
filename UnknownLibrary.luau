@@ -1760,7 +1760,8 @@ return function(opts)
                 selectionPill.Text = tostring(val)
                 pcall(cb, val)
             end,
-            Refresh = function(newOpts)
+            Refresh = function(selfOrOpts, maybeOpts)
+                local newOpts = (type(selfOrOpts) == "table" and selfOrOpts.Instance and maybeOpts) or selfOrOpts or {}
                 options = newOpts or {}
                 local isTyping = searchBar and (searchBar:IsFocused() or (searchBar.Text ~= ""))
                 if isTyping then
@@ -1985,7 +1986,8 @@ return function(opts)
                 updatePillText()
                 refreshOptionVisuals()
             end,
-            Refresh = function(newOpts)
+            Refresh = function(selfOrOpts, maybeOpts)
+                local newOpts = (type(selfOrOpts) == "table" and selfOrOpts.Instance and maybeOpts) or selfOrOpts or {}
                 options = newOpts or {}
                 buildOptions()
                 updatePillText()
