@@ -1684,12 +1684,13 @@ return function(opts)
 
             for _, opt in ipairs(filtered) do
                 local optBtn = Instance.new("TextButton")
-                optBtn.Name = "Opt_" .. tostring(opt)
+                local optLabel = (type(opt) == "table" and (opt.Display or opt.Name or opt.Title or opt.ExactName or opt.Text or opt.text or opt[1])) or tostring(opt)
+                optBtn.Name = "Opt_" .. optLabel
                 optBtn.Size = UDim2.new(1, 0, 0, 28)
                 optBtn.BackgroundColor3 = (opt == currentSelection) and Color3.fromRGB(34, 40, 54) or Color3.fromRGB(18, 21, 28)
                 optBtn.BorderSizePixel = 0
                 optBtn.Font = Enum.Font.Gotham
-                optBtn.Text = "   " .. tostring(opt)
+                optBtn.Text = "   " .. optLabel
                 optBtn.TextColor3 = (opt == currentSelection) and primaryTheme or DEFAULT_THEME.TextSecondary
                 optBtn.TextSize = 11
                 optBtn.TextXAlignment = Enum.TextXAlignment.Left
@@ -1913,7 +1914,7 @@ return function(opts)
             end
 
             for _, opt in ipairs(options) do
-                local optStr = tostring(opt)
+                local optStr = (type(opt) == "table" and (opt.Display or opt.Name or opt.Title or opt.ExactName or opt.Text or opt.text or opt[1])) or tostring(opt)
                 local isChecked = (selected[optStr] == true)
                 local optBtn = Instance.new("TextButton")
                 optBtn.Name = "Opt_" .. optStr
@@ -2506,7 +2507,7 @@ return function(opts)
         end)
 
         function listObj.AddItem(text, subtext, itemCallback)
-            local label = (type(text) == "table" and (text.Name or text.Title or text.text or text[1])) or tostring(text)
+            local label = (type(text) == "table" and (text.Display or text.Name or text.Title or text.ExactName or text.Text or text.text or text[1])) or tostring(text)
             local itmBtn = Instance.new("TextButton")
             itmBtn.Name = "Item_" .. label
             itmBtn.Size = UDim2.new(1, 0, 0, 28)
@@ -2541,7 +2542,7 @@ return function(opts)
         end
 
         function listObj.SetSelected(self, selectedText)
-            local target = (type(selectedText) == "table" and (selectedText.Name or selectedText.Title or selectedText[1])) or tostring(selectedText)
+            local target = (type(selectedText) == "table" and (selectedText.Display or selectedText.Name or selectedText.Title or selectedText.ExactName or selectedText.Text or selectedText.text or selectedText[1])) or tostring(selectedText)
             listObj.SelectedItem = selectedText
             for _, child in ipairs(listScroll:GetChildren()) do
                 if child:IsA("TextButton") then
@@ -2564,7 +2565,7 @@ return function(opts)
             listObj.SelectedItems = itemsArray or {}
             local lookup = {}
             for _, itm in ipairs(listObj.SelectedItems) do
-                local val = (type(itm) == "table" and (itm.Name or itm.Title or itm[1])) or tostring(itm)
+                local val = (type(itm) == "table" and (itm.Display or itm.Name or itm.Title or itm.ExactName or itm.Text or itm.text or itm[1])) or tostring(itm)
                 lookup[val] = true
             end
             for _, child in ipairs(listScroll:GetChildren()) do

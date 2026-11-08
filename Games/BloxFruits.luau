@@ -774,16 +774,13 @@ do
     end, false)
     skillsWList:SetSelected(selectedSkillsWeapon)
 
-    local skillsList = Hub.CreateList(farmPage, "✨ Select Combat Skills", {
-        {Name = "Skill [Z]", Desc = "Activate Z skill in battle"},
-        {Name = "Skill [X]", Desc = "Activate X skill in battle"},
-        {Name = "Skill [C]", Desc = "Activate C skill in battle"},
-        {Name = "Skill [V]", Desc = "Activate V skill in battle"},
-        {Name = "Skill [F]", Desc = "Activate F skill in battle"}
-    }, function(sName, entry)
-        local key = sName:match("%[(%w+)%]")
+    local combatSkillNames = {"Skill [Z]", "Skill [X]", "Skill [C]", "Skill [V]", "Skill [F]"}
+    local skillsList = Hub.CreateList(farmPage, "⚡ Select Combat Skills", combatSkillNames, function(sName)
+        local str = tostring(sName)
+        local key = str:match("%[(%w+)%]")
         if key then
-            activeSkills[key] = not not (skillsList.SelectedItems and (table.find(skillsList.SelectedItems, entry) or table.find(skillsList.SelectedItems, sName)))
+            activeSkills[key] = not activeSkills[key]
+            notifyGUI("COMBAT SKILL", string.format("Skill [%s]: %s", key, activeSkills[key] and "ACTIVE" or "OFF"), 2)
         end
     end, false, {MultiSelect = true})
     skillsList:SetSelectedItems({"Skill [Z]", "Skill [X]", "Skill [C]", "Skill [V]", "Skill [F]"})
@@ -2032,38 +2029,91 @@ do
         }
     end
 
-    -- 2. Clean Island Teleports List (Filtered for Current Sea)
-    Hub.CreateSection(travelPage, "🗺️ ISLAND FLIGHT & TELEPORTS (" .. string.upper(seaTitle) .. ")")
+        -- 2. Destination Island Dropdown & Dedicated Travel Toggle
+    Hub.CreateSection(travelPage, "✈️ SELECT DESTINATION ISLAND & TRAVEL")
+
+    local islandNames = {}
+    for _, isl in ipairs(islands) do
+        table.insert(islandNames, isl.Name)
+    end
+    local selectedTravelIslandName = islandNames[1] or "Starter Island [Lv. 1]"
+
+    local function getTargetIslandByName(name)
+        for _, isl in ipairs(islands) do
+            if isl.Name == name then return isl end
+        end
+        return nil
+    end
+
+    Hub.CreateDropdown(travelPage, "Destination Island", islandNames, selectedTravelIslandName, function(choice)
+        selectedTravelIslandName = choice
+    end)
+
+    local isAutoTravelOn = false
+    local getTravelState, setTravelState = createSliderToggle(travelPage, "✈️ Travel / Fly to Selected Island", false, function(newState)
+        isAutoTravelOn = newState
+        if newState then
+            local targetIsland = getTargetIslandByName(selectedTravelIslandName)
+            if targetIsland then
+                activeTravelIsland = targetIsland.Name
+                if _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
+                if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
+                travelStatusLabel.Text = "Status: Traveling to " .. targetIsland.Name .. "..."
+                safeTweenToIsland(targetIsland.CFrame + Vector3.new(0, 15, 0), function()
+                    isAutoTravelOn = false
+                    setTravelState(false)
+                    activeTravelIsland = nil
+                    travelStatusLabel.Text = "Status: Arrived at " .. targetIsland.Name
+                    notifyGUI("TRAVEL", "Arrived at " .. targetIsland.Name .. "!", 4)
+                end)
+            else
+                notifyGUI("TRAVEL", "Selected island not found!", 3)
+                setTravelState(false)
+            end
+        else
+            _G.Unknown_CancelTween()
+            activeTravelIsland = nil
+            travelStatusLabel.Text = "Status: Idle"
+        end
+    end)
+
+    Hub.CreateButton(travelPage, "🛑 Stop Travel / Cancel Flight", function()
+        _G.Unknown_CancelTween()
+        isAutoTravelOn = false
+        setTravelState(false)
+        activeTravelIsland = nil
+        travelStatusLabel.Text = "Status: Idle"
+    end)
+
+    -- 3. Quick-Access Island Teleports List (Filtered for Current Sea)
+    Hub.CreateSection(travelPage, "🗺️ QUICK-ACCESS ISLAND TELEPORTS (" .. string.upper(seaTitle) .. ")")
     local travelList = Hub.CreateList(travelPage, "🗺️ Island Teleports (" .. seaTitle .. ")", {}, 220, true)
     for i, island in ipairs(islands) do
         travelList:AddItem(island.Name, "Click to start flight", function()
             if activeTravelIsland == island.Name then
                 _G.Unknown_CancelTween()
                 activeTravelIsland = nil
+                isAutoTravelOn = false
+                setTravelState(false)
                 travelStatusLabel.Text = "Status: Idle"
             else
                 activeTravelIsland = island.Name
+                selectedTravelIslandName = island.Name
                 if _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
                 if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
+                isAutoTravelOn = true
+                setTravelState(true)
                 travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
                 safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
                     if activeTravelIsland == island.Name then
                         activeTravelIsland = nil
+                        isAutoTravelOn = false
+                        setTravelState(false)
                         travelStatusLabel.Text = "Status: Arrived at " .. island.Name
+                        notifyGUI("TRAVEL", "Arrived at " .. island.Name .. "!", 4)
                     end
                 end)
             end
-        end, "Teleport", function()
-            activeTravelIsland = island.Name
-            if _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
-            if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
-            travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
-            safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
-                if activeTravelIsland == island.Name then
-                    activeTravelIsland = nil
-                    travelStatusLabel.Text = "Status: Arrived at " .. island.Name
-                end
-            end)
         end)
     end
 end
@@ -3607,6 +3657,29 @@ local function customDistributeStats()
     end)
 end
 
+local function getQuestGiverCFrame(targetEntry)
+    if not targetEntry or not targetEntry.QuestName then return nil end
+    local qKey = string.lower(targetEntry.QuestName:gsub("Quest.*", ""))
+    local mKey = string.lower(targetEntry.ExactName:gsub("%s.*", ""))
+
+    local npcs = workspace:FindFirstChild("NPCs")
+    if npcs then
+        for _, npc in ipairs(npcs:GetChildren()) do
+            local nName = string.lower(npc.Name)
+            if string.find(nName, "quest") or (qKey ~= "" and string.find(nName, qKey)) or string.find(nName, mKey) then
+                local root = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+                if root then
+                    local baseCF = targetEntry.IslandCFrame
+                    if not baseCF or (root.Position - baseCF.Position).Magnitude < 1800 then
+                        return root.CFrame
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 safeTweenToIsland = function(targetCFrame, callback)
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then 
@@ -3630,7 +3703,7 @@ safeTweenToIsland = function(targetCFrame, callback)
     local targetPos = targetCF.Position
     local dist = (currentPos - targetPos).Magnitude
 
-    if dist <= 14 then
+    if dist <= 18 then
         if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
         isTraveling = false
         hrp.CFrame = targetCF
@@ -3723,74 +3796,63 @@ safeTweenToIsland = function(targetCFrame, callback)
     local currentTweenID = tick()
     _G.Unknown_TravelTweenID = currentTweenID
 
-    local speed = 250 -- Calibrated 250 studs/s anti-rubberband flight velocity
+    local speed = _G.Unknown_TravelSpeed or 260
 
-    -- SKY CORRIDOR 3-PHASE FLIGHT SOLVER FOR REVAMPED SEAS:
-    -- Overcomes all revamped terrain, high mountains, rock meshes, and ocean water killzones.
+    -- FLUID CONTINUOUS FLIGHT: If long distance across sea, elevate to safe sky altitude without pauses
     if dist > 220 and currentPos.X < 45000 and targetPos.X < 45000 then
         task.spawn(function()
-            -- Safe cruising altitude above all revamped islands and mountains (default 285, higher if in Skylands)
             local cruiseY = 285
             if currentPos.Y > 500 or targetPos.Y > 500 then
                 cruiseY = math.max(currentPos.Y, targetPos.Y) + 60
             end
 
-            -- Phase 1: Rapid vertical ascent into open sky corridor
-            local ascentCF = CFrame.new(currentPos.X, cruiseY, currentPos.Z)
+            -- Fluid Sky Transition
             local ascentDist = math.abs(cruiseY - currentPos.Y)
-            if ascentDist > 15 then
-                local ascentTime = math.clamp(ascentDist / speed, 0.1, 3.0)
-                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentTime, Enum.EasingStyle.Linear), {CFrame = ascentCF})
+            if ascentDist > 20 then
+                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentDist / speed, Enum.EasingStyle.Linear), {CFrame = CFrame.new(currentPos.X, cruiseY, currentPos.Z)})
                 _G.Unknown_TravelTween = twAscent
                 twAscent:Play()
                 twAscent.Completed:Wait()
                 if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
             end
 
-            -- Phase 2: High-speed horizontal cruising across unobstructed sky
             local horizontalTargetCF = CFrame.new(targetPos.X, cruiseY, targetPos.Z)
             local horizontalDist = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
-            local cruiseTime = math.clamp(horizontalDist / speed, 0.1, 45)
-            local twCruise = TweenService:Create(hrp, TweenInfo.new(cruiseTime, Enum.EasingStyle.Linear), {CFrame = horizontalTargetCF})
+            local twCruise = TweenService:Create(hrp, TweenInfo.new(horizontalDist / speed, Enum.EasingStyle.Linear), {CFrame = horizontalTargetCF})
             _G.Unknown_TravelTween = twCruise
             twCruise:Play()
             twCruise.Completed:Wait()
             if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
 
-            -- Phase 3: Vertical descent directly onto target position
             local descentDist = math.abs(cruiseY - targetPos.Y)
-            local descentTime = math.clamp(descentDist / speed, 0.15, 4.0)
-            local twDescent = TweenService:Create(hrp, TweenInfo.new(descentTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
+            local twDescent = TweenService:Create(hrp, TweenInfo.new(descentDist / speed, Enum.EasingStyle.Linear), {CFrame = targetCF})
             _G.Unknown_TravelTween = twDescent
             twDescent:Play()
             twDescent.Completed:Wait()
             if _G.Unknown_TravelTweenID ~= currentTweenID then return end
 
-            -- Firmly settle at destination CFrame and clear physics velocity
             hrp.CFrame = targetCF
             hrp.AssemblyLinearVelocity = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
-
-            -- Anti-Rubberband stabilization yield: allow server replication tick to confirm arrival
-            task.wait(0.2)
 
             isTraveling = false
             _G.Unknown_TravelTween = nil
             if callback then callback() end
         end)
     else
-        -- Short distance / local mob repositioning: Direct smooth linear tween
-        local travelTime = math.clamp(dist / speed, 0.05, 15)
-        local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear)
-
-        _G.Unknown_TravelTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCF})
-        _G.Unknown_TravelTween.Completed:Connect(function()
+        -- Direct Smooth Linear Tween for Local / Medium Distances
+        local travelTime = math.clamp(dist / speed, 0.05, 12)
+        local tw = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
+        _G.Unknown_TravelTween = tw
+        tw.Completed:Connect(function()
             if _G.Unknown_TravelTweenID ~= currentTweenID then return end
+            hrp.CFrame = targetCF
+            hrp.AssemblyLinearVelocity = Vector3.zero
             isTraveling = false
             _G.Unknown_TravelTween = nil
             if callback then callback() end
         end)
-        _G.Unknown_TravelTween:Play()
+        tw:Play()
     end
 end
 
@@ -4158,35 +4220,69 @@ _G.startUnknownFarm = function()
             local bv = getTabBV(playerHRP)
             bv.Velocity = Vector3.zero
 
-            -- COMBAT MODE & MOB SPAWNER DIRECT TARGETING (ZERO ISLAND CENTER TWEENS AT ALL LEVELS)
-            local mobSpawners = getSpawnersForMob(exactMobName)
-            local spawnerCF = (#mobSpawners > 0) and mobSpawners[1] or nil
-            local farmDist = math.max(_G.Unknown_FarmDistance or 10.0, 10.0)
+            -- ROCK-SOLID MOB SPAWNER ANCHOR & SMART COMBAT STACK ENGINE
+            local targetDestinationCF = spawnerCF or islandCFrame
+            if not targetDestinationCF then
+                farmStatusLabel.Text = string.format("Lvl %d | Locating %s destination...", currentLevel, displayName)
+                return
+            end
 
-            if #targetMobs > 0 then
-                local firstMobHRP = targetMobs[1]:FindFirstChild("HumanoidRootPart")
-                if firstMobHRP then
-                    local targetMobCF = CFrame.new(firstMobHRP.Position + Vector3.new(0, farmDist, 0))
-                    local distToMob = (playerHRP.Position - targetMobCF.Position).Magnitude
+            local hoverAnchorCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
+            local distToAnchor = (playerHRP.Position - hoverAnchorCF.Position).Magnitude
 
-                    -- If > 12 studs away, fly smoothly directly to target NPC model!
-                    if distToMob > 12 then
-                        farmStatusLabel.Text = string.format("Lvl %d | Flying to %s NPC...", currentLevel, displayName)
+            -- 1. QUEST GIVER PRE-FLIGHT CHECK: Never attack mobs without active quest!
+            local hasActiveQuest = false
+            pcall(function()
+                local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+                local mainUI = playerGui and playerGui:FindFirstChild("Main")
+                local questFrame = mainUI and mainUI:FindFirstChild("Quest")
+                hasActiveQuest = (questFrame and questFrame.Visible == true)
+            end)
+
+            if isAutoQuestOn and not hasActiveQuest then
+                local questGiverCF = getQuestGiverCFrame(targetData)
+                if questGiverCF then
+                    local distToQG = (playerHRP.Position - questGiverCF.Position).Magnitude
+                    if distToQG > 35 then
+                        farmStatusLabel.Text = string.format("Lvl %d | Traveling to %s Quest Giver...", currentLevel, displayName)
                         if not isTraveling then
-                            safeTweenToIsland(targetMobCF)
+                            safeTweenToIsland(questGiverCF + Vector3.new(0, 5, 0))
                         end
                         return
                     else
-                        -- Arrived within combat range: cancel travel tween immediately and snap into exact distance position
-                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-                            isTraveling = false
+                        if isTraveling then _G.Unknown_CancelTween() isTraveling = false end
+                        farmStatusLabel.Text = string.format("Lvl %d | Claiming %s Quest...", currentLevel, displayName)
+                        if tick() - lastQuestClaim > 1.5 then
+                            lastQuestClaim = tick()
+                            autoClaimQuest(targetData.QuestName, targetData.QuestLevel)
                         end
-                        playerHRP.CFrame = playerHRP.CFrame:Lerp(targetMobCF, 0.12)
+                        return
                     end
                 end
+            end
 
-                -- Bring all target mobs to stack point (gentle slerp bringing to prevent server desync & freeze)
+            -- 2. INTER-ISLAND FLIGHT: If distant from mob spawn zone (> 75 studs), fly smoothly directly there!
+            if distToAnchor > 75 then
+                farmStatusLabel.Text = string.format("Lvl %d | Flying to %s...", currentLevel, displayName)
+                if not isTraveling then
+                    safeTweenToIsland(hoverAnchorCF)
+                end
+                return
+            end
+
+            -- 3. IN MOB COMBAT ZONE: Cancel long-distance travel and lock rock-solid hover over spawner anchor!
+            if isTraveling then
+                _G.Unknown_CancelTween()
+                isTraveling = false
+            end
+
+            -- Stable hover over mob spawner (ZERO rubberbanding, ZERO ping-ponging!)
+            playerHRP.CFrame = playerHRP.CFrame:Lerp(hoverAnchorCF, 0.15)
+
+            if #targetMobs > 0 then
+                farmStatusLabel.Text = string.format("Lvl %d | Farming %s (%d alive)...", currentLevel, displayName, #targetMobs)
+
+                -- Bring all target mobs directly to combat stack under player
                 local bringCF = playerHRP.CFrame * CFrame.new(0, -farmDist, 0)
                 local now = tick()
 
@@ -4194,118 +4290,35 @@ _G.startUnknownFarm = function()
                     local mob = targetMobs[i]
                     local mobHRP = mob:FindFirstChild("HumanoidRootPart")
                     local mobHum = mob:FindFirstChildOfClass("Humanoid")
-                    
+
                     if mobHRP and mobHum and mobHum.Health > 0 then
                         pcall(function()
                             local distToStack = (mobHRP.Position - bringCF.Position).Magnitude
-                            
-                            -- Skip bringing if mob is too far away to prevent physics freeze and network desync
-                            if distToStack > 350 then
-                                return
-                            end
-                            
-                            -- Anti-Lock Watchdog: Track if mob is stuck/unhittable for > 3 seconds
-                            local bringStart = mob:GetAttribute("Unknown_BringStart") or now
-                            if not mob:GetAttribute("Unknown_BringStart") then
-                                mob:SetAttribute("Unknown_BringStart", now)
-                            end
-
-                            local lastHealth = mob:GetAttribute("ENI_LastHP") or mobHum.Health
-                            if mobHum.Health < lastHealth then
-                                mob:SetAttribute("ENI_LastHP", mobHum.Health)
-                                mob:SetAttribute("Unknown_BringStart", now) -- Reset timer when damage is taking place!
-                            end
-
-                            -- If mob is frozen/unhittable for > 3.0s, momentarily release it so physics syncs!
-                            if now - bringStart > 3.0 then
-                                mob:SetAttribute("Unknown_BringStart", now)
-                                for _, part in ipairs(mob:GetChildren()) do
-                                    if part:IsA("BasePart") then part.CanCollide = true end
-                                end
-                                mobHum.PlatformStand = false
-                                mobHum.WalkSpeed = 16
-                                mobHum.JumpPower = 50
-                            else
-                                -- Normal Bring: Smoothly lerp HRP position to stack point
+                            if distToStack <= 350 then
                                 if distToStack > 2.5 then
-                                    mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.35)
+                                    mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.4)
                                 end
-
                                 mobHRP.Velocity = Vector3.zero
                                 mobHRP.RotVelocity = Vector3.zero
-                                if mobHRP:IsA("BasePart") then
-                                    mobHRP.AssemblyLinearVelocity = Vector3.zero
-                                    mobHRP.AssemblyAngularVelocity = Vector3.zero
-                                end
-                                
-                                -- Disable collision so mobs stack neatly without clipping
-                                for _, part in ipairs(mob:GetChildren()) do
-                                    if part:IsA("BasePart") then
-                                        part.CanCollide = false
-                                    end
-                                end
-
-                                mobHum.PlatformStand = true
-                                mobHum.WalkSpeed = 0
-                                mobHum.JumpPower = 0
                             end
                         end)
                     end
                 end
 
-                farmStatusLabel.Text = string.format("Lvl %d | Farming %d %s (Multi-NPC Fast Hit Engine)", currentLevel, #targetMobs, targetMobs[1].Name)
-
-                -- BLOX FRUIT & WEAPON PURE MULTI-TARGET FAST ATTACK ENGINE
-                if activeTool then
-                    pcall(function()
-                        local hitList = {}
-                        local now = tick()
-
-                        for i = 1, math.min(#targetMobs, 15) do
-                            local mob = targetMobs[i]
-                            local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-                            local mHum = mob:FindFirstChildOfClass("Humanoid")
-                            
-                            if mHrp and mHum and mHum.Health > 0 then
-                                local distFromPlayer = (mHrp.Position - playerHRP.Position).Magnitude
-                                if distFromPlayer <= (farmDist + 18) then
-                                    table.insert(hitList, {mob, mHrp})
-                                end
-                            end
-                        end
-                        
-                        if #hitList > 0 and (now - (lastFarmHit or 0) >= 0.08) then
-                            lastFarmHit = now
-                            local primaryHRP = hitList[1][2]
-                            _G.Unknown_PerformFastAttack(hitList, primaryHRP)
-                        end
-                    end)
-                end
-            else
-                -- ZERO MOBS ALIVE / UNSTREAMED: Fly smoothly to target island spawner or island CFrame!
-                groundCFrame = nil
-                
-                local targetDestinationCF = spawnerCF or islandCFrame
-                if targetDestinationCF then
-                    local spawnerTargetCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
-                    local distToSpawner = (playerHRP.Position - spawnerTargetCF.Position).Magnitude
-
-                    if distToSpawner > 15 then
-                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Flying smoothly to " .. displayName .. " island..."
-                        if not isTraveling then
-                            safeTweenToIsland(spawnerTargetCF)
-                        end
-                    else
-                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-                            isTraveling = false
-                        end
-                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Hovering at " .. displayName .. "... Waiting for spawns."
-                        playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.12)
+                -- Hit stack with Fast Attack / Kill Aura
+                pcall(function()
+                    local hitList = {}
+                    local primaryHRP = targetMobs[1]:FindFirstChild("HumanoidRootPart")
+                    for i = 1, #targetMobs do
+                        local mHRP = targetMobs[i]:FindFirstChild("HumanoidRootPart")
+                        if mHRP then table.insert(hitList, mHRP) end
                     end
-                else
-                    farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Waiting for " .. displayName .. " spawns..."
-                end
+                    if _G.Unknown_PerformFastAttack and primaryHRP then
+                        _G.Unknown_PerformFastAttack(hitList, primaryHRP)
+                    end
+                end)
+            else
+                farmStatusLabel.Text = string.format("Lvl %d | Hovering at %s... Waiting for respawns.", currentLevel, displayName)
             end
         end)
     end)
