@@ -951,8 +951,29 @@ end
 local function checkBuildMissingBlocks(buildData)
     if not buildData or not buildData.Blocks then return {} end
     local needed = {}
+
+    -- Scalable structural blocks that consume inventory volume in BABFT (1 unit = 2x2x2 = 8 cubic studs)
+    local SCALABLE_BLOCKS = {
+        WoodBlock = true, SmoothWoodBlock = true, PlasticBlock = true,
+        BrickBlock = true, ConcreteBlock = true, MarbleBlock = true,
+        ObsidianBlock = true, TitaniumBlock = true, MetalBlock = true,
+        RustedBlock = true, IceBlock = true, GlassBlock = true,
+        SandBlock = true, StoneBlock = true, FabricBlock = true,
+        CoalBlock = true, GrassBlock = true, NeonBlock = true,
+        GoldBlock = true, BouncyBlock = true
+    }
+
     for _, b in ipairs(buildData.Blocks) do
-        needed[b.Name] = (needed[b.Name] or 0) + 1
+        local blockCost = 1
+        if SCALABLE_BLOCKS[b.Name] and b.Size then
+            local sx = b.Size[1] or 2
+            local sy = b.Size[2] or 2
+            local sz = b.Size[3] or 2
+            local volume = sx * sy * sz
+            -- Calculate true volume-adjusted block consumption (8 cubic studs per inventory block)
+            blockCost = math.max(1, math.ceil((volume / 8) - 0.05))
+        end
+        needed[b.Name] = (needed[b.Name] or 0) + blockCost
     end
 
     local missingList = {}
