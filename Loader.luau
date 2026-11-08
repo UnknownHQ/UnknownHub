@@ -17,6 +17,13 @@ local LocalPlayer = Players.LocalPlayer
 local PlaceId = game.PlaceId
 
 local BASE_URL = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main"
+pcall(function()
+    local res = game:HttpGet("https://api.github.com/repos/UnknownHQ/UnknownHub/commits/main")
+    local sha = res and res:match('"sha"%s*:%s*"([a-f0-9]+)"')
+    if sha and #sha >= 7 then
+        BASE_URL = "https://raw.githubusercontent.com/UnknownHQ/UnknownHub/" .. sha
+    end
+end)
 local LIBRARY_URL = BASE_URL .. "/UnknownLibrary"
 
 -- =========================================================================
