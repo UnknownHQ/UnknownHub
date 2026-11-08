@@ -51,7 +51,7 @@ local Hub = result({
     name = LIBRARY_NAME,
     title = "UNKNOWN HUB",
     subTitle = "Blox Fruits",
-    parent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui")),
+    parent = (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (gethui and gethui()) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui")),
     theme = Color3.fromRGB(0, 195, 245),
     secondaryTheme = Color3.fromRGB(165, 95, 255)
 })
