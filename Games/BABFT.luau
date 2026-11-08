@@ -327,59 +327,27 @@ task.spawn(function()
 
                 if not State.AutoFarm_Enabled then continue end
 
-                -- 3. Discover Stages & Corridor Waypoints (Both Cave Arches and Stage Interiors)
+                                -- 3. Discover Sequential Cave Stages (CaveStage1 through CaveStage10)
                 local boatStages = Workspace:FindFirstChild("BoatStages")
                 local normalStages = boatStages and boatStages:FindFirstChild("NormalStages")
-                local otherStages = boatStages and boatStages:FindFirstChild("OtherStages")
-                local stageInfo = boatStages and boatStages:FindFirstChild("StageInfo")
-
-                -- Build dynamic mapping from StageName to StageNumber (Stage1 to Stage9)
-                local stageNameToNum = {}
-                if stageInfo then
-                    for sNum = 1, 9 do
-                        local stgObj = stageInfo:FindFirstChild("Stage" .. sNum)
-                        local sNameObj = stgObj and stgObj:FindFirstChild("StageName")
-                        if sNameObj and sNameObj.Value ~= "" then
-                            stageNameToNum[sNameObj.Value] = sNum
-                        end
-                    end
-                end
 
                 if normalStages then
-                    local waypoints = {}
-                    
-                    -- A. Cave Archways (DarknessPart boundaries)
-                    for _, ch in ipairs(normalStages:GetChildren()) do
-                        local dp = ch:FindFirstChild("DarknessPart")
-                        if dp then
-                            table.insert(waypoints, { name = ch.Name, z = dp.Position.Z, part = dp, isCave = true })
-                        end
-                    end
-                    
-                    -- B. Stage Interiors (Ensures every single stage area is registered in OtherData)
-                    if otherStages then
-                        for _, stg in ipairs(otherStages:GetChildren()) do
-                            local fp = stg:FindFirstChildWhichIsA("BasePart", true)
-                            if fp then
-                                local sNum = stageNameToNum[stg.Name]
-                                table.insert(waypoints, { 
-                                    name = stg.Name, 
-                                    z = fp.Position.Z, 
-                                    part = fp, 
-                                    isCave = false,
-                                    stageNum = sNum
+                    -- Collect all 10 stages in strict sequential river order
+                    local stageWaypoints = {}
+                    for stageIdx = 1, 10 do
+                        local stage = normalStages:FindFirstChild("CaveStage" .. stageIdx)
+                        if stage then
+                            local dp = stage:FindFirstChild("DarknessPart")
+                            if dp then
+                                table.insert(stageWaypoints, {
+                                    index = stageIdx,
+                                    name = stage.Name,
+                                    part = dp,
+                                    cframe = dp.CFrame
                                 })
                             end
                         end
                     end
-
-                    -- Chronological river sequence from dock to TheEnd
-                    table.sort(waypoints, function(a, b) return a.z < b.z end)
-
-                    -- 4. Align with River Water Trigger Corridor (Y = 0)
-                    updateStatus("Aligning River Corridor...")
-                    root.Anchored = true
-                    local safeY = State.Farm_FlightHeight or 0
 
                     -- Attach persistent Anti-Drop BodyVelocity so character never falls during pulses
                     local bv = root:FindFirstChild("FarmBV") or Instance.new("BodyVelocity")
@@ -388,45 +356,40 @@ task.spawn(function()
                     bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
                     bv.Parent = root
 
-                    tweenCharacter(root, CFrame.new(-51.5, safeY, root.Position.Z), 0.5)
-
-                    -- 5. Traverse Each Waypoint (Guarantees 100% of areas are registered)
+                    -- 4. Traverse Each Stage Sequentially
                     local abort = false
-                    local wpDuration = math.clamp((State.Farm_StageDelay or 1.25) * 0.55, 0.5, 1.2)
+                    local stageDelay = State.Farm_StageDelay or 1.25
+                    local glideTime = math.clamp(stageDelay * 0.45, 0.4, 0.8)
+                    local dwellTime = math.clamp(stageDelay * 0.55, 0.4, 1.0)
 
-                    for i, wp in ipairs(waypoints) do
+                    for _, wp in ipairs(stageWaypoints) do
                         if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                             abort = true
                             break
                         end
 
-                        updateStatus(string.format("Clearing: Area %d/%d (%s)", i, #waypoints, wp.name))
-                        local targetPos = Vector3.new(-51.5, safeY, wp.z)
-                        tweenCharacter(root, CFrame.new(targetPos), wpDuration)
+                        updateStatus(string.format("Clearing Stage %d/10 (%s)...", wp.index, wp.name))
                         
-                        -- Unanchored dwell pulse with BodyVelocity holding safe height
+                        -- Direct physical CFrame glide directly through the center of DarknessPart
+                        -- This satisfies both server bounding box checks and distance checks perfectly
                         root.Anchored = false
-                        if wp.isCave and wp.part then
-                            pcall(function()
-                                firetouchinterest(root, wp.part, 0)
-                                task.wait(0.05)
-                                firetouchinterest(root, wp.part, 1)
-                            end)
-                        else
-                            -- Active Server Stage Confirmation Handshake (verifies OtherData.Stage<N> populated)
-                            if wp.stageNum then
-                                local stageData = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("Stage" .. wp.stageNum)
-                                local t0 = tick()
-                                while stageData and stageData.Value ~= wp.name and (tick() - t0 < 0.85) do
-                                    task.wait(0.04)
-                                    if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
-                                end
-                                task.wait(0.04)
-                            else
-                                task.wait(0.12)
-                            end
+                        tweenCharacter(root, wp.cframe, glideTime)
+
+                        -- Physical touch handshake with zero velocity dwell
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                        pcall(function()
+                            firetouchinterest(root, wp.part, 0)
+                            task.wait(0.06)
+                            firetouchinterest(root, wp.part, 1)
+                        end)
+                        
+                        -- Dwell briefly to ensure the server tick registers the stage clearance
+                        local tDwell = tick()
+                        while tick() - tDwell < dwellTime do
+                            task.wait(0.05)
+                            if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
                         end
-                        root.Anchored = true
                     end
 
                     if abort then
@@ -434,30 +397,7 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 6. Pre-Chest Stage Validation Barrier
-                    -- Verifies that all 9 stages are registered on the server before diving onto the chest
-                    -- Guarantees full 9/9 payout (105-125 gold) instead of premature partial payouts (e.g. 41 gold)
-                    updateStatus("Verifying 100% Stage Clearance...")
-                    local tStageWait = tick()
-                    while tick() - tStageWait < 2.5 do
-                        local unverified = 0
-                        local otherData = LocalPlayer:FindFirstChild("OtherData")
-                        if otherData then
-                            for sIdx = 1, 9 do
-                                local sVal = otherData:FindFirstChild("Stage" .. sIdx)
-                                if not sVal or sVal.Value == "" then
-                                    unverified = unverified + 1
-                                end
-                            end
-                        end
-                        if unverified == 0 then
-                            break
-                        end
-                        task.wait(0.12)
-                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
-                    end
-
-                    -- 7. Claim The End & Golden Chest
+                    -- 5. Claim The End & Golden Chest
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
