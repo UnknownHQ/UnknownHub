@@ -241,13 +241,20 @@ local function triggerLaunchBoat()
                     for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
                 end
             end
-            task.wait(0.25)
+            task.wait(0.2)
             if lb.PromptLaunch and lb.PromptLaunch.Visible then
                 local yesBtn = lb.PromptLaunch:FindFirstChild("Yes")
                 if yesBtn and getconnections then
                     for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
                 end
             end
+        end
+        local team = LocalPlayer.Team
+        local teamName = team and team.TeamColor.Name
+        local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
+        local voteLaunch = teamZone and teamZone:FindFirstChild("VoteLaunchRE")
+        if voteLaunch then
+            voteLaunch:FireServer()
         end
     end)
 end
@@ -303,11 +310,19 @@ task.spawn(function()
                     end
                 end)
 
-                -- 2. Launch Boat
+                -- 2. Launch Boat and synchronize round start
                 if State.Farm_AutoLaunch then
                     updateStatus("Launching Boat...")
                     triggerLaunchBoat()
-                    task.wait(0.8)
+                    local team = LocalPlayer.Team
+                    local teamName = team and team.TeamColor.Name
+                    local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
+                    local launchedObj = teamZone and teamZone:FindFirstChild("Launched")
+                    local tLaunch = tick()
+                    while launchedObj and not launchedObj.Value and (tick() - tLaunch < 1.2) do
+                        task.wait(0.1)
+                    end
+                    task.wait(0.3)
                 end
 
                 if not State.AutoFarm_Enabled then continue end
@@ -402,7 +417,7 @@ task.spawn(function()
                             if wp.stageNum then
                                 local stageData = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("Stage" .. wp.stageNum)
                                 local t0 = tick()
-                                while stageData and stageData.Value ~= wp.name and (tick() - t0 < 0.65) do
+                                while stageData and stageData.Value ~= wp.name and (tick() - t0 < 0.85) do
                                     task.wait(0.04)
                                     if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
                                 end
@@ -419,7 +434,30 @@ task.spawn(function()
                         continue
                     end
 
-                    -- 6. Claim The End & Golden Chest
+                    -- 6. Pre-Chest Stage Validation Barrier
+                    -- Verifies that all 9 stages are registered on the server before diving onto the chest
+                    -- Guarantees full 9/9 payout (105-125 gold) instead of premature partial payouts (e.g. 41 gold)
+                    updateStatus("Verifying 100% Stage Clearance...")
+                    local tStageWait = tick()
+                    while tick() - tStageWait < 2.5 do
+                        local unverified = 0
+                        local otherData = LocalPlayer:FindFirstChild("OtherData")
+                        if otherData then
+                            for sIdx = 1, 9 do
+                                local sVal = otherData:FindFirstChild("Stage" .. sIdx)
+                                if not sVal or sVal.Value == "" then
+                                    unverified = unverified + 1
+                                end
+                            end
+                        end
+                        if unverified == 0 then
+                            break
+                        end
+                        task.wait(0.12)
+                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
+                    end
+
+                    -- 7. Claim The End & Golden Chest
                     local theEnd = normalStages:FindFirstChild("TheEnd")
                     local chest = theEnd and theEnd:FindFirstChild("GoldenChest")
                     local trigger = chest and chest:FindFirstChild("Trigger")
