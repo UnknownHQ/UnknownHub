@@ -647,6 +647,9 @@ local fastAttackTargets = {"NPCs", "Players", "Everyone"}
 
 -- FARM PAGE LAYOUT & CONTROLS
 do
+    -- SECTION 1: MASTER AUTO FARM
+    Hub.CreateSection(farmPage, "👑 MASTER AUTO FARM")
+
     -- 1. Master Auto Farm
     local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm", false, function(newState)
         isFarmOn = newState
@@ -675,8 +678,11 @@ do
         isAutoQuestOn = newState
     end, "AutoQuest")
 
+    -- SECTION 2: FAST ATTACK / KILL AURA
+    Hub.CreateSection(farmPage, "⚔️ FAST ATTACK & KILL AURA")
+
     -- 4. Fast Attack / Hit Stream & Target Mode Selector
-    createSliderToggle(farmPage, "Fast Attack / Fast Hit Stream", true, function(newState)
+    createSliderToggle(farmPage, "Fast Attack / Aura Hit (Always Active)", true, function(newState)
         isAuraHitOn = newState
     end, "AuraHit")
 
@@ -707,6 +713,9 @@ do
             notifyGUI("KEN HAKI", "Ken Haki Leveler active! Auto dodging attacks...", 3)
         end
     end)
+
+    -- SECTION 3: TARGET & MATERIAL CONFIGURATION
+    Hub.CreateSection(farmPage, "🎯 TARGET & MATERIAL CONFIGURATION")
 
     -- 6. Custom Mob Selection
     createSliderToggle(farmPage, "Auto Farm Selected NPC", false, function(newState)
@@ -741,6 +750,9 @@ do
         selectedMaterial = matName
     end, false)
     matList:SetSelected(selectedMaterial)
+
+    -- SECTION 4: MASTERY, SKILLS & CHEST AUTOMATION
+    Hub.CreateSection(farmPage, "🔥 MASTERY, SKILLS & CHEST FARM")
 
     -- 7. Auto Mastery Selection
     createSliderToggle(farmPage, "Auto Mastery", false, function(newState)
@@ -2021,6 +2033,7 @@ do
     end
 
     -- 2. Clean Island Teleports List (Filtered for Current Sea)
+    Hub.CreateSection(travelPage, "🗺️ ISLAND FLIGHT & TELEPORTS (" .. string.upper(seaTitle) .. ")")
     local travelList = Hub.CreateList(travelPage, "🗺️ Island Teleports (" .. seaTitle .. ")", {}, 220, true)
     for i, island in ipairs(islands) do
         travelList:AddItem(island.Name, "Click to start flight", function()
@@ -2123,6 +2136,7 @@ local bossCheckState = {
 }
 
 -- AUTO BOSS CONFIGURATION
+Hub.CreateSection(bossPage, "💀 BOSS AUTOMATION & SERVER HOP")
 local selectedBosses = {}
 local isAutoBossOn = false
 
@@ -2136,7 +2150,8 @@ createSliderToggle(bossPage, "Auto Server Hop when Bosses Dead", false, function
     isAutoBossHopOn = newState
 end)
 
-local bossList = Hub.CreateList(bossPage, "💀 Current Sea Bosses", {}, 220, true, {MultiSelect = true})
+Hub.CreateSection(bossPage, "📋 ACTIVE SEA BOSS TARGETS")
+    local bossList = Hub.CreateList(bossPage, "💀 Current Sea Bosses", {}, 220, true, {MultiSelect = true})
 local bossStatusBadges = {}
 
 for i, boss in ipairs(BossData) do
@@ -2765,24 +2780,32 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     end)
 end)
 
--- CALIBRATED FAST ATTACK HEARTBEAT STREAM
+-- CALIBRATED FAST ATTACK HEARTBEAT STREAM (ALWAYS AUTOMATIC VIA KILL AURA)
 _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
     pcall(function()
         if not isAuraHitOn then return end
 
-        local isClicking = _G.Unknown_IsManualAttacking or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-        local shouldAttack = isFarmOn or isClicking
-        if not shouldAttack then return end
-
         local now = tick()
-        if now - _G.Unknown_LastHitTime < 0.08 then return end
-        _G.Unknown_LastHitTime = now
+        if now - (_G.Unknown_LastHitTime or 0) < 0.08 then return end
 
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local hrp = char.HumanoidRootPart
 
+        -- Auto-detect equipped tool; if in backpack, auto-equip for immediate attack
         local tool = char:FindFirstChildOfClass("Tool")
+        if not tool then
+            local bp = LocalPlayer:FindFirstChild("Backpack")
+            if bp then
+                for _, t in ipairs(bp:GetChildren()) do
+                    if t:IsA("Tool") and (t.ToolTip == "Melee" or t.ToolTip == "Sword" or t.ToolTip == "Blox Fruit" or t:FindFirstChild("Handle")) then
+                        t.Parent = char
+                        tool = t
+                        break
+                    end
+                end
+            end
+        end
         if not tool then return end
 
         local nearbyHits = {}
@@ -3700,7 +3723,7 @@ safeTweenToIsland = function(targetCFrame, callback)
     local currentTweenID = tick()
     _G.Unknown_TravelTweenID = currentTweenID
 
-    local speed = 325
+    local speed = 250 -- Calibrated 250 studs/s anti-rubberband flight velocity
 
     -- SKY CORRIDOR 3-PHASE FLIGHT SOLVER FOR REVAMPED SEAS:
     -- Overcomes all revamped terrain, high mountains, rock meshes, and ocean water killzones.
@@ -3736,12 +3759,20 @@ safeTweenToIsland = function(targetCFrame, callback)
 
             -- Phase 3: Vertical descent directly onto target position
             local descentDist = math.abs(cruiseY - targetPos.Y)
-            local descentTime = math.clamp(descentDist / speed, 0.1, 4.0)
+            local descentTime = math.clamp(descentDist / speed, 0.15, 4.0)
             local twDescent = TweenService:Create(hrp, TweenInfo.new(descentTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
             _G.Unknown_TravelTween = twDescent
             twDescent:Play()
             twDescent.Completed:Wait()
             if _G.Unknown_TravelTweenID ~= currentTweenID then return end
+
+            -- Firmly settle at destination CFrame and clear physics velocity
+            hrp.CFrame = targetCF
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+
+            -- Anti-Rubberband stabilization yield: allow server replication tick to confirm arrival
+            task.wait(0.2)
 
             isTraveling = false
             _G.Unknown_TravelTween = nil
@@ -3896,7 +3927,7 @@ _G.startUnknownFarm = function()
             local targetData = getTargetData()
             local bossData, bossMob = getBossTarget()
 
-            if not bossData and not isAutoMaterialOn and not isAutoSelectMobOn then
+            if isAutoBossOn and not bossData and not isAutoMaterialOn and not isAutoSelectMobOn then
                 bossData, bossMob = getAutoProgressionBossTarget(currentLevel)
             end
             
