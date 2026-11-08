@@ -58,28 +58,86 @@ local Hub = result({
 
 assert(type(Hub) == "table", "UnknownLibrary returned an invalid hub")
 
--- Bulletproof CreateList wrapper guaranteeing SetSelected and SetSelectedItems
+local function toCleanDisplayString(val)
+    if type(val) == "string" then return val end
+    if type(val) == "number" then return tostring(val) end
+    if type(val) == "table" then
+        local direct = val.Display or val.Name or val.Title or val.ExactName or val.MobName or val.FruitName or val.Item or val.Text or val.text or val.display or val.name or val.title or val[1]
+        if direct then return toCleanDisplayString(direct) end
+        for k, v in pairs(val) do
+            if type(k) == "string" and not tonumber(k) and type(v) ~= "table" then
+                return tostring(k)
+            elseif type(v) == "string" then
+                return v
+            end
+        end
+        return "Item"
+    end
+    return tostring(val)
+end
+
+-- Bulletproof CreateList wrapper guaranteeing clean string labels, SetSelected, and SetSelectedItems
 local origCreateList = Hub.CreateList
-Hub.CreateList = function(parent, ...)
-    local listObj = origCreateList(parent, ...)
+Hub.CreateList = function(parent, titleText, itemsList, ...)
+    local extraArgs = {...}
+    local cleanItems = {}
+    if type(itemsList) == "table" then
+        for k, v in pairs(itemsList) do
+            if type(k) == "number" then
+                table.insert(cleanItems, toCleanDisplayString(v))
+            else
+                table.insert(cleanItems, toCleanDisplayString(k))
+            end
+        end
+    else
+        cleanItems = itemsList or {}
+    end
+
+    local selectCallback = nil
+    if type(extraArgs[1]) == "function" then
+        selectCallback = extraArgs[1]
+        extraArgs[1] = 180 -- default maxHeight
+    end
+
+    local listObj = origCreateList(parent, toCleanDisplayString(titleText), cleanItems, unpack(extraArgs))
     if type(listObj) == "table" then
-        if not listObj.SetSelected then
-            listObj.SetSelected = function(self, val)
-                if type(self) ~= "table" then val = self end
-                listObj.SelectedItem = val
-                if type(listObj.OnSelect) == "function" then
-                    pcall(listObj.OnSelect, val)
-                end
-            end
-            listObj.setSelected = listObj.SetSelected
+        if selectCallback and not listObj.OnSelect then
+            listObj.OnSelect = selectCallback
         end
-        if not listObj.SetSelectedItems then
-            listObj.SetSelectedItems = function(self, vals)
-                if type(self) ~= "table" then vals = self end
-                listObj.SelectedItems = vals or {}
+
+        local origAddItem = listObj.AddItem
+        if type(origAddItem) == "function" then
+            listObj.AddItem = function(text, subtext, itemCallback, ...)
+                local cleanText = toCleanDisplayString(text)
+                local cleanSub = subtext and toCleanDisplayString(subtext) or nil
+                return origAddItem(cleanText, cleanSub, function(...)
+                    if type(itemCallback) == "function" then
+                        pcall(itemCallback, cleanText, ...)
+                    end
+                end, ...)
             end
-            listObj.setSelectedItems = listObj.SetSelectedItems
+            listObj.addItem = listObj.AddItem
         end
+
+        listObj.SetSelected = function(self, val)
+            if type(self) ~= "table" then val = self end
+            local cleanVal = toCleanDisplayString(val)
+            listObj.SelectedItem = cleanVal
+            if type(listObj.OnSelect) == "function" then
+                pcall(listObj.OnSelect, cleanVal)
+            end
+        end
+        listObj.setSelected = listObj.SetSelected
+
+        listObj.SetSelectedItems = function(self, vals)
+            if type(self) ~= "table" then vals = self end
+            local cleanArr = {}
+            if type(vals) == "table" then
+                for _, it in ipairs(vals) do table.insert(cleanArr, toCleanDisplayString(it)) end
+            end
+            listObj.SelectedItems = cleanArr
+        end
+        listObj.setSelectedItems = listObj.SetSelectedItems
     end
     return listObj
 end
@@ -2842,20 +2900,8 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local hrp = char.HumanoidRootPart
 
-        -- Auto-detect equipped tool; if in backpack, auto-equip for immediate attack
+        -- Respect player equipment: NEVER auto-equip Combat/Punch from backpack!
         local tool = char:FindFirstChildOfClass("Tool")
-        if not tool then
-            local bp = LocalPlayer:FindFirstChild("Backpack")
-            if bp then
-                for _, t in ipairs(bp:GetChildren()) do
-                    if t:IsA("Tool") and (t.ToolTip == "Melee" or t.ToolTip == "Sword" or t.ToolTip == "Blox Fruit" or t:FindFirstChild("Handle")) then
-                        t.Parent = char
-                        tool = t
-                        break
-                    end
-                end
-            end
-        end
         if not tool then return end
 
         local nearbyHits = {}
@@ -3616,14 +3662,20 @@ _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function
             end
             if hrp then
                 local bv = getTabBV(hrp)
-                if bv then
-                    bv.Velocity = Vector3.zero
-                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                end
-                hrp.Velocity = Vector3.zero
-                if hrp:IsA("BasePart") then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
+                if isTraveling then
+                    -- Zero physics resistance during tween so TweenService is 100% smooth without jitter or rubberband!
+                    if bv then bv.MaxForce = Vector3.zero end
+                else
+                    -- Stable hover when stationary at combat destination
+                    if bv then
+                        bv.Velocity = Vector3.zero
+                        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                    end
+                    hrp.Velocity = Vector3.zero
+                    if hrp:IsA("BasePart") then
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                    end
                 end
             end
         else
@@ -3657,8 +3709,45 @@ local function customDistributeStats()
     end)
 end
 
+local function hasActivePlayerQuest()
+    local p = LocalPlayer
+    local pg = p and p:FindFirstChild("PlayerGui")
+    if not pg then return false end
+
+    local tqf = pg:FindFirstChild("TrackedQuestFrame")
+    if tqf and tqf.Enabled and tqf:FindFirstChild("Frame") and tqf.Frame.Visible then
+        return true
+    end
+
+    local main = pg:FindFirstChild("Main")
+    local quest = main and main:FindFirstChild("Quest")
+    if quest and quest.Visible then
+        return true
+    end
+
+    return false
+end
+
+local QUEST_GIVER_CFRAMES = {
+    ["BanditQuest1"] = CFrame.new(1060, 16.5, 1548),
+    ["JungleQuest"] = CFrame.new(-1680, 48.7, 175.6),
+    ["BuggyQuest1"] = CFrame.new(-1140, 4.7, 3828),
+    ["DesertQuest"] = CFrame.new(895, 6.4, 4390),
+    ["SnowQuest"] = CFrame.new(1385, 87.2, -1295),
+    ["MarineQuest2"] = CFrame.new(-5035, 28.5, 4325),
+    ["SkyQuest"] = CFrame.new(-4840, 718, -2620),
+    ["ColosseumQuest"] = CFrame.new(-1580, 7.3, -2980),
+    ["ImpelQuest"] = CFrame.new(4840, 5.6, 745),
+    ["MagmaQuest"] = CFrame.new(-5315, 12.2, 8515),
+    ["FishmanQuest"] = CFrame.new(61163, 18.5, 1565),
+    ["FountainQuest"] = CFrame.new(5255, 38.5, 4050)
+}
+
 local function getQuestGiverCFrame(targetEntry)
     if not targetEntry or not targetEntry.QuestName then return nil end
+    local exactCF = QUEST_GIVER_CFRAMES[targetEntry.QuestName]
+    if exactCF then return exactCF end
+
     local qKey = string.lower(targetEntry.QuestName:gsub("Quest.*", ""))
     local mKey = string.lower(targetEntry.ExactName:gsub("%s.*", ""))
 
@@ -3666,18 +3755,18 @@ local function getQuestGiverCFrame(targetEntry)
     if npcs then
         for _, npc in ipairs(npcs:GetChildren()) do
             local nName = string.lower(npc.Name)
-            if string.find(nName, "quest") or (qKey ~= "" and string.find(nName, qKey)) or string.find(nName, mKey) then
+            if string.find(nName, "quest") or string.find(nName, "adventurer") or (qKey ~= "" and string.find(nName, qKey)) or string.find(nName, mKey) then
                 local root = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
                 if root then
                     local baseCF = targetEntry.IslandCFrame
-                    if not baseCF or (root.Position - baseCF.Position).Magnitude < 1800 then
+                    if not baseCF or (root.Position - baseCF.Position).Magnitude < 2200 then
                         return root.CFrame
                     end
                 end
             end
         end
     end
-    return nil
+    return targetEntry.IslandCFrame
 end
 
 safeTweenToIsland = function(targetCFrame, callback)
@@ -3711,30 +3800,25 @@ safeTweenToIsland = function(targetCFrame, callback)
         return
     end
 
-    -- Cancel existing flight tween cleanly before starting new destination flight
     if _G.Unknown_TravelTween then 
         pcall(function() _G.Unknown_TravelTween:Cancel() end) 
         _G.Unknown_TravelTween = nil 
     end
 
-    -- Ensure anti-gravity is firmly active before initiating flight
+    -- Temporarily disable BodyVelocity holding force so physics does not fight the tween!
     local bv = getTabBV(hrp)
-    if bv then
-        bv.Velocity = Vector3.zero
-        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-    end
+    if bv then bv.MaxForce = Vector3.zero end
 
-    -- BLOX FRUITS DIMENSIONAL PORTAL TELEPORT SOLVER (FISHMAN ISLAND & SKYLANDS)
+    -- Dimensional portal solvers (Fishman Island & Upper Skylands)
     local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
     local commF = remotes and remotes:FindFirstChild("CommF_")
 
-    -- 1. Enter Fishman Island (Target inside Fishman City X > 50000, Player in Main Sea)
     if targetPos.X > 50000 and currentPos.X < 50000 then
         isTraveling = true
         task.spawn(function()
             pcall(function()
                 if commF then
-                    commF:InvokeServer("requestEntrance", Vector3.new(61163.8515625, 11.6796875, 1819.7841796875))
+                    commF:InvokeServer("requestEntrance", Vector3.new(61163.85, 11.68, 1819.78))
                     task.wait(1)
                 end
                 isTraveling = false
@@ -3744,7 +3828,6 @@ safeTweenToIsland = function(targetCFrame, callback)
         return
     end
 
-    -- 2. Exit Fishman Island (Player inside Fishman City X > 50000, Target in Main Sea)
     if currentPos.X > 50000 and targetPos.X < 50000 then
         isTraveling = true
         task.spawn(function()
@@ -3760,7 +3843,6 @@ safeTweenToIsland = function(targetCFrame, callback)
         return
     end
 
-    -- 3. Enter Upper Skylands (Target in Upper Skylands Y > 4000, Player below)
     if targetPos.Y > 4000 and currentPos.Y < 4000 then
         isTraveling = true
         task.spawn(function()
@@ -3776,7 +3858,6 @@ safeTweenToIsland = function(targetCFrame, callback)
         return
     end
 
-    -- 4. Exit Upper Skylands (Player in Upper Skylands Y > 4000, Target below)
     if currentPos.Y > 4000 and targetPos.Y < 4000 then
         isTraveling = true
         task.spawn(function()
@@ -3797,63 +3878,29 @@ safeTweenToIsland = function(targetCFrame, callback)
     _G.Unknown_TravelTweenID = currentTweenID
 
     local speed = _G.Unknown_TravelSpeed or 260
+    local duration = math.clamp(dist / speed, 0.1, 45)
 
-    -- FLUID CONTINUOUS FLIGHT: If long distance across sea, elevate to safe sky altitude without pauses
-    if dist > 220 and currentPos.X < 45000 and targetPos.X < 45000 then
-        task.spawn(function()
-            local cruiseY = 285
-            if currentPos.Y > 500 or targetPos.Y > 500 then
-                cruiseY = math.max(currentPos.Y, targetPos.Y) + 60
-            end
-
-            -- Fluid Sky Transition
-            local ascentDist = math.abs(cruiseY - currentPos.Y)
-            if ascentDist > 20 then
-                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentDist / speed, Enum.EasingStyle.Linear), {CFrame = CFrame.new(currentPos.X, cruiseY, currentPos.Z)})
-                _G.Unknown_TravelTween = twAscent
-                twAscent:Play()
-                twAscent.Completed:Wait()
-                if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
-            end
-
-            local horizontalTargetCF = CFrame.new(targetPos.X, cruiseY, targetPos.Z)
-            local horizontalDist = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
-            local twCruise = TweenService:Create(hrp, TweenInfo.new(horizontalDist / speed, Enum.EasingStyle.Linear), {CFrame = horizontalTargetCF})
-            _G.Unknown_TravelTween = twCruise
-            twCruise:Play()
-            twCruise.Completed:Wait()
-            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
-
-            local descentDist = math.abs(cruiseY - targetPos.Y)
-            local twDescent = TweenService:Create(hrp, TweenInfo.new(descentDist / speed, Enum.EasingStyle.Linear), {CFrame = targetCF})
-            _G.Unknown_TravelTween = twDescent
-            twDescent:Play()
-            twDescent.Completed:Wait()
-            if _G.Unknown_TravelTweenID ~= currentTweenID then return end
-
-            hrp.CFrame = targetCF
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-
-            isTraveling = false
-            _G.Unknown_TravelTween = nil
-            if callback then callback() end
-        end)
-    else
-        -- Direct Smooth Linear Tween for Local / Medium Distances
-        local travelTime = math.clamp(dist / speed, 0.05, 12)
-        local tw = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
-        _G.Unknown_TravelTween = tw
-        tw.Completed:Connect(function()
-            if _G.Unknown_TravelTweenID ~= currentTweenID then return end
-            hrp.CFrame = targetCF
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            isTraveling = false
-            _G.Unknown_TravelTween = nil
-            if callback then callback() end
-        end)
-        tw:Play()
+    -- SINGLE CONTINUOUS LINEAR TWEEN (100% FLUID, ZERO SHAKING, ZERO RUBBERBAND)
+    -- Elevate target altitude above water level (min Y = 45) so character glides smoothly over ocean
+    local flightCF = targetCF
+    if dist > 200 and flightCF.Position.Y < 45 then
+        flightCF = CFrame.new(flightCF.Position.X, 45, flightCF.Position.Z) * flightCF.Rotation
     end
+
+    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = flightCF})
+    _G.Unknown_TravelTween = tw
+    tw.Completed:Connect(function()
+        if _G.Unknown_TravelTweenID ~= currentTweenID then return end
+        hrp.CFrame = targetCF
+        if bv then
+            bv.Velocity = Vector3.zero
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        end
+        isTraveling = false
+        _G.Unknown_TravelTween = nil
+        if callback then callback() end
+    end)
+    tw:Play()
 end
 
 local function autoEquipSelectedWeapon(forceType)
@@ -4207,12 +4254,8 @@ _G.startUnknownFarm = function()
                 end
             end
 
-            if tick() - lastToolRefresh > 5 then
-                lastToolRefresh = tick()
-                autoEquipSelectedWeapon(weaponToEquip)
-            end
-
-            local activeTool = autoEquipSelectedWeapon(weaponToEquip)
+            -- Respect user's active tool without constantly force-equipping punch
+            local activeTool = char:FindFirstChildOfClass("Tool")
 
             local bv = getTabBV(playerHRP)
             bv.Velocity = Vector3.zero
@@ -4230,20 +4273,14 @@ _G.startUnknownFarm = function()
             local hoverAnchorCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
             local distToAnchor = (playerHRP.Position - hoverAnchorCF.Position).Magnitude
 
-            -- 1. QUEST GIVER PRE-FLIGHT CHECK: Never attack mobs without active quest!
-            local hasActiveQuest = false
-            pcall(function()
-                local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-                local mainUI = playerGui and playerGui:FindFirstChild("Main")
-                local questFrame = mainUI and mainUI:FindFirstChild("Quest")
-                hasActiveQuest = (questFrame and questFrame.Visible == true)
-            end)
+            -- 1. SMART QUEST PRE-CHECK: Verified via TrackedQuestFrame & Main.Quest
+            local hasActiveQuest = hasActivePlayerQuest()
 
             if isAutoQuestOn and not hasActiveQuest then
                 local questGiverCF = getQuestGiverCFrame(targetData)
                 if questGiverCF then
                     local distToQG = (playerHRP.Position - questGiverCF.Position).Magnitude
-                    if distToQG > 35 then
+                    if distToQG > 45 then
                         farmStatusLabel.Text = string.format("Lvl %d | Traveling to %s Quest Giver...", currentLevel, displayName)
                         if not isTraveling then
                             safeTweenToIsland(questGiverCF + Vector3.new(0, 5, 0))
@@ -4252,7 +4289,7 @@ _G.startUnknownFarm = function()
                     else
                         if isTraveling then _G.Unknown_CancelTween() isTraveling = false end
                         farmStatusLabel.Text = string.format("Lvl %d | Claiming %s Quest...", currentLevel, displayName)
-                        if tick() - lastQuestClaim > 1.5 then
+                        if tick() - lastQuestClaim > 1.2 then
                             lastQuestClaim = tick()
                             autoClaimQuest(targetData.QuestName, targetData.QuestLevel)
                         end
