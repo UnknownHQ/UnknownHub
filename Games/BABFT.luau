@@ -676,9 +676,13 @@ local function exportPlayerBuild(targetPlayerName)
     for _, model in ipairs(playerBlocks:GetChildren()) do
         local ppart = model:FindFirstChild("PPart") or model:FindFirstChildWhichIsA("BasePart")
         if ppart then
-            table.insert(validEntries, {model = model, ppart = ppart})
-            minPos = minPos:Min(ppart.Position)
-            maxPos = maxPos:Max(ppart.Position)
+            local pos = ppart.Position
+            -- Sanity filter: Ignore physics flung / void parts (e.g. glitch boats at millions of studs)
+            if math.abs(pos.X) <= 1500 and pos.Y >= -500 and pos.Y <= 2000 and pos.Z >= -1000 and pos.Z <= 12000 then
+                table.insert(validEntries, {model = model, ppart = ppart})
+                minPos = minPos:Min(pos)
+                maxPos = maxPos:Max(pos)
+            end
         end
     end
 
