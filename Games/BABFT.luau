@@ -723,90 +723,88 @@ local function showMissingBlocksHUD(missingList)
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = pGui
 
-    local totalMissingCount = 0
-    for _, item in ipairs(missingList) do
-        totalMissingCount = totalMissingCount + item.missing
-    end
-
+    -- Authentic BABFT Blueprint Panel Design (100% Stealth & Natural)
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
     mainFrame.AnchorPoint = Vector2.new(0.5, 0)
-    mainFrame.Position = UDim2.new(0.5, 0, 0, -140)
-    mainFrame.Size = UDim2.new(0, math.min(680, math.max(480, #missingList * 165 + 30)), 0, 120)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
-    mainFrame.BackgroundTransparency = 0.08
+    mainFrame.Position = UDim2.new(0.5, 0, 0, -160)
+    mainFrame.Size = UDim2.new(0, math.min(560, math.max(440, #missingList * 85 + 160)), 0, 135)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(36, 42, 56)
     mainFrame.BorderSizePixel = 0
     mainFrame.Parent = screenGui
 
     local uicorner = Instance.new("UICorner")
-    uicorner.CornerRadius = UDim.new(0, 10)
+    uicorner.CornerRadius = UDim.new(0, 12)
     uicorner.Parent = mainFrame
 
     local uistroke = Instance.new("UIStroke")
-    uistroke.Color = Color3.fromRGB(245, 160, 35)
-    uistroke.Thickness = 1.5
-    uistroke.Transparency = 0.15
+    uistroke.Color = Color3.fromRGB(65, 78, 105)
+    uistroke.Thickness = 2
     uistroke.Parent = mainFrame
 
-    local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 30)
-    header.BackgroundTransparency = 1
-    header.Parent = mainFrame
+    -- Title Bar (Natural Game Blueprint Styling)
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 32)
+    titleBar.BackgroundColor3 = Color3.fromRGB(28, 33, 45)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+
+    local tCorner = Instance.new("UICorner")
+    tCorner.CornerRadius = UDim.new(0, 12)
+    tCorner.Parent = titleBar
+
+    local flatCover = Instance.new("Frame")
+    flatCover.Position = UDim2.new(0, 0, 1, -6)
+    flatCover.Size = UDim2.new(1, 0, 0, 6)
+    flatCover.BackgroundColor3 = Color3.fromRGB(28, 33, 45)
+    flatCover.BorderSizePixel = 0
+    flatCover.Parent = titleBar
 
     local title = Instance.new("TextLabel")
-    title.Position = UDim2.new(0, 14, 0, 2)
-    title.Size = UDim2.new(0.55, 0, 1, 0)
+    title.Position = UDim2.new(0, 14, 0, 0)
+    title.Size = UDim2.new(0.6, 0, 1, 0)
     title.BackgroundTransparency = 1
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 13
-    title.TextColor3 = Color3.fromRGB(245, 180, 50)
+    title.Font = Enum.Font.SourceSansBold
+    title.TextSize = 16
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
     title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Text = string.format("⚠️ MISSING BLOCKS (%d Missing across %d Types)", totalMissingCount, #missingList)
-    title.Parent = header
+    title.Text = "Boat Blueprint — Required Materials"
+    title.Parent = titleBar
 
-    local buyBtn = Instance.new("TextButton")
-    buyBtn.Position = UDim2.new(0.56, 0, 0, 4)
-    buyBtn.Size = UDim2.new(0, 160, 0, 22)
-    buyBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 120)
-    buyBtn.BorderSizePixel = 0
-    buyBtn.Font = Enum.Font.GothamBold
-    buyBtn.TextSize = 11
-    buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    buyBtn.Text = "🛒 Buy Missing with Gold"
-    buyBtn.Parent = header
-
-    local buyCorner = Instance.new("UICorner")
-    buyCorner.CornerRadius = UDim.new(0, 6)
-    buyCorner.Parent = buyBtn
-
-    local timerLabel = Instance.new("TextLabel")
-    timerLabel.Position = UDim2.new(0.83, 0, 0, 2)
-    timerLabel.Size = UDim2.new(0.12, 0, 1, 0)
-    timerLabel.BackgroundTransparency = 1
-    timerLabel.Font = Enum.Font.Gotham
-    timerLabel.TextSize = 11
-    timerLabel.TextColor3 = Color3.fromRGB(160, 175, 195)
-    timerLabel.TextXAlignment = Enum.TextXAlignment.Right
-    timerLabel.Text = "15s"
-    timerLabel.Parent = header
+    local timer = Instance.new("TextLabel")
+    timer.Position = UDim2.new(0.62, 0, 0, 0)
+    timer.Size = UDim2.new(0.28, 0, 1, 0)
+    timer.BackgroundTransparency = 1
+    timer.Font = Enum.Font.SourceSans
+    timer.TextSize = 13
+    timer.TextColor3 = Color3.fromRGB(150, 165, 185)
+    timer.TextXAlignment = Enum.TextXAlignment.Right
+    timer.Text = "Auto-close in 15s"
+    timer.Parent = titleBar
 
     local closeBtn = Instance.new("TextButton")
-    closeBtn.Position = UDim2.new(1, -26, 0, 4)
-    closeBtn.Size = UDim2.new(0, 20, 0, 20)
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 13
-    closeBtn.TextColor3 = Color3.fromRGB(180, 190, 205)
+    closeBtn.Position = UDim2.new(1, -28, 0, 4)
+    closeBtn.Size = UDim2.new(0, 24, 0, 24)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(50, 58, 76)
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Font = Enum.Font.SourceSansBold
+    closeBtn.TextSize = 14
+    closeBtn.TextColor3 = Color3.fromRGB(220, 225, 235)
     closeBtn.Text = "✕"
-    closeBtn.Parent = header
+    closeBtn.Parent = titleBar
 
+    local cCorner = Instance.new("UICorner")
+    cCorner.CornerRadius = UDim.new(0, 6)
+    cCorner.Parent = closeBtn
+
+    -- Block Slot Gallery (Styled like BABFT's native inventory grid)
     local scroll = Instance.new("ScrollingFrame")
-    scroll.Position = UDim2.new(0, 10, 0, 34)
-    scroll.Size = UDim2.new(1, -20, 0, 76)
+    scroll.Position = UDim2.new(0, 12, 0, 40)
+    scroll.Size = UDim2.new(1, -150, 0, 85)
     scroll.BackgroundTransparency = 1
     scroll.BorderSizePixel = 0
-    scroll.ScrollBarThickness = 3
-    scroll.ScrollBarImageColor3 = Color3.fromRGB(245, 160, 35)
+    scroll.ScrollBarThickness = 4
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 95, 125)
     scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
     scroll.AutomaticCanvasSize = Enum.AutomaticSize.X
     scroll.Parent = mainFrame
@@ -817,71 +815,95 @@ local function showMissingBlocksHUD(missingList)
     layout.Padding = UDim.new(0, 8)
     layout.Parent = scroll
 
-    for i, it in ipairs(missingList) do
-        local card = Instance.new("Frame")
-        card.Size = UDim2.new(0, 155, 0, 64)
-        card.BackgroundColor3 = Color3.fromRGB(24, 27, 38)
-        card.BorderSizePixel = 0
-        card.Parent = scroll
+    for _, it in ipairs(missingList) do
+        local slot = Instance.new("Frame")
+        slot.Size = UDim2.new(0, 75, 0, 78)
+        slot.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
+        slot.BorderSizePixel = 0
+        slot.Parent = scroll
 
-        local cCorner = Instance.new("UICorner")
-        cCorner.CornerRadius = UDim.new(0, 8)
-        cCorner.Parent = card
+        local sCorner = Instance.new("UICorner")
+        sCorner.CornerRadius = UDim.new(0, 8)
+        sCorner.Parent = slot
 
-        local cStroke = Instance.new("UIStroke")
-        cStroke.Color = Color3.fromRGB(50, 56, 75)
-        cStroke.Thickness = 1
-        cStroke.Parent = card
+        local sStroke = Instance.new("UIStroke")
+        sStroke.Color = Color3.fromRGB(55, 65, 85)
+        sStroke.Thickness = 1
+        sStroke.Parent = slot
 
         local img = Instance.new("ImageLabel")
-        img.Position = UDim2.new(0, 6, 0.5, -20)
-        img.Size = UDim2.new(0, 40, 0, 40)
+        img.Position = UDim2.new(0.5, -22, 0, 4)
+        img.Size = UDim2.new(0, 44, 0, 44)
         img.BackgroundTransparency = 1
         img.Image = getBlockImage(it.name)
-        img.Parent = card
+        img.Parent = slot
 
         local nameLbl = Instance.new("TextLabel")
-        nameLbl.Position = UDim2.new(0, 52, 0, 6)
-        nameLbl.Size = UDim2.new(1, -56, 0, 16)
+        nameLbl.Position = UDim2.new(0, 2, 0, 48)
+        nameLbl.Size = UDim2.new(1, -4, 0, 14)
         nameLbl.BackgroundTransparency = 1
-        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.Font = Enum.Font.SourceSans
         nameLbl.TextSize = 11
-        nameLbl.TextColor3 = Color3.fromRGB(235, 240, 250)
-        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextColor3 = Color3.fromRGB(180, 195, 215)
         nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-        nameLbl.Text = it.name
-        nameLbl.Parent = card
+        nameLbl.Text = it.name:gsub("Block", "")
+        nameLbl.Parent = slot
 
-        local countLbl = Instance.new("TextLabel")
-        countLbl.Position = UDim2.new(0, 52, 0, 24)
-        countLbl.Size = UDim2.new(1, -56, 0, 14)
-        countLbl.BackgroundTransparency = 1
-        countLbl.Font = Enum.Font.GothamBold
-        countLbl.TextSize = 10
-        countLbl.TextColor3 = Color3.fromRGB(255, 85, 85)
-        countLbl.TextXAlignment = Enum.TextXAlignment.Left
-        countLbl.Text = string.format("Missing: -%d", it.missing)
-        countLbl.Parent = card
-
-        local haveLbl = Instance.new("TextLabel")
-        haveLbl.Position = UDim2.new(0, 52, 0, 40)
-        haveLbl.Size = UDim2.new(1, -56, 0, 14)
-        haveLbl.BackgroundTransparency = 1
-        haveLbl.Font = Enum.Font.Gotham
-        haveLbl.TextSize = 9
-        haveLbl.TextColor3 = Color3.fromRGB(140, 155, 175)
-        haveLbl.TextXAlignment = Enum.TextXAlignment.Left
-        haveLbl.Text = string.format("Have: %d | Need: %d", it.owned, it.needed)
-        haveLbl.Parent = card
+        local countBadge = Instance.new("TextLabel")
+        countBadge.Position = UDim2.new(0, 2, 0, 62)
+        countBadge.Size = UDim2.new(1, -4, 0, 14)
+        countBadge.BackgroundTransparency = 1
+        countBadge.Font = Enum.Font.SourceSansBold
+        countBadge.TextSize = 12
+        countBadge.TextColor3 = Color3.fromRGB(255, 120, 120)
+        countBadge.Text = string.format("-%d (%d/%d)", it.missing, it.owned, it.needed)
+        countBadge.Parent = slot
     end
 
+    -- Action Frame (Innocent shop / dismiss actions)
+    local actionFrame = Instance.new("Frame")
+    actionFrame.Position = UDim2.new(1, -132, 0, 40)
+    actionFrame.Size = UDim2.new(0, 120, 0, 85)
+    actionFrame.BackgroundTransparency = 1
+    actionFrame.Parent = mainFrame
+
+    local buyBtn = Instance.new("TextButton")
+    buyBtn.Size = UDim2.new(1, 0, 0, 38)
+    buyBtn.BackgroundColor3 = Color3.fromRGB(38, 166, 91)
+    buyBtn.BorderSizePixel = 0
+    buyBtn.Font = Enum.Font.SourceSansBold
+    buyBtn.TextSize = 14
+    buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    buyBtn.Text = "🛒 Buy in Shop"
+    buyBtn.Parent = actionFrame
+
+    local bCorner = Instance.new("UICorner")
+    bCorner.CornerRadius = UDim.new(0, 8)
+    bCorner.Parent = buyBtn
+
+    local dismissBtn = Instance.new("TextButton")
+    dismissBtn.Position = UDim2.new(0, 0, 0, 44)
+    dismissBtn.Size = UDim2.new(1, 0, 0, 32)
+    dismissBtn.BackgroundColor3 = Color3.fromRGB(50, 58, 76)
+    dismissBtn.BorderSizePixel = 0
+    dismissBtn.Font = Enum.Font.SourceSans
+    dismissBtn.TextSize = 13
+    dismissBtn.TextColor3 = Color3.fromRGB(200, 210, 225)
+    dismissBtn.Text = "Dismiss"
+    dismissBtn.Parent = actionFrame
+
+    local dCorner = Instance.new("UICorner")
+    dCorner.CornerRadius = UDim.new(0, 8)
+    dCorner.Parent = dismissBtn
+
     local function dismiss()
-        mainFrame:TweenPosition(UDim2.new(0.5, 0, 0, -150), Enum.EasingDirection.In, Enum.EasingStyle.Quad, 0.35, true, function()
+        mainFrame:TweenPosition(UDim2.new(0.5, 0, 0, -170), Enum.EasingDirection.In, Enum.EasingStyle.Quad, 0.3, true, function()
             screenGui:Destroy()
         end)
     end
 
     closeBtn.MouseButton1Click:Connect(dismiss)
+    dismissBtn.MouseButton1Click:Connect(dismiss)
 
     buyBtn.MouseButton1Click:Connect(function()
         buyBtn.Text = "Buying..."
@@ -901,20 +923,20 @@ local function showMissingBlocksHUD(missingList)
             end
         end
         if boughtAny then
-            Hub.Notify({ Title = "Build Stealer", Content = "Purchased missing blocks with Gold!", Duration = 3 })
+            Hub.Notify({ Title = "Shop", Content = "Purchased blueprint materials!", Duration = 3 })
             dismiss()
         else
-            Hub.Notify({ Title = "Build Stealer", Content = "Some missing blocks cannot be bought from shop.", Duration = 3 })
+            Hub.Notify({ Title = "Shop", Content = "Some items are not sold in shop.", Duration = 3 })
             buyBtn.Text = "Done"
         end
     end)
 
-    mainFrame:TweenPosition(UDim2.new(0.5, 0, 0, 25), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.45, true)
+    mainFrame:TweenPosition(UDim2.new(0.5, 0, 0, 20), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.45, true)
 
     task.spawn(function()
         for remaining = 15, 1, -1 do
             if not screenGui.Parent then break end
-            timerLabel.Text = string.format("%ds", remaining)
+            timer.Text = string.format("Auto-close in %ds", remaining)
             task.wait(1)
         end
         if screenGui.Parent then dismiss() end
