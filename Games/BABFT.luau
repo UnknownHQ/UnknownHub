@@ -1036,6 +1036,29 @@ local function exportPlayerBuild(targetPlayerName)
     local teamColorName = targetTeam and targetTeam.TeamColor.Name
     local targetZone = teamColorName and Workspace:FindFirstChild(teamColorName .. "Zone")
 
+    -- Robust fallback mapping for BABFT custom zone names (CamoZone, New YellerZone, Really redZone, Really blueZone)
+    local TEAM_ZONE_MAP = {
+        white = "WhiteZone",
+        blue = "Really blueZone",
+        green = "CamoZone",
+        red = "Really redZone",
+        black = "BlackZone",
+        yellow = "New YellerZone",
+        magenta = "MagentaZone"
+    }
+    if not targetZone and targetTeam then
+        local mappedName = TEAM_ZONE_MAP[targetTeam.Name:lower()]
+        targetZone = mappedName and Workspace:FindFirstChild(mappedName)
+    end
+    if not targetZone then
+        for _, z in ipairs(Workspace:GetChildren()) do
+            if z.Name:find("Zone") and targetTeam and (z.Name:lower():find(targetTeam.Name:lower()) or (teamColorName and z.Name:lower():find(teamColorName:lower()))) then
+                targetZone = z
+                break
+            end
+        end
+    end
+
     if not targetZone then
         Hub.Notify({ Title = "Build Stealer", Content = "Could not locate target player's team zone!", Duration = 3 })
         return nil
@@ -1043,13 +1066,15 @@ local function exportPlayerBuild(targetPlayerName)
 
     local targetDockCF = getZoneDockCF(targetZone)
 
-    -- Collect all folders belonging to this team (supports multi-builder teams and friends)
+    -- Collect all folders belonging to this team (supports multi-builder teams, friends, and guest builders)
     local candidateFolders = {}
     if targetTeam then
         for _, pl in ipairs(targetTeam:GetPlayers()) do
-            local f = blocksFolder:FindFirstChild(pl.Name)
-            if f and #f:GetChildren() > 0 then
-                table.insert(candidateFolders, f)
+            if pl ~= LocalPlayer or pl.Name == targetPlayerName then
+                local f = blocksFolder:FindFirstChild(pl.Name)
+                if f and #f:GetChildren() > 0 then
+                    table.insert(candidateFolders, f)
+                end
             end
         end
     end
@@ -1441,7 +1466,9 @@ local function constructBuildOnMyIsland(buildKey)
             if sRF then
                 for _, m in ipairs(matched) do
                     local sz = m.size
-                    if sz and (math.abs(sz.X - 2) > 0.05 or math.abs(sz.Y - 2) > 0.05 or math.abs(sz.Z - 2) > 0.05) then
+                    local p = m.block:FindFirstChild("PPart") or m.block:FindFirstChildWhichIsA("BasePart")
+                    local curSz = p and p.Size or Vector3.new(2, 2, 2)
+                    if sz and (math.abs(sz.X - curSz.X) > 0.05 or math.abs(sz.Y - curSz.Y) > 0.05 or math.abs(sz.Z - curSz.Z) > 0.05) then
                         pcall(function()
                             sRF:InvokeServer(m.block, sz, m.worldCF)
                         end)
@@ -1489,7 +1516,7 @@ local function constructBuildOnMyIsland(buildKey)
         if finalBlockCount == 0 and skipped > 0 then
             Hub.Notify({
                 Title = "Blueprint Incomplete",
-                Content = string.format("Could not build: all %d blocks are missing from your inventory! Click 'Buy in Shop' on the blueprint to get them.", skipped),
+                Content = string.format("Could not build: missing %d required materials in your inventory.", skipped),
                 Duration = 5
             })
         elseif finalBlockCount == 0 then
