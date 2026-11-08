@@ -127,7 +127,8 @@ local State = {
     SelectedSavedBuild = nil,
     SelectedGameSaveSlot = 1,
     Build_Anchored = true,
-    Build_AutoSubstitute = true,
+    Build_AutoSubstitute = false,
+    Build_ExactMaterial = true,
     Build_ScaleEnabled = true,
     Build_PaintEnabled = true,
 
@@ -641,6 +642,310 @@ end)
 Hub.CreateSection(buildTab, "METHOD 1: IN-SCRIPT BUILD MANAGER")
 
 -- Serialize target player's build into relative CFrame data (Centered & Zone-Aligned)
+-- =========================================================================
+-- MATERIAL FAMILIES & SHOP DEFINITIONS FOR BUILD STEALER
+-- =========================================================================
+local MATERIAL_FAMILIES = {
+    WoodBlock = "Wood",
+    SmoothWoodBlock = "Wood",
+    PlasticBlock = "SmoothPlastic",
+    ConcreteBlock = "Stone",
+    StoneBlock = "Stone",
+    ObsidianBlock = "Stone",
+    TitaniumBlock = "Metal",
+    MetalBlock = "Metal",
+    RustedBlock = "Metal",
+    BrickBlock = "Brick",
+    GlassBlock = "Glass",
+    IceBlock = "Ice",
+    FabricBlock = "Fabric",
+    SandBlock = "Sand",
+    CoalBlock = "Coal",
+    NeonBlock = "Neon",
+    GoldBlock = "Gold"
+}
+
+local FAMILY_SUBSTITUTES = {
+    Wood = {"SmoothWoodBlock", "WoodBlock"},
+    SmoothPlastic = {"PlasticBlock", "SmoothWoodBlock"},
+    Metal = {"TitaniumBlock", "MetalBlock", "RustedBlock"},
+    Stone = {"StoneBlock", "ConcreteBlock", "ObsidianBlock"},
+    Brick = {"BrickBlock"},
+    Glass = {"GlassBlock"},
+    Ice = {"IceBlock"},
+    Fabric = {"FabricBlock"}
+}
+
+local SHOP_ITEMS_MAP = {
+    WoodBlock = { ShopItem = "WoodBlock", PackQty = 50, Price = 250 },
+    SmoothWoodBlock = { ShopItem = "SmoothWoodBlock", PackQty = 50, Price = 250 },
+    PlasticBlock = { ShopItem = "PlasticBlock", PackQty = 50, Price = 300 },
+    BrickBlock = { ShopItem = "BrickBlock", PackQty = 50, Price = 250 },
+    ConcreteBlock = { ShopItem = "ConcreteBlock", PackQty = 50, Price = 250 },
+    MarbleBlock = { ShopItem = "MarbleBlock", PackQty = 50, Price = 300 },
+    ObsidianBlock = { ShopItem = "ObsidianBlock", PackQty = 50, Price = 450 },
+    TitaniumBlock = { ShopItem = "TitaniumBlock", PackQty = 50, Price = 450 },
+    MetalBlock = { ShopItem = "MetalBlock", PackQty = 50, Price = 350 },
+    RustedBlock = { ShopItem = "RustedBlock", PackQty = 50, Price = 200 },
+    IceBlock = { ShopItem = "IceBlock", PackQty = 50, Price = 150 },
+    GlassBlock = { ShopItem = "GlassBlock", PackQty = 50, Price = 300 },
+    SandBlock = { ShopItem = "SandBlock", PackQty = 50, Price = 150 },
+    StoneBlock = { ShopItem = "StoneBlock", PackQty = 50, Price = 200 },
+    FabricBlock = { ShopItem = "FabricBlock", PackQty = 50, Price = 300 },
+    FrontWheel = { ShopItem = "Car Parts", PackQty = 4, Price = 750 },
+    BackWheel = { ShopItem = "Car Parts", PackQty = 4, Price = 750 },
+    CarSeat = { ShopItem = "Car Parts", PackQty = 1, Price = 750 },
+    Seat = { ShopItem = "Car Parts", PackQty = 1, Price = 750 },
+    Piston = { ShopItem = "Pistons", PackQty = 4, Price = 450 },
+    Hinge = { ShopItem = "HingeBlocks", PackQty = 4, Price = 400 },
+    Balloons = { ShopItem = "Balloons", PackQty = 25, Price = 250 }
+}
+
+local function getBlockImage(name)
+    local btn = LocalPlayer.PlayerGui.BuildGui:FindFirstChild(name, true) or LocalPlayer.PlayerGui.ShopGui:FindFirstChild(name, true)
+    if btn and (btn:IsA("ImageButton") or btn:IsA("ImageLabel")) and btn.Image and #btn.Image > 0 then
+        return btn.Image
+    end
+    return "rbxassetid://4597411234"
+end
+
+local function showMissingBlocksHUD(missingList)
+    if not missingList or #missingList == 0 then return end
+
+    local pGui = LocalPlayer:WaitForChild("PlayerGui")
+    if pGui:FindFirstChild("Unknown_MissingBlocksHUD") then
+        pGui.Unknown_MissingBlocksHUD:Destroy()
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "Unknown_MissingBlocksHUD"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = pGui
+
+    local totalMissingCount = 0
+    for _, item in ipairs(missingList) do
+        totalMissingCount = totalMissingCount + item.missing
+    end
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.AnchorPoint = Vector2.new(0.5, 0)
+    mainFrame.Position = UDim2.new(0.5, 0, 0, -140)
+    mainFrame.Size = UDim2.new(0, math.min(680, math.max(480, #missingList * 165 + 30)), 0, 120)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
+    mainFrame.BackgroundTransparency = 0.08
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+
+    local uicorner = Instance.new("UICorner")
+    uicorner.CornerRadius = UDim.new(0, 10)
+    uicorner.Parent = mainFrame
+
+    local uistroke = Instance.new("UIStroke")
+    uistroke.Color = Color3.fromRGB(245, 160, 35)
+    uistroke.Thickness = 1.5
+    uistroke.Transparency = 0.15
+    uistroke.Parent = mainFrame
+
+    local header = Instance.new("Frame")
+    header.Size = UDim2.new(1, 0, 0, 30)
+    header.BackgroundTransparency = 1
+    header.Parent = mainFrame
+
+    local title = Instance.new("TextLabel")
+    title.Position = UDim2.new(0, 14, 0, 2)
+    title.Size = UDim2.new(0.55, 0, 1, 0)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 13
+    title.TextColor3 = Color3.fromRGB(245, 180, 50)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Text = string.format("⚠️ MISSING BLOCKS (%d Missing across %d Types)", totalMissingCount, #missingList)
+    title.Parent = header
+
+    local buyBtn = Instance.new("TextButton")
+    buyBtn.Position = UDim2.new(0.56, 0, 0, 4)
+    buyBtn.Size = UDim2.new(0, 160, 0, 22)
+    buyBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 120)
+    buyBtn.BorderSizePixel = 0
+    buyBtn.Font = Enum.Font.GothamBold
+    buyBtn.TextSize = 11
+    buyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    buyBtn.Text = "🛒 Buy Missing with Gold"
+    buyBtn.Parent = header
+
+    local buyCorner = Instance.new("UICorner")
+    buyCorner.CornerRadius = UDim.new(0, 6)
+    buyCorner.Parent = buyBtn
+
+    local timerLabel = Instance.new("TextLabel")
+    timerLabel.Position = UDim2.new(0.83, 0, 0, 2)
+    timerLabel.Size = UDim2.new(0.12, 0, 1, 0)
+    timerLabel.BackgroundTransparency = 1
+    timerLabel.Font = Enum.Font.Gotham
+    timerLabel.TextSize = 11
+    timerLabel.TextColor3 = Color3.fromRGB(160, 175, 195)
+    timerLabel.TextXAlignment = Enum.TextXAlignment.Right
+    timerLabel.Text = "15s"
+    timerLabel.Parent = header
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Position = UDim2.new(1, -26, 0, 4)
+    closeBtn.Size = UDim2.new(0, 20, 0, 20)
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 13
+    closeBtn.TextColor3 = Color3.fromRGB(180, 190, 205)
+    closeBtn.Text = "✕"
+    closeBtn.Parent = header
+
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Position = UDim2.new(0, 10, 0, 34)
+    scroll.Size = UDim2.new(1, -20, 0, 76)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel = 0
+    scroll.ScrollBarThickness = 3
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(245, 160, 35)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+    scroll.Parent = mainFrame
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Horizontal
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 8)
+    layout.Parent = scroll
+
+    for i, it in ipairs(missingList) do
+        local card = Instance.new("Frame")
+        card.Size = UDim2.new(0, 155, 0, 64)
+        card.BackgroundColor3 = Color3.fromRGB(24, 27, 38)
+        card.BorderSizePixel = 0
+        card.Parent = scroll
+
+        local cCorner = Instance.new("UICorner")
+        cCorner.CornerRadius = UDim.new(0, 8)
+        cCorner.Parent = card
+
+        local cStroke = Instance.new("UIStroke")
+        cStroke.Color = Color3.fromRGB(50, 56, 75)
+        cStroke.Thickness = 1
+        cStroke.Parent = card
+
+        local img = Instance.new("ImageLabel")
+        img.Position = UDim2.new(0, 6, 0.5, -20)
+        img.Size = UDim2.new(0, 40, 0, 40)
+        img.BackgroundTransparency = 1
+        img.Image = getBlockImage(it.name)
+        img.Parent = card
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Position = UDim2.new(0, 52, 0, 6)
+        nameLbl.Size = UDim2.new(1, -56, 0, 16)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.Font = Enum.Font.GothamBold
+        nameLbl.TextSize = 11
+        nameLbl.TextColor3 = Color3.fromRGB(235, 240, 250)
+        nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+        nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLbl.Text = it.name
+        nameLbl.Parent = card
+
+        local countLbl = Instance.new("TextLabel")
+        countLbl.Position = UDim2.new(0, 52, 0, 24)
+        countLbl.Size = UDim2.new(1, -56, 0, 14)
+        countLbl.BackgroundTransparency = 1
+        countLbl.Font = Enum.Font.GothamBold
+        countLbl.TextSize = 10
+        countLbl.TextColor3 = Color3.fromRGB(255, 85, 85)
+        countLbl.TextXAlignment = Enum.TextXAlignment.Left
+        countLbl.Text = string.format("Missing: -%d", it.missing)
+        countLbl.Parent = card
+
+        local haveLbl = Instance.new("TextLabel")
+        haveLbl.Position = UDim2.new(0, 52, 0, 40)
+        haveLbl.Size = UDim2.new(1, -56, 0, 14)
+        haveLbl.BackgroundTransparency = 1
+        haveLbl.Font = Enum.Font.Gotham
+        haveLbl.TextSize = 9
+        haveLbl.TextColor3 = Color3.fromRGB(140, 155, 175)
+        haveLbl.TextXAlignment = Enum.TextXAlignment.Left
+        haveLbl.Text = string.format("Have: %d | Need: %d", it.owned, it.needed)
+        haveLbl.Parent = card
+    end
+
+    local function dismiss()
+        mainFrame:TweenPosition(UDim2.new(0.5, 0, 0, -150), Enum.EasingDirection.In, Enum.EasingStyle.Quad, 0.35, true, function()
+            screenGui:Destroy()
+        end)
+    end
+
+    closeBtn.MouseButton1Click:Connect(dismiss)
+
+    buyBtn.MouseButton1Click:Connect(function()
+        buyBtn.Text = "Buying..."
+        local boughtAny = false
+        for _, it in ipairs(missingList) do
+            local info = SHOP_ITEMS_MAP[it.name]
+            if info then
+                local packsNeeded = math.ceil(it.missing / info.PackQty)
+                pcall(function()
+                    LocalPlayer.PlayerGui.ItemGained.LastItemBoughtName.Value = info.ShopItem
+                    for p = 1, packsNeeded do
+                        Workspace.ItemBoughtFromShop:InvokeServer(info.ShopItem, 1)
+                        task.wait(0.2)
+                    end
+                    boughtAny = true
+                end)
+            end
+        end
+        if boughtAny then
+            Hub.Notify({ Title = "Build Stealer", Content = "Purchased missing blocks with Gold!", Duration = 3 })
+            dismiss()
+        else
+            Hub.Notify({ Title = "Build Stealer", Content = "Some missing blocks cannot be bought from shop.", Duration = 3 })
+            buyBtn.Text = "Done"
+        end
+    end)
+
+    mainFrame:TweenPosition(UDim2.new(0.5, 0, 0, 25), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.45, true)
+
+    task.spawn(function()
+        for remaining = 15, 1, -1 do
+            if not screenGui.Parent then break end
+            timerLabel.Text = string.format("%ds", remaining)
+            task.wait(1)
+        end
+        if screenGui.Parent then dismiss() end
+    end)
+end
+
+local function checkBuildMissingBlocks(buildData)
+    if not buildData or not buildData.Blocks then return {} end
+    local needed = {}
+    for _, b in ipairs(buildData.Blocks) do
+        needed[b.Name] = (needed[b.Name] or 0) + 1
+    end
+
+    local missingList = {}
+    for name, count in pairs(needed) do
+        local itemData = LocalPlayer.Data:FindFirstChild(name)
+        local owned = itemData and itemData.Value or 0
+        if owned < count then
+            table.insert(missingList, {
+                name = name,
+                needed = count,
+                owned = owned,
+                missing = count - owned
+            })
+        end
+    end
+
+    table.sort(missingList, function(a, b) return a.missing > b.missing end)
+    return missingList
+end
+
 -- Canonical dock coordinate system for any plot
 local function getZoneDockCF(zone)
     local pos = zone.Position
@@ -755,9 +1060,14 @@ local function exportPlayerBuild(targetPlayerName)
         end
     end)
 
+    local missingList = checkBuildMissingBlocks(buildData)
+    if #missingList > 0 then
+        showMissingBlocksHUD(missingList)
+    end
+
     Hub.Notify({
         Title = "Build Exported!",
-        Content = string.format("Successfully saved %d blocks from %s!", buildData.BlockCount, targetPlayerName),
+        Content = string.format("Successfully saved %d blocks from %s! (Missing: %d)", buildData.BlockCount, targetPlayerName, #missingList),
         Duration = 4
     })
     return buildData
@@ -861,6 +1171,11 @@ local function constructBuildOnMyIsland(buildKey)
     local myDockCF = getZoneDockCF(myZone)
     local isAnchored = State.Build_Anchored ~= false
 
+    local missingList = checkBuildMissingBlocks(data)
+    if #missingList > 0 then
+        showMissingBlocksHUD(missingList)
+    end
+
     Hub.Notify({
         Title = "Build Stealer",
         Content = string.format("Constructing %d REAL blocks onto your plot...", #data.Blocks),
@@ -898,35 +1213,66 @@ local function constructBuildOnMyIsland(buildKey)
             local itemData = LocalPlayer.Data:FindFirstChild(blockToUse)
             local curVal = itemData and itemData.Value or 0
 
-            -- If player does not own this block, safely substitute ONLY with solid building blocks or seats/wheels
+            -- If player does not own this block, enforce material matching or handle substitution
             if curVal <= 0 then
-                if State.Build_AutoSubstitute then
-                    if blockToUse:lower():find("seat") then
-                        if (LocalPlayer.Data:FindFirstChild("Throne") and LocalPlayer.Data.Throne.Value > 0) then
-                            blockToUse = "Throne"
-                        elseif (LocalPlayer.Data:FindFirstChild("CarSeat") and LocalPlayer.Data.CarSeat.Value > 0) then
-                            blockToUse = "CarSeat"
-                        elseif (LocalPlayer.Data:FindFirstChild("PilotSeat") and LocalPlayer.Data.PilotSeat.Value > 0) then
-                            blockToUse = "PilotSeat"
-                        else
-                            blockToUse = getBestFallback()
+                if State.Build_ExactMaterial then
+                    -- Strict material match: ONLY allow blocks from the EXACT same material family
+                    local family = MATERIAL_FAMILIES[blockToUse]
+                    local familySubstitutes = family and FAMILY_SUBSTITUTES[family] or {}
+                    local foundSameMaterial = false
+
+                    for _, altName in ipairs(familySubstitutes) do
+                        local altData = LocalPlayer.Data:FindFirstChild(altName)
+                        if altData and altData.Value > 0 then
+                            blockToUse = altName
+                            itemData = altData
+                            curVal = altData.Value
+                            foundSameMaterial = true
+                            substituted = substituted + 1
+                            break
                         end
-                    elseif blockToUse:lower():find("wheel") then
-                        local foundWheel = false
-                        for _, it in ipairs(LocalPlayer.Data:GetChildren()) do
-                            if it.Name:lower():find("wheel") and it.Value > 0 then
-                                blockToUse = it.Name
-                                foundWheel = true
-                                break
-                            end
-                        end
-                        if not foundWheel then
-                            blockToUse = getBestFallback()
-                        end
-                    else
-                        blockToUse = getBestFallback()
                     end
 
+                    if not foundSameMaterial then
+                        -- For seats/wheels:
+                        if blockToUse:lower():find("seat") then
+                            if (LocalPlayer.Data:FindFirstChild("Throne") and LocalPlayer.Data.Throne.Value > 0) then
+                                blockToUse = "Throne"
+                                curVal = LocalPlayer.Data.Throne.Value
+                                substituted = substituted + 1
+                            elseif (LocalPlayer.Data:FindFirstChild("CarSeat") and LocalPlayer.Data.CarSeat.Value > 0) then
+                                blockToUse = "CarSeat"
+                                curVal = LocalPlayer.Data.CarSeat.Value
+                                substituted = substituted + 1
+                            else
+                                skipped = skipped + 1
+                                continue
+                            end
+                        elseif blockToUse:lower():find("wheel") then
+                            local foundWheel = false
+                            for _, it in ipairs(LocalPlayer.Data:GetChildren()) do
+                                if it.Name:lower():find("wheel") and it.Value > 0 then
+                                    blockToUse = it.Name
+                                    curVal = it.Value
+                                    foundWheel = true
+                                    substituted = substituted + 1
+                                    break
+                                end
+                            end
+                            if not foundWheel then
+                                skipped = skipped + 1
+                                continue
+                            end
+                        else
+                            -- Do NOT substitute with mismatched texture (e.g. no Brick on Wood/Plastic)
+                            skipped = skipped + 1
+                            continue
+                        end
+                    end
+                elseif State.Build_AutoSubstitute then
+                    -- Loose fallback: only active if user explicitly allows loose substitution
+                    local fallback = getBestFallback()
+                    blockToUse = fallback
                     itemData = LocalPlayer.Data:FindFirstChild(blockToUse)
                     curVal = itemData and itemData.Value or 0
                     if curVal <= 0 then
@@ -1061,12 +1407,73 @@ local function constructBuildOnMyIsland(buildKey)
     end)
 end
 
-Hub.CreateToggle(buildTab, "Auto-Substitute Missing Blocks", State.Build_AutoSubstitute, function(v)
+Hub.CreateToggle(buildTab, "Strict Material Match (No Texture Mismatch)", State.Build_ExactMaterial, function(v)
+    State.Build_ExactMaterial = v
+end)
+
+Hub.CreateToggle(buildTab, "Auto-Substitute Missing Blocks (Loose)", State.Build_AutoSubstitute, function(v)
     State.Build_AutoSubstitute = v
 end)
 
 Hub.CreateToggle(buildTab, "Build Anchored", State.Build_Anchored, function(v)
     State.Build_Anchored = v
+end)
+
+Hub.CreateButton(buildTab, "📋 Check Missing Blocks for Selected Build", function()
+    local targetName = State.SelectedTargetPlayer
+    if not targetName or targetName == "No Other Players" then
+        Hub.Notify({ Title = "Build Stealer", Content = "Please select a target player first!", Duration = 3 })
+        return
+    end
+    local activeData = State.SelectedSavedBuild and SavedBuilds[State.SelectedSavedBuild]
+    if not activeData or activeData.Author ~= targetName then
+        activeData = exportPlayerBuild(targetName)
+        if not activeData then return end
+    end
+    local missing = checkBuildMissingBlocks(activeData)
+    if #missing == 0 then
+        Hub.Notify({ Title = "Build Stealer", Content = "You own 100% of the blocks for this build!", Duration = 3 })
+    else
+        showMissingBlocksHUD(missing)
+    end
+end)
+
+Hub.CreateButton(buildTab, "🛒 Auto-Buy Missing Blocks with Gold", function()
+    local targetName = State.SelectedTargetPlayer
+    if not targetName or targetName == "No Other Players" then
+        Hub.Notify({ Title = "Build Stealer", Content = "Please select a target player first!", Duration = 3 })
+        return
+    end
+    local activeData = State.SelectedSavedBuild and SavedBuilds[State.SelectedSavedBuild]
+    if not activeData or activeData.Author ~= targetName then
+        activeData = exportPlayerBuild(targetName)
+        if not activeData then return end
+    end
+    local missing = checkBuildMissingBlocks(activeData)
+    if #missing == 0 then
+        Hub.Notify({ Title = "Build Stealer", Content = "No missing blocks! Ready to build.", Duration = 3 })
+        return
+    end
+    task.spawn(function()
+        local boughtAny = false
+        for _, it in ipairs(missing) do
+            local info = SHOP_ITEMS_MAP[it.name]
+            if info then
+                local packsNeeded = math.ceil(it.missing / info.PackQty)
+                LocalPlayer.PlayerGui.ItemGained.LastItemBoughtName.Value = info.ShopItem
+                for p = 1, packsNeeded do
+                    Workspace.ItemBoughtFromShop:InvokeServer(info.ShopItem, 1)
+                    task.wait(0.2)
+                end
+                boughtAny = true
+            end
+        end
+        if boughtAny then
+            Hub.Notify({ Title = "Build Stealer", Content = "Purchased missing blocks from shop!", Duration = 3 })
+        else
+            Hub.Notify({ Title = "Build Stealer", Content = "Items could not be purchased from shop.", Duration = 3 })
+        end
+    end)
 end)
 
 -- One-Click Build: Auto-exports target build if not yet cached, then builds immediately!
