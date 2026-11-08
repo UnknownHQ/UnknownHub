@@ -1279,13 +1279,20 @@ end
 
 -- Allowed solid structural fallback blocks in descending priority (NEVER BALLOONS OR FURNITURE)
 local SOLID_FALLBACKS = {
-    "TitaniumBlock",
-    "ObsidianBlock",
-    "BrickBlock",
+    "PlasticBlock",
+    "SmoothWoodBlock",
     "WoodBlock",
     "ConcreteBlock",
+    "StoneBlock",
+    "TitaniumBlock",
+    "MetalBlock",
+    "ObsidianBlock",
+    "BrickBlock",
     "RustedBlock",
-    "IceBlock"
+    "IceBlock",
+    "SandBlock",
+    "MarbleBlock",
+    "CoalBlock"
 }
 
 local function getBestSolidBlock(inv)
@@ -1296,6 +1303,15 @@ local function getBestSolidBlock(inv)
         if count > bestCount then
             bestCount = count
             bestName = name
+        end
+    end
+    -- Fallback to ANY structural block if standard list is depleted
+    if bestCount <= 0 then
+        for name, count in pairs(inv) do
+            if name:find("Block") and not name:find("Portal") and not name:find("Chest") and count > bestCount then
+                bestCount = count
+                bestName = name
+            end
         end
     end
     return bestName, bestCount
@@ -1603,7 +1619,7 @@ local function constructBuildOnMyIsland(buildKey, forceBuild)
             end
         end
 
-        -- Phase 4: Silent Property Configuration (Zero Tool Equipping)
+        -- Phase 4: Silent Property Configuration (Zero Tool Equipping - True BABFT Toggle & Increment Protocol)
         local propTool = LocalPlayer.Backpack:FindFirstChild("PropertiesTool") or (char and char:FindFirstChild("PropertiesTool"))
         local propRF = propTool and propTool:FindFirstChild("SetPropertieRF")
         local propCount = 0
@@ -1611,6 +1627,7 @@ local function constructBuildOnMyIsland(buildKey, forceBuild)
 
             local nonCollideModels = {}
             local noShadowModels = {}
+            local unanchoredModels = {}
             local transparencyGroups = {}
 
             for _, m in ipairs(matched) do
@@ -1620,6 +1637,9 @@ local function constructBuildOnMyIsland(buildKey, forceBuild)
                 if m.castShadow == false then
                     table.insert(noShadowModels, m.block)
                 end
+                if m.anchored == false and isAnchored then
+                    table.insert(unanchoredModels, m.block)
+                end
                 if m.transparency and m.transparency > 0.05 then
                     local roundedT = math.floor(m.transparency * 10 + 0.5) / 10
                     transparencyGroups[roundedT] = transparencyGroups[roundedT] or {}
@@ -1627,28 +1647,44 @@ local function constructBuildOnMyIsland(buildKey, forceBuild)
                 end
             end
 
+            -- In BABFT SetPropertieRF: "Collision" is a TOGGLE. Default placed blocks have Collision=true.
+            -- Invoking once with the block list cleanly toggles collision to FALSE.
             if #nonCollideModels > 0 then
                 pcall(function()
-                    propRF:InvokeServer("Collision", nonCollideModels, false)
+                    propRF:InvokeServer("Collision", nonCollideModels)
                 end)
                 propCount = propCount + #nonCollideModels
                 task.wait(0.08)
             end
 
+            -- In BABFT SetPropertieRF: "Cast shadow" is a TOGGLE.
             if #noShadowModels > 0 then
                 pcall(function()
-                    propRF:InvokeServer("Cast shadow", noShadowModels, false)
+                    propRF:InvokeServer("Cast shadow", noShadowModels)
                 end)
                 propCount = propCount + #noShadowModels
                 task.wait(0.08)
             end
 
-            for tVal, models in pairs(transparencyGroups) do
+            -- In BABFT SetPropertieRF: "Anchor" is a TOGGLE.
+            if #unanchoredModels > 0 then
                 pcall(function()
-                    propRF:InvokeServer("Transparency", models, tVal)
+                    propRF:InvokeServer("Anchor", unanchoredModels)
                 end)
-                propCount = propCount + #models
                 task.wait(0.08)
+            end
+
+            -- In BABFT SetPropertieRF: "Transparency" increments in steps of 0.25 (0 -> 0.25 -> 0.50 -> 0.75 -> 1.0)
+            for tVal, models in pairs(transparencyGroups) do
+                local clicks = math.clamp(math.round(tVal / 0.25), 1, 4)
+                for _ = 1, clicks do
+                    pcall(function()
+                        propRF:InvokeServer("Transparency", models)
+                    end)
+                    task.wait(0.05)
+                end
+                propCount = propCount + #models
+                task.wait(0.05)
             end
         end
 
