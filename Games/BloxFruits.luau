@@ -82,11 +82,10 @@ Hub.CreateList = function(parent, titleText, itemsList, ...)
     local extraArgs = {...}
     local cleanItems = {}
     if type(itemsList) == "table" then
-        for k, v in pairs(itemsList) do
-            if type(k) == "number" then
-                table.insert(cleanItems, toCleanDisplayString(v))
-            else
-                table.insert(cleanItems, toCleanDisplayString(k))
+        for _, v in ipairs(itemsList) do
+            local str = toCleanDisplayString(v)
+            if not str:find("SetSelected") and not str:find("function") and not str:find("table:") and str ~= "" then
+                table.insert(cleanItems, str)
             end
         end
     else
@@ -1673,60 +1672,7 @@ end
 do
     Hub.CreateSection(playerPage, "🏃 Player Utilities & Movement")
 
-    local potatoSaved = {}
-    createSliderToggle(playerPage, "Potato Mode", false, function(newState)
-        pcall(function()
-            if newState then
-                potatoSaved = { materials = {}, decals = {}, emitters = {} }
-                local terrain = workspace:FindFirstChildOfClass("Terrain")
-                if terrain then
-                    terrain.WaterWaveSize = 0
-                    terrain.WaterWaveSpeed = 0
-                end
-                game:GetService("Lighting").GlobalShadows = false
-                for _, v in ipairs(workspace:GetDescendants()) do
-                    if v:IsA("BasePart") and not v:IsA("MeshPart") and not v:IsA("Terrain") then
-                        potatoSaved.materials[v] = v.Material
-                        v.Material = Enum.Material.SmoothPlastic
-                    elseif v:IsA("Decal") or v:IsA("Texture") then
-                        potatoSaved.decals[v] = v.Transparency
-                        v.Transparency = 1
-                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-                        if v.Enabled then
-                            potatoSaved.emitters[v] = true
-                            v.Enabled = false
-                        end
-                    end
-                end
-            else
-                local terrain = workspace:FindFirstChildOfClass("Terrain")
-                if terrain then
-                    terrain.WaterWaveSize = 0.15
-                    terrain.WaterWaveSpeed = 10
-                end
-                game:GetService("Lighting").GlobalShadows = true
-                if potatoSaved.materials then
-                    for part, mat in pairs(potatoSaved.materials) do
-                        if part and part.Parent then part.Material = mat end
-                    end
-                end
-                if potatoSaved.decals then
-                    for decal, trans in pairs(potatoSaved.decals) do
-                        if decal and decal.Parent then decal.Transparency = trans end
-                    end
-                end
-                if potatoSaved.emitters then
-                    for emitter, _ in pairs(potatoSaved.emitters) do
-                        if emitter and emitter.Parent then emitter.Enabled = true end
-                    end
-                end
-                potatoSaved = {}
-            end
-        end)
-        notifyGUI("PERFORMANCE", newState and "Potato Mode Active (Textures OFF)" or "Potato Mode Disabled.", 3)
-    end)
 
-    addSectionDivider(playerPage)
 
     createSliderToggle(playerPage, "Walk on Water", true, function(newState)
         isWaterWalkOn = newState
@@ -1818,10 +1764,26 @@ do
     end)
     
     local statTypes = {"Melee", "Defense", "Sword", "Gun", "DemonFruit"}
+    local statList = Hub.CreateList(statsPage, "📊 Target Stats to Upgrade", {}, 180, true, {MultiSelect = true})
     for _, sName in ipairs(statTypes) do
-        createSliderToggle(statsPage, "Allocate " .. sName, false, function(newState)
-            selectedStats[sName] = newState
+        local isSelected = selectedStats[sName] or false
+        local initialBadge = isSelected and "[SELECTED]" or "[OFF]"
+        local row, entryData = statList:AddItem(sName, initialBadge, function()
+            selectedStats[sName] = not selectedStats[sName]
+            if row then
+                local badge = row:FindFirstChild("ItemSubtitle") or row:FindFirstChildWhichIsA("TextLabel")
+                if badge and badge ~= row:FindFirstChild("Title") then
+                    badge.Text = selectedStats[sName] and "[SELECTED]" or "[OFF]"
+                    badge.TextColor3 = selectedStats[sName] and Color3.fromRGB(0, 230, 120) or Color3.fromRGB(160, 170, 185)
+                end
+            end
         end)
+        if row then
+            local badge = row:FindFirstChild("ItemSubtitle") or row:FindFirstChildWhichIsA("TextLabel")
+            if badge and badge ~= row:FindFirstChild("Title") then
+                badge.TextColor3 = isSelected and Color3.fromRGB(0, 230, 120) or Color3.fromRGB(160, 170, 185)
+            end
+        end
     end
 end
 
@@ -2108,7 +2070,9 @@ do
     end)
 
     local isAutoTravelOn = false
-    local getTravelState, setTravelState = createSliderToggle(travelPage, "✈️ Travel / Fly to Selected Island", false, function(newState)
+    local setTravelState
+    local getTravelState
+    getTravelState, setTravelState = createSliderToggle(travelPage, "✈️ Travel / Fly to Selected Island", false, function(newState)
         isAutoTravelOn = newState
         if newState then
             local targetIsland = getTargetIslandByName(selectedTravelIslandName)
@@ -2119,14 +2083,14 @@ do
                 travelStatusLabel.Text = "Status: Traveling to " .. targetIsland.Name .. "..."
                 safeTweenToIsland(targetIsland.CFrame + Vector3.new(0, 15, 0), function()
                     isAutoTravelOn = false
-                    setTravelState(false)
+                    if setTravelState then setTravelState(false) end
                     activeTravelIsland = nil
                     travelStatusLabel.Text = "Status: Arrived at " .. targetIsland.Name
                     notifyGUI("TRAVEL", "Arrived at " .. targetIsland.Name .. "!", 4)
                 end)
             else
                 notifyGUI("TRAVEL", "Selected island not found!", 3)
-                setTravelState(false)
+                if setTravelState then setTravelState(false) end
             end
         else
             _G.Unknown_CancelTween()
@@ -2138,42 +2102,10 @@ do
     Hub.CreateButton(travelPage, "🛑 Stop Travel / Cancel Flight", function()
         _G.Unknown_CancelTween()
         isAutoTravelOn = false
-        setTravelState(false)
+        if setTravelState then setTravelState(false) end
         activeTravelIsland = nil
         travelStatusLabel.Text = "Status: Idle"
     end)
-
-    -- 3. Quick-Access Island Teleports List (Filtered for Current Sea)
-    Hub.CreateSection(travelPage, "🗺️ QUICK-ACCESS ISLAND TELEPORTS (" .. string.upper(seaTitle) .. ")")
-    local travelList = Hub.CreateList(travelPage, "🗺️ Island Teleports (" .. seaTitle .. ")", {}, 220, true)
-    for i, island in ipairs(islands) do
-        travelList:AddItem(island.Name, "Click to start flight", function()
-            if activeTravelIsland == island.Name then
-                _G.Unknown_CancelTween()
-                activeTravelIsland = nil
-                isAutoTravelOn = false
-                setTravelState(false)
-                travelStatusLabel.Text = "Status: Idle"
-            else
-                activeTravelIsland = island.Name
-                selectedTravelIslandName = island.Name
-                if _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
-                if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
-                isAutoTravelOn = true
-                setTravelState(true)
-                travelStatusLabel.Text = "Status: Traveling to " .. island.Name .. "..."
-                safeTweenToIsland(island.CFrame + Vector3.new(0, 15, 0), function()
-                    if activeTravelIsland == island.Name then
-                        activeTravelIsland = nil
-                        isAutoTravelOn = false
-                        setTravelState(false)
-                        travelStatusLabel.Text = "Status: Arrived at " .. island.Name
-                        notifyGUI("TRAVEL", "Arrived at " .. island.Name .. "!", 4)
-                    end
-                end)
-            end
-        end)
-    end
 end
 
 -- AUTO STATS CONFIGURATION
@@ -2244,22 +2176,12 @@ local bossCheckState = {
 }
 
 -- AUTO BOSS CONFIGURATION
-Hub.CreateSection(bossPage, "💀 BOSS AUTOMATION & SERVER HOP")
 local selectedBosses = {}
 local isAutoBossOn = false
-
-local getBossState, setBossState = createSliderToggle(bossPage, "Enable Auto Boss", false, function(newState)
-    isAutoBossOn = newState
-end)
-_G.Unknown_setAutoBossState = setBossState
-
 local isAutoBossHopOn = false
-createSliderToggle(bossPage, "Auto Server Hop when Bosses Dead", false, function(newState)
-    isAutoBossHopOn = newState
-end)
 
 Hub.CreateSection(bossPage, "📋 ACTIVE SEA BOSS TARGETS")
-    local bossList = Hub.CreateList(bossPage, "💀 Current Sea Bosses", {}, 220, true, {MultiSelect = true})
+local bossList = Hub.CreateList(bossPage, "💀 Current Sea Bosses", {}, 220, true, {MultiSelect = true})
 local bossStatusBadges = {}
 
 for i, boss in ipairs(BossData) do
@@ -2275,6 +2197,16 @@ for i, boss in ipairs(BossData) do
         end
     end
 end
+
+Hub.CreateSection(bossPage, "⚙️ BOSS AUTOMATION & SERVER HOP")
+local getBossState, setBossState = createSliderToggle(bossPage, "Enable Auto Boss", false, function(newState)
+    isAutoBossOn = newState
+end)
+_G.Unknown_setAutoBossState = setBossState
+
+createSliderToggle(bossPage, "Auto Server Hop when Bosses Dead", false, function(newState)
+    isAutoBossHopOn = newState
+end)
 
 -- Live Auto Boss List Status Updater Task (Updates [READY], [DEAD (MM:SS)], and [READY / UNCHECKED] badges)
 task.spawn(function()
@@ -4319,7 +4251,7 @@ _G.startUnknownFarm = function()
             if #targetMobs > 0 then
                 farmStatusLabel.Text = string.format("Lvl %d | Farming %s (%d alive)...", currentLevel, displayName, #targetMobs)
 
-                -- Bring all target mobs directly to combat stack under player
+                -- Bring all target mobs directly into stacked cluster beneath player
                 local bringCF = playerHRP.CFrame * CFrame.new(0, -farmDist, 0)
                 local now = tick()
 
@@ -4332,25 +4264,43 @@ _G.startUnknownFarm = function()
                         pcall(function()
                             local distToStack = (mobHRP.Position - bringCF.Position).Magnitude
                             if distToStack <= 350 then
+                                -- Disable collisions across all mob parts so they don't fling each other
+                                for _, part in ipairs(mob:GetChildren()) do
+                                    if part:IsA("BasePart") and part.CanCollide then
+                                        part.CanCollide = false
+                                    end
+                                end
+                                -- Freeze pathfinding and physics to prevent anti-cheat leash reset and invulnerability
+                                if mobHum.WalkSpeed ~= 0 then mobHum.WalkSpeed = 0 end
+                                if not mobHum.PlatformStand then mobHum.PlatformStand = true end
+
                                 if distToStack > 2.5 then
-                                    mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.4)
+                                    mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.45)
+                                else
+                                    mobHRP.CFrame = bringCF
                                 end
                                 mobHRP.Velocity = Vector3.zero
                                 mobHRP.RotVelocity = Vector3.zero
+                                if mobHRP:IsA("BasePart") then
+                                    mobHRP.AssemblyLinearVelocity = Vector3.zero
+                                    mobHRP.AssemblyAngularVelocity = Vector3.zero
+                                end
                             end
                         end)
                     end
                 end
 
-                -- Hit stack with Fast Attack / Kill Aura
+                -- Hit all stacked mobs simultaneously via paired RegisterHit targets
                 pcall(function()
                     local hitList = {}
                     local primaryHRP = targetMobs[1]:FindFirstChild("HumanoidRootPart")
                     for i = 1, #targetMobs do
                         local mHRP = targetMobs[i]:FindFirstChild("HumanoidRootPart")
-                        if mHRP then table.insert(hitList, mHRP) end
+                        if mHRP then
+                            table.insert(hitList, {targetMobs[i], mHRP})
+                        end
                     end
-                    if _G.Unknown_PerformFastAttack and primaryHRP then
+                    if _G.Unknown_PerformFastAttack and primaryHRP and #hitList > 0 then
                         _G.Unknown_PerformFastAttack(hitList, primaryHRP)
                     end
                 end)
