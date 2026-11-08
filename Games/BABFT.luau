@@ -74,9 +74,7 @@ local ok, factory = pcall(function()
     else
         source = game:HttpGet(LIBRARY_LINK)
     end
-    pcall(function()
-        source = source:gsub("game:GetService%(["']CoreGui["']%)", "(gethui and gethui() or (game:GetService("Players").LocalPlayer and game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")))")
-    end)
+    -- CoreGui handled via factory parent
     local factoryChunk = loadstring(source)
     return factoryChunk()
 end)
