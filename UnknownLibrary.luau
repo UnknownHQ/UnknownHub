@@ -1179,7 +1179,11 @@ return function(opts)
 
         tabObj.CreateStatRow = function(self, ...)
             local a = { ... }
-            if type(self) == "string" or type(self) == "table" then table.insert(a, 1, self) end
+            if self == tabObj then
+                -- Called with colon tabObj:CreateStatRow(...)
+            else
+                table.insert(a, 1, self)
+            end
             return createStatRow(pageScroll, unpack(a))
         end
         tabObj.createStatRow = tabObj.CreateStatRow
