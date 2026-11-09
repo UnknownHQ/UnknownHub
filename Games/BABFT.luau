@@ -359,7 +359,7 @@ task.spawn(function()
                 continue
             end
 
-            -- Ensure clean collision and touch for character (Dead state enabled so voyage payout triggers on reset)
+            -- Ensure clean collision and touch for character (Obstacle immunity while preserving dead state for resets)
             pcall(function()
                 hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
                 for _, p in ipairs(char:GetDescendants()) do
@@ -496,10 +496,13 @@ task.spawn(function()
                         end)
                     end
 
-                    -- Conclude Voyage: Resetting character triggers BABFT server payout & RiverResultsGui
+                    -- Conclude Voyage: BreakJoints resets character and triggers BABFT server payout & RiverResultsGui
                     updateStatus("Voyage Complete! Payout in progress...")
                     workspace.Gravity = normalGravity
-                    hum.Health = 0
+                    pcall(function()
+                        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+                        char:BreakJoints()
+                    end)
                     task.wait(0.5)
                 else
                     workspace.Gravity = normalGravity
