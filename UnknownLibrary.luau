@@ -1722,6 +1722,7 @@ return function(opts)
     -- =========================================================================
     createStatRow = function(parent, titleText, levelVal, subText, onAddCallback, isLocked, customIcon, customColor)
         if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        local customBtnText = "+1"
         if typeof(titleText) == "table" then
             local cfg = titleText
             customIcon = cfg.Icon
@@ -1730,6 +1731,7 @@ return function(opts)
             onAddCallback = cfg.Callback or cfg.OnAction or cfg.OnClick
             subText = cfg.SubText or cfg.Mastery or ""
             levelVal = cfg.Level or cfg.Value or 1
+            customBtnText = cfg.ButtonText or "+1"
             titleText = cfg.Title or cfg.Name or "Stat"
         end
 
@@ -1783,6 +1785,17 @@ return function(opts)
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
         titleLabel.Parent = card
 
+        -- Helper to format value (if numeric or pure digits, format as Lv. X; otherwise display raw)
+        local function formatStatDisplay(val, sub)
+            local s = (sub and sub ~= "") and (" (" .. tostring(sub) .. ")") or ""
+            local vStr = tostring(val ~= nil and val or 1)
+            if typeof(val) == "number" or (tonumber(vStr) and not vStr:find("[%+%-%s%a]")) then
+                return "Lv. " .. vStr .. s
+            else
+                return vStr .. s
+            end
+        end
+
         -- Level & Mastery Text (Middle)
         local levelLabel = Instance.new("TextLabel")
         levelLabel.Name = "LevelLabel"
@@ -1790,81 +1803,93 @@ return function(opts)
         levelLabel.Position = UDim2.new(0, 150, 0, 0)
         levelLabel.BackgroundTransparency = 1
         levelLabel.Font = Enum.Font.Gotham
-        local sub = (subText and subText ~= "") and (" (" .. tostring(subText) .. ")") or ""
-        levelLabel.Text = "Lv. " .. tostring(levelVal or 1) .. sub
+        levelLabel.Text = formatStatDisplay(levelVal, subText)
         levelLabel.TextColor3 = DEFAULT_THEME.TextPrimary
         levelLabel.TextSize = 12
         levelLabel.TextXAlignment = Enum.TextXAlignment.Right
         levelLabel.Parent = card
 
-        -- Right Action (Golden +1 Button OR Lock Icon)
-        local actionObj
-        if isLocked then
-            local lockLbl = Instance.new("TextLabel")
-            lockLbl.Name = "LockIcon"
-            lockLbl.Size = UDim2.new(0, 44, 0, 28)
-            lockLbl.Position = UDim2.new(1, -52, 0.5, -14)
-            lockLbl.BackgroundTransparency = 1
-            lockLbl.Font = Enum.Font.GothamBold
-            lockLbl.Text = "🔒"
-            lockLbl.TextColor3 = DEFAULT_THEME.TextDim
-            lockLbl.TextSize = 14
-            lockLbl.Parent = card
-            actionObj = lockLbl
-        else
-            local addBtn = Instance.new("TextButton")
-            addBtn.Name = "AddButton"
-            addBtn.Size = UDim2.new(0, 46, 0, 28)
-            addBtn.Position = UDim2.new(1, -54, 0.5, -14)
-            addBtn.BackgroundColor3 = DEFAULT_THEME.GoldBottom
-            addBtn.BorderSizePixel = 0
-            addBtn.Font = Enum.Font.GothamBold
-            addBtn.Text = "+1"
-            addBtn.TextColor3 = DEFAULT_THEME.GoldText
-            addBtn.TextSize = 13
-            addBtn.AutoButtonColor = false
-            addBtn.Parent = card
-            applyCorner(addBtn, 5)
-            applyStroke(addBtn, DEFAULT_THEME.GoldStroke, 1.5, 0)
+        -- Right Action (Golden +1 Button AND Lock Icon container)
+        local lockLbl = Instance.new("TextLabel")
+        lockLbl.Name = "LockIcon"
+        lockLbl.Size = UDim2.new(0, 44, 0, 28)
+        lockLbl.Position = UDim2.new(1, -52, 0.5, -14)
+        lockLbl.BackgroundTransparency = 1
+        lockLbl.Font = Enum.Font.GothamBold
+        lockLbl.Text = "🔒"
+        lockLbl.TextColor3 = DEFAULT_THEME.TextDim
+        lockLbl.TextSize = 14
+        lockLbl.Visible = isLocked == true
+        lockLbl.Parent = card
 
-            local btnGrad = Instance.new("UIGradient")
-            btnGrad.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, DEFAULT_THEME.GoldTop),
-                ColorSequenceKeypoint.new(1, DEFAULT_THEME.GoldBottom)
-            })
-            btnGrad.Rotation = 90
-            btnGrad.Parent = addBtn
+        local addBtn = Instance.new("TextButton")
+        addBtn.Name = "AddButton"
+        addBtn.Size = UDim2.new(0, 46, 0, 28)
+        addBtn.Position = UDim2.new(1, -54, 0.5, -14)
+        addBtn.BackgroundColor3 = DEFAULT_THEME.GoldBottom
+        addBtn.BorderSizePixel = 0
+        addBtn.Font = Enum.Font.GothamBold
+        addBtn.Text = tostring(customBtnText or "+1")
+        addBtn.TextColor3 = DEFAULT_THEME.GoldText
+        addBtn.TextSize = 13
+        addBtn.AutoButtonColor = false
+        addBtn.Visible = not (isLocked == true)
+        addBtn.Parent = card
+        applyCorner(addBtn, 5)
+        applyStroke(addBtn, DEFAULT_THEME.GoldStroke, 1.5, 0)
 
-            addBtn.MouseEnter:Connect(function()
-                tween(addBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(255, 225, 45)})
-            end)
-            addBtn.MouseLeave:Connect(function()
-                tween(addBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.GoldBottom})
-            end)
-            addBtn.MouseButton1Down:Connect(function()
-                tween(addBtn, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 44, 0, 26), Position = UDim2.new(1, -53, 0.5, -13)})
-            end)
-            addBtn.MouseButton1Up:Connect(function()
-                tween(addBtn, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 46, 0, 28), Position = UDim2.new(1, -54, 0.5, -14)})
-            end)
-            addBtn.MouseButton1Click:Connect(function()
-                if type(onAddCallback) == "function" then
-                    pcall(onAddCallback)
-                end
-            end)
-            actionObj = addBtn
-        end
+        local btnGrad = Instance.new("UIGradient")
+        btnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, DEFAULT_THEME.GoldTop),
+            ColorSequenceKeypoint.new(1, DEFAULT_THEME.GoldBottom)
+        })
+        btnGrad.Rotation = 90
+        btnGrad.Parent = addBtn
+
+        addBtn.MouseEnter:Connect(function()
+            tween(addBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(255, 225, 45)})
+        end)
+        addBtn.MouseLeave:Connect(function()
+            tween(addBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.GoldBottom})
+        end)
+        addBtn.MouseButton1Down:Connect(function()
+            tween(addBtn, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 44, 0, 26), Position = UDim2.new(1, -53, 0.5, -13)})
+        end)
+        addBtn.MouseButton1Up:Connect(function()
+            tween(addBtn, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 46, 0, 28), Position = UDim2.new(1, -54, 0.5, -14)})
+        end)
+        addBtn.MouseButton1Click:Connect(function()
+            if type(onAddCallback) == "function" then
+                pcall(onAddCallback)
+            end
+        end)
 
         local rowObj = {
             Instance = card,
+            SetValue = function(newVal, newSub)
+                levelVal = newVal ~= nil and newVal or levelVal
+                if newSub ~= nil then subText = newSub end
+                levelLabel.Text = formatStatDisplay(levelVal, subText)
+            end,
             SetLevel = function(newLv, newSub)
                 levelVal = newLv or levelVal
                 if newSub ~= nil then subText = newSub end
-                local s = (subText and subText ~= "") and (" (" .. tostring(subText) .. ")") or ""
-                levelLabel.Text = "Lv. " .. tostring(levelVal) .. s
+                levelLabel.Text = formatStatDisplay(levelVal, subText)
+            end,
+            SetSubText = function(newSub)
+                subText = newSub
+                levelLabel.Text = formatStatDisplay(levelVal, subText)
+            end,
+            SetTitle = function(newTitle)
+                titleLabel.Text = tostring(newTitle)
+            end,
+            SetButtonText = function(newTxt)
+                addBtn.Text = tostring(newTxt)
             end,
             SetLocked = function(locked)
                 isLocked = locked
+                lockLbl.Visible = locked == true
+                addBtn.Visible = not (locked == true)
             end
         }
         return rowObj

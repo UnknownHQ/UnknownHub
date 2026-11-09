@@ -192,18 +192,71 @@ local farmTab = Hub.CreateTab("Auto Farm", {
 
 Hub.CreateSection(farmTab, "STATUS & PERFORMANCE")
 
-local statusSection = Hub.CreateSection(farmTab, "STATUS: ACTIVE | RUNS: 0 | GOLD: +0")
-
+local stopAutoFarmCleanly
 local initialGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or 0
+local initialBlocks = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("GoldBlock") and LocalPlayer.Data.GoldBlock.Value) or 0
+
+-- 1:1 Blox Fruits Aesthetic Status Rows
+local farmStatusRow = farmTab:CreateStatRow({
+    Title = "Voyage State",
+    Value = "Idle",
+    SubText = "Ready",
+    Icon = "⚡",
+    ButtonText = "GO",
+    OnClick = function()
+        State.AutoFarm_Enabled = not State.AutoFarm_Enabled
+        if State.AutoFarm_Enabled then
+            Hub.Notify({ Title = "Auto Farm", Content = "Auto-Farm Activated!", Duration = 2 })
+        else
+            if stopAutoFarmCleanly then stopAutoFarmCleanly() end
+        end
+    end
+})
+
+local goldEarnedRow = farmTab:CreateStatRow({
+    Title = "Session Gold",
+    Value = "+0",
+    SubText = string.format("Total: %d", initialGold),
+    Icon = "🍯",
+    ButtonText = "+1",
+    OnClick = function()
+        pcall(function()
+            local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
+            if claim then claim:FireServer() end
+        end)
+    end
+})
+
+local runsRow = farmTab:CreateStatRow({
+    Title = "Total Runs",
+    Value = tostring(State.TotalRuns or 0),
+    SubText = "Cycles",
+    Icon = "🏆",
+    IsLocked = true
+})
+
+local blocksRow = farmTab:CreateStatRow({
+    Title = "Gold Blocks",
+    Value = tostring(initialBlocks),
+    SubText = "Inventory",
+    Icon = "👑",
+    IsLocked = true
+})
 
 local function updateStatus(text)
     State.CurrentStatus = text
     pcall(function()
-        local lbl = statusSection:FindFirstChild("Title")
-        if lbl then
-            local currGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or initialGold
-            local earned = math.max(0, currGold - initialGold)
-            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d | GOLD: +%d", text, State.TotalRuns, earned))
+        if farmStatusRow and farmStatusRow.SetValue then
+            farmStatusRow.SetValue(text, State.AutoFarm_Enabled and "Running" or "Idle")
+        end
+        local currGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or initialGold
+        local earned = math.max(0, currGold - initialGold)
+        if goldEarnedRow and goldEarnedRow.SetValue then
+            goldEarnedRow.SetValue(string.format("+%d", earned), string.format("Total: %d", currGold))
+        end
+        local currBlocks = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("GoldBlock") and LocalPlayer.Data.GoldBlock.Value) or initialBlocks
+        if blocksRow and blocksRow.SetValue then
+            blocksRow.SetValue(tostring(currBlocks), string.format("+%d Won", math.max(0, currBlocks - initialBlocks)))
         end
     end)
 end
@@ -211,17 +264,23 @@ end
 local function updateRuns()
     State.TotalRuns = State.TotalRuns + 1
     pcall(function()
-        local lbl = statusSection:FindFirstChild("Title")
-        if lbl then
-            local currGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or initialGold
-            local earned = math.max(0, currGold - initialGold)
-            lbl.Text = string.upper(string.format("STATUS: %s | RUNS: %d | GOLD: +%d", State.CurrentStatus, State.TotalRuns, earned))
+        if runsRow and runsRow.SetValue then
+            runsRow.SetValue(tostring(State.TotalRuns), "Cycles")
+        end
+        local currGold = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold") and LocalPlayer.Data.Gold.Value) or initialGold
+        local earned = math.max(0, currGold - initialGold)
+        if goldEarnedRow and goldEarnedRow.SetValue then
+            goldEarnedRow.SetValue(string.format("+%d", earned), string.format("Total: %d", currGold))
+        end
+        local currBlocks = (LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("GoldBlock") and LocalPlayer.Data.GoldBlock.Value) or initialBlocks
+        if blocksRow and blocksRow.SetValue then
+            blocksRow.SetValue(tostring(currBlocks), string.format("+%d Won", math.max(0, currBlocks - initialBlocks)))
         end
     end)
 end
 
 -- Comprehensive Farm Shutdown & Anti-Levitation Routine
-local function stopAutoFarmCleanly()
+stopAutoFarmCleanly = function()
     State.AutoFarm_Enabled = false
     if normalGravity then workspace.Gravity = normalGravity end
     updateStatus("Idle")
