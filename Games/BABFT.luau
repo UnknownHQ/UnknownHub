@@ -635,17 +635,16 @@ task.spawn(function()
                 if trigger then
                     updateStatus("Opening Golden Chest & Claiming Blocks...")
 
-                    -- Position character at safe cruise altitude (Y = 90) directly above TheEnd
-                    -- COMPLETELY ABOVE all cavern hazards: DestroyBoatPart (Y=-328), Water (Y=-378), and void
+                    -- Stand firmly at chest trigger for reliable server validation
                     root.Anchored = true
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
-                    root.CFrame = CFrame.new(trigger.Position.X, 90, trigger.Position.Z)
+                    root.CFrame = trigger.CFrame + Vector3.new(0, 2.5, 0)
 
-                    -- Trigger chest cleanly via TouchInterest from safe sky (avoids server hazard kill)
+                    -- Trigger chest cleanly
                     pcall(function()
                         firetouchinterest(root, trigger, 0)
-                        task.wait(0.08)
+                        task.wait(0.12)
                         firetouchinterest(root, trigger, 1)
                     end)
 
@@ -664,19 +663,21 @@ task.spawn(function()
                         end
                     end)
 
-                    -- 0.35s prize magnet from safe sky (GoldBars & GoldBlock)
+                    -- Magnet prizes (GoldBars & GoldBlock)
                     local startChest = tick()
-                    while tick() - startChest < 0.35 do
-                        task.wait(0.03)
-                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
+                    while tick() - startChest < 0.6 do
+                        task.wait(0.04)
+                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
                         pcall(function()
                             local tempPrizes = chest:FindFirstChild("DisplayPrizesTemp")
                             if tempPrizes then
                                 for _, prize in ipairs(tempPrizes:GetChildren()) do
                                     if prize:IsA("BasePart") then
+                                        prize.CFrame = root.CFrame
                                         firetouchinterest(root, prize, 0)
                                         firetouchinterest(root, prize, 1)
                                     elseif prize:IsA("Model") and prize.PrimaryPart then
+                                        prize:SetPrimaryPartCFrame(root.CFrame)
                                         firetouchinterest(root, prize.PrimaryPart, 0)
                                         firetouchinterest(root, prize.PrimaryPart, 1)
                                     end
@@ -694,23 +695,28 @@ task.spawn(function()
                         end)
                     end
 
-                    -- Conclude Voyage: Smooth teleport back to dock at 100 HP without entering hazards!
-                    updateStatus("Voyage Complete! Returning to dock...")
+                    -- Conclude Voyage: BreakJoints triggers BABFT's GoldGiverOnDeath to award gold & blocks!
+                    updateStatus("Voyage Complete! Payout in progress...")
                     workspace.Gravity = normalGravity
-
-                    pcall(function()
-                        local team = LocalPlayer.Team
-                        local teamName = team and team.TeamColor.Name
-                        local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
-                        if teamZone and root and root.Parent then
-                            root.CFrame = teamZone.CFrame + Vector3.new(0, 5, 0)
-                            root.AssemblyLinearVelocity = Vector3.zero
-                            root.AssemblyAngularVelocity = Vector3.zero
-                        end
-                    end)
                     root.Anchored = false
+                    local oldChar = char
+                    pcall(function()
+                        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+                        char:BreakJoints()
+                    end)
 
-                    -- Claim river results gold immediately on dock return
+                    -- Fast respawn polling (0.03s check, zero dead time)
+                    local respawnStart = tick()
+                    while tick() - respawnStart < 5 do
+                        task.wait(0.03)
+                        local c = LocalPlayer.Character
+                        local h = c and c:FindFirstChildOfClass("Humanoid")
+                        if c and h and h.Health > 0 and c ~= oldChar then
+                            break
+                        end
+                    end
+
+                    -- Claim river results gold immediately on dock spawn
                     pcall(function()
                         local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
                         if claim then claim:FireServer() end
@@ -721,7 +727,6 @@ task.spawn(function()
                     end
 
                     updateStatus("Ready for next run!")
-                    task.wait(0.2)
                 else
                     workspace.Gravity = normalGravity
                     root.Anchored = false
