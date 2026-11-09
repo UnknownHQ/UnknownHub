@@ -26,17 +26,83 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
 -- =========================================================================
--- Anti-AFK Safeguard (Prevents 20-minute idle kicks while AFK)
+-- Anti-AFK & Auto-Reconnect Safeguard (Bulletproof 24/7 AFK Persistence)
 -- =========================================================================
+-- 1. Disable Roblox client's internal Idled event connections
 pcall(function()
-    LocalPlayer.Idled:Connect(function()
+    if getconnections then
+        for _, conn in ipairs(getconnections(LocalPlayer.Idled)) do
+            if conn.Disable then
+                conn:Disable()
+            elseif conn.Disconnect then
+                conn:Disconnect()
+            end
+        end
+    end
+end)
+
+-- 2. Fallback VirtualUser & VirtualInputManager Active Heartbeat Pulse (every 45s)
+task.spawn(function()
+    while true do
+        task.wait(45)
         pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            if vim then
+                vim:SendKeyEvent(true, Enum.KeyCode.RightControl, false, game)
+                task.wait(0.04)
+                vim:SendKeyEvent(false, Enum.KeyCode.RightControl, false, game)
+            end
             if VirtualUser then
                 VirtualUser:CaptureController()
                 VirtualUser:ClickButton2(Vector2.new(0, 0))
             end
         end)
-    end)
+    end
+end)
+
+-- 3. Auto-Reconnect Watchdog on Error / Disconnect Prompt
+pcall(function()
+    local coreGui = game:GetService("CoreGui")
+    local function watchPromptGui(promptGui)
+        local overlay = promptGui:FindFirstChild("promptOverlay")
+        if overlay then
+            overlay.ChildAdded:Connect(function(child)
+                if child.Name == "ErrorPrompt" then
+                    task.wait(1.5)
+                    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                end
+            end)
+        end
+    end
+
+    local rpg = coreGui:FindFirstChild("RobloxPromptGui")
+    if rpg then
+        watchPromptGui(rpg)
+    else
+        coreGui.ChildAdded:Connect(function(child)
+            if child.Name == "RobloxPromptGui" then
+                watchPromptGui(child)
+            end
+        end)
+    end
+end)
+
+-- 4. Queue On Teleport (Seamless Hub & Auto-Farm Persistence across server hops)
+pcall(function()
+    local qot = (syn and syn.queue_on_teleport) or queue_on_teleport or (Fluxus and Fluxus.queue_on_teleport)
+    if qot then
+        qot([[
+            task.spawn(function()
+                repeat task.wait(0.5) until game:IsLoaded() and game.Players.LocalPlayer and game.Players.LocalPlayer.Character
+                task.wait(2)
+                if isfile and isfile("Games/BABFT.luau") then
+                    loadstring(readfile("Games/BABFT.luau"))()
+                else
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/UnknownHQ/UnknownHub/main/Games/BABFT.luau"))()
+                end
+            end)
+        ]])
+    end
 end)
 
 -- =========================================================================
