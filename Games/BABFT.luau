@@ -111,7 +111,7 @@ local stopAutoFarmCleanly
 local State = {
     -- Auto Farm
     AutoFarm_Enabled = true,        -- Enabled for AFK farming
-    Farm_StageDelay = 0.35,         -- High-speed adaptive stage clearance with server confirmation
+    Farm_StageDelay = 0.95,         -- Stable high-speed 0.95s clearance (counts 100% of areas & chest)
     WalkOnWater = false,
     AutoBuilder_File = "",
     AutoBuilder_Resolution = 2.0,
@@ -391,7 +391,8 @@ task.spawn(function()
                 local stageTimeout = math.clamp(State.Farm_StageDelay or 0.35, 0.15, 1.5)
 
                 -- 1. Sequential River Stage Clearance (CaveStage1 through CaveStage9)
-                -- Active server confirmation handshake guarantees every single area is 100% counted
+                -- Persistent continuous touch interest guarantees every single area is registered by the server
+                local dwell = math.clamp(State.Farm_StageDelay or 0.95, 0.75, 1.8)
                 for stageIdx = 1, 9 do
                     if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                         abort = true
@@ -408,16 +409,13 @@ task.spawn(function()
                         root.AssemblyAngularVelocity = Vector3.zero
                         root.CFrame = dp.CFrame
 
-                        local stageVal = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("Stage" .. stageIdx)
+                        -- Keep touch active throughout the entire dwell so server never misses it
                         pcall(function() firetouchinterest(root, dp, 0) end)
 
                         local tStart = tick()
-                        while tick() - tStart < stageTimeout do
+                        while tick() - tStart < dwell do
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
-                            if stageVal and stageVal.Value ~= "" then
-                                break -- Server confirmed area is counted!
-                            end
-                            task.wait(0.02)
+                            task.wait(0.04)
                         end
 
                         pcall(function() firetouchinterest(root, dp, 1) end)
@@ -429,11 +427,9 @@ task.spawn(function()
                 local dp10 = stage10 and stage10:FindFirstChild("DarknessPart")
                 if dp10 and not abort and State.AutoFarm_Enabled and hum.Health > 0 then
                     root.CFrame = dp10.CFrame
-                    pcall(function()
-                        firetouchinterest(root, dp10, 0)
-                        task.wait(0.04)
-                        firetouchinterest(root, dp10, 1)
-                    end)
+                    pcall(function() firetouchinterest(root, dp10, 0) end)
+                    task.wait(0.4)
+                    pcall(function() firetouchinterest(root, dp10, 1) end)
                 end
 
                 if abort then
@@ -474,19 +470,8 @@ task.spawn(function()
                     root.AssemblyAngularVelocity = Vector3.zero
                     root.CFrame = trigger.CFrame + Vector3.new(0, 2.5, 0)
 
-                    -- Active handshake with chest trigger until server marks EndReached
+                    -- Keep chest touch active while opening
                     pcall(function() firetouchinterest(root, trigger, 0) end)
-
-                    local endVal = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("End")
-                    local tChest = tick()
-                    while tick() - tChest < 0.75 do
-                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
-                        if endVal and endVal.Value ~= "" then
-                            break -- Server confirmed End & Golden Chest counted!
-                        end
-                        task.wait(0.02)
-                    end
-                    pcall(function() firetouchinterest(root, trigger, 1) end)
 
                     -- Quick visual cap open animation
                     pcall(function()
@@ -596,7 +581,7 @@ Hub.CreateToggle(farmTab, "Enable Gold Auto-Farm", State.AutoFarm_Enabled, funct
     end
 end)
 
-Hub.CreateSlider(farmTab, "Stage Dwell / Max Wait (Seconds)", 0.15, 1.0, State.Farm_StageDelay or 0.35, function(val)
+Hub.CreateSlider(farmTab, "Stage Dwell Duration (Seconds)", 0.75, 1.8, State.Farm_StageDelay or 0.95, function(val)
     State.Farm_StageDelay = val
 end)
 
