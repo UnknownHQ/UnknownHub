@@ -465,19 +465,22 @@ local function getAliveCharacter(timeout)
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
-        if char and hum and root and hum.Health > 0 then
+        if char and hum and root and char.Parent and root.Parent then
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            end)
             return char, root, hum
         end
         task.wait(0.04)
     end
-    -- Fallback: if character is stuck dead or unspawned, force a clean break
-    pcall(function()
-        if LocalPlayer.Character then LocalPlayer.Character:BreakJoints() end
-    end)
-    task.wait(0.4)
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+    if hum then
+        pcall(function()
+            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        end)
+    end
     return char, root, hum
 end
 
@@ -501,7 +504,7 @@ task.spawn(function()
 
             -- Ensure clean collision and touch for character
             pcall(function()
-                hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
                 for _, p in ipairs(char:GetDescendants()) do
                     if p:IsA("BasePart") then
                         p.CanCollide = false
@@ -706,28 +709,23 @@ task.spawn(function()
                         end)
                     end
 
-                    -- Conclude Voyage: Resetting character triggers BABFT server payout & RiverResultsGui
-                    updateStatus("Voyage Complete! Payout in progress...")
+                    -- Conclude Voyage: Teleport smoothly back to dock without killing character!
+                    updateStatus("Voyage Complete! Returning to dock...")
                     workspace.Gravity = normalGravity
                     root.Anchored = false
-                    local oldChar = char
+
                     pcall(function()
-                        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
-                        char:BreakJoints()
+                        local team = LocalPlayer.Team
+                        local teamName = team and team.TeamColor.Name
+                        local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
+                        if teamZone and root and root.Parent then
+                            root.CFrame = teamZone.CFrame + Vector3.new(0, 5, 0)
+                            root.AssemblyLinearVelocity = Vector3.zero
+                            root.AssemblyAngularVelocity = Vector3.zero
+                        end
                     end)
 
-                    -- Fast respawn polling (0.03s check, zero dead time)
-                    local respawnStart = tick()
-                    while tick() - respawnStart < 5 do
-                        task.wait(0.03)
-                        local c = LocalPlayer.Character
-                        local h = c and c:FindFirstChildOfClass("Humanoid")
-                        if c and h and h.Health > 0 and c ~= oldChar then
-                            break
-                        end
-                    end
-
-                    -- Claim river results gold immediately on dock spawn
+                    -- Claim river results gold immediately on dock return
                     pcall(function()
                         local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
                         if claim then claim:FireServer() end
@@ -738,6 +736,7 @@ task.spawn(function()
                     end
 
                     updateStatus("Ready for next run!")
+                    task.wait(0.2)
                 else
                     workspace.Gravity = normalGravity
                     root.Anchored = false
