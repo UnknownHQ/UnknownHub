@@ -326,6 +326,29 @@ end
 -- =========================================================================
 local normalGravity = workspace.Gravity
 
+local function getAliveCharacter(timeout)
+    timeout = timeout or 8
+    local t0 = tick()
+    while tick() - t0 < timeout do
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+        if char and hum and root and hum.Health > 0 then
+            return char, root, hum
+        end
+        task.wait(0.2)
+    end
+    -- Fallback: if character is stuck dead or unspawned, force a clean break
+    pcall(function()
+        if LocalPlayer.Character then LocalPlayer.Character:BreakJoints() end
+    end)
+    task.wait(1.5)
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+    return char, root, hum
+end
+
 task.spawn(function()
     while true do
         task.wait(0.2)
@@ -335,31 +358,16 @@ task.spawn(function()
         end
 
         if State.AutoFarm_Enabled then
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+            local char, root, hum = getAliveCharacter(6)
 
-            -- Clean character lifecycle check (Deadlock-Free Single Respawn Handler)
             if not char or not root or not hum or hum.Health <= 0 then
-                updateStatus("Respawning at Dock...")
+                updateStatus("Waiting for Character...")
                 workspace.Gravity = normalGravity
-                local newChar = LocalPlayer.CharacterAdded:Wait()
-                newChar:WaitForChild("HumanoidRootPart", 5)
-                newChar:WaitForChild("Humanoid", 5)
-                task.wait(1.0)
-                -- Auto-claim river results on spawn
-                pcall(function()
-                    local claimRemote = Workspace:FindFirstChild("ClaimRiverResultsGold")
-                    if claimRemote then claimRemote:FireServer() end
-                end)
-                if State.Farm_ClosePopups then
-                    task.wait(0.2)
-                    dismissResultsPopup()
-                end
+                task.wait(0.8)
                 continue
             end
 
-            -- Ensure clean collision and touch for character (Obstacle immunity while preserving dead state for resets)
+            -- Ensure clean collision and touch for character
             pcall(function()
                 hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
                 for _, p in ipairs(char:GetDescendants()) do
@@ -496,14 +504,40 @@ task.spawn(function()
                         end)
                     end
 
-                    -- Conclude Voyage: BreakJoints resets character and triggers BABFT server payout & RiverResultsGui
+                    -- Conclude Voyage: Resetting character triggers BABFT server payout & RiverResultsGui
                     updateStatus("Voyage Complete! Payout in progress...")
                     workspace.Gravity = normalGravity
+                    local oldChar = char
                     pcall(function()
                         hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
                         char:BreakJoints()
                     end)
-                    task.wait(0.5)
+
+                    -- Wait for respawn using safe polling (Never hangs on CharacterAdded)
+                    local respawnStart = tick()
+                    while tick() - respawnStart < 6 do
+                        task.wait(0.2)
+                        local c = LocalPlayer.Character
+                        local h = c and c:FindFirstChildOfClass("Humanoid")
+                        if c and h and h.Health > 0 and c ~= oldChar then
+                            break
+                        end
+                    end
+
+                    task.wait(0.8)
+
+                    -- Claim river results gold on spawn
+                    pcall(function()
+                        local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
+                        if claim then claim:FireServer() end
+                    end)
+
+                    if State.Farm_ClosePopups then
+                        task.wait(0.2)
+                        dismissResultsPopup()
+                    end
+
+                    updateStatus("Ready for next run!")
                 else
                     workspace.Gravity = normalGravity
                     root.Anchored = false
