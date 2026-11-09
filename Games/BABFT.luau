@@ -390,9 +390,7 @@ task.spawn(function()
                 local abort = false
                 local stageTimeout = math.clamp(State.Farm_StageDelay or 0.35, 0.15, 1.5)
 
-                -- 1. Sequential River Stage Clearance (CaveStage1 through CaveStage9)
-                -- Persistent continuous touch interest guarantees every single area is registered by the server
-                local dwell = math.clamp(State.Farm_StageDelay or 0.95, 0.75, 1.8)
+                -- 1. Sequential River Stage Clearance with Active Money Claim & Retry Triggering
                 for stageIdx = 1, 9 do
                     if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                         abort = true
@@ -400,25 +398,73 @@ task.spawn(function()
                     end
 
                     local stage = normalStages:FindFirstChild("CaveStage" .. stageIdx)
+                    local nextStage = normalStages:FindFirstChild("CaveStage" .. (stageIdx + 1))
                     local dp = stage and stage:FindFirstChild("DarknessPart")
+                    local nextDp = nextStage and nextStage:FindFirstChild("DarknessPart")
+
                     if dp then
                         local stageName = stage.Name
-                        updateStatus(string.format("Clearing Stage %d/9 (%s)...", stageIdx, stageName))
+                        local stageVal = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("Stage" .. stageIdx)
+                        local goldVal = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold")
 
-                        root.AssemblyLinearVelocity = Vector3.zero
-                        root.AssemblyAngularVelocity = Vector3.zero
-                        root.CFrame = dp.CFrame
-
-                        -- Keep touch active throughout the entire dwell so server never misses it
-                        pcall(function() firetouchinterest(root, dp, 0) end)
-
-                        local tStart = tick()
-                        while tick() - tStart < dwell do
+                        -- Try triggering up to 3 times if it doesn't trigger / give money
+                        local confirmed = false
+                        for attempt = 1, 3 do
                             if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
-                            task.wait(0.04)
-                        end
 
-                        pcall(function() firetouchinterest(root, dp, 1) end)
+                            local goldBefore = goldVal and goldVal.Value or 0
+                            if attempt > 1 then
+                                updateStatus(string.format("Retrying Stage %d/9 (%s) [Attempt %d/3]...", stageIdx, stageName, attempt))
+                            else
+                                updateStatus(string.format("Clearing Stage %d/9 (%s)...", stageIdx, stageName))
+                            end
+
+                            -- A. Touch stage entrance
+                            root.AssemblyLinearVelocity = Vector3.new(0, 0, 45)
+                            root.CFrame = dp.CFrame
+                            pcall(function() firetouchinterest(root, dp, 0) end)
+
+                            -- B. Sweep through the actual river stage volume (entrance -> mid -> exit)
+                            local zIn = dp.Position.Z
+                            local zOut = nextDp and nextDp.Position.Z or (zIn + 770)
+                            local zMid = (zIn + zOut) / 2
+
+                            task.wait(0.2)
+                            root.CFrame = CFrame.new(dp.Position.X, 45, zMid)
+                            root.AssemblyLinearVelocity = Vector3.new(0, 0, 45)
+
+                            if nextDp then
+                                task.wait(0.2)
+                                root.CFrame = nextDp.CFrame
+                                pcall(function() firetouchinterest(root, nextDp, 0) end)
+                            end
+
+                            task.wait(0.2)
+
+                            -- C. Give money immediately after trigger area as requested!
+                            pcall(function()
+                                local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
+                                if claim then claim:FireServer() end
+                            end)
+
+                            -- D. Check if registered or gave money
+                            task.wait(0.15)
+                            local goldAfter = goldVal and goldVal.Value or 0
+                            if (stageVal and stageVal.Value ~= "") or (goldAfter > goldBefore) then
+                                confirmed = true
+                                pcall(function()
+                                    firetouchinterest(root, dp, 1)
+                                    if nextDp then firetouchinterest(root, nextDp, 1) end
+                                end)
+                                break
+                            end
+
+                            pcall(function()
+                                firetouchinterest(root, dp, 1)
+                                if nextDp then firetouchinterest(root, nextDp, 1) end
+                            end)
+                            task.wait(0.1)
+                        end
                     end
                 end
 
@@ -428,8 +474,12 @@ task.spawn(function()
                 if dp10 and not abort and State.AutoFarm_Enabled and hum.Health > 0 then
                     root.CFrame = dp10.CFrame
                     pcall(function() firetouchinterest(root, dp10, 0) end)
-                    task.wait(0.4)
-                    pcall(function() firetouchinterest(root, dp10, 1) end)
+                    task.wait(0.3)
+                    pcall(function()
+                        local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
+                        if claim then claim:FireServer() end
+                        firetouchinterest(root, dp10, 1)
+                    end)
                 end
 
                 if abort then
