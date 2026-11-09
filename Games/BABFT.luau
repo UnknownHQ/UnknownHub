@@ -635,32 +635,19 @@ task.spawn(function()
                 if trigger then
                     updateStatus("Opening Golden Chest & Claiming Blocks...")
 
-                    -- Disarm lethal kill hazards while keeping cave floor/sand solid so player never falls through
-                    pcall(function()
-                        local dbp = theEnd:FindFirstChild("DestroyBoatPart")
-                        if dbp then dbp.CanTouch = false; dbp.CanCollide = false end
-                        for _, obj in ipairs(theEnd:GetDescendants()) do
-                            if obj:IsA("BasePart") then
-                                local n = obj.Name:lower()
-                                if n:find("water") or n:find("destroy") or n:find("lava") or n:find("kill") then
-                                    obj.CanTouch = false
-                                    obj.CanCollide = false
-                                else
-                                    -- Keep cave floor, sand, and rocks solid so player never clips into void!
-                                    obj.CanCollide = true
-                                end
-                            end
-                        end
-                    end)
-
-                    -- Stand firmly on solid ground at chest without noclipping into void
+                    -- Position character at safe cruise altitude (Y = 90) directly above TheEnd
+                    -- COMPLETELY ABOVE all cavern hazards: DestroyBoatPart (Y=-328), Water (Y=-378), and void
                     root.Anchored = true
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
-                    root.CFrame = trigger.CFrame + Vector3.new(0, 2.5, 0)
+                    root.CFrame = CFrame.new(trigger.Position.X, 90, trigger.Position.Z)
 
-                    -- Keep chest touch active while opening
-                    pcall(function() firetouchinterest(root, trigger, 0) end)
+                    -- Trigger chest cleanly via TouchInterest from safe sky (avoids server hazard kill)
+                    pcall(function()
+                        firetouchinterest(root, trigger, 0)
+                        task.wait(0.08)
+                        firetouchinterest(root, trigger, 1)
+                    end)
 
                     -- Quick visual cap open animation
                     pcall(function()
@@ -677,7 +664,7 @@ task.spawn(function()
                         end
                     end)
 
-                    -- Quick 0.35s prize magnet (GoldBars & GoldBlock)
+                    -- 0.35s prize magnet from safe sky (GoldBars & GoldBlock)
                     local startChest = tick()
                     while tick() - startChest < 0.35 do
                         task.wait(0.03)
@@ -687,11 +674,9 @@ task.spawn(function()
                             if tempPrizes then
                                 for _, prize in ipairs(tempPrizes:GetChildren()) do
                                     if prize:IsA("BasePart") then
-                                        prize.CFrame = root.CFrame
                                         firetouchinterest(root, prize, 0)
                                         firetouchinterest(root, prize, 1)
                                     elseif prize:IsA("Model") and prize.PrimaryPart then
-                                        prize:SetPrimaryPartCFrame(root.CFrame)
                                         firetouchinterest(root, prize.PrimaryPart, 0)
                                         firetouchinterest(root, prize.PrimaryPart, 1)
                                     end
@@ -709,10 +694,9 @@ task.spawn(function()
                         end)
                     end
 
-                    -- Conclude Voyage: Teleport smoothly back to dock without killing character!
+                    -- Conclude Voyage: Smooth teleport back to dock at 100 HP without entering hazards!
                     updateStatus("Voyage Complete! Returning to dock...")
                     workspace.Gravity = normalGravity
-                    root.Anchored = false
 
                     pcall(function()
                         local team = LocalPlayer.Team
@@ -724,6 +708,7 @@ task.spawn(function()
                             root.AssemblyAngularVelocity = Vector3.zero
                         end
                     end)
+                    root.Anchored = false
 
                     -- Claim river results gold immediately on dock return
                     pcall(function()
