@@ -261,31 +261,38 @@ end
 
 Hub.CreateSection(farmTab, "GOLD AUTO-FARM CONFIG")
 
--- Safe Boat Launcher Helper
+-- Safe Boat Launcher Helper (Launches official server voyage)
 local function triggerLaunchBoat()
     pcall(function()
-        local lb = LocalPlayer.PlayerGui:FindFirstChild("LaunchBoatGui")
-        if lb then
-            if lb.LaunchFrame and lb.LaunchFrame.Visible then
-                local btn = lb.LaunchFrame:FindFirstChild("LaunchBoat")
-                if btn and getconnections then
-                    for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
-                end
-            end
-            task.wait(0.15)
-            if lb.PromptLaunch and lb.PromptLaunch.Visible then
-                local yesBtn = lb.PromptLaunch:FindFirstChild("Yes")
-                if yesBtn and getconnections then
-                    for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end
-                end
-            end
-        end
         local team = LocalPlayer.Team
         local teamName = team and team.TeamColor.Name
         local teamZone = teamName and Workspace:FindFirstChild(teamName .. "Zone")
         local voteLaunch = teamZone and teamZone:FindFirstChild("VoteLaunchRE")
         if voteLaunch then
             voteLaunch:FireServer()
+        end
+
+        local lb = LocalPlayer.PlayerGui:FindFirstChild("LaunchBoatGui")
+        if lb then
+            if lb:FindFirstChild("LaunchFrame") and lb.LaunchFrame.Visible then
+                local btn = lb.LaunchFrame:FindFirstChild("LaunchBoat")
+                if btn then
+                    pcall(function()
+                        if firesignal then firesignal(btn.MouseButton1Click)
+                        elseif getconnections then for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
+                    end)
+                end
+            end
+            task.wait(0.1)
+            if lb:FindFirstChild("PromptLaunch") and lb.PromptLaunch.Visible then
+                local yesBtn = lb.PromptLaunch:FindFirstChild("Yes")
+                if yesBtn then
+                    pcall(function()
+                        if firesignal then firesignal(yesBtn.MouseButton1Click)
+                        elseif getconnections then for _, c in ipairs(getconnections(yesBtn.MouseButton1Click)) do c:Fire() end end
+                    end)
+                end
+            end
         end
     end)
 end
@@ -383,6 +390,10 @@ task.spawn(function()
             local normalStages = boatStages and boatStages:FindFirstChild("NormalStages")
 
             if normalStages then
+                -- Launch boat to initiate official server voyage session
+                triggerLaunchBoat()
+                task.wait(0.15)
+
                 updateStatus("Voyage Active — Clearing Stages...")
                 root.Anchored = false
                 workspace.Gravity = 0
