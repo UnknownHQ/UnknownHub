@@ -19,21 +19,68 @@ local TeleportService = game:GetService("TeleportService")
 -- Theme & Styling Constants
 -- =========================================================================
 local DEFAULT_THEME = {
-    Primary = Color3.fromRGB(245, 142, 32),       -- Vibrant Electric Amber
-    Secondary = Color3.fromRGB(0, 195, 245),     -- Cyber Cyan
-    Background = Color3.fromRGB(13, 15, 21),     -- Deep Matte Midnight Slate
-    Sidebar = Color3.fromRGB(17, 20, 27),        -- Elevated Sidebar Panel
-    Card = Color3.fromRGB(22, 26, 35),           -- Control Card Surface
-    CardHover = Color3.fromRGB(28, 33, 44),      -- Control Card Hover Surface
-    Input = Color3.fromRGB(15, 18, 24),          -- Embedded Input Track
-    Stroke = Color3.fromRGB(34, 40, 53),         -- Razor-sharp 1px Border
-    TextPrimary = Color3.fromRGB(240, 244, 252),  -- Clean Crisp Off-White
-    TextSecondary = Color3.fromRGB(140, 152, 172),-- Muted Slate Gray
-    TextDim = Color3.fromRGB(95, 105, 122),      -- Subtle Placeholders / Subtext
-    Success = Color3.fromRGB(45, 205, 115),
-    Warning = Color3.fromRGB(245, 165, 35),
-    Danger = Color3.fromRGB(240, 65, 75)
+    Primary = Color3.fromRGB(250, 190, 25),       -- Vibrant Blox Fruits Amber Gold
+    Secondary = Color3.fromRGB(0, 205, 255),      -- Cyber Cyan
+    Background = Color3.fromRGB(15, 14, 18),      -- Deep Obsidian/Charcoal Slate
+    Sidebar = Color3.fromRGB(19, 17, 23),         -- Elevated Sidebar Panel
+    Card = Color3.fromRGB(20, 19, 25),            -- Control Row Base
+    CardTop = Color3.fromRGB(28, 26, 33),         -- Dual-stop Row Top Gloss
+    CardBottom = Color3.fromRGB(16, 15, 20),      -- Dual-stop Row Bottom Base
+    CardHover = Color3.fromRGB(32, 29, 39),       -- Smooth Hover Highlight
+    Input = Color3.fromRGB(14, 13, 17),           -- Embedded Input Track
+    Stroke = Color3.fromRGB(42, 38, 50),          -- Razor-sharp 1px Bevel Border
+    GoldTop = Color3.fromRGB(255, 220, 45),       -- Iconic BF Gold Button Top Highlight
+    GoldBottom = Color3.fromRGB(230, 165, 10),    -- Iconic BF Gold Button Bottom
+    GoldStroke = Color3.fromRGB(65, 45, 5),       -- Deep Dark Golden Outline
+    GoldText = Color3.fromRGB(22, 16, 0),         -- Bold Dark Text on Gold Button
+    TextPrimary = Color3.fromRGB(245, 246, 250),  -- Clean Crisp Off-White
+    TextSecondary = Color3.fromRGB(150, 155, 170),-- Muted Slate Gray
+    TextDim = Color3.fromRGB(100, 105, 120),      -- Subtle Placeholders / Subtext
+    Success = Color3.fromRGB(45, 215, 120),
+    Warning = Color3.fromRGB(255, 175, 30),
+    Danger = Color3.fromRGB(245, 65, 80)
 }
+
+local function applyCardGradient(obj, topColor, bottomColor)
+    if not obj then return nil end
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, topColor or DEFAULT_THEME.CardTop),
+        ColorSequenceKeypoint.new(1, bottomColor or DEFAULT_THEME.CardBottom)
+    })
+    g.Rotation = 90
+    pcall(function() g.Parent = obj end)
+    return g
+end
+
+-- Automatic Category / Keyword Style Matcher (Blox Fruits Themed Icons & Colors)
+local function getCategoryStyle(rawTitle)
+    local t = string.lower(tostring(rawTitle or ""))
+    if t:find("melee") or t:find("fist") or t:find("punch") or t:find("combat") or t:find("attack") then
+        return "🥊", Color3.fromRGB(255, 160, 160) -- Peach/Salmon
+    elseif t:find("defense") or t:find("shield") or t:find("armor") or t:find("god") or t:find("immune") or t:find("protect") then
+        return "🛡️", Color3.fromRGB(96, 176, 255)  -- Sky Blue
+    elseif t:find("sword") or t:find("blade") or t:find("katana") or t:find("slash") then
+        return "⚔️", Color3.fromRGB(124, 255, 86)  -- Lime Green
+    elseif t:find("gun") or t:find("flintlock") or t:find("cannon") or t:find("turret") or t:find("shoot") then
+        return "🔫", Color3.fromRGB(255, 215, 60)  -- Warm Gold
+    elseif t:find("fruit") or t:find("blox") or t:find("devil") or t:find("ability") or t:find("magic") then
+        return "🍎", Color3.fromRGB(216, 168, 255) -- Lavender Purple
+    elseif t:find("farm") or t:find("gold") or t:find("chest") or t:find("coin") or t:find("money") then
+        return "🍯", Color3.fromRGB(250, 190, 30)  -- Golden Amber
+    elseif t:find("speed") or t:find("fly") or t:find("noclip") or t:find("teleport") or t:find("walk") then
+        return "⚡", Color3.fromRGB(0, 220, 255)   -- Electric Cyan
+    elseif t:find("esp") or t:find("visual") or t:find("wallhack") or t:find("tracer") or t:find("chams") then
+        return "👁️", Color3.fromRGB(255, 130, 210) -- Radiant Rose
+    elseif t:find("build") or t:find("stealer") or t:find("save") or t:find("slot") then
+        return "🏗️", Color3.fromRGB(250, 155, 45)  -- Amber Orange
+    elseif t:find("player") or t:find("kill") or t:find("target") or t:find("aim") then
+        return "🎯", Color3.fromRGB(255, 90, 90)   -- Crimson
+    elseif t:find("setting") or t:find("config") or t:find("key") then
+        return "⚙️", Color3.fromRGB(175, 185, 205) -- Silver Slate
+    end
+    return "◆", Color3.fromRGB(245, 246, 250)
+end
 
 -- =========================================================================
 -- Core Utility Helpers
@@ -1130,6 +1177,13 @@ return function(opts)
         end
         tabObj.createList = tabObj.CreateList
 
+        tabObj.CreateStatRow = function(self, ...)
+            local a = { ... }
+            if type(self) == "string" or type(self) == "table" then table.insert(a, 1, self) end
+            return createStatRow(pageScroll, unpack(a))
+        end
+        tabObj.createStatRow = tabObj.CreateStatRow
+
         setmetatable(tabObj, {
             __index = function(_, k)
                 return pageScroll[k]
@@ -1143,7 +1197,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 1: Section Header (Clean & Subtle)
+    -- Component 1: Section Header (Blox Fruits MMORPG Banner Style)
     -- =========================================================================
     createSection = function(parent, titleText)
         if typeof(parent) == "table" and parent.Page then parent = parent.Page end
@@ -1154,7 +1208,7 @@ return function(opts)
 
         local container = Instance.new("Frame")
         container.Name = "Section_" .. tostring(titleText)
-        container.Size = UDim2.new(1, 0, 0, 22)
+        container.Size = UDim2.new(1, 0, 0, 26)
         container.BackgroundTransparency = 1
         container.Parent = parent
 
@@ -1166,9 +1220,11 @@ return function(opts)
         titleLabel.AutomaticSize = Enum.AutomaticSize.X
         titleLabel.BackgroundTransparency = 1
         titleLabel.Font = Enum.Font.GothamBold
-        titleLabel.Text = string.upper(tostring(titleText or ""))
+        titleLabel.Text = "◆  " .. string.upper(tostring(titleText or ""))
         titleLabel.TextColor3 = primaryTheme
-        titleLabel.TextSize = 10
+        titleLabel.TextSize = 11
+        titleLabel.TextStrokeTransparency = 0.7
+        titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
         titleLabel.Parent = container
 
@@ -1182,6 +1238,14 @@ return function(opts)
         rule.BorderSizePixel = 0
         rule.Parent = container
 
+        local ruleGrad = Instance.new("UIGradient")
+        ruleGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, primaryTheme),
+            ColorSequenceKeypoint.new(0.35, DEFAULT_THEME.Stroke),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 18, 25))
+        })
+        ruleGrad.Parent = rule
+
         titleLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
             local width = titleLabel.AbsoluteSize.X
             rule.Position = UDim2.new(0, width + 10, 0.5, 0)
@@ -1192,7 +1256,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 2: Modern Toggle Switch (Clean Rounded Surfaces)
+    -- Component 2: Blox Fruits Styled Toggle Switch (Dual-stop Row Card & Badges)
     -- =========================================================================
     createToggle = function(parent, titleText, defaultState, callback)
         if typeof(parent) == "table" and parent.Page then parent = parent.Page end
@@ -1206,6 +1270,8 @@ return function(opts)
         local cb = type(callback) == "function" and callback or function() end
         local setToggle
 
+        local iconChar, titleColor = getCategoryStyle(titleText)
+
         local card = Instance.new("Frame")
         card.Name = "ToggleCard_" .. tostring(titleText)
         card.Size = UDim2.new(1, 0, 0, 42)
@@ -1213,7 +1279,8 @@ return function(opts)
         card.BorderSizePixel = 0
         card.Parent = parent
         applyCorner(card, 8)
-        local stroke = applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+        applyCardGradient(card)
+        local stroke = applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.2)
 
         table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Toggle" })
         registeredFlags[tostring(titleText)] = {
@@ -1226,15 +1293,38 @@ return function(opts)
             end
         }
 
+        -- Left Icon Badge Container (Blox Fruits Stat Style)
+        local iconBox = Instance.new("Frame")
+        iconBox.Name = "IconBox"
+        iconBox.Size = UDim2.new(0, 26, 0, 26)
+        iconBox.Position = UDim2.new(0, 8, 0.5, -13)
+        iconBox.BackgroundColor3 = Color3.fromRGB(13, 12, 16)
+        iconBox.BorderSizePixel = 0
+        iconBox.Parent = card
+        applyCorner(iconBox, 6)
+        applyStroke(iconBox, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local iconLbl = Instance.new("TextLabel")
+        iconLbl.Name = "Icon"
+        iconLbl.Size = UDim2.new(1, 0, 1, 0)
+        iconLbl.BackgroundTransparency = 1
+        iconLbl.Font = Enum.Font.GothamBold
+        iconLbl.Text = iconChar
+        iconLbl.TextColor3 = titleColor
+        iconLbl.TextSize = 14
+        iconLbl.Parent = iconBox
+
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
-        titleLabel.Size = UDim2.new(1, -64, 1, 0)
-        titleLabel.Position = UDim2.new(0, 14, 0, 0)
+        titleLabel.Size = UDim2.new(1, -98, 1, 0)
+        titleLabel.Position = UDim2.new(0, 42, 0, 0)
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Font = Enum.Font.Gotham
+        titleLabel.Font = Enum.Font.GothamBold
         titleLabel.Text = tostring(titleText)
-        titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        titleLabel.TextColor3 = titleColor
         titleLabel.TextSize = 12
+        titleLabel.TextStrokeTransparency = 0.75
+        titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
         titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
         titleLabel.Parent = card
@@ -1243,13 +1333,14 @@ return function(opts)
         local switchTrack = Instance.new("TextButton")
         switchTrack.Name = "SwitchTrack"
         switchTrack.Size = UDim2.new(0, 38, 0, 20)
-        switchTrack.Position = UDim2.new(1, -50, 0.5, -10)
-        switchTrack.BackgroundColor3 = state and primaryTheme or Color3.fromRGB(36, 42, 54)
+        switchTrack.Position = UDim2.new(1, -48, 0.5, -10)
+        switchTrack.BackgroundColor3 = state and primaryTheme or Color3.fromRGB(32, 29, 38)
         switchTrack.BorderSizePixel = 0
         switchTrack.Text = ""
         switchTrack.AutoButtonColor = false
         switchTrack.Parent = card
         applyCorner(switchTrack, 10)
+        applyStroke(switchTrack, state and primaryTheme or DEFAULT_THEME.Stroke, 1, 0.3)
 
         local switchKnob = Instance.new("Frame")
         switchKnob.Name = "Knob"
@@ -1274,7 +1365,7 @@ return function(opts)
                 })
             else
                 tween(switchTrack, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    BackgroundColor3 = Color3.fromRGB(36, 42, 54)
+                    BackgroundColor3 = Color3.fromRGB(32, 29, 38)
                 })
                 tween(switchKnob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                     Position = UDim2.new(0, 3, 0.5, -7)
@@ -1322,7 +1413,7 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 3: Precision Slider
+    -- Component 3: Blox Fruits Precision Slider (Elevated Stat Badge Display)
     -- =========================================================================
     createSlider = function(parent, titleText, minVal, maxVal, defaultVal, suffixText, callback)
         if typeof(parent) == "table" and parent.Page then parent = parent.Page end
@@ -1346,51 +1437,87 @@ return function(opts)
         local cb = type(callback) == "function" and callback or function() end
 
         local currentValue = math.clamp(defaultVal, minVal, maxVal)
+        local iconChar, titleColor = getCategoryStyle(titleText)
 
         local card = Instance.new("Frame")
         card.Name = "SliderCard_" .. tostring(titleText)
-        card.Size = UDim2.new(1, 0, 0, 52)
+        card.Size = UDim2.new(1, 0, 0, 54)
         card.BackgroundColor3 = DEFAULT_THEME.Card
         card.BorderSizePixel = 0
         card.Parent = parent
         applyCorner(card, 8)
-        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+        applyCardGradient(card)
+        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.2)
 
         table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Slider" })
 
-        -- Title on left (Never bleeds into ValueBadge)
+        -- Left Icon Badge Container
+        local iconBox = Instance.new("Frame")
+        iconBox.Name = "IconBox"
+        iconBox.Size = UDim2.new(0, 24, 0, 24)
+        iconBox.Position = UDim2.new(0, 8, 0, 6)
+        iconBox.BackgroundColor3 = Color3.fromRGB(13, 12, 16)
+        iconBox.BorderSizePixel = 0
+        iconBox.Parent = card
+        applyCorner(iconBox, 6)
+        applyStroke(iconBox, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local iconLbl = Instance.new("TextLabel")
+        iconLbl.Name = "Icon"
+        iconLbl.Size = UDim2.new(1, 0, 1, 0)
+        iconLbl.BackgroundTransparency = 1
+        iconLbl.Font = Enum.Font.GothamBold
+        iconLbl.Text = iconChar
+        iconLbl.TextColor3 = titleColor
+        iconLbl.TextSize = 13
+        iconLbl.Parent = iconBox
+
+        -- Title Label
         local titleLabel = Instance.new("TextLabel")
         titleLabel.Name = "Label"
-        titleLabel.Size = UDim2.new(1, -90, 0, 20)
-        titleLabel.Position = UDim2.new(0, 14, 0, 8)
+        titleLabel.Size = UDim2.new(1, -125, 0, 24)
+        titleLabel.Position = UDim2.new(0, 38, 0, 6)
         titleLabel.BackgroundTransparency = 1
-        titleLabel.Font = Enum.Font.Gotham
+        titleLabel.Font = Enum.Font.GothamBold
         titleLabel.Text = tostring(titleText)
-        titleLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        titleLabel.TextColor3 = titleColor
         titleLabel.TextSize = 12
+        titleLabel.TextStrokeTransparency = 0.75
+        titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
         titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
         titleLabel.Parent = card
 
-        -- Value badge on right (Fixed clean width)
+        -- Value badge on right (Styled like Blox Fruits Stat Level Display)
+        local valContainer = Instance.new("Frame")
+        valContainer.Name = "ValContainer"
+        valContainer.Size = UDim2.new(0, 72, 0, 22)
+        valContainer.Position = UDim2.new(1, -82, 0, 7)
+        valContainer.BackgroundColor3 = Color3.fromRGB(13, 12, 16)
+        valContainer.BorderSizePixel = 0
+        valContainer.Parent = card
+        applyCorner(valContainer, 5)
+        applyStroke(valContainer, DEFAULT_THEME.Stroke, 1, 0.3)
+
         local valBadge = Instance.new("TextLabel")
         valBadge.Name = "ValueBadge"
-        valBadge.Size = UDim2.new(0, 65, 0, 20)
-        valBadge.Position = UDim2.new(1, -79, 0, 8)
+        valBadge.Size = UDim2.new(1, 0, 1, 0)
         valBadge.BackgroundTransparency = 1
-        valBadge.Font = Enum.Font.GothamMedium
+        valBadge.Font = Enum.Font.GothamBold
         valBadge.Text = tostring(currentValue) .. suffix
         valBadge.TextColor3 = primaryTheme
         valBadge.TextSize = 11
-        valBadge.TextXAlignment = Enum.TextXAlignment.Right
-        valBadge.Parent = card
+        valBadge.TextStrokeTransparency = 0.8
+        valBadge.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        valBadge.TextXAlignment = Enum.TextXAlignment.Center
+        valBadge.Parent = valContainer
 
         -- Track
         local track = Instance.new("TextButton")
         track.Name = "SliderTrack"
-        track.Size = UDim2.new(1, -28, 0, 6)
-        track.Position = UDim2.new(0, 14, 0, 34)
-        track.BackgroundColor3 = Color3.fromRGB(34, 40, 52)
+        track.Size = UDim2.new(1, -24, 0, 6)
+        track.Position = UDim2.new(0, 12, 0, 38)
+        track.BackgroundColor3 = Color3.fromRGB(28, 25, 33)
         track.BorderSizePixel = 0
         track.Text = ""
         track.AutoButtonColor = false
@@ -1405,14 +1532,22 @@ return function(opts)
         fill.Parent = track
         applyCorner(fill, 3)
 
+        local fillGrad = Instance.new("UIGradient")
+        fillGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, DEFAULT_THEME.GoldTop),
+            ColorSequenceKeypoint.new(1, primaryTheme)
+        })
+        fillGrad.Parent = fill
+
         local thumb = Instance.new("Frame")
         thumb.Name = "Thumb"
-        thumb.Size = UDim2.new(0, 12, 0, 12)
-        thumb.Position = UDim2.new(0, -6, 0.5, -6)
+        thumb.Size = UDim2.new(0, 14, 0, 14)
+        thumb.Position = UDim2.new(0, -7, 0.5, -7)
         thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         thumb.BorderSizePixel = 0
         thumb.Parent = fill
-        applyCorner(thumb, 6)
+        applyCorner(thumb, 7)
+        applyStroke(thumb, primaryTheme, 1.5, 0)
 
         registerThemeUpdater(function(c)
             fill.BackgroundColor3 = c
@@ -1432,7 +1567,7 @@ return function(opts)
 
             local pct = (currentValue - minVal) / (maxVal - minVal)
             fill.Size = UDim2.new(pct, 0, 1, 0)
-            thumb.Position = UDim2.new(1, -6, 0.5, -6)
+            thumb.Position = UDim2.new(1, -7, 0.5, -7)
             valBadge.Text = tostring(currentValue) .. suffix
 
             if not skipCallback then
@@ -1482,50 +1617,282 @@ return function(opts)
     end
 
     -- =========================================================================
-    -- Component 4: Modern Button
+    -- Component 4: Blox Fruits Golden Action Button (The Iconic +1 Bevel Aesthetic)
     -- =========================================================================
-    createButton = function(parent, titleText, callback)
+    createButton = function(parent, titleText, callback, opts)
         if typeof(parent) == "table" and parent.Page then parent = parent.Page end
         if typeof(parent) == "string" then
             callback = titleText
             titleText = parent
             parent = activeTab and activeTab.Page or nil
         end
+        opts = opts or {}
         local cb = type(callback) == "function" and callback or function() end
+
+        local iconChar, titleColor = getCategoryStyle(titleText)
+        local isGold = opts.Gold ~= false and opts.style ~= "dark"
 
         local card = Instance.new("TextButton")
         card.Name = "ButtonCard_" .. tostring(titleText)
         card.Size = UDim2.new(1, 0, 0, 38)
-        card.BackgroundColor3 = DEFAULT_THEME.Card
         card.BorderSizePixel = 0
-        card.Font = Enum.Font.Gotham
-        card.Text = tostring(titleText)
-        card.TextColor3 = DEFAULT_THEME.TextPrimary
-        card.TextSize = 12
+        card.Font = Enum.Font.GothamBold
+        card.Text = ""
         card.AutoButtonColor = false
         card.Parent = parent
         applyCorner(card, 8)
-        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local stroke
+        local btnGrad
+        if isGold then
+            -- Iconic Blox Fruits Golden Bevel Action Button
+            card.BackgroundColor3 = DEFAULT_THEME.GoldBottom
+            stroke = applyStroke(card, DEFAULT_THEME.GoldStroke, 1.5, 0)
+            btnGrad = Instance.new("UIGradient")
+            btnGrad.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, DEFAULT_THEME.GoldTop),
+                ColorSequenceKeypoint.new(1, DEFAULT_THEME.GoldBottom)
+            })
+            btnGrad.Rotation = 90
+            btnGrad.Parent = card
+        else
+            card.BackgroundColor3 = DEFAULT_THEME.Card
+            applyCardGradient(card)
+            stroke = applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.2)
+        end
 
         table.insert(registeredElements, { Card = card, Title = tostring(titleText), Type = "Button" })
 
+        -- Content row
+        local iconLbl = Instance.new("TextLabel")
+        iconLbl.Name = "BtnIcon"
+        iconLbl.Size = UDim2.new(0, 24, 1, 0)
+        iconLbl.Position = UDim2.new(0, 12, 0, 0)
+        iconLbl.BackgroundTransparency = 1
+        iconLbl.Font = Enum.Font.GothamBold
+        iconLbl.Text = opts.Icon or iconChar
+        iconLbl.TextColor3 = isGold and DEFAULT_THEME.GoldText or titleColor
+        iconLbl.TextSize = 14
+        iconLbl.Parent = card
+
+        local label = Instance.new("TextLabel")
+        label.Name = "BtnLabel"
+        label.Size = UDim2.new(1, -44, 1, 0)
+        label.Position = UDim2.new(0, 36, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.GothamBold
+        label.Text = tostring(titleText)
+        label.TextColor3 = isGold and DEFAULT_THEME.GoldText or DEFAULT_THEME.TextPrimary
+        label.TextSize = 13
+        label.TextStrokeTransparency = isGold and 0.9 or 0.75
+        label.TextStrokeColor3 = isGold and Color3.fromRGB(255, 230, 100) or Color3.fromRGB(0, 0, 0)
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.Parent = card
+
         card.MouseEnter:Connect(function()
-            tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover})
+            if isGold then
+                tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(255, 225, 45)})
+            else
+                tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover})
+            end
         end)
         card.MouseLeave:Connect(function()
-            tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card})
+            if isGold then
+                tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.GoldBottom})
+            else
+                tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card})
+            end
         end)
         card.MouseButton1Down:Connect(function()
-            tween(card, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Size = UDim2.new(1, -4, 0, 36)})
+            tween(card, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {Position = card.Position + UDim2.new(0, 0, 0, 2)})
         end)
         card.MouseButton1Up:Connect(function()
-            tween(card, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(1, 0, 0, 38)})
+            tween(card, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Position = card.Position - UDim2.new(0, 0, 0, 2)})
         end)
         card.MouseButton1Click:Connect(function()
             pcall(cb)
         end)
 
         return card
+    end
+
+    -- =========================================================================
+    -- Component 4B: Exact 1:1 Blox Fruits Stat Row Component
+    -- =========================================================================
+    createStatRow = function(parent, titleText, levelVal, subText, onAddCallback, isLocked, customIcon, customColor)
+        if typeof(parent) == "table" and parent.Page then parent = parent.Page end
+        local customBtnText = "+1"
+        if typeof(titleText) == "table" then
+            local cfg = titleText
+            customIcon = cfg.Icon
+            customColor = cfg.TitleColor or cfg.Color
+            isLocked = cfg.IsLocked or cfg.Locked
+            onAddCallback = cfg.Callback or cfg.OnAction or cfg.OnClick
+            subText = cfg.SubText or cfg.Mastery or ""
+            levelVal = cfg.Level or cfg.Value or 1
+            customBtnText = cfg.ButtonText or "+1"
+            titleText = cfg.Title or cfg.Name or "Stat"
+        end
+
+        local iconChar, titleColor = getCategoryStyle(titleText)
+        if customIcon then iconChar = customIcon end
+        if customColor then titleColor = customColor end
+
+        local card = Instance.new("Frame")
+        card.Name = "StatRow_" .. tostring(titleText)
+        card.Size = UDim2.new(1, 0, 0, 44)
+        card.BackgroundColor3 = DEFAULT_THEME.Card
+        card.BorderSizePixel = 0
+        card.Parent = parent
+        applyCorner(card, 8)
+        applyCardGradient(card)
+        applyStroke(card, DEFAULT_THEME.Stroke, 1, 0.2)
+
+        -- Left Icon Badge Container
+        local iconBox = Instance.new("Frame")
+        iconBox.Name = "IconBox"
+        iconBox.Size = UDim2.new(0, 28, 0, 28)
+        iconBox.Position = UDim2.new(0, 8, 0.5, -14)
+        iconBox.BackgroundColor3 = Color3.fromRGB(13, 12, 16)
+        iconBox.BorderSizePixel = 0
+        iconBox.Parent = card
+        applyCorner(iconBox, 6)
+        applyStroke(iconBox, DEFAULT_THEME.Stroke, 1, 0.3)
+
+        local iconLbl = Instance.new("TextLabel")
+        iconLbl.Name = "Icon"
+        iconLbl.Size = UDim2.new(1, 0, 1, 0)
+        iconLbl.BackgroundTransparency = 1
+        iconLbl.Font = Enum.Font.GothamBold
+        iconLbl.Text = iconChar
+        iconLbl.TextColor3 = titleColor
+        iconLbl.TextSize = 15
+        iconLbl.Parent = iconBox
+
+        -- Title Label
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "Label"
+        titleLabel.Size = UDim2.new(0, 110, 1, 0)
+        titleLabel.Position = UDim2.new(0, 44, 0, 0)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.GothamBold
+        titleLabel.Text = tostring(titleText)
+        titleLabel.TextColor3 = titleColor
+        titleLabel.TextSize = 13
+        titleLabel.TextStrokeTransparency = 0.75
+        titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.Parent = card
+
+        -- Helper to format value (if numeric or pure digits, format as Lv. X; otherwise display raw)
+        local function formatStatDisplay(val, sub)
+            local s = (sub and sub ~= "") and (" (" .. tostring(sub) .. ")") or ""
+            local vStr = tostring(val ~= nil and val or 1)
+            if typeof(val) == "number" or (tonumber(vStr) and not vStr:find("[%+%-%s%a]")) then
+                return "Lv. " .. vStr .. s
+            else
+                return vStr .. s
+            end
+        end
+
+        -- Level & Mastery Text (Middle)
+        local levelLabel = Instance.new("TextLabel")
+        levelLabel.Name = "LevelLabel"
+        levelLabel.Size = UDim2.new(1, -210, 1, 0)
+        levelLabel.Position = UDim2.new(0, 150, 0, 0)
+        levelLabel.BackgroundTransparency = 1
+        levelLabel.Font = Enum.Font.Gotham
+        levelLabel.Text = formatStatDisplay(levelVal, subText)
+        levelLabel.TextColor3 = DEFAULT_THEME.TextPrimary
+        levelLabel.TextSize = 12
+        levelLabel.TextXAlignment = Enum.TextXAlignment.Right
+        levelLabel.Parent = card
+
+        -- Right Action (Golden +1 Button AND Lock Icon container)
+        local lockLbl = Instance.new("TextLabel")
+        lockLbl.Name = "LockIcon"
+        lockLbl.Size = UDim2.new(0, 44, 0, 28)
+        lockLbl.Position = UDim2.new(1, -52, 0.5, -14)
+        lockLbl.BackgroundTransparency = 1
+        lockLbl.Font = Enum.Font.GothamBold
+        lockLbl.Text = "🔒"
+        lockLbl.TextColor3 = DEFAULT_THEME.TextDim
+        lockLbl.TextSize = 14
+        lockLbl.Visible = isLocked == true
+        lockLbl.Parent = card
+
+        local addBtn = Instance.new("TextButton")
+        addBtn.Name = "AddButton"
+        addBtn.Size = UDim2.new(0, 46, 0, 28)
+        addBtn.Position = UDim2.new(1, -54, 0.5, -14)
+        addBtn.BackgroundColor3 = DEFAULT_THEME.GoldBottom
+        addBtn.BorderSizePixel = 0
+        addBtn.Font = Enum.Font.GothamBold
+        addBtn.Text = tostring(customBtnText or "+1")
+        addBtn.TextColor3 = DEFAULT_THEME.GoldText
+        addBtn.TextSize = 13
+        addBtn.AutoButtonColor = false
+        addBtn.Visible = not (isLocked == true)
+        addBtn.Parent = card
+        applyCorner(addBtn, 5)
+        applyStroke(addBtn, DEFAULT_THEME.GoldStroke, 1.5, 0)
+
+        local btnGrad = Instance.new("UIGradient")
+        btnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, DEFAULT_THEME.GoldTop),
+            ColorSequenceKeypoint.new(1, DEFAULT_THEME.GoldBottom)
+        })
+        btnGrad.Rotation = 90
+        btnGrad.Parent = addBtn
+
+        addBtn.MouseEnter:Connect(function()
+            tween(addBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(255, 225, 45)})
+        end)
+        addBtn.MouseLeave:Connect(function()
+            tween(addBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.GoldBottom})
+        end)
+        addBtn.MouseButton1Down:Connect(function()
+            tween(addBtn, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 44, 0, 26), Position = UDim2.new(1, -53, 0.5, -13)})
+        end)
+        addBtn.MouseButton1Up:Connect(function()
+            tween(addBtn, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 46, 0, 28), Position = UDim2.new(1, -54, 0.5, -14)})
+        end)
+        addBtn.MouseButton1Click:Connect(function()
+            if type(onAddCallback) == "function" then
+                pcall(onAddCallback)
+            end
+        end)
+
+        local rowObj = {
+            Instance = card,
+            SetValue = function(newVal, newSub)
+                levelVal = newVal ~= nil and newVal or levelVal
+                if newSub ~= nil then subText = newSub end
+                levelLabel.Text = formatStatDisplay(levelVal, subText)
+            end,
+            SetLevel = function(newLv, newSub)
+                levelVal = newLv or levelVal
+                if newSub ~= nil then subText = newSub end
+                levelLabel.Text = formatStatDisplay(levelVal, subText)
+            end,
+            SetSubText = function(newSub)
+                subText = newSub
+                levelLabel.Text = formatStatDisplay(levelVal, subText)
+            end,
+            SetTitle = function(newTitle)
+                titleLabel.Text = tostring(newTitle)
+            end,
+            SetButtonText = function(newTxt)
+                addBtn.Text = tostring(newTxt)
+            end,
+            SetLocked = function(locked)
+                isLocked = locked
+                lockLbl.Visible = locked == true
+                addBtn.Visible = not (locked == true)
+            end
+        }
+        return rowObj
     end
 
     -- =========================================================================
@@ -2852,6 +3219,9 @@ return function(opts)
 
     Hub.CreateList = createList
     Hub.createList = createList
+
+    Hub.CreateStatRow = createStatRow
+    Hub.createStatRow = createStatRow
     Hub.addItem = function(titleText, subtitleText, callback)
         if activeTab and activeTab.Page then
             return createButton(activeTab.Page, titleText, callback)
