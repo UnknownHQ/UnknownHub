@@ -336,9 +336,10 @@ task.spawn(function()
 
         if State.AutoFarm_Enabled then
             local char = LocalPlayer.Character
-            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
             local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
 
+            -- Clean character lifecycle check (Deadlock-Free Single Respawn Handler)
             if not char or not root or not hum or hum.Health <= 0 then
                 updateStatus("Respawning at Dock...")
                 workspace.Gravity = normalGravity
@@ -499,24 +500,7 @@ task.spawn(function()
                     updateStatus("Voyage Complete! Payout in progress...")
                     workspace.Gravity = normalGravity
                     hum.Health = 0
-
-                    -- Wait for respawn at dock
-                    local newChar = LocalPlayer.CharacterAdded:Wait()
-                    newChar:WaitForChild("HumanoidRootPart", 5)
-                    task.wait(1.2)
-
-                    -- Fire claim remote to claim gold payout
-                    pcall(function()
-                        local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
-                        if claim then claim:FireServer() end
-                    end)
-
-                    if State.Farm_ClosePopups then
-                        task.wait(0.2)
-                        dismissResultsPopup()
-                    end
-
-                    updateStatus("Ready for next run!")
+                    task.wait(0.5)
                 else
                     workspace.Gravity = normalGravity
                     root.Anchored = false
