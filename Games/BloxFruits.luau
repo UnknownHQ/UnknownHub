@@ -15675,9 +15675,8 @@ end
 
 
 _G.startUnknownFarm = function()
-
-
-
+    isFarmOn = true
+    _G.Unknown_AutoFarmEnabled = true
     if _G.Unknown_MainFarmLoop then _G.Unknown_MainFarmLoop:Disconnect() _G.Unknown_MainFarmLoop = nil end
 
 
