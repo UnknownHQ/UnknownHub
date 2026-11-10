@@ -10969,6 +10969,8 @@ _G.Unknown_IsManualAttacking = false
 
 
 
+local fastAttackBatchIndex = 1
+
 _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     if not nearbyHits or #nearbyHits == 0 then return end
 
@@ -10988,17 +10990,49 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     _G.Unknown_WrappedAtk = rAtk
 
     -- Official authentic delivery with authenticated v3 handshake session token
-    -- Batch hits in pairs of 2 to honor server 2-NPC packet clamp while hitting ALL mobs in the stack
+    -- ROUND-ROBIN MULTI-SWING ENGINE: Dispatches pairs of 2 targets per swing, cycling through ALL stacked mobs
     pcall(function()
         local global = require(ReplicatedStorage.Global)
-        if global and global.SendHitsToServer then
+        if not global or not global.SendHitsToServer then return end
+
+        local totalHits = #nearbyHits
+        if totalHits <= 2 then
+            -- 1 or 2 mobs: Full burst in single swing
             if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-            for i = 1, #nearbyHits, 2 do
-                local batch = { nearbyHits[i] }
-                if nearbyHits[i + 1] then table.insert(batch, nearbyHits[i + 1]) end
-                local leadPart = batch[1][2] or primaryPart
-                global.SendHitsToServer(leadPart, batch)
-            end
+            local leadPart = nearbyHits[1][2] or primaryPart
+            global.SendHitsToServer(leadPart, nearbyHits)
+        else
+            -- 3+ mobs: Round-Robin rotation with micro-bursts so ALL stacked mobs take continuous damage
+            local startIdx = ((fastAttackBatchIndex - 1) % totalHits) + 1
+            fastAttackBatchIndex = (fastAttackBatchIndex % totalHits) + 1
+
+            -- Batch 1 (targets idx1, idx2)
+            local idx1 = startIdx
+            local idx2 = (idx1 % totalHits) + 1
+            local mob1 = nearbyHits[idx1]
+            local mob2 = nearbyHits[idx2]
+            local leadPart1 = mob1[2] or primaryPart
+
+            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+            global.SendHitsToServer(leadPart1, { mob1, mob2 })
+
+            -- Micro-Burst Batch 2 for stacks of 3+ mobs (targets idx3, idx4)
+            task.spawn(function()
+                task.wait(0.016) -- Next frame micro-burst
+                local idx3 = (idx2 % totalHits) + 1
+                local idx4 = (idx3 % totalHits) + 1
+                local mob3 = nearbyHits[idx3]
+                local mob4 = nearbyHits[idx4]
+                local leadPart2 = mob3[2] or primaryPart
+
+                if tool then pcall(function() tool:Activate() end) end
+                if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+                if totalHits >= 4 then
+                    global.SendHitsToServer(leadPart2, { mob3, mob4 })
+                else
+                    global.SendHitsToServer(leadPart2, { mob3 })
+                end
+            end)
         end
     end)
 
@@ -16903,7 +16937,7 @@ _G.startUnknownFarm = function()
 
 
 
-                            if distToStack > 45 then return end
+                            if distToStack > 350 then return end
 
 
 
