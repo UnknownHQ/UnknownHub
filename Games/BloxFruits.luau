@@ -5525,50 +5525,99 @@ safeTweenToIsland = function(targetCFrame, callback)
 
     _G.Unknown_TravelTweenID = currentTweenID
 
-    local speed = _G.Unknown_TravelSpeed or 240
+    local speed = _G.Unknown_TravelSpeed or 210
+
+    -- Continuous noclip connection during entire flight to prevent mountain/tree collision
+    local travelSteppedConn
+    travelSteppedConn = RunService.Stepped:Connect(function()
+        if not isTraveling or _G.Unknown_TravelTweenID ~= currentTweenID then
+            if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) travelSteppedConn = nil end
+            return
+        end
+        local c = LocalPlayer.Character
+        if c then
+            for _, part in ipairs(c:GetChildren()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
+        end
+    end)
 
     -- SKY CORRIDOR 3-PHASE FLIGHT SOLVER FOR LONG-DISTANCE MAP TRAVEL (> 220 STUDS):
-    -- Ascends vertically into open sky above all islands, mountain meshes, trees, and ocean water killzones.
-    -- Bypasses 100% of physical geometry collisions and water triggers to permanently eliminate server anticheat rubberband / returning!
+    -- Ascends vertically into open sky, cruises with matched physical velocity, and descends cleanly onto target
     if dist > 220 and currentPos.X < 45000 and targetPos.X < 45000 then
         task.spawn(function()
-            local cruiseY = math.clamp(math.max(currentPos.Y, targetPos.Y) + 75, 140, 320)
+            local cruiseY = math.clamp(math.max(currentPos.Y, targetPos.Y) + 85, 160, 320)
             if currentPos.Y > 500 or targetPos.Y > 500 then
-                cruiseY = math.max(currentPos.Y, targetPos.Y) + 75
+                cruiseY = math.max(currentPos.Y, targetPos.Y) + 85
             end
 
             -- Phase 1: Rapid vertical ascent into open sky corridor
-            local ascentDist = math.abs(cruiseY - currentPos.Y)
+            local startHRPPos = hrp.Position
+            local ascentDist = math.abs(cruiseY - startHRPPos.Y)
             if ascentDist > 15 then
                 local ascentTime = math.clamp(ascentDist / speed, 0.1, 2.5)
-                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentTime, Enum.EasingStyle.Linear), {CFrame = CFrame.new(currentPos.X, cruiseY, currentPos.Z)})
+                local ascentTarget = CFrame.new(startHRPPos.X, cruiseY, startHRPPos.Z)
+                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentTime, Enum.EasingStyle.Linear), {CFrame = ascentTarget})
                 _G.Unknown_TravelTween = twAscent
+                if bv then
+                    bv.Velocity = Vector3.new(0, speed, 0)
+                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                end
                 twAscent:Play()
                 twAscent.Completed:Wait()
-                if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
+                if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
+                    if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) end
+                    return
+                end
             end
 
-            -- Phase 2: High-speed horizontal cruising across unobstructed sky
+            -- Phase 2: High-speed horizontal cruising across unobstructed sky with matched physical velocity
+            local curHRPPos = hrp.Position
             local horizontalTargetCF = CFrame.new(targetPos.X, cruiseY, targetPos.Z)
-            local horizontalDist = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
+            local horizontalDelta = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(curHRPPos.X, 0, curHRPPos.Z))
+            local horizontalDist = horizontalDelta.Magnitude
             local cruiseTime = math.clamp(horizontalDist / speed, 0.1, 45)
+            local cruiseDir = horizontalDist > 0 and (horizontalDelta.Unit * speed) or Vector3.zero
+
             local twCruise = TweenService:Create(hrp, TweenInfo.new(cruiseTime, Enum.EasingStyle.Linear), {CFrame = horizontalTargetCF})
             _G.Unknown_TravelTween = twCruise
+            if bv then
+                bv.Velocity = cruiseDir
+                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
+            if hrp:IsA("BasePart") then hrp.AssemblyLinearVelocity = cruiseDir end
+
             twCruise:Play()
             twCruise.Completed:Wait()
-            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
+            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
+                if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) end
+                return
+            end
+
             -- Phase 3: Smooth vertical descent directly onto target position
-            local descentDist = math.abs(cruiseY - targetPos.Y)
+            local curDescentPos = hrp.Position
+            local descentDist = math.abs(curDescentPos.Y - targetPos.Y)
             local descentTime = math.clamp(descentDist / speed, 0.1, 2.5)
             local twDescent = TweenService:Create(hrp, TweenInfo.new(descentTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
             _G.Unknown_TravelTween = twDescent
+            if bv then
+                bv.Velocity = Vector3.new(0, -speed, 0)
+                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
+
             twDescent:Play()
             twDescent.Completed:Wait()
+            if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) travelSteppedConn = nil end
             if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
+
             hrp.CFrame = targetCF
             if bv then
                 bv.Velocity = Vector3.zero
                 bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
+            if hrp:IsA("BasePart") then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
             end
             isTraveling = false
             _G.Unknown_TravelTween = nil
@@ -6090,25 +6139,20 @@ _G.startUnknownFarm = function()
             local anchorHoverCF = clusterAnchorCF and CFrame.new(clusterAnchorCF.Position + Vector3.new(0, farmDist, 0))
 
             if anchorHoverCF then
-                local distToAnchor = (playerHRP.Position - anchorHoverCF.Position).Magnitude
-
-                -- If player is on a different island (> 320 studs away), fly smoothly via Sky Corridor
-                if distToAnchor > 320 then
-                    farmStatusLabel.Text = string.format("Lvl %d | Flying to %s Island...", currentLevel, displayName)
-                    if not isTraveling then
-                        safeTweenToIsland(anchorHoverCF)
-                    end
+                if isTraveling then
+                    farmStatusLabel.Text = string.format("Lvl %d | Flying to %s...", currentLevel, displayName)
                     return
-                else
-                    -- On island: cancel travel tween and hold position firmly at the stable hover anchor
-                    if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-                        isTraveling = false
-                    end
-                    if distToAnchor > 12 then
-                        playerHRP.CFrame = playerHRP.CFrame:Lerp(anchorHoverCF, 0.25)
-                    end
                 end
+
+                local distToAnchor = (playerHRP.Position - anchorHoverCF.Position).Magnitude
+                if distToAnchor > 25 then
+                    farmStatusLabel.Text = string.format("Lvl %d | Flying to %s Island...", currentLevel, displayName)
+                    safeTweenToIsland(anchorHoverCF)
+                    return
+                end
+
+                -- Arrived at island anchor: hold position firmly at the stable hover anchor
+                playerHRP.CFrame = anchorHoverCF
             end
 
             if #targetMobs > 0 then
