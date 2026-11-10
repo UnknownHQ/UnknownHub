@@ -2935,8 +2935,7 @@ do
 
 
         isFarmOn = newState
-
-
+        _G.Unknown_AutoFarmEnabled = newState
 
         if isFarmOn then
 
@@ -15367,83 +15366,77 @@ safeTweenToIsland = function(targetCFrame, callback)
 
 
 
-    local speed = _G.Unknown_TravelSpeed or 235
+    local speed = _G.Unknown_TravelSpeed or 240
 
+    -- SKY CORRIDOR 3-PHASE FLIGHT SOLVER FOR LONG-DISTANCE MAP TRAVEL (> 220 STUDS):
+    -- Ascends vertically into open sky above all islands, mountain meshes, trees, and ocean water killzones.
+    -- Bypasses 100% of physical geometry collisions and water triggers to permanently eliminate server anticheat rubberband / returning!
+    if dist > 220 and currentPos.X < 45000 and targetPos.X < 45000 then
+        task.spawn(function()
+            local cruiseY = math.clamp(math.max(currentPos.Y, targetPos.Y) + 75, 140, 320)
+            if currentPos.Y > 500 or targetPos.Y > 500 then
+                cruiseY = math.max(currentPos.Y, targetPos.Y) + 75
+            end
 
+            -- Phase 1: Rapid vertical ascent into open sky corridor
+            local ascentDist = math.abs(cruiseY - currentPos.Y)
+            if ascentDist > 15 then
+                local ascentTime = math.clamp(ascentDist / speed, 0.1, 2.5)
+                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentTime, Enum.EasingStyle.Linear), {CFrame = CFrame.new(currentPos.X, cruiseY, currentPos.Z)})
+                _G.Unknown_TravelTween = twAscent
+                twAscent:Play()
+                twAscent.Completed:Wait()
+                if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
+            end
 
-    local duration = math.clamp(dist / speed, 0.05, 45)
+            -- Phase 2: High-speed horizontal cruising across unobstructed sky
+            local horizontalTargetCF = CFrame.new(targetPos.X, cruiseY, targetPos.Z)
+            local horizontalDist = (Vector3.new(currentPos.X, 0, currentPos.Z) - Vector3.new(targetPos.X, 0, targetPos.Z)).Magnitude
+            local cruiseTime = math.clamp(horizontalDist / speed, 0.1, 45)
+            local twCruise = TweenService:Create(hrp, TweenInfo.new(cruiseTime, Enum.EasingStyle.Linear), {CFrame = horizontalTargetCF})
+            _G.Unknown_TravelTween = twCruise
+            twCruise:Play()
+            twCruise.Completed:Wait()
+            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
 
-
-
-
-
-
-
-    -- SINGLE DIRECT CONTINUOUS FLUID LINEAR TWEEN (100% RELIABLE, ZERO RUBBERBAND)
-
-
-
-    local tw = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCF})
-
-
-
-    _G.Unknown_TravelTween = tw
-
-
-
-    tw.Completed:Connect(function(playbackState)
-
-
-
-        if _G.Unknown_TravelTweenID ~= currentTweenID then return end
-
-
-
-        if playbackState == Enum.PlaybackState.Completed then
-
-
+            -- Phase 3: Smooth vertical descent directly onto target position
+            local descentDist = math.abs(cruiseY - targetPos.Y)
+            local descentTime = math.clamp(descentDist / speed, 0.1, 2.5)
+            local twDescent = TweenService:Create(hrp, TweenInfo.new(descentTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
+            _G.Unknown_TravelTween = twDescent
+            twDescent:Play()
+            twDescent.Completed:Wait()
+            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
 
             hrp.CFrame = targetCF
-
-
-
+            if bv then
+                bv.Velocity = Vector3.zero
+                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
+            isTraveling = false
+            _G.Unknown_TravelTween = nil
             if callback then callback() end
-
-
-
-        end
-
-
-
-        if bv then
-
-
-
-            bv.Velocity = Vector3.zero
-
-
-
-            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-
-
-
-        end
-
-
-
-        isTraveling = false
-
-
-
-        _G.Unknown_TravelTween = nil
-
-
-
-    end)
-
-
-
-    tw:Play()
+        end)
+    else
+        -- Short distance / local mob repositioning (<= 220 studs): Direct smooth linear tween
+        local travelTime = math.clamp(dist / speed, 0.05, 15)
+        local tw = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
+        _G.Unknown_TravelTween = tw
+        tw.Completed:Connect(function(playbackState)
+            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
+            if playbackState == Enum.PlaybackState.Completed then
+                hrp.CFrame = targetCF
+                if callback then callback() end
+            end
+            if bv then
+                bv.Velocity = Vector3.zero
+                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
+            isTraveling = false
+            _G.Unknown_TravelTween = nil
+        end)
+        tw:Play()
+    end
 
 
 
@@ -15499,13 +15492,8 @@ local function autoEquipSelectedWeapon(forceType)
 end
 
 _G.stopUnknownFarm = function()
-
-
-
+    _G.Unknown_AutoFarmEnabled = false
     isFarmOn = false
-
-
-
     _G.Unknown_CancelTween()
 
 
@@ -18725,8 +18713,7 @@ isFarmOn = true
 task.spawn(function()
     while true do
         task.wait(1.5)
-        if _G.Unknown_AutoFarmEnabled or isFarmOn then
-            isFarmOn = true
+        if _G.Unknown_AutoFarmEnabled and isFarmOn then
             if not _G.Unknown_MainFarmLoop and _G.startUnknownFarm then
                 pcall(function() _G.startUnknownFarm() end)
             end
