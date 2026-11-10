@@ -11010,7 +11010,7 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     if not nearbyHits or #nearbyHits == 0 then return end
 
     local now = tick()
-    if now - (_G.Unknown_LastFastAttackTime or 0) < 0.075 then return end
+    if now - (_G.Unknown_LastFastAttackTime or 0) < 0.04 then return end
     _G.Unknown_LastFastAttackTime = now
 
     primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart") or nearbyHits[1][1]:FindFirstChild("RootPart") or nearbyHits[1][1].PrimaryPart or nearbyHits[1][1]:FindFirstChildWhichIsA("BasePart")))
@@ -11029,23 +11029,30 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     _G.Unknown_WrappedAtk = rAtk
     _G.Unknown_WrappedHit = rHit
 
-    -- Synchronous Uncapped Multi-Target Hits (ZERO DELAY, ZERO TASK.DELAY LAG, ROCK-SOLID 60FPS)
-    -- Hits all stacked NPCs (> 2) simultaneously in the exact same frame without packet scheduling jitter
-    for i = 1, #nearbyHits, 2 do
-        local chunk = { nearbyHits[i] }
-        if nearbyHits[i + 1] then table.insert(chunk, nearbyHits[i + 1]) end
-        local chunkPrimary = chunk[1] and chunk[1][2] or primaryPart
-        if not chunkPrimary or not chunkPrimary:IsA("BasePart") then
-            chunkPrimary = (chunk[1] and chunk[1][1] and (chunk[1][1]:FindFirstChild("HumanoidRootPart") or chunk[1][1]:FindFirstChild("Head"))) or primaryPart
+    -- 1. Official Game Engine Combat Delivery (Authentic server auth session token)
+    pcall(function()
+        local global = require(ReplicatedStorage.Global)
+        if global and global.SendHitsToServer then
+            global.SendHitsToServer(primaryPart, nearbyHits)
+        end
+    end)
+
+    -- 2. Dedicated Individual Packet Stream (Bypasses server 2-NPC packet clamp entirely)
+    -- Sends discrete 1-on-1 hit registrations so every single mob in the stack (>2) takes full damage
+    for i = 1, #nearbyHits do
+        local item = nearbyHits[i]
+        local mobPart = item[2] or primaryPart
+        if not mobPart or not mobPart:IsA("BasePart") then
+            mobPart = (item[1] and (item[1]:FindFirstChild("HumanoidRootPart") or item[1]:FindFirstChild("Head"))) or primaryPart
         end
 
         pcall(function()
-            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) elseif type(rAtk) == "table" and rAtk.FireServer then rAtk:FireServer(0) end
-            if typeof(rHit) == "Instance" then rHit:FireServer(chunkPrimary, chunk) elseif type(rHit) == "table" and rHit.FireServer then rHit:FireServer(chunkPrimary, chunk) end
+            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) else rAtk:FireServer(0) end
+            if typeof(rHit) == "Instance" then rHit:FireServer(mobPart, { item }) else rHit:FireServer(mobPart, { item }) end
         end)
     end
 
-    -- Secondary CommE/CommF hit registration fallback
+    -- 3. Secondary CommE hit registration fallback
     pcall(function()
         local remotes = ReplicatedStorage:FindFirstChild("Remotes")
         local commE = remotes and remotes:FindFirstChild("CommE")
@@ -17031,15 +17038,7 @@ _G.startUnknownFarm = function()
 
 
 
-                            if distToStack > 350 then
-
-
-
-                                return
-
-
-
-                            end
+                            if distToStack > 500 then return end
 
 
 
@@ -17139,15 +17138,7 @@ _G.startUnknownFarm = function()
 
 
 
-                                if distToStack > 2.5 then
-
-
-
-                                    mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.35)
-
-
-
-                                end
+                                if distToStack > 1.5 then mobHRP.CFrame = mobHRP.CFrame:Lerp(bringCF, 0.85) end
 
 
 
@@ -17353,15 +17344,7 @@ _G.startUnknownFarm = function()
 
 
 
-                                if distFromPlayer <= (farmDist + 18) then
-
-
-
-                                    table.insert(hitList, {mob, mHrp})
-
-
-
-                                end
+                                if distFromPlayer <= 65 then table.insert(hitList, {mob, mHrp}) end
 
 
 
@@ -17537,17 +17520,7 @@ _G.startUnknownFarm = function()
 
 
 
-                        if #hitList > 0 and (now - (lastFarmHit or 0) >= 0.08) then
-
-
-
-
-
-                        
-
-
-
-                            lastFarmHit = now
+                        if #hitList > 0 then
 
 
 
