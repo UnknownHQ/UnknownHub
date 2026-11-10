@@ -15560,156 +15560,47 @@ end
 
 
 local function autoEquipSelectedWeapon(forceType)
-
-
-
     local char = LocalPlayer.Character
-
-
-
     if not char then return nil end
-
-
-
-    local typeToUse = forceType or selectedWeaponType
-
-
-
-
-
-
+    local typeToUse = forceType or selectedWeaponType or "Melee"
 
     local function isMatching(tool)
-
-
-
         if not tool or not tool:IsA("Tool") then return false end
-
-
-
         if typeToUse == "Melee" then
-
-
-
             return tool.ToolTip == "Melee" or tool.Name == "Combat" or tool.Name == "Dark Step" or tool.Name == "Electric" or tool.Name == "Water Kung Fu" or tool.Name == "Superhuman" or tool.Name == "Death Step" or tool.Name == "Sharkman Karate" or tool.Name == "Electric Claw" or tool.Name == "Dragon Talon" or tool.Name == "Godhuman" or tool.Name == "Sanguine Art"
-
-
-
         elseif typeToUse == "Blox Fruit" then
-
-
-
             return tool.ToolTip == "Blox Fruit" or tool.ToolTip == "Demon Fruit" or string.find(tool.Name, "Fruit")
-
-
-
         elseif typeToUse == "Sword" then
-
-
-
-            return tool.ToolTip == "Sword"
-
-
-
+            return tool.ToolTip == "Sword" or string.find(tool.Name, "Katana") or string.find(tool.Name, "Blade") or string.find(tool.Name, "Sword")
         elseif typeToUse == "Gun" then
-
-
-
-            return tool.ToolTip == "Gun"
-
-
-
+            return tool.ToolTip == "Gun" or string.find(tool.Name, "Gun") or string.find(tool.Name, "Slingshot") or string.find(tool.Name, "Rifle") or string.find(tool.Name, "Cannon")
         end
-
-
-
         return false
-
-
-
     end
-
-
-
-
-
-
 
     local heldTool = char:FindFirstChildOfClass("Tool")
-
-
-
-    if isMatching(heldTool) then return heldTool end
-
-
-
-
-
-
+    if heldTool and isMatching(heldTool) then return heldTool end
 
     local bp = LocalPlayer:FindFirstChild("Backpack")
-
-
-
     if bp then
-
-
-
         for _, tool in ipairs(bp:GetChildren()) do
-
-
-
             if isMatching(tool) then
-
-
-
                 local hum = char:FindFirstChildOfClass("Humanoid")
-
-
-
-                if hum then hum:UnequipTools() end
-
-
-
-                tool.Parent = char
-
-
-
+                if hum then hum:EquipTool(tool) else tool.Parent = char end
                 return tool
-
-
-
             end
-
-
-
         end
-
-
-
+        -- Universal Combat Fallback: if requested weapon type is missing, equip ANY valid combat weapon
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") and (tool.ToolTip == "Sword" or tool.ToolTip == "Melee" or tool.ToolTip == "Blox Fruit" or tool.Name == "Combat" or string.find(tool.Name, "Katana")) then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then hum:EquipTool(tool) else tool.Parent = char end
+                return tool
+            end
+        end
     end
-
-
-
     return heldTool
-
-
-
 end
-
-
-
-
-
-
-
--- (getSpawnersForMob defined above getDynamicIslandCFrame)
-
-
-
-
-
-
 
 _G.stopUnknownFarm = function()
 
@@ -16899,38 +16790,17 @@ _G.startUnknownFarm = function()
 
 
 
-            local bv = getTabBV(playerHRP)
+                        local bv = getTabBV(playerHRP)
+            if bv then
+                bv.Velocity = Vector3.zero
+                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
 
-
-
-            if isTraveling then
-
-
-
-                if bv then bv.MaxForce = Vector3.zero end
-
-
-
-            else
-
-
-
-                if bv then
-
-
-
-                    bv.Velocity = Vector3.zero
-
-
-
-                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-
-
-
+            -- Frozen Village Cliff & Water Protection: prevent falling into bottom ice water
+            if playerHRP.Position.X >= 1000 and playerHRP.Position.X <= 1700 and playerHRP.Position.Z >= -2000 and playerHRP.Position.Z <= -1100 then
+                if playerHRP.Position.Y < 50 then
+                    playerHRP.CFrame = CFrame.new(playerHRP.Position.X, 90, playerHRP.Position.Z)
                 end
-
-
-
             end
 
 
@@ -17031,62 +16901,20 @@ _G.startUnknownFarm = function()
 
 
 
-                    -- If > 18 studs away, fly smoothly directly to target NPC model!
-
-
-
-                    if distToMob > 18 then
-
-
-
+                                        -- If > 40 studs away, fly smoothly directly to target NPC model!
+                    if distToMob > 40 then
                         farmStatusLabel.Text = string.format("Lvl %d | Flying to %s NPC...", currentLevel, displayName)
-
-
-
                         if not isTraveling then
-
-
-
                             safeTweenToIsland(targetMobCF)
-
-
-
                         end
-
-
-
                         return
-
-
-
                     else
-
-
-
                         -- Arrived within combat range: cancel travel tween immediately and snap into exact distance position
-
-
-
                         if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-
-
-
                             if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-
-
-
                             isTraveling = false
-
-
-
                         end
-
-
-
-                        playerHRP.CFrame = playerHRP.CFrame:Lerp(targetMobCF, 0.15)
-
-
-
+                        playerHRP.CFrame = playerHRP.CFrame:Lerp(targetMobCF, 0.35)
                     end
 
 
@@ -17833,7 +17661,7 @@ _G.startUnknownFarm = function()
 
 
 
-                            playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.05)
+                            playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.25)
 
 
 
@@ -19040,3 +18868,27 @@ if isFarmOn and _G.startUnknownFarm then
     end)
 end
 print("[UNKNOWN-HUB] Blox Fruits loaded successfully with Auto Farm ACTIVE!")
+-- AUTO FARM WATCHDOG & RESURRECTION ENGINE
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if isFarmOn then
+            if not _G.Unknown_MainFarmLoop then
+                pcall(function() _G.startUnknownFarm() end)
+            end
+            local char = LocalPlayer.Character
+            if char and not char:FindFirstChildOfClass("Tool") then
+                pcall(function() autoEquipSelectedWeapon() end)
+            end
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    if isFarmOn then
+        task.wait(1.5)
+        pcall(function()
+            _G.startUnknownFarm()
+        end)
+    end
+end)

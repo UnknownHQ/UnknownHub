@@ -3980,9 +3980,10 @@ return function(opts)
 
         chevron.BackgroundTransparency = 1
 
-        chevron.Font = Enum.Font.GothamBold
+        chevron.Font = Enum.Font.SourceSansBold
 
-        chevron.Text = "▼"
+        chevron.Text = utf8.char(9660)
+
 
         chevron.TextColor3 = DEFAULT_THEME.TextSecondary
 
@@ -4184,7 +4185,8 @@ return function(opts)
 
                     isExpanded = false
 
-                    chevron.Text = "▼"
+                    chevron.Text = utf8.char(9660)
+
 
                     tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 42)})
 
@@ -4218,7 +4220,7 @@ return function(opts)
 
             local count = rebuildOptions(currentQuery)
 
-            chevron.Text = isExpanded and "▲" or "▼"
+            chevron.Text = isExpanded and utf8.char(9650) or utf8.char(9660)
 
             local targetH = 42
 
@@ -4460,9 +4462,10 @@ return function(opts)
 
         chevron.BackgroundTransparency = 1
 
-        chevron.Font = Enum.Font.GothamBold
+        chevron.Font = Enum.Font.SourceSansBold
 
-        chevron.Text = "▼"
+        chevron.Text = utf8.char(9660)
+
 
         chevron.TextColor3 = DEFAULT_THEME.TextSecondary
 
@@ -4676,7 +4679,7 @@ return function(opts)
 
             isExpanded = not isExpanded
 
-            chevron.Text = isExpanded and "▲" or "▼"
+            chevron.Text = isExpanded and utf8.char(9650) or utf8.char(9660)
 
             local maxScrollHeight = math.clamp(#options * 31, 30, 210)
 
@@ -5582,9 +5585,10 @@ return function(opts)
 
         chevron.BackgroundTransparency = 1
 
-        chevron.Font = Enum.Font.GothamBold
+        chevron.Font = Enum.Font.SourceSansBold
 
-        chevron.Text = "▼"
+        chevron.Text = utf8.char(9660)
+
 
         chevron.TextColor3 = DEFAULT_THEME.TextSecondary
 
@@ -5722,7 +5726,7 @@ return function(opts)
 
             local targetH = isExpanded and (baseH + scrollHeight + 8) or 40
 
-            chevron.Text = isExpanded and "▲" or "▼"
+            chevron.Text = isExpanded and utf8.char(9650) or utf8.char(9660)
 
             countBadge.Text = tostring(#listObj.Items)
 
