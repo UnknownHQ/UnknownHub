@@ -2991,26 +2991,10 @@ do
 
 
     -- 2. Farm Weapon Selection Mode
-
-
-
-    local weaponList = Hub.CreateList(farmPage, "🗡️ Farm Weapon Mode", weaponTypes, 180, true)
-
-
-
-    weaponList.OnSelect = function(wName)
-
-
-
+    Hub.CreateDropdown(farmPage, "🗡️ Farm Weapon Mode", weaponTypes, selectedWeaponType, function(wName)
         selectedWeaponType = wName
-
-
-
-    end
-
-
-
-    weaponList:SetSelected(selectedWeaponType)
+        autoEquipSelectedWeapon(wName)
+    end)
 
 
 
@@ -3362,19 +3346,9 @@ do
 
 
 
-    local masteryList = Hub.CreateList(farmPage, "🎯 Mastery Finish Weapon", weaponTypes, function(wName)
-
-
-
+    Hub.CreateDropdown(farmPage, "🎯 Mastery Finish Weapon", weaponTypes, selectedMasteryWeapon, function(wName)
         selectedMasteryWeapon = wName
-
-
-
-    end, false)
-
-
-
-    masteryList:SetSelected(selectedMasteryWeapon)
+    end)
 
 
 
@@ -3402,19 +3376,9 @@ do
 
 
 
-    local skillsWList = Hub.CreateList(farmPage, "🔥 Auto Skills Weapon", weaponTypes, function(wName)
-
-
-
+    Hub.CreateDropdown(farmPage, "🔥 Auto Skills Weapon", weaponTypes, selectedSkillsWeapon, function(wName)
         selectedSkillsWeapon = wName
-
-
-
-    end, false)
-
-
-
-    skillsWList:SetSelected(selectedSkillsWeapon)
+    end)
 
 
 
@@ -11010,54 +10974,32 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     if not nearbyHits or #nearbyHits == 0 then return end
 
     local now = tick()
-    if now - (_G.Unknown_LastFastAttackTime or 0) < 0.04 then return end
+    if now - (_G.Unknown_LastFastAttackTime or 0) < 0.035 then return end
     _G.Unknown_LastFastAttackTime = now
 
     primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart") or nearbyHits[1][1]:FindFirstChild("RootPart") or nearbyHits[1][1].PrimaryPart or nearbyHits[1][1]:FindFirstChildWhichIsA("BasePart")))
     if not primaryPart then return end
 
     local char = LocalPlayer.Character
-    local tool = char and char:FindFirstChildOfClass("Tool")
-    if not tool and autoEquipSelectedWeapon then
-        tool = autoEquipSelectedWeapon()
-    end
+    local tool = autoEquipSelectedWeapon and autoEquipSelectedWeapon() or (char and char:FindFirstChildOfClass("Tool"))
     if tool then pcall(function() tool:Activate() end) end
 
     local netM = require(ReplicatedStorage.Modules.Net)
     local rAtk = _G.Unknown_WrappedAtk or netM:RemoteEvent("RegisterAttack")
-    local rHit = _G.Unknown_WrappedHit or netM:RemoteEvent("RegisterHit")
     _G.Unknown_WrappedAtk = rAtk
-    _G.Unknown_WrappedHit = rHit
 
-    -- 1. Official Game Engine Combat Delivery (Authentic server auth session token)
+    -- Official authentic delivery with authenticated v3 handshake session token
+    -- Batch hits in pairs of 2 to honor server 2-NPC packet clamp while hitting ALL mobs in the stack
     pcall(function()
         local global = require(ReplicatedStorage.Global)
         if global and global.SendHitsToServer then
-            global.SendHitsToServer(primaryPart, nearbyHits)
-        end
-    end)
-
-    -- 2. Dedicated Individual Packet Stream (Bypasses server 2-NPC packet clamp entirely)
-    -- Sends discrete 1-on-1 hit registrations so every single mob in the stack (>2) takes full damage
-    for i = 1, #nearbyHits do
-        local item = nearbyHits[i]
-        local mobPart = item[2] or primaryPart
-        if not mobPart or not mobPart:IsA("BasePart") then
-            mobPart = (item[1] and (item[1]:FindFirstChild("HumanoidRootPart") or item[1]:FindFirstChild("Head"))) or primaryPart
-        end
-
-        pcall(function()
-            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) else rAtk:FireServer(0) end
-            if typeof(rHit) == "Instance" then rHit:FireServer(mobPart, { item }) else rHit:FireServer(mobPart, { item }) end
-        end)
-    end
-
-    -- 3. Secondary CommE hit registration fallback
-    pcall(function()
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        local commE = remotes and remotes:FindFirstChild("CommE")
-        if commE and #nearbyHits > 0 then
-            commE:FireServer("RegisterHit", primaryPart, nearbyHits)
+            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+            for i = 1, #nearbyHits, 2 do
+                local batch = { nearbyHits[i] }
+                if nearbyHits[i + 1] then table.insert(batch, nearbyHits[i + 1]) end
+                local leadPart = batch[1][2] or primaryPart
+                global.SendHitsToServer(leadPart, batch)
+            end
         end
     end)
 
@@ -13462,97 +13404,35 @@ end
 
 
 local LevelData = {
-
-
-
-    -- 1ST SEA
-
-
-
+    -- 1ST SEA (VERIFIED 1:1 WITH REPLICATEDSTORAGE.QUESTS)
     {MinLevel = 1, MaxLevel = 9, ExactName = "Bandit", Display = "Bandit [Lv. 5]", QuestName = "BanditQuest1", QuestLevel = 1, IslandCFrame = CFrame.new(1050, 16, 1400)},
-
-
-
     {MinLevel = 10, MaxLevel = 14, ExactName = "Monkey", Display = "Monkey [Lv. 14]", QuestName = "JungleQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-1600, 37, 100)},
-
-
-
     {MinLevel = 15, MaxLevel = 29, ExactName = "Gorilla", Display = "Gorilla [Lv. 20]", QuestName = "JungleQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-1240, 6, -500)},
-
-
-
     {MinLevel = 30, MaxLevel = 39, ExactName = "Pirate", Display = "Pirate [Lv. 35]", QuestName = "BuggyQuest1", QuestLevel = 1, IslandCFrame = CFrame.new(-1100, 4, 3900)},
-
-
-
     {MinLevel = 40, MaxLevel = 59, ExactName = "Brute", Display = "Brute [Lv. 45]", QuestName = "BuggyQuest1", QuestLevel = 2, IslandCFrame = CFrame.new(-1150, 15, 4300)},
-
-
-
-    {MinLevel = 60, MaxLevel = 89, ExactName = "Desert Bandit", Display = "Desert Bandit [Lv. 60]", QuestName = "DesertQuest", QuestLevel = 1, IslandCFrame = CFrame.new(900, 6, 4400)},
-
-
-
+    {MinLevel = 60, MaxLevel = 74, ExactName = "Desert Bandit", Display = "Desert Bandit [Lv. 60]", QuestName = "DesertQuest", QuestLevel = 1, IslandCFrame = CFrame.new(900, 6, 4400)},
+    {MinLevel = 75, MaxLevel = 89, ExactName = "Desert Officer", Display = "Desert Officer [Lv. 70]", QuestName = "DesertQuest", QuestLevel = 2, IslandCFrame = CFrame.new(1500, 6, 4400)},
     {MinLevel = 90, MaxLevel = 99, ExactName = "Snow Bandit", Display = "Snow Bandit [Lv. 90]", QuestName = "SnowQuest", QuestLevel = 1, IslandCFrame = CFrame.new(1300, 87, -1300)},
-
-
-
     {MinLevel = 100, MaxLevel = 119, ExactName = "Snowman", Display = "Snowman [Lv. 100]", QuestName = "SnowQuest", QuestLevel = 2, IslandCFrame = CFrame.new(1350, 87, -1400)},
-
-
-
     {MinLevel = 120, MaxLevel = 149, ExactName = "Chief Petty Officer", Display = "Chief Petty Officer [Lv. 120]", QuestName = "MarineQuest2", QuestLevel = 1, IslandCFrame = CFrame.new(-4900, 20, 4300)},
-
-
-
     {MinLevel = 150, MaxLevel = 174, ExactName = "Sky Bandit", Display = "Sky Bandit [Lv. 150]", QuestName = "SkyQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-4800, 715, -2600)},
-
-
-
-    {MinLevel = 175, MaxLevel = 224, ExactName = "Dark Master", Display = "Dark Master [Lv. 175]", QuestName = "SkyQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-5200, 715, -2200)},
-
-
-
-    {MinLevel = 225, MaxLevel = 274, ExactName = "Toga Warrior", Display = "Toga Warrior [Lv. 225]", QuestName = "ColosseumQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-1800, 8, -2800)},
-
-
-
+    {MinLevel = 175, MaxLevel = 189, ExactName = "Dark Master", Display = "Dark Master [Lv. 175]", QuestName = "SkyQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-5200, 715, -2200)},
+    {MinLevel = 190, MaxLevel = 209, ExactName = "Prisoner", Display = "Prisoner [Lv. 190]", QuestName = "PrisonerQuest", QuestLevel = 1, IslandCFrame = CFrame.new(5300, 15, 450)},
+    {MinLevel = 210, MaxLevel = 224, ExactName = "Dangerous Prisoner", Display = "Dangerous Prisoner [Lv. 210]", QuestName = "PrisonerQuest", QuestLevel = 2, IslandCFrame = CFrame.new(5150, 15, 950)},
+    {MinLevel = 225, MaxLevel = 249, ExactName = "Ruthless Prisoner", Display = "Ruthless Prisoner [Lv. 220]", QuestName = "ImpelQuest", QuestLevel = 1, IslandCFrame = CFrame.new(5300, 20, 750)},
+    {MinLevel = 250, MaxLevel = 274, ExactName = "Toga Warrior", Display = "Toga Warrior [Lv. 250]", QuestName = "ColosseumQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-1800, 8, -2800)},
     {MinLevel = 275, MaxLevel = 299, ExactName = "Gladiator", Display = "Gladiator [Lv. 275]", QuestName = "ColosseumQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-1370, 8, -3377)},
-
-
-
     {MinLevel = 300, MaxLevel = 324, ExactName = "Military Soldier", Display = "Military Soldier [Lv. 300]", QuestName = "MagmaQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-5400, 15, 8600)},
-
-
-
-    {MinLevel = 325, MaxLevel = 349, ExactName = "Military Spy", Display = "Military Spy [Lv. 325]", QuestName = "MagmaQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-5800, 80, 8750)},
-
-
-
-    {MinLevel = 350, MaxLevel = 374, ExactName = "Magma Admiral", Display = "Magma Admiral [Lv. 350]", QuestName = "MagmaQuest", QuestLevel = 3, IslandCFrame = CFrame.new(-5500, 80, 8850)},
-
-
-
-    {MinLevel = 375, MaxLevel = 449, ExactName = "Fishman Warrior", Display = "Fishman Warrior [Lv. 375]", QuestName = "FishmanQuest", QuestLevel = 1, IslandCFrame = CFrame.new(61000, 18, 1500)},
-
-
-
-    {MinLevel = 450, MaxLevel = 524, ExactName = "God's Guard", Display = "God's Guard [Lv. 450]", QuestName = "SkyExp1Quest", QuestLevel = 1, IslandCFrame = CFrame.new(-4600, 845, -1900)},
-
-
-
-    {MinLevel = 525, MaxLevel = 624, ExactName = "Shandora Warrior", Display = "Shandora Warrior [Lv. 525]", QuestName = "SkyExp2Quest", QuestLevel = 1, IslandCFrame = CFrame.new(-7700, 5600, -1450)},
-
-
-
-    {MinLevel = 625, MaxLevel = 699, ExactName = "Galley Pirate", Display = "Galley Pirate [Lv. 625]", QuestName = "FountainQuest", QuestLevel = 1, IslandCFrame = CFrame.new(5600, 38, 4800)},
-
-
-
+    {MinLevel = 325, MaxLevel = 374, ExactName = "Military Spy", Display = "Military Spy [Lv. 325]", QuestName = "MagmaQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-5800, 80, 8750)},
+    {MinLevel = 375, MaxLevel = 399, ExactName = "Fishman Warrior", Display = "Fishman Warrior [Lv. 375]", QuestName = "FishmanQuest", QuestLevel = 1, IslandCFrame = CFrame.new(61000, 18, 1500)},
+    {MinLevel = 400, MaxLevel = 449, ExactName = "Fishman Commando", Display = "Fishman Commando [Lv. 400]", QuestName = "FishmanQuest", QuestLevel = 2, IslandCFrame = CFrame.new(61800, 18, 1400)},
+    {MinLevel = 450, MaxLevel = 474, ExactName = "God's Guard", Display = "God's Guard [Lv. 450]", QuestName = "SkyExp1Quest", QuestLevel = 1, IslandCFrame = CFrame.new(-4600, 845, -1900)},
+    {MinLevel = 475, MaxLevel = 524, ExactName = "Shanda", Display = "Shanda [Lv. 475]", QuestName = "SkyExp1Quest", QuestLevel = 2, IslandCFrame = CFrame.new(-7700, 5600, -1450)},
+    {MinLevel = 525, MaxLevel = 549, ExactName = "Royal Squad", Display = "Royal Squad [Lv. 525]", QuestName = "SkyExp2Quest", QuestLevel = 1, IslandCFrame = CFrame.new(-7700, 5600, -1800)},
+    {MinLevel = 550, MaxLevel = 624, ExactName = "Royal Soldier", Display = "Royal Soldier [Lv. 550]", QuestName = "SkyExp2Quest", QuestLevel = 2, IslandCFrame = CFrame.new(-7800, 5600, -2200)},
+    {MinLevel = 625, MaxLevel = 649, ExactName = "Galley Pirate", Display = "Galley Pirate [Lv. 625]", QuestName = "FountainQuest", QuestLevel = 1, IslandCFrame = CFrame.new(5600, 38, 4800)},
+    {MinLevel = 650, MaxLevel = 699, ExactName = "Galley Captain", Display = "Galley Captain [Lv. 650]", QuestName = "FountainQuest", QuestLevel = 2, IslandCFrame = CFrame.new(5600, 38, 4000)},
     
-
-
-
     -- 2ND SEA (LEVEL 700 - 1500+)
 
 
@@ -14533,41 +14413,39 @@ end
 
 
 
-local function autoClaimQuest(questName, questLevel)
-
-
-
-    if not questName or not questLevel then return end
-
-
-
-    pcall(function()
-
-
-
-        if not hasActivePlayerQuest() then
-
-
-
-            CommF:InvokeServer("StartQuest", questName, questLevel)
-
-
-
+local function getActiveQuestMob()
+    local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    local tqf = pg:FindFirstChild("TrackedQuestFrame")
+    if tqf and tqf.Enabled and tqf:FindFirstChild("Frame") and tqf.Frame.Visible then
+        local desc = tqf.Frame:FindFirstChild("description")
+        if desc and desc:IsA("TextLabel") and desc.Text ~= "" then
+            return desc.Text
         end
-
-
-
-    end)
-
-
-
+        for _, d in ipairs(tqf.Frame:GetDescendants()) do
+            if d:IsA("TextLabel") and d.Name == "description" and d.Text ~= "" then
+                return d.Text
+            end
+        end
+    end
+    return nil
 end
 
+local function autoClaimQuest(questName, questLevel, targetMobName)
+    if not questName or not questLevel then return end
+    pcall(function()
+        local activeMob = getActiveQuestMob()
+        if activeMob and targetMobName and not string.find(string.lower(targetMobName), string.lower(activeMob)) and not string.find(string.lower(activeMob), string.lower(targetMobName)) then
+            -- Mismatched or obsolete quest detected: abandon it cleanly so the current level's quest is claimed!
+            CommF:InvokeServer("AbandonQuest")
+            task.wait(0.25)
+        end
 
-
-
-
-
+        if not hasActivePlayerQuest() then
+            CommF:InvokeServer("StartQuest", questName, questLevel)
+        end
+    end)
+end
 
 _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function()
 
@@ -16136,7 +16014,7 @@ _G.startUnknownFarm = function()
 
 
 
-                        autoClaimQuest(targetData.QuestName, targetData.QuestLevel)
+                        autoClaimQuest(targetData.QuestName, targetData.QuestLevel, targetData.ExactName)
 
 
 
@@ -16800,7 +16678,7 @@ _G.startUnknownFarm = function()
 
 
 
-            local activeTool = char:FindFirstChildOfClass("Tool") or autoEquipSelectedWeapon(weaponToEquip)
+            local activeTool = autoEquipSelectedWeapon(weaponToEquip)
 
 
 
@@ -16855,7 +16733,7 @@ _G.startUnknownFarm = function()
 
 
 
-                        autoClaimQuest(targetData.QuestName, targetData.QuestLevel)
+                        autoClaimQuest(targetData.QuestName, targetData.QuestLevel, targetData.ExactName)
 
 
 
@@ -17038,7 +16916,7 @@ _G.startUnknownFarm = function()
 
 
 
-                            if distToStack > 500 then return end
+                            if distToStack > 45 then return end
 
 
 
@@ -17450,26 +17328,13 @@ _G.startUnknownFarm = function()
 
 
 
-                                        if hitsAttr < 3 and (not state or state == "Idle") then
-
-
-
-
-
-                        
-
-
-
-                                            table.insert(hitList, {p, pPart})
-
-
-
-
-
-                        
-
-
-
+                                                                                if hitsAttr < 3 and (not state or state == "Idle") then
+                                            pcall(function()
+                                                local global = require(ReplicatedStorage.Global)
+                                                if global and global.SendHitsToServer then
+                                                    global.SendHitsToServer(pPart, { { p, pPart } })
+                                                end
+                                            end)
                                         end
 
 
