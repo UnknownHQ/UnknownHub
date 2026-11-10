@@ -3935,11 +3935,6 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
             local leadPart = nearbyHits[1][2] or primaryPart
             global.SendHitsToServer(leadPart, nearbyHits)
         else
-            -- 3+ mobs: Round-Robin rotation with micro-bursts so ALL stacked mobs take continuous damage
-            local startIdx = ((fastAttackBatchIndex - 1) % totalHits) + 1
-            fastAttackBatchIndex = (fastAttackBatchIndex % totalHits) + 1
-
-            -- Batch 1 (targets idx1, idx2)
             -- Multi-target burst: Dispatches hits across all stacked mobs in micro-burst pairs of 2
             local b1 = { nearbyHits[1] }
             if totalHits >= 2 then table.insert(b1, nearbyHits[2]) end
@@ -3965,6 +3960,7 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
                     end
                 end)
             end
+        end
     end)
 
     -- 4. CombatFramework controller bypass
@@ -6115,6 +6111,7 @@ _G.startUnknownFarm = function()
                 end
             end
 
+            if #targetMobs > 0 then
                 -- Bring all target mobs to stack point (anchored to groundY to prevent underground clipping)
 
                 -- Surface raycast ensures NPCs are stacked firmly at floor level (never inside terrain/underground where raycasts occlude)
@@ -6237,37 +6234,8 @@ _G.startUnknownFarm = function()
                     end)
                 end
             else
-                -- ZERO MOBS ALIVE / UNSTREAMED: Fly smoothly to target island spawner or island CFrame!
-
-                groundCFrame = nil
-
-                local targetDestinationCF = spawnerCF or islandCFrame
-
-                if targetDestinationCF then
-                    local spawnerTargetCF = targetDestinationCF * CFrame.new(0, farmDist, 0)
-
-                    local distToSpawner = (playerHRP.Position - spawnerTargetCF.Position).Magnitude
-
-                    if distToSpawner > 280 then
-                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Flying smoothly to " .. displayName .. " island..."
-
-                        if not isTraveling then
-                            safeTweenToIsland(spawnerTargetCF)
-                        end
-                    else
-                        if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                            if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-                            isTraveling = false
-                        end
-
-                        farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Hovering at " .. displayName .. "... Waiting for spawns."
-
-                        if distToSpawner > 15 then
-                            playerHRP.CFrame = playerHRP.CFrame:Lerp(spawnerTargetCF, 0.25)
-                        end
-                    end
-                else
-                    farmStatusLabel.Text = "Lvl " .. currentLevel .. " | Waiting for " .. displayName .. " spawns..."
+                if anchorHoverCF then
+                    farmStatusLabel.Text = string.format("Lvl %d | Hovering at %s... Waiting for spawns.", currentLevel, displayName)
                 end
             end
         end)
