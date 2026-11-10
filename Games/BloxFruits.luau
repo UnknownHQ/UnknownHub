@@ -3917,28 +3917,38 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
             local leadPart = nearbyHits[1][2] or primaryPart
             global.SendHitsToServer(leadPart, nearbyHits)
         else
-            -- Multi-target burst: Dispatches hits across all stacked mobs in micro-burst pairs of 2
-            local b1 = { nearbyHits[1] }
-            if totalHits >= 2 then table.insert(b1, nearbyHits[2]) end
+            -- Zero-Delay Multi-Target Pipeline: Dispatches all stacked targets in pairs of 2
+            -- Batch 1 (Targets 1 & 2): Immediate frame execution
+            local b1 = { nearbyHits[1], nearbyHits[2] }
             if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
             global.SendHitsToServer(b1[1][2] or primaryPart, b1)
 
+            -- Batch 2 (Targets 3 & 4): Deferred execution in the EXACT same frame (0ms latency)
             if totalHits >= 3 then
-                task.spawn(function()
-                    task.wait(0.008)
+                task.defer(function()
                     local b2 = { nearbyHits[3] }
                     if totalHits >= 4 then table.insert(b2, nearbyHits[4]) end
                     if tool then pcall(function() tool:Activate() end) end
                     if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
                     global.SendHitsToServer(b2[1][2] or primaryPart, b2)
+                end)
+            end
 
-                    if totalHits >= 5 then
-                        task.wait(0.008)
-                        local b3 = { nearbyHits[5] }
-                        if totalHits >= 6 then table.insert(b3, nearbyHits[6]) end
-                        if tool then pcall(function() tool:Activate() end) end
+            -- Batch 3 (Targets 5, 6, 7, 8+): Micro-burst execution
+            if totalHits >= 5 then
+                task.spawn(function()
+                    task.wait(0.005)
+                    local b3 = { nearbyHits[5] }
+                    if totalHits >= 6 then table.insert(b3, nearbyHits[6]) end
+                    if tool then pcall(function() tool:Activate() end) end
+                    if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+                    global.SendHitsToServer(b3[1][2] or primaryPart, b3)
+
+                    if totalHits >= 7 then
+                        local b4 = { nearbyHits[7] }
+                        if totalHits >= 8 then table.insert(b4, nearbyHits[8]) end
                         if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-                        global.SendHitsToServer(b3[1][2] or primaryPart, b3)
+                        global.SendHitsToServer(b4[1][2] or primaryPart, b4)
                     end
                 end)
             end
@@ -4023,7 +4033,7 @@ local function hookToolFastAttack(tool)
 
             if selectedFastAttackTarget == "Players" or selectedFastAttackTarget == "Everyone" then
                 for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") and plr.Character.Humanoid.Health > 0 then
+                    if plr ~= LocalPlayer and plr.Character and not plr:IsFriendsWith(LocalPlayer.UserId) and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") and plr.Character.Humanoid.Health > 0 then
                         local pHrp = plr.Character.HumanoidRootPart
 
                         if (pHrp.Position - hrp.Position).Magnitude <= 60 then
@@ -4069,7 +4079,7 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
         if not isAuraHitOn then return end
         local now = tick()
 
-        if now - (_G.Unknown_LastHitTime or 0) < 0.12 then return end
+        if now - (_G.Unknown_LastHitTime or 0) < 0.015 then return end
         _G.Unknown_LastHitTime = now
 
         local char = LocalPlayer.Character
@@ -4136,7 +4146,7 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
 
         if selectedFastAttackTarget == "Players" or selectedFastAttackTarget == "Everyone" then
             for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") then
+                if plr ~= LocalPlayer and plr.Character and not plr:IsFriendsWith(LocalPlayer.UserId) and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") then
                     if plr.Character.Humanoid.Health > 0 then
                         local pHrp = plr.Character.HumanoidRootPart
 
@@ -6261,6 +6271,7 @@ _G.startUnknownFarm = function()
                 if anchorHoverCF then
                     farmStatusLabel.Text = string.format("Lvl %d | Hovering at %s... Waiting for spawns.", currentLevel, displayName)
                 end
+            end
         end)
     end)
 end
@@ -6423,7 +6434,6 @@ task.spawn(function()
                                             if hitsAttr < 3 and (not state or state == "Idle") and not brokenPumpkins[p] then
                                                 table.insert(hitList, {p, pPart})
                                             end
-                                        end
                                     end
                                 end
                             end
