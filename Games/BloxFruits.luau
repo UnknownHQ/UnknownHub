@@ -16862,10 +16862,11 @@ _G.startUnknownFarm = function()
 
 
             local mobSpawners = getSpawnersForMob(exactMobName)
-
-
-
-            local spawnerCF = (#mobSpawners > 0) and mobSpawners[1] or nil
+            if #mobSpawners > 1 and (tick() - lastSweepTime > 3.5) then
+                lastSweepTime = tick()
+                spawnerSweepIdx = (spawnerSweepIdx % #mobSpawners) + 1
+            end
+            local spawnerCF = (#mobSpawners > 0) and mobSpawners[math.clamp(spawnerSweepIdx, 1, #mobSpawners)] or nil
 
 
 
