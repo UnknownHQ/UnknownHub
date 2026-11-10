@@ -2249,38 +2249,11 @@ local isSaberQuestOn = false
 
                             local aDist = (hrp.Position - arenaPos.Position).Magnitude
 
-                            if aDist > 100 and not poleTweening then
+                            if aDist > 25 and not poleTweening then
                                 poleTweening = true
-
-                                local bv = getTabBV(hrp)
-
-                                if bv then bv.Velocity = Vector3.zero end
-                                local tDur = math.clamp(aDist / 350, 0.2, 20)
-
-                                if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) end
-                                local tw = TweenService:Create(hrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = arenaPos})
-
-                                _G.Unknown_TravelTween = tw
-
-                                local noclipConn = RunService.Stepped:Connect(function()
-
-                                    if char and isPoleQuestOn then
-                                        local b = getTabBV(hrp)
-
-                                        if b then b.Velocity = Vector3.zero end
-                                        for _, part in ipairs(char:GetChildren()) do
-                                            if part:IsA("BasePart") then part.CanCollide = false end
-                                        end
-                                    end
+                                safeTweenToIsland(arenaPos, function()
+                                    poleTweening = false
                                 end)
-
-                                tw:Play()
-
-                                tw.Completed:Wait()
-
-                                pcall(function() noclipConn:Disconnect() end)
-
-                                poleTweening = false
                             end
 
                             task.wait(1)
@@ -3690,10 +3663,19 @@ startChestFarm = function()
                             end
 
                             if not _G.Unknown_ChestTween or _G.Unknown_ChestTween.PlaybackState ~= Enum.PlaybackState.Playing then
-                                local tDur = dist / speed
+                                local tDur = math.clamp(dist / math.min(speed, 210), 0.05, 10)
+                                local moveDir = dist > 0 and ((chestPos - currHrp.Position).Unit) or Vector3.zero
+                                local flyVel = moveDir * math.min(speed, 210)
+                                local bv = getTabBV(currHrp)
+                                if bv then
+                                    bv.Velocity = flyVel
+                                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                                end
+                                if currHrp:IsA("BasePart") then
+                                    currHrp.AssemblyLinearVelocity = flyVel
+                                end
 
                                 _G.Unknown_ChestTween = TweenService:Create(currHrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = CFrame.new(chestPos)})
-
                                 _G.Unknown_ChestTween:Play()
                             end
 
@@ -5586,7 +5568,6 @@ safeTweenToIsland = function(targetCFrame, callback)
                 bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
             end
             if hrp:IsA("BasePart") then hrp.AssemblyLinearVelocity = cruiseDir end
-
             twCruise:Play()
             twCruise.Completed:Wait()
             if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
@@ -5609,7 +5590,6 @@ safeTweenToIsland = function(targetCFrame, callback)
             twDescent.Completed:Wait()
             if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) travelSteppedConn = nil end
             if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
-
             hrp.CFrame = targetCF
             if bv then
                 bv.Velocity = Vector3.zero
@@ -6281,7 +6261,6 @@ _G.startUnknownFarm = function()
                 if anchorHoverCF then
                     farmStatusLabel.Text = string.format("Lvl %d | Hovering at %s... Waiting for spawns.", currentLevel, displayName)
                 end
-            end
         end)
     end)
 end
@@ -6350,17 +6329,24 @@ task.spawn(function()
                             pumpkinEventStatus.Text = string.format("Status: [NPC Priority] Slaying %s (%d clustered)...", firstMob.Name, #eventNPCs)
                         end
 
-                        if distToMob > 18 then
-                            if not isTraveling then
-                                safeTweenToIsland(hoverCF)
+                        if isTraveling then
+                            if pumpkinEventStatus then
+                                pumpkinEventStatus.Text = string.format("Status: [NPC Priority] Flying to %s...", firstMob.Name)
                             end
-                        else
-                            if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                                if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-                                isTraveling = false
-                            end
+                            return
+                        end
 
-                            hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.15)
+                        local distToMob = (hrp.Position - hoverCF.Position).Magnitude
+                        if distToMob > 25 then
+                            if pumpkinEventStatus then
+                                pumpkinEventStatus.Text = string.format("Status: [NPC Priority] Flying to %s...", firstMob.Name)
+                            end
+                            safeTweenToIsland(hoverCF)
+                            return
+                        end
+
+                        -- Arrived: hold stably at hoverCF
+                        hrp.CFrame = hoverCF
 
                             -- Bring all target pumpkin NPCs to clean upright stack on the ground (groundY)
 
@@ -6589,17 +6575,23 @@ task.spawn(function()
                     return
                 end
 
-                if distToPumpkin > 22 then
-                    if not isTraveling then
-                        safeTweenToIsland(hoverCF)
+                if isTraveling then
+                    if pumpkinEventStatus then
+                        pumpkinEventStatus.Text = string.format("Status: Flying to Pumpkin Head (%d left)...", activeCount)
                     end
-                else
-                    if isTraveling or (_G.Unknown_TravelTween and _G.Unknown_TravelTween.PlaybackState == Enum.PlaybackState.Playing) then
-                        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-                        isTraveling = false
-                    end
+                    return
+                end
 
-                    hrp.CFrame = hrp.CFrame:Lerp(hoverCF, 0.25)
+                if distToPumpkin > 25 then
+                    if pumpkinEventStatus then
+                        pumpkinEventStatus.Text = string.format("Status: Flying to Pumpkin Head (%d left)...", activeCount)
+                    end
+                    safeTweenToIsland(hoverCF)
+                    return
+                end
+
+                -- Arrived: hold stably at hoverCF
+                hrp.CFrame = hoverCF
 
                     -- Attack continuously while hovering directly overhead (within 25 studs)
 
@@ -6626,7 +6618,6 @@ task.spawn(function()
                             end
                         end
                     end
-                end
             end)
         end
     end
