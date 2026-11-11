@@ -5203,11 +5203,52 @@ end
 local function autoClaimQuest(questName, questLevel, targetMobName)
     if not questName or not questLevel then return end
     pcall(function()
-        local activeMob = getActiveQuestMob()
-        if activeMob and targetMobName and not string.find(string.lower(targetMobName), string.lower(activeMob)) and not string.find(string.lower(activeMob), string.lower(targetMobName)) then
-            -- Mismatched or obsolete quest detected: abandon it cleanly so the current level's quest is claimed!
-            CommF:InvokeServer("AbandonQuest")
-            task.wait(0.25)
+        if hasActivePlayerQuest() then
+            local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+            local tqf = pg and pg:FindFirstChild("TrackedQuestFrame")
+            local f = tqf and tqf:FindFirstChild("Frame")
+            local allText = ""
+            if f then
+                for _, d in ipairs(f:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text ~= "" then
+                        allText = allText .. " " .. string.lower(d.Text)
+                    end
+                end
+            end
+            local mainQuest = pg and pg:FindFirstChild("Main") and pg.Main:FindFirstChild("Quest")
+            if mainQuest then
+                for _, d in ipairs(mainQuest:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text ~= "" then
+                        allText = allText .. " " .. string.lower(d.Text)
+                    end
+                end
+            end
+
+            local targetLower = string.lower(targetMobName or "")
+            local isMatching = false
+            if targetLower ~= "" then
+                if string.find(allText, targetLower, 1, true) then
+                    isMatching = true
+                else
+                    for word in string.gmatch(targetLower, "%a%a%a%a+") do
+                        if string.find(allText, word, 1, true) then
+                            isMatching = true
+                            break
+                        end
+                    end
+                end
+            else
+                isMatching = true
+            end
+
+            if isMatching then
+                -- Target quest is already actively tracking and in progress: DO NOT RESET PROGRESS!
+                return
+            else
+                -- Obsolete quest from another island or target: safely abandon and refresh
+                CommF:InvokeServer("AbandonQuest")
+                task.wait(0.3)
+            end
         end
 
         if not hasActivePlayerQuest() then
@@ -5883,7 +5924,7 @@ _G.startUnknownFarm = function()
                 isTraveling = false
             end
 
-            if isAutoQuestOn and tick() - lastQuestClaim > 3 then
+            if isAutoQuestOn and not hasActivePlayerQuest() and tick() - lastQuestClaim > 3 then
                 lastQuestClaim = tick()
 
                 task.spawn(function()
