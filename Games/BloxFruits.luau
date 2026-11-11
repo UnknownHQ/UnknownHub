@@ -5680,10 +5680,16 @@ safeTweenToIsland = function(targetCFrame, callback)
             if callback then callback() end
         end)
     else
-        -- Short distance / local mob repositioning (<= 220 studs): Direct smooth linear tween
+        -- Short distance / local mob repositioning (<= 220 studs): Synchronized linear flight
         local travelTime = math.clamp(dist / speed, 0.05, 15)
+        local moveDir = dist > 0 and ((targetPos - currentPos).Unit * speed) or Vector3.zero
         local tw = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
         _G.Unknown_TravelTween = tw
+        if bv then
+            bv.Velocity = moveDir
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        end
+        if hrp:IsA("BasePart") then hrp.AssemblyLinearVelocity = moveDir end
         tw.Completed:Connect(function(playbackState)
             if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
             if playbackState == Enum.PlaybackState.Completed then
@@ -5693,6 +5699,10 @@ safeTweenToIsland = function(targetCFrame, callback)
             if bv then
                 bv.Velocity = Vector3.zero
                 bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
+            if hrp:IsA("BasePart") then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
             end
             isTraveling = false
             _G.Unknown_TravelTween = nil
@@ -6220,8 +6230,10 @@ _G.startUnknownFarm = function()
 
                 local distToAnchor = (playerHRP.Position - anchorHoverCF.Position).Magnitude
                 if distToAnchor > 25 then
-                    farmStatusLabel.Text = string.format("Lvl %d | Flying to %s Island...", currentLevel, displayName)
-                    safeTweenToIsland(anchorHoverCF)
+                    if not isTraveling then
+                        farmStatusLabel.Text = string.format("Lvl %d | Flying to %s Island...", currentLevel, displayName)
+                        safeTweenToIsland(anchorHoverCF)
+                    end
                     return
                 end
 
@@ -6277,7 +6289,7 @@ _G.startUnknownFarm = function()
                                 end
                             end
 
-                            mobHum.PlatformStand = false
+                            mobHum.PlatformStand = true
                             mobHum.WalkSpeed = 0
                             mobHum.JumpPower = 0
                             mobHRP.CanTouch = true
