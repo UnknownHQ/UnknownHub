@@ -191,6 +191,14 @@ local State = {
     Enable_Sliding = false,
     No_Acceleration = false,
     Instant_Movement = false, -- Natural DOORS Humanoid walking physics (zero platform feeling / zero backward drift)
+    -- Autonomous Auto-Beat Suite (mspaint v4 Complete Parity)
+    Auto_Beat = false,
+    AutoBeat_WalkSpeed = 55,
+    AutoBeat_AutoCrouch = true,
+    AutoBeat_LootGold = true,
+    AutoBeat_LootDrawers = true,
+    AutoBeat_GrabSally = true,
+    AutoBeat_EvacuateThreat = true,
     Noclip = false,
     Walk_Noclip = false,
     Noclip_Speed = 35,
@@ -7818,6 +7826,116 @@ handleFarmRoofEvacuation = function()
     Hub.Notify("Knobs Farm", "Threat cleared. Resuming farming loop!", 2)
 end
 
+-- Forward declarations for Auto-Beat subsystem
+local solveLibraryCode
+local startAutoBeat, stopAutoBeat
+local autoBeatStatusLabel
+local runAutoBeatLoop
+
+solveLibraryCode = function()
+    local r50 = Workspace:FindFirstChild("CurrentRooms") and Workspace.CurrentRooms:FindFirstChild("50")
+    local books = {}
+    
+    -- 1. Scan books in Room 50
+    if r50 then
+        for _, desc in ipairs(r50:GetDescendants()) do
+            if desc:IsA("Model") and (desc.Name == "LiveHintBook" or desc.Name:lower():find("hintbook")) then
+                local shape = desc:GetAttribute("Shape") or (desc:FindFirstChild("Shape") and desc.Shape.Value)
+                local num = desc:GetAttribute("Number") or desc:GetAttribute("Digit") or (desc:FindFirstChild("Number") and desc.Number.Value)
+                if shape and num then
+                    books[tostring(shape):lower()] = tostring(num)
+                end
+            end
+        end
+    end
+
+    -- 2. Scan player inventory / character for books & hints
+    local containers = { LocalPlayer.Character, LocalPlayer:FindFirstChild("Backpack") }
+    for _, cont in ipairs(containers) do
+        if cont then
+            for _, item in ipairs(cont:GetChildren()) do
+                if item.Name:lower():find("book") then
+                    local shape = item:GetAttribute("Shape") or (item:FindFirstChild("Shape") and item.Shape.Value)
+                    local num = item:GetAttribute("Number") or item:GetAttribute("Digit") or (item:FindFirstChild("Number") and item.Number.Value)
+                    if shape and num then
+                        books[tostring(shape):lower()] = tostring(num)
+                    end
+                end
+            end
+        end
+    end
+
+    -- 3. Scan Hint Paper
+    local paper = nil
+    for _, cont in ipairs(containers) do
+        if cont then
+            paper = cont:FindFirstChild("LibraryHintPaper") or cont:FindFirstChild("HintPaper")
+            if paper then break end
+        end
+    end
+    if not paper and r50 then
+        paper = r50:FindFirstChild("LibraryHintPaper", true) or r50:FindFirstChild("HintPaper", true)
+    end
+
+    -- 4. Extract shapes from paper
+    local paperShapes = {}
+    if paper then
+        local ui = paper:FindFirstChildWhichIsA("SurfaceGui", true) or paper:FindFirstChildWhichIsA("ScreenGui", true) or paper:FindFirstChildWhichIsA("BillboardGui", true) or paper:FindFirstChild("UI", true)
+        if ui then
+            for i = 1, 5 do
+                local shapeLabel = ui:FindFirstChild(tostring(i), true) or ui:FindFirstChild("Icon" .. i, true) or ui:FindFirstChild("Shape" .. i, true)
+                if shapeLabel then
+                    local sName = shapeLabel:GetAttribute("Shape") or shapeLabel.Name
+                    table.insert(paperShapes, tostring(sName):lower())
+                end
+            end
+        end
+    end
+
+    -- Room attribute fallback
+    if #paperShapes < 5 and r50 then
+        local codeAttr = r50:GetAttribute("Code") or r50:GetAttribute("PadlockCode")
+        if codeAttr then
+            return tostring(codeAttr), "Solved via Room Attribute"
+        end
+    end
+
+    -- Build 5-digit code string
+    local codeParts = {}
+    local complete = true
+    if #paperShapes == 5 then
+        for i = 1, 5 do
+            local shape = paperShapes[i]
+            local digit = books[shape] or "_"
+            table.insert(codeParts, digit)
+            if digit == "_" then complete = false end
+        end
+    else
+        local count = 0
+        for _, digit in pairs(books) do
+            count = count + 1
+            table.insert(codeParts, digit)
+            if count >= 5 then break end
+        end
+        while #codeParts < 5 do
+            table.insert(codeParts, "_")
+            complete = false
+        end
+    end
+
+    local finalCode = table.concat(codeParts, "")
+    if complete then
+        local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local plRemote = rf and rf:FindFirstChild("PL")
+        if plRemote then
+            pcall(function() plRemote:FireServer(finalCode) end)
+        end
+        return finalCode, "Solved"
+    else
+        return finalCode, "Partial (" .. tostring(#codeParts) .. " digits)"
+    end
+end
+
 -- Room 50 (Library) Auto Solver & Padlock Unlocker
 solveFigureLibraryRoom = function()
     Hub.Notify("Knobs Farm", "Room 50 (Figure) entered! Collecting books & paper...", 4)
@@ -7896,11 +8014,603 @@ solveFigureLibraryRoom = function()
 end
 
 -- Auto Farm Knobs & Auto 100 Doors Completer permanently removed as requested!
+-- =========================================================================
+-- AUTONOMOUS DOORS AUTO-BEAT & PATHFINDING ENGINE (mspaint v4 Complete Parity)
+-- =========================================================================
+
+local autoBeatThread = nil
+local lastAutoBeatNudge = 0
+local autoBeatLastPos = Vector3.zero
+local autoBeatStuckCount = 0
+
+-- Overhead clearance checker for auto-crouch
+local function autoBeatCheckCrouch(root, curRoomNum)
+    if not State.AutoBeat_AutoCrouch or not root then return end
+    local char = getChar()
+    local mgTable = getMainGameTable()
+    local isFigRoom = (curRoomNum == 50 or curRoomNum == 100)
+
+    -- Upward raycast for ceiling clearance
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = { char, Workspace:FindFirstChild("Drops") }
+    local ceilHit = Workspace:Raycast(root.Position, Vector3.new(0, 4.2, 0), rp)
+
+    local mustCrouch = (ceilHit ~= nil) or isFigRoom
+
+    if mgTable then
+        if mustCrouch and not mgTable.crouching then
+            mgTable.crouching = true
+            pcall(function()
+                local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                local cr = rf and rf:FindFirstChild("Crouch")
+                if cr then cr:FireServer(true, false) end
+            end)
+        elseif not mustCrouch and mgTable.crouching and not isFigRoom then
+            mgTable.crouching = false
+            pcall(function()
+                local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                local cr = rf and rf:FindFirstChild("Crouch")
+                if cr then cr:FireServer(false, false) end
+            end)
+        end
+    end
+end
+
+-- Line of sight checker
+local function autoBeatHasLineOfSight(fromPos, toPos)
+    local char = getChar()
+    local dir = toPos - fromPos
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    local filter = { char, Workspace:FindFirstChild("Drops") }
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if curRooms then
+        for _, rm in ipairs(curRooms:GetChildren()) do
+            local d = rm:FindFirstChild("Door")
+            if d then
+                local leaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal")
+                if leaf then table.insert(filter, leaf) end
+            end
+        end
+    end
+    rp.FilterDescendantsInstances = filter
+    local hit = Workspace:Raycast(fromPos, dir, rp)
+    return hit == nil
+end
+
+-- Synchronizes character movement at desired speed with anti-cheat bypass
+local function autoBeatApplySpeed(hum, root)
+    local speed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
+    hum.WalkSpeed = speed
+    local mg = getMainGameTable()
+    if mg then
+        mg.speed = speed
+        mg.SETNEWCF = nil
+    end
+    local moveDir = hum.MoveDirection
+    if moveDir.Magnitude > 0.05 then
+        root.AssemblyLinearVelocity = Vector3.new(moveDir.X * speed, root.AssemblyLinearVelocity.Y, moveDir.Z * speed)
+    end
+end
+
+-- Core path-walking routine
+local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
+    stopDist = stopDist or 3.5
+    timeoutSec = timeoutSec or 7.0
+    local startTime = os.clock()
+
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not root or not hum then return false end
+
+    local path = PathfindingService:CreatePath({
+        AgentRadius = 2.0,
+        AgentHeight = 5.0,
+        AgentCanJump = false,
+        WaypointSpacing = 3.5
+    })
+
+    while State.Auto_Beat and (os.clock() - startTime < timeoutSec) do
+        if _G.DOORS_SESSION ~= currentSession then return false end
+        -- 1. Threat check: Rush/Ambush interruption
+        if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+            return "THREAT_INTERRUPTED"
+        end
+
+        local rootPos = root.Position
+        local distToTarget = (rootPos - targetPos).Magnitude
+        if distToTarget <= stopDist then
+            hum:Move(Vector3.zero, false)
+            return true
+        end
+
+        local curNum = getCurrentRoomNumber()
+        autoBeatCheckCrouch(root, curNum)
+
+        -- Anti-stuck detection
+        if (rootPos - autoBeatLastPos).Magnitude < 0.4 then
+            autoBeatStuckCount = autoBeatStuckCount + 1
+            if autoBeatStuckCount >= 10 then
+                autoBeatStuckCount = 0
+                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+                hum.Jump = true
+                local nudgeDir = (targetPos - rootPos).Unit
+                root.CFrame = root.CFrame + Vector3.new(nudgeDir.X * 0.8, 0.4, nudgeDir.Z * 0.8)
+            end
+        else
+            autoBeatStuckCount = 0
+        end
+        autoBeatLastPos = rootPos
+
+        -- Direct line of sight optimization
+        local eyePos = rootPos + Vector3.new(0, 1.5, 0)
+        local targetEyePos = targetPos + Vector3.new(0, 1.5, 0)
+        if autoBeatHasLineOfSight(eyePos, targetEyePos) then
+            hum:MoveTo(targetPos)
+            autoBeatApplySpeed(hum, root)
+            task.wait(0.04)
+        else
+            -- A* Pathfinding computation
+            local ok = pcall(function() path:ComputeAsync(rootPos, targetPos) end)
+            if ok and path.Status == Enum.PathStatus.Success then
+                local waypoints = path:GetWaypoints()
+                for i = 2, #waypoints do
+                    if not State.Auto_Beat or (isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat) then
+                        return "THREAT_INTERRUPTED"
+                    end
+                    local wp = waypoints[i]
+                    local wpPos = wp.Position
+                    local wpStart = os.clock()
+
+                    while State.Auto_Beat and (root.Position - wpPos).Magnitude > 2.8 and (os.clock() - wpStart < 1.0) do
+                        if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+                            return "THREAT_INTERRUPTED"
+                        end
+                        autoBeatCheckCrouch(root, curNum)
+                        hum:MoveTo(wpPos)
+                        autoBeatApplySpeed(hum, root)
+                        task.wait(0.04)
+                    end
+
+                    -- Check if direct sight opened up
+                    if autoBeatHasLineOfSight(root.Position + Vector3.new(0, 1.5, 0), targetEyePos) then
+                        break
+                    end
+                end
+            else
+                -- Fallback towards target
+                hum:MoveTo(targetPos)
+                autoBeatApplySpeed(hum, root)
+                task.wait(0.08)
+            end
+        end
+    end
+
+    hum:Move(Vector3.zero, false)
+    return (root.Position - targetPos).Magnitude <= stopDist
+end
+
+-- Rush / Ambush Emergency Closet Hiding Routine
+local function autoBeatHideFromThreat(threatName)
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    local mgTable = getMainGameTable()
+    if not root or not hum then return false end
+
+    if autoBeatStatusLabel then
+        autoBeatStatusLabel:SetText("Auto-Beat: Evacuating to Closet (" .. tostring(threatName or "Entity") .. " Alert!)", true)
+    end
+
+    -- Locate nearest empty wardrobe/closet
+    local bestPrompt, bestDist, bestPos = nil, math.huge, nil
+    local curRoom, curNum = getObjectRoom(root)
+    local searchRooms = {}
+    if curRoom then table.insert(searchRooms, curRoom) end
+    if curNum and Workspace:FindFirstChild("CurrentRooms") then
+        local prevR = Workspace.CurrentRooms:FindFirstChild(tostring(curNum - 1))
+        local nextR = Workspace.CurrentRooms:FindFirstChild(tostring(curNum + 1))
+        if prevR then table.insert(searchRooms, prevR) end
+        if nextR then table.insert(searchRooms, nextR) end
+    end
+
+    for _, rm in ipairs(searchRooms) do
+        for _, desc in ipairs(rm:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") and desc.Enabled then
+                local pModel = desc:FindFirstAncestorWhichIsA("Model")
+                local mName = pModel and pModel.Name:lower() or ""
+                local isHide = mName:find("wardrobe") or mName:find("closet") or mName:find("locker") or mName:find("bed")
+                if isHide and pModel and not pModel:GetAttribute("HiddenPlayer") then
+                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (pModel.PrimaryPart or pModel:FindFirstChildWhichIsA("BasePart"))
+                    if pPart then
+                        local d = (root.Position - pPart.Position).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            bestPrompt = desc
+                            bestPos = pPart.Position
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if not bestPrompt or not bestPos then
+        return false
+    end
+
+    -- Sprint to closet at high speed
+    local sprintStart = os.clock()
+    while State.Auto_Beat and (root.Position - bestPos).Magnitude > 5.5 and (os.clock() - sprintStart < 3.0) do
+        hum:MoveTo(bestPos)
+        autoBeatApplySpeed(hum, root)
+        task.wait(0.03)
+    end
+
+    -- Enter closet prompt
+    local enterStart = os.clock()
+    while State.Auto_Beat and not isPlayerHiding(char, mgTable) and (os.clock() - enterStart < 2.0) do
+        safeInstantFirePrompt(bestPrompt)
+        task.wait(0.06)
+    end
+
+    -- Wait safely inside until entity completely passes
+    while State.Auto_Beat and isLethalEntityIncoming and isLethalEntityIncoming() do
+        task.wait(0.2)
+    end
+    task.wait(1.2) -- Post-threat safety tail
+
+    -- Exit closet
+    if isPlayerHiding(char, mgTable) then
+        local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local camLeave = rf and rf:FindFirstChild("CamLeave")
+        if camLeave then pcall(function() camLeave:FireServer() end) end
+        task.wait(0.4)
+    end
+
+    return true
+end
+
+-- Gold and Drawer looting while walking
+local function autoBeatLootNearby(maxRadius)
+    maxRadius = maxRadius or 18.0
+    local root = getRoot()
+    if not root then return end
+    local curRoom = getObjectRoom(root)
+    if not curRoom then return end
+
+    local lootables = {}
+    for _, desc in ipairs(curRoom:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled then
+            local dName = desc.Name:lower()
+            local pName = desc.Parent and desc.Parent.Name:lower() or ""
+            local isGold = dName:find("gold") or pName:find("gold") or pName:find("coin")
+            local isDrawer = dName:find("drawer") or pName:find("drawer")
+            if (isGold and State.AutoBeat_LootGold) or (isDrawer and State.AutoBeat_LootDrawers) then
+                local part = desc.Parent:IsA("BasePart") and desc.Parent or desc.Parent:FindFirstChildWhichIsA("BasePart")
+                if part then
+                    local dist = (root.Position - part.Position).Magnitude
+                    if dist <= maxRadius then
+                        table.insert(lootables, { prompt = desc, pos = part.Position, dist = dist, isGold = isGold })
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(lootables, function(a, b) return a.dist < b.dist end)
+
+    for _, item in ipairs(lootables) do
+        if not State.Auto_Beat or (isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat) then break end
+        if item.dist <= 6.5 then
+            safeInstantFirePrompt(item.prompt)
+            task.wait(0.06)
+        elseif item.dist <= 16.0 then
+            autoBeatWalkTo(item.pos, 5.0, 1.2)
+            safeInstantFirePrompt(item.prompt)
+            task.wait(0.06)
+        end
+    end
+end
+
+-- Sally Toy Scanner
+local function autoBeatFindSallyToy(room)
+    if not room then return nil end
+    for _, desc in ipairs(room:GetDescendants()) do
+        local n = desc.Name:lower()
+        if n:find("sallytoy") or n:find("sally_toy") or (n:find("toy") and not n:find("room")) then
+            local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true) or (desc:IsA("ProximityPrompt") and desc)
+            if prompt and prompt.Enabled then
+                local part = prompt.Parent:IsA("BasePart") and prompt.Parent or desc:FindFirstChildWhichIsA("BasePart", true)
+                return prompt, part and part.Position
+            end
+        end
+    end
+    return nil
+end
+
+-- Key & Lock Scanner
+local function autoBeatFindRoomKey(room)
+    if not room then return nil end
+    for _, desc in ipairs(room:GetDescendants()) do
+        if desc:IsA("Model") and (desc.Name == "Key" or desc.Name:find("KeyObtain") or desc.Name:find("ElectricalKey")) then
+            local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt and prompt.Enabled then
+                local part = desc:FindFirstChildWhichIsA("BasePart") or prompt.Parent
+                return prompt, part and part.Position, desc, false
+            end
+        end
+    end
+    -- Check inside drawers
+    for _, desc in ipairs(room:GetDescendants()) do
+        if desc:IsA("Model") and (desc.Name == "DrawerContainer" or desc.Name:find("Desk") or desc.Name:find("Table")) then
+            local keyInside = desc:FindFirstChild("Key", true) or desc:FindFirstChild("KeyObtain", true)
+            if keyInside then
+                local drawerPrompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if drawerPrompt and drawerPrompt.Enabled then
+                    local part = drawerPrompt.Parent:IsA("BasePart") and drawerPrompt.Parent or desc.PrimaryPart
+                    return drawerPrompt, part and part.Position, desc, true
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Inventory Key Checker
+local function autoBeatHasKey()
+    local char = getChar()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local function checkCont(cont)
+        if not cont then return false end
+        for _, item in ipairs(cont:GetChildren()) do
+            if item:IsA("Tool") and (item.Name:lower():find("key") or item.Name:lower():find("lockpick")) then
+                return true, item
+            end
+        end
+        return false
+    end
+    local has, tool = checkCont(char)
+    if has then return true, tool end
+    return checkCont(bp)
+end
+
+-- Exit Door Selector
+local function autoBeatGetExitDoor(curRoom, curNum)
+    if not curRoom then return nil end
+    local doors = {}
+    for _, desc in ipairs(curRoom:GetDescendants()) do
+        if desc:IsA("Model") and (desc.Name == "Door" or desc.Name == "DoorNormal") then
+            if not isDupeDoor(desc, curRoom) then
+                table.insert(doors, desc)
+            end
+        end
+    end
+    for _, d in ipairs(doors) do
+        local signPart = d:FindFirstChild("Sign", true)
+        local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+        local signNum = signLabel and tonumber(signLabel.Text)
+        if signNum and curNum and signNum == (curNum + 1) then
+            return d, signNum
+        end
+    end
+    return doors[1], curNum and (curNum + 1) or nil
+end
+
+-- Core AutoBeat Single Cycle Runner
+local function autoBeatRunCycle()
+    local char = getChar()
+    local root = getRoot()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    local mgTable = getMainGameTable()
+    if not root or not hum or hum.Health <= 0 then return end
+
+    -- 1. Threat Check
+    if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+        local _, threat = isLethalEntityIncoming()
+        autoBeatHideFromThreat(threat)
+        return
+    end
+
+    -- If currently hiding and threat is gone, exit
+    if isPlayerHiding(char, mgTable) then
+        local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local camLeave = rf and rf:FindFirstChild("CamLeave")
+        if camLeave then pcall(function() camLeave:FireServer() end) end
+        task.wait(0.4)
+        return
+    end
+
+    -- 2. Current Room & Door identification
+    local curRoom, curNum = getObjectRoom(root)
+    if not curRoom then
+        local curRooms = Workspace:FindFirstChild("CurrentRooms")
+        if curRooms then
+            curNum = getCurrentRoomNumber()
+            curRoom = curRooms:FindFirstChild(tostring(curNum))
+        end
+    end
+    curNum = curNum or getCurrentRoomNumber()
+    if not curRoom then return end
+
+    -- Step A: Sally Toy Grab
+    if State.AutoBeat_GrabSally then
+        local sPrompt, sPos = autoBeatFindSallyToy(curRoom)
+        if sPrompt and sPos then
+            if autoBeatStatusLabel then
+                autoBeatStatusLabel:SetText("Auto-Beat: Grabbing Sally Toy in Room " .. tostring(curNum) .. "...", false)
+            end
+            local r = autoBeatWalkTo(sPos, 5.0, 5.0)
+            if r == "THREAT_INTERRUPTED" then return end
+            safeInstantFirePrompt(sPrompt)
+            task.wait(0.15)
+        end
+    end
+
+    -- Step B: Special Room Handling (Room 50 Library & Room 100 Breakers)
+    if curNum == 50 then
+        if autoBeatStatusLabel then
+            autoBeatStatusLabel:SetText("Auto-Beat: Solving Room 50 Library & Padlock...", false)
+        end
+        -- Collect hint paper & books
+        local paper = Workspace:FindFirstChild("LibraryHintPaper", true) or curRoom:FindFirstChild("LibraryHintPaper", true)
+        if paper then
+            local pPart = paper:IsA("BasePart") and paper or (paper.PrimaryPart or paper:FindFirstChildWhichIsA("BasePart", true))
+            if pPart then
+                autoBeatWalkTo(pPart.Position, 4.0, 4.0)
+                local pPrompt = paper:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if pPrompt then safeInstantFirePrompt(pPrompt) end
+            end
+        end
+        for _, desc in ipairs(curRoom:GetDescendants()) do
+            if desc.Name == "LiveHintBook" or desc.Name:lower():find("hintbook") then
+                local bPart = desc:IsA("BasePart") and desc or (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true))
+                if bPart then
+                    autoBeatWalkTo(bPart.Position, 4.0, 4.0)
+                    local bPrompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if bPrompt then safeInstantFirePrompt(bPrompt) end
+                end
+            end
+        end
+        local code, status = solveLibraryCode()
+        if code and not code:find("_") then
+            local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+            local plRemote = rf and rf:FindFirstChild("PL")
+            if plRemote then pcall(function() plRemote:FireServer(code) end) end
+        end
+    elseif curNum == 100 then
+        if autoBeatStatusLabel then
+            autoBeatStatusLabel:SetText("Auto-Beat: Solving Door 100 Circuit Breakers...", false)
+        end
+        instantSolveBreakers()
+    end
+
+    -- Step C: Exit Door identification
+    local exitDoor, targetDoorNum = autoBeatGetExitDoor(curRoom, curNum)
+    if not exitDoor then return end
+
+    local doorPos = getDoorPosition(exitDoor)
+    if not doorPos then return end
+
+    -- Check if door is locked
+    local lock = exitDoor:FindFirstChild("Lock") or exitDoor:FindFirstChild("LockPart") or exitDoor:GetAttribute("Locked") == true
+    local unlockPrompt = lock and (lock:FindFirstChildWhichIsA("ProximityPrompt", true) or exitDoor:FindFirstChild("UnlockPrompt", true))
+
+    if lock and unlockPrompt and unlockPrompt.Enabled then
+        -- DOOR IS LOCKED
+        local hasKey, keyTool = autoBeatHasKey()
+        if hasKey then
+            -- Walk to locked door and unlock
+            if autoBeatStatusLabel then
+                autoBeatStatusLabel:SetText("Auto-Beat: Unlocking Door " .. tostring(targetDoorNum or curNum + 1) .. "...", false)
+            end
+            local r = autoBeatWalkTo(doorPos, 8.0, 6.0)
+            if r == "THREAT_INTERRUPTED" then return end
+
+            if keyTool and keyTool.Parent ~= char then
+                pcall(function() hum:EquipTool(keyTool) end)
+                task.wait(0.1)
+            end
+            safeInstantFirePrompt(unlockPrompt)
+            task.wait(0.2)
+        else
+            -- Find Key in room
+            local kPrompt, kPos, kDesc, isDrawer = autoBeatFindRoomKey(curRoom)
+            if kPrompt and kPos then
+                if autoBeatStatusLabel then
+                    autoBeatStatusLabel:SetText("Auto-Beat: Fetching Key in " .. (isDrawer and "Desk..." or "Room..."), false)
+                end
+                local r = autoBeatWalkTo(kPos, 4.5, 6.0)
+                if r == "THREAT_INTERRUPTED" then return end
+
+                safeInstantFirePrompt(kPrompt)
+                task.wait(0.25)
+            end
+            return
+        end
+    end
+
+    -- Step D: Loot nearby gold and open drawers while heading to exit door
+    if State.AutoBeat_LootGold or State.AutoBeat_LootDrawers then
+        autoBeatLootNearby(18.0)
+    end
+
+    -- Step E: Advance through Exit Door
+    if autoBeatStatusLabel then
+        autoBeatStatusLabel:SetText("Auto-Beat: Navigating Room " .. tostring(curNum) .. " ➔ Door " .. tostring(targetDoorNum or curNum + 1), false)
+    end
+
+    -- Strip collision locally on door leaf for smooth walk-through
+    processNearbyDoors(doorPos, 25)
+    local doorLeaf = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("DoorNormal") or exitDoor:FindFirstChild("Panel")
+    if doorLeaf and doorLeaf:IsA("BasePart") then
+        doorLeaf.CanCollide = false
+    end
+
+    local dPrompt = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if dPrompt and dPrompt.Enabled then
+        safeInstantFirePrompt(dPrompt)
+    end
+
+    -- Walk straight through the doorway into the next room (8 studs beyond the door)
+    local doorCF = exitDoor:GetPivot()
+    local advancePos = doorPos + (doorCF.LookVector * 10)
+    local r = autoBeatWalkTo(advancePos, 4.0, 5.0)
+    if r == "THREAT_INTERRUPTED" then return end
+end
+
+-- Auto Beat Background Runner Loop
+runAutoBeatLoop = function()
+    while State.Auto_Beat and _G.DOORS_SESSION == currentSession do
+        local ok, err = pcall(autoBeatRunCycle)
+        if not ok and err then
+            warn("[AutoBeat] Cycle warning: " .. tostring(err))
+        end
+        task.wait(0.08)
+    end
+end
+
+startAutoBeat = function()
+    if autoBeatThread then return end
+    State.Auto_Beat = true
+    autoBeatThread = task.spawn(runAutoBeatLoop)
+    if autoBeatStatusLabel then
+        autoBeatStatusLabel:SetText("Auto-Beat: Active (Pathfinding 55 studs/s)", true)
+    end
+    Hub.Notify("Auto-Beat", "Autonomous Pathfinding Autopilot: ENGAGED [55 studs/s]", 3)
+end
+
+stopAutoBeat = function()
+    State.Auto_Beat = false
+    if autoBeatThread then
+        pcall(function() task.cancel(autoBeatThread) end)
+        autoBeatThread = nil
+    end
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then hum:Move(Vector3.zero, false) end
+    if autoBeatStatusLabel then
+        autoBeatStatusLabel:SetText("Auto-Beat: Inactive", false)
+    end
+    Hub.Notify("Auto-Beat", "Autonomous Pathfinding Autopilot: Disengaged", 2)
+end
+
 
 -- Character Respawn Watcher (Auto-Resumes on new match / after reset!)
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     if _G.DOORS_SESSION ~= currentSession then return end
     setupQueueOnTeleport()
+    if State.Auto_Beat then
+        task.delay(2.0, function()
+            if State.Auto_Beat and _G.DOORS_SESSION == currentSession then
+                if not autoBeatThread then
+                    autoBeatThread = task.spawn(runAutoBeatLoop)
+                end
+            end
+        end)
+    end
     if State.Knobs_Farm_Active or getgenv().Doors_KnobsFarm_AutoResume then
         State.Knobs_Farm_Active = true
         getgenv().Doors_KnobsFarm_AutoResume = true
@@ -8996,6 +9706,47 @@ if autoHideToggleObj and autoHideToggleObj.Instance then
     end
     addKeybindBadge(autoHideToggleObj.Instance, "Q")
 end
+
+createCardDivider(mainTab)
+
+-- =========================================================================
+-- Section: 👑 Auto Beat & Pathfinding Autopilot (mspaint v4 Complete Parity)
+-- =========================================================================
+Hub.CreateSection(mainTab, "Auto Beat & Pathfinding Autopilot")
+
+autoBeatStatusLabel = createStatusLabel(mainTab, "Auto-Beat: Idle")
+
+Hub.CreateToggle(mainTab, "Auto Beat (Autonomous Completer)", State.Auto_Beat, function(v)
+    if v then
+        startAutoBeat()
+    else
+        stopAutoBeat()
+    end
+end)
+
+Hub.CreateSlider(mainTab, "Auto Beat Speed", 30, 65, State.AutoBeat_WalkSpeed or 55, " studs/s", function(v)
+    State.AutoBeat_WalkSpeed = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto-Crouch (Vents / Low Ceilings / Figure)", State.AutoBeat_AutoCrouch, function(v)
+    State.AutoBeat_AutoCrouch = v
+end)
+
+Hub.CreateToggle(mainTab, "Loot Gold Along Path", State.AutoBeat_LootGold, function(v)
+    State.AutoBeat_LootGold = v
+end)
+
+Hub.CreateToggle(mainTab, "Loot Drawers & Wardrobes", State.AutoBeat_LootDrawers, function(v)
+    State.AutoBeat_LootDrawers = v
+end)
+
+Hub.CreateToggle(mainTab, "Grab Sally Toy Automatically", State.AutoBeat_GrabSally, function(v)
+    State.AutoBeat_GrabSally = v
+end)
+
+Hub.CreateToggle(mainTab, "Evacuate Threat to Closet (Rush / Ambush)", State.AutoBeat_EvacuateThreat, function(v)
+    State.AutoBeat_EvacuateThreat = v
+end)
 end)()
 
 -- =========================================================================
@@ -9064,6 +9815,16 @@ end
 end)
 
 -- Autonomous 1-100 Completer and Knobs Farm Autopilot removed as requested!
+Hub.CreateSection(exploitsTab, "Auto Beat & Autonomous Pathfinding")
+
+Hub.CreateToggle(exploitsTab, "Auto Beat (Autonomous Completer)", State.Auto_Beat, function(v)
+    if v then
+        startAutoBeat()
+    else
+        stopAutoBeat()
+    end
+end)
+
 
 Hub.CreateToggle(exploitsTab, "Loot Drawers & Desks", State.Knobs_Farm_LootDrawers, function(v)
     State.Knobs_Farm_LootDrawers = v
