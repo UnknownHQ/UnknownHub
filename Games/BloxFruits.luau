@@ -1,3 +1,21 @@
+-- TEARDOWN & RE-EXECUTION CLEANUP (ZERO DUPLICATE GHOST THREADS)
+if _G.Unknown_BloxFruits_Cleanup then
+    pcall(function() _G.Unknown_BloxFruits_Cleanup() end)
+end
+
+_G.Unknown_BloxFruits_Cleanup = function()
+    if _G.Unknown_MainFarmLoop then pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end) _G.Unknown_MainFarmLoop = nil end
+    if _G.Unknown_TravelNoclip then pcall(function() _G.Unknown_TravelNoclip:Disconnect() end) _G.Unknown_TravelNoclip = nil end
+    if _G.Unknown_GlobalLoop then pcall(function() _G.Unknown_GlobalLoop:Disconnect() end) _G.Unknown_GlobalLoop = nil end
+    if _G.Unknown_FastHitLoop then pcall(function() _G.Unknown_FastHitLoop:Disconnect() end) _G.Unknown_FastHitLoop = nil end
+    if _G.Unknown_FastEspRender then pcall(function() _G.Unknown_FastEspRender:Disconnect() end) _G.Unknown_FastEspRender = nil end
+    if _G.Unknown_WaterWalkConn then pcall(function() _G.Unknown_WaterWalkConn:Disconnect() end) _G.Unknown_WaterWalkConn = nil end
+    if _G.Unknown_InputBeganConn then pcall(function() _G.Unknown_InputBeganConn:Disconnect() end) _G.Unknown_InputBeganConn = nil end
+    if _G.Unknown_InputEndedConn then pcall(function() _G.Unknown_InputEndedConn:Disconnect() end) _G.Unknown_InputEndedConn = nil end
+    if _G.Unknown_CancelTween then pcall(function() _G.Unknown_CancelTween() end) end
+end
+_G.Unknown_BloxFruits_Cleanup()
+
 local Players = game:GetService("Players")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -448,13 +466,7 @@ _G.Unknown_CancelTween = function()
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
         if hrp then
-            local bv = getTabBV(hrp)
-
-            if bv then
-                bv.Velocity = Vector3.zero
-
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            end
+            removeTabBV(hrp)
 
             hrp.Velocity = Vector3.zero
 
@@ -1008,7 +1020,7 @@ local MaterialData = {
 
     ["Angel Wings"] = {MobName = "Sky Bandit", IslandCFrame = CFrame.new(-4800, 715, -2600)},
 
-    ["Magma Ore"] = {MobName = "Military Soldier", IslandCFrame = CFrame.new(-5500, 16, 8405)},
+    ["Magma Ore"] = {MobName = "Military Soldier", IslandCFrame = CFrame.new(-5500, 16, 8435)},
 
     ["Fish Tail"] = {MobName = "Fishman Warrior", IslandCFrame = CFrame.new(61000, 18, 1500)},
 
@@ -2931,7 +2943,7 @@ do
 
             {Name = "Prison [Lv. 190]", CFrame = CFrame.new(5300, 4, 700)},
 
-            {Name = "Magma Village [Lv. 300]", CFrame = CFrame.new(-5500, 16, 8405)},
+            {Name = "Magma Village [Lv. 300]", CFrame = CFrame.new(-5500, 16, 8435)},
 
             {Name = "Fishman Island [Lv. 375]", CFrame = CFrame.new(61000, 18, 1500)},
 
@@ -4816,7 +4828,7 @@ local LevelData = {
     {MinLevel = 225, MaxLevel = 249, ExactName = "Ruthless Prisoner", Display = "Ruthless Prisoner [Lv. 220]", QuestName = "ImpelQuest", QuestLevel = 1, IslandCFrame = CFrame.new(5300, 20, 750)},
     {MinLevel = 250, MaxLevel = 274, ExactName = "Toga Warrior", Display = "Toga Warrior [Lv. 250]", QuestName = "ColosseumQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-1800, 8, -2800)},
     {MinLevel = 275, MaxLevel = 299, ExactName = "Gladiator", Display = "Gladiator [Lv. 275]", QuestName = "ColosseumQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-1370, 8, -3377)},
-    {MinLevel = 300, MaxLevel = 324, ExactName = "Military Soldier", Display = "Military Soldier [Lv. 300]", QuestName = "MagmaQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-5500, 16, 8405)},
+    {MinLevel = 300, MaxLevel = 324, ExactName = "Military Soldier", Display = "Military Soldier [Lv. 300]", QuestName = "MagmaQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-5500, 16, 8435)},
     {MinLevel = 325, MaxLevel = 374, ExactName = "Military Spy", Display = "Military Spy [Lv. 325]", QuestName = "MagmaQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-5800, 80, 8750)},
     {MinLevel = 375, MaxLevel = 399, ExactName = "Fishman Warrior", Display = "Fishman Warrior [Lv. 375]", QuestName = "FishmanQuest", QuestLevel = 1, IslandCFrame = CFrame.new(61000, 18, 1500)},
     {MinLevel = 400, MaxLevel = 449, ExactName = "Fishman Commando", Display = "Fishman Commando [Lv. 400]", QuestName = "FishmanQuest", QuestLevel = 2, IslandCFrame = CFrame.new(61800, 18, 1400)},
@@ -4933,7 +4945,7 @@ local function getDynamicIslandCFrame(targetEntry)
 
     -- Magma Village Lava Hazard Guard: Ensure anchor is on solid stone plaza (NEVER in lava)
     if targetEntry.ExactName == "Military Soldier" or (spCFrame and spCFrame.Position.X < -5100 and spCFrame.Position.X > -5900 and spCFrame.Position.Z > 8200 and spCFrame.Position.Z < 9100 and spCFrame.Position.Z >= 8550) then
-        spCFrame = CFrame.new(-5500, 16, 8405)
+        spCFrame = CFrame.new(-5500, 16, 8435)
     end
 
     if spCFrame then return spCFrame end
@@ -5693,6 +5705,7 @@ end
 _G.stopUnknownFarm = function()
     _G.Unknown_AutoFarmEnabled = false
     isFarmOn = false
+    isTraveling = false
     _G.Unknown_CancelTween()
 
     if _G.Unknown_MainFarmLoop then
@@ -6149,7 +6162,7 @@ _G.startUnknownFarm = function()
 
             -- Magma Village Lava Hazard Guard: Ensure anchor is on solid stone plaza (NEVER in lava)
             if exactMobName == "Military Soldier" or (primarySpawnerCF and primarySpawnerCF.Position.X < -5100 and primarySpawnerCF.Position.X > -5900 and primarySpawnerCF.Position.Z > 8200 and primarySpawnerCF.Position.Z < 9100 and primarySpawnerCF.Position.Z >= 8550) then
-                primarySpawnerCF = CFrame.new(-5500, 16, 8405)
+                primarySpawnerCF = CFrame.new(-5500, 16, 8435)
             end
 
             local farmDist = math.max(_G.Unknown_FarmDistance or 18.0, 18.0)

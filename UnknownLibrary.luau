@@ -2303,6 +2303,21 @@ return function(opts)
             tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card})
         end)
 
+        switchTrack.MouseButton1Click:Connect(function()
+
+            setToggle(not state)
+        end)
+
+        switchTrack.Activated:Connect(function()
+
+            setToggle(not state)
+        end)
+
+        hitTrigger.Activated:Connect(function()
+
+            setToggle(not state)
+        end)
+
         hitTrigger.MouseButton1Click:Connect(function()
 
             setToggle(not state)
@@ -2316,7 +2331,11 @@ return function(opts)
 
             Set = setToggle,
 
-            SetValue = setToggle
+            SetValue = setToggle,
+
+            Get = function() return state end,
+
+            GetValue = function() return state end
 
         }
 
