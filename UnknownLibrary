@@ -2288,6 +2288,7 @@ return function(opts)
         hitTrigger.Size = UDim2.new(1, 0, 1, 0)
 
         hitTrigger.BackgroundTransparency = 1
+        hitTrigger.ZIndex = 5
 
         hitTrigger.Text = ""
 
@@ -2303,25 +2304,20 @@ return function(opts)
             tween(card, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.Card})
         end)
 
-        switchTrack.MouseButton1Click:Connect(function()
+        switchTrack.Active = false
 
+        local toggleDebounce = false
+
+        local function triggerToggle()
+            if toggleDebounce then return end
+            toggleDebounce = true
             setToggle(not state)
-        end)
+            task.delay(0.2, function()
+                toggleDebounce = false
+            end)
+        end
 
-        switchTrack.Activated:Connect(function()
-
-            setToggle(not state)
-        end)
-
-        hitTrigger.Activated:Connect(function()
-
-            setToggle(not state)
-        end)
-
-        hitTrigger.MouseButton1Click:Connect(function()
-
-            setToggle(not state)
-        end)
+        hitTrigger.Activated:Connect(triggerToggle)
 
         local toggleObj = {
 

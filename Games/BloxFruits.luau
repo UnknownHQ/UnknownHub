@@ -1020,7 +1020,7 @@ local MaterialData = {
 
     ["Angel Wings"] = {MobName = "Sky Bandit", IslandCFrame = CFrame.new(-4800, 715, -2600)},
 
-    ["Magma Ore"] = {MobName = "Military Soldier", IslandCFrame = CFrame.new(-5500, 16, 8435)},
+    ["Magma Ore"] = {MobName = "Military Soldier", IslandCFrame = CFrame.new(-5418, 18, 8421)},
 
     ["Fish Tail"] = {MobName = "Fishman Warrior", IslandCFrame = CFrame.new(61000, 18, 1500)},
 
@@ -3929,40 +3929,15 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
             local leadPart = nearbyHits[1][2] or primaryPart
             global.SendHitsToServer(leadPart, nearbyHits)
         else
-            -- Zero-Delay Multi-Target Pipeline: Dispatches all stacked targets in pairs of 2
-            -- Batch 1 (Targets 1 & 2): Immediate frame execution
-            local b1 = { nearbyHits[1], nearbyHits[2] }
-            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-            global.SendHitsToServer(b1[1][2] or primaryPart, b1)
-
-            -- Batch 2 (Targets 3 & 4): Deferred execution in the EXACT same frame (0ms latency)
-            if totalHits >= 3 then
-                task.defer(function()
-                    local b2 = { nearbyHits[3] }
-                    if totalHits >= 4 then table.insert(b2, nearbyHits[4]) end
-                    if tool then pcall(function() tool:Activate() end) end
-                    if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-                    global.SendHitsToServer(b2[1][2] or primaryPart, b2)
-                end)
-            end
-
-            -- Batch 3 (Targets 5, 6, 7, 8+): Micro-burst execution
-            if totalHits >= 5 then
-                task.spawn(function()
-                    task.wait(0.005)
-                    local b3 = { nearbyHits[5] }
-                    if totalHits >= 6 then table.insert(b3, nearbyHits[6]) end
-                    if tool then pcall(function() tool:Activate() end) end
-                    if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-                    global.SendHitsToServer(b3[1][2] or primaryPart, b3)
-
-                    if totalHits >= 7 then
-                        local b4 = { nearbyHits[7] }
-                        if totalHits >= 8 then table.insert(b4, nearbyHits[8]) end
-                        if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-                        global.SendHitsToServer(b4[1][2] or primaryPart, b4)
-                    end
-                end)
+            -- Zero-Delay Multi-Target Pipeline: Dispatches all stacked targets in pairs of 2 without any wait or delay
+            for batchStart = 1, totalHits, 2 do
+                local batch = { nearbyHits[batchStart] }
+                if nearbyHits[batchStart + 1] then
+                    table.insert(batch, nearbyHits[batchStart + 1])
+                end
+                if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+                local lead = batch[1] and batch[1][2] or primaryPart
+                global.SendHitsToServer(lead, batch)
             end
         end
     end)
@@ -4828,8 +4803,8 @@ local LevelData = {
     {MinLevel = 225, MaxLevel = 249, ExactName = "Ruthless Prisoner", Display = "Ruthless Prisoner [Lv. 220]", QuestName = "ImpelQuest", QuestLevel = 1, IslandCFrame = CFrame.new(5300, 20, 750)},
     {MinLevel = 250, MaxLevel = 274, ExactName = "Toga Warrior", Display = "Toga Warrior [Lv. 250]", QuestName = "ColosseumQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-1800, 8, -2800)},
     {MinLevel = 275, MaxLevel = 299, ExactName = "Gladiator", Display = "Gladiator [Lv. 275]", QuestName = "ColosseumQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-1370, 8, -3377)},
-    {MinLevel = 300, MaxLevel = 324, ExactName = "Military Soldier", Display = "Military Soldier [Lv. 300]", QuestName = "MagmaQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-5500, 16, 8435)},
-    {MinLevel = 325, MaxLevel = 374, ExactName = "Military Spy", Display = "Military Spy [Lv. 325]", QuestName = "MagmaQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-5800, 80, 8750)},
+    {MinLevel = 300, MaxLevel = 324, ExactName = "Military Soldier", Display = "Military Soldier [Lv. 300]", QuestName = "MagmaQuest", QuestLevel = 1, IslandCFrame = CFrame.new(-5418, 18, 8421)},
+    {MinLevel = 325, MaxLevel = 374, ExactName = "Military Spy", Display = "Military Spy [Lv. 325]", QuestName = "MagmaQuest", QuestLevel = 2, IslandCFrame = CFrame.new(-5841, 76, 8772)},
     {MinLevel = 375, MaxLevel = 399, ExactName = "Fishman Warrior", Display = "Fishman Warrior [Lv. 375]", QuestName = "FishmanQuest", QuestLevel = 1, IslandCFrame = CFrame.new(61000, 18, 1500)},
     {MinLevel = 400, MaxLevel = 449, ExactName = "Fishman Commando", Display = "Fishman Commando [Lv. 400]", QuestName = "FishmanQuest", QuestLevel = 2, IslandCFrame = CFrame.new(61800, 18, 1400)},
     {MinLevel = 450, MaxLevel = 474, ExactName = "God's Guard", Display = "God's Guard [Lv. 450]", QuestName = "SkyExp1Quest", QuestLevel = 1, IslandCFrame = CFrame.new(-4600, 845, -1900)},
@@ -4943,9 +4918,9 @@ local function getDynamicIslandCFrame(targetEntry)
         end
     end)
 
-    -- Magma Village Lava Hazard Guard: Ensure anchor is on solid stone plaza (NEVER in lava)
-    if targetEntry.ExactName == "Military Soldier" or (spCFrame and spCFrame.Position.X < -5100 and spCFrame.Position.X > -5900 and spCFrame.Position.Z > 8200 and spCFrame.Position.Z < 9100 and spCFrame.Position.Z >= 8550) then
-        spCFrame = CFrame.new(-5500, 16, 8435)
+    -- Magma Village Lava Hazard Guard: Keep Military Soldier safely on stone road (NEVER in lava)
+    if targetEntry.ExactName == "Military Soldier" and spCFrame and (spCFrame.Position.Z > 8500 or spCFrame.Position.X < -5480) then
+        spCFrame = CFrame.new(-5418, 18, 8421)
     end
 
     if spCFrame then return spCFrame end
@@ -6211,9 +6186,9 @@ _G.startUnknownFarm = function()
                 primarySpawnerCF = islandCFrame
             end
 
-            -- Magma Village Lava Hazard Guard: Ensure anchor is on solid stone plaza (NEVER in lava)
-            if exactMobName == "Military Soldier" or (primarySpawnerCF and primarySpawnerCF.Position.X < -5100 and primarySpawnerCF.Position.X > -5900 and primarySpawnerCF.Position.Z > 8200 and primarySpawnerCF.Position.Z < 9100 and primarySpawnerCF.Position.Z >= 8550) then
-                primarySpawnerCF = CFrame.new(-5500, 16, 8435)
+            -- Magma Village Lava Hazard Guard: Keep Military Soldier safely on stone road (NEVER in lava)
+            if exactMobName == "Military Soldier" and primarySpawnerCF and (primarySpawnerCF.Position.Z > 8500 or primarySpawnerCF.Position.X < -5480) then
+                primarySpawnerCF = CFrame.new(-5418, 18, 8421)
             end
 
             local farmDist = math.max(_G.Unknown_FarmDistance or 18.0, 18.0)
@@ -6253,11 +6228,12 @@ _G.startUnknownFarm = function()
                 rayParams.FilterDescendantsInstances = { char, workspace:FindFirstChild("Enemies") }
 
                 local floorRay = workspace:Raycast(playerHRP.Position, Vector3.new(0, -60, 0), rayParams)
-                local isLava = floorRay and floorRay.Instance and (string.find(string.lower(floorRay.Instance.Name), "lava") or floorRay.Instance.Material == Enum.Material.Neon)
+                local isLava = floorRay and floorRay.Instance and (string.find(string.lower(floorRay.Instance.Name), "lava") or floorRay.Instance.Material == Enum.Material.Neon or (floorRay.Instance.Parent and string.find(string.lower(floorRay.Instance.Parent.Name), "lava")))
 
                 local firstMob = targetMobs[1]
                 local firstMobHRP = firstMob and firstMob:FindFirstChild("HumanoidRootPart")
-                local groundY = (floorRay and not isLava) and (floorRay.Position.Y + 2.5) or (firstMobHRP and firstMobHRP.Position.Y or (playerHRP.Position.Y - farmDist))
+                local defaultGroundY = firstMobHRP and firstMobHRP.Position.Y or (clusterAnchorCF and (clusterAnchorCF.Position.Y + 2.5)) or (playerHRP.Position.Y - farmDist)
+                local groundY = (floorRay and not isLava) and (floorRay.Position.Y + 2.5) or defaultGroundY
                 local bringCF = CFrame.new(playerHRP.Position.X, groundY, playerHRP.Position.Z)
 
                 for i = 1, #targetMobs do
