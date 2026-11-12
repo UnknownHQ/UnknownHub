@@ -9633,6 +9633,89 @@ local mainTab = Hub.CreateTab("Main", {
     ActiveColor = Color3.fromRGB(255, 185, 30) 
 })
 
+local function createStatusLabel(parent, initialText)
+    local page = (typeof(parent) == "table" and parent.Page) or parent
+    local card = Instance.new("Frame")
+    card.Name = "StatusCard"
+    card.Size = UDim2.new(1, 0, 0, 32)
+    card.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+    card.BorderSizePixel = 0
+    card.Parent = page
+    
+    local uic = Instance.new("UICorner")
+    uic.CornerRadius = UDim.new(0, 6)
+    uic.Parent = card
+    
+    local uis = Instance.new("UIStroke")
+    uis.Color = Color3.fromRGB(45, 45, 52)
+    uis.Thickness = 1
+    uis.Transparency = 0.4
+    uis.Parent = card
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Name = "Label"
+    textLabel.Size = UDim2.new(1, -20, 1, 0)
+    textLabel.Position = UDim2.new(0, 10, 0, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Font = Enum.Font.RobotoMono
+    textLabel.Text = initialText or "Status: Idle"
+    textLabel.TextColor3 = Color3.fromRGB(220, 220, 225)
+    textLabel.TextSize = 13
+    textLabel.TextXAlignment = Enum.TextXAlignment.Left
+    textLabel.Parent = card
+
+    return {
+        Card = card,
+        Label = textLabel,
+        SetText = function(self, text, isBypassing)
+            textLabel.Text = text
+            if isBypassing then
+                textLabel.TextColor3 = Color3.fromRGB(120, 255, 150)
+                uis.Color = Color3.fromRGB(60, 180, 100)
+            else
+                textLabel.TextColor3 = Color3.fromRGB(220, 220, 225)
+                uis.Color = Color3.fromRGB(45, 45, 52)
+            end
+        end
+    }
+end
+
+local function createCardDivider(parent)
+    local target = (typeof(parent) == "table" and parent.Page) or parent
+    local div = Instance.new("Frame")
+    div.Name = "Divider"
+    div.Size = UDim2.new(1, 0, 0, 1)
+    div.BackgroundColor3 = Color3.fromRGB(36, 38, 44)
+    div.BorderSizePixel = 0
+    div.Parent = target
+    return div
+end
+
+local function addKeybindBadge(toggleCard, keyText)
+    if not toggleCard then return end
+    local badge = Instance.new("TextLabel")
+    badge.Name = "KeyBadge"
+    badge.Size = UDim2.new(0, 24, 0, 20)
+    badge.Position = UDim2.new(1, -82, 0.5, -10)
+    badge.BackgroundColor3 = Color3.fromRGB(24, 25, 29)
+    badge.BorderSizePixel = 0
+    badge.Font = Enum.Font.RobotoMono
+    badge.Text = keyText
+    badge.TextColor3 = Color3.fromRGB(180, 180, 185)
+    badge.TextSize = 12
+    badge.Parent = toggleCard
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = badge
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(48, 50, 58)
+    stroke.Thickness = 1
+    stroke.Parent = badge
+    return badge
+end
+
 -- =========================================================================
 -- Section: 👑 Auto-Beat (Pathfinding Autopilot)
 -- =========================================================================
@@ -9678,53 +9761,6 @@ createCardDivider(mainTab)
 -- Section: Movement
 -- =========================================================================
 Hub.CreateSection(mainTab, "Movement")
-
-local function createStatusLabel(parent, initialText)
-    local page = (typeof(parent) == "table" and parent.Page) or parent
-    local card = Instance.new("Frame")
-    card.Name = "StatusCard_SpeedBypass"
-    card.Size = UDim2.new(1, 0, 0, 32)
-    card.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
-    card.BorderSizePixel = 0
-    card.Parent = page
-    
-    local uic = Instance.new("UICorner")
-    uic.CornerRadius = UDim.new(0, 6)
-    uic.Parent = card
-    
-    local uis = Instance.new("UIStroke")
-    uis.Color = Color3.fromRGB(45, 45, 52)
-    uis.Thickness = 1
-    uis.Transparency = 0.4
-    uis.Parent = card
-
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Name = "Label"
-    textLabel.Size = UDim2.new(1, -20, 1, 0)
-    textLabel.Position = UDim2.new(0, 10, 0, 0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.Font = Enum.Font.RobotoMono
-    textLabel.Text = initialText or "Speed Bypass: Idle"
-    textLabel.TextColor3 = Color3.fromRGB(220, 220, 225)
-    textLabel.TextSize = 13
-    textLabel.TextXAlignment = Enum.TextXAlignment.Left
-    textLabel.Parent = card
-
-    return {
-        Card = card,
-        Label = textLabel,
-        SetText = function(self, text, isBypassing)
-            textLabel.Text = text
-            if isBypassing then
-                textLabel.TextColor3 = Color3.fromRGB(120, 255, 150)
-                uis.Color = Color3.fromRGB(60, 180, 100)
-            else
-                textLabel.TextColor3 = Color3.fromRGB(220, 220, 225)
-                uis.Color = Color3.fromRGB(45, 45, 52)
-            end
-        end
-    }
-end
 
 speedBypassLabel = createStatusLabel(mainTab, "Speed Bypass: Idle")
 
@@ -9791,42 +9827,6 @@ Hub.CreateToggle(mainTab, "No Acceleration", State.No_Acceleration, function(v)
     State.Instant_Movement = v
     Hub.Notify("Movement", v and "No Acceleration: Enabled" or "No Acceleration: Disabled", 2)
 end)
-
-local function addKeybindBadge(toggleCard, keyText)
-    if not toggleCard then return end
-    local badge = Instance.new("TextLabel")
-    badge.Name = "KeyBadge"
-    badge.Size = UDim2.new(0, 24, 0, 20)
-    badge.Position = UDim2.new(1, -82, 0.5, -10)
-    badge.BackgroundColor3 = Color3.fromRGB(24, 25, 29)
-    badge.BorderSizePixel = 0
-    badge.Font = Enum.Font.RobotoMono
-    badge.Text = keyText
-    badge.TextColor3 = Color3.fromRGB(180, 180, 185)
-    badge.TextSize = 12
-    badge.Parent = toggleCard
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
-    corner.Parent = badge
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(48, 50, 58)
-    stroke.Thickness = 1
-    stroke.Parent = badge
-    return badge
-end
-
-local function createCardDivider(parent)
-    local target = (typeof(parent) == "table" and parent.Page) or parent
-    local div = Instance.new("Frame")
-    div.Name = "Divider"
-    div.Size = UDim2.new(1, 0, 0, 1)
-    div.BackgroundColor3 = Color3.fromRGB(36, 38, 44)
-    div.BorderSizePixel = 0
-    div.Parent = target
-    return div
-end
 
 -- =========================================================================
 -- Section: Interaction (mspaint v4 1:1 Parity)
