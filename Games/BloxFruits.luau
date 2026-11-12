@@ -446,37 +446,37 @@ local function restoreCharacterPhysics()
 end
 
 _G.Unknown_CancelTween = function()
-
     _G.Unknown_TravelTweenID = tick()
+    isTraveling = false
+    _G.Unknown_TweenActive = false
 
     if _G.Unknown_TravelTween then
         pcall(function() _G.Unknown_TravelTween:Cancel() end)
-
         _G.Unknown_TravelTween = nil
     end
-
-    isTraveling = false
 
     currentPumpkinTarget = nil
 
     pcall(function()
-
         local char = LocalPlayer.Character
-
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-
         if hrp then
-            removeTabBV(hrp)
-
+            local bv = getTabBV(hrp)
+            if bv then
+                bv.Velocity = Vector3.zero
+                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            end
             hrp.Velocity = Vector3.zero
-
             if hrp:IsA("BasePart") then
                 hrp.AssemblyLinearVelocity = Vector3.zero
-
                 hrp.AssemblyAngularVelocity = Vector3.zero
             end
         end
     end)
+
+    if travelStatusLabel then
+        travelStatusLabel.Text = "Status: Flight Canceled. Stopped."
+    end
 end
 
 local function registerThemeText(lbl)
@@ -1101,7 +1101,7 @@ do
 
     -- 1. Master Auto Farm
 
-    local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm", true, function(newState)
+    local getFarmState, setFarmState = createSliderToggle(farmPage, "Auto Farm", false, function(newState)
 
         isFarmOn = newState
         _G.Unknown_AutoFarmEnabled = newState
@@ -2851,24 +2851,7 @@ local function restoreCharacterPhysics()
     end)
 end
 
-_G.Unknown_CancelTween = function()
-
-    isTraveling = false
-
-    if _G.Unknown_TravelTween then
-        pcall(function() _G.Unknown_TravelTween:Cancel() end)
-
-        _G.Unknown_TravelTween = nil
-    end
-
-    _G.Unknown_TravelTweenID = nil
-
-    restoreCharacterPhysics()
-
-    if travelStatusLabel then
-        travelStatusLabel.Text = "Status: Travel Canceled. Idle."
-    end
-end
+-- Second _G.Unknown_CancelTween purged (using primary definition)
 
 do
     local travelButtons = {}
@@ -3019,7 +3002,14 @@ do
             if targetIsland then
                 activeTravelIsland = targetIsland.Name
 
-                if _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
+                if isFarmOn then
+                    isFarmOn = false
+                    _G.Unknown_AutoFarmEnabled = false
+                    if _G.Unknown_MainFarmLoop then
+                        pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end)
+                        _G.Unknown_MainFarmLoop = nil
+                    end
+                end
                 if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
                 travelStatusLabel.Text = "Status: Traveling to " .. targetIsland.Name .. "..."
 
@@ -5273,7 +5263,7 @@ _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function
 
         local hrp = char:FindFirstChild("HumanoidRootPart")
 
-        local isActive = isTraveling or isFarmOn or isAutoChestOn or isAutoPumpkinHeadsOn or isAutoPumpkinNPCsOn or isAutoTravelOn
+        local isActive = isTraveling or isFarmOn or isAutoChestOn or isAutoPumpkinHeadsOn or isAutoPumpkinNPCsOn or isAutoTravelOn or _G.Unknown_TweenActive
 
         if isActive then
             for _, p in ipairs(char:GetDescendants()) do
@@ -5324,7 +5314,16 @@ _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function
             end
 
             if hrp then
-                removeTabBV(hrp)
+                local rayParams = RaycastParams.new()
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.FilterDescendantsInstances = { char }
+                local floorRay = workspace:Raycast(hrp.Position, Vector3.new(0, -12, 0), rayParams)
+                if floorRay and floorRay.Instance then
+                    removeTabBV(hrp)
+                else
+                    local bv = hrp:FindFirstChild("Unknown_TabBV")
+                    if bv then bv.Velocity = Vector3.zero end
+                end
             end
         end
     end)
@@ -5542,17 +5541,38 @@ local function Tween(target, speedVal, callback, options)
     _G.Unknown_TravelTween = tw
     tw:Play()
 
-    tw.Completed:Wait()
+    local playbackState = tw.Completed:Wait()
 
     if noclipConn then pcall(function() noclipConn:Disconnect() end) end
 
-    -- Verify this tween is still the active one
-    if _G.Unknown_TravelTweenID ~= currentTweenID then
+    -- CRITICAL CHECK: If tween was CANCELLED mid-flight, DO NOT TELEPORT TO DESTINATION!
+    if playbackState ~= Enum.PlaybackState.Completed or _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
+        _G.Unknown_TravelTween = nil
+        isTraveling = false
+        _G.Unknown_TweenActive = false
+        if bv then
+            bv.Velocity = Vector3.zero
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        end
+        if hrp:IsA("BasePart") then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
         return false
     end
 
+    -- Normal Arrival: Raycast down to find true island ground to prevent mid-air freefall into water
+    local arriveCF = targetCF
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = { char, workspace:FindFirstChild("Enemies") }
+    local groundRay = workspace:Raycast(targetPos + Vector3.new(0, 30, 0), Vector3.new(0, -100, 0), rayParams)
+    if groundRay and groundRay.Position and groundRay.Instance and not string.find(string.lower(groundRay.Instance.Name), "water") then
+        arriveCF = CFrame.new(groundRay.Position + Vector3.new(0, 3.5, 0))
+    end
+
     -- Hold position firmly at destination
-    hrp.CFrame = targetCF
+    hrp.CFrame = arriveCF
     if bv then
         bv.Velocity = Vector3.zero
         bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
@@ -5634,11 +5654,13 @@ local function autoEquipSelectedWeapon(forceType)
     return heldTool
 end
 
-_G.stopUnknownFarm = function()
+_G.stopUnknownFarm = function(keepActiveTween)
     _G.Unknown_AutoFarmEnabled = false
     isFarmOn = false
-    isTraveling = false
-    _G.Unknown_CancelTween()
+    if not keepActiveTween then
+        isTraveling = false
+        _G.Unknown_CancelTween()
+    end
 
     if _G.Unknown_MainFarmLoop then
         _G.Unknown_MainFarmLoop:Disconnect()
