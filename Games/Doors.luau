@@ -9020,17 +9020,23 @@ local function autoBeatRunCycle()
     end
 
     -- Walk straight through the doorway into the next room
-    local doorCF = exitDoor:GetPivot()
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     local nextRoom = curRooms and curRooms:FindFirstChild(tostring(curNum + 1))
-    local fwdPos = doorPos + (doorCF.LookVector * 10)
-    local backPos = doorPos - (doorCF.LookVector * 10)
-    local advancePos = fwdPos
+    local advancePos = doorPos
     if nextRoom then
-        local nrPivot = nextRoom:GetPivot().Position
-        if (backPos - nrPivot).Magnitude < (fwdPos - nrPivot).Magnitude then
-            advancePos = backPos
+        local nextEntrance = nextRoom:FindFirstChild("RoomEntrance")
+        local nextExit = nextRoom:FindFirstChild("RoomExit")
+        if nextEntrance and nextExit then
+            local roomDir = (nextExit.Position - nextEntrance.Position).Unit
+            advancePos = nextEntrance.Position + Vector3.new(roomDir.X, 0, roomDir.Z) * 6
+        else
+            local curCenter = curRoom:GetPivot().Position
+            local nextCenter = nextRoom:GetPivot().Position
+            local roomDir = (nextCenter - curCenter).Unit
+            advancePos = doorPos + Vector3.new(roomDir.X, 0, roomDir.Z) * 8
         end
+    else
+        advancePos = doorPos + Vector3.new(0, 0, -6)
     end
     local r = autoBeatWalkTo(advancePos, 4.0, 5.0)
     if r == "THREAT_INTERRUPTED" then return end
