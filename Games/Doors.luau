@@ -8188,10 +8188,15 @@ local function autoBeatCheckCrouch(root, curRoomNum)
     end
 end
 
--- Line of sight checker
+-- Line of sight checker with character shoulder & doorframe clearance
 local function autoBeatHasLineOfSight(fromPos, toPos)
     local char = getChar()
     local dir = toPos - fromPos
+    local dist = dir.Magnitude
+    if dist < 0.1 then return true end
+    local unitDir = dir.Unit
+    local rightVec = Vector3.new(-unitDir.Z, 0, unitDir.X).Unit * 1.2
+
     local rp = RaycastParams.new()
     rp.FilterType = Enum.RaycastFilterType.Exclude
     local filter = { char, Workspace:FindFirstChild("Drops") }
@@ -8200,32 +8205,59 @@ local function autoBeatHasLineOfSight(fromPos, toPos)
         for _, rm in ipairs(curRooms:GetChildren()) do
             local d = rm:FindFirstChild("Door")
             if d then
-                local leaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal")
-                if leaf then table.insert(filter, leaf) end
+                -- Only bypass open doors; closed/locked doors must strictly block line of sight!
+                local isOpened = d:GetAttribute("Opened") == true or d:FindFirstChild("ClientOpen") ~= nil or d:GetAttribute("Open") == true
+                if isOpened then
+                    local leaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal")
+                    if leaf then table.insert(filter, leaf) end
+                end
             end
         end
     end
     rp.FilterDescendantsInstances = filter
-    local hit = Workspace:Raycast(fromPos, dir, rp)
-    return hit == nil
+
+    -- 1. Center ray
+    local hitCenter = Workspace:Raycast(fromPos, dir, rp)
+    if hitCenter ~= nil then return false end
+
+    -- 2. Left shoulder clearance ray (prevents clipping left doorframes/corners)
+    local hitLeft = Workspace:Raycast(fromPos - rightVec, dir, rp)
+    if hitLeft ~= nil then return false end
+
+    -- 3. Right shoulder clearance ray (prevents clipping right doorframes/corners)
+    local hitRight = Workspace:Raycast(fromPos + rightVec, dir, rp)
+    if hitRight ~= nil then return false end
+
+    return true
 end
 
 -- Synchronizes character movement at desired speed with anti-cheat bypass
 local function autoBeatApplySpeed(hum, root)
     local speed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
     hum.WalkSpeed = speed
+    State.WalkSpeed_Enabled = true
+    State.WalkSpeed_Value = speed
+    State.No_Acceleration = true
+    State.Instant_Movement = true
+
     local mg = getMainGameTable()
     if mg then
         mg.speed = speed
         mg.SETNEWCF = nil
     end
+
+    if syncServerSlide then
+        local isCrouch = (mg and mg.crouching) or false
+        syncServerSlide(true, isCrouch)
+    end
+
     local moveDir = hum.MoveDirection
     if moveDir.Magnitude > 0.05 then
         root.AssemblyLinearVelocity = Vector3.new(moveDir.X * speed, root.AssemblyLinearVelocity.Y, moveDir.Z * speed)
     end
 end
 
--- Core path-walking routine
+-- Core path-walking routine with pure physics velocity (Zero wall-noclip, Zero rubberbanding)
 local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
     stopDist = stopDist or 3.5
     timeoutSec = timeoutSec or 7.0
@@ -8236,17 +8268,27 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not root or not hum then return false end
 
+    -- 2-stud AgentRadius guarantees safe clearance away from wall corners and door jambs
     local path = PathfindingService:CreatePath({
-        AgentRadius = 1.0,
-        AgentHeight = 4.0,
+        AgentRadius = 2.0,
+        AgentHeight = 4.5,
         AgentCanJump = false,
-        WaypointSpacing = 3.0
+        WaypointSpacing = 2.5
     })
+
+    -- Lock in walkspeed bypass and instant velocity kinematics (no acceleration ramp-up delay)
+    local speed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
+    State.WalkSpeed_Enabled = true
+    State.WalkSpeed_Value = speed
+    State.No_Acceleration = true
+    State.Instant_Movement = true
 
     while State.Auto_Beat and (os.clock() - startTime < timeoutSec) do
         if _G.DOORS_SESSION ~= currentSession then return false end
         -- 1. Threat check: Rush/Ambush interruption
         if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+            hum:Move(Vector3.zero, false)
+            root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
             return "THREAT_INTERRUPTED"
         end
 
@@ -8254,84 +8296,110 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
         local distToTarget = (rootPos - targetPos).Magnitude
         if distToTarget <= stopDist then
             hum:Move(Vector3.zero, false)
+            root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
             return true
         end
 
         local curNum = getCurrentRoomNumber()
         autoBeatCheckCrouch(root, curNum)
 
-        -- Anti-stuck detection
-        if (rootPos - autoBeatLastPos).Magnitude < 0.4 then
+        -- Keep server slide bypass token active so high velocity is authorized by server
+        local mg = getMainGameTable()
+        if mg then
+            mg.speed = speed
+            mg.SETNEWCF = nil
+        end
+        if syncServerSlide then
+            local isC = (mg and mg.crouching) or (char and char:GetAttribute("Crouching")) or false
+            syncServerSlide(true, isC)
+        end
+
+        -- Safe anti-stuck detection: Vertical hop and impulse without pushing CFrame through walls
+        if (rootPos - autoBeatLastPos).Magnitude < 0.3 then
             autoBeatStuckCount = autoBeatStuckCount + 1
-            if autoBeatStuckCount >= 10 then
+            if autoBeatStuckCount >= 8 then
                 autoBeatStuckCount = 0
                 hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
                 hum.Jump = true
-                local nudgeDir = (targetPos - rootPos).Unit
-                root.CFrame = root.CFrame + Vector3.new(nudgeDir.X * 0.8, 0.4, nudgeDir.Z * 0.8)
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 26, root.AssemblyLinearVelocity.Z)
+                task.wait(0.04)
             end
         else
             autoBeatStuckCount = 0
         end
         autoBeatLastPos = rootPos
 
-        local speed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
-        State.WalkSpeed_Enabled = true
-        State.WalkSpeed_Value = speed
         local navTarget = Vector3.new(targetPos.X, rootPos.Y, targetPos.Z)
         local eyePos = rootPos + Vector3.new(0, 1.5, 0)
         local targetEyePos = targetPos + Vector3.new(0, 1.5, 0)
         local hasDirectSight = autoBeatHasLineOfSight(eyePos, targetEyePos)
 
         if hasDirectSight then
-            local dt = task.wait(0.02)
             local toT = (navTarget - root.Position)
             local d = toT.Magnitude
             local dir = d > 0.05 and toT.Unit or Vector3.zero
-            local step = math.min(d, speed * dt)
-            root.CFrame = CFrame.new(root.Position + (dir * step), root.Position + (dir * step) + dir)
-            hum:Move(dir, false)
+            if dir.Magnitude > 0.01 then
+                -- Face walking direction smoothly (position unchanged, natural collisions intact)
+                root.CFrame = CFrame.lookAlong(root.Position, Vector3.new(dir.X, 0, dir.Z))
+                hum:Move(dir, false)
+                root.AssemblyLinearVelocity = Vector3.new(dir.X * speed, root.AssemblyLinearVelocity.Y, dir.Z * speed)
+            end
+            task.wait(0.02)
         else
             local ok = pcall(function() path:ComputeAsync(rootPos, navTarget) end)
             if ok and path.Status == Enum.PathStatus.Success then
                 local waypoints = path:GetWaypoints()
                 for i = 2, #waypoints do
                     if not State.Auto_Beat or (isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat) then
+                        hum:Move(Vector3.zero, false)
+                        root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
                         return "THREAT_INTERRUPTED"
                     end
                     local wp = waypoints[i]
                     local wpPos = wp.Position
                     local wpStart = os.clock()
-                    while State.Auto_Beat and (root.Position - wpPos).Magnitude > 1.8 and (os.clock() - wpStart < 1.2) do
+                    while State.Auto_Beat and (root.Position - wpPos).Magnitude > 2.0 and (os.clock() - wpStart < 1.4) do
                         if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+                            hum:Move(Vector3.zero, false)
+                            root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
                             return "THREAT_INTERRUPTED"
                         end
                         autoBeatCheckCrouch(root, curNum)
-                        local dt = task.wait(0.02)
+                        if syncServerSlide then
+                            local isC = (mg and mg.crouching) or (char and char:GetAttribute("Crouching")) or false
+                            syncServerSlide(true, isC)
+                        end
                         local toWp = (wpPos - root.Position)
                         local d = toWp.Magnitude
                         local dir = d > 0.05 and toWp.Unit or Vector3.zero
-                        local step = math.min(d, speed * dt)
-                        root.CFrame = CFrame.new(root.Position + (dir * step), root.Position + (dir * step) + dir)
-                        hum:Move(dir, false)
+                        if dir.Magnitude > 0.01 then
+                            root.CFrame = CFrame.lookAlong(root.Position, Vector3.new(dir.X, 0, dir.Z))
+                            hum:Move(dir, false)
+                            root.AssemblyLinearVelocity = Vector3.new(dir.X * speed, root.AssemblyLinearVelocity.Y, dir.Z * speed)
+                        end
+                        task.wait(0.02)
                     end
                     if autoBeatHasLineOfSight(root.Position + Vector3.new(0, 1.5, 0), targetEyePos) then
                         break
                     end
                 end
             else
-                local dt = task.wait(0.03)
+                -- Fallback: Physics-only steering towards target, never forcing CFrame through geometry
                 local toT = (navTarget - root.Position)
                 local d = toT.Magnitude
                 local dir = d > 0.05 and toT.Unit or Vector3.zero
-                local step = math.min(d, speed * dt)
-                root.CFrame = CFrame.new(root.Position + (dir * step), root.Position + (dir * step) + dir)
-                hum:Move(dir, false)
+                if dir.Magnitude > 0.01 then
+                    root.CFrame = CFrame.lookAlong(root.Position, Vector3.new(dir.X, 0, dir.Z))
+                    hum:Move(dir, false)
+                    root.AssemblyLinearVelocity = Vector3.new(dir.X * (speed * 0.75), root.AssemblyLinearVelocity.Y, dir.Z * (speed * 0.75))
+                end
+                task.wait(0.03)
             end
         end
     end
 
     hum:Move(Vector3.zero, false)
+    root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
     return (root.Position - targetPos).Magnitude <= stopDist
 end
 
