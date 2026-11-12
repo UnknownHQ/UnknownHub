@@ -199,8 +199,10 @@ local State = {
     AutoBeat_LootDrawers = true,
     AutoBeat_GrabSally = true,
     AutoBeat_EvacuateThreat = true,
+    AutoBeat_ActiveMoveDir = nil,
     Noclip = false,
     Walk_Noclip = false,
+    activeNoclipWallParts = {},
     Noclip_Speed = 35,
 
     -- Autonomous 1-100 Doors Master Completer Suite
@@ -5583,7 +5585,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
 
     -- Natural Walking Physics & No-Acceleration Kinematics:
     -- Completely eradicates sliding/drifting backwards when standing still, with zero synthetic platform feeling!
-    if not State.Noclip and not hiding and not TeleportState.isTweening and not isSlidingActive and not isAtRoof then
+    if not State.Noclip and not hiding and not TeleportState.isTweening and not isSlidingActive and not isAtRoof and not State.Auto_Beat then
         if hum.MoveDirection.Magnitude <= 0.05 and root then
             local curHoriz = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
             if curHoriz.Magnitude > 0.05 then
@@ -5599,6 +5601,14 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
                 root.AssemblyLinearVelocity = Vector3.new(targetVel.X, root.AssemblyLinearVelocity.Y, targetVel.Z)
             end
         end
+    end
+
+    -- Auto-Beat Continuous Physics Kinematics (Zero Stutter, No Velocity Zeroing Fight):
+    if State.Auto_Beat and State.AutoBeat_ActiveMoveDir and State.AutoBeat_ActiveMoveDir.Magnitude > 0.05 and root and hum and not hum.Sit then
+        local autoSpeed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
+        local moveUnit = State.AutoBeat_ActiveMoveDir.Unit
+        root.AssemblyLinearVelocity = Vector3.new(moveUnit.X * autoSpeed, root.AssemblyLinearVelocity.Y, moveUnit.Z * autoSpeed)
+        hum:Move(moveUnit, false)
     end
 
     -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
@@ -5620,14 +5630,22 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Kinematic Floor Plane & Noclip Walk Engine (Anti-Void Gravity Solver)
+    -- Kinematic Floor Plane & Noclip Walk Engine (Phase Through Walls & Doors on Floor)
     if State.Walk_Noclip and not State.Noclip and not hiding and not TeleportState.isTweening then
         if char and root and hum and hum.Health > 0 then
+            -- 1. Strip collision on character's own collision parts
+            local coll = char:FindFirstChild("Collision")
+            local cc = coll and coll:FindFirstChild("CollisionCrouch")
+            local cp = char:FindFirstChild("CollisionPart")
+            if coll and coll.CanCollide then coll.CanCollide = false end
+            if cc and cc.CanCollide then cc.CanCollide = false end
+            if cp and cp.CanCollide then cp.CanCollide = false end
+
+            -- 2. Anti-Void Ground Plane Lock
             local rp = RaycastParams.new()
             rp.FilterType = Enum.RaycastFilterType.Exclude
             rp.FilterDescendantsInstances = {char, Workspace:FindFirstChild("Drops")}
             
-            -- Raycast downward from slightly above root to find ground geometry
             local rayOrigin = root.Position + Vector3.new(0, 0.5, 0)
             local floorHit = Workspace:Raycast(rayOrigin, Vector3.new(0, -7.0, 0), rp)
             local expectedOffset = hum.HipHeight + (root.Size.Y / 2)
@@ -5652,7 +5670,37 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
                 end
             end
 
-            -- Server Slide Handshake while moving in Noclip Walk
+            -- 3. Phase through colliding walls/obstacles around character
+            local op = OverlapParams.new()
+            op.FilterDescendantsInstances = {char}
+            op.FilterType = Enum.RaycastFilterType.Exclude
+            local nearbyParts = Workspace:GetPartBoundsInRadius(root.Position, 5.0, op)
+            local nowClock = os.clock()
+            State.activeNoclipWallParts = State.activeNoclipWallParts or {}
+            for _, p in ipairs(nearbyParts) do
+                if p:IsA("BasePart") then
+                    local isFloor = (p.Position.Y + p.Size.Y / 2) <= (root.Position.Y - hum.HipHeight * 0.7)
+                    if not isFloor and p.CanCollide then
+                        p.CanCollide = false
+                        State.activeNoclipWallParts[p] = nowClock + 0.6
+                    end
+                end
+            end
+
+            -- 4. Restore collisions for parts that player has walked past (> 6.5 studs)
+            for p, expTime in pairs(State.activeNoclipWallParts) do
+                if not p or not p.Parent or not p:IsA("BasePart") then
+                    State.activeNoclipWallParts[p] = nil
+                elseif nowClock > expTime then
+                    local dist = (root.Position - p.Position).Magnitude
+                    if dist > 6.5 then
+                        p.CanCollide = true
+                        State.activeNoclipWallParts[p] = nil
+                    end
+                end
+            end
+
+            -- 5. Server Slide Handshake while moving in Noclip Walk
             if hum.MoveDirection.Magnitude > 0.05 then
                 if syncServerSlide then
                     local isCrouch = (mgTable and mgTable.crouching) or (char:GetAttribute("Crouching")) or false
@@ -5663,7 +5711,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
                 end
             end
 
-            -- Ensure open & closed door leaves remain intangible so player phases straight through
+            -- 6. Ensure open & closed door leaves remain intangible so player phases straight through
             local cr = Workspace:FindFirstChild("CurrentRooms")
             if cr then
                 for _, rm in ipairs(cr:GetChildren()) do
@@ -6149,6 +6197,14 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 if char then
                     local coll = char:FindFirstChild("Collision")
                     if coll and not coll.CanCollide then coll.CanCollide = true end
+                end
+                if State.activeNoclipWallParts then
+                    for p, _ in pairs(State.activeNoclipWallParts) do
+                        if p and p.Parent and p:IsA("BasePart") then
+                            pcall(function() p.CanCollide = true end)
+                        end
+                    end
+                    table.clear(State.activeNoclipWallParts)
                 end
                 State.WalkNoclip_LastFloorY = nil
                 Hub.Notify("Movement", "Noclip Walk: Disabled [V]", 2)
@@ -8305,6 +8361,10 @@ local function autoBeatHasLineOfSight(fromPos, toPos)
     local hitRight = Workspace:Raycast(fromPos + rightVec, dir, rp)
     if hitRight ~= nil then return false end
 
+    -- 4. Waist-level clearance ray (prevents clipping low obstacles, tables, and chests)
+    local hitWaist = Workspace:Raycast(fromPos - Vector3.new(0, 1.2, 0), dir, rp)
+    if hitWaist ~= nil then return false end
+
     return true
 end
 
@@ -8361,9 +8421,13 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
     State.Instant_Movement = true
 
     while State.Auto_Beat and (os.clock() - startTime < timeoutSec) do
-        if _G.DOORS_SESSION ~= currentSession then return false end
+        if _G.DOORS_SESSION ~= currentSession then
+            State.AutoBeat_ActiveMoveDir = nil
+            return false
+        end
         -- 1. Threat check: Rush/Ambush interruption
         if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+            State.AutoBeat_ActiveMoveDir = nil
             hum:Move(Vector3.zero, false)
             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
             return "THREAT_INTERRUPTED"
@@ -8372,6 +8436,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
         local rootPos = root.Position
         local distToTarget = (rootPos - targetPos).Magnitude
         if distToTarget <= stopDist then
+            State.AutoBeat_ActiveMoveDir = nil
             hum:Move(Vector3.zero, false)
             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
             return true
@@ -8416,10 +8481,13 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
             local d = toT.Magnitude
             local dir = d > 0.05 and toT.Unit or Vector3.zero
             if dir.Magnitude > 0.01 then
-                -- Face walking direction smoothly (position unchanged, natural collisions intact)
-                root.CFrame = CFrame.lookAlong(root.Position, Vector3.new(dir.X, 0, dir.Z))
+                if mg and mg.targetCameraTowardsDirection then
+                    pcall(function() mg.targetCameraTowardsDirection(Vector3.new(dir.X, 0, dir.Z)) end)
+                end
+                State.AutoBeat_ActiveMoveDir = dir
                 hum:Move(dir, false)
-                root.AssemblyLinearVelocity = Vector3.new(dir.X * speed, root.AssemblyLinearVelocity.Y, dir.Z * speed)
+            else
+                State.AutoBeat_ActiveMoveDir = nil
             end
             task.wait(0.02)
         else
@@ -8428,6 +8496,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                 local waypoints = path:GetWaypoints()
                 for i = 2, #waypoints do
                     if not State.Auto_Beat or (isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat) then
+                        State.AutoBeat_ActiveMoveDir = nil
                         hum:Move(Vector3.zero, false)
                         root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
                         return "THREAT_INTERRUPTED"
@@ -8437,6 +8506,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                     local wpStart = os.clock()
                     while State.Auto_Beat and (root.Position - wpPos).Magnitude > 2.0 and (os.clock() - wpStart < 1.4) do
                         if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+                            State.AutoBeat_ActiveMoveDir = nil
                             hum:Move(Vector3.zero, false)
                             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
                             return "THREAT_INTERRUPTED"
@@ -8450,31 +8520,40 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                         local d = toWp.Magnitude
                         local dir = d > 0.05 and toWp.Unit or Vector3.zero
                         if dir.Magnitude > 0.01 then
-                            root.CFrame = CFrame.lookAlong(root.Position, Vector3.new(dir.X, 0, dir.Z))
+                            if mg and mg.targetCameraTowardsDirection then
+                                pcall(function() mg.targetCameraTowardsDirection(Vector3.new(dir.X, 0, dir.Z)) end)
+                            end
+                            State.AutoBeat_ActiveMoveDir = dir
                             hum:Move(dir, false)
-                            root.AssemblyLinearVelocity = Vector3.new(dir.X * speed, root.AssemblyLinearVelocity.Y, dir.Z * speed)
+                        else
+                            State.AutoBeat_ActiveMoveDir = nil
                         end
                         task.wait(0.02)
                     end
-                    if autoBeatHasLineOfSight(root.Position + Vector3.new(0, 1.5, 0), targetEyePos) then
+                    if (root.Position - targetPos).Magnitude < 6.0 and autoBeatHasLineOfSight(root.Position + Vector3.new(0, 0.5, 0), targetPos + Vector3.new(0, 0.5, 0)) then
                         break
                     end
                 end
             else
-                -- Fallback: Physics-only steering towards target, never forcing CFrame through geometry
+                -- Fallback: Smooth steering towards target without forcing CFrame
                 local toT = (navTarget - root.Position)
                 local d = toT.Magnitude
                 local dir = d > 0.05 and toT.Unit or Vector3.zero
                 if dir.Magnitude > 0.01 then
-                    root.CFrame = CFrame.lookAlong(root.Position, Vector3.new(dir.X, 0, dir.Z))
+                    if mg and mg.targetCameraTowardsDirection then
+                        pcall(function() mg.targetCameraTowardsDirection(Vector3.new(dir.X, 0, dir.Z)) end)
+                    end
+                    State.AutoBeat_ActiveMoveDir = dir
                     hum:Move(dir, false)
-                    root.AssemblyLinearVelocity = Vector3.new(dir.X * (speed * 0.75), root.AssemblyLinearVelocity.Y, dir.Z * (speed * 0.75))
+                else
+                    State.AutoBeat_ActiveMoveDir = nil
                 end
                 task.wait(0.03)
             end
         end
     end
 
+    State.AutoBeat_ActiveMoveDir = nil
     hum:Move(Vector3.zero, false)
     root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
     return (root.Position - targetPos).Magnitude <= stopDist
@@ -8940,9 +9019,19 @@ local function autoBeatRunCycle()
         safeInstantFirePrompt(dPrompt)
     end
 
-    -- Walk straight through the doorway into the next room (8 studs beyond the door)
+    -- Walk straight through the doorway into the next room
     local doorCF = exitDoor:GetPivot()
-    local advancePos = doorPos + (doorCF.LookVector * 10)
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local nextRoom = curRooms and curRooms:FindFirstChild(tostring(curNum + 1))
+    local fwdPos = doorPos + (doorCF.LookVector * 10)
+    local backPos = doorPos - (doorCF.LookVector * 10)
+    local advancePos = fwdPos
+    if nextRoom then
+        local nrPivot = nextRoom:GetPivot().Position
+        if (backPos - nrPivot).Magnitude < (fwdPos - nrPivot).Magnitude then
+            advancePos = backPos
+        end
+    end
     local r = autoBeatWalkTo(advancePos, 4.0, 5.0)
     if r == "THREAT_INTERRUPTED" then return end
 end
@@ -9984,6 +10073,14 @@ State.walkNoclipToggleObj = Hub.CreateToggle(mainTab, "Noclip Walk (Phase Throug
         if char then
             local coll = char:FindFirstChild("Collision")
             if coll and not coll.CanCollide then coll.CanCollide = true end
+        end
+        if State.activeNoclipWallParts then
+            for p, _ in pairs(State.activeNoclipWallParts) do
+                if p and p.Parent and p:IsA("BasePart") then
+                    pcall(function() p.CanCollide = true end)
+                end
+            end
+            table.clear(State.activeNoclipWallParts)
         end
         State.WalkNoclip_LastFloorY = nil
         Hub.Notify("Movement", "Noclip Walk: Disabled", 2)
