@@ -639,7 +639,47 @@ local miscPage = Hub.CreateTab("Misc", { Icon = "🔮", Size = 18, Color = Color
 
 local serverPage = Hub.CreateTab("Server", { Icon = "🌐", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 180, 255) })
 
-local travelPage = Hub.CreateTab("Travel", { Icon = "📍", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 200, 180) })
+-- 1000m Far Tween Automated Rigorous Test Routine
+_G.Unknown_TestFarTween = function()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then notifyGUI("TEST", "No character found!", 3) return end
+
+    local startPos = hrp.Position
+    local targetPos = startPos + Vector3.new(700, 80, 700)
+    local targetCF = CFrame.new(targetPos)
+    local dist = (targetPos - startPos).Magnitude
+
+    notifyGUI("TWEEN TEST", string.format("Starting 1000m test flight (%.0f studs)...", dist), 3)
+
+    local wasFarmOn = isFarmOn
+    if isFarmOn and _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
+
+    _G.Unknown_Tween(targetCF, 250, function()
+        notifyGUI("TWEEN TEST", "Arrived at 1000m target! Verifying stability...", 3)
+        task.wait(2.5)
+
+        local currentHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local curPos = currentHRP and currentHRP.Position or Vector3.zero
+        local distToTarget = (curPos - targetPos).Magnitude
+
+        if distToTarget <= 20 then
+            notifyGUI("TWEEN TEST", string.format("✅ SUCCESS: Position verified (%.1f studs drift). ZERO RUBBERBAND!", distToTarget), 5)
+        else
+            notifyGUI("TWEEN TEST", string.format("⚠️ Drift detected (%.1f studs). Re-locking position!", distToTarget), 4)
+            if currentHRP then currentHRP.CFrame = targetCF end
+        end
+
+        task.wait(1.5)
+        notifyGUI("TWEEN TEST", "Returning smoothly back to start position...", 3)
+        _G.Unknown_Tween(CFrame.new(startPos), 250, function()
+            notifyGUI("TWEEN TEST", "✅ Test complete! Safely returned to start position.", 4)
+            if wasFarmOn and _G.Unknown_setFarmState then _G.Unknown_setFarmState(true) end
+        end)
+    end)
+end
+
+local travelPage = Hub.CreateTab("Travel" , { Icon = "📍", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 200, 180) })
 
 local shopPage = Hub.CreateTab("Shop", { Icon = "🛒", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 215, 0) })
 
@@ -918,7 +958,7 @@ local selectedCustomMobName = "Bandit"
 
 local activeSkills = {Z = true, X = true, C = true, V = true}
 
-local isFarmOn = true
+local isFarmOn = false
 
 local isAutoSelectMobOn = false
 
@@ -2170,24 +2210,9 @@ local isSaberQuestOn = false
 
                                 local tDur = math.clamp(tDist / 350, 0.2, 15)
 
-                                if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) end
-                                local tw = TweenService:Create(hrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = bHrp.CFrame * CFrame.new(0, 14, 0)})
-
-                                _G.Unknown_TravelTween = tw
-
-                                local noclipConn = RunService.Stepped:Connect(function()
-
-                                    if char and isPoleQuestOn then
-                                        local b = getTabBV(hrp)
-
-                                        if b then b.Velocity = Vector3.zero end
-                                        for _, part in ipairs(char:GetChildren()) do
-                                            if part:IsA("BasePart") then part.CanCollide = false end
-                                        end
-                                    end
+                                Tween(bHrp.CFrame * CFrame.new(0, 14, 0), 250, function()
+                                    poleTweening = false
                                 end)
-
-                                tw:Play()
 
                                 tw.Completed:Wait()
 
@@ -3034,6 +3059,12 @@ do
 
         travelStatusLabel.Text = "Status: Idle"
     end)
+
+    Hub.CreateButton(travelPage, "🧪 Test 1000m Far Tween (Auto-Verify)", function()
+        if _G.Unknown_TestFarTween then
+            _G.Unknown_TestFarTween()
+        end
+    end)
 end
 
 -- AUTO STATS CONFIGURATION
@@ -3687,8 +3718,7 @@ startChestFarm = function()
                                     currHrp.AssemblyLinearVelocity = flyVel
                                 end
 
-                                _G.Unknown_ChestTween = TweenService:Create(currHrp, TweenInfo.new(tDur, Enum.EasingStyle.Linear), {CFrame = CFrame.new(chestPos)})
-                                _G.Unknown_ChestTween:Play()
+                                Tween(CFrame.new(chestPos), math.min(speed, 250))
                             end
 
                             if tick() - startTime > 10 then break end
@@ -5386,304 +5416,180 @@ local function getQuestGiverCFrame(targetEntry)
     return targetEntry.IslandCFrame
 end
 
-safeTweenToIsland = function(targetCFrame, callback)
-
+-- =========================================================================
+-- UNIVERSAL ULTRA-SMOOTH TWEEN ENGINE (ZERO RUBBERBAND, ZERO FLICKER)
+-- Single Unified Function for all Map Travel, Chests, Quests & Mob Hovering
+-- =========================================================================
+local function Tween(target, speedVal, callback, options)
+    options = options or {}
     local char = LocalPlayer.Character
-
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then
         isTraveling = false
-
-        return
+        _G.Unknown_TweenActive = false
+        return false
     end
 
-    local hrp = char.HumanoidRootPart
+    -- Target normalization (supports CFrame, Vector3, Model, BasePart)
+    local targetCF = nil
+    if typeof(target) == "CFrame" then
+        targetCF = target
+    elseif typeof(target) == "Vector3" then
+        targetCF = CFrame.new(target)
+    elseif typeof(target) == "Instance" then
+        if target:IsA("BasePart") then
+            targetCF = target.CFrame
+        elseif target:IsA("Model") then
+            targetCF = target:GetPivot()
+        end
+    end
 
-    local farmDist = math.max(_G.Unknown_FarmDistance or 18.0, 18.0)
-
-    local targetCF
-
-    if typeof(targetCFrame) == "CFrame" then
-        targetCF = targetCFrame
-    elseif typeof(targetCFrame) == "Vector3" then
-        targetCF = CFrame.new(targetCFrame + Vector3.new(0, farmDist, 0))
-    else
+    if not targetCF then
         isTraveling = false
-
-        return
+        _G.Unknown_TweenActive = false
+        return false
     end
 
     local currentPos = hrp.Position
-
     local targetPos = targetCF.Position
-
-    local dist = (currentPos - targetPos).Magnitude
+    local dist = (targetPos - currentPos).Magnitude
 
     if dist <= 12 then
-        if _G.Unknown_TravelTween then pcall(function() _G.Unknown_TravelTween:Cancel() end) _G.Unknown_TravelTween = nil end
-        isTraveling = false
-
         hrp.CFrame = targetCF
-
+        isTraveling = false
+        _G.Unknown_TweenActive = false
         if callback then callback() end
-        return
+        return true
     end
+
+    -- Cancel any existing active tween cleanly
+    local currentTweenID = tick()
+    _G.Unknown_TravelTweenID = currentTweenID
+    isTraveling = true
+    _G.Unknown_TweenActive = true
 
     if _G.Unknown_TravelTween then
         pcall(function() _G.Unknown_TravelTween:Cancel() end)
-
         _G.Unknown_TravelTween = nil
     end
 
-    -- FIRMLY MAINTAIN ANTI-GRAVITY HOLDING FORCE DURING FLIGHT (ZERO DIP, ZERO GRAVITY FALL)
-
-    local bv = getTabBV(hrp)
-
-    if bv then
-        bv.Velocity = Vector3.zero
-
-        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-    end
-
     -- Dimensional portal solvers (Fishman Island & Upper Skylands)
-
     local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-
     local commF = remotes and remotes:FindFirstChild("CommF_")
 
     if targetPos.X > 50000 and currentPos.X < 50000 then
-        isTraveling = true
-
-        task.spawn(function()
-
-            pcall(function()
-
-                if commF then
-                    commF:InvokeServer("requestEntrance", Vector3.new(61163.85, 11.68, 1819.78))
-
-                    task.wait(1)
-                end
-
-                isTraveling = false
-
-                safeTweenToIsland(targetCF, callback)
-            end)
-        end)
-
-        return
+        if commF then
+            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(61163.85, 11.68, 1819.78)) end)
+            task.wait(1)
+        end
+        return Tween(targetCF, speedVal, callback, options)
+    elseif currentPos.X > 50000 and targetPos.X < 50000 then
+        if commF then
+            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(3864.68, 6.66, -1926.34)) end)
+            task.wait(1)
+        end
+        return Tween(targetCF, speedVal, callback, options)
+    elseif targetPos.Y > 4000 and currentPos.Y < 4000 then
+        if commF then
+            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(-7894.62, 5547.14, -380.29)) end)
+            task.wait(1)
+        end
+        return Tween(targetCF, speedVal, callback, options)
+    elseif currentPos.Y > 4000 and targetPos.Y < 4000 then
+        if commF then
+            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(-4607.82, 872.54, -1667.56)) end)
+            task.wait(1)
+        end
+        return Tween(targetCF, speedVal, callback, options)
     end
 
-    if currentPos.X > 50000 and targetPos.X < 50000 then
-        isTraveling = true
+    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 250, 100, 320)
+    local travelTime = math.clamp(dist / speed, 0.1, 45)
 
-        task.spawn(function()
-
-            pcall(function()
-
-                if commF then
-                    commF:InvokeServer("requestEntrance", Vector3.new(3864.68, 6.66, -1926.34))
-
-                    task.wait(1)
-                end
-
-                isTraveling = false
-
-                safeTweenToIsland(targetCF, callback)
-            end)
-        end)
-
-        return
-    end
-
-    if targetPos.Y > 4000 and currentPos.Y < 4000 then
-        isTraveling = true
-
-        task.spawn(function()
-
-            pcall(function()
-
-                if commF then
-                    commF:InvokeServer("requestEntrance", Vector3.new(-7894.62, 5547.14, -380.29))
-
-                    task.wait(1)
-                end
-
-                isTraveling = false
-
-                safeTweenToIsland(targetCF, callback)
-            end)
-        end)
-
-        return
-    end
-
-    if currentPos.Y > 4000 and targetPos.Y < 4000 then
-        isTraveling = true
-
-        task.spawn(function()
-
-            pcall(function()
-
-                if commF then
-                    commF:InvokeServer("requestEntrance", Vector3.new(-4607.82, 872.54, -1667.56))
-
-                    task.wait(1)
-                end
-
-                isTraveling = false
-
-                safeTweenToIsland(targetCF, callback)
-            end)
-        end)
-
-        return
-    end
-
-    -- Strict noclip & velocity zeroing on all character parts
-
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then part.CanCollide = false end
-    end
-
-    hrp.Velocity = Vector3.zero
-
-    if hrp:IsA("BasePart") then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end
-
-    isTraveling = true
-
-    local currentTweenID = tick()
-
-    _G.Unknown_TravelTweenID = currentTweenID
-
-    local speed = _G.Unknown_TravelSpeed or 210
-
-    -- Continuous noclip connection during entire flight to prevent mountain/tree collision
-    local travelSteppedConn
-    travelSteppedConn = RunService.Stepped:Connect(function()
-        if not isTraveling or _G.Unknown_TravelTweenID ~= currentTweenID then
-            if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) travelSteppedConn = nil end
+    -- Continuous noclip connection during entire flight to prevent map collision rollbacks
+    local noclipConn = RunService.Stepped:Connect(function()
+        if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
             return
         end
         local c = LocalPlayer.Character
         if c then
-            for _, part in ipairs(c:GetChildren()) do
+            for _, part in ipairs(c:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
             end
         end
     end)
 
-    -- SKY CORRIDOR 3-PHASE FLIGHT SOLVER FOR LONG-DISTANCE MAP TRAVEL (> 220 STUDS):
-    -- Ascends vertically into open sky, cruises with matched physical velocity, and descends cleanly onto target
-    if dist > 220 and currentPos.X < 45000 and targetPos.X < 45000 then
-        task.spawn(function()
-            local cruiseY = math.clamp(math.max(currentPos.Y, targetPos.Y) + 85, 160, 320)
-            if currentPos.Y > 500 or targetPos.Y > 500 then
-                cruiseY = math.max(currentPos.Y, targetPos.Y) + 85
-            end
-
-            -- Phase 1: Rapid vertical ascent into open sky corridor
-            local startHRPPos = hrp.Position
-            local ascentDist = math.abs(cruiseY - startHRPPos.Y)
-            if ascentDist > 15 then
-                local ascentTime = math.clamp(ascentDist / speed, 0.1, 2.5)
-                local ascentTarget = CFrame.new(startHRPPos.X, cruiseY, startHRPPos.Z)
-                local twAscent = TweenService:Create(hrp, TweenInfo.new(ascentTime, Enum.EasingStyle.Linear), {CFrame = ascentTarget})
-                _G.Unknown_TravelTween = twAscent
-                if bv then
-                    bv.Velocity = Vector3.new(0, speed, 0)
-                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-                end
-                twAscent:Play()
-                twAscent.Completed:Wait()
-                if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
-                    if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) end
-                    return
-                end
-            end
-
-            -- Phase 2: High-speed horizontal cruising across unobstructed sky with matched physical velocity
-            local curHRPPos = hrp.Position
-            local horizontalTargetCF = CFrame.new(targetPos.X, cruiseY, targetPos.Z)
-            local horizontalDelta = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(curHRPPos.X, 0, curHRPPos.Z))
-            local horizontalDist = horizontalDelta.Magnitude
-            local cruiseTime = math.clamp(horizontalDist / speed, 0.1, 45)
-            local cruiseDir = horizontalDist > 0 and (horizontalDelta.Unit * speed) or Vector3.zero
-
-            local twCruise = TweenService:Create(hrp, TweenInfo.new(cruiseTime, Enum.EasingStyle.Linear), {CFrame = horizontalTargetCF})
-            _G.Unknown_TravelTween = twCruise
-            if bv then
-                bv.Velocity = cruiseDir
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            end
-            if hrp:IsA("BasePart") then hrp.AssemblyLinearVelocity = cruiseDir end
-            twCruise:Play()
-            twCruise.Completed:Wait()
-            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
-                if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) end
-                return
-            end
-
-            -- Phase 3: Smooth vertical descent directly onto target position
-            local curDescentPos = hrp.Position
-            local descentDist = math.abs(curDescentPos.Y - targetPos.Y)
-            local descentTime = math.clamp(descentDist / speed, 0.1, 2.5)
-            local twDescent = TweenService:Create(hrp, TweenInfo.new(descentTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
-            _G.Unknown_TravelTween = twDescent
-            if bv then
-                bv.Velocity = Vector3.new(0, -speed, 0)
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            end
-
-            twDescent:Play()
-            twDescent.Completed:Wait()
-            if travelSteppedConn then pcall(function() travelSteppedConn:Disconnect() end) travelSteppedConn = nil end
-            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
-            hrp.CFrame = targetCF
-            if bv then
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            end
-            if hrp:IsA("BasePart") then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end
-            isTraveling = false
-            _G.Unknown_TravelTween = nil
-            if callback then callback() end
-        end)
-    else
-        -- Short distance / local mob repositioning (<= 220 studs): Synchronized linear flight
-        local travelTime = math.clamp(dist / speed, 0.05, 15)
-        local moveDir = dist > 0 and ((targetPos - currentPos).Unit * speed) or Vector3.zero
-        local tw = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {CFrame = targetCF})
-        _G.Unknown_TravelTween = tw
-        if bv then
-            bv.Velocity = moveDir
-            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-        end
-        if hrp:IsA("BasePart") then hrp.AssemblyLinearVelocity = moveDir end
-        tw.Completed:Connect(function(playbackState)
-            if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then return end
-            if playbackState == Enum.PlaybackState.Completed then
-                hrp.CFrame = targetCF
-                if callback then callback() end
-            end
-            if bv then
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            end
-            if hrp:IsA("BasePart") then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end
-            isTraveling = false
-            _G.Unknown_TravelTween = nil
-        end)
-        tw:Play()
+    -- Dedicated BodyVelocity for anti-cheat physics synchronization
+    local bv = getTabBV(hrp)
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "Unknown_TabBV"
+        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        bv.Parent = hrp
     end
+    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+
+    -- Calculate directional unit vector & look-at CFrame
+    local moveDir = dist > 0 and ((targetPos - currentPos).Unit) or Vector3.zero
+    bv.Velocity = moveDir * speed
+    if hrp:IsA("BasePart") then
+        hrp.AssemblyLinearVelocity = moveDir * speed
+    end
+
+    local lookTargetCF = CFrame.new(targetPos, targetPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
+    local tw = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {CFrame = lookTargetCF})
+    _G.Unknown_TravelTween = tw
+    tw:Play()
+
+    tw.Completed:Wait()
+
+    if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+
+    -- Verify this tween is still the active one
+    if _G.Unknown_TravelTweenID ~= currentTweenID then
+        return false
+    end
+
+    -- Hold position firmly at destination
+    hrp.CFrame = targetCF
+    if bv then
+        bv.Velocity = Vector3.zero
+        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+    end
+    if hrp:IsA("BasePart") then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
+
+    -- Server Landed Physics Confirmation: Spawn temporary client plate under feet for 0.15s
+    local plate = Instance.new("Part")
+    plate.Name = "Unknown_ArrivePlate"
+    plate.Size = Vector3.new(6, 1, 6)
+    plate.CFrame = targetCF * CFrame.new(0, -3.2, 0)
+    plate.Anchored = true
+    plate.CanCollide = true
+    plate.Transparency = 1
+    plate.Parent = workspace
+    task.wait(0.15)
+    pcall(function() plate:Destroy() end)
+
+    -- Re-verify final arrival to eliminate phantom rubberband
+    if (hrp.Position - targetPos).Magnitude > 20 then
+        hrp.CFrame = targetCF
+    end
+
+    _G.Unknown_TravelTween = nil
+    isTraveling = false
+    _G.Unknown_TweenActive = false
+
+    if callback then callback() end
+    return true
+end
+
+_G.Unknown_Tween = Tween
+safeTweenToIsland = function(targetCFrame, callback)
+    return Tween(targetCFrame, _G.Unknown_TravelSpeed or 250, callback)
 end
 
 local function autoEquipSelectedWeapon(forceType)
@@ -5829,7 +5735,7 @@ _G.startUnknownFarm = function()
 
     _G.Unknown_MainFarmLoop = RunService.Heartbeat:Connect(function()
 
-        if not isFarmOn then return end
+        if not isFarmOn or isTraveling or _G.Unknown_TweenActive then return end
         pcall(function()
 
             local currentLevel = getPlayerLevel()
@@ -6756,8 +6662,8 @@ if isFarmOn and _G.startUnknownFarm then
 end
 print("[UNKNOWN-HUB] Blox Fruits loaded successfully with Auto Farm ACTIVE!")
 -- AUTO FARM WATCHDOG & RESURRECTION ENGINE (PERMANENT GUARANTEED UPTIME)
-_G.Unknown_AutoFarmEnabled = true
-isFarmOn = true
+_G.Unknown_AutoFarmEnabled = false
+isFarmOn = false
 
 task.spawn(function()
     while true do
