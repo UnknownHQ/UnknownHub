@@ -7610,21 +7610,49 @@ isLethalEntityIncoming = function()
         return false
     end
 
-    local function scan(container)
-        if not container then return nil end
-        for _, child in ipairs(container:GetChildren()) do
-            if isThreat(child.Name) then
-                return child.Name
-            end
-        end
-        return nil
-    end
-
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     local liveEnts = Workspace:FindFirstChild("LiveEntities")
-    local threat = scan(curRooms) or scan(liveEnts) or scan(Workspace)
-    if threat then return true, threat end
-    return false, nil
+    local containers = {curRooms, liveEnts, Workspace}
+
+    local threatInst, threatName = nil, nil
+    for _, cont in ipairs(containers) do
+        if cont then
+            for _, child in ipairs(cont:GetChildren()) do
+                if isThreat(child.Name) then
+                    threatInst = child
+                    threatName = child.Name
+                    break
+                end
+            end
+        end
+        if threatInst then break end
+    end
+
+    if not threatInst then
+        return false, nil, nil, math.huge, nil
+    end
+
+    local root = getRoot()
+    local rootPos = root and root.Position or Vector3.zero
+    local threatPos = rootPos
+    if threatInst:IsA("Model") then
+        if threatInst.PrimaryPart then
+            threatPos = threatInst.PrimaryPart.Position
+        else
+            local bp = threatInst:FindFirstChildWhichIsA("BasePart")
+            if bp then
+                threatPos = bp.Position
+            else
+                local ok, cf = pcall(function() return threatInst:GetPivot() end)
+                if ok and cf then threatPos = cf.Position end
+            end
+        end
+    elseif threatInst:IsA("BasePart") then
+        threatPos = threatInst.Position
+    end
+
+    local threatDist = (threatPos - rootPos).Magnitude
+    return true, threatName, threatInst, threatDist, threatPos
 end
 
 -- =========================================================================
@@ -7640,7 +7668,7 @@ task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.Auto_Hide then
-            local isThreat, threatName = isLethalEntityIncoming()
+            local isThreat, threatName, threatInst, threatDist = isLethalEntityIncoming()
             local char = getChar()
             local root = getRoot()
             local mgTable = getMainGameTable()
@@ -7648,7 +7676,7 @@ task.spawn(function()
 
             if isThreat and not currentlyHiding and root then
                 -- Locate nearest hiding spot in current and adjacent rooms
-                local bestPrompt, bestDist = nil, math.huge
+                local bestPrompt, bestDist, bestPos = nil, math.huge, nil
                 local searchRooms = {}
                 local curRoom, curNum = getObjectRoom(root)
                 if curRoom then
@@ -7683,6 +7711,7 @@ task.spawn(function()
                                     if dist < bestDist then
                                         bestDist = dist
                                         bestPrompt = desc
+                                        bestPos = pPart.Position
                                     end
                                 end
                             end
@@ -7690,35 +7719,57 @@ task.spawn(function()
                     end
                 end
 
-                if bestPrompt then
-                    Hub.Notify("Auto Hide", string.format("Threat detected (%s)! Entering hiding spot...", tostring(threatName)), 2)
+                if bestPrompt and bestPos then
+                    -- Standby right in front of closet if not already there
                     local targetPart = bestPrompt.Parent:IsA("BasePart") and bestPrompt.Parent or bestPrompt.Parent:FindFirstChildWhichIsA("BasePart")
-                    if targetPart and (root.Position - targetPart.Position).Magnitude > 12 then
+                    if targetPart and (root.Position - targetPart.Position).Magnitude > 6.0 then
                         root.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 2, 0))
                     end
 
-                    local timeout = os.clock() + 4.0
-                    while os.clock() < timeout and not isPlayerHiding(char, mgTable) and State.Auto_Hide do
-                        safeInstantFirePrompt(bestPrompt)
-                        task.wait(0.05)
+                    -- Smart Delay: Wait until threat is within <= 125 studs before jumping in!
+                    -- This prevents staying inside too long and taking damage from Hide!
+                    local waitStart = os.clock()
+                    while State.Auto_Hide and (os.clock() - waitStart < 15.0) do
+                        local stillThreat, _, _, curThreatDist = isLethalEntityIncoming()
+                        if not stillThreat then break end
+                        if curThreatDist <= 125 then break end
+                        task.wait(0.04)
                     end
 
-                    while State.Auto_Hide and isLethalEntityIncoming() do
-                        task.wait(0.2)
-                    end
-
-                    task.wait(0.8)
-                    if isPlayerHiding(char, mgTable) then
-                        local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-                        if rf and rf:FindFirstChild("CamLock") then
-                            rf.CamLock:FireServer()
+                    local stillThreat = isLethalEntityIncoming()
+                    if stillThreat and State.Auto_Hide then
+                        Hub.Notify("Auto Hide", string.format("Threat incoming (%s)! Entering closet now...", tostring(threatName)), 2)
+                        bestPrompt.HoldDuration = 0
+                        bestPrompt.RequiresLineOfSight = false
+                        local timeout = os.clock() + 2.0
+                        while os.clock() < timeout and not isPlayerHiding(char, mgTable) and State.Auto_Hide do
+                            safeInstantFirePrompt(bestPrompt)
+                            task.wait(0.04)
                         end
-                        Hub.Notify("Auto Hide", "Threat has passed! Safely unhidden.", 2)
+
+                        -- Hide-Immunity Loop: Stay inside ONLY while threat is nearby, capped at 4.5s max
+                        local hideStart = os.clock()
+                        while State.Auto_Hide and isPlayerHiding(char, mgTable) do
+                            local elapsed = os.clock() - hideStart
+                            local hasThreat, _, _, distNow = isLethalEntityIncoming()
+                            if elapsed >= 4.5 then break end -- Exit to reset Hide's damage timer!
+                            if not hasThreat then break end
+                            if distNow > 110 then break end
+                            task.wait(0.1)
+                        end
+
+                        task.wait(0.3)
+                        if isPlayerHiding(char, mgTable) then
+                            local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+                            local camLeave = rf and (rf:FindFirstChild("CamLeave") or rf:FindFirstChild("CamLock"))
+                            if camLeave then pcall(function() camLeave:FireServer() end) end
+                            Hub.Notify("Auto Hide", "Threat has passed! Safely unhidden.", 2)
+                        end
                     end
                 end
             end
         end
-        task.wait(0.2)
+        task.wait(0.15)
     end
 end)
 
@@ -8036,6 +8087,61 @@ local lastAutoBeatNudge = 0
 local autoBeatLastPos = Vector3.zero
 local autoBeatStuckCount = 0
 
+-- Auto-Heal Engine: Restores HP automatically using inventory Bandages/Herbs/Vitamins
+local function autoBeatHealPlayer()
+    local char = getChar()
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not hum or hum.Health >= 95 or hum.Health <= 0 then return end
+
+    local containers = { char, LocalPlayer:FindFirstChild("Backpack") }
+    local healTool = nil
+    for _, cont in ipairs(containers) do
+        if cont then
+            for _, item in ipairs(cont:GetChildren()) do
+                if item:IsA("Tool") then
+                    local n = item.Name:lower()
+                    if n:find("bandage") or n:find("herb") or n:find("vitamin") or n:find("smoothie") then
+                        healTool = item
+                        break
+                    end
+                end
+            end
+        end
+        if healTool then break end
+    end
+
+    if healTool then
+        if healTool.Parent ~= char then
+            pcall(function() hum:EquipTool(healTool) end)
+            task.wait(0.08)
+        end
+        pcall(function() healTool:Activate() end)
+        task.wait(0.15)
+        if State.AutoBeat and State.AutoBeat.StatusLabel then
+            State.AutoBeat.StatusLabel:SetText("Auto-Beat: Healed with " .. healTool.Name .. " (" .. math.floor(hum.Health) .. " HP)", true)
+        end
+    end
+end
+
+-- Frame-0 Screech Banisher
+local function autoBeatBanishScreech()
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    local sc = cam:FindFirstChild("Screech") or cam:FindFirstChild("ScreechRetro")
+    if sc then
+        pcall(function()
+            local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+            local sRemote = rf and rf:FindFirstChild("Screech")
+            if sRemote then sRemote:FireServer(true) end
+            for _, d in ipairs(sc:GetDescendants()) do
+                if d:IsA("Sound") then d.Volume = 0 d:Stop() end
+                if d:IsA("ParticleEmitter") then d.Enabled = false end
+            end
+            sc:Destroy()
+        end)
+    end
+end
+
 -- Overhead clearance checker for auto-crouch
 local function autoBeatCheckCrouch(root, curRoomNum)
     if not State.AutoBeat_AutoCrouch or not root then return end
@@ -8229,17 +8335,13 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
     return (root.Position - targetPos).Magnitude <= stopDist
 end
 
--- Rush / Ambush Emergency Closet Hiding Routine
+-- Rush / Ambush Smart Closet Hiding Routine (Hide Entity Immunity)
 local function autoBeatHideFromThreat(threatName)
     local char = getChar()
     local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     local mgTable = getMainGameTable()
     if not root or not hum then return false end
-
-    if State.AutoBeat.StatusLabel then
-        State.AutoBeat.StatusLabel:SetText("Auto-Beat: Evacuating to Closet (" .. tostring(threatName or "Entity") .. " Alert!)", true)
-    end
 
     -- Locate nearest empty wardrobe/closet
     local bestPrompt, bestDist, bestPos = nil, math.huge, nil
@@ -8274,11 +8376,34 @@ local function autoBeatHideFromThreat(threatName)
         end
     end
 
-    if not bestPrompt or not bestPos then
-        return false
+    -- Ceiling Haven Fallback if no closet is within 65 studs
+    if not bestPrompt or not bestPos or bestDist > 65 then
+        if State.AutoBeat and State.AutoBeat.StatusLabel then
+            State.AutoBeat.StatusLabel:SetText("Auto-Beat: Ceiling Haven (" .. tostring(threatName or "Entity") .. ")", true)
+        end
+        local coll = char:FindFirstChild("Collision")
+        if coll and coll:IsA("BasePart") then pcall(function() coll.CollisionGroup = "NoPlayer" end) end
+        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        local safePos = root.Position + Vector3.new(0, 14, 0)
+        local t0 = os.clock()
+        while (root.Position - safePos).Magnitude > 1.0 and (os.clock() - t0 < 0.5) do
+            local dt = task.wait(0.02)
+            root.CFrame = root.CFrame + Vector3.new(0, 30 * dt, 0)
+            root.AssemblyLinearVelocity = Vector3.zero
+        end
+        while State.Auto_Beat and isLethalEntityIncoming and isLethalEntityIncoming() do
+            root.AssemblyLinearVelocity = Vector3.zero
+            task.wait(0.2)
+        end
+        task.wait(1.5)
+        local groundHit = Workspace:Raycast(root.Position, Vector3.new(0, -25, 0))
+        if groundHit then
+            root.CFrame = CFrame.new(groundHit.Position + Vector3.new(0, 3, 0))
+        end
+        return true
     end
 
-    -- Universal Entity Immunity & Fast Sprint to closet
+    -- Universal Entity Immunity & Fast Sprint to standby right by closet
     local coll = char:FindFirstChild("Collision")
     if coll and coll:IsA("BasePart") then pcall(function() coll.CollisionGroup = "NoPlayer" end) end
     hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
@@ -8295,37 +8420,71 @@ local function autoBeatHideFromThreat(threatName)
         hum:Move(dir, false)
     end
 
+    -- Tactical Standby: Wait right by the closet until threat is within <= 125 studs
+    -- This completely prevents hiding too early and eliminates 100% of damage from Hide!
+    local standStart = os.clock()
+    while State.Auto_Beat and (os.clock() - standStart < 15.0) do
+        local hasThreat, tName, _, threatDist = isLethalEntityIncoming()
+        if not hasThreat then
+            return true
+        end
+        if threatDist <= 125 then
+            break
+        end
+        if State.AutoBeat and State.AutoBeat.StatusLabel then
+            State.AutoBeat.StatusLabel:SetText(string.format("Auto-Beat: Threat (%s) at %d studs - Standing by closet...", tostring(tName or "Rush"), math.floor(threatDist)), true)
+        end
+        task.wait(0.04)
+    end
+
     -- Instant Closet Enter
-    if bestPrompt then
-        bestPrompt.HoldDuration = 0
-        bestPrompt.RequiresLineOfSight = false
-    end
+    bestPrompt.HoldDuration = 0
+    bestPrompt.RequiresLineOfSight = false
     local enterStart = os.clock()
-    while State.Auto_Beat and not isPlayerHiding(char, mgTable) and (os.clock() - enterStart < 2.0) do
+    while State.Auto_Beat and not isPlayerHiding(char, mgTable) and (os.clock() - enterStart < 1.5) do
         safeInstantFirePrompt(bestPrompt)
-        task.wait(0.05)
+        task.wait(0.04)
     end
 
-    -- Wait safely inside until entity completely passes
-    while State.Auto_Beat and isLethalEntityIncoming and isLethalEntityIncoming() do
-        task.wait(0.2)
+    if State.AutoBeat and State.AutoBeat.StatusLabel then
+        State.AutoBeat.StatusLabel:SetText("Auto-Beat: Inside closet! Waiting for threat to pass...", true)
     end
-    task.wait(1.2) -- Post-threat safety tail
 
+    -- Hide-Immunity Loop: Stay inside ONLY while threat is nearby, capped at 4.5s max
+    local hideStart = os.clock()
+    while State.Auto_Beat and isPlayerHiding(char, mgTable) do
+        local elapsed = os.clock() - hideStart
+        local hasThreat, _, _, curDist = isLethalEntityIncoming()
+        if elapsed >= 4.5 then
+            -- Exiting momentarily to reset Hide timer (Hide attacks after 6-8s)!
+            break
+        end
+        if not hasThreat then
+            break
+        end
+        if curDist > 110 then
+            break
+        end
+        task.wait(0.1)
+    end
+
+    task.wait(0.4)
     -- Exit closet
     if isPlayerHiding(char, mgTable) then
         local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-        local camLeave = rf and rf:FindFirstChild("CamLeave")
+        local camLeave = rf and (rf:FindFirstChild("CamLeave") or rf:FindFirstChild("CamLock"))
         if camLeave then pcall(function() camLeave:FireServer() end) end
-        task.wait(0.4)
+        task.wait(0.3)
     end
 
     return true
 end
 
--- Gold and Drawer looting while walking
+local autoBeatLootedPrompts = setmetatable({}, {__mode = "k"})
+
+-- Comprehensive Gold, Coin, Item, and Container Looting Engine
 local function autoBeatLootNearby(maxRadius)
-    maxRadius = maxRadius or 18.0
+    maxRadius = maxRadius or 35.0
     local root = getRoot()
     if not root then return end
     local curRoom = getObjectRoom(root)
@@ -8333,19 +8492,31 @@ local function autoBeatLootNearby(maxRadius)
 
     local lootables = {}
     for _, desc in ipairs(curRoom:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") and desc.Enabled then
+        if desc:IsA("ProximityPrompt") and desc.Enabled and not autoBeatLootedPrompts[desc] then
+            local obj = (desc.ObjectText or ""):lower()
+            local act = (desc.ActionText or ""):lower()
             local dName = desc.Name:lower()
             local pName = desc.Parent and desc.Parent.Name:lower() or ""
-            local isGold = dName:find("gold") or pName:find("gold") or pName:find("coin")
-            local isDrawer = dName:find("drawer") or pName:find("drawer")
-            if (isGold and State.AutoBeat_LootGold) or (isDrawer and State.AutoBeat_LootDrawers) then
-                local pos = nil
-                if desc.Parent:IsA("BasePart") then pos = desc.Parent.Position
-                elseif desc.Parent:IsA("Model") then pos = desc.Parent:GetPivot().Position end
-                if pos then
-                    local dist = (root.Position - pos).Magnitude
-                    if dist <= maxRadius then
-                        table.insert(lootables, { prompt = desc, pos = pos, dist = dist, isGold = isGold })
+            local pModel = desc:FindFirstAncestorWhichIsA("Model")
+            local mName = pModel and pModel.Name:lower() or ""
+
+            -- Never loot wardrobes/closets during looting cycle (reserved for Hide!)
+            local isHidingSpot = mName:find("wardrobe") or mName:find("closet") or mName:find("locker") or mName:find("bed") or obj:find("wardrobe") or obj:find("closet")
+
+            if not isHidingSpot then
+                local isGold = obj:find("gold") or obj:find("coin") or mName:find("gold") or mName:find("coin") or pName:find("gold") or dName:find("gold") or desc:GetAttribute("Gold") ~= nil
+                local isDrawer = (obj:find("drawer") or obj:find("chest") or obj:find("desk") or obj:find("table") or mName:find("drawer") or mName:find("desk") or mName:find("table") or mName:find("chest") or pName:find("drawer") or act:find("open")) and not act:find("unlock")
+                local isItem = obj:find("key") or obj:find("lighter") or obj:find("flashlight") or obj:find("vitamin") or obj:find("bandage") or obj:find("battery") or obj:find("crucifix") or obj:find("candle") or obj:find("shears") or desc:GetAttribute("Pickup") ~= nil or (desc.Parent and desc.Parent:GetAttribute("Pickup") ~= nil)
+
+                if (isGold and State.AutoBeat_LootGold) or (isDrawer and State.AutoBeat_LootDrawers) or isItem then
+                    local pos = nil
+                    if desc.Parent:IsA("BasePart") then pos = desc.Parent.Position
+                    elseif pModel then pos = pModel:GetPivot().Position end
+                    if pos then
+                        local dist = (root.Position - pos).Magnitude
+                        if dist <= maxRadius then
+                            table.insert(lootables, { prompt = desc, pos = pos, dist = dist, isGold = isGold, isDrawer = isDrawer, isItem = isItem })
+                        end
                     end
                 end
             end
@@ -8356,13 +8527,18 @@ local function autoBeatLootNearby(maxRadius)
 
     for _, item in ipairs(lootables) do
         if not State.Auto_Beat or (isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat) then break end
-        if item.dist <= 6.5 then
-            safeInstantFirePrompt(item.prompt)
-            task.wait(0.06)
-        elseif item.dist <= 16.0 then
-            autoBeatWalkTo(item.pos, 5.0, 1.2)
-            safeInstantFirePrompt(item.prompt)
-            task.wait(0.06)
+        if item.prompt and item.prompt.Enabled and not autoBeatLootedPrompts[item.prompt] then
+            if item.dist <= 6.5 then
+                safeInstantFirePrompt(item.prompt)
+                autoBeatLootedPrompts[item.prompt] = true
+                task.wait(0.08)
+            elseif item.dist <= maxRadius then
+                local r = autoBeatWalkTo(item.pos, 5.0, 1.8)
+                if r == "THREAT_INTERRUPTED" then break end
+                safeInstantFirePrompt(item.prompt)
+                autoBeatLootedPrompts[item.prompt] = true
+                task.wait(0.08)
+            end
         end
     end
 end
@@ -8435,8 +8611,17 @@ local function autoBeatGetExitDoor(curRoom, curNum)
     local doors = {}
     for _, desc in ipairs(curRoom:GetDescendants()) do
         if desc:IsA("Model") and (desc.Name == "Door" or desc.Name == "DoorNormal") then
-            if not isDupeDoor(desc, curRoom) then
-                table.insert(doors, desc)
+            if isDupeDoor(desc, curRoom) then
+                local up = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if up then up.Enabled = false up.MaxActivationDistance = 0 end
+                local sign = desc:FindFirstChild("Sign", true)
+                local lbl = sign and sign:FindFirstChildWhichIsA("TextLabel", true)
+                if lbl then lbl.TextColor3 = Color3.fromRGB(255, 30, 30) lbl.Text = "[DUPE]" end
+            else
+                local isBlocked = desc:GetAttribute("Blocked") == true or desc:FindFirstChild("Planks") or desc:FindFirstChild("WoodenPlanks") or desc:FindFirstChild("Fire")
+                if not isBlocked then
+                    table.insert(doors, desc)
+                end
             end
         end
     end
@@ -8458,6 +8643,10 @@ local function autoBeatRunCycle()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     local mgTable = getMainGameTable()
     if not root or not hum or hum.Health <= 0 then return end
+
+    -- Auto-Heal & Screech Banisher checks
+    autoBeatHealPlayer()
+    autoBeatBanishScreech()
 
     -- 1. Threat Check
     if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
@@ -9444,6 +9633,50 @@ local mainTab = Hub.CreateTab("Main", {
     ActiveColor = Color3.fromRGB(255, 185, 30) 
 })
 
+-- =========================================================================
+-- Section: 👑 Auto-Beat (Pathfinding Autopilot)
+-- =========================================================================
+Hub.CreateSection(mainTab, "Auto-Beat (Pathfinding Autopilot)")
+
+State.AutoBeat.StatusLabel = createStatusLabel(mainTab, "Auto-Beat: Idle")
+
+Hub.CreateToggle(mainTab, "Auto Beat (Autonomous Completer)", State.Auto_Beat, function(v)
+    if v then
+        State.AutoBeat.Start()
+    else
+        State.AutoBeat.Stop()
+    end
+end)
+
+Hub.CreateSlider(mainTab, "Movement Speed", 30, 65, State.AutoBeat_WalkSpeed or 55, " studs/s", function(v)
+    State.AutoBeat_WalkSpeed = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto-Crouch (Vents / Low Ceilings)", State.AutoBeat_AutoCrouch, function(v)
+    State.AutoBeat_AutoCrouch = v
+end)
+
+Hub.CreateToggle(mainTab, "Collect Gold & Coins", State.AutoBeat_LootGold, function(v)
+    State.AutoBeat_LootGold = v
+end)
+
+Hub.CreateToggle(mainTab, "Search Drawers & Desks", State.AutoBeat_LootDrawers, function(v)
+    State.AutoBeat_LootDrawers = v
+end)
+
+Hub.CreateToggle(mainTab, "Collect Sally Toy", State.AutoBeat_GrabSally, function(v)
+    State.AutoBeat_GrabSally = v
+end)
+
+Hub.CreateToggle(mainTab, "Smart Closet Evasion (Rush / Ambush)", State.AutoBeat_EvacuateThreat, function(v)
+    State.AutoBeat_EvacuateThreat = v
+end)
+
+createCardDivider(mainTab)
+
+-- =========================================================================
+-- Section: Movement
+-- =========================================================================
 Hub.CreateSection(mainTab, "Movement")
 
 local function createStatusLabel(parent, initialText)
@@ -9764,44 +9997,7 @@ end
 
 createCardDivider(mainTab)
 
--- =========================================================================
--- Section: 👑 Auto Beat & Pathfinding Autopilot (mspaint v4 Complete Parity)
--- =========================================================================
-Hub.CreateSection(mainTab, "Auto Beat & Pathfinding Autopilot")
 
-State.AutoBeat.StatusLabel = createStatusLabel(mainTab, "Auto-Beat: Idle")
-
-Hub.CreateToggle(mainTab, "Auto Beat (Autonomous Completer)", State.Auto_Beat, function(v)
-    if v then
-        State.AutoBeat.Start()
-    else
-        State.AutoBeat.Stop()
-    end
-end)
-
-Hub.CreateSlider(mainTab, "Auto Beat Speed", 30, 65, State.AutoBeat_WalkSpeed or 55, " studs/s", function(v)
-    State.AutoBeat_WalkSpeed = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto-Crouch (Vents / Low Ceilings / Figure)", State.AutoBeat_AutoCrouch, function(v)
-    State.AutoBeat_AutoCrouch = v
-end)
-
-Hub.CreateToggle(mainTab, "Loot Gold Along Path", State.AutoBeat_LootGold, function(v)
-    State.AutoBeat_LootGold = v
-end)
-
-Hub.CreateToggle(mainTab, "Loot Drawers & Wardrobes", State.AutoBeat_LootDrawers, function(v)
-    State.AutoBeat_LootDrawers = v
-end)
-
-Hub.CreateToggle(mainTab, "Grab Sally Toy Automatically", State.AutoBeat_GrabSally, function(v)
-    State.AutoBeat_GrabSally = v
-end)
-
-Hub.CreateToggle(mainTab, "Evacuate Threat to Closet (Rush / Ambush)", State.AutoBeat_EvacuateThreat, function(v)
-    State.AutoBeat_EvacuateThreat = v
-end)
 end)()
 
 -- =========================================================================
@@ -9869,29 +10065,7 @@ end
     end
 end)
 
--- Autonomous 1-100 Completer and Knobs Farm Autopilot removed as requested!
-Hub.CreateSection(exploitsTab, "Auto Beat & Autonomous Pathfinding")
-
-Hub.CreateToggle(exploitsTab, "Auto Beat (Autonomous Completer)", State.Auto_Beat, function(v)
-    if v then
-        State.AutoBeat.Start()
-    else
-        State.AutoBeat.Stop()
-    end
-end)
-
-
-Hub.CreateToggle(exploitsTab, "Loot Drawers & Desks", State.Knobs_Farm_LootDrawers, function(v)
-    State.Knobs_Farm_LootDrawers = v
-end)
-
-Hub.CreateToggle(exploitsTab, "Unlock Chests (Lockpick)", State.Knobs_Farm_LootChests, function(v)
-    State.Knobs_Farm_LootChests = v
-end)
-
-Hub.CreateToggle(exploitsTab, "Roof Haven on Rush/Ambush", State.Knobs_Farm_RoofEvacuation, function(v)
-    State.Knobs_Farm_RoofEvacuation = v
-end)
+Hub.CreateSection(exploitsTab, "Match Utilities")
 
 Hub.CreateButton(exploitsTab, "Force Match Reset & Play Again", function()
     local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
