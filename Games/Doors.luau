@@ -5620,6 +5620,65 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
     end
 
+    -- Kinematic Floor Plane & Noclip Walk Engine (Anti-Void Gravity Solver)
+    if State.Walk_Noclip and not State.Noclip and not hiding and not TeleportState.isTweening then
+        if char and root and hum and hum.Health > 0 then
+            local rp = RaycastParams.new()
+            rp.FilterType = Enum.RaycastFilterType.Exclude
+            rp.FilterDescendantsInstances = {char, Workspace:FindFirstChild("Drops")}
+            
+            -- Raycast downward from slightly above root to find ground geometry
+            local rayOrigin = root.Position + Vector3.new(0, 0.5, 0)
+            local floorHit = Workspace:Raycast(rayOrigin, Vector3.new(0, -7.0, 0), rp)
+            local expectedOffset = hum.HipHeight + (root.Size.Y / 2)
+            
+            if floorHit and floorHit.Instance then
+                State.WalkNoclip_LastFloorY = floorHit.Position.Y + expectedOffset
+            end
+
+            -- Anti-Void Floor Lock: Prevent dropping below room floor level while phasing through walls/void seams
+            if State.WalkNoclip_LastFloorY then
+                local isJumping = (hum:GetState() == Enum.HumanoidStateType.Jumping) or (os.clock() - (lastJumpRequestTime or 0) < 0.4)
+                if not isJumping then
+                    local currentY = root.Position.Y
+                    if currentY < (State.WalkNoclip_LastFloorY - 0.15) then
+                        root.CFrame = CFrame.new(root.Position.X, State.WalkNoclip_LastFloorY, root.Position.Z) * root.CFrame.Rotation
+                        local vel = root.AssemblyLinearVelocity
+                        root.AssemblyLinearVelocity = Vector3.new(vel.X, math.max(0, vel.Y), vel.Z)
+                        if hum:GetState() == Enum.HumanoidStateType.Freefall then
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                        end
+                    end
+                end
+            end
+
+            -- Server Slide Handshake while moving in Noclip Walk
+            if hum.MoveDirection.Magnitude > 0.05 then
+                if syncServerSlide then
+                    local isCrouch = (mgTable and mgTable.crouching) or (char:GetAttribute("Crouching")) or false
+                    syncServerSlide(true, isCrouch)
+                end
+                if mgTable and mgTable.SETNEWCF then
+                    mgTable.SETNEWCF = nil
+                end
+            end
+
+            -- Ensure open & closed door leaves remain intangible so player phases straight through
+            local cr = Workspace:FindFirstChild("CurrentRooms")
+            if cr then
+                for _, rm in ipairs(cr:GetChildren()) do
+                    local d = rm:FindFirstChild("Door")
+                    if d then
+                        local leaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal")
+                        if leaf and leaf:IsA("BasePart") and leaf.CanCollide then
+                            leaf.CanCollide = false
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- Synchronizes DOORS native noclip flag without corrupting wardrobe or door transitions
     local mgTable = getMainGameTable()
     if mgTable then
@@ -6016,7 +6075,7 @@ end)
 -- Pre-Physics Stepped Collision Bypass: Ensures physics engine NEVER overrides noclip collisions before physics step
 trackConn(RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
-    if State.Noclip then
+    if State.Noclip or State.Walk_Noclip then
         local char = getChar()
         if char then
             for _, p in ipairs(char:GetDescendants()) do
@@ -6076,6 +6135,24 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 autoHideToggleObj:Set(State.Auto_Hide)
             end
             Hub.Notify("Automation", State.Auto_Hide and "Auto Hide: Enabled [Q]" or "Auto Hide: Disabled [Q]", 2)
+        elseif input.KeyCode == Enum.KeyCode.V then
+            State.Walk_Noclip = not State.Walk_Noclip
+            if State.walkNoclipToggleObj and State.walkNoclipToggleObj.Set then
+                State.walkNoclipToggleObj:Set(State.Walk_Noclip)
+            end
+            if State.Walk_Noclip then
+                State.WalkSpeed_Enabled = true
+                if syncServerSlide then syncServerSlide(true, true) end
+                Hub.Notify("Movement", "Noclip Walk: Enabled [V] (Phase Through Walls & Doors)", 2)
+            else
+                local char = getChar()
+                if char then
+                    local coll = char:FindFirstChild("Collision")
+                    if coll and not coll.CanCollide then coll.CanCollide = true end
+                end
+                State.WalkNoclip_LastFloorY = nil
+                Hub.Notify("Movement", "Noclip Walk: Disabled [V]", 2)
+            end
         end
     end
 
@@ -8953,10 +9030,10 @@ local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and gam
 -- =========================================================================
 local refreshEntityNodesVisuals, refreshSafeZonesVisuals
 local isPlayerCrouching, getRushPathSegments, getClosestPointOnSegment, updateRushSafeHUD, clearSafeZoneVisuals
+;(function()
 local activeNodeVisuals = {}
 local activeSafeZoneVisuals = {}
 local rushSafeHUD = nil
-;(function()
 
 local cachedRoomPathNodes = {}
 
@@ -9895,6 +9972,30 @@ Hub.CreateToggle(mainTab, "No Acceleration", State.No_Acceleration, function(v)
     State.Instant_Movement = v
     Hub.Notify("Movement", v and "No Acceleration: Enabled" or "No Acceleration: Disabled", 2)
 end)
+
+State.walkNoclipToggleObj = Hub.CreateToggle(mainTab, "Noclip Walk (Phase Through Walls)", State.Walk_Noclip, function(v)
+    State.Walk_Noclip = v
+    if v then
+        State.WalkSpeed_Enabled = true
+        if syncServerSlide then syncServerSlide(true, true) end
+        Hub.Notify("Movement", "Noclip Walk: Enabled (Phase Through Walls & Doors) [V]", 2)
+    else
+        local char = getChar()
+        if char then
+            local coll = char:FindFirstChild("Collision")
+            if coll and not coll.CanCollide then coll.CanCollide = true end
+        end
+        State.WalkNoclip_LastFloorY = nil
+        Hub.Notify("Movement", "Noclip Walk: Disabled", 2)
+    end
+end)
+if State.walkNoclipToggleObj and State.walkNoclipToggleObj.Instance then
+    local label = State.walkNoclipToggleObj.Instance:FindFirstChild("Label")
+    if label then
+        label.TextColor3 = Color3.fromRGB(0, 215, 255)
+    end
+    addKeybindBadge(State.walkNoclipToggleObj.Instance, "V")
+end
 
 -- =========================================================================
 -- Section: Interaction (mspaint v4 1:1 Parity)
