@@ -8416,14 +8416,14 @@ local function autoBeatCheckCrouch(root, curRoomNum)
     end
 end
 
--- Line of sight checker with character shoulder & doorframe clearance
+-- Line of sight checker with character shoulder & doorframe clearance (Blocks through windows & dividers)
 local function autoBeatHasLineOfSight(fromPos, toPos)
     local char = getChar()
     local dir = toPos - fromPos
     local dist = dir.Magnitude
     if dist < 0.1 then return true end
     local unitDir = dir.Unit
-    local rightVec = Vector3.new(-unitDir.Z, 0, unitDir.X).Unit * 1.2
+    local rightVec = Vector3.new(-unitDir.Z, 0, unitDir.X).Unit * 1.4
 
     local rp = RaycastParams.new()
     rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -8444,21 +8444,29 @@ local function autoBeatHasLineOfSight(fromPos, toPos)
     end
     rp.FilterDescendantsInstances = filter
 
-    -- 1. Center ray
-    local hitCenter = Workspace:Raycast(fromPos, dir, rp)
-    if hitCenter ~= nil then return false end
+    local function isObstacle(hit)
+        if not hit or not hit.Instance then return false end
+        if hit.Instance.CanCollide then return true end
+        local name = hit.Instance.Name:lower()
+        if name:find("window") or name:find("glass") or name:find("frame") or name:find("partition") or name:find("wall") or name:find("gate") or name:find("bar") or name:find("railing") then
+            return true
+        end
+        return false
+    end
 
-    -- 2. Left shoulder clearance ray (prevents clipping left doorframes/corners)
+    -- 1. Center rays across 5 vertical elevations (feet, knees, waist, chest, eyes)
+    for _, yOff in ipairs({ -1.8, -1.0, 0, 1.0, 1.6 }) do
+        local origin = fromPos + Vector3.new(0, yOff, 0)
+        local hit = Workspace:Raycast(origin, dir, rp)
+        if isObstacle(hit) then return false end
+    end
+
+    -- 2. Left and right shoulder clearance rays (prevents clipping corners, bookcases, window sills)
     local hitLeft = Workspace:Raycast(fromPos - rightVec, dir, rp)
-    if hitLeft ~= nil then return false end
+    if isObstacle(hitLeft) then return false end
 
-    -- 3. Right shoulder clearance ray (prevents clipping right doorframes/corners)
     local hitRight = Workspace:Raycast(fromPos + rightVec, dir, rp)
-    if hitRight ~= nil then return false end
-
-    -- 4. Waist-level clearance ray (prevents clipping low obstacles, tables, and chests)
-    local hitWaist = Workspace:Raycast(fromPos - Vector3.new(0, 1.2, 0), dir, rp)
-    if hitWaist ~= nil then return false end
+    if isObstacle(hitRight) then return false end
 
     return true
 end
@@ -8500,10 +8508,10 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not root or not hum then return false end
 
-    -- 1.0-stud AgentRadius and 2.5-stud AgentHeight allows clean navigation through tight doors and around obstacles
+    -- 1.8-stud AgentRadius and 4.5-stud AgentHeight allows safe navigation around partitions, bookcases, and through tight doors
     local path = PathfindingService:CreatePath({
-        AgentRadius = 1.0,
-        AgentHeight = 2.5,
+        AgentRadius = 1.8,
+        AgentHeight = 4.5,
         AgentCanJump = false,
         WaypointSpacing = 2.0
     })
@@ -8574,7 +8582,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
         local eyePos = rootPos + Vector3.new(0, 1.5, 0)
         local targetEyePos = targetPos + Vector3.new(0, 1.5, 0)
         local distToNav = Vector2.new(rootPos.X - navTarget.X, rootPos.Z - navTarget.Z).Magnitude
-        local hasDirectSight = (distToNav <= 14.0) and autoBeatHasLineOfSight(eyePos, targetEyePos)
+        local hasDirectSight = (distToNav <= 3.5) and autoBeatHasLineOfSight(eyePos, targetEyePos)
 
         if hasDirectSight then
             local toT = Vector3.new(navTarget.X - root.Position.X, 0, navTarget.Z - root.Position.Z)
@@ -8637,7 +8645,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                             end
                             task.wait(0.02)
                         end
-                        if Vector2.new(root.Position.X - targetPos.X, root.Position.Z - targetPos.Z).Magnitude < 6.0 and autoBeatHasLineOfSight(root.Position + Vector3.new(0, 0.5, 0), targetPos + Vector3.new(0, 0.5, 0)) then
+                        if (Vector2.new(root.Position.X - targetPos.X, root.Position.Z - targetPos.Z).Magnitude <= stopDist) and (math.abs(root.Position.Y - targetPos.Y) <= 4.0) then
                             break
                         end
                     end
@@ -8880,7 +8888,7 @@ local function autoBeatLootNearby(maxRadius)
 
             local isPainting = obj:find("painting") or act:find("inspect") or mName:find("painting") or pName:find("painting")
             if not isHidingSpot and not isPainting then
-                local isGold = obj:find("gold") or obj:find("coin") or mName:find("gold") or mName:find("coin") or pName:find("gold") or dName:find("gold") or desc:GetAttribute("Gold") ~= nil
+                local isGold = obj:find("gold") or obj:find("coin") or obj:find("🪙") or mName:find("gold") or mName:find("coin") or pName:find("gold") or dName:find("gold") or dName:find("loot") or act:find("collect") or desc:GetAttribute("Gold") ~= nil
                 local isDrawer = (obj:find("drawer") or obj:find("chest") or obj:find("desk") or obj:find("table") or mName:find("drawer") or mName:find("desk") or mName:find("table") or mName:find("chest") or mName:find("container") or pName:find("drawer") or pName:find("knobs") or act:find("loot") or act:find("open")) and not act:find("unlock") and not act:find("seat")
                 local isItem = obj:find("key") or obj:find("lighter") or obj:find("flashlight") or obj:find("vitamin") or obj:find("bandage") or obj:find("battery") or obj:find("crucifix") or obj:find("candle") or obj:find("shears") or desc:GetAttribute("Pickup") ~= nil or (desc.Parent and desc.Parent:GetAttribute("Pickup") ~= nil)
 
@@ -8888,7 +8896,6 @@ local function autoBeatLootNearby(maxRadius)
                     local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (pModel and (pModel.PrimaryPart or pModel:FindFirstChildWhichIsA("BasePart", true)))
                     local pos = nil
                     if pPart then
-                        -- Position character 2.5 studs in front of container on the floor, not inside solid wood
                         pos = pPart.Position + pPart.CFrame.LookVector * 2.5
                     elseif pModel then
                         pos = pModel:GetPivot().Position
@@ -8912,16 +8919,22 @@ local function autoBeatLootNearby(maxRadius)
             if item.dist <= 6.5 then
                 safeInstantFirePrompt(item.prompt)
                 autoBeatLootedPrompts[item.prompt] = true
-                task.wait(0.12)
-                -- Check for inner gold/coins inside drawer
+                -- Active wait & collect for inner gold/coins spawned inside drawer
                 if item.isDrawer and item.prompt.Parent then
-                    local container = item.prompt:FindFirstAncestorWhichIsA("Model")
+                    local container = item.prompt:FindFirstAncestorWhichIsA("Model") or item.prompt.Parent
                     if container then
-                        for _, subDesc in ipairs(container:GetDescendants()) do
-                            if subDesc:IsA("ProximityPrompt") and subDesc ~= item.prompt and subDesc.Enabled and not autoBeatLootedPrompts[subDesc] then
-                                safeInstantFirePrompt(subDesc)
-                                autoBeatLootedPrompts[subDesc] = true
+                        local tWait = os.clock()
+                        while (os.clock() - tWait < 0.45) do
+                            local foundAny = false
+                            for _, subDesc in ipairs(container:GetDescendants()) do
+                                if subDesc:IsA("ProximityPrompt") and subDesc ~= item.prompt and subDesc.Enabled and not autoBeatLootedPrompts[subDesc] then
+                                    safeInstantFirePrompt(subDesc)
+                                    autoBeatLootedPrompts[subDesc] = true
+                                    foundAny = true
+                                end
                             end
+                            if foundAny then break end
+                            task.wait(0.08)
                         end
                     end
                 end
@@ -8930,18 +8943,50 @@ local function autoBeatLootNearby(maxRadius)
                 if r == "THREAT_INTERRUPTED" then break end
                 safeInstantFirePrompt(item.prompt)
                 autoBeatLootedPrompts[item.prompt] = true
-                task.wait(0.12)
-                -- Check for inner gold/coins inside drawer
+                -- Active wait & collect for inner gold/coins spawned inside drawer
                 if item.isDrawer and item.prompt.Parent then
-                    local container = item.prompt:FindFirstAncestorWhichIsA("Model")
+                    local container = item.prompt:FindFirstAncestorWhichIsA("Model") or item.prompt.Parent
                     if container then
-                        for _, subDesc in ipairs(container:GetDescendants()) do
-                            if subDesc:IsA("ProximityPrompt") and subDesc ~= item.prompt and subDesc.Enabled and not autoBeatLootedPrompts[subDesc] then
-                                safeInstantFirePrompt(subDesc)
-                                autoBeatLootedPrompts[subDesc] = true
+                        local tWait = os.clock()
+                        while (os.clock() - tWait < 0.45) do
+                            local foundAny = false
+                            for _, subDesc in ipairs(container:GetDescendants()) do
+                                if subDesc:IsA("ProximityPrompt") and subDesc ~= item.prompt and subDesc.Enabled and not autoBeatLootedPrompts[subDesc] then
+                                    safeInstantFirePrompt(subDesc)
+                                    autoBeatLootedPrompts[subDesc] = true
+                                    foundAny = true
+                                end
                             end
+                            if foundAny then break end
+                            task.wait(0.08)
                         end
                     end
+                end
+            end
+        end
+    end
+end
+
+-- Opportunistic on-the-fly loot collection (grabs gold/coins/items within arm's reach while walking)
+local function autoBeatCollectOpportunisticLoot(root)
+    if not (State.AutoBeat_LootGold or State.AutoBeat_LootDrawers) then return end
+    if not root then return end
+    local rPos = root.Position
+    local curRoom = getObjectRoom(root)
+    if not curRoom then return end
+    for _, desc in ipairs(curRoom:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled and not autoBeatLootedPrompts[desc] then
+            local obj = (desc.ObjectText or ""):lower()
+            local act = (desc.ActionText or ""):lower()
+            local pName = desc.Parent and desc.Parent.Name:lower() or ""
+            local dName = desc.Name:lower()
+            local isCoin = obj:find("🪙") or obj:find("gold") or obj:find("coin") or pName:find("gold") or dName:find("gold") or act:find("collect")
+            local isItem = obj:find("lighter") or obj:find("flashlight") or obj:find("vitamin") or obj:find("bandage") or obj:find("battery") or obj:find("crucifix") or obj:find("candle") or obj:find("shears")
+            if isCoin or isItem then
+                local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (desc.Parent and desc.Parent:FindFirstChildWhichIsA("BasePart", true))
+                if pPart and (pPart.Position - rPos).Magnitude <= 7.5 then
+                    safeInstantFirePrompt(desc)
+                    autoBeatLootedPrompts[desc] = true
                 end
             end
         end
@@ -9184,16 +9229,19 @@ local function autoBeatRunCycle()
         return
     end
 
-    -- 2. Current Room & Door identification
-    local curRoom, curNum = getObjectRoom(root)
-    if not curRoom then
-        local curRooms = Workspace:FindFirstChild("CurrentRooms")
-        if curRooms then
-            curNum = getCurrentRoomNumber()
-            curRoom = curRooms:FindFirstChild(tostring(curNum))
-        end
+    -- 2. Current Room & Door identification (Strict Monotonic Progression)
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    local rawRoom, rawNum = getObjectRoom(root)
+    local attrNum = getCurrentRoomNumber()
+    local effectiveNum = math.max(lastKnownPlayerRoom or 0, rawNum or 0, attrNum or 0)
+    if effectiveNum > 0 then
+        lastKnownPlayerRoom = effectiveNum
     end
-    curNum = curNum or getCurrentRoomNumber()
+    local curNum = effectiveNum > 0 and effectiveNum or (rawNum or attrNum or 0)
+    local curRoom = curRooms and curRooms:FindFirstChild(tostring(curNum))
+    if not curRoom and rawRoom then
+        curRoom = rawRoom
+    end
     if not curRoom then return end
 
     -- Step A: Sally Toy Grab
@@ -9279,7 +9327,19 @@ local function autoBeatRunCycle()
     -- Step B.2: Room Gate Lever Solver (Authoritative Gate Unlocker)
     local gateLever = curRoom:FindFirstChild("LeverForGate", true)
     local leverPrompt = gateLever and gateLever:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if leverPrompt and leverPrompt.Enabled then
+    local gate = curRoom:FindFirstChild("Gate", true)
+    local isGateOpen = false
+    if gate then
+        local leverConstraint = gate:FindFirstChildWhichIsA("PrismaticConstraint", true) or gate:FindFirstChildWhichIsA("HingeConstraint", true)
+        if leverConstraint and (leverConstraint.CurrentPosition < -0.3 or leverConstraint.CurrentPosition > 0.3) then
+            isGateOpen = true
+        end
+        local thingToOpen = gate:FindFirstChild("ThingToOpen")
+        if thingToOpen and thingToOpen:IsA("BasePart") and thingToOpen.Position.Y > -15.0 then
+            isGateOpen = true
+        end
+    end
+    if not isExitDoorOpen and not isGateOpen and leverPrompt and leverPrompt.Enabled then
         if State.AutoBeat.StatusLabel then
             State.AutoBeat.StatusLabel:SetText("Auto-Beat: Pulling Gate Lever in Room " .. tostring(curNum) .. "...", false)
         end
@@ -9367,7 +9427,7 @@ local function autoBeatRunCycle()
         pcall(function() co:FireServer() end)
     end
 
-    -- Walk straight through the doorway into the next room
+    -- Walk straight through the doorway into the next room (16 studs in ensures full room entry)
     local curRooms = Workspace:FindFirstChild("CurrentRooms")
     local nextRoom = curRooms and curRooms:FindFirstChild(tostring(curNum + 1))
     local advancePos = doorPos
@@ -9376,19 +9436,19 @@ local function autoBeatRunCycle()
         local nextExit = nextRoom:FindFirstChild("RoomExit")
         if nextEntrance and nextExit then
             local roomDir = (nextExit.Position - nextEntrance.Position).Unit
-            advancePos = nextEntrance.Position + Vector3.new(roomDir.X, 0, roomDir.Z) * 8
+            advancePos = nextEntrance.Position + Vector3.new(roomDir.X, 0, roomDir.Z) * 16
         else
             local curCenter = curRoom:GetPivot().Position
             local nextCenter = nextRoom:GetPivot().Position
             local roomDir = (nextCenter - curCenter).Unit
-            advancePos = doorPos + Vector3.new(roomDir.X, 0, roomDir.Z) * 8
+            advancePos = doorPos + Vector3.new(roomDir.X, 0, roomDir.Z) * 16
         end
     else
         local rexit = curRoom:FindFirstChild("RoomExit")
         if rexit and rexit:IsA("BasePart") then
-            advancePos = rexit.Position + rexit.CFrame.LookVector * 8
+            advancePos = rexit.Position + rexit.CFrame.LookVector * 16
         else
-            advancePos = doorPos + Vector3.new(0, 0, -8)
+            advancePos = doorPos + Vector3.new(0, 0, -16)
         end
     end
 
@@ -9398,13 +9458,8 @@ local function autoBeatRunCycle()
     local r = autoBeatWalkTo(advancePos, 4.0, 5.0)
     if r == "THREAT_INTERRUPTED" then return end
 
-    -- Check real 3D physical room immediately to advance room progression monotonically
-    local realRoom, realNum = getObjectRoom(root)
-    if realNum and realNum >= curNum + 1 then
-        lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, realNum)
-    elseif r == true then
-        lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
-    end
+    -- Advance monotonic room state to curNum + 1
+    lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
 end
 
 -- Auto Beat Background Runner Loop
