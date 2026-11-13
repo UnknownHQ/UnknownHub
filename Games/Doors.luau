@@ -8484,15 +8484,18 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
             syncServerSlide(true, isC)
         end
 
-        -- Safe anti-stuck detection: Vertical hop and impulse without pushing CFrame through walls
-        if (rootPos - autoBeatLastPos).Magnitude < 0.3 then
-            autoBeatStuckCount = autoBeatStuckCount + 1
-            if autoBeatStuckCount >= 8 then
+        -- Safe anti-stuck detection: Activates only if actively attempting to move for > 1.8s with zero progress (zero ceiling rocketing)
+        if State.AutoBeat_ActiveMoveDir and State.AutoBeat_ActiveMoveDir.Magnitude > 0.05 then
+            if (Vector2.new(rootPos.X - autoBeatLastPos.X, rootPos.Z - autoBeatLastPos.Z)).Magnitude < 0.3 then
+                autoBeatStuckCount = autoBeatStuckCount + 1
+                if autoBeatStuckCount >= 45 then
+                    autoBeatStuckCount = 0
+                    local perp = Vector3.new(-State.AutoBeat_ActiveMoveDir.Z, 0, State.AutoBeat_ActiveMoveDir.X).Unit
+                    root.AssemblyLinearVelocity = Vector3.new(perp.X * 15, root.AssemblyLinearVelocity.Y, perp.Z * 15)
+                    task.wait(0.05)
+                end
+            else
                 autoBeatStuckCount = 0
-                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
-                hum.Jump = true
-                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 26, root.AssemblyLinearVelocity.Z)
-                task.wait(0.04)
             end
         else
             autoBeatStuckCount = 0
