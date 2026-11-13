@@ -8649,7 +8649,10 @@ local function autoBeatHideFromThreat(threatName)
             task.wait(0.2)
         end
         task.wait(1.5)
-        local groundHit = Workspace:Raycast(root.Position, Vector3.new(0, -25, 0))
+        local rpGround = RaycastParams.new()
+        rpGround.FilterType = Enum.RaycastFilterType.Exclude
+        rpGround.FilterDescendantsInstances = { char, Workspace:FindFirstChild("Drops") }
+        local groundHit = Workspace:Raycast(root.Position, Vector3.new(0, -35, 0), rpGround)
         if groundHit then
             root.CFrame = CFrame.new(groundHit.Position + Vector3.new(0, 3, 0))
         end
@@ -9132,12 +9135,13 @@ local function runAutoBeatLoop()
         end
         task.wait(0.08)
     end
+    autoBeatThread = nil
 end
 State.AutoBeat = State.AutoBeat or {}
 State.AutoBeat.RunLoop = runAutoBeatLoop
 
 State.AutoBeat.Start = function()
-    if autoBeatThread then return end
+    if autoBeatThread and coroutine.status(autoBeatThread) ~= "dead" then return end
     State.Auto_Beat = true
     autoBeatThread = task.spawn(runAutoBeatLoop)
     if State.AutoBeat.StatusLabel then
