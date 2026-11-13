@@ -9115,6 +9115,23 @@ local function autoBeatRunCycle()
         instantSolveBreakers()
     end
 
+    -- Step B.2: Room Gate Lever Solver (Auto-Pulls LeverForGate in puzzle rooms)
+    local gateLever = curRoom:FindFirstChild("LeverForGate", true)
+    local leverPrompt = gateLever and gateLever:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if leverPrompt and leverPrompt.Enabled then
+        if State.AutoBeat.StatusLabel then
+            State.AutoBeat.StatusLabel:SetText("Auto-Beat: Pulling Gate Lever in Room " .. tostring(curNum) .. "...", false)
+        end
+        local lPart = gateLever:IsA("BasePart") and gateLever or (gateLever.PrimaryPart or gateLever:FindFirstChildWhichIsA("BasePart", true))
+        local lPos = lPart and lPart.Position
+        if lPos then
+            local r = autoBeatWalkTo(lPos, 5.0, 7.0)
+            if r == "THREAT_INTERRUPTED" then return end
+            safeInstantFirePrompt(leverPrompt)
+            task.wait(0.2)
+        end
+    end
+
     -- Step C: Exit Door identification
     local exitDoor, targetDoorNum = autoBeatGetExitDoor(curRoom, curNum)
     if not exitDoor then return end
