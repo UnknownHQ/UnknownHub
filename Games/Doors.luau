@@ -5609,13 +5609,17 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Auto-Beat Continuous Physics Kinematics (Zero Stutter, Pure Horizontal Planar Velocity):
+    -- Auto-Beat Continuous Physics Kinematics (Zero Stutter, Pure Horizontal Planar Velocity, Zero Ramp-Launching):
     if State.Auto_Beat and State.AutoBeat_ActiveMoveDir and State.AutoBeat_ActiveMoveDir.Magnitude > 0.05 and root and hum and not hum.Sit then
         local autoSpeed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
         local rawDir = State.AutoBeat_ActiveMoveDir
         local flatUnit = Vector3.new(rawDir.X, 0, rawDir.Z).Magnitude > 0.01 and Vector3.new(rawDir.X, 0, rawDir.Z).Unit or Vector3.zero
         if flatUnit.Magnitude > 0.01 then
-            root.AssemblyLinearVelocity = Vector3.new(flatUnit.X * autoSpeed, root.AssemblyLinearVelocity.Y, flatUnit.Z * autoSpeed)
+            local yVel = root.AssemblyLinearVelocity.Y
+            if hum.FloorMaterial ~= Enum.Material.Air and yVel > 0.5 then
+                yVel = 0.5
+            end
+            root.AssemblyLinearVelocity = Vector3.new(flatUnit.X * autoSpeed, yVel, flatUnit.Z * autoSpeed)
             hum:Move(flatUnit, false)
         end
     end
