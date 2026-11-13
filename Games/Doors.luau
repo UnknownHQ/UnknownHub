@@ -5666,18 +5666,28 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Auto-Beat Continuous Physics Kinematics (Zero Stutter, Pure Horizontal Planar Velocity, Zero Ramp-Launching):
+    -- Auto-Beat Continuous Physics Kinematics (Zero Stutter, Pure Horizontal Planar Velocity, Anti-Ceiling Ground Lock):
     if State.Auto_Beat and State.AutoBeat_ActiveMoveDir and State.AutoBeat_ActiveMoveDir.Magnitude > 0.05 and root and hum and not hum.Sit then
         local autoSpeed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
         local rawDir = State.AutoBeat_ActiveMoveDir
         local flatUnit = Vector3.new(rawDir.X, 0, rawDir.Z).Magnitude > 0.01 and Vector3.new(rawDir.X, 0, rawDir.Z).Unit or Vector3.zero
         if flatUnit.Magnitude > 0.01 then
             local yVel = root.AssemblyLinearVelocity.Y
-            if hum.FloorMaterial ~= Enum.Material.Air and yVel > 0.5 then
-                yVel = 0.5
+            if yVel > 0.1 then
+                yVel = 0.1
             end
             root.AssemblyLinearVelocity = Vector3.new(flatUnit.X * autoSpeed, yVel, flatUnit.Z * autoSpeed)
             hum:Move(flatUnit, false)
+
+            -- Anti-Rafter / Ceiling Snap-Down Guard:
+            local rayP = RaycastParams.new()
+            rayP.FilterDescendantsInstances = {char}
+            rayP.FilterType = Enum.RaycastFilterType.Exclude
+            local floorRay = Workspace:Raycast(root.Position, Vector3.new(0, -25, 0), rayP)
+            if floorRay and (root.Position.Y - floorRay.Position.Y) > 5.5 then
+                root.CFrame = CFrame.new(root.Position.X, floorRay.Position.Y + 3.0, root.Position.Z) * root.CFrame.Rotation
+                root.AssemblyLinearVelocity = Vector3.new(flatUnit.X * autoSpeed, -5, flatUnit.Z * autoSpeed)
+            end
         end
     end
 
