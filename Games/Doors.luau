@@ -8525,7 +8525,8 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
 
         local rootPos = root.Position
         local flatDistToTarget = Vector2.new(rootPos.X - targetPos.X, rootPos.Z - targetPos.Z).Magnitude
-        if flatDistToTarget <= stopDist then
+        local vertDistToTarget = math.abs(rootPos.Y - targetPos.Y)
+        if (flatDistToTarget <= stopDist and vertDistToTarget <= 4.5) or ((rootPos - targetPos).Magnitude <= stopDist) then
             State.AutoBeat_ActiveMoveDir = nil
             hum:Move(Vector3.zero, false)
             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
@@ -8585,7 +8586,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
             end
             task.wait(0.02)
         else
-            local ok = pcall(function() path:ComputeAsync(rootPos, navTarget) end)
+            local ok = pcall(function() path:ComputeAsync(rootPos, targetPos) end)
             if ok and path.Status == Enum.PathStatus.Success then
                 local waypoints = path:GetWaypoints()
                 if #waypoints >= 2 then
@@ -9271,7 +9272,7 @@ local function autoBeatRunCycle()
         local lPart = gateLever:IsA("BasePart") and gateLever or (gateLever.PrimaryPart or gateLever:FindFirstChildWhichIsA("BasePart", true))
         local lPos = lPart and lPart.Position
         if lPos then
-            local r = autoBeatWalkTo(lPos, 5.0, 7.0)
+            local r = autoBeatWalkTo(lPos, 5.0, 15.0)
             if r == "THREAT_INTERRUPTED" then return end
             safeInstantFirePrompt(leverPrompt)
             task.wait(0.2)
