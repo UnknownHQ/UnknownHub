@@ -5529,6 +5529,10 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         if mgTable and mgTable.stopcam then
             mgTable.stopcam = false
         end
+        local cp = char and char:FindFirstChild("CollisionPart")
+        if cp and cp.Anchored and not hiding and (os.clock() >= unhideGraceUntil) then
+            cp.Anchored = false
+        end
         if root and root.Anchored and not hiding and (os.clock() >= unhideGraceUntil) then
             root.Anchored = false
         end
@@ -8230,6 +8234,7 @@ local autoBeatThread = nil
 local lastAutoBeatNudge = 0
 local autoBeatLastPos = Vector3.zero
 local autoBeatStuckCount = 0
+local lastLootedRoomNumber = nil
 
 -- Auto-Heal Engine: Restores HP automatically using inventory Bandages/Herbs/Vitamins
 local function autoBeatHealPlayer()
@@ -8435,12 +8440,12 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not root or not hum then return false end
 
-    -- 1.8-stud AgentRadius and 3.5-stud AgentHeight allows clean navigation under fallen obstacles (e.g. BookshelfObstruction)
+    -- 1.0-stud AgentRadius and 2.5-stud AgentHeight allows clean navigation through tight doors and around obstacles
     local path = PathfindingService:CreatePath({
-        AgentRadius = 1.8,
-        AgentHeight = 3.5,
+        AgentRadius = 1.0,
+        AgentHeight = 2.5,
         AgentCanJump = false,
-        WaypointSpacing = 2.5
+        WaypointSpacing = 2.0
     })
 
     -- Lock in walkspeed bypass and instant velocity kinematics (no acceleration ramp-up delay)
@@ -8774,15 +8779,21 @@ local function autoBeatLootNearby(maxRadius)
             -- Never loot wardrobes/closets during looting cycle (reserved for Hide!)
             local isHidingSpot = mName:find("wardrobe") or mName:find("closet") or mName:find("locker") or mName:find("bed") or obj:find("wardrobe") or obj:find("closet")
 
-            if not isHidingSpot then
+            local isPainting = obj:find("painting") or act:find("inspect") or mName:find("painting") or pName:find("painting")
+            if not isHidingSpot and not isPainting then
                 local isGold = obj:find("gold") or obj:find("coin") or mName:find("gold") or mName:find("coin") or pName:find("gold") or dName:find("gold") or desc:GetAttribute("Gold") ~= nil
                 local isDrawer = (obj:find("drawer") or obj:find("chest") or obj:find("desk") or obj:find("table") or mName:find("drawer") or mName:find("desk") or mName:find("table") or mName:find("chest") or mName:find("container") or pName:find("drawer") or pName:find("knobs") or act:find("loot") or act:find("open")) and not act:find("unlock") and not act:find("seat")
                 local isItem = obj:find("key") or obj:find("lighter") or obj:find("flashlight") or obj:find("vitamin") or obj:find("bandage") or obj:find("battery") or obj:find("crucifix") or obj:find("candle") or obj:find("shears") or desc:GetAttribute("Pickup") ~= nil or (desc.Parent and desc.Parent:GetAttribute("Pickup") ~= nil)
 
                 if (isGold and State.AutoBeat_LootGold) or (isDrawer and State.AutoBeat_LootDrawers) or isItem then
+                    local pPart = desc.Parent:IsA("BasePart") and desc.Parent or (pModel and (pModel.PrimaryPart or pModel:FindFirstChildWhichIsA("BasePart", true)))
                     local pos = nil
-                    if desc.Parent:IsA("BasePart") then pos = desc.Parent.Position
-                    elseif pModel then pos = pModel:GetPivot().Position end
+                    if pPart then
+                        -- Position character 2.5 studs in front of container on the floor, not inside solid wood
+                        pos = pPart.Position + pPart.CFrame.LookVector * 2.5
+                    elseif pModel then
+                        pos = pModel:GetPivot().Position
+                    end
                     if pos then
                         local dist = (root.Position - pos).Magnitude
                         if dist <= maxRadius then
@@ -8854,9 +8865,10 @@ local function autoBeatFindSallyToy(room)
     return nil
 end
 
--- Key & Lock Scanner
+-- Key & Lock Scanner (Supports pre-spawned keys and systematic drawer searching)
 local function autoBeatFindRoomKey(room)
     if not room then return nil end
+    -- Priority 1: Loose keys already spawned in the room
     for _, desc in ipairs(room:GetDescendants()) do
         if desc:IsA("Model") and (desc.Name == "Key" or desc.Name:find("KeyObtain") or desc.Name:find("ElectricalKey")) then
             local prompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -8866,9 +8878,9 @@ local function autoBeatFindRoomKey(room)
             end
         end
     end
-    -- Check inside drawers
+    -- Priority 2: Key loose inside a container
     for _, desc in ipairs(room:GetDescendants()) do
-        if desc:IsA("Model") and (desc.Name == "DrawerContainer" or desc.Name:find("Desk") or desc.Name:find("Table")) then
+        if desc:IsA("Model") and (desc.Name == "DrawerContainer" or desc.Name:find("Desk") or desc.Name:find("Table") or desc.Name:find("Dresser")) then
             local keyInside = desc:FindFirstChild("Key", true) or desc:FindFirstChild("KeyObtain", true)
             if keyInside then
                 local drawerPrompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -8878,6 +8890,35 @@ local function autoBeatFindRoomKey(room)
                 end
             end
         end
+    end
+    -- Priority 3: Systematic Drawer search when key is hidden inside unopened drawers
+    local bestDrawerPrompt = nil
+    local bestDrawerPos = nil
+    local bestDrawerDist = math.huge
+    local root = getRoot()
+    local rootPos = root and root.Position or Vector3.zero
+    for _, desc in ipairs(room:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") and desc.Enabled and not autoBeatLootedPrompts[desc] then
+            local act = (desc.ActionText or ""):lower()
+            local obj = (desc.ObjectText or ""):lower()
+            local pName = desc.Parent and desc.Parent.Name:lower() or ""
+            if act:find("loot") or obj:find("drawer") or obj:find("desk") or pName == "knobs" then
+                local p = desc.Parent:IsA("BasePart") and desc.Parent or desc:FindFirstAncestorWhichIsA("Model")
+                local cf = p:IsA("BasePart") and p.CFrame or (p:IsA("Model") and p:GetPivot())
+                if cf then
+                    local frontPos = cf.Position + cf.LookVector * 2.5
+                    local d = (rootPos - frontPos).Magnitude
+                    if d < bestDrawerDist then
+                        bestDrawerDist = d
+                        bestDrawerPrompt = desc
+                        bestDrawerPos = frontPos
+                    end
+                end
+            end
+        end
+    end
+    if bestDrawerPrompt and bestDrawerPos then
+        return bestDrawerPrompt, bestDrawerPos, bestDrawerPrompt.Parent, true
     end
     return nil
 end
@@ -9081,8 +9122,12 @@ local function autoBeatRunCycle()
         end
     end
 
-    -- Step D: Loot nearby gold and open drawers across room
-    if State.AutoBeat_LootGold or State.AutoBeat_LootDrawers then
+    -- Check if exit door is already open
+    local isExitDoorOpen = exitDoor:GetAttribute("Opened") == true or exitDoor:GetAttribute("Open") == true or exitDoor:FindFirstChild("ClientOpen") ~= nil
+
+    -- Step D: Loot room ONCE per room (never loot backwards when door is already opened!)
+    if not isExitDoorOpen and (State.AutoBeat_LootGold or State.AutoBeat_LootDrawers) and lastLootedRoomNumber ~= curNum then
+        lastLootedRoomNumber = curNum
         autoBeatLootNearby(55.0)
     end
 
@@ -9092,8 +9137,8 @@ local function autoBeatRunCycle()
     end
 
     local distToDoor = (root.Position - doorPos).Magnitude
-    if distToDoor > 6.0 then
-        local r = autoBeatWalkTo(doorPos, 5.0, 6.0)
+    if distToDoor > 5.0 then
+        local r = autoBeatWalkTo(doorPos, 4.5, 6.0)
         if r == "THREAT_INTERRUPTED" then return end
     end
 
@@ -9104,11 +9149,15 @@ local function autoBeatRunCycle()
         task.wait(0.12)
     end
 
-    -- Strip collision locally on door leaf for smooth walk-through
+    -- Strip collision locally on door leaf and fire ClientOpen remote for guaranteed traversal
     processNearbyDoors(doorPos, 25)
     local doorLeaf = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("Panel")
     if doorLeaf and doorLeaf:IsA("BasePart") then
         doorLeaf.CanCollide = false
+    end
+    local co = exitDoor:FindFirstChild("ClientOpen")
+    if co and co:IsA("RemoteEvent") then
+        pcall(function() co:FireServer() end)
     end
 
     -- Walk straight through the doorway into the next room
@@ -9128,17 +9177,25 @@ local function autoBeatRunCycle()
             advancePos = doorPos + Vector3.new(roomDir.X, 0, roomDir.Z) * 8
         end
     else
-        advancePos = doorPos + Vector3.new(0, 0, -8)
+        local rexit = curRoom:FindFirstChild("RoomExit")
+        if rexit and rexit:IsA("BasePart") then
+            advancePos = rexit.Position + rexit.CFrame.LookVector * 8
+        else
+            advancePos = doorPos + Vector3.new(0, 0, -8)
+        end
     end
 
     if State.AutoBeat.StatusLabel then
         State.AutoBeat.StatusLabel:SetText("Auto-Beat: Entering Room " .. tostring(curNum + 1) .. "...", false)
     end
-    local r = autoBeatWalkTo(advancePos, 3.5, 4.0)
+    local r = autoBeatWalkTo(advancePos, 4.0, 5.0)
     if r == "THREAT_INTERRUPTED" then return end
 
-    -- Update lastKnownPlayerRoom only when physically across the doorway into the next room
-    if r == true then
+    -- Check real 3D physical room immediately to advance room progression monotonically
+    local realRoom, realNum = getObjectRoom(root)
+    if realNum and realNum >= curNum + 1 then
+        lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, realNum)
+    elseif r == true then
         lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
     end
 end
