@@ -9272,8 +9272,17 @@ local function autoBeatRunCycle()
         end
     end
 
-    -- Step B.2: Room Gate Lever Solver (Auto-Pulls LeverForGate in puzzle rooms)
-    local gateLever = curRoom:FindFirstChild("LeverForGate", true)
+    -- Step C: Exit Door identification (Hoisted to check opened status before lever puzzle)
+    local exitDoor, targetDoorNum = autoBeatGetExitDoor(curRoom, curNum)
+    if not exitDoor then return end
+
+    local doorPos = getDoorPosition(exitDoor)
+    if not doorPos then return end
+
+    local isExitDoorOpen = exitDoor:GetAttribute("Opened") == true or exitDoor:GetAttribute("Open") == true or exitDoor:FindFirstChild("ClientOpen") ~= nil
+
+    -- Step B.2: Room Gate Lever Solver (Only pulls lever if exit door is NOT already open)
+    local gateLever = not isExitDoorOpen and curRoom:FindFirstChild("LeverForGate", true)
     local leverPrompt = gateLever and gateLever:FindFirstChildWhichIsA("ProximityPrompt", true)
     if leverPrompt and leverPrompt.Enabled then
         if State.AutoBeat.StatusLabel then
@@ -9282,19 +9291,12 @@ local function autoBeatRunCycle()
         local lPart = gateLever:IsA("BasePart") and gateLever or (gateLever.PrimaryPart or gateLever:FindFirstChildWhichIsA("BasePart", true))
         local lPos = lPart and lPart.Position
         if lPos then
-            local r = autoBeatWalkTo(lPos, 5.0, 15.0)
+            local r = autoBeatWalkTo(lPos, 5.0, 25.0)
             if r == "THREAT_INTERRUPTED" then return end
             safeInstantFirePrompt(leverPrompt)
             task.wait(0.2)
         end
     end
-
-    -- Step C: Exit Door identification
-    local exitDoor, targetDoorNum = autoBeatGetExitDoor(curRoom, curNum)
-    if not exitDoor then return end
-
-    local doorPos = getDoorPosition(exitDoor)
-    if not doorPos then return end
 
     -- Check if door is locked
     local lock = exitDoor:FindFirstChild("Lock") or exitDoor:FindFirstChild("LockPart") or exitDoor:GetAttribute("Locked") == true
@@ -9333,9 +9335,6 @@ local function autoBeatRunCycle()
             return
         end
     end
-
-    -- Check if exit door is already open
-    local isExitDoorOpen = exitDoor:GetAttribute("Opened") == true or exitDoor:GetAttribute("Open") == true or exitDoor:FindFirstChild("ClientOpen") ~= nil
 
     -- Step D: Loot room ONCE per room (never loot backwards when door is already opened, and NEVER during Seek chase!)
     if not isSeekActive() and not isExitDoorOpen and (State.AutoBeat_LootGold or State.AutoBeat_LootDrawers) and lastLootedRoomNumber ~= curNum then
