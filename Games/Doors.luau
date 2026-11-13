@@ -8617,7 +8617,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                         while State.Auto_Beat and (os.clock() - wpStart < 0.8) do
                             local curFlatDist = (Vector2.new(root.Position.X - wpPos.X, root.Position.Z - wpPos.Z)).Magnitude
                             local nextFlatDist = nextWp and (Vector2.new(root.Position.X - nextWp.Position.X, root.Position.Z - nextWp.Position.Z)).Magnitude or math.huge
-                            if curFlatDist <= 3.5 or nextFlatDist < curFlatDist then
+                            if curFlatDist <= 1.8 or (curFlatDist <= 2.5 and nextFlatDist < curFlatDist) then
                                 break
                             end
                             if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
@@ -9461,8 +9461,11 @@ local function autoBeatRunCycle()
     local r = autoBeatWalkTo(advancePos, 4.0, 5.0)
     if r == "THREAT_INTERRUPTED" then return end
 
-    -- Advance monotonic room state to curNum + 1
-    lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
+    -- Advance monotonic room state only once actually arrived in the next room
+    local realRoom, realNum = getObjectRoom(root)
+    if (realNum and realNum >= curNum + 1) or r == true then
+        lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
+    end
 end
 
 -- Auto Beat Background Runner Loop
