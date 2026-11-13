@@ -8647,33 +8647,19 @@ local function autoBeatHideFromThreat(threatName)
         end
     end
 
-    -- Ceiling Haven Fallback if no closet is within 65 studs
+    -- Entity Immunity Standby Fallback if no closet is within 65 studs (Zero ceiling tile trapping)
     if not bestPrompt or not bestPos or bestDist > 65 then
         if State.AutoBeat and State.AutoBeat.StatusLabel then
-            State.AutoBeat.StatusLabel:SetText("Auto-Beat: Ceiling Haven (" .. tostring(threatName or "Entity") .. ")", true)
+            State.AutoBeat.StatusLabel:SetText("Auto-Beat: Entity Immunity Guard (" .. tostring(threatName or "Entity") .. ")", true)
         end
         local coll = char:FindFirstChild("Collision")
         if coll and coll:IsA("BasePart") then pcall(function() coll.CollisionGroup = "NoPlayer" end) end
         hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-        local safePos = root.Position + Vector3.new(0, 14, 0)
-        local t0 = os.clock()
-        while (root.Position - safePos).Magnitude > 1.0 and (os.clock() - t0 < 0.5) do
-            local dt = task.wait(0.02)
-            root.CFrame = root.CFrame + Vector3.new(0, 30 * dt, 0)
-            root.AssemblyLinearVelocity = Vector3.zero
-        end
         while State.Auto_Beat and isLethalEntityIncoming and isLethalEntityIncoming() do
             root.AssemblyLinearVelocity = Vector3.zero
             task.wait(0.2)
         end
-        task.wait(1.5)
-        local rpGround = RaycastParams.new()
-        rpGround.FilterType = Enum.RaycastFilterType.Exclude
-        rpGround.FilterDescendantsInstances = { char, Workspace:FindFirstChild("Drops") }
-        local groundHit = Workspace:Raycast(root.Position, Vector3.new(0, -35, 0), rpGround)
-        if groundHit then
-            root.CFrame = CFrame.new(groundHit.Position + Vector3.new(0, 3, 0))
-        end
+        task.wait(1.0)
         return true
     end
 
