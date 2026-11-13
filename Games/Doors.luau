@@ -2781,11 +2781,12 @@ end)
 
 -- Defuse Seek Obstacles, Fallen Chandeliers & Hand Hitboxes (Zero Collisions & Zero Damage)
 local function defuseSeekObstacles(room)
-    if not (State.Anti_Seek and room) then return end
+    if not room then return end
     pcall(function()
         for _, desc in ipairs(room:GetDescendants()) do
             local dName = desc.Name:lower()
-            if dName:find("seek_arm") or dName:find("seekarm") or dName:find("seekhand") or dName:find("seekslop") or dName:find("chande") or dName:find("fallen") then
+            -- Defuse Seek obstacles
+            if State.Anti_Seek and (dName:find("seek_arm") or dName:find("seekarm") or dName:find("seekhand") or dName:find("seekslop") or dName:find("chande") or dName:find("fallen")) then
                 for _, sub in ipairs(desc:GetDescendants()) do
                     if sub:IsA("TouchTransmitter") then
                         sub:Destroy()
@@ -2800,6 +2801,10 @@ local function defuseSeekObstacles(room)
                     desc.CanCollide = false
                     desc.CanQuery = false
                 end
+            end
+            -- Strip decorative obstacle collisions (potted plants, low bushes) that block paths
+            if desc:IsA("BasePart") and desc.Name == "Collision" and desc.Parent and (desc.Parent.Name == "Potted_Plant" or desc.Parent.Name:find("Plant")) then
+                desc.CanCollide = false
             end
         end
     end)
@@ -9271,8 +9276,8 @@ local function autoBeatRunCycle()
 
     local isExitDoorOpen = exitDoor:GetAttribute("Opened") == true or exitDoor:GetAttribute("Open") == true or exitDoor:FindFirstChild("ClientOpen") ~= nil
 
-    -- Step B.2: Room Gate Lever Solver (Only pulls lever if exit door is NOT already open)
-    local gateLever = not isExitDoorOpen and curRoom:FindFirstChild("LeverForGate", true)
+    -- Step B.2: Room Gate Lever Solver (Authoritative Gate Unlocker)
+    local gateLever = curRoom:FindFirstChild("LeverForGate", true)
     local leverPrompt = gateLever and gateLever:FindFirstChildWhichIsA("ProximityPrompt", true)
     if leverPrompt and leverPrompt.Enabled then
         if State.AutoBeat.StatusLabel then
@@ -9281,10 +9286,11 @@ local function autoBeatRunCycle()
         local lPart = gateLever:IsA("BasePart") and gateLever or (gateLever.PrimaryPart or gateLever:FindFirstChildWhichIsA("BasePart", true))
         local lPos = lPart and lPart.Position
         if lPos then
-            local r = autoBeatWalkTo(lPos, 5.0, 25.0)
+            defuseSeekObstacles(curRoom)
+            local r = autoBeatWalkTo(lPos, 6.0, 30.0)
             if r == "THREAT_INTERRUPTED" then return end
             safeInstantFirePrompt(leverPrompt)
-            task.wait(0.2)
+            task.wait(0.3)
         end
     end
 
