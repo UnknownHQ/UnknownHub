@@ -8523,46 +8523,64 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
             local ok = pcall(function() path:ComputeAsync(rootPos, navTarget) end)
             if ok and path.Status == Enum.PathStatus.Success then
                 local waypoints = path:GetWaypoints()
-                for i = 2, #waypoints do
-                    if not State.Auto_Beat or (isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat) then
-                        State.AutoBeat_ActiveMoveDir = nil
-                        hum:Move(Vector3.zero, false)
-                        root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
-                        return "THREAT_INTERRUPTED"
-                    end
-                    local wp = waypoints[i]
-                    local wpPos = wp.Position
-                    local wpStart = os.clock()
-                    while State.Auto_Beat and (Vector2.new(root.Position.X - wpPos.X, root.Position.Z - wpPos.Z)).Magnitude > 2.0 and (os.clock() - wpStart < 1.4) do
-                        if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+                if #waypoints >= 2 then
+                    for i = 2, #waypoints do
+                        if not State.Auto_Beat or (isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat) then
                             State.AutoBeat_ActiveMoveDir = nil
                             hum:Move(Vector3.zero, false)
                             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
                             return "THREAT_INTERRUPTED"
                         end
-                        autoBeatCheckCrouch(root, curNum)
-                        if syncServerSlide then
-                            local isC = (mg and mg.crouching) or (char and char:GetAttribute("Crouching")) or false
-                            syncServerSlide(true, isC)
-                        end
-                        local toWp = Vector3.new(wpPos.X - root.Position.X, 0, wpPos.Z - root.Position.Z)
-                        local d = toWp.Magnitude
-                        local dir = d > 0.05 and toWp.Unit or Vector3.zero
-                        if dir.Magnitude > 0.01 then
-                            if mg and mg.targetCameraTowardsDirection then
-                                pcall(function() mg.targetCameraTowardsDirection(dir) end)
+                        local wp = waypoints[i]
+                        local wpPos = wp.Position
+                        local wpStart = os.clock()
+                        while State.Auto_Beat and (Vector2.new(root.Position.X - wpPos.X, root.Position.Z - wpPos.Z)).Magnitude > 2.0 and (os.clock() - wpStart < 1.4) do
+                            if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
+                                State.AutoBeat_ActiveMoveDir = nil
+                                hum:Move(Vector3.zero, false)
+                                root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+                                return "THREAT_INTERRUPTED"
                             end
-                            State.AutoBeat_ActiveMoveDir = dir
-                            hum:Move(dir, false)
-                        else
-                            State.AutoBeat_ActiveMoveDir = nil
+                            autoBeatCheckCrouch(root, curNum)
+                            if syncServerSlide then
+                                local isC = (mg and mg.crouching) or (char and char:GetAttribute("Crouching")) or false
+                                syncServerSlide(true, isC)
+                            end
+                            local toWp = Vector3.new(wpPos.X - root.Position.X, 0, wpPos.Z - root.Position.Z)
+                            local d = toWp.Magnitude
+                            local dir = d > 0.05 and toWp.Unit or Vector3.zero
+                            if dir.Magnitude > 0.01 then
+                                if mg and mg.targetCameraTowardsDirection then
+                                    pcall(function() mg.targetCameraTowardsDirection(dir) end)
+                                end
+                                State.AutoBeat_ActiveMoveDir = dir
+                                hum:Move(dir, false)
+                            else
+                                State.AutoBeat_ActiveMoveDir = nil
+                            end
+                            task.wait(0.02)
                         end
-                        task.wait(0.02)
+                        if Vector2.new(root.Position.X - targetPos.X, root.Position.Z - targetPos.Z).Magnitude < 6.0 and autoBeatHasLineOfSight(root.Position + Vector3.new(0, 0.5, 0), targetPos + Vector3.new(0, 0.5, 0)) then
+                            break
+                        end
                     end
-                    if Vector2.new(root.Position.X - targetPos.X, root.Position.Z - targetPos.Z).Magnitude < 6.0 and autoBeatHasLineOfSight(root.Position + Vector3.new(0, 0.5, 0), targetPos + Vector3.new(0, 0.5, 0)) then
-                        break
+                else
+                    -- Direct short hop when path has fewer than 2 waypoints
+                    local toT = Vector3.new(navTarget.X - root.Position.X, 0, navTarget.Z - root.Position.Z)
+                    local d = toT.Magnitude
+                    local dir = d > 0.05 and toT.Unit or Vector3.zero
+                    if dir.Magnitude > 0.01 then
+                        if mg and mg.targetCameraTowardsDirection then
+                            pcall(function() mg.targetCameraTowardsDirection(dir) end)
+                        end
+                        State.AutoBeat_ActiveMoveDir = dir
+                        hum:Move(dir, false)
+                    else
+                        State.AutoBeat_ActiveMoveDir = nil
                     end
+                    task.wait(0.03)
                 end
+                task.wait(0.02)
             else
                 -- Fallback: Smooth steering towards target without forcing CFrame
                 local toT = Vector3.new(navTarget.X - root.Position.X, 0, navTarget.Z - root.Position.Z)
