@@ -8598,11 +8598,40 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                 end
                 task.wait(0.02)
             else
-                -- Fallback: Smooth steering towards target without forcing CFrame
+                -- Fallback: Kinematic Whisker Steering & Corner Deflection (Navigates around partitions, glass, & obstacles)
                 local toT = Vector3.new(navTarget.X - root.Position.X, 0, navTarget.Z - root.Position.Z)
                 local d = toT.Magnitude
                 local dir = d > 0.05 and toT.Unit or Vector3.zero
                 if dir.Magnitude > 0.01 then
+                    -- Whisker Obstacle Avoidance: If straight path is blocked by a wall/divider closer than 4.5 studs, deflect around it!
+                    local rpWhisker = RaycastParams.new()
+                    rpWhisker.FilterDescendantsInstances = { char, Workspace:FindFirstChild("Drops") }
+                    rpWhisker.FilterType = Enum.RaycastFilterType.Exclude
+                    
+                    local checkRay = Workspace:Raycast(root.Position + Vector3.new(0, 0.5, 0), dir * 4.5, rpWhisker)
+                    if checkRay and checkRay.Instance and checkRay.Instance.CanCollide then
+                        local bestDir = nil
+                        local bestScore = -math.huge
+                        for _, angleOffset in ipairs({ 45, -45, 90, -90, 120, -120 }) do
+                            local rad = math.rad(angleOffset)
+                            local cosA = math.cos(rad)
+                            local sinA = math.sin(rad)
+                            local candDir = Vector3.new(dir.X * cosA - dir.Z * sinA, 0, dir.X * sinA + dir.Z * cosA).Unit
+                            local candRay = Workspace:Raycast(root.Position + Vector3.new(0, 0.5, 0), candDir * 6.0, rpWhisker)
+                            local clearDist = candRay and (root.Position - candRay.Position).Magnitude or 6.0
+                            if clearDist >= 3.0 then
+                                local score = clearDist + candDir:Dot(dir) * 4
+                                if score > bestScore then
+                                    bestScore = score
+                                    bestDir = candDir
+                                end
+                            end
+                        end
+                        if bestDir then
+                            dir = bestDir
+                        end
+                    end
+
                     if mg and mg.targetCameraTowardsDirection then
                         pcall(function() mg.targetCameraTowardsDirection(dir) end)
                     end
