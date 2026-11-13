@@ -9330,8 +9330,11 @@ local function autoBeatRunCycle()
     local gate = curRoom:FindFirstChild("Gate", true)
     local isGateOpen = false
     if gate then
-        local leverConstraint = gate:FindFirstChildWhichIsA("PrismaticConstraint", true) or gate:FindFirstChildWhichIsA("HingeConstraint", true)
-        if leverConstraint and (leverConstraint.CurrentPosition < -0.3 or leverConstraint.CurrentPosition > 0.3) then
+        local pCon = gate:FindFirstChildWhichIsA("PrismaticConstraint", true)
+        local hCon = gate:FindFirstChildWhichIsA("HingeConstraint", true)
+        if pCon and (pCon.CurrentPosition < -0.3 or pCon.CurrentPosition > 0.3) then
+            isGateOpen = true
+        elseif hCon and (math.abs(hCon.CurrentAngle) > 10) then
             isGateOpen = true
         end
         local thingToOpen = gate:FindFirstChild("ThingToOpen")
