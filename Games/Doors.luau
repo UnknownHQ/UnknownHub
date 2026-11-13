@@ -5609,12 +5609,15 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Auto-Beat Continuous Physics Kinematics (Zero Stutter, No Velocity Zeroing Fight):
+    -- Auto-Beat Continuous Physics Kinematics (Zero Stutter, Pure Horizontal Planar Velocity):
     if State.Auto_Beat and State.AutoBeat_ActiveMoveDir and State.AutoBeat_ActiveMoveDir.Magnitude > 0.05 and root and hum and not hum.Sit then
         local autoSpeed = math.clamp(State.AutoBeat_WalkSpeed or 55, 30, 65)
-        local moveUnit = State.AutoBeat_ActiveMoveDir.Unit
-        root.AssemblyLinearVelocity = Vector3.new(moveUnit.X * autoSpeed, root.AssemblyLinearVelocity.Y, moveUnit.Z * autoSpeed)
-        hum:Move(moveUnit, false)
+        local rawDir = State.AutoBeat_ActiveMoveDir
+        local flatUnit = Vector3.new(rawDir.X, 0, rawDir.Z).Magnitude > 0.01 and Vector3.new(rawDir.X, 0, rawDir.Z).Unit or Vector3.zero
+        if flatUnit.Magnitude > 0.01 then
+            root.AssemblyLinearVelocity = Vector3.new(flatUnit.X * autoSpeed, root.AssemblyLinearVelocity.Y, flatUnit.Z * autoSpeed)
+            hum:Move(flatUnit, false)
+        end
     end
 
     -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
@@ -8459,8 +8462,8 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
         end
 
         local rootPos = root.Position
-        local distToTarget = (rootPos - targetPos).Magnitude
-        if distToTarget <= stopDist then
+        local flatDistToTarget = Vector2.new(rootPos.X - targetPos.X, rootPos.Z - targetPos.Z).Magnitude
+        if flatDistToTarget <= stopDist then
             State.AutoBeat_ActiveMoveDir = nil
             hum:Move(Vector3.zero, false)
             root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
@@ -8499,16 +8502,16 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
         local navTarget = Vector3.new(targetPos.X, rootPos.Y, targetPos.Z)
         local eyePos = rootPos + Vector3.new(0, 1.5, 0)
         local targetEyePos = targetPos + Vector3.new(0, 1.5, 0)
-        local distToNav = (rootPos - navTarget).Magnitude
+        local distToNav = Vector2.new(rootPos.X - navTarget.X, rootPos.Z - navTarget.Z).Magnitude
         local hasDirectSight = (distToNav <= 14.0) and autoBeatHasLineOfSight(eyePos, targetEyePos)
 
         if hasDirectSight then
-            local toT = (navTarget - root.Position)
+            local toT = Vector3.new(navTarget.X - root.Position.X, 0, navTarget.Z - root.Position.Z)
             local d = toT.Magnitude
             local dir = d > 0.05 and toT.Unit or Vector3.zero
             if dir.Magnitude > 0.01 then
                 if mg and mg.targetCameraTowardsDirection then
-                    pcall(function() mg.targetCameraTowardsDirection(Vector3.new(dir.X, 0, dir.Z)) end)
+                    pcall(function() mg.targetCameraTowardsDirection(dir) end)
                 end
                 State.AutoBeat_ActiveMoveDir = dir
                 hum:Move(dir, false)
@@ -8530,7 +8533,7 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                     local wp = waypoints[i]
                     local wpPos = wp.Position
                     local wpStart = os.clock()
-                    while State.Auto_Beat and (root.Position - wpPos).Magnitude > 2.0 and (os.clock() - wpStart < 1.4) do
+                    while State.Auto_Beat and (Vector2.new(root.Position.X - wpPos.X, root.Position.Z - wpPos.Z)).Magnitude > 2.0 and (os.clock() - wpStart < 1.4) do
                         if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
                             State.AutoBeat_ActiveMoveDir = nil
                             hum:Move(Vector3.zero, false)
@@ -8542,12 +8545,12 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                             local isC = (mg and mg.crouching) or (char and char:GetAttribute("Crouching")) or false
                             syncServerSlide(true, isC)
                         end
-                        local toWp = (wpPos - root.Position)
+                        local toWp = Vector3.new(wpPos.X - root.Position.X, 0, wpPos.Z - root.Position.Z)
                         local d = toWp.Magnitude
                         local dir = d > 0.05 and toWp.Unit or Vector3.zero
                         if dir.Magnitude > 0.01 then
                             if mg and mg.targetCameraTowardsDirection then
-                                pcall(function() mg.targetCameraTowardsDirection(Vector3.new(dir.X, 0, dir.Z)) end)
+                                pcall(function() mg.targetCameraTowardsDirection(dir) end)
                             end
                             State.AutoBeat_ActiveMoveDir = dir
                             hum:Move(dir, false)
@@ -8556,18 +8559,18 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                         end
                         task.wait(0.02)
                     end
-                    if (root.Position - targetPos).Magnitude < 6.0 and autoBeatHasLineOfSight(root.Position + Vector3.new(0, 0.5, 0), targetPos + Vector3.new(0, 0.5, 0)) then
+                    if Vector2.new(root.Position.X - targetPos.X, root.Position.Z - targetPos.Z).Magnitude < 6.0 and autoBeatHasLineOfSight(root.Position + Vector3.new(0, 0.5, 0), targetPos + Vector3.new(0, 0.5, 0)) then
                         break
                     end
                 end
             else
                 -- Fallback: Smooth steering towards target without forcing CFrame
-                local toT = (navTarget - root.Position)
+                local toT = Vector3.new(navTarget.X - root.Position.X, 0, navTarget.Z - root.Position.Z)
                 local d = toT.Magnitude
                 local dir = d > 0.05 and toT.Unit or Vector3.zero
                 if dir.Magnitude > 0.01 then
                     if mg and mg.targetCameraTowardsDirection then
-                        pcall(function() mg.targetCameraTowardsDirection(Vector3.new(dir.X, 0, dir.Z)) end)
+                        pcall(function() mg.targetCameraTowardsDirection(dir) end)
                     end
                     State.AutoBeat_ActiveMoveDir = dir
                     hum:Move(dir, false)
