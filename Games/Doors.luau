@@ -1091,6 +1091,10 @@ end
 local lastKnownPlayerRoom = nil
 
 local function getCurrentRoomNumber()
+    -- 0. Monotonic check: Check LocalPlayer CurrentRoom attribute first if present
+    local pAttr = LocalPlayer and LocalPlayer:GetAttribute("CurrentRoom")
+    local pAttrNum = pAttr ~= nil and tonumber(pAttr)
+
     -- 1. Real-time 3D Spatial Room Check (Room where the player is ACTUALLY physically standing!)
     local root = getRoot()
     local currentRooms = Workspace:FindFirstChild("CurrentRooms")
@@ -1108,8 +1112,9 @@ local function getCurrentRoomNumber()
             end
         end
         if highestRoom ~= -1 then
-            lastKnownPlayerRoom = highestRoom
-            return highestRoom
+            local resolved = math.max(highestRoom, pAttrNum or 0, lastKnownPlayerRoom or 0)
+            lastKnownPlayerRoom = resolved
+            return resolved
         end
 
         -- Nearest room center check (handles doorways, siderooms, and room boundary seams)
@@ -1127,24 +1132,25 @@ local function getCurrentRoomNumber()
             end
         end
         if bestRoom and bestDist < 150 then
-            lastKnownPlayerRoom = bestRoom
-            return bestRoom
+            local resolved = math.max(bestRoom, pAttrNum or 0, lastKnownPlayerRoom or 0)
+            lastKnownPlayerRoom = resolved
+            return resolved
         end
     end
 
-    -- 2. Fallback to LocalPlayer attribute only when character root is unavailable
-    local pAttr = LocalPlayer and LocalPlayer:GetAttribute("CurrentRoom")
-    if pAttr ~= nil and tonumber(pAttr) then
-        lastKnownPlayerRoom = tonumber(pAttr)
-        return tonumber(pAttr)
+    if pAttrNum then
+        local resolved = math.max(pAttrNum, lastKnownPlayerRoom or 0)
+        lastKnownPlayerRoom = resolved
+        return resolved
     end
 
     local char = getChar()
     if char then
         local cAttr = char:GetAttribute("CurrentRoom")
         if cAttr ~= nil and tonumber(cAttr) then
-            lastKnownPlayerRoom = tonumber(cAttr)
-            return tonumber(cAttr)
+            local resolved = math.max(tonumber(cAttr), lastKnownPlayerRoom or 0)
+            lastKnownPlayerRoom = resolved
+            return resolved
         end
     end
 
@@ -8300,18 +8306,37 @@ local function autoBeatCheckCrouch(root, curRoomNum)
         end
     end
 
-    local mustCrouch = (ceilHit ~= nil) or (forwardHeadHit ~= nil) or isFigRoom
+    local boNear = false
+    if curRoom then
+        local bo = curRoom:FindFirstChild("BookshelfObstruction", true)
+        if bo then
+            local boPos = bo:GetPivot().Position
+            if (root.Position - boPos).Magnitude < 16.0 then
+                boNear = true
+            end
+        end
+    end
+
+    local mustCrouch = (ceilHit ~= nil) or (forwardHeadHit ~= nil) or boNear or isFigRoom
 
     if mgTable then
         if mustCrouch and not mgTable.crouching then
-            mgTable.crouching = true
+            if mgTable.crouch then
+                pcall(function() mgTable.crouch(true) end)
+            else
+                mgTable.crouching = true
+            end
             pcall(function()
                 local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
                 local cr = rf and rf:FindFirstChild("Crouch")
                 if cr then cr:FireServer(true, false) end
             end)
         elseif not mustCrouch and mgTable.crouching and not isFigRoom then
-            mgTable.crouching = false
+            if mgTable.crouch then
+                pcall(function() mgTable.crouch(false) end)
+            else
+                mgTable.crouching = false
+            end
             pcall(function()
                 local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
                 local cr = rf and rf:FindFirstChild("Crouch")
@@ -8405,10 +8430,10 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not root or not hum then return false end
 
-    -- 2-stud AgentRadius guarantees safe clearance away from wall corners and door jambs
+    -- 1.8-stud AgentRadius and 3.5-stud AgentHeight allows clean navigation under fallen obstacles (e.g. BookshelfObstruction)
     local path = PathfindingService:CreatePath({
-        AgentRadius = 2.0,
-        AgentHeight = 4.5,
+        AgentRadius = 1.8,
+        AgentHeight = 3.5,
         AgentCanJump = false,
         WaypointSpacing = 2.5
     })
@@ -8474,7 +8499,8 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
         local navTarget = Vector3.new(targetPos.X, rootPos.Y, targetPos.Z)
         local eyePos = rootPos + Vector3.new(0, 1.5, 0)
         local targetEyePos = targetPos + Vector3.new(0, 1.5, 0)
-        local hasDirectSight = autoBeatHasLineOfSight(eyePos, targetEyePos)
+        local distToNav = (rootPos - navTarget).Magnitude
+        local hasDirectSight = (distToNav <= 14.0) and autoBeatHasLineOfSight(eyePos, targetEyePos)
 
         if hasDirectSight then
             local toT = (navTarget - root.Position)
@@ -8708,7 +8734,7 @@ local autoBeatLootedPrompts = setmetatable({}, {__mode = "k"})
 
 -- Comprehensive Gold, Coin, Item, and Container Looting Engine
 local function autoBeatLootNearby(maxRadius)
-    maxRadius = maxRadius or 35.0
+    maxRadius = maxRadius or 55.0
     local root = getRoot()
     if not root then return end
     local curRoom = getObjectRoom(root)
@@ -8729,7 +8755,7 @@ local function autoBeatLootNearby(maxRadius)
 
             if not isHidingSpot then
                 local isGold = obj:find("gold") or obj:find("coin") or mName:find("gold") or mName:find("coin") or pName:find("gold") or dName:find("gold") or desc:GetAttribute("Gold") ~= nil
-                local isDrawer = (obj:find("drawer") or obj:find("chest") or obj:find("desk") or obj:find("table") or mName:find("drawer") or mName:find("desk") or mName:find("table") or mName:find("chest") or pName:find("drawer") or act:find("open")) and not act:find("unlock")
+                local isDrawer = (obj:find("drawer") or obj:find("chest") or obj:find("desk") or obj:find("table") or mName:find("drawer") or mName:find("desk") or mName:find("table") or mName:find("chest") or mName:find("container") or pName:find("drawer") or pName:find("knobs") or act:find("loot") or act:find("open")) and not act:find("unlock") and not act:find("seat")
                 local isItem = obj:find("key") or obj:find("lighter") or obj:find("flashlight") or obj:find("vitamin") or obj:find("bandage") or obj:find("battery") or obj:find("crucifix") or obj:find("candle") or obj:find("shears") or desc:GetAttribute("Pickup") ~= nil or (desc.Parent and desc.Parent:GetAttribute("Pickup") ~= nil)
 
                 if (isGold and State.AutoBeat_LootGold) or (isDrawer and State.AutoBeat_LootDrawers) or isItem then
@@ -8755,13 +8781,37 @@ local function autoBeatLootNearby(maxRadius)
             if item.dist <= 6.5 then
                 safeInstantFirePrompt(item.prompt)
                 autoBeatLootedPrompts[item.prompt] = true
-                task.wait(0.08)
+                task.wait(0.12)
+                -- Check for inner gold/coins inside drawer
+                if item.isDrawer and item.prompt.Parent then
+                    local container = item.prompt:FindFirstAncestorWhichIsA("Model")
+                    if container then
+                        for _, subDesc in ipairs(container:GetDescendants()) do
+                            if subDesc:IsA("ProximityPrompt") and subDesc ~= item.prompt and subDesc.Enabled and not autoBeatLootedPrompts[subDesc] then
+                                safeInstantFirePrompt(subDesc)
+                                autoBeatLootedPrompts[subDesc] = true
+                            end
+                        end
+                    end
+                end
             elseif item.dist <= maxRadius then
-                local r = autoBeatWalkTo(item.pos, 5.0, 1.8)
+                local r = autoBeatWalkTo(item.pos, 5.0, 3.5)
                 if r == "THREAT_INTERRUPTED" then break end
                 safeInstantFirePrompt(item.prompt)
                 autoBeatLootedPrompts[item.prompt] = true
-                task.wait(0.08)
+                task.wait(0.12)
+                -- Check for inner gold/coins inside drawer
+                if item.isDrawer and item.prompt.Parent then
+                    local container = item.prompt:FindFirstAncestorWhichIsA("Model")
+                    if container then
+                        for _, subDesc in ipairs(container:GetDescendants()) do
+                            if subDesc:IsA("ProximityPrompt") and subDesc ~= item.prompt and subDesc.Enabled and not autoBeatLootedPrompts[subDesc] then
+                                safeInstantFirePrompt(subDesc)
+                                autoBeatLootedPrompts[subDesc] = true
+                            end
+                        end
+                    end
+                end
             end
         end
     end
@@ -8829,35 +8879,48 @@ local function autoBeatHasKey()
     return checkCont(bp)
 end
 
--- Exit Door Selector
+-- Exit Door Selector (Strictly targets main progression Door, NEVER DoorNormal sideroom doors)
 local function autoBeatGetExitDoor(curRoom, curNum)
     if not curRoom then return nil end
-    local doors = {}
+
+    -- Priority 1: Direct child "Door" of the current room (Standard DOORS progression door)
+    local directDoor = curRoom:FindFirstChild("Door")
+    if directDoor and directDoor:IsA("Model") and not isDupeDoor(directDoor, curRoom) then
+        local signPart = directDoor:FindFirstChild("Sign", true)
+        local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+        local signNum = signLabel and tonumber(signLabel.Text)
+        return directDoor, signNum or (curNum and (curNum + 1) or nil)
+    end
+
+    -- Priority 2: Direct children named "Door"
+    for _, desc in ipairs(curRoom:GetChildren()) do
+        if desc:IsA("Model") and desc.Name == "Door" and not isDupeDoor(desc, curRoom) then
+            local isBlocked = desc:GetAttribute("Blocked") == true or desc:FindFirstChild("Planks") or desc:FindFirstChild("WoodenPlanks") or desc:FindFirstChild("Fire")
+            if not isBlocked then
+                local signPart = desc:FindFirstChild("Sign", true)
+                local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+                local signNum = signLabel and tonumber(signLabel.Text)
+                return desc, signNum or (curNum and (curNum + 1) or nil)
+            end
+        end
+    end
+
+    -- Priority 3: Descendants strictly named "Door" (EXCLUDE "DoorNormal" which are sideroom doors)
     for _, desc in ipairs(curRoom:GetDescendants()) do
-        if desc:IsA("Model") and (desc.Name == "Door" or desc.Name == "DoorNormal") then
-            if isDupeDoor(desc, curRoom) then
-                local up = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
-                if up then up.Enabled = false up.MaxActivationDistance = 0 end
-                local sign = desc:FindFirstChild("Sign", true)
-                local lbl = sign and sign:FindFirstChildWhichIsA("TextLabel", true)
-                if lbl then lbl.TextColor3 = Color3.fromRGB(255, 30, 30) lbl.Text = "[DUPE]" end
-            else
-                local isBlocked = desc:GetAttribute("Blocked") == true or desc:FindFirstChild("Planks") or desc:FindFirstChild("WoodenPlanks") or desc:FindFirstChild("Fire")
-                if not isBlocked then
-                    table.insert(doors, desc)
+        if desc:IsA("Model") and desc.Name == "Door" and not isDupeDoor(desc, curRoom) then
+            local isBlocked = desc:GetAttribute("Blocked") == true or desc:FindFirstChild("Planks") or desc:FindFirstChild("WoodenPlanks") or desc:FindFirstChild("Fire")
+            if not isBlocked then
+                local signPart = desc:FindFirstChild("Sign", true)
+                local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+                local signNum = signLabel and tonumber(signLabel.Text)
+                if signNum and curNum and signNum == (curNum + 1) then
+                    return desc, signNum
                 end
             end
         end
     end
-    for _, d in ipairs(doors) do
-        local signPart = d:FindFirstChild("Sign", true)
-        local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
-        local signNum = signLabel and tonumber(signLabel.Text)
-        if signNum and curNum and signNum == (curNum + 1) then
-            return d, signNum
-        end
-    end
-    return doors[1], curNum and (curNum + 1) or nil
+
+    return directDoor, curNum and (curNum + 1) or nil
 end
 
 -- Core AutoBeat Single Cycle Runner
@@ -8997,26 +9060,34 @@ local function autoBeatRunCycle()
         end
     end
 
-    -- Step D: Loot nearby gold and open drawers while heading to exit door
+    -- Step D: Loot nearby gold and open drawers across room
     if State.AutoBeat_LootGold or State.AutoBeat_LootDrawers then
-        autoBeatLootNearby(18.0)
+        autoBeatLootNearby(55.0)
     end
 
-    -- Step E: Advance through Exit Door
+    -- Step E: Approach and open Exit Door
     if State.AutoBeat.StatusLabel then
-        State.AutoBeat.StatusLabel:SetText("Auto-Beat: Navigating Room " .. tostring(curNum) .. " ➔ Door " .. tostring(targetDoorNum or curNum + 1), false)
+        State.AutoBeat.StatusLabel:SetText("Auto-Beat: Approaching Door " .. tostring(targetDoorNum or curNum + 1) .. "...", false)
+    end
+
+    local distToDoor = (root.Position - doorPos).Magnitude
+    if distToDoor > 6.0 then
+        local r = autoBeatWalkTo(doorPos, 5.0, 6.0)
+        if r == "THREAT_INTERRUPTED" then return end
+    end
+
+    -- Open the door if closed
+    local dPrompt = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if dPrompt and dPrompt.Enabled then
+        safeInstantFirePrompt(dPrompt)
+        task.wait(0.12)
     end
 
     -- Strip collision locally on door leaf for smooth walk-through
     processNearbyDoors(doorPos, 25)
-    local doorLeaf = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("DoorNormal") or exitDoor:FindFirstChild("Panel")
+    local doorLeaf = exitDoor:FindFirstChild("Door") or exitDoor:FindFirstChild("Panel")
     if doorLeaf and doorLeaf:IsA("BasePart") then
         doorLeaf.CanCollide = false
-    end
-
-    local dPrompt = exitDoor:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if dPrompt and dPrompt.Enabled then
-        safeInstantFirePrompt(dPrompt)
     end
 
     -- Walk straight through the doorway into the next room
@@ -9028,7 +9099,7 @@ local function autoBeatRunCycle()
         local nextExit = nextRoom:FindFirstChild("RoomExit")
         if nextEntrance and nextExit then
             local roomDir = (nextExit.Position - nextEntrance.Position).Unit
-            advancePos = nextEntrance.Position + Vector3.new(roomDir.X, 0, roomDir.Z) * 6
+            advancePos = nextEntrance.Position + Vector3.new(roomDir.X, 0, roomDir.Z) * 8
         else
             local curCenter = curRoom:GetPivot().Position
             local nextCenter = nextRoom:GetPivot().Position
@@ -9036,10 +9107,17 @@ local function autoBeatRunCycle()
             advancePos = doorPos + Vector3.new(roomDir.X, 0, roomDir.Z) * 8
         end
     else
-        advancePos = doorPos + Vector3.new(0, 0, -6)
+        advancePos = doorPos + Vector3.new(0, 0, -8)
     end
-    local r = autoBeatWalkTo(advancePos, 4.0, 5.0)
+
+    if State.AutoBeat.StatusLabel then
+        State.AutoBeat.StatusLabel:SetText("Auto-Beat: Entering Room " .. tostring(curNum + 1) .. "...", false)
+    end
+    local r = autoBeatWalkTo(advancePos, 3.5, 4.0)
     if r == "THREAT_INTERRUPTED" then return end
+
+    -- Update lastKnownPlayerRoom to guarantee monotonic room progression
+    lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
 end
 
 -- Auto Beat Background Runner Loop
