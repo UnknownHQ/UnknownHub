@@ -1112,9 +1112,8 @@ local function getCurrentRoomNumber()
             end
         end
         if highestRoom ~= -1 then
-            local resolved = math.max(highestRoom, pAttrNum or 0, lastKnownPlayerRoom or 0)
-            lastKnownPlayerRoom = resolved
-            return resolved
+            lastKnownPlayerRoom = highestRoom
+            return highestRoom
         end
 
         -- Nearest room center check (handles doorways, siderooms, and room boundary seams)
@@ -1132,9 +1131,8 @@ local function getCurrentRoomNumber()
             end
         end
         if bestRoom and bestDist < 150 then
-            local resolved = math.max(bestRoom, pAttrNum or 0, lastKnownPlayerRoom or 0)
-            lastKnownPlayerRoom = resolved
-            return resolved
+            lastKnownPlayerRoom = bestRoom
+            return bestRoom
         end
     end
 
@@ -8540,8 +8538,14 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                         end
                         local wp = waypoints[i]
                         local wpPos = wp.Position
+                        local nextWp = waypoints[i + 1]
                         local wpStart = os.clock()
-                        while State.Auto_Beat and (Vector2.new(root.Position.X - wpPos.X, root.Position.Z - wpPos.Z)).Magnitude > 2.0 and (os.clock() - wpStart < 1.4) do
+                        while State.Auto_Beat and (os.clock() - wpStart < 0.8) do
+                            local curFlatDist = (Vector2.new(root.Position.X - wpPos.X, root.Position.Z - wpPos.Z)).Magnitude
+                            local nextFlatDist = nextWp and (Vector2.new(root.Position.X - nextWp.Position.X, root.Position.Z - nextWp.Position.Z)).Magnitude or math.huge
+                            if curFlatDist <= 3.5 or nextFlatDist < curFlatDist then
+                                break
+                            end
                             if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
                                 State.AutoBeat_ActiveMoveDir = nil
                                 hum:Move(Vector3.zero, false)
@@ -9133,8 +9137,10 @@ local function autoBeatRunCycle()
     local r = autoBeatWalkTo(advancePos, 3.5, 4.0)
     if r == "THREAT_INTERRUPTED" then return end
 
-    -- Update lastKnownPlayerRoom to guarantee monotonic room progression
-    lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
+    -- Update lastKnownPlayerRoom only when physically across the doorway into the next room
+    if r == true then
+        lastKnownPlayerRoom = math.max(lastKnownPlayerRoom or 0, curNum + 1)
+    end
 end
 
 -- Auto Beat Background Runner Loop
