@@ -8608,18 +8608,27 @@ local function autoBeatWalkTo(targetPos, stopDist, timeoutSec)
                     rpWhisker.FilterDescendantsInstances = { char, Workspace:FindFirstChild("Drops") }
                     rpWhisker.FilterType = Enum.RaycastFilterType.Exclude
                     
-                    local checkRay = Workspace:Raycast(root.Position + Vector3.new(0, 0.5, 0), dir * 4.5, rpWhisker)
-                    if checkRay and checkRay.Instance and checkRay.Instance.CanCollide then
+                    local rayHigh = Workspace:Raycast(root.Position + Vector3.new(0, 0.5, 0), dir * 4.5, rpWhisker)
+                    local rayLow = Workspace:Raycast(root.Position - Vector3.new(0, 1.2, 0), dir * 4.5, rpWhisker)
+                    local checkRay = (rayHigh and rayHigh.Instance and rayHigh.Instance.CanCollide and rayHigh) or (rayLow and rayLow.Instance and rayLow.Instance.CanCollide and rayLow)
+                    if checkRay then
+                        -- Low obstacle detected (furniture, fallen shelf, cushion) -> auto-crouch to slide past
+                        if rayLow and not rayHigh and mg and mg.crouch then
+                            pcall(function() mg.crouch(true) end)
+                        end
                         local bestDir = nil
                         local bestScore = -math.huge
-                        for _, angleOffset in ipairs({ 45, -45, 90, -90, 120, -120 }) do
+                        for _, angleOffset in ipairs({ 30, -30, 60, -60, 90, -90, 120, -120, 150, -150 }) do
                             local rad = math.rad(angleOffset)
                             local cosA = math.cos(rad)
                             local sinA = math.sin(rad)
                             local candDir = Vector3.new(dir.X * cosA - dir.Z * sinA, 0, dir.X * sinA + dir.Z * cosA).Unit
-                            local candRay = Workspace:Raycast(root.Position + Vector3.new(0, 0.5, 0), candDir * 6.0, rpWhisker)
-                            local clearDist = candRay and (root.Position - candRay.Position).Magnitude or 6.0
-                            if clearDist >= 3.0 then
+                            local candHigh = Workspace:Raycast(root.Position + Vector3.new(0, 0.5, 0), candDir * 6.0, rpWhisker)
+                            local candLow = Workspace:Raycast(root.Position - Vector3.new(0, 1.2, 0), candDir * 6.0, rpWhisker)
+                            local dH = candHigh and (root.Position - candHigh.Position).Magnitude or 6.0
+                            local dL = candLow and (root.Position - candLow.Position).Magnitude or 6.0
+                            local clearDist = math.min(dH, dL)
+                            if clearDist >= 2.5 then
                                 local score = clearDist + candDir:Dot(dir) * 4
                                 if score > bestScore then
                                     bestScore = score
