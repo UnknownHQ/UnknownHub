@@ -391,7 +391,7 @@ local State = {
     Anti_Giggle = true,
     Auto_Heartbeat = true,
     Auto_Library_Code = true,
-    Auto_Breakers = false
+    Auto_Breakers = true
 }
 _G.Doors_State = State
 
@@ -539,37 +539,88 @@ end)
 
 
 -- =========================================================================
--- Instant Electrical Breaker Solver (Door 100 Elevator Power)
+-- Instant Electrical Breaker Solver (Door 100 Elevator Power - 0ms Microsecond Execution)
 -- =========================================================================
 instantSolveBreakers = function()
-    local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-    local ebf = remotes and remotes:FindFirstChild("EBF")
+    local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+    local ebf = rf and rf:FindFirstChild("EBF")
     if ebf then
         pcall(function() ebf:FireServer() end)
     end
 
     local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
     if elBreaker then
+        local actPrompt = elBreaker:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if actPrompt and actPrompt.Enabled then
+            pcall(function() fireproximityprompt(actPrompt) end)
+        end
         for _, v in ipairs(elBreaker:GetChildren()) do
             if v.Name == "BreakerSwitch" then
                 pcall(function()
                     v:SetAttribute("Enabled", true)
                     local pc = v:FindFirstChild("PrismaticConstraint", true)
                     if pc then pc.TargetPosition = -0.2 end
+                    local light = v:FindFirstChild("Light")
+                    if light and light:IsA("BasePart") then
+                        light.Material = Enum.Material.Neon
+                    end
                 end)
             end
         end
     end
 
-    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local mainUI = pGui and pGui:FindFirstChild("MainUI")
-    local mb = mainUI and mainUI:FindFirstChild("MinigameBackout", true)
-    if mb then mb.Visible = false end
+    pcall(function()
+        local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainUI = pGui and pGui:FindFirstChild("MainUI")
+        if mainUI then
+            local mb = mainUI:FindFirstChild("MinigameBackout", true)
+            if mb then mb.Visible = false end
+            local mainFrame = mainUI:FindFirstChild("MainFrame")
+            if mainFrame then
+                for _, uiName in ipairs({"Code", "Squares", "Line", "Bar"}) do
+                    local el = mainFrame:FindFirstChild(uiName, true)
+                    if el then el.Visible = false end
+                end
+            end
+        end
+    end)
+
+    local mgTable = getMainGameTable and getMainGameTable()
+    if mgTable then
+        mgTable.stopcam = false
+        mgTable.freemouse = false
+        mgTable.hideplayers = 0
+    end
+
+    local root = getRoot and getRoot()
+    if root and root.Anchored then
+        root.Anchored = false
+    end
 
     Hub.Notify("Door 100", "Elevator Breaker Solved Instantly!", 3)
 end
 
+-- Reactive 0ms Event Listeners for ElevatorBreaker
 task.spawn(function()
+    Workspace.DescendantAdded:Connect(function(desc)
+        if State.Auto_Breakers and (desc.Name == "ElevatorBreaker" or desc.Name == "BreakerSwitch") then
+            task.defer(instantSolveBreakers)
+        end
+    end)
+
+    pcall(function()
+        local pGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+        local mainUI = pGui and pGui:WaitForChild("MainUI", 5)
+        local mb = mainUI and mainUI:WaitForChild("MinigameBackout", 5)
+        if mb then
+            mb:GetPropertyChangedSignal("Visible"):Connect(function()
+                if mb.Visible and State.Auto_Breakers then
+                    instantSolveBreakers()
+                end
+            end)
+        end
+    end)
+
     while _G.DOORS_SESSION == currentSession do
         task.wait(0.2)
         if State.Auto_Breakers then
@@ -2728,22 +2779,26 @@ task.spawn(function()
     end
 end)
 
--- Defuse Seek Obstacles & Hand Hitboxes
+-- Defuse Seek Obstacles, Fallen Chandeliers & Hand Hitboxes (Zero Collisions & Zero Damage)
 local function defuseSeekObstacles(room)
     if not (State.Anti_Seek and room) then return end
     pcall(function()
         for _, desc in ipairs(room:GetDescendants()) do
             local dName = desc.Name:lower()
-            if dName:find("seek_arm") or dName:find("seekarm") or dName:find("seekhand") or dName:find("seekslop") or dName:find("chande") then
+            if dName:find("seek_arm") or dName:find("seekarm") or dName:find("seekhand") or dName:find("seekslop") or dName:find("chande") or dName:find("fallen") then
                 for _, sub in ipairs(desc:GetDescendants()) do
                     if sub:IsA("TouchTransmitter") then
                         sub:Destroy()
                     elseif sub:IsA("BasePart") then
                         sub.CanTouch = false
+                        sub.CanCollide = false
+                        sub.CanQuery = false
                     end
                 end
                 if desc:IsA("BasePart") then
                     desc.CanTouch = false
+                    desc.CanCollide = false
+                    desc.CanQuery = false
                 end
             end
         end
@@ -8979,24 +9034,62 @@ local function autoBeatHasKey()
     return checkCont(bp)
 end
 
--- Exit Door Selector (Strictly targets main progression Door, NEVER DoorNormal sideroom doors)
+-- Helper to detect if Seek chase is currently active
+local function isSeekActive()
+    if Workspace:FindFirstChild("SeekMoving") or Workspace:FindFirstChild("SeekIntro") then
+        return true
+    end
+    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+    if curRooms then
+        for _, r in ipairs(curRooms:GetChildren()) do
+            if r:FindFirstChild("SeekMoving") or r:FindFirstChild("Seek_Arm") or r:FindFirstChild("SeekArms") then
+                return true
+            end
+        end
+    end
+    local live = Workspace:FindFirstChild("LiveEntities")
+    if live and live:FindFirstChild("SeekMoving") then
+        return true
+    end
+    return false
+end
+
+-- Helper to detect Guiding Light on a door
+local function hasGuidingLight(doorModel)
+    if not doorModel then return false end
+    if doorModel:FindFirstChild("HelpLight", true) or doorModel:FindFirstChild("HelpfulLight", true) or doorModel:FindFirstChild("GuidingLight", true) then
+        return true
+    end
+    for _, d in ipairs(doorModel:GetDescendants()) do
+        if d:IsA("Light") then
+            local lName = d.Name:lower()
+            if lName:find("help") or lName:find("guide") then
+                return true
+            end
+            if d.Color.B > 0.6 and d.Color.R < 0.45 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function isDoorBlocked(doorModel)
+    if not doorModel then return true end
+    if doorModel:GetAttribute("Blocked") == true then return true end
+    if doorModel:FindFirstChild("Planks") or doorModel:FindFirstChild("WoodenPlanks") or doorModel:FindFirstChild("Fire") then return true end
+    if doorModel:FindFirstChild("Blocker") or doorModel:FindFirstChild("Barricade") then return true end
+    return false
+end
+
+-- Exit Door Selector (Prioritizes Guiding Light in Seek Chases & Filters Blocked Doors)
 local function autoBeatGetExitDoor(curRoom, curNum)
     if not curRoom then return nil end
 
-    -- Priority 1: Direct child "Door" of the current room (Standard DOORS progression door)
-    local directDoor = curRoom:FindFirstChild("Door")
-    if directDoor and directDoor:IsA("Model") and not isDupeDoor(directDoor, curRoom) then
-        local signPart = directDoor:FindFirstChild("Sign", true)
-        local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
-        local signNum = signLabel and tonumber(signLabel.Text)
-        return directDoor, signNum or (curNum and (curNum + 1) or nil)
-    end
-
-    -- Priority 2: Direct children named "Door"
-    for _, desc in ipairs(curRoom:GetChildren()) do
-        if desc:IsA("Model") and desc.Name == "Door" and not isDupeDoor(desc, curRoom) then
-            local isBlocked = desc:GetAttribute("Blocked") == true or desc:FindFirstChild("Planks") or desc:FindFirstChild("WoodenPlanks") or desc:FindFirstChild("Fire")
-            if not isBlocked then
+    -- Priority 0 (Seek Chases & Multi-Door Intersections): Guiding Light illuminated door
+    for _, desc in ipairs(curRoom:GetDescendants()) do
+        if desc:IsA("Model") and (desc.Name == "Door" or desc.Name:lower():find("door")) and not isDupeDoor(desc, curRoom) and not isDoorBlocked(desc) then
+            if hasGuidingLight(desc) then
                 local signPart = desc:FindFirstChild("Sign", true)
                 local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
                 local signNum = signLabel and tonumber(signLabel.Text)
@@ -9005,18 +9098,44 @@ local function autoBeatGetExitDoor(curRoom, curNum)
         end
     end
 
-    -- Priority 3: Descendants strictly named "Door" (EXCLUDE "DoorNormal" which are sideroom doors)
+    -- Priority 1: Direct child "Door" of the current room (Standard DOORS progression door)
+    local directDoor = curRoom:FindFirstChild("Door")
+    if directDoor and directDoor:IsA("Model") and not isDupeDoor(directDoor, curRoom) and not isDoorBlocked(directDoor) then
+        local signPart = directDoor:FindFirstChild("Sign", true)
+        local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+        local signNum = signLabel and tonumber(signLabel.Text)
+        return directDoor, signNum or (curNum and (curNum + 1) or nil)
+    end
+
+    -- Priority 2: Direct children named "Door"
+    for _, desc in ipairs(curRoom:GetChildren()) do
+        if desc:IsA("Model") and desc.Name == "Door" and not isDupeDoor(desc, curRoom) and not isDoorBlocked(desc) then
+            local signPart = desc:FindFirstChild("Sign", true)
+            local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+            local signNum = signLabel and tonumber(signLabel.Text)
+            return desc, signNum or (curNum and (curNum + 1) or nil)
+        end
+    end
+
+    -- Priority 3: Descendants strictly named "Door" (matching next room number)
     for _, desc in ipairs(curRoom:GetDescendants()) do
-        if desc:IsA("Model") and desc.Name == "Door" and not isDupeDoor(desc, curRoom) then
-            local isBlocked = desc:GetAttribute("Blocked") == true or desc:FindFirstChild("Planks") or desc:FindFirstChild("WoodenPlanks") or desc:FindFirstChild("Fire")
-            if not isBlocked then
-                local signPart = desc:FindFirstChild("Sign", true)
-                local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
-                local signNum = signLabel and tonumber(signLabel.Text)
-                if signNum and curNum and signNum == (curNum + 1) then
-                    return desc, signNum
-                end
+        if desc:IsA("Model") and desc.Name == "Door" and not isDupeDoor(desc, curRoom) and not isDoorBlocked(desc) then
+            local signPart = desc:FindFirstChild("Sign", true)
+            local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+            local signNum = signLabel and tonumber(signLabel.Text)
+            if signNum and curNum and signNum == (curNum + 1) then
+                return desc, signNum
             end
+        end
+    end
+
+    -- Priority 4: Any unblocked descendant named "Door"
+    for _, desc in ipairs(curRoom:GetDescendants()) do
+        if desc:IsA("Model") and desc.Name == "Door" and not isDupeDoor(desc, curRoom) and not isDoorBlocked(desc) then
+            local signPart = desc:FindFirstChild("Sign", true)
+            local signLabel = signPart and signPart:FindFirstChildWhichIsA("TextLabel", true)
+            local signNum = signLabel and tonumber(signLabel.Text)
+            return desc, signNum or (curNum and (curNum + 1) or nil)
         end
     end
 
@@ -9034,6 +9153,14 @@ local function autoBeatRunCycle()
     -- Auto-Heal & Screech Banisher checks
     autoBeatHealPlayer()
     autoBeatBanishScreech()
+
+    -- Seek Chase Defusal & Dynamic Speed
+    if isSeekActive() then
+        defuseSeekObstacles(curRoom)
+        if State.AutoBeat.StatusLabel then
+            State.AutoBeat.StatusLabel:SetText("Auto-Beat: SPRINTING THROUGH SEEK CHASE (Room " .. tostring(curNum or "?") .. ")...", false)
+        end
+    end
 
     -- 1. Threat Check
     if isLethalEntityIncoming and isLethalEntityIncoming() and State.AutoBeat_EvacuateThreat then
@@ -9082,7 +9209,10 @@ local function autoBeatRunCycle()
         if State.AutoBeat.StatusLabel then
             State.AutoBeat.StatusLabel:SetText("Auto-Beat: Solving Room 50 Library & Padlock...", false)
         end
-        -- Collect hint paper & books
+        if mgTable and mgTable.crouch then
+            pcall(function() mgTable.crouch(true) end)
+        end
+        -- Collect hint paper
         local paper = Workspace:FindFirstChild("LibraryHintPaper", true) or curRoom:FindFirstChild("LibraryHintPaper", true)
         if paper then
             local pPart = paper:IsA("BasePart") and paper or (paper.PrimaryPart or paper:FindFirstChildWhichIsA("BasePart", true))
@@ -9092,15 +9222,21 @@ local function autoBeatRunCycle()
                 if pPrompt then safeInstantFirePrompt(pPrompt) end
             end
         end
-        for _, desc in ipairs(curRoom:GetDescendants()) do
-            if desc.Name == "LiveHintBook" or desc.Name:lower():find("hintbook") then
-                local bPart = desc:IsA("BasePart") and desc or (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true))
-                if bPart then
-                    autoBeatWalkTo(bPart.Position, 4.0, 4.0)
-                    local bPrompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
-                    if bPrompt then safeInstantFirePrompt(bPrompt) end
+        -- Collect books with multi-pass sweep
+        for pass = 1, 3 do
+            local codeNow, _ = State.solveLibraryCode()
+            if codeNow and not codeNow:find("_") then break end
+            for _, desc in ipairs(curRoom:GetDescendants()) do
+                if desc.Name == "LiveHintBook" or desc.Name:lower():find("hintbook") then
+                    local bPart = desc:IsA("BasePart") and desc or (desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true))
+                    if bPart then
+                        autoBeatWalkTo(bPart.Position, 4.0, 4.0)
+                        local bPrompt = desc:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if bPrompt then safeInstantFirePrompt(bPrompt) end
+                    end
                 end
             end
+            task.wait(0.2)
         end
         local code, status = State.solveLibraryCode()
         if code and not code:find("_") then
@@ -9109,10 +9245,20 @@ local function autoBeatRunCycle()
             if plRemote then pcall(function() plRemote:FireServer(code) end) end
         end
     elseif curNum == 100 then
+        State.Auto_Breakers = true
         if State.AutoBeat.StatusLabel then
-            State.AutoBeat.StatusLabel:SetText("Auto-Beat: Solving Door 100 Circuit Breakers...", false)
+            State.AutoBeat.StatusLabel:SetText("Auto-Beat: Solving Door 100 Circuit Breakers Instantly...", false)
         end
         instantSolveBreakers()
+        local elBreaker = Workspace:FindFirstChild("ElevatorBreaker", true)
+        if elBreaker then
+            local bPrompt = elBreaker:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if bPrompt and bPrompt.Enabled then
+                safeInstantFirePrompt(bPrompt)
+                task.wait(0.1)
+                instantSolveBreakers()
+            end
+        end
     end
 
     -- Step B.2: Room Gate Lever Solver (Auto-Pulls LeverForGate in puzzle rooms)
@@ -9180,8 +9326,8 @@ local function autoBeatRunCycle()
     -- Check if exit door is already open
     local isExitDoorOpen = exitDoor:GetAttribute("Opened") == true or exitDoor:GetAttribute("Open") == true or exitDoor:FindFirstChild("ClientOpen") ~= nil
 
-    -- Step D: Loot room ONCE per room (never loot backwards when door is already opened!)
-    if not isExitDoorOpen and (State.AutoBeat_LootGold or State.AutoBeat_LootDrawers) and lastLootedRoomNumber ~= curNum then
+    -- Step D: Loot room ONCE per room (never loot backwards when door is already opened, and NEVER during Seek chase!)
+    if not isSeekActive() and not isExitDoorOpen and (State.AutoBeat_LootGold or State.AutoBeat_LootDrawers) and lastLootedRoomNumber ~= curNum then
         lastLootedRoomNumber = curNum
         autoBeatLootNearby(55.0)
     end
