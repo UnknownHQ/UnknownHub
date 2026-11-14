@@ -683,6 +683,8 @@ local travelPage = Hub.CreateTab("Travel" , { Icon = "📍", Size = 18, Color = 
 
 local shopPage = Hub.CreateTab("Shop", { Icon = "🛒", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 215, 0) })
 
+local raidPage = Hub.CreateTab("Raids", { Icon = "⚡", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 170, 0) })
+
 do
     Hub.CreateSection(serverPage, "🌐 Smart Server Hopper & Management")
 
@@ -2567,6 +2569,245 @@ do
             end
         end
     end, "AutoPumpkinNPCs")
+
+    -- =========================================================================
+    -- Option 4: FULL MOON, MIRAGE & KITSUNE SHRINE EVENT HUNTER
+    -- =========================================================================
+    Hub.CreateSection(eventPage, "🌊 LIVE SEA & MOON TELEMETRY")
+
+    local seaTelemetryLabel = Instance.new("TextLabel")
+    seaTelemetryLabel.Size = UDim2.new(0.98, 0, 0, 36)
+    seaTelemetryLabel.BackgroundTransparency = 1
+    seaTelemetryLabel.Text = "🌕 Moon: Checking... | 🌊 Sea: Checking..."
+    seaTelemetryLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    seaTelemetryLabel.Font = Enum.Font.GothamMedium
+    seaTelemetryLabel.TextSize = 12
+    seaTelemetryLabel.TextXAlignment = Enum.TextXAlignment.Left
+    seaTelemetryLabel.TextWrapped = true
+    pcall(function() seaTelemetryLabel.Parent = eventPage.content or eventPage end)
+
+    task.spawn(function()
+        local Lighting = game:GetService("Lighting")
+        while true do
+            pcall(function()
+                local phase = Lighting:GetAttribute("MoonPhase") or 0
+                local isBlue = Lighting:GetAttribute("IsBlueMoon") or false
+                local phaseDesc = "Unknown"
+                if phase == 5 then phaseDesc = "Full Moon (100% - EVENT READY! 🌕)"
+                elseif phase == 4 then phaseDesc = "Waxing Gibbous (75% 🌔)"
+                elseif phase == 3 then phaseDesc = "First Quarter (50% 🌓)"
+                elseif phase == 2 then phaseDesc = "Waxing Crescent (25% 🌒)"
+                elseif phase == 1 then phaseDesc = "New Moon (0% 🌑)"
+                end
+
+                local dangerText = "None"
+                local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                local compass = pg and pg:FindFirstChild("Main") and pg.Main:FindFirstChild("Compass")
+                local dTxt = compass and compass:FindFirstChild("Frame") and compass.Frame:FindFirstChild("DangerText")
+                if dTxt and dTxt.Text and dTxt.Text ~= "" then
+                    dangerText = dTxt.Text
+                else
+                    local se = pg and pg.Main and pg.Main:FindFirstChild("UIController") and pg.Main.UIController:FindFirstChild("SeaExploration")
+                    local seTxt = se and se:FindFirstChild("DangerText")
+                    if seTxt and seTxt.Text and seTxt.Text ~= "" then dangerText = seTxt.Text end
+                end
+
+                seaTelemetryLabel.Text = string.format("🌕 Moon: %s%s\n🌊 Sea Danger: %s", phaseDesc, (isBlue and " [BLUE MOON 🔵]" or ""), dangerText)
+            end)
+            task.wait(1.5)
+        end
+    end)
+
+    Hub.CreateSection(eventPage, "🦊 KITSUNE SHRINE & AZURE EMBER ENGINE")
+
+    local isAutoKitsuneShrineOn = false
+    local isAutoCollectEmbersOn = false
+
+    local function getKitsuneIslandInstance()
+        local wo = workspace:FindFirstChild("_WorldOrigin")
+        local locs = wo and wo:FindFirstChild("Locations")
+        local kLoc = locs and locs:FindFirstChild("Kitsune Island")
+        if kLoc then return kLoc end
+        return workspace.Map:FindFirstChild("Kitsune Island") or workspace:FindFirstChild("KitsuneIsland", true) or workspace:FindFirstChild("Kitsune Shrine", true)
+    end
+
+    local function collectAzureEmbersOnce()
+        local count = 0
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return 0 end
+
+        for _, obj in ipairs(workspace:GetChildren()) do
+            local oName = obj.Name:lower()
+            if oName:find("azure") or oName:find("ember") then
+                local part = obj:IsA("BasePart") and obj or (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
+                if part then
+                    hrp.CFrame = part.CFrame
+                    local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt then pcall(fireproximityprompt, prompt) end
+                    count = count + 1
+                    task.wait(0.08)
+                end
+            end
+        end
+        return count
+    end
+
+    createSliderToggle(eventPage, "Auto Kitsune Shrine Solver (Full Auto)", false, function(v)
+        isAutoKitsuneShrineOn = v
+        if v then notifyGUI("KITSUNE", "Auto Kitsune Shrine Solver ACTIVE! Monitoring Danger 6 / Full Moon.", 4) end
+    end)
+
+    createSliderToggle(eventPage, "Auto Collect Floating Azure Embers", false, function(v)
+        isAutoCollectEmbersOn = v
+    end)
+
+    Hub.CreateButton(eventPage, "📍 Teleport to Kitsune Island", function()
+        local kIsland = getKitsuneIslandInstance()
+        if kIsland then
+            local targetCF = kIsland:IsA("BasePart") and kIsland.CFrame or (kIsland:IsA("Model") and kIsland:GetModelCFrame() or CFrame.new(kIsland.Position))
+            safeTweenToIsland(targetCF + Vector3.new(0, 20, 0), function()
+                notifyGUI("KITSUNE", "Arrived at Kitsune Island!", 3)
+            end)
+        else
+            notifyGUI("KITSUNE", "Kitsune Island not spawned in this server! (Requires Danger Level 6 + Full Moon)", 4)
+        end
+    end)
+
+    Hub.CreateButton(eventPage, "🔥 Collect All Active Embers Now", function()
+        local c = collectAzureEmbersOnce()
+        notifyGUI("KITSUNE", "Collected " .. tostring(c) .. " floating azure embers!", 3)
+    end)
+
+    Hub.CreateButton(eventPage, "⛩️ Offer 25 Embers to Kitsune Altar", function()
+        pcall(function()
+            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+            if commF then
+                commF:InvokeServer("KitsuneShrine", "Offer")
+            end
+            local altar = workspace:FindFirstChild("KitsuneAltar", true) or workspace:FindFirstChild("Altar", true)
+            local prompt = altar and altar:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then pcall(fireproximityprompt, prompt) end
+            notifyGUI("KITSUNE", "Submitted offering to Kitsune Shrine Altar!", 3)
+        end)
+    end)
+
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if isAutoCollectEmbersOn or isAutoKitsuneShrineOn then
+                pcall(function()
+                    collectAzureEmbersOnce()
+                end)
+            end
+        end
+    end)
+
+    Hub.CreateSection(eventPage, "🌕 MIRAGE ISLAND & RACE V4 BLUE GEAR")
+
+    local isAutoMirageSolverOn = false
+    local isAutoBlueGearCollectorOn = false
+
+    local function getMirageIslandInstance()
+        local wo = workspace:FindFirstChild("_WorldOrigin")
+        local locs = wo and wo:FindFirstChild("Locations")
+        local mLoc = locs and locs:FindFirstChild("Mirage Island")
+        if mLoc then return mLoc end
+        return workspace.Map:FindFirstChild("Mirage Island") or workspace:FindFirstChild("MirageIsland", true)
+    end
+
+    local function findMirageHighestPeak()
+        local mIsland = getMirageIslandInstance()
+        if not mIsland then return nil end
+        local highestPart = nil
+        local maxY = -math.huge
+        for _, p in ipairs(mIsland:GetDescendants()) do
+            if p:IsA("BasePart") and p.CanCollide and p.Position.Y > maxY then
+                maxY = p.Position.Y
+                highestPart = p
+            end
+        end
+        return highestPart
+    end
+
+    local function findSpawnedBlueGear()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if (obj:IsA("BasePart") or obj:IsA("MeshPart")) and (obj.Name:lower():find("gear") or (obj:IsA("MeshPart") and tostring(obj.MeshId):find("4950920455"))) then
+                return obj
+            end
+        end
+        return nil
+    end
+
+    createSliderToggle(eventPage, "Auto Mirage Island Solver", false, function(v)
+        isAutoMirageSolverOn = v
+        if v then notifyGUI("MIRAGE", "Auto Mirage Solver ACTIVE! Will auto-align moon and grab gear.", 4) end
+    end)
+
+    createSliderToggle(eventPage, "Auto Blue Gear ESP & Collector", false, function(v)
+        isAutoBlueGearCollectorOn = v
+    end)
+
+    Hub.CreateButton(eventPage, "📍 Teleport to Mirage Highest Peak", function()
+        local peak = findMirageHighestPeak()
+        if peak then
+            safeTweenToIsland(peak.CFrame + Vector3.new(0, 10, 0), function()
+                notifyGUI("MIRAGE", "Arrived at Mirage Highest Peak!", 3)
+            end)
+        else
+            notifyGUI("MIRAGE", "Mirage Island not active in this server!", 4)
+        end
+    end)
+
+    Hub.CreateButton(eventPage, "👁️ Look at Moon & Activate Race V4 (Resonance)", function()
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                -- Look upward towards night sky
+                hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(0, 1, -1).Unit * 100)
+            end
+            local commE = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommE")
+            if commE then commE:FireServer("ActivateV4") end
+            notifyGUI("RACE V4", "Triggered Race V4 resonance towards Moon!", 3)
+        end)
+    end)
+
+    Hub.CreateButton(eventPage, "⚙️ Grab Spawned Blue Gear Instantly", function()
+        local gear = findSpawnedBlueGear()
+        if gear then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = gear.CFrame + Vector3.new(0, 3, 0)
+                local prompt = gear:FindFirstChildWhichIsA("ProximityPrompt", true) or (gear.Parent and gear.Parent:FindFirstChildWhichIsA("ProximityPrompt", true))
+                if prompt then pcall(fireproximityprompt, prompt) end
+                notifyGUI("BLUE GEAR", "🎉 Acquired Blue Gear successfully!", 5)
+            end
+        else
+            notifyGUI("BLUE GEAR", "Blue Gear not found on island yet! (Activate V4 resonance on peak first)", 4)
+        end
+    end)
+
+    task.spawn(function()
+        while true do
+            task.wait(2)
+            if isAutoBlueGearCollectorOn or isAutoMirageSolverOn then
+                pcall(function()
+                    local gear = findSpawnedBlueGear()
+                    if gear then
+                        local char = LocalPlayer.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            hrp.CFrame = gear.CFrame + Vector3.new(0, 3, 0)
+                            local prompt = gear:FindFirstChildWhichIsA("ProximityPrompt", true) or (gear.Parent and gear.Parent:FindFirstChildWhichIsA("ProximityPrompt", true))
+                            if prompt then pcall(fireproximityprompt, prompt) end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
 end
 
 -- SHOP PAGE SETUP
@@ -2711,78 +2952,97 @@ local function buildShopCatalogSection(parentPage, titleText, itemList)
     return catList
 end
 
-buildShopCatalogSection(shopPage, "✨ Abilities & Haki Shop", {
-
-    {Name = "Buso Haki (Aura)", Price = "$25,000", Args = {"BuyHaki", "Buso"}},
-
-    {Name = "Geppo (Skyjump)", Price = "$10,000", Args = {"BuyHaki", "Geppo"}},
-
-    {Name = "Sori (Flash Step)", Price = "$100,000", Args = {"BuyHaki", "Soru"}},
-
-    {Name = "Observation Haki (Ken)", Price = "$750,000", Args = {"KenHaki", "Buy"}},
-
-    {Name = "Observation V2", Price = "$5,000,000", Args = {"KenHaki", "BuyV2"}}
-
+buildShopCatalogSection(shopPage, "🥊 All 11 Fighting Styles Shop", {
+    {Name = "Black Leg (Dark Step)", Price = "$150,000", Args = {"BuyBlackLeg"}},
+    {Name = "Electro", Price = "$500,000", Args = {"BuyElectro"}},
+    {Name = "Fishman Karate", Price = "$750,000", Args = {"BuyFishmanKarate"}},
+    {Name = "Dragon Breath (Dragon Claw)", Price = "1,500 Frags", Args = {"BlackbeardReward", "DragonClaw", "1"}},
+    {Name = "Superhuman", Price = "$3,000,000", Args = {"BuySuperhuman"}},
+    {Name = "Death Step", Price = "$2.5M + 5k Frags", Args = {"BuyDeathStep"}},
+    {Name = "Sharkman Karate", Price = "$2.5M + 5k Frags", Args = {"BuySharkmanKarate"}},
+    {Name = "Electric Claw", Price = "$3M + 5k Frags", Args = {"BuyElectricClaw"}},
+    {Name = "Dragon Talon", Price = "$3M + 5k Frags", Args = {"BuyDragonTalon"}},
+    {Name = "Godhuman", Price = "$5M + 5k Frags", Args = {"BuyGodhuman"}},
+    {Name = "Sanguine Art", Price = "$5M + 5k Frags", Args = {"BuySanguineArt"}}
 })
 
-buildShopCatalogSection(shopPage, "🥊 Fighting Styles Shop", {
+buildShopCatalogSection(shopPage, "✨ Abilities & Haki Shop", {
+    {Name = "Buso Haki (Aura)", Price = "$25,000", Args = {"BuyHaki", "Buso"}},
+    {Name = "Geppo (Skyjump)", Price = "$10,000", Args = {"BuyHaki", "Geppo"}},
+    {Name = "Soru (Flash Step)", Price = "$100,000", Args = {"BuyHaki", "Soru"}},
+    {Name = "Observation Haki (Ken)", Price = "$750,000", Args = {"KenTalk", "Buy"}},
+    {Name = "Observation V2", Price = "$5,000,000", Args = {"BuyObservationV2"}}
+})
 
-    {Name = "Black Leg (Dark Step)", Price = "$150,000", Args = {"BuyBlackLeg"}},
-
-    {Name = "Electro", Price = "$500,000", Args = {"BuyElectro"}},
-
-    {Name = "Fishman Karate", Price = "$750,000", Args = {"BuyFishmanKarate"}},
-
-    {Name = "Dragon Claw", Price = "1,500 Frags", Args = {"BlackbeardReward", "DragonClaw", "1"}},
-
-    {Name = "Superhuman", Price = "$3,000,000", Args = {"BuySuperhuman"}},
-
-    {Name = "Death Step", Price = "$2.5M + 5k Frags", Args = {"BuyDeathStep"}},
-
-    {Name = "Sharkman Karate", Price = "$2.5M + 5k Frags", Args = {"BuySharkmanKarate"}},
-
-    {Name = "Electric Claw", Price = "$3M + 5k Frags", Args = {"BuyElectricClaw"}},
-
-    {Name = "Godhuman", Price = "$5M + 5k Frags", Args = {"BuyGodhuman"}}
-
+buildShopCatalogSection(shopPage, "🎨 Aura & Haki Colors Shop (Colors Dealer)", {
+    {Name = "Orange Soda", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Orange Soda"}},
+    {Name = "Bright Yellow", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Bright Yellow"}},
+    {Name = "Yellow Sunshine", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Yellow Sunshine"}},
+    {Name = "Slimy Green", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Slimy Green"}},
+    {Name = "Green Lizard", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Green Lizard"}},
+    {Name = "Blue Jeans", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Blue Jeans"}},
+    {Name = "Plum Purple", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Plum Purple"}},
+    {Name = "Heat Wave", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Heat Wave"}},
+    {Name = "Absolute Zero", Price = "1,500 Frags", Args = {"ColorsDealer", "2", "Absolute Zero"}},
+    {Name = "Snow White (Legendary)", Price = "7,500 Frags", Args = {"ColorsDealer", "2", "Snow White"}},
+    {Name = "Pure Red (Legendary)", Price = "7,500 Frags", Args = {"ColorsDealer", "2", "Pure Red"}},
+    {Name = "Winter Sky (Legendary)", Price = "7,500 Frags", Args = {"ColorsDealer", "2", "Winter Sky"}},
+    {Name = "Rainbow Savior (Quest Color)", Price = "Quest", Args = {"ColorsDealer", "2", "Rainbow Savior"}}
 })
 
 buildShopCatalogSection(shopPage, "⚔️ Swords & Weapons Shop", {
-
     {Name = "Katana", Price = "$5,000", Args = {"BuyItem", "Katana"}},
-
     {Name = "Cutlass", Price = "$5,000", Args = {"BuyItem", "Cutlass"}},
-
     {Name = "Dual Katana", Price = "$12,000", Args = {"BuyItem", "Dual Katana"}},
-
     {Name = "Iron Mace", Price = "$25,000", Args = {"BuyItem", "Iron Mace"}},
-
     {Name = "Triple Katana", Price = "$60,000", Args = {"BuyItem", "Triple Katana"}},
-
     {Name = "Pipe", Price = "$100,000", Args = {"BuyItem", "Pipe"}},
-
     {Name = "Dual Headed Blade", Price = "$400,000", Args = {"BuyItem", "Dual Headed Blade"}},
-
     {Name = "Soul Cane", Price = "$750,000", Args = {"BuyItem", "Soul Cane"}},
-
-    {Name = "Bizen", Price = "$1,000,000", Args = {"BuyItem", "Bizen"}}
-
+    {Name = "Bisento", Price = "$1,000,000", Args = {"BuyItem", "Bisento"}},
+    {Name = "True Triple Katana (TTK)", Price = "$2,000,000", Args = {"BuyTrueTripleKatana"}},
+    {Name = "Midnight Blade", Price = "100 Ectoplasm", Args = {"Ectoplasm", "Buy", 1}}
 })
 
 buildShopCatalogSection(shopPage, "🔫 Guns & Ranged Weapons Shop", {
-
     {Name = "Slingshot", Price = "$5,000", Args = {"BuyItem", "Slingshot"}},
-
     {Name = "Musket", Price = "$8,000", Args = {"BuyItem", "Musket"}},
-
     {Name = "Flintlock", Price = "$10,500", Args = {"BuyItem", "Flintlock"}},
-
     {Name = "Refined Slingshot", Price = "$30,000", Args = {"BuyItem", "Refined Slingshot"}},
-
+    {Name = "Refined Flintlock", Price = "$65,000", Args = {"BuyItem", "Refined Flintlock"}},
     {Name = "Cannon", Price = "$100,000", Args = {"BuyItem", "Cannon"}},
+    {Name = "Kabucha", Price = "1,500 Frags", Args = {"BlackbeardReward", "Slingshot", "1"}},
+    {Name = "Bizarre Rifle", Price = "25 Ectoplasm", Args = {"Ectoplasm", "Buy", 2}}
+})
 
-    {Name = "Kabucha", Price = "1,500 Frags", Args = {"BlackbeardReward", "Slingshot", "1"}}
+buildShopCatalogSection(shopPage, "👒 Accessories & Special Items Shop", {
+    {Name = "Black Cape", Price = "$50,000", Args = {"BuyItem", "Black Cape"}},
+    {Name = "Swordsman Hat", Price = "$150,000", Args = {"BuyItem", "Swordsman Hat"}},
+    {Name = "Tomoe Ring", Price = "$500,000", Args = {"BuyItem", "Tomoe Ring"}},
+    {Name = "Ghoul Mask", Price = "50 Ectoplasm", Args = {"Ectoplasm", "Buy", 3}}
+})
 
+buildShopCatalogSection(shopPage, "🎲 Race, Stats & Gacha Shop", {
+    {Name = "Reset Stats (Frags)", Price = "2,500 Frags", Args = {"BlackbeardReward", "Refund", "1"}},
+    {Name = "Race Reroll (Frags)", Price = "3,000 Frags", Args = {"BlackbeardReward", "Reroll", "1"}},
+    {Name = "Buy Cyborg Race", Price = "100 Ecto + 2.5k Frags", Args = {"ChangeRace", "Cyborg"}},
+    {Name = "Buy Ghoul Race", Price = "100 Ecto + Hellfire", Args = {"ChangeRace", "Ghoul"}},
+    {Name = "Death King: Random Surprise", Price = "50 Bones", Args = {"Bones", "Buy", 1, 1}},
+    {Name = "Death King: Stat Refund", Price = "150 Bones", Args = {"Bones", "Buy", 2, 1}},
+    {Name = "Death King: Race Reroll", Price = "300 Bones", Args = {"Bones", "Buy", 3, 1}}
+})
+
+buildShopCatalogSection(shopPage, "🚤 Boats & Sea Vessels Shop", {
+    {Name = "Dinghy", Price = "$0", Args = {"BuyBoat", "Dinghy"}},
+    {Name = "Sloop", Price = "$300", Args = {"BuyBoat", "Sloop"}},
+    {Name = "Caravel", Price = "$1,000", Args = {"BuyBoat", "Caravel"}},
+    {Name = "Rowboat", Price = "$2,000", Args = {"BuyBoat", "Rowboat"}},
+    {Name = "Galleon", Price = "$3,000", Args = {"BuyBoat", "Galleon"}},
+    {Name = "Grand Sloop", Price = "$5,000", Args = {"BuyBoat", "Grand Sloop"}},
+    {Name = "Swan Ship", Price = "$10,000", Args = {"BuyBoat", "Swan Ship"}},
+    {Name = "Miracle", Price = "$15,000", Args = {"BuyBoat", "Miracle"}},
+    {Name = "Sentinel", Price = "$20,000", Args = {"BuyBoat", "Sentinel"}},
+    {Name = "Enel Ship (Ark Maxim)", Price = "$25,000", Args = {"BuyBoat", "Enel Ship"}}
 })
 
 -- TRAVEL PAGE SETUP
@@ -3097,6 +3357,219 @@ do
     Hub.CreateButton(travelPage, "🧪 Test 1000m Far Tween (Auto-Verify)", function()
         if _G.Unknown_TestFarTween then
             _G.Unknown_TestFarTween()
+        end
+    end)
+end
+
+-- =========================================================================
+-- Option 3: AUTOMATED RAID SOLVER & FRUIT AWAKENING SUITE
+-- =========================================================================
+do
+    Hub.CreateSection(raidPage, "⚡ AUTOMATED RAID SOLVER & DUNGEON RUNNER")
+
+    local selectedRaidType = "Flame"
+    local isAutoRaidOn = false
+    local isAutoAwakenOn = true
+
+    local allRaidTypes = {
+        "Flame", "Ice", "Quake", "Light", "Dark", "Spider", "Magma", "Buddha", "Sand", "Phoenix", "Dough"
+    }
+
+    local raidList = Hub.CreateList(raidPage, "🎯 Target Raid Type", allRaidTypes, function(rName)
+        local clean = rName:gsub("%s*%b()", ""):gsub("%s*$", "")
+        selectedRaidType = clean
+    end, false)
+    if raidList and raidList.SetSelected then raidList:SetSelected("Flame") end
+
+    createSliderToggle(raidPage, "Auto Raid Loop (Full Auto Grinder)", false, function(v)
+        isAutoRaidOn = v
+        if v then notifyGUI("RAIDS", "Auto Raid Loop ACTIVE! Monitoring chips and waves.", 4) end
+    end, "AutoRaidLoop")
+
+    createSliderToggle(raidPage, "Auto Awaken Next Move (Upon Completion)", true, function(v)
+        isAutoAwakenOn = v
+    end, "AutoAwaken")
+
+    local function getRaidSummonInstance()
+        return workspace:FindFirstChild("RaidSummon", true) or (workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("RaidSummon", true))
+    end
+
+    Hub.CreateButton(raidPage, "🛒 Buy Selected Raid Microchip", function()
+        pcall(function()
+            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+            if commF then
+                local res
+                if selectedRaidType == "Phoenix" or selectedRaidType == "Dough" then
+                    res = commF:InvokeServer("AdvancedRaidsNpc", "Select", selectedRaidType)
+                else
+                    res = commF:InvokeServer("RaidsNpc", "Select", selectedRaidType)
+                end
+                notifyGUI("RAIDS", "Purchased " .. selectedRaidType .. " Microchip!", 3)
+            end
+        end)
+    end)
+
+    Hub.CreateButton(raidPage, "🚀 Teleport to Raid Lab / Summon Tube", function()
+        local rs = getRaidSummonInstance()
+        if rs then
+            local tube = rs:FindFirstChild("Raid1") or rs:FindFirstChild("MainRaid") or rs:FindFirstChildWhichIsA("Model")
+            if tube then
+                local tubeCF = tube:GetModelCFrame()
+                safeTweenToIsland(tubeCF + Vector3.new(0, 5, 0), function()
+                    notifyGUI("RAIDS", "Arrived in Raid Summon Tube!", 3)
+                end)
+            end
+        else
+            notifyGUI("RAIDS", "Raid Lab Summon not found in current area!", 3)
+        end
+    end)
+
+    Hub.CreateButton(raidPage, "🔴 Press Raid Start Button", function()
+        local rs = getRaidSummonInstance()
+        local btn = rs and rs:FindFirstChild("Button", true)
+        local cd = btn and btn:FindFirstChildWhichIsA("ClickDetector", true)
+        if cd then
+            pcall(fireclickdetector, cd)
+            notifyGUI("RAIDS", "Pressed Raid Start Button!", 3)
+        else
+            notifyGUI("RAIDS", "Raid Start Button ClickDetector not found!", 3)
+        end
+    end)
+
+    Hub.CreateSection(raidPage, "📊 LIVE RAID STATUS & TELEMETRY")
+
+    local raidStatusLabel = Instance.new("TextLabel")
+    raidStatusLabel.Size = UDim2.new(0.98, 0, 0, 24)
+    raidStatusLabel.BackgroundTransparency = 1
+    raidStatusLabel.Text = "Status: Idle"
+    raidStatusLabel.TextColor3 = Color3.fromRGB(0, 230, 255)
+    raidStatusLabel.Font = Enum.Font.GothamBold
+    raidStatusLabel.TextSize = 12
+    raidStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    pcall(function() raidStatusLabel.Parent = raidPage.content or raidPage end)
+
+    local raidFragLabel = Instance.new("TextLabel")
+    raidFragLabel.Size = UDim2.new(0.98, 0, 0, 24)
+    raidFragLabel.BackgroundTransparency = 1
+    raidFragLabel.Text = "💎 Fragments: Checking..."
+    raidFragLabel.TextColor3 = Color3.fromRGB(180, 100, 255)
+    raidFragLabel.Font = Enum.Font.GothamMedium
+    raidFragLabel.TextSize = 12
+    raidFragLabel.TextXAlignment = Enum.TextXAlignment.Left
+    pcall(function() raidFragLabel.Parent = raidPage.content or raidPage end)
+
+    task.spawn(function()
+        while true do
+            pcall(function()
+                local d = LocalPlayer:FindFirstChild("Data")
+                local frags = d and d:FindFirstChild("Fragments") and d.Fragments.Value or 0
+                raidFragLabel.Text = string.format("💎 Fragments: %s", tostring(frags))
+            end)
+            task.wait(2)
+        end
+    end)
+
+    -- Autonomous Raid Worker Thread
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if isAutoRaidOn then
+                pcall(function()
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+
+                    -- Check if in Awakening Room
+                    local awakener = workspace:FindFirstChild("FruitAwakener", true) or workspace:FindFirstChild("AwakeningTalk", true)
+                    if awakener then
+                        raidStatusLabel.Text = "Status: In Awakening Room!"
+                        if isAutoAwakenOn then
+                            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+                            if commF then
+                                commF:InvokeServer("FruitAwakener", "Awaken")
+                                commF:InvokeServer("AwakeningTalk", "Awaken")
+                            end
+                        end
+                        task.wait(3)
+                        return
+                    end
+
+                    -- Check for active raid mobs
+                    local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
+                    local raidMobs = {}
+                    for _, mob in ipairs(enemies) do
+                        local hum = mob:FindFirstChildOfClass("Humanoid")
+                        local mHrp = mob:FindFirstChild("HumanoidRootPart")
+                        if hum and hum.Health > 0 and mHrp then
+                            table.insert(raidMobs, {mob, mHrp})
+                        end
+                    end
+
+                    if #raidMobs > 0 then
+                        raidStatusLabel.Text = string.format("Status: Clearing Wave (%d mobs left)", #raidMobs)
+                        local nearestMob = raidMobs[1]
+                        local minDist = 999999
+                        for _, m in ipairs(raidMobs) do
+                            local d = (m[2].Position - hrp.Position).Magnitude
+                            if d < minDist then
+                                minDist = d
+                                nearestMob = m
+                            end
+                        end
+                        if nearestMob then
+                            hrp.CFrame = CFrame.new(nearestMob[2].Position + Vector3.new(0, 15, 0), nearestMob[2].Position)
+                            if _G.Unknown_PerformFastAttack then
+                                _G.Unknown_PerformFastAttack(raidMobs, nearestMob[2])
+                            end
+                        end
+                    else
+                        -- In Main World: prepare and launch raid
+                        local rs = getRaidSummonInstance()
+                        if rs then
+                            local hasChip = (char:FindFirstChild("Microchip") or char:FindFirstChild("Special Microchip") or
+                                            (LocalPlayer.Backpack:FindFirstChild("Microchip") or LocalPlayer.Backpack:FindFirstChild("Special Microchip"))) ~= nil
+
+                            if not hasChip then
+                                raidStatusLabel.Text = "Status: Purchasing " .. selectedRaidType .. " Microchip..."
+                                local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+                                if commF then
+                                    if selectedRaidType == "Phoenix" or selectedRaidType == "Dough" then
+                                        commF:InvokeServer("AdvancedRaidsNpc", "Select", selectedRaidType)
+                                    else
+                                        commF:InvokeServer("RaidsNpc", "Select", selectedRaidType)
+                                    end
+                                end
+                                task.wait(1)
+                            else
+                                local chip = LocalPlayer.Backpack:FindFirstChild("Microchip") or LocalPlayer.Backpack:FindFirstChild("Special Microchip")
+                                if chip and char:FindFirstChildOfClass("Humanoid") then
+                                    char.Humanoid:EquipTool(chip)
+                                end
+
+                                local tube = rs:FindFirstChild("Raid1") or rs:FindFirstChild("MainRaid")
+                                if tube then
+                                    local tubeCF = tube:GetModelCFrame()
+                                    if (hrp.Position - tubeCF.Position).Magnitude > 10 then
+                                        raidStatusLabel.Text = "Status: Stepping into Raid Tube..."
+                                        hrp.CFrame = tubeCF + Vector3.new(0, 4, 0)
+                                        task.wait(0.5)
+                                    end
+                                end
+
+                                local btn = rs:FindFirstChild("Button", true)
+                                local cd = btn and btn:FindFirstChildWhichIsA("ClickDetector", true)
+                                if cd then
+                                    raidStatusLabel.Text = "Status: Starting Raid!"
+                                    pcall(fireclickdetector, cd)
+                                    task.wait(2)
+                                end
+                            end
+                        else
+                            raidStatusLabel.Text = "Status: Idle (Awaiting next wave or summon)"
+                        end
+                    end
+                end)
+            end
         end
     end)
 end
