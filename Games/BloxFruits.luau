@@ -1330,11 +1330,218 @@ end
 
 do
     -- =========================================================================
+    -- [REMODELED] LEVEL QUESTS & AUTO PROGRESSION ENGINE
+    -- =========================================================================
+    Hub.CreateSection(questPage, "📜 LEVEL QUESTS & AUTO PROGRESSION")
 
-    -- [1ST SEA] AUTOMATED SPECIAL QUESTS
+    local questSeaLabel = Instance.new("TextLabel")
+    questSeaLabel.Size = UDim2.new(0.98, 0, 0, 20)
+    questSeaLabel.BackgroundTransparency = 1
+    questSeaLabel.Text = "🌊 Current Sea: Checking..."
+    questSeaLabel.TextColor3 = Color3.fromRGB(0, 215, 255)
+    questSeaLabel.Font = Enum.Font.GothamBold
+    questSeaLabel.TextSize = 12
+    questSeaLabel.TextXAlignment = Enum.TextXAlignment.Left
+    pcall(function() questSeaLabel.Parent = questPage.content or questPage end)
+
+    local questLevelLabel = Instance.new("TextLabel")
+    questLevelLabel.Size = UDim2.new(0.98, 0, 0, 20)
+    questLevelLabel.BackgroundTransparency = 1
+    questLevelLabel.Text = "⭐ Player Level: Lv. 1"
+    questLevelLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+    questLevelLabel.Font = Enum.Font.GothamMedium
+    questLevelLabel.TextSize = 12
+    questLevelLabel.TextXAlignment = Enum.TextXAlignment.Left
+    pcall(function() questLevelLabel.Parent = questPage.content or questPage end)
+
+    local questActiveLabel = Instance.new("TextLabel")
+    questActiveLabel.Size = UDim2.new(0.98, 0, 0, 22)
+    questActiveLabel.BackgroundTransparency = 1
+    questActiveLabel.Text = "📜 Active Quest: None"
+    questActiveLabel.TextColor3 = Color3.fromRGB(80, 220, 140)
+    questActiveLabel.Font = Enum.Font.GothamMedium
+    questActiveLabel.TextSize = 12
+    questActiveLabel.TextXAlignment = Enum.TextXAlignment.Left
+    pcall(function() questActiveLabel.Parent = questPage.content or questPage end)
+
+    local isAutoLevelQuestOn = false
+    local isAutoFarmQuestOn = false
+    local selectedManualQuestName = ""
+
+    local function getQuestsForCurrentSea()
+        local sea = detectCurrentSea()
+        local qList = {}
+        pcall(function()
+            local qMod = require(ReplicatedStorage:WaitForChild("Quests", 3))
+            for qGiver, list in pairs(qMod) do
+                for idx, qData in ipairs(list) do
+                    local req = qData.LevelReq or 0
+                    local isMatch = false
+                    if sea == 1 and req < 700 then
+                        isMatch = true
+                    elseif sea == 2 and req >= 700 and req < 1500 then
+                        isMatch = true
+                    elseif sea == 3 and req >= 1500 then
+                        isMatch = true
+                    end
+                    if isMatch then
+                        local mobName = "Unknown"
+                        if qData.Task then
+                            for m, _ in pairs(qData.Task) do mobName = m break end
+                        end
+                        table.insert(qList, {
+                            Giver = qGiver,
+                            Index = idx,
+                            Level = req,
+                            Name = qData.Name or mobName,
+                            Mob = mobName,
+                            Display = string.format("[Lv. %d] %s", req, qData.Name or mobName)
+                        })
+                    end
+                end
+            end
+        end)
+        table.sort(qList, function(a, b) return a.Level < b.Level end)
+        return qList
+    end
+
+    local currentSeaQuests = getQuestsForCurrentSea()
+    local questDisplayNames = {}
+    for _, q in ipairs(currentSeaQuests) do
+        table.insert(questDisplayNames, q.Display)
+    end
+    if #questDisplayNames == 0 then
+        table.insert(questDisplayNames, "[Lv. 0] Bandits")
+    end
+    selectedManualQuestName = questDisplayNames[1] or ""
+
+    local function findBestQuestForLevel(myLevel)
+        local best = nil
+        for _, q in ipairs(currentSeaQuests) do
+            if q.Level <= myLevel then
+                best = q
+            else
+                break
+            end
+        end
+        return best or currentSeaQuests[1]
+    end
+
+    createSliderToggle(questPage, "Auto Level Quest (Dynamic Best Quest)", false, function(v)
+        isAutoLevelQuestOn = v
+        if v then notifyGUI("QUESTS", "Auto Level Quest ACTIVE! Auto-selecting best quest for your level.", 3) end
+    end, "AutoLevelQuest")
+
+    createSliderToggle(questPage, "Auto Farm Level Quest (Accept & Slay Mobs)", false, function(v)
+        isAutoFarmQuestOn = v
+        if v then notifyGUI("QUESTS", "Auto Farm Level Quest ACTIVE! Tracking quest mobs.", 3) end
+    end, "AutoFarmLevelQuest")
+
+    local questDropdown = Hub.CreateList(questPage, "🎯 Select Manual Quest", questDisplayNames, function(chosen)
+        selectedManualQuestName = chosen
+    end, false)
+    if questDropdown and questDropdown.SetSelected then questDropdown:SetSelected(selectedManualQuestName) end
+
+    Hub.CreateButton(questPage, "▶️ Take Selected Quest Now", function()
+        pcall(function()
+            for _, q in ipairs(currentSeaQuests) do
+                if q.Display == selectedManualQuestName then
+                    local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+                    if commF then
+                        commF:InvokeServer("StartQuest", q.Giver, q.Index)
+                        notifyGUI("QUESTS", "Accepted quest: " .. q.Display, 3)
+                    end
+                    break
+                end
+            end
+        end)
+    end)
+
+    Hub.CreateButton(questPage, "🛑 Abandon / Cancel Current Quest", function()
+        pcall(function()
+            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+            if commF then
+                commF:InvokeServer("AbandonQuest")
+                notifyGUI("QUESTS", "Abandoned active quest!", 3)
+            end
+        end)
+    end)
+
+    -- Telemetry Updater Loop
+    task.spawn(function()
+        while true do
+            pcall(function()
+                local sea = detectCurrentSea()
+                local seaName = (sea == 1 and "1st Sea (Old World)" or (sea == 2 and "2nd Sea (Dressrosa)" or "3rd Sea (New World)"))
+                questSeaLabel.Text = "🌊 Current Sea: " .. seaName
+
+                local myLevel = getPlayerLevel()
+                questLevelLabel.Text = "⭐ Player Level: Lv. " .. tostring(myLevel)
+
+                local qGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Main") and LocalPlayer.PlayerGui.Main:FindFirstChild("Quest")
+                local qTitle = qGui and qGui:FindFirstChild("Container") and qGui.Container:FindFirstChild("QuestTitle") and qGui.Container.QuestTitle:FindFirstChild("Title")
+                if qTitle and qTitle.Text and qTitle.Text ~= "" and qGui.Visible then
+                    questActiveLabel.Text = "📜 Active Quest: " .. qTitle.Text
+                else
+                    questActiveLabel.Text = "📜 Active Quest: None"
+                end
+            end)
+            task.wait(1.5)
+        end
+    end)
+
+    -- Auto Quest Grinder Loop
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if isAutoLevelQuestOn or isAutoFarmQuestOn then
+                pcall(function()
+                    local myLevel = getPlayerLevel()
+                    local qGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Main") and LocalPlayer.PlayerGui.Main:FindFirstChild("Quest")
+                    local qTitle = qGui and qGui:FindFirstChild("Container") and qGui.Container:FindFirstChild("QuestTitle") and qGui.Container.QuestTitle:FindFirstChild("Title")
+                    local hasQuest = qGui and qGui.Visible and qTitle and qTitle.Text and qTitle.Text ~= ""
+
+                    local bestQuest = findBestQuestForLevel(myLevel)
+                    if not hasQuest and bestQuest then
+                        local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+                        if commF then
+                            commF:InvokeServer("StartQuest", bestQuest.Giver, bestQuest.Index)
+                        end
+                        task.wait(1)
+                    end
+
+                    if isAutoFarmQuestOn and bestQuest then
+                        local char = LocalPlayer.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            local targetMobName = bestQuest.Mob:lower()
+                            local enemiesFolder = workspace:FindFirstChild("Enemies")
+                            if enemiesFolder then
+                                for _, mob in ipairs(enemiesFolder:GetChildren()) do
+                                    if mob.Name:lower():find(targetMobName) or targetMobName:find(mob.Name:lower()) then
+                                        local mHum = mob:FindFirstChildOfClass("Humanoid")
+                                        local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
+                                        if mHum and mHum.Health > 0 and mHrp then
+                                            -- Hover 14 studs above mob and attack
+                                            hrp.CFrame = CFrame.new(mHrp.Position + Vector3.new(0, 14, 0), mHrp.Position)
+                                            if _G.Unknown_PerformFastAttack then
+                                                _G.Unknown_PerformFastAttack({{mob, mHrp}}, mHrp)
+                                            end
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
 
     -- =========================================================================
-
+    -- [1ST SEA] AUTOMATED SPECIAL QUESTS
+    -- =========================================================================
     Hub.CreateSection(questPage, "🌊 1st Sea Special Quests")
 
 local isSaberQuestOn = false
@@ -2802,6 +3009,148 @@ do
                             hrp.CFrame = gear.CFrame + Vector3.new(0, 3, 0)
                             local prompt = gear:FindFirstChildWhichIsA("ProximityPrompt", true) or (gear.Parent and gear.Parent:FindFirstChildWhichIsA("ProximityPrompt", true))
                             if prompt then pcall(fireproximityprompt, prompt) end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- =========================================================================
+    -- [PROJECT 3] AUTONOMOUS MARITIME HUNTER (SEA EVENTS & BEASTS)
+    -- =========================================================================
+    Hub.CreateSection(eventPage, "🚢 AUTONOMOUS MARITIME HUNTER (PROJECT 3)")
+
+    local maritimeStatusLabel = Instance.new("TextLabel")
+    maritimeStatusLabel.Size = UDim2.new(0.98, 0, 0, 24)
+    maritimeStatusLabel.BackgroundTransparency = 1
+    maritimeStatusLabel.Text = "Status: Maritime Engine Idle"
+    maritimeStatusLabel.TextColor3 = Color3.fromRGB(0, 215, 255)
+    maritimeStatusLabel.Font = Enum.Font.GothamBold
+    maritimeStatusLabel.TextSize = 12
+    maritimeStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    pcall(function() maritimeStatusLabel.Parent = eventPage.content or eventPage end)
+
+    local isAutoMaritimeHunterOn = false
+    local isAutoDangerNavigatorOn = false
+    local isAutoSlaySeaBeastsOn = true
+    local isAutoSlayGhostShipsOn = true
+
+    createSliderToggle(eventPage, "Auto Maritime Hunter (Full Auto Sea Grinder)", false, function(v)
+        isAutoMaritimeHunterOn = v
+        if v then notifyGUI("MARITIME", "Auto Maritime Hunter ACTIVE! Scanning for Sea Beasts & Terror Sharks.", 4) end
+    end, "AutoMaritimeHunter")
+
+    createSliderToggle(eventPage, "Auto Sea Danger Navigator (Danger 1 -> 6)", false, function(v)
+        isAutoDangerNavigatorOn = v
+        if v then notifyGUI("MARITIME", "Auto Sea Danger Navigator ACTIVE! Navigating towards Danger 6.", 4) end
+    end, "AutoDangerNavigator")
+
+    createSliderToggle(eventPage, "Auto Slay Sea Beasts & Terror Sharks", true, function(v)
+        isAutoSlaySeaBeastsOn = v
+    end, "AutoSlaySeaBeasts")
+
+    createSliderToggle(eventPage, "Auto Slay Ghost Ships & Caravans", true, function(v)
+        isAutoSlayGhostShipsOn = v
+    end, "AutoSlayGhostShips")
+
+    local function getActiveSeaEventEntities()
+        local list = {}
+        for _, folderName in ipairs({"SeaEvents", "SeaBeasts", "SeaBeast"}) do
+            local folder = workspace:FindFirstChild(folderName)
+            if folder then
+                for _, ent in ipairs(folder:GetChildren()) do
+                    local hum = ent:FindFirstChildOfClass("Humanoid")
+                    local root = ent:FindFirstChild("HumanoidRootPart") or ent:FindFirstChild("RootPart") or ent:FindFirstChild("Head") or ent.PrimaryPart or ent:FindFirstChildWhichIsA("BasePart")
+                    if root and (not hum or hum.Health > 0) then
+                        table.insert(list, {ent, root})
+                    end
+                end
+            end
+        end
+        for _, obj in ipairs(workspace:GetChildren()) do
+            local oName = obj.Name:lower()
+            if oName:find("sea beast") or oName:find("terrorshark") or oName:find("terror shark") or oName:find("ghost ship") or oName:find("piranha") then
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                local root = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("RootPart") or obj:FindFirstChild("Head") or obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                if root and (not hum or hum.Health > 0) then
+                    table.insert(list, {obj, root})
+                end
+            end
+        end
+        return list
+    end
+
+    Hub.CreateButton(eventPage, "🚤 Buy & Spawn Boat (Sloop)", function()
+        pcall(function()
+            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+            if commF then
+                commF:InvokeServer("BuyBoat", "Sloop")
+                notifyGUI("MARITIME", "Requested Sloop spawn from Dealer!", 3)
+            end
+        end)
+    end)
+
+    Hub.CreateButton(eventPage, "🌊 Navigate Out to Danger Level 6", function()
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local seaDir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+                safeTweenToIsland(CFrame.new(hrp.Position + seaDir * 5000 + Vector3.new(0, 40, 0)), function()
+                    notifyGUI("MARITIME", "Reached outer perimeter Danger Zone!", 3)
+                end)
+            end
+        end)
+    end)
+
+    Hub.CreateButton(eventPage, "⚔️ Slay All Nearby Sea Events Now", function()
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            local evs = getActiveSeaEventEntities()
+            if #evs > 0 then
+                local target = evs[1]
+                hrp.CFrame = CFrame.new(target[2].Position + Vector3.new(0, 40, 0), target[2].Position)
+                if _G.Unknown_PerformFastAttack then
+                    _G.Unknown_PerformFastAttack(evs, target[2])
+                end
+                notifyGUI("MARITIME", "Attacking " .. tostring(target[1].Name) .. "!", 3)
+            else
+                notifyGUI("MARITIME", "No active Sea Events detected in render distance!", 3)
+            end
+        end)
+    end)
+
+    -- Background Maritime Hunter Grinder Loop
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if isAutoMaritimeHunterOn then
+                pcall(function()
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+
+                    local evs = getActiveSeaEventEntities()
+                    if #evs > 0 then
+                        local target = evs[1]
+                        local targetPart = target[2]
+                        maritimeStatusLabel.Text = "Status: Slaying " .. target[1].Name .. "!"
+
+                        hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 38, 0), targetPart.Position)
+                        if _G.Unknown_PerformFastAttack then
+                            _G.Unknown_PerformFastAttack(evs, targetPart)
+                        end
+                    else
+                        if isAutoDangerNavigatorOn then
+                            maritimeStatusLabel.Text = "Status: Navigating open sea for Danger Level 6 spawns..."
+                            local seaDir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+                            if seaDir.Magnitude < 0.1 then seaDir = Vector3.new(0, 0, -1) end
+                            hrp.CFrame = hrp.CFrame + seaDir * 25
+                        else
+                            maritimeStatusLabel.Text = "Status: Monitoring ocean for Sea Beast / Terror Shark spawns..."
                         end
                     end
                 end)
@@ -4420,38 +4769,143 @@ _G.Unknown_IsManualAttacking = false
 
 local fastAttackBatchIndex = 1
 
+local function scanAllAttackableEntities(hrp, maxDist)
+    local hits = {}
+    local primaryPart = nil
+    maxDist = maxDist or 65
+
+    local function addTarget(model, part)
+        if not model or not part or model == LocalPlayer.Character then return end
+        for _, existing in ipairs(hits) do
+            if existing[1] == model or existing[2] == part then return end
+        end
+        if not primaryPart then primaryPart = part end
+        table.insert(hits, {model, part})
+    end
+
+    -- 1. Standard Enemies & Bosses (workspace.Enemies)
+    local enemiesFolder = workspace:FindFirstChild("Enemies")
+    if enemiesFolder then
+        for _, mob in ipairs(enemiesFolder:GetChildren()) do
+            local hum = mob:FindFirstChildOfClass("Humanoid")
+            local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head") or mob.PrimaryPart
+            if hum and hum.Health > 0 and mHrp then
+                if (mHrp.Position - hrp.Position).Magnitude <= maxDist then
+                    addTarget(mob, mHrp)
+                end
+            end
+        end
+    end
+
+    -- 2. Sea Beasts & Maritime Entities (workspace.SeaEvents, workspace.SeaBeasts, workspace.SeaBeast)
+    for _, folderName in ipairs({"SeaEvents", "SeaBeasts", "SeaBeast", "BoatCastle", "RaidSummon", "SpecialEnemies"}) do
+        local folder = workspace:FindFirstChild(folderName)
+        if folder then
+            for _, ent in ipairs(folder:GetChildren()) do
+                local hum = ent:FindFirstChildOfClass("Humanoid")
+                local root = ent:FindFirstChild("HumanoidRootPart") or ent:FindFirstChild("RootPart") or ent:FindFirstChild("Head") or ent.PrimaryPart or ent:FindFirstChildWhichIsA("BasePart")
+                if root and (root.Position - hrp.Position).Magnitude <= (maxDist + 50) then
+                    if not hum or hum.Health > 0 then
+                        addTarget(ent, root)
+                    end
+                end
+            end
+        end
+    end
+
+    -- 3. Any active Sea Beast / Terror Shark / Ghost Ship models in top-level workspace
+    for _, obj in ipairs(workspace:GetChildren()) do
+        local oName = obj.Name:lower()
+        if oName:find("sea beast") or oName:find("terrorshark") or oName:find("terror shark") or oName:find("ghost ship") or oName:find("ship") or oName:find("piranha") then
+            local hum = obj:FindFirstChildOfClass("Humanoid")
+            local root = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("RootPart") or obj:FindFirstChild("Head") or obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+            if root and (root.Position - hrp.Position).Magnitude <= (maxDist + 60) then
+                if not hum or hum.Health > 0 then
+                    addTarget(obj, root)
+                end
+            end
+        end
+    end
+
+    -- 4. Pumpkin Hunt models (workspace.PumpkinHunt)
+    local pumpkinFolder = workspace:FindFirstChild("PumpkinHunt")
+    if pumpkinFolder then
+        for _, p in ipairs(pumpkinFolder:GetChildren()) do
+            if p:IsA("Model") and (p.Name == "Pumpkin" or p.Name:lower():find("pump")) then
+                local state = p:GetAttribute("PumpkinState")
+                local hitsAttr = p:GetAttribute("PumpkinHits") or 0
+                if hitsAttr < 3 and (not state or state == "Idle") then
+                    local pPart = p:FindFirstChild("RootPart") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
+                    if pPart and (pPart.Position - hrp.Position).Magnitude <= maxDist then
+                        addTarget(p, pPart)
+                    end
+                end
+            end
+        end
+    end
+
+    -- 5. Other hostile Players (if Players target mode selected)
+    if selectedFastAttackTarget == "Players" or selectedFastAttackTarget == "Everyone" then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and not plr:IsFriendsWith(LocalPlayer.UserId) then
+                local pHrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                local pHum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if pHrp and pHum and pHum.Health > 0 and (pHrp.Position - hrp.Position).Magnitude <= maxDist then
+                    addTarget(plr.Character, pHrp)
+                end
+            end
+        end
+    end
+
+    return hits, primaryPart
+end
+
 local fruitComboIndex = 0
 local lastFruitM1Time = 0
 
-local function performFruitM1Attack(tool, primaryPart, hrp)
+local function performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     if not tool or not hrp then return false end
     local lcr = tool:FindFirstChild("LeftClickRemote") or tool:FindFirstChild("Attack") or tool:FindFirstChild("M1")
     if not lcr or not lcr:IsA("RemoteEvent") then return false end
 
     local now = tick()
-    if now - lastFruitM1Time < 0.12 then return true end
+    if now - lastFruitM1Time < 0.015 then return true end
     lastFruitM1Time = now
-
-    local targetPos = primaryPart and primaryPart.Position or (hrp.Position + hrp.CFrame.LookVector * 15)
-    local rawDir = targetPos - hrp.Position
-    local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
-    if dir.Magnitude < 0.05 or dir ~= dir then
-        dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
-        if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
-    end
 
     fruitComboIndex = (fruitComboIndex % 4) + 1
 
     local mousePosVal = tool:FindFirstChild("MousePos")
-    if mousePosVal and mousePosVal:IsA("Vector3Value") then
-        mousePosVal.Value = targetPos
-    end
     local m1ActiveVal = tool:FindFirstChild("M1Active")
     if m1ActiveVal and m1ActiveVal:IsA("BoolValue") then
         m1ActiveVal.Value = true
     end
 
-    lcr:FireServer(dir, fruitComboIndex, true)
+    local targetsToFire = {}
+    if primaryPart then table.insert(targetsToFire, primaryPart) end
+    if nearbyHits then
+        for i = 1, math.min(#nearbyHits, 3) do
+            local p = nearbyHits[i] and nearbyHits[i][2]
+            if p and p ~= primaryPart then
+                table.insert(targetsToFire, p)
+            end
+        end
+    end
+
+    for _, targetPart in ipairs(targetsToFire) do
+        local targetPos = targetPart.Position
+        local rawDir = targetPos - hrp.Position
+        local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
+        if dir.Magnitude < 0.05 or dir ~= dir then
+            dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+            if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
+        end
+
+        if mousePosVal and mousePosVal:IsA("Vector3Value") then
+            mousePosVal.Value = targetPos
+        end
+
+        lcr:FireServer(dir, fruitComboIndex, true)
+    end
     return true
 end
 
@@ -4469,7 +4923,7 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
 
     local isFruit = false
     if tool and hrp then
-        isFruit = performFruitM1Attack(tool, primaryPart, hrp)
+        isFruit = performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     end
 
     if not isFruit then
@@ -4559,46 +5013,11 @@ local function hookToolFastAttack(tool)
 
         if not isAuraHitOn then return end
         task.spawn(function()
-
             local char = LocalPlayer.Character
-
             if not char or not char:FindFirstChild("HumanoidRootPart") then return end
             local hrp = char.HumanoidRootPart
 
-            local hits = {}
-
-            local primaryHRP = nil
-
-            if selectedFastAttackTarget == "NPCs" or selectedFastAttackTarget == "Everyone" then
-                local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
-
-                for i = 1, #enemies do
-                    local mob = enemies[i]
-
-                    local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-
-                    local mHum = mob:FindFirstChildOfClass("Humanoid")
-
-                    if mHrp and mHum and mHum.Health > 0 and (mHrp.Position - hrp.Position).Magnitude <= 60 then
-                        if not primaryHRP then primaryHRP = mHrp end
-                        table.insert(hits, {mob, mHrp})
-                    end
-                end
-            end
-
-            if selectedFastAttackTarget == "Players" or selectedFastAttackTarget == "Everyone" then
-                for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr ~= LocalPlayer and plr.Character and not plr:IsFriendsWith(LocalPlayer.UserId) and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") and plr.Character.Humanoid.Health > 0 then
-                        local pHrp = plr.Character.HumanoidRootPart
-
-                        if (pHrp.Position - hrp.Position).Magnitude <= 60 then
-                            if not primaryHRP then primaryHRP = pHrp end
-                            table.insert(hits, {plr.Character, pHrp})
-                        end
-                    end
-                end
-            end
-
+            local hits, primaryHRP = scanAllAttackableEntities(hrp, 75)
             if primaryHRP and #hits > 0 then
                 _G.Unknown_PerformFastAttack(hits, primaryHRP)
             end
@@ -4612,109 +5031,32 @@ if LocalPlayer.Character then
     end
 
     LocalPlayer.Character.ChildAdded:Connect(function(child)
-
         if child:IsA("Tool") then hookToolFastAttack(child) end
     end)
 end
 
 LocalPlayer.CharacterAdded:Connect(function(newChar)
-
     newChar.ChildAdded:Connect(function(child)
-
         if child:IsA("Tool") then hookToolFastAttack(child) end
     end)
 end)
 
 -- CALIBRATED FAST ATTACK HEARTBEAT STREAM (ALWAYS AUTOMATIC VIA KILL AURA)
-
 _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
-
     pcall(function()
-
         if not isAuraHitOn then return end
         local now = tick()
-
         if now - (_G.Unknown_LastHitTime or 0) < 0.015 then return end
         _G.Unknown_LastHitTime = now
 
         local char = LocalPlayer.Character
-
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local hrp = char.HumanoidRootPart
 
-        -- Respect player equipment: NEVER auto-equip Combat/Punch from backpack!
-
         local tool = char:FindFirstChildOfClass("Tool")
-
         if not tool then return end
-        local nearbyHits = {}
 
-        local primaryHRP = nil
-
-        if selectedFastAttackTarget == "NPCs" or selectedFastAttackTarget == "Everyone" then
-            local enemies = workspace:FindFirstChild("Enemies") and workspace.Enemies:GetChildren() or {}
-
-            for i = 1, #enemies do
-                local mob = enemies[i]
-
-                local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Head")
-
-                local mHum = mob:FindFirstChildOfClass("Humanoid")
-
-                if mHrp and mHum and mHum.Health > 0 then
-                    local dist = (mHrp.Position - hrp.Position).Magnitude
-
-                    if dist <= 60 then
-                        if not primaryHRP then primaryHRP = mHrp end
-                        table.insert(nearbyHits, {mob, mHrp})
-                    end
-                end
-            end
-        end
-
-        -- Pumpkin Heads from workspace.PumpkinHunt (ALWAYS get damage from hit aura!)
-
-        local pumpkinFolder = workspace:FindFirstChild("PumpkinHunt")
-
-        if pumpkinFolder then
-            for _, p in ipairs(pumpkinFolder:GetChildren()) do
-                if p:IsA("Model") and (p.Name == "Pumpkin" or string.find(string.lower(p.Name), "pump")) then
-                    local state = p:GetAttribute("PumpkinState")
-
-                    local hitsAttr = p:GetAttribute("PumpkinHits") or 0
-
-                    if hitsAttr < 3 and (not state or state == "Idle") then
-                        local pPart = p:FindFirstChild("RootPart") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
-
-                        if pPart then
-                            local dist = (pPart.Position - hrp.Position).Magnitude
-
-                            if dist <= 60 then
-                                if not primaryHRP then primaryHRP = pPart end
-                                table.insert(nearbyHits, {p, pPart})
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        if selectedFastAttackTarget == "Players" or selectedFastAttackTarget == "Everyone" then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character and not plr:IsFriendsWith(LocalPlayer.UserId) and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChildOfClass("Humanoid") then
-                    if plr.Character.Humanoid.Health > 0 then
-                        local pHrp = plr.Character.HumanoidRootPart
-
-                        local dist = (pHrp.Position - hrp.Position).Magnitude
-
-                        if dist <= 60 then
-                            if not primaryHRP then primaryHRP = pHrp end
-                            table.insert(nearbyHits, {plr.Character, pHrp})
-                        end
-                    end
-                end
-            end
-        end
+        local nearbyHits, primaryHRP = scanAllAttackableEntities(hrp, 75)
 
         if primaryHRP and #nearbyHits > 0 then
             if not (tool and tool:FindFirstChild("LeftClickRemote")) then
