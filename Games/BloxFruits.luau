@@ -2853,152 +2853,177 @@ end
 
 -- Second _G.Unknown_CancelTween purged (using primary definition)
 
-do
-    local travelButtons = {}
-
-    local activeTravelIsland = nil
-
-    -- Detect current Sea using PlaceId & Workspace Fallback
-
+-- =========================================================================
+-- Bulletproof Current Sea Detector (Supports New Sub-PlaceIds & Map Invariants)
+-- =========================================================================
+local function detectCurrentSea()
     local pId = game.PlaceId
+    if pId == 2753915549 then return 1 end
+    if pId == 4442272183 or pId == 79091703265657 then return 2 end
+    if pId == 7449423635 then return 3 end
 
-    local isSea1 = (pId == 2753915549)
-
-    local isSea2 = (pId == 4442272183)
-
-    local isSea3 = (pId == 7449423635)
-
-    if not isSea1 and not isSea2 and not isSea3 then
-        if workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Cafe") then
-            isSea2 = true
-        elseif workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Mansion") then
-            isSea3 = true
-        else
-            isSea1 = true
+    -- Authoritative workspace locations inspection
+    local wo = workspace:FindFirstChild("_WorldOrigin")
+    local locs = wo and wo:FindFirstChild("Locations")
+    if locs then
+        if locs:FindFirstChild("Café") or locs:FindFirstChild("Kingdom of Rose") or locs:FindFirstChild("Green Zone") or locs:FindFirstChild("Cursed Ship") then
+            return 2
+        elseif locs:FindFirstChild("Port Town") or locs:FindFirstChild("Hydra Island") or locs:FindFirstChild("Floating Turtle") or locs:FindFirstChild("Castle on the Sea") then
+            return 3
+        elseif locs:FindFirstChild("Marine") or locs:FindFirstChild("Pirate") or locs:FindFirstChild("Jungle") or locs:FindFirstChild("Desert") then
+            return 1
         end
     end
 
-    local islands = {}
-
-    local seaTitle = "1st Sea"
-
-    if isSea2 then
-        seaTitle = "2nd Sea"
-
-        islands = {
-
-            {Name = "Kingdom of Rose (Cafe) [Lv. 700]", CFrame = CFrame.new(-380, 73, 300)},
-
-            {Name = "Green Zone [Lv. 875]", CFrame = CFrame.new(-2400, 73, -3100)},
-
-            {Name = "Graveyard Island [Lv. 950]", CFrame = CFrame.new(1350, 87, -1300)},
-
-            {Name = "Snow Mountain [Lv. 1000]", CFrame = CFrame.new(-2200, 73, -4400)},
-
-            {Name = "Hot & Cold [Lv. 1100]", CFrame = CFrame.new(-6000, 15, -4800)},
-
-            {Name = "Cursed Ship [Lv. 1250]", CFrame = CFrame.new(900, 130, 32800)},
-
-            {Name = "Ice Castle [Lv. 1350]", CFrame = CFrame.new(5800, 28, -6200)},
-
-            {Name = "Forgotten Island [Lv. 1425]", CFrame = CFrame.new(-3000, 10, -9800)}
-
-        }
-    elseif isSea3 then
-        seaTitle = "3rd Sea"
-
-        islands = {
-
-            {Name = "Port Town [Lv. 1500]", CFrame = CFrame.new(-2900, 15, 5300)},
-
-            {Name = "Hydra Island [Lv. 1575]", CFrame = CFrame.new(5700, 600, 200)},
-
-            {Name = "Great Tree [Lv. 1700]", CFrame = CFrame.new(2250, 15, -7100)},
-
-            {Name = "Castle on the Sea [Lv. 1775]", CFrame = CFrame.new(-5000, 300, -3000)},
-
-            {Name = "Floating Turtle [Lv. 1875]", CFrame = CFrame.new(-13200, 330, -7900)},
-
-            {Name = "Haunted Castle [Lv. 1975]", CFrame = CFrame.new(-9500, 140, 5500)},
-
-            {Name = "Sea of Treats [Lv. 2075]", CFrame = CFrame.new(600, 25, -12400)},
-
-            {Name = "Tiki Outpost [Lv. 2450]", CFrame = CFrame.new(-16200, 10, 400)}
-
-        }
-    else
-        seaTitle = "1st Sea"
-
-        islands = {
-
-            {Name = "Starter Island [Lv. 1]", CFrame = CFrame.new(1050, 16, 1400)},
-
-            {Name = "Jungle [Lv. 15]", CFrame = CFrame.new(-1240, 6, -500)},
-
-            {Name = "Pirate Village [Lv. 30]", CFrame = CFrame.new(-1150, 15, 4300)},
-
-            {Name = "Desert [Lv. 60]", CFrame = CFrame.new(900, 6, 4400)},
-
-            {Name = "Snow Village [Lv. 90]", CFrame = CFrame.new(1300, 87, -1300)},
-
-            {Name = "Marine Fortress [Lv. 120]", CFrame = CFrame.new(-4900, 20, 4300)},
-
-            {Name = "Skylands (Lower) [Lv. 150]", CFrame = CFrame.new(-4800, 715, -2600)},
-
-            {Name = "Skylands (Upper) [Lv. 450]", CFrame = CFrame.new(-7700, 5600, -1450)},
-
-            {Name = "Colosseum [Lv. 225]", CFrame = CFrame.new(-1300, 8, -3300)},
-
-            {Name = "Prison [Lv. 190]", CFrame = CFrame.new(5300, 4, 700)},
-
-            {Name = "Magma Village [Lv. 300]", CFrame = CFrame.new(-5500, 16, 8435)},
-
-            {Name = "Fishman Island [Lv. 375]", CFrame = CFrame.new(61000, 18, 1500)},
-
-            {Name = "Fountain City [Lv. 625]", CFrame = CFrame.new(5600, 38, 4800)}
-
-        }
+    -- Workspace Map children fallback
+    local map = workspace:FindFirstChild("Map")
+    if map then
+        if map:FindFirstChild("Dressrosa") or map:FindFirstChild("GreenBit") or map:FindFirstChild("IceCastle") or map:FindFirstChild("SnowMountain") or map:FindFirstChild("ForgottenIsland") or map:FindFirstChild("Cafe") then
+            return 2
+        elseif map:FindFirstChild("Port Town") or map:FindFirstChild("Turtle") or map:FindFirstChild("Hydra Island") or map:FindFirstChild("Great Tree") or map:FindFirstChild("Mansion") then
+            return 3
+        end
     end
 
-        -- 2. Destination Island Dropdown & Dedicated Travel Toggle
+    return 1
+end
 
-    Hub.CreateSection(travelPage, "✈️ SELECT DESTINATION ISLAND & TRAVEL")
+do
+    local activeTravelIsland = nil
+    local currentDetectedSea = detectCurrentSea()
 
-    local islandNames = {}
+    local allIslandsBySea = {
+        [1] = {
+            Title = "1st Sea (Old World)",
+            Islands = {
+                {Name = "Starter Pirate [Lv. 1]", CFrame = CFrame.new(1050, 16, 1400)},
+                {Name = "Starter Marine [Lv. 1]", CFrame = CFrame.new(-2800, 16, 2100)},
+                {Name = "Jungle [Lv. 15]", CFrame = CFrame.new(-1240, 12, -500)},
+                {Name = "Pirate Village [Lv. 30]", CFrame = CFrame.new(-1150, 15, 4300)},
+                {Name = "Desert [Lv. 60]", CFrame = CFrame.new(900, 6, 4400)},
+                {Name = "Snow Village [Lv. 90]", CFrame = CFrame.new(1300, 87, -1300)},
+                {Name = "Marine Fortress [Lv. 120]", CFrame = CFrame.new(-4900, 20, 4300)},
+                {Name = "Skylands (Lower) [Lv. 150]", CFrame = CFrame.new(-4800, 715, -2600)},
+                {Name = "Prison [Lv. 190]", CFrame = CFrame.new(5300, 4, 700)},
+                {Name = "Colosseum [Lv. 225]", CFrame = CFrame.new(-1300, 8, -3300)},
+                {Name = "Magma Village [Lv. 300]", CFrame = CFrame.new(-5500, 16, 8435)},
+                {Name = "Fishman Island (Underwater) [Lv. 375]", CFrame = CFrame.new(61000, 18, 1500)},
+                {Name = "Skylands (Upper) [Lv. 450]", CFrame = CFrame.new(-7700, 5600, -1450)},
+                {Name = "Fountain City [Lv. 625]", CFrame = CFrame.new(5600, 38, 4800)},
+                {Name = "Mob Island (Bobi)", CFrame = CFrame.new(-2850, 7, 5350)}
+            }
+        },
+        [2] = {
+            Title = "2nd Sea (Dressrosa)",
+            Islands = {
+                {Name = "Kingdom of Rose (Café) [Lv. 700]", CFrame = CFrame.new(-381, 73, 303)},
+                {Name = "Kingdom of Rose (Castle) [Lv. 725]", CFrame = CFrame.new(-196, 155, 279)},
+                {Name = "Colosseum [Lv. 775]", CFrame = CFrame.new(-1837, 72, 1360)},
+                {Name = "Don Swan's Mansion [Lv. 850]", CFrame = CFrame.new(-394, 367, 687)},
+                {Name = "Green Zone [Lv. 875]", CFrame = CFrame.new(-2341, 155, -3397)},
+                {Name = "Graveyard Island [Lv. 950]", CFrame = CFrame.new(-5930, 87, -1189)},
+                {Name = "Snow Mountain [Lv. 1000]", CFrame = CFrame.new(856, 50, -5279)},
+                {Name = "Hot & Cold (Punks) [Lv. 1100]", CFrame = CFrame.new(-5735, 49, -5147)},
+                {Name = "Cursed Ship [Lv. 1250]", CFrame = CFrame.new(900, 143, 33072)},
+                {Name = "Ice Castle [Lv. 1350]", CFrame = CFrame.new(6062, 155, -6881)},
+                {Name = "Forgotten Island [Lv. 1425]", CFrame = CFrame.new(-3195, 155, -10796)},
+                {Name = "Factory (Core)", CFrame = CFrame.new(430, 238, -434)},
+                {Name = "Dark Arena (Darkbeard)", CFrame = CFrame.new(3807, 11, -3453)},
+                {Name = "Swan's Room (Boss)", CFrame = CFrame.new(2293, 12, 663)},
+                {Name = "Observatory (Raid Labs)", CFrame = CFrame.new(-335, -10926, 267)},
+                {Name = "Fishman Cave (l'Église)", CFrame = CFrame.new(239, -59, 1824)},
+                {Name = "Usopp's Island (Sniper)", CFrame = CFrame.new(-2053, 68, -77)}
+            }
+        },
+        [3] = {
+            Title = "3rd Sea (New World)",
+            Islands = {
+                {Name = "Port Town [Lv. 1500]", CFrame = CFrame.new(-2900, 15, 5300)},
+                {Name = "Hydra Island [Lv. 1575]", CFrame = CFrame.new(5700, 600, 200)},
+                {Name = "Great Tree [Lv. 1700]", CFrame = CFrame.new(2250, 15, -7100)},
+                {Name = "Castle on the Sea [Lv. 1775]", CFrame = CFrame.new(-5000, 300, -3000)},
+                {Name = "Floating Turtle (Mansion) [Lv. 1875]", CFrame = CFrame.new(-12463, 375, -7551)},
+                {Name = "Floating Turtle (Outpost) [Lv. 1900]", CFrame = CFrame.new(-13200, 330, -7900)},
+                {Name = "Haunted Castle [Lv. 1975]", CFrame = CFrame.new(-9500, 140, 5500)},
+                {Name = "Sea of Treats (Peanut) [Lv. 2075]", CFrame = CFrame.new(600, 25, -12400)},
+                {Name = "Sea of Treats (Cake Island) [Lv. 2200]", CFrame = CFrame.new(-2000, 40, -12000)},
+                {Name = "Tiki Outpost [Lv. 2450]", CFrame = CFrame.new(-16200, 10, 400)},
+                {Name = "Submarine / Prehistoric", CFrame = CFrame.new(-16500, 15, 1200)}
+            }
+        }
+    }
 
-    for _, isl in ipairs(islands) do
-        table.insert(islandNames, isl.Name)
+    local selectedSeaIndex = currentDetectedSea
+    local currentIslandList = allIslandsBySea[selectedSeaIndex].Islands
+
+    local function getIslandNames(seaIdx)
+        local names = {}
+        local list = allIslandsBySea[seaIdx] and allIslandsBySea[seaIdx].Islands or {}
+        for _, isl in ipairs(list) do
+            table.insert(names, isl.Name)
+        end
+        return names
     end
 
-    local selectedTravelIslandName = islandNames[1] or "Starter Island [Lv. 1]"
-
-    local function getTargetIslandByName(name)
-
-        for _, isl in ipairs(islands) do
+    local function getTargetIslandByName(name, seaIdx)
+        local list = allIslandsBySea[seaIdx] and allIslandsBySea[seaIdx].Islands or {}
+        for _, isl in ipairs(list) do
             if isl.Name == name then return isl end
         end
-
         return nil
     end
 
-    Hub.CreateDropdown(travelPage, "Destination Island", islandNames, selectedTravelIslandName, function(choice)
+    Hub.CreateSection(travelPage, "✈️ SELECT SEA & DESTINATION ISLAND")
 
+    local seaDropdownOptions = {
+        "📍 Auto-Detect (Current Sea: " .. (currentDetectedSea == 1 and "1st Sea" or (currentDetectedSea == 2 and "2nd Sea" or "3rd Sea")) .. ")",
+        "1st Sea (Old World)",
+        "2nd Sea (Dressrosa)",
+        "3rd Sea (New World)"
+    }
+
+    local islandDropdownObj = nil
+    local selectedTravelIslandName = (currentIslandList[1] and currentIslandList[1].Name) or ""
+
+    islandDropdownObj = Hub.CreateDropdown(travelPage, "Destination Island", getIslandNames(selectedSeaIndex), selectedTravelIslandName, function(choice)
         selectedTravelIslandName = choice
     end)
 
+    Hub.CreateDropdown(travelPage, "Choose Sea / Ocean", seaDropdownOptions, seaDropdownOptions[1], function(choice)
+        local newSea = currentDetectedSea
+        if choice:find("1st Sea") then newSea = 1
+        elseif choice:find("2nd Sea") then newSea = 2
+        elseif choice:find("3rd Sea") then newSea = 3
+        else newSea = detectCurrentSea() end
+
+        selectedSeaIndex = newSea
+        currentIslandList = allIslandsBySea[selectedSeaIndex].Islands
+        local newNames = getIslandNames(selectedSeaIndex)
+        selectedTravelIslandName = newNames[1] or ""
+
+        if islandDropdownObj and islandDropdownObj.Refresh then
+            islandDropdownObj:Refresh(newNames)
+            if islandDropdownObj.Set then islandDropdownObj:Set(selectedTravelIslandName) end
+        end
+        notifyGUI("TRAVEL", "Loaded " .. allIslandsBySea[selectedSeaIndex].Title .. " (" .. #newNames .. " locations)", 2)
+    end)
+
     local isAutoTravelOn = false
-
     local setTravelState
-
     local getTravelState
 
     getTravelState, setTravelState = createSliderToggle(travelPage, "✈️ Travel / Fly to Selected Island", false, function(newState)
-
         isAutoTravelOn = newState
 
         if newState then
-            local targetIsland = getTargetIslandByName(selectedTravelIslandName)
+            local activeSea = detectCurrentSea()
+            if selectedSeaIndex ~= activeSea then
+                notifyGUI("TRAVEL WARNING", "You are in " .. (activeSea == 1 and "1st Sea" or (activeSea == 2 and "2nd Sea" or "3rd Sea")) .. "! Use the Inter-Sea Teleporters below to travel between seas.", 4)
+                if setTravelState then setTravelState(false) end
+                return
+            end
 
+            local targetIsland = getTargetIslandByName(selectedTravelIslandName, selectedSeaIndex)
             if targetIsland then
                 activeTravelIsland = targetIsland.Name
 
@@ -3014,28 +3039,47 @@ do
                 travelStatusLabel.Text = "Status: Traveling to " .. targetIsland.Name .. "..."
 
                 safeTweenToIsland(targetIsland.CFrame + Vector3.new(0, 15, 0), function()
-
                     isAutoTravelOn = false
-
                     if setTravelState then setTravelState(false) end
                     activeTravelIsland = nil
-
                     travelStatusLabel.Text = "Status: Arrived at " .. targetIsland.Name
-
                     notifyGUI("TRAVEL", "Arrived at " .. targetIsland.Name .. "!", 4)
                 end)
             else
                 notifyGUI("TRAVEL", "Selected island not found!", 3)
-
                 if setTravelState then setTravelState(false) end
             end
         else
             _G.Unknown_CancelTween()
-
             activeTravelIsland = nil
-
             travelStatusLabel.Text = "Status: Idle"
         end
+    end)
+
+    Hub.CreateSection(travelPage, "🌊 INTER-SEA WORLD TELEPORTERS")
+
+    Hub.CreateButton(travelPage, "🌊 Teleport to 1st Sea (Old World)", function()
+        notifyGUI("TELEPORT", "Traveling to 1st Sea...", 3)
+        pcall(function()
+            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+            if commF then commF:InvokeServer("TravelMain") end
+        end)
+    end)
+
+    Hub.CreateButton(travelPage, "🌊 Teleport to 2nd Sea (Dressrosa)", function()
+        notifyGUI("TELEPORT", "Traveling to 2nd Sea...", 3)
+        pcall(function()
+            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+            if commF then commF:InvokeServer("TravelDressrosa") end
+        end)
+    end)
+
+    Hub.CreateButton(travelPage, "🌊 Teleport to 3rd Sea (New World)", function()
+        notifyGUI("TELEPORT", "Traveling to 3rd Sea...", 3)
+        pcall(function()
+            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+            if commF then commF:InvokeServer("TravelZou") end
+        end)
     end)
 
     Hub.CreateButton(travelPage, "🛑 Stop Travel / Cancel Flight", function()
@@ -3068,23 +3112,10 @@ local isStatsOn = false
 -- AUTO BOSS DATA & UI (FILTERED BY CURRENT SEA WITH LIVE READY/DEAD STATUS)
 
 do
-    local pId = game.PlaceId
-
-    local isSea1 = (pId == 2753915549)
-
-    local isSea2 = (pId == 4442272183)
-
-    local isSea3 = (pId == 7449423635)
-
-    if not isSea1 and not isSea2 and not isSea3 then
-        if workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Cafe") then
-            isSea2 = true
-        elseif workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Mansion") then
-            isSea3 = true
-        else
-            isSea1 = true
-        end
-    end
+    local activeSea = detectCurrentSea()
+    local isSea1 = (activeSea == 1)
+    local isSea2 = (activeSea == 2)
+    local isSea3 = (activeSea == 3)
 
     local allBossData = {
 
@@ -3916,6 +3947,41 @@ _G.Unknown_IsManualAttacking = false
 
 local fastAttackBatchIndex = 1
 
+local fruitComboIndex = 0
+local lastFruitM1Time = 0
+
+local function performFruitM1Attack(tool, primaryPart, hrp)
+    if not tool or not hrp then return false end
+    local lcr = tool:FindFirstChild("LeftClickRemote") or tool:FindFirstChild("Attack") or tool:FindFirstChild("M1")
+    if not lcr or not lcr:IsA("RemoteEvent") then return false end
+
+    local now = tick()
+    if now - lastFruitM1Time < 0.12 then return true end
+    lastFruitM1Time = now
+
+    local targetPos = primaryPart and primaryPart.Position or (hrp.Position + hrp.CFrame.LookVector * 15)
+    local rawDir = targetPos - hrp.Position
+    local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
+    if dir.Magnitude < 0.05 or dir ~= dir then
+        dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+        if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
+    end
+
+    fruitComboIndex = (fruitComboIndex % 4) + 1
+
+    local mousePosVal = tool:FindFirstChild("MousePos")
+    if mousePosVal and mousePosVal:IsA("Vector3Value") then
+        mousePosVal.Value = targetPos
+    end
+    local m1ActiveVal = tool:FindFirstChild("M1Active")
+    if m1ActiveVal and m1ActiveVal:IsA("BoolValue") then
+        m1ActiveVal.Value = true
+    end
+
+    lcr:FireServer(dir, fruitComboIndex, true)
+    return true
+end
+
 _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     if not nearbyHits or #nearbyHits == 0 then return end
     local now = tick()
@@ -3925,42 +3991,51 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     primaryPart = primaryPart or (nearbyHits[1] and nearbyHits[1][2]) or (nearbyHits[1] and (nearbyHits[1][1]:FindFirstChild("Head") or nearbyHits[1][1]:FindFirstChild("HumanoidRootPart") or nearbyHits[1][1]:FindFirstChild("RootPart") or nearbyHits[1][1].PrimaryPart or nearbyHits[1][1]:FindFirstChildWhichIsA("BasePart")))
     if not primaryPart then return end
     local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local tool = autoEquipSelectedWeapon and autoEquipSelectedWeapon() or (char and char:FindFirstChildOfClass("Tool"))
-    if tool then pcall(function() tool:Activate() end) end
-    -- Reset official game engine attack cooldown to 0 for instant, zero-delay combat
-    pcall(function()
-        local global = require(ReplicatedStorage.Global)
-        if global then global.tapCooldown = 0 end
-    end)
 
-    local netM = require(ReplicatedStorage.Modules.Net)
-    local rAtk = _G.Unknown_WrappedAtk or netM:RemoteEvent("RegisterAttack")
-    _G.Unknown_WrappedAtk = rAtk
+    local isFruit = false
+    if tool and hrp then
+        isFruit = performFruitM1Attack(tool, primaryPart, hrp)
+    end
 
-    -- Official authentic delivery with authenticated v3 handshake session token
-    -- ROUND-ROBIN MULTI-SWING ENGINE: Dispatches pairs of 2 targets per swing, cycling through ALL stacked mobs
-    pcall(function()
-        local global = require(ReplicatedStorage.Global)
-        if not global or not global.SendHitsToServer then return end
-        local totalHits = #nearbyHits
-        if totalHits <= 2 then
-            -- 1 or 2 mobs: Full burst in single swing
-            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-            local leadPart = nearbyHits[1][2] or primaryPart
-            global.SendHitsToServer(leadPart, nearbyHits)
-        else
-            -- Zero-Delay Multi-Target Pipeline: Dispatches all stacked targets in pairs of 2 without any wait or delay
-            for batchStart = 1, totalHits, 2 do
-                local batch = { nearbyHits[batchStart] }
-                if nearbyHits[batchStart + 1] then
-                    table.insert(batch, nearbyHits[batchStart + 1])
-                end
+    if not isFruit then
+        if tool then pcall(function() tool:Activate() end) end
+        -- Reset official game engine attack cooldown to 0 for instant, zero-delay combat
+        pcall(function()
+            local global = require(ReplicatedStorage.Global)
+            if global then global.tapCooldown = 0 end
+        end)
+
+        local netM = require(ReplicatedStorage.Modules.Net)
+        local rAtk = _G.Unknown_WrappedAtk or netM:RemoteEvent("RegisterAttack")
+        _G.Unknown_WrappedAtk = rAtk
+
+        -- Official authentic delivery with authenticated v3 handshake session token
+        -- ROUND-ROBIN MULTI-SWING ENGINE: Dispatches pairs of 2 targets per swing, cycling through ALL stacked mobs
+        pcall(function()
+            local global = require(ReplicatedStorage.Global)
+            if not global or not global.SendHitsToServer then return end
+            local totalHits = #nearbyHits
+            if totalHits <= 2 then
+                -- 1 or 2 mobs: Full burst in single swing
                 if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-                local lead = batch[1] and batch[1][2] or primaryPart
-                global.SendHitsToServer(lead, batch)
+                local leadPart = nearbyHits[1][2] or primaryPart
+                global.SendHitsToServer(leadPart, nearbyHits)
+            else
+                -- Zero-Delay Multi-Target Pipeline: Dispatches all stacked targets in pairs of 2 without any wait or delay
+                for batchStart = 1, totalHits, 2 do
+                    local batch = { nearbyHits[batchStart] }
+                    if nearbyHits[batchStart + 1] then
+                        table.insert(batch, nearbyHits[batchStart + 1])
+                    end
+                    if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+                    local lead = batch[1] and batch[1][2] or primaryPart
+                    global.SendHitsToServer(lead, batch)
+                end
             end
-        end
-    end)
+        end)
+    end
 
     -- 4. CombatFramework controller bypass
 
@@ -4169,7 +4244,9 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
         end
 
         if primaryHRP and #nearbyHits > 0 then
-            pcall(function() tool:Activate() end)
+            if not (tool and tool:FindFirstChild("LeftClickRemote")) then
+                pcall(function() tool:Activate() end)
+            end
 
             _G.Unknown_PerformFastAttack(nearbyHits, primaryHRP)
         end
