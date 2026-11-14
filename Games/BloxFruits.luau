@@ -4860,6 +4860,8 @@ local function scanAllAttackableEntities(hrp, maxDist)
     return hits, primaryPart
 end
 
+_G.Unknown_ScanTargets = scanAllAttackableEntities
+
 local fruitComboIndex = 0
 local lastFruitM1Time = 0
 
