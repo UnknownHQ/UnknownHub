@@ -123,6 +123,14 @@ local SupportedGames = {
         gameIds = { 210851291 },
         scriptUrl = BASE_URL .. "/Games/BABFT.luau",
         desc = "Fast gold autofarm, stage bypass tweening, anti-void protection, chest farmer & auto-rejoin"
+    },
+    {
+        name = "PLS DONATE",
+        icon = "💸",
+        placeIds = { 8737602449, 8943844393 },
+        gameIds = { 3317679266 },
+        scriptUrl = BASE_URL .. "/Games/PlsDonate.luau",
+        desc = "Whale hunter & Premium finder server-hopper, smart inactivity sweet-spot hopper, booth snatcher & RichText styler"
     }
 }
 
