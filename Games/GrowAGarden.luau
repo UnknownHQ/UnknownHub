@@ -383,11 +383,11 @@ local function safeAddToList(listObj, newItem)
     if not listObj or not newItem or newItem == "" then return end
     if not listObj.AddItem then return end
 
-    local nameToAdd = type(newItem) == "table" and (newItem.Name or newItem[1] or tostring(newItem)) or tostring(newItem)
+    local nameToAdd = type(newItem) == "table" and (newItem.Name or newItem.Title or newItem[1] or tostring(newItem)) or tostring(newItem)
     
     if listObj.Items and type(listObj.Items) == "table" then
         for _, existing in ipairs(listObj.Items) do
-            local existingName = type(existing) == "table" and (existing.Name or existing[1] or tostring(existing)) or tostring(existing)
+            local existingName = type(existing) == "table" and (existing.Name or existing.Title or existing[1] or tostring(existing)) or tostring(existing)
             if existingName == nameToAdd then
                 return
             end
@@ -403,7 +403,7 @@ local function syncListEntries(listObj, desiredItems, preserveHeaderItem)
     pcall(function()
         local desiredMap = {}
         for _, item in ipairs(desiredItems) do
-            local n = type(item) == "table" and (item.Name or item[1] or tostring(item)) or tostring(item)
+            local n = type(item) == "table" and (item.Name or item.Title or item[1] or tostring(item)) or tostring(item)
             desiredMap[n] = item
         end
         if preserveHeaderItem then
@@ -414,12 +414,13 @@ local function syncListEntries(listObj, desiredItems, preserveHeaderItem)
         local i = 1
         while i <= #listObj.Items do
             local entry = listObj.Items[i]
-            local eName = entry and entry.Name
+            local eName = type(entry) == "table" and (entry.Name or entry.Title or entry[1] or tostring(entry)) or tostring(entry)
             if eName and not desiredMap[eName] and eName ~= preserveHeaderItem then
-                if entry.Row then
-                    pcall(function() entry.Row:Destroy() end)
+                if listObj.RemoveItem then
+                    listObj:RemoveItem(eName)
+                else
+                    table.remove(listObj.Items, i)
                 end
-                table.remove(listObj.Items, i)
             else
                 i = i + 1
             end
@@ -428,19 +429,27 @@ local function syncListEntries(listObj, desiredItems, preserveHeaderItem)
         -- 2. Add entries that are in desiredMap but not yet in listObj.Items
         local currentMap = {}
         for _, entry in ipairs(listObj.Items) do
-            if entry and entry.Name then
-                currentMap[entry.Name] = true
+            local eName = type(entry) == "table" and (entry.Name or entry.Title or entry[1] or tostring(entry)) or tostring(entry)
+            if eName then
+                currentMap[eName] = true
             end
         end
 
         for _, item in ipairs(desiredItems) do
-            local n = type(item) == "table" and (item.Name or item[1] or tostring(item)) or tostring(item)
+            local n = type(item) == "table" and (item.Name or item.Title or item[1] or tostring(item)) or tostring(item)
             if not currentMap[n] then
                 if listObj.AddItem then
                     listObj.AddItem(item)
                     currentMap[n] = true
                 end
             end
+        end
+
+        -- 3. Preserve active selection highlights across sync cycles
+        if listObj.SelectedItems and #listObj.SelectedItems > 0 then
+            pcall(function() listObj:SetSelectedItems(listObj.SelectedItems) end)
+        elseif listObj.SelectedItem then
+            pcall(function() listObj:SetSelected(listObj.SelectedItem) end)
         end
 
         if listObj.UpdateHeight then
@@ -6462,9 +6471,7 @@ reclaimerPlantListObj = Hub.CreateList(farmTab, "Reclaimer: Target Plants (In Ga
 Hub.CreateButton(farmTab, "🔄 Refresh Garden Plants List", function()
     if reclaimerPlantListObj then
         local gardenPlants = buildPlantsInGardenCatalog()
-        for _, entry in ipairs(gardenPlants) do
-            safeAddToList(reclaimerPlantListObj, entry)
-        end
+        syncListEntries(reclaimerPlantListObj, gardenPlants, "All Garden Plants")
     end
 end)
 
@@ -6502,6 +6509,13 @@ autoShovelToggle = Hub.CreateToggle(farmTab, "⛏️ Auto Shovel", false, functi
 end)
 
 shovelPlantListObj = Hub.CreateList(farmTab, "Shovel: Target Plants (In Garden)", buildPlantsInGardenCatalog(), nil, false, true)
+
+Hub.CreateButton(farmTab, "🔄 Refresh Shovel Plants List", function()
+    if shovelPlantListObj then
+        local gardenPlants = buildPlantsInGardenCatalog()
+        syncListEntries(shovelPlantListObj, gardenPlants, "All Garden Plants")
+    end
+end)
 
 Hub.CreateInput(farmTab, "Shovel Delay (s)", "0.5", "e.g. 0.5", function(text)
     local num = tonumber(text)

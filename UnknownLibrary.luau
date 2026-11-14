@@ -232,11 +232,17 @@ return function(opts)
     end
 
     local function setAccentColor(newColor)
-
+        if typeof(newColor) ~= "Color3" then return end
         primaryTheme = newColor
+        DEFAULT_THEME.Primary = newColor
 
         for _, fn in ipairs(themeUpdaters) do
             pcall(fn, primaryTheme)
+        end
+
+        if activeTab and activeTab.Button then
+            if activeTab.Icon then activeTab.Icon.TextColor3 = primaryTheme end
+            if activeTab.Indicator then activeTab.Indicator.BackgroundColor3 = primaryTheme end
         end
     end
 
@@ -2211,7 +2217,7 @@ return function(opts)
 
         applyCorner(switchTrack, 10)
 
-        applyStroke(switchTrack, state and primaryTheme or DEFAULT_THEME.Stroke, 1, 0.3)
+        local switchTrackStroke = applyStroke(switchTrack, state and primaryTheme or DEFAULT_THEME.Stroke, 1, 0.3)
 
         local switchKnob = Instance.new("Frame")
 
@@ -2230,35 +2236,33 @@ return function(opts)
         applyCorner(switchKnob, 7)
 
         registerThemeUpdater(function(c)
-
-            if state then switchTrack.BackgroundColor3 = c end
+            if state then
+                switchTrack.BackgroundColor3 = c
+                if switchTrackStroke then switchTrackStroke.Color = c end
+            end
         end)
 
         local function updateVisuals()
 
             if state then
                 tween(switchTrack, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-
                     BackgroundColor3 = primaryTheme
-
                 })
-
+                if switchTrackStroke then
+                    tween(switchTrackStroke, TweenInfo.new(0.18, Enum.EasingStyle.Quad), { Color = primaryTheme })
+                end
                 tween(switchKnob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-
                     Position = UDim2.new(1, -17, 0.5, -7)
-
                 })
             else
                 tween(switchTrack, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-
                     BackgroundColor3 = Color3.fromRGB(32, 29, 38)
-
                 })
-
+                if switchTrackStroke then
+                    tween(switchTrackStroke, TweenInfo.new(0.18, Enum.EasingStyle.Quad), { Color = DEFAULT_THEME.Stroke })
+                end
                 tween(switchKnob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-
                     Position = UDim2.new(0, 3, 0.5, -7)
-
                 })
             end
         end
@@ -2579,13 +2583,18 @@ return function(opts)
 
         applyCorner(thumb, 7)
 
-        applyStroke(thumb, primaryTheme, 1.5, 0)
+        local thumbStroke = applyStroke(thumb, primaryTheme, 1.5, 0)
 
         registerThemeUpdater(function(c)
-
             fill.BackgroundColor3 = c
-
             valBadge.TextColor3 = c
+            if thumbStroke then thumbStroke.Color = c end
+            if fillGrad then
+                fillGrad.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, DEFAULT_THEME.GoldTop),
+                    ColorSequenceKeypoint.new(1, c)
+                })
+            end
         end)
 
         local function updateSlider(alpha, skipCallback)
@@ -3564,6 +3573,17 @@ return function(opts)
 
         }
 
+        registerThemeUpdater(function(c)
+            for _, child in ipairs(optionsContainer:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local cleanName = child.Name:gsub("^Opt_", "")
+                    if cleanName == tostring(currentSelection) then
+                        child.TextColor3 = c
+                    end
+                end
+            end
+        end)
+
         return dropdownObj
     end
 
@@ -3872,6 +3892,17 @@ return function(opts)
             refreshOptionVisuals()
 
             tween(card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, targetH)})
+        end)
+
+        registerThemeUpdater(function(c)
+            for _, child in ipairs(optionsContainer:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local cleanName = child.Name:gsub("^Opt_", "")
+                    if selected[cleanName] then
+                        child.TextColor3 = c
+                    end
+                end
+            end
         end)
 
         return {
@@ -4538,6 +4569,9 @@ return function(opts)
 
         local cb = type(extraCallback) == "function" and extraCallback or (type(selectionOptions) == "function" and selectionOptions or function() end)
 
+        local isMultiSelect = (selectionOptions == true)
+            or (type(selectionOptions) == "table" and (selectionOptions.MultiSelect == true or selectionOptions.Multi == true or selectionOptions.multi == true or selectionOptions.multiSelect == true))
+
         local card = Instance.new("Frame")
 
         card.Name = "ListCard_" .. tostring(titleText)
@@ -4708,7 +4742,11 @@ return function(opts)
 
             Items = {},
 
-            SelectedItem = nil
+            SelectedItem = nil,
+
+            SelectedItems = {},
+
+            IsMulti = isMultiSelect
 
         }
 
@@ -4780,6 +4818,15 @@ return function(opts)
         function listObj.AddItem(text, subtext, itemCallback)
 
             local label = (type(text) == "table" and (text.Name or text.Title or text.text or text[1])) or tostring(text)
+            if not label or label == "" then return nil end
+
+            -- Invariant: Strictly prevent duplicate items from being added
+            for _, existing in ipairs(listObj.Items) do
+                local existLabel = (type(existing) == "table" and (existing.Name or existing.Title or existing.text or existing[1])) or tostring(existing)
+                if existLabel == label then
+                    return nil
+                end
+            end
 
             local itmBtn = Instance.new("TextButton")
 
@@ -4818,28 +4865,82 @@ return function(opts)
 
             itmBtn.MouseLeave:Connect(function()
 
-                if listObj.SelectedItem ~= text then
+                local isSelected = false
+                if isMultiSelect and listObj.SelectedItems then
+                    for _, sel in ipairs(listObj.SelectedItems) do
+                        local sName = (type(sel) == "table" and (sel.Name or sel.Title or sel[1])) or tostring(sel)
+                        if sName == label then isSelected = true break end
+                    end
+                elseif listObj.SelectedItem then
+                    local sName = (type(listObj.SelectedItem) == "table" and (listObj.SelectedItem.Name or listObj.SelectedItem.Title or listObj.SelectedItem[1])) or tostring(listObj.SelectedItem)
+                    if sName == label then isSelected = true end
+                end
+
+                if not isSelected then
                     tween(itmBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = Color3.fromRGB(18, 21, 28), TextColor3 = DEFAULT_THEME.TextSecondary})
+                else
+                    tween(itmBtn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = DEFAULT_THEME.CardHover or Color3.fromRGB(30, 36, 48), TextColor3 = primaryTheme})
                 end
             end)
 
             itmBtn.MouseButton1Click:Connect(function()
 
-                listObj.SelectedItem = text
+                if isMultiSelect then
+                    listObj.SelectedItems = listObj.SelectedItems or {}
+                    local isAllOption = label:find("^All%s") ~= nil or label == "All" or label == "None"
 
-                pcall(cb, text)
+                    if isAllOption then
+                        listObj.SelectedItems = { text }
+                        listObj.SelectedItem = text
+                    else
+                        -- Remove any "All" header options from selection
+                        for idx = #listObj.SelectedItems, 1, -1 do
+                            local itm = listObj.SelectedItems[idx]
+                            local itmLabel = (type(itm) == "table" and (itm.Name or itm.Title or itm[1])) or tostring(itm)
+                            if itmLabel:find("^All%s") ~= nil or itmLabel == "All" then
+                                table.remove(listObj.SelectedItems, idx)
+                            end
+                        end
+                        -- Toggle this item
+                        local foundIdx = nil
+                        for idx, itm in ipairs(listObj.SelectedItems) do
+                            local itmLabel = (type(itm) == "table" and (itm.Name or itm.Title or itm[1])) or tostring(itm)
+                            if itmLabel == label then
+                                foundIdx = idx
+                                break
+                            end
+                        end
+                        if foundIdx then
+                            table.remove(listObj.SelectedItems, foundIdx)
+                        else
+                            table.insert(listObj.SelectedItems, text)
+                        end
+                        listObj.SelectedItem = listObj.SelectedItems[#listObj.SelectedItems] or text
+                    end
+                    listObj:SetSelectedItems(listObj.SelectedItems)
+                    pcall(cb, text, listObj.SelectedItems)
+                else
+                    listObj.SelectedItem = text
+                    listObj:SetSelected(text)
+                    pcall(cb, text)
+                end
 
                 if type(itemCallback) == "function" then pcall(itemCallback, text) end
             end)
 
+            updateListVisuals()
             return itmBtn
         end
 
         function listObj.SetSelected(self, selectedText)
 
-            local target = (type(selectedText) == "table" and (selectedText.Name or selectedText.Title or selectedText[1])) or tostring(selectedText)
+            local targetVal = selectedText
+            if targetVal == nil and self ~= listObj then
+                targetVal = self
+            end
+            local target = (type(targetVal) == "table" and (targetVal.Name or targetVal.Title or targetVal[1])) or tostring(targetVal or "")
 
-            listObj.SelectedItem = selectedText
+            listObj.SelectedItem = targetVal
 
             for _, child in ipairs(listScroll:GetChildren()) do
                 if child:IsA("TextButton") then
@@ -4856,7 +4957,7 @@ return function(opts)
             end
 
             if type(listObj.OnSelect) == "function" then
-                pcall(listObj.OnSelect, selectedText)
+                pcall(listObj.OnSelect, targetVal)
             end
         end
 
@@ -4864,7 +4965,11 @@ return function(opts)
 
         function listObj.SetSelectedItems(self, itemsArray)
 
-            listObj.SelectedItems = itemsArray or {}
+            local targetArr = itemsArray
+            if targetArr == nil and type(self) == "table" and self ~= listObj then
+                targetArr = self
+            end
+            listObj.SelectedItems = targetArr or {}
 
             local lookup = {}
 
@@ -4890,6 +4995,74 @@ return function(opts)
         end
 
         listObj.setSelectedItems = listObj.SetSelectedItems
+
+        function listObj.Clear()
+            listObj.Items = {}
+            listObj.SelectedItems = {}
+            listObj.SelectedItem = nil
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    pcall(function() child:Destroy() end)
+                end
+            end
+            countBadge.Text = "0"
+            updateListVisuals()
+        end
+        listObj.clear = listObj.Clear
+
+        function listObj.RemoveItem(self, text)
+            local targetText = text
+            if targetText == nil and self ~= listObj then targetText = self end
+            local targetName = (type(targetText) == "table" and (targetText.Name or targetText.Title or targetText[1])) or tostring(targetText or "")
+
+            for i = #listObj.Items, 1, -1 do
+                local itm = listObj.Items[i]
+                local itmName = (type(itm) == "table" and (itm.Name or itm.Title or itm[1])) or tostring(itm)
+                if itmName == targetName then
+                    table.remove(listObj.Items, i)
+                end
+            end
+
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local cleanName = child.Name:gsub("^Item_", "")
+                    if cleanName == targetName or child.Text:gsub("^%s*", "") == targetName then
+                        pcall(function() child:Destroy() end)
+                    end
+                end
+            end
+
+            countBadge.Text = tostring(#listObj.Items)
+            updateListVisuals()
+        end
+        listObj.removeItem = listObj.RemoveItem
+
+        registerThemeUpdater(function(c)
+            countBadge.TextColor3 = c
+            for _, child in ipairs(listScroll:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local cleanName = child.Name:gsub("^Item_", "")
+                    local isMatch = false
+                    if listObj.SelectedItems and #listObj.SelectedItems > 0 then
+                        for _, sel in ipairs(listObj.SelectedItems) do
+                            local sName = (type(sel) == "table" and (sel.Name or sel.Title or sel[1])) or tostring(sel)
+                            if sName == cleanName or child.Text:gsub("^%s*", "") == sName then
+                                isMatch = true
+                                break
+                            end
+                        end
+                    elseif listObj.SelectedItem then
+                        local sName = (type(listObj.SelectedItem) == "table" and (listObj.SelectedItem.Name or listObj.SelectedItem.Title or listObj.SelectedItem[1])) or tostring(listObj.SelectedItem)
+                        if sName == cleanName or child.Text:gsub("^%s*", "") == sName then
+                            isMatch = true
+                        end
+                    end
+                    if isMatch then
+                        child.TextColor3 = c
+                    end
+                end
+            end
+        end)
 
         for _, itm in ipairs(items) do
             listObj.AddItem(itm)
@@ -5401,6 +5574,10 @@ return function(opts)
         end
     end
 
+    Hub.SetTheme = setAccentColor
+    Hub.setTheme = setAccentColor
+    Hub.UpdateTheme = setAccentColor
+
     -- =========================================================================
 
     -- Built-in Hub Settings Tab (Exclusive System Controls, NO Universal Cheats)
@@ -5438,6 +5615,37 @@ return function(opts)
         -- Section 1: Appearance & UI
 
         createSection(settingsPage, "🎨 UI & Theme Customization")
+
+        local themePresets = {
+            "Emerald Green (Default)",
+            "Neon Sky / Cyan",
+            "Ocean Blue",
+            "Autumn Amber / Gold",
+            "Amethyst Purple",
+            "Rose Neon Pink",
+            "Crimson Blood",
+            "Cyber Gold",
+            "Midnight Cyber"
+        }
+
+        local themePresetMap = {
+            ["Emerald Green (Default)"] = Color3.fromRGB(46, 204, 113),
+            ["Neon Sky / Cyan"] = Color3.fromRGB(0, 215, 255),
+            ["Ocean Blue"] = Color3.fromRGB(0, 140, 255),
+            ["Autumn Amber / Gold"] = Color3.fromRGB(245, 142, 32),
+            ["Amethyst Purple"] = Color3.fromRGB(165, 95, 255),
+            ["Rose Neon Pink"] = Color3.fromRGB(255, 65, 135),
+            ["Crimson Blood"] = Color3.fromRGB(235, 50, 50),
+            ["Cyber Gold"] = Color3.fromRGB(255, 205, 50),
+            ["Midnight Cyber"] = Color3.fromRGB(120, 110, 255),
+        }
+
+        createDropdown(settingsPage, "🎨 Theme Presets", themePresets, "Emerald Green (Default)", function(chosenName)
+            if themePresetMap[chosenName] then
+                setAccentColor(themePresetMap[chosenName])
+                sendNotification("Theme", "Theme switched to " .. tostring(chosenName), 2)
+            end
+        end)
 
         -- Fully Customizable RGB Palette & ColorPicker
 
