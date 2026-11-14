@@ -248,6 +248,41 @@ local function getPlayerLevel()
     return 1
 end
 
+-- =========================================================================
+-- Bulletproof Current Sea Detector (Supports New Sub-PlaceIds & Map Invariants)
+-- =========================================================================
+local function detectCurrentSea()
+    local pId = game.PlaceId
+    if pId == 2753915549 then return 1 end
+    if pId == 4442272183 or pId == 79091703265657 then return 2 end
+    if pId == 7449423635 then return 3 end
+
+    -- Authoritative workspace locations inspection
+    local wo = workspace:FindFirstChild("_WorldOrigin")
+    local locs = wo and wo:FindFirstChild("Locations")
+    if locs then
+        if locs:FindFirstChild("Café") or locs:FindFirstChild("Kingdom of Rose") or locs:FindFirstChild("Green Zone") or locs:FindFirstChild("Cursed Ship") then
+            return 2
+        elseif locs:FindFirstChild("Port Town") or locs:FindFirstChild("Hydra Island") or locs:FindFirstChild("Floating Turtle") or locs:FindFirstChild("Castle on the Sea") then
+            return 3
+        elseif locs:FindFirstChild("Marine") or locs:FindFirstChild("Pirate") or locs:FindFirstChild("Jungle") or locs:FindFirstChild("Desert") then
+            return 1
+        end
+    end
+
+    -- Workspace Map children fallback
+    local map = workspace:FindFirstChild("Map")
+    if map then
+        if map:FindFirstChild("Dressrosa") or map:FindFirstChild("GreenBit") or map:FindFirstChild("IceCastle") or map:FindFirstChild("SnowMountain") or map:FindFirstChild("ForgottenIsland") or map:FindFirstChild("Cafe") then
+            return 2
+        elseif map:FindFirstChild("Port Town") or map:FindFirstChild("Turtle") or map:FindFirstChild("Hydra Island") or map:FindFirstChild("Great Tree") or map:FindFirstChild("Mansion") then
+            return 3
+        end
+    end
+
+    return 1
+end
+
 local lastBusoAttempt = 0
 
 local function ensureBusoHakiActive()
@@ -3461,41 +3496,6 @@ local function restoreCharacterPhysics()
 end
 
 -- Second _G.Unknown_CancelTween purged (using primary definition)
-
--- =========================================================================
--- Bulletproof Current Sea Detector (Supports New Sub-PlaceIds & Map Invariants)
--- =========================================================================
-local function detectCurrentSea()
-    local pId = game.PlaceId
-    if pId == 2753915549 then return 1 end
-    if pId == 4442272183 or pId == 79091703265657 then return 2 end
-    if pId == 7449423635 then return 3 end
-
-    -- Authoritative workspace locations inspection
-    local wo = workspace:FindFirstChild("_WorldOrigin")
-    local locs = wo and wo:FindFirstChild("Locations")
-    if locs then
-        if locs:FindFirstChild("Café") or locs:FindFirstChild("Kingdom of Rose") or locs:FindFirstChild("Green Zone") or locs:FindFirstChild("Cursed Ship") then
-            return 2
-        elseif locs:FindFirstChild("Port Town") or locs:FindFirstChild("Hydra Island") or locs:FindFirstChild("Floating Turtle") or locs:FindFirstChild("Castle on the Sea") then
-            return 3
-        elseif locs:FindFirstChild("Marine") or locs:FindFirstChild("Pirate") or locs:FindFirstChild("Jungle") or locs:FindFirstChild("Desert") then
-            return 1
-        end
-    end
-
-    -- Workspace Map children fallback
-    local map = workspace:FindFirstChild("Map")
-    if map then
-        if map:FindFirstChild("Dressrosa") or map:FindFirstChild("GreenBit") or map:FindFirstChild("IceCastle") or map:FindFirstChild("SnowMountain") or map:FindFirstChild("ForgottenIsland") or map:FindFirstChild("Cafe") then
-            return 2
-        elseif map:FindFirstChild("Port Town") or map:FindFirstChild("Turtle") or map:FindFirstChild("Hydra Island") or map:FindFirstChild("Great Tree") or map:FindFirstChild("Mansion") then
-            return 3
-        end
-    end
-
-    return 1
-end
 
 do
     local activeTravelIsland = nil
