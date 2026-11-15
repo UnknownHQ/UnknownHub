@@ -5031,40 +5031,26 @@ local function performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     if now - lastFruitM1Time < 0.015 then return true end
     lastFruitM1Time = now
 
-    fruitComboIndex = (fruitComboIndex % 4) + 1
+    -- Alternate between combo 1 and 2 to prevent combo 4/5 end-lag recovery lock
+    fruitComboIndex = (fruitComboIndex % 2) + 1
+
+    local targetPos = primaryPart and primaryPart.Position or (hrp.Position + hrp.CFrame.LookVector * 10)
+    local rawDir = targetPos - hrp.Position
+    local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
+    if dir.Magnitude < 0.05 or dir ~= dir then
+        dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+        if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
+    end
 
     local mousePosVal = tool:FindFirstChild("MousePos")
-    local m1ActiveVal = tool:FindFirstChild("M1Active")
-    if m1ActiveVal and m1ActiveVal:IsA("BoolValue") then
-        m1ActiveVal.Value = true
+    if mousePosVal and mousePosVal:IsA("Vector3Value") then
+        mousePosVal.Value = targetPos
     end
 
-    local targetsToFire = {}
-    if primaryPart then table.insert(targetsToFire, primaryPart) end
-    if nearbyHits then
-        for i = 1, math.min(#nearbyHits, 3) do
-            local p = nearbyHits[i] and nearbyHits[i][2]
-            if p and p ~= primaryPart then
-                table.insert(targetsToFire, p)
-            end
-        end
-    end
+    -- Fire without the 'true' hold argument (which previously locked fruits into charging mode)
+    pcall(function() lcr:FireServer(dir, fruitComboIndex) end)
+    pcall(function() lcr:FireServer(dir) end)
 
-    for _, targetPart in ipairs(targetsToFire) do
-        local targetPos = targetPart.Position
-        local rawDir = targetPos - hrp.Position
-        local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
-        if dir.Magnitude < 0.05 or dir ~= dir then
-            dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
-            if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
-        end
-
-        if mousePosVal and mousePosVal:IsA("Vector3Value") then
-            mousePosVal.Value = targetPos
-        end
-
-        lcr:FireServer(dir, fruitComboIndex, true)
-    end
     return true
 end
 
@@ -5080,48 +5066,47 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local tool = autoEquipSelectedWeapon and autoEquipSelectedWeapon() or (char and char:FindFirstChildOfClass("Tool"))
 
-    local isFruit = false
+    -- 1. If equipped tool is a Fruit with M1, fire Fruit M1 remote
     if tool and hrp then
-        isFruit = performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
+        performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     end
 
-    if not isFruit then
-        if tool then pcall(function() tool:Activate() end) end
-        -- Reset official game engine attack cooldown to 0 for instant, zero-delay combat
-        pcall(function()
-            local global = require(ReplicatedStorage.Global)
-            if global then global.tapCooldown = 0 end
-        end)
+    -- 2. Universal Tool Activation for ALL weapons & fruits (keeps client animation and weapon state active)
+    if tool then
+        pcall(function() tool:Activate() end)
+    end
 
-        local netM = require(ReplicatedStorage.Modules.Net)
-        local rAtk = _G.Unknown_WrappedAtk or netM:RemoteEvent("RegisterAttack")
-        _G.Unknown_WrappedAtk = rAtk
+    -- 3. Reset tap cooldown in game engine
+    pcall(function()
+        local global = require(ReplicatedStorage.Global)
+        if global then global.tapCooldown = 0 end
+    end)
 
-        -- Official authentic delivery with authenticated v3 handshake session token
-        -- ROUND-ROBIN MULTI-SWING ENGINE: Dispatches pairs of 2 targets per swing, cycling through ALL stacked mobs
-        pcall(function()
-            local global = require(ReplicatedStorage.Global)
-            if not global or not global.SendHitsToServer then return end
-            local totalHits = #nearbyHits
-            if totalHits <= 2 then
-                -- 1 or 2 mobs: Full burst in single swing
-                if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-                local leadPart = nearbyHits[1][2] or primaryPart
-                global.SendHitsToServer(leadPart, nearbyHits)
-            else
-                -- Zero-Delay Multi-Target Pipeline: Dispatches all stacked targets in pairs of 2 without any wait or delay
-                for batchStart = 1, totalHits, 2 do
-                    local batch = { nearbyHits[batchStart] }
-                    if nearbyHits[batchStart + 1] then
-                        table.insert(batch, nearbyHits[batchStart + 1])
-                    end
-                    if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
-                    local lead = batch[1] and batch[1][2] or primaryPart
-                    global.SendHitsToServer(lead, batch)
+    -- 4. Universal Hit Registration for ALL weapons (Melee, Sword, Gun, and Fruit M1s)
+    local netM = require(ReplicatedStorage.Modules.Net)
+    local rAtk = _G.Unknown_WrappedAtk or netM:RemoteEvent("RegisterAttack")
+    _G.Unknown_WrappedAtk = rAtk
+
+    pcall(function()
+        local global = require(ReplicatedStorage.Global)
+        if not global or not global.SendHitsToServer then return end
+        local totalHits = #nearbyHits
+        if totalHits <= 2 then
+            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+            local leadPart = nearbyHits[1][2] or primaryPart
+            global.SendHitsToServer(leadPart, nearbyHits)
+        else
+            for batchStart = 1, totalHits, 2 do
+                local batch = { nearbyHits[batchStart] }
+                if nearbyHits[batchStart + 1] then
+                    table.insert(batch, nearbyHits[batchStart + 1])
                 end
+                if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
+                local lead = batch[1] and batch[1][2] or primaryPart
+                global.SendHitsToServer(lead, batch)
             end
-        end)
-    end
+        end
+    end)
 
     -- 4. CombatFramework controller bypass
 
@@ -5218,10 +5203,7 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
         local nearbyHits, primaryHRP = scanAllAttackableEntities(hrp, 75)
 
         if primaryHRP and #nearbyHits > 0 then
-            if not (tool and tool:FindFirstChild("LeftClickRemote")) then
-                pcall(function() tool:Activate() end)
-            end
-
+            pcall(function() tool:Activate() end)
             _G.Unknown_PerformFastAttack(nearbyHits, primaryHRP)
         end
     end)
@@ -6539,56 +6521,89 @@ local function Tween(target, speedVal, callback, options)
         return Tween(targetCF, speedVal, callback, options)
     end
 
-    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 250, 100, 320)
-    local travelTime = math.clamp(dist / speed, 0.1, 45)
+    -- Constant, calibrated cruise speed (prevents speed spikes on far distances)
+    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 235, 150, 260)
 
-    -- Continuous noclip connection during entire flight to prevent map collision rollbacks
+    -- PlatformStand & continuous noclip connection during entire flight to prevent map collision & water swim traps
     local noclipConn = RunService.Stepped:Connect(function()
         if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
             return
         end
         local c = LocalPlayer.Character
         if c then
+            local h = c:FindFirstChildOfClass("Humanoid")
+            if h then
+                h.PlatformStand = true
+                h.Sit = false
+            end
             for _, part in ipairs(c:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
             end
         end
     end)
 
-    -- Dedicated BodyVelocity for anti-cheat physics synchronization
+    -- Moderate BodyVelocity to support client physics without fighting TweenService
     local bv = getTabBV(hrp)
     if not bv then
         bv = Instance.new("BodyVelocity")
         bv.Name = "Unknown_TabBV"
-        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
         bv.Parent = hrp
     end
-    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+    bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
 
-    -- Calculate directional unit vector & look-at CFrame
-    local moveDir = dist > 0 and ((targetPos - currentPos).Unit) or Vector3.zero
-    bv.Velocity = moveDir * speed
-    if hrp:IsA("BasePart") then
-        hrp.AssemblyLinearVelocity = moveDir * speed
+    -- Waypoint Engine: If traveling long distance (> 300 studs, across sea/islands),
+    -- fly via clear SKY CORRIDOR (Y = 320+) to completely avoid ocean waves, mountains, and water damage!
+    local waypoints = {}
+    local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
+
+    if horizontalDist > 300 then
+        local safeCruiseY = math.max(math.max(currentPos.Y, targetPos.Y) + 75, 320)
+        -- Leg 1: Ascend into clear sky if below safe cruise altitude
+        if (safeCruiseY - currentPos.Y) > 40 then
+            table.insert(waypoints, CFrame.new(currentPos.X, safeCruiseY, currentPos.Z))
+        end
+        -- Leg 2: Horizontal sky cruise directly above destination
+        table.insert(waypoints, CFrame.new(targetPos.X, safeCruiseY, targetPos.Z))
+        -- Leg 3: Destination arrival point
+        table.insert(waypoints, targetCF)
+    else
+        table.insert(waypoints, targetCF)
     end
 
-    local lookTargetCF = CFrame.new(targetPos, targetPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
-    local tw = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {CFrame = lookTargetCF})
-    _G.Unknown_TravelTween = tw
-    tw:Play()
+    for _, wp in ipairs(waypoints) do
+        if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then break end
+        local cPos = hrp.Position
+        local wPos = wp.Position
+        local legDist = (wPos - cPos).Magnitude
 
-    local playbackState = tw.Completed:Wait()
+        if legDist > 8 then
+            -- Strictly linear travel time: NO CLAMPING TO 45s (Far objects move at the EXACT same safe speed as near objects!)
+            local legTime = legDist / speed
+            local moveDir = (wPos - cPos).Unit
+            bv.Velocity = moveDir * speed
+            if hrp:IsA("BasePart") then
+                hrp.AssemblyLinearVelocity = moveDir * speed
+            end
+
+            local lookCF = CFrame.new(wPos, wPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
+            local tw = TweenService:Create(hrp, TweenInfo.new(legTime, Enum.EasingStyle.Linear), {CFrame = lookCF})
+            _G.Unknown_TravelTween = tw
+            tw:Play()
+
+            local playbackState = tw.Completed:Wait()
+
+            if playbackState ~= Enum.PlaybackState.Completed or _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
+                if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+                _G.Unknown_TravelTween = nil
+                isTraveling = false
+                _G.Unknown_TweenActive = false
+                restoreCharacterPhysics()
+                return false
+            end
+        end
+    end
 
     if noclipConn then pcall(function() noclipConn:Disconnect() end) end
-
-    -- CRITICAL CHECK: If tween was CANCELLED mid-flight, DO NOT TELEPORT TO DESTINATION!
-    if playbackState ~= Enum.PlaybackState.Completed or _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
-        _G.Unknown_TravelTween = nil
-        isTraveling = false
-        _G.Unknown_TweenActive = false
-        restoreCharacterPhysics()
-        return false
-    end
 
     -- Normal Arrival: Raycast down to find true island ground to prevent mid-air freefall into water
     local arriveCF = targetCF
@@ -6603,7 +6618,7 @@ local function Tween(target, speedVal, callback, options)
     -- Hold position firmly at destination
     hrp.CFrame = arriveCF
 
-    -- Server Landed Physics Confirmation: Spawn temporary client plate under feet for 0.15s
+    -- Temporary landing confirmation plate under feet for 0.15s
     local plate = Instance.new("Part")
     plate.Name = "Unknown_ArrivePlate"
     plate.Size = Vector3.new(6, 1, 6)
@@ -6615,8 +6630,7 @@ local function Tween(target, speedVal, callback, options)
     task.wait(0.15)
     pcall(function() plate:Destroy() end)
 
-    -- Re-verify final arrival to eliminate phantom rubberband
-    if (hrp.Position - targetPos).Magnitude > 20 then
+    if (hrp.Position - targetPos).Magnitude > 25 then
         hrp.CFrame = targetCF
     end
 
