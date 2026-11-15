@@ -635,7 +635,31 @@ _G.Unknown_CancelTween = function()
     end
 
     currentPumpkinTarget = nil
-    restoreCharacterPhysics()
+
+    -- Anti-Rubberband Cushion: Hold character stationary at exact cancel position for 0.15s
+    -- This streams final position packets so Roblox server validates the stop point before restoring physics!
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local stopBV = hrp:FindFirstChild("Unknown_FlightBV") or Instance.new("BodyVelocity")
+        stopBV.Name = "Unknown_FlightBV"
+        stopBV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        stopBV.Velocity = Vector3.zero
+        stopBV.Parent = hrp
+
+        pcall(function()
+            hrp.Velocity = Vector3.zero
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end)
+
+        task.delay(0.15, function()
+            if stopBV then pcall(function() stopBV:Destroy() end) end
+            restoreCharacterPhysics()
+        end)
+    else
+        restoreCharacterPhysics()
+    end
 
     if travelStatusLabel then
         travelStatusLabel.Text = "Status: Idle"
@@ -3682,7 +3706,7 @@ do
                         task.wait(0.2)
                     else
                         travelStatusLabel.Text = string.format("Status: Pursuing %s (%.0fm)...", targetPlayer.DisplayName, dist)
-                        local pursuitSpeed = 300
+                        local pursuitSpeed = 240
                         local destinationCF = nil
 
                         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
@@ -6375,10 +6399,9 @@ _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function
 
             if hrp then
                 if isTraveling or _G.Unknown_TweenActive then
-                    -- ABSOLUTELY ZERO BODYMOVERS DURING FLIGHT! Guarantees 100% butter-smooth flight without shaking
                     removeTabBV(hrp)
                     for _, c in ipairs(hrp:GetChildren()) do
-                        if c:IsA("BodyVelocity") or c:IsA("BodyGyro") or c:IsA("BodyPosition") then
+                        if (c:IsA("BodyVelocity") and c.Name ~= "Unknown_FlightBV") or c:IsA("BodyGyro") or c:IsA("BodyPosition") then
                             c:Destroy()
                         end
                     end
@@ -6541,7 +6564,8 @@ local function Tween(target, speedVal, callback, options)
     local targetPos = targetCF.Position
     local dist = (targetPos - currentPos).Magnitude
 
-    if dist <= 12 then
+    -- Only instant-resolve if already right at the target (prevents sudden micro-teleports)
+    if dist <= 2 then
         hrp.CFrame = targetCF
         isTraveling = false
         _G.Unknown_TweenActive = false
@@ -6632,11 +6656,11 @@ local function Tween(target, speedVal, callback, options)
     local moveDir = totalDist > 0 and (tPos - cPos).Unit or hrp.CFrame.LookVector
     local flightTime = math.max(totalDist / speed, 0.1)
 
-    -- Harmonized Flight BV: Propels character at exact same velocity as TweenService (ZERO physics fighting / shaking!)
+    -- Anti-Gravity Flight Stabilizer: Pure zero-velocity anchor (ZERO forward flings or physics fighting!)
     local flightBV = hrp:FindFirstChild("Unknown_FlightBV") or Instance.new("BodyVelocity")
     flightBV.Name = "Unknown_FlightBV"
     flightBV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-    flightBV.Velocity = moveDir * speed
+    flightBV.Velocity = Vector3.zero
     flightBV.Parent = hrp
 
     local lookCF = CFrame.new(tPos, tPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
@@ -6646,25 +6670,40 @@ local function Tween(target, speedVal, callback, options)
 
     local playbackState = tw.Completed:Wait()
 
-    if flightBV then pcall(function() flightBV:Destroy() end) end
-    if noclipConn then pcall(function() noclipConn:Disconnect() end) end
-    _G.Unknown_TravelTween = nil
-
     if playbackState ~= Enum.PlaybackState.Completed or _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
         isTraveling = false
         _G.Unknown_TweenActive = false
-        restoreCharacterPhysics()
-        if wasFarmRunning then _G.Unknown_AutoFarmEnabled = true end
+        if flightBV then
+            flightBV.Velocity = Vector3.zero
+            task.delay(0.15, function()
+                if flightBV then pcall(function() flightBV:Destroy() end) end
+                restoreCharacterPhysics()
+                if wasFarmRunning then _G.Unknown_AutoFarmEnabled = true end
+            end)
+        else
+            restoreCharacterPhysics()
+            if wasFarmRunning then _G.Unknown_AutoFarmEnabled = true end
+        end
+        if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+        _G.Unknown_TravelTween = nil
         return false
     end
 
-    -- Arrive firmly at caller's exact targetCF (ZERO ground-snap / ZERO bouncy platforms!)
+    -- Smooth arrival: Hold character stationary at targetCF for 0.15s
+    -- This handshake lets the client stream final coordinates to the Roblox server before releasing physics!
     hrp.CFrame = targetCF
     pcall(function()
         hrp.Velocity = Vector3.zero
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
     end)
+
+    if flightBV then flightBV.Velocity = Vector3.zero end
+    task.wait(0.15)
+
+    if flightBV then pcall(function() flightBV:Destroy() end) end
+    if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+    _G.Unknown_TravelTween = nil
 
     isTraveling = false
     _G.Unknown_TweenActive = false
