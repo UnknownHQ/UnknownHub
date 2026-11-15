@@ -520,55 +520,15 @@ pcall(function()
     end
 end)
 
--- AUTO-ENABLED WALK ON WATER (JESUS WALK) ENGINE
+-- CLEAN WATER WALK & ZERO INVISIBLE BOUNCING PLATFORMS
+local isWaterWalkOn = false
 
-local isWaterWalkOn = true
-
-if _G.Unknown_WaterWalkConn then pcall(function() _G.Unknown_WaterWalkConn:Disconnect() end) end
-local waterPlatform = workspace:FindFirstChild("Unknown_WaterPlatform")
-
-if not waterPlatform then
-    waterPlatform = Instance.new("Part")
-
-    waterPlatform.Name = "Unknown_WaterPlatform"
-
-    waterPlatform.Size = Vector3.new(120, 1, 120)
-
-    waterPlatform.Anchored = true
-
-    waterPlatform.CanCollide = true
-
-    waterPlatform.Transparency = 1
-
-    waterPlatform.Material = Enum.Material.SmoothPlastic
-
-    waterPlatform.Parent = workspace
-end
-
-_G.Unknown_WaterWalkConn = RunService.RenderStepped:Connect(function()
-
-    pcall(function()
-
-        if not isWaterWalkOn or isTraveling or isFarmOn or isAutoTravelOn then
-            waterPlatform.CanCollide = false
-
-            return
-        end
-
-        local char = LocalPlayer.Character
-
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-
-        if hrp then
-            if hrp.Position.Y <= 2 and hrp.Position.Y >= -80 then
-                waterPlatform.CFrame = CFrame.new(hrp.Position.X, -3.8, hrp.Position.Z)
-
-                waterPlatform.CanCollide = true
-            else
-                waterPlatform.CanCollide = false
-            end
-        end
-    end)
+pcall(function()
+    if _G.Unknown_WaterWalkConn then _G.Unknown_WaterWalkConn:Disconnect() _G.Unknown_WaterWalkConn = nil end
+    local oldP = workspace:FindFirstChild("Unknown_WaterPlatform")
+    if oldP then oldP:Destroy() end
+    local oldPlate = workspace:FindFirstChild("Unknown_ArrivePlate")
+    if oldPlate then oldPlate:Destroy() end
 end)
 
 local isTraveling = false
@@ -3575,8 +3535,10 @@ do
     local function getOnlinePlayerList()
         local list = {}
         for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer then
-                table.insert(list, p.DisplayName .. " (@" .. p.Name .. ")")
+            if p ~= LocalPlayer and p.Name and p.Name ~= "" then
+                local dName = p.DisplayName
+                if not dName or dName == "" then dName = p.Name end
+                table.insert(list, dName .. " (@" .. p.Name .. ")")
             end
         end
         if #list == 0 then
@@ -3589,7 +3551,8 @@ do
     local onlinePlayers = getOnlinePlayerList()
     local selectedPlayerEntry = onlinePlayers[1] or ""
 
-    local playerDropdownObj = Hub.CreateDropdown(travelPage, "Select Player", onlinePlayers, selectedPlayerEntry, function(choice)
+    local playerDropdownObj = nil
+    playerDropdownObj = Hub.CreateDropdown(travelPage, "Select Player", onlinePlayers, selectedPlayerEntry, function(choice)
         selectedPlayerEntry = choice
     end)
 
@@ -3604,13 +3567,26 @@ do
         end
     end
 
+    Hub.CreateButton(travelPage, "🔄 Refresh Players List", function()
+        updatePlayerDropdown()
+        notifyGUI("PLAYERS", "Refreshed online player roster!", 2)
+    end)
+
+    -- Auto-poll player list every 2.5s so it is NEVER empty or out of date!
+    task.spawn(function()
+        while true do
+            task.wait(2.5)
+            pcall(updatePlayerDropdown)
+        end
+    end)
+
     Players.PlayerAdded:Connect(function()
-        task.wait(0.5)
+        task.wait(0.3)
         updatePlayerDropdown()
     end)
 
     Players.PlayerRemoving:Connect(function()
-        task.wait(0.5)
+        task.wait(0.3)
         updatePlayerDropdown()
     end)
 
@@ -3635,37 +3611,101 @@ do
     getPlayerTravelState, setPlayerTravelState = createSliderToggle(travelPage, "✈️ Travel / Fly to Selected Player", false, function(newState)
         isPlayerTravelOn = newState
         if newState then
+            -- Pause Auto Farm so it NEVER interferes or yanks the player back!
+            if isFarmOn then
+                isFarmOn = false
+                _G.Unknown_AutoFarmEnabled = false
+                if _G.Unknown_MainFarmLoop then
+                    pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end)
+                    _G.Unknown_MainFarmLoop = nil
+                end
+            end
+            if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
+
             task.spawn(function()
                 local targetPlayer = getPlayerFromEntry(selectedPlayerEntry)
-                if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                    notifyGUI("PLAYER TRAVEL", "Target player not found or character not loaded!", 3)
+                if not targetPlayer then
+                    notifyGUI("PLAYER TRAVEL", "Target player not found in server!", 3)
                     if setPlayerTravelState then setPlayerTravelState(false) end
                     return
                 end
 
-                travelStatusLabel.Text = "Status: Traveling to " .. targetPlayer.DisplayName .. "..."
-                notifyGUI("PLAYER TRAVEL", "Flying towards " .. targetPlayer.DisplayName .. "...", 3)
+                travelStatusLabel.Text = "Status: Tracking " .. targetPlayer.DisplayName .. "..."
+                notifyGUI("PLAYER TRAVEL", "Dynamic Pursuit: Tracking " .. targetPlayer.DisplayName .. "...", 3)
 
+                -- Continuous Dynamic Pursuit: Re-evaluates target player position in real-time every segment!
+                -- If target player teleports to another island, pursuit IMMEDIATELY turns towards their new island!
                 while isPlayerTravelOn do
                     local char = LocalPlayer.Character
                     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    local targetHrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-                    if not hrp or not targetHrp or not targetPlayer.Character:FindFirstChildOfClass("Humanoid") then
-                        break
+                    local tChar = targetPlayer.Character
+                    local tHrp = tChar and tChar:FindFirstChild("HumanoidRootPart")
+                    local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+
+                    if not hrp then
+                        task.wait(0.5)
+                        continue
                     end
 
-                    local dist = (hrp.Position - targetHrp.Position).Magnitude
-                    if dist <= 18 then
-                        travelStatusLabel.Text = "Status: Near " .. targetPlayer.DisplayName
-                        task.wait(0.5)
-                    else
-                        safeTweenToIsland(targetHrp.CFrame + Vector3.new(0, 8, 0))
+                    if not tHrp or not tHum or tHum.Health <= 0 then
+                        travelStatusLabel.Text = "Status: Waiting for " .. targetPlayer.DisplayName .. " to respawn..."
+                        task.wait(0.8)
+                        continue
                     end
-                    task.wait(0.5)
+
+                    local targetPos = tHrp.Position
+                    local currentPos = hrp.Position
+                    local dist = (targetPos - currentPos).Magnitude
+
+                    if dist <= 22 then
+                        travelStatusLabel.Text = "Status: Locked onto " .. targetPlayer.DisplayName
+                        -- Hover softly 6 studs above player
+                        pcall(function()
+                            hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 6, 0), targetPos)
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                        end)
+                        task.wait(0.2)
+                    else
+                        travelStatusLabel.Text = string.format("Status: Pursuing %s (%.0fm)...", targetPlayer.DisplayName, dist)
+                        local pursuitSpeed = 280
+                        local destinationCF = nil
+
+                        local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
+                        if horizontalDist > 300 and currentPos.Y < 300 then
+                            -- Rise to safe sky corridor to avoid mountains & water
+                            destinationCF = CFrame.new(currentPos.X, 320, currentPos.Z)
+                        elseif horizontalDist > 200 then
+                            -- Cruise directly above them in clear sky
+                            destinationCF = CFrame.new(targetPos.X, 320, targetPos.Z)
+                        else
+                            -- Close pursuit: target directly
+                            destinationCF = CFrame.new(targetPos + Vector3.new(0, 6, 0))
+                        end
+
+                        -- Short, responsive flight segment (max 1.5s): Re-checks live player position immediately!
+                        local segDist = (destinationCF.Position - currentPos).Magnitude
+                        local segTime = math.clamp(segDist / pursuitSpeed, 0.1, 1.5)
+                        local moveDir = (destinationCF.Position - currentPos).Unit
+
+                        pcall(function()
+                            for _, part in ipairs(char:GetDescendants()) do
+                                if part:IsA("BasePart") then part.CanCollide = false end
+                            end
+                            local hum = char:FindFirstChildOfClass("Humanoid")
+                            if hum then hum.PlatformStand = true end
+                        end)
+
+                        local lookCF = CFrame.new(destinationCF.Position, destinationCF.Position + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
+                        local tw = TweenService:Create(hrp, TweenInfo.new(segTime, Enum.EasingStyle.Linear), {CFrame = lookCF})
+                        _G.Unknown_TravelTween = tw
+                        tw:Play()
+                        tw.Completed:Wait()
+                    end
+                    task.wait(0.05)
                 end
 
-                if setPlayerTravelState then setPlayerTravelState(false) end
                 _G.Unknown_CancelTween()
+                travelStatusLabel.Text = "Status: Idle"
             end)
         else
             _G.Unknown_CancelTween()
@@ -5031,25 +5071,37 @@ local function performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     if now - lastFruitM1Time < 0.015 then return true end
     lastFruitM1Time = now
 
-    -- Alternate between combo 1 and 2 to prevent combo 4/5 end-lag recovery lock
-    fruitComboIndex = (fruitComboIndex % 2) + 1
+    fruitComboIndex = (fruitComboIndex % 3) + 1
 
-    local targetPos = primaryPart and primaryPart.Position or (hrp.Position + hrp.CFrame.LookVector * 10)
-    local rawDir = targetPos - hrp.Position
-    local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
-    if dir.Magnitude < 0.05 or dir ~= dir then
-        dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
-        if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
+    -- Cycle through up to 3 nearby targets to deliver multi-target Fruit M1 aura damage
+    local targets = {}
+    if primaryPart then table.insert(targets, primaryPart) end
+    if nearbyHits then
+        for i = 1, math.min(#nearbyHits, 4) do
+            local p = nearbyHits[i] and nearbyHits[i][2]
+            if p and p ~= primaryPart then table.insert(targets, p) end
+        end
     end
 
     local mousePosVal = tool:FindFirstChild("MousePos")
-    if mousePosVal and mousePosVal:IsA("Vector3Value") then
-        mousePosVal.Value = targetPos
-    end
 
-    -- Fire without the 'true' hold argument (which previously locked fruits into charging mode)
-    pcall(function() lcr:FireServer(dir, fruitComboIndex) end)
-    pcall(function() lcr:FireServer(dir) end)
+    for _, tPart in ipairs(targets) do
+        local tPos = tPart.Position
+        local rawDir = tPos - hrp.Position
+        local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
+        if dir.Magnitude < 0.05 or dir ~= dir then
+            dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+            if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
+        end
+
+        if mousePosVal and mousePosVal:IsA("Vector3Value") then
+            mousePosVal.Value = tPos
+        end
+
+        -- Official Blox Fruits LeftClickRemote signature: (direction, comboIndex, onGround)
+        pcall(function() lcr:FireServer(dir, fruitComboIndex, true) end)
+        pcall(function() lcr:FireServer(dir, fruitComboIndex, false) end)
+    end
 
     return true
 end
@@ -5066,33 +5118,33 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local tool = autoEquipSelectedWeapon and autoEquipSelectedWeapon() or (char and char:FindFirstChildOfClass("Tool"))
 
-    -- 1. If equipped tool is a Fruit with M1, fire Fruit M1 remote
+    -- 1. If equipped tool is a Fruit with M1, deliver silent Fruit M1 aura damage
     if tool and hrp then
         performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     end
 
-    -- 2. Universal Tool Activation for ALL weapons & fruits (keeps client animation and weapon state active)
-    if tool then
-        pcall(function() tool:Activate() end)
-    end
-
-    -- 3. Reset tap cooldown in game engine
+    -- 2. Reset tap cooldown in game engine
     pcall(function()
         local global = require(ReplicatedStorage.Global)
         if global then global.tapCooldown = 0 end
     end)
 
-    -- 4. Universal Hit Registration for ALL weapons (Melee, Sword, Gun, and Fruit M1s)
-    local netM = require(ReplicatedStorage.Modules.Net)
-    local rAtk = _G.Unknown_WrappedAtk or netM:RemoteEvent("RegisterAttack")
-    _G.Unknown_WrappedAtk = rAtk
-
+    -- 3. Universal Hit Registration for ALL weapons (Melee, Sword, and Fruit M1s)
     pcall(function()
+        local netM = require(ReplicatedStorage.Modules.Net)
+        local rAtk = _G.Unknown_WrappedAtk or netM:RemoteEvent("RegisterAttack")
+        _G.Unknown_WrappedAtk = rAtk
+
+        if rAtk and rAtk.FireServer then
+            rAtk:FireServer(0)
+        elseif typeof(rAtk) == "Instance" then
+            rAtk:FireServer(0)
+        end
+
         local global = require(ReplicatedStorage.Global)
         if not global or not global.SendHitsToServer then return end
         local totalHits = #nearbyHits
         if totalHits <= 2 then
-            if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
             local leadPart = nearbyHits[1][2] or primaryPart
             global.SendHitsToServer(leadPart, nearbyHits)
         else
@@ -5101,7 +5153,6 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
                 if nearbyHits[batchStart + 1] then
                     table.insert(batch, nearbyHits[batchStart + 1])
                 end
-                if typeof(rAtk) == "Instance" then rAtk:FireServer(0) end
                 local lead = batch[1] and batch[1][2] or primaryPart
                 global.SendHitsToServer(lead, batch)
             end
@@ -5203,7 +5254,6 @@ _G.Unknown_FastHitLoop = RunService.Heartbeat:Connect(function()
         local nearbyHits, primaryHRP = scanAllAttackableEntities(hrp, 75)
 
         if primaryHRP and #nearbyHits > 0 then
-            pcall(function() tool:Activate() end)
             _G.Unknown_PerformFastAttack(nearbyHits, primaryHRP)
         end
     end)
@@ -6521,10 +6571,16 @@ local function Tween(target, speedVal, callback, options)
         return Tween(targetCF, speedVal, callback, options)
     end
 
-    -- Constant, calibrated cruise speed (prevents speed spikes on far distances)
-    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 235, 150, 260)
+    -- Fast & Silky Smooth Speed (280 studs/s, calibrated for zero rubberband)
+    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 280, 180, 320)
 
-    -- PlatformStand & continuous noclip connection during entire flight to prevent map collision & water swim traps
+    -- Pause Auto Farm so it NEVER interferes, times out, or snaps the player back!
+    local wasFarmRunning = isFarmOn or _G.Unknown_AutoFarmEnabled
+    if wasFarmRunning then
+        _G.Unknown_AutoFarmEnabled = false
+    end
+
+    -- Continuous noclip and platform stand: ZERO SHAKING (BodyVelocity disabled during tween!)
     local noclipConn = RunService.Stepped:Connect(function()
         if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
             return
@@ -6542,16 +6598,16 @@ local function Tween(target, speedVal, callback, options)
         end
     end)
 
-    -- Moderate BodyVelocity to support client physics without fighting TweenService
-    local bv = getTabBV(hrp)
-    if not bv then
-        bv = Instance.new("BodyVelocity")
-        bv.Name = "Unknown_TabBV"
-        bv.Parent = hrp
-    end
-    bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    -- Neutralize BodyVelocity during tween to eliminate 100% of shaking/vibration
+    pcall(function()
+        if removeTabBV then removeTabBV(hrp) end
+        if hrp:IsA("BasePart") then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
 
-    -- Waypoint Engine: If traveling long distance (> 300 studs, across sea/islands),
+    -- Waypoint Engine: If traveling long distance (> 300 studs across islands/sea),
     -- fly via clear SKY CORRIDOR (Y = 320+) to completely avoid ocean waves, mountains, and water damage!
     local waypoints = {}
     local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
@@ -6577,14 +6633,10 @@ local function Tween(target, speedVal, callback, options)
         local legDist = (wPos - cPos).Magnitude
 
         if legDist > 8 then
-            -- Strictly linear travel time: NO CLAMPING TO 45s (Far objects move at the EXACT same safe speed as near objects!)
             local legTime = legDist / speed
             local moveDir = (wPos - cPos).Unit
-            bv.Velocity = moveDir * speed
-            if hrp:IsA("BasePart") then
-                hrp.AssemblyLinearVelocity = moveDir * speed
-            end
 
+            -- Buttery smooth pure CFrame tween (no BodyVelocity fighting it!)
             local lookCF = CFrame.new(wPos, wPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
             local tw = TweenService:Create(hrp, TweenInfo.new(legTime, Enum.EasingStyle.Linear), {CFrame = lookCF})
             _G.Unknown_TravelTween = tw
@@ -6598,6 +6650,7 @@ local function Tween(target, speedVal, callback, options)
                 isTraveling = false
                 _G.Unknown_TweenActive = false
                 restoreCharacterPhysics()
+                if wasFarmRunning then _G.Unknown_AutoFarmEnabled = true end
                 return false
             end
         end
@@ -6605,7 +6658,7 @@ local function Tween(target, speedVal, callback, options)
 
     if noclipConn then pcall(function() noclipConn:Disconnect() end) end
 
-    -- Normal Arrival: Raycast down to find true island ground to prevent mid-air freefall into water
+    -- Normal Arrival: Raycast down to find true island ground
     local arriveCF = targetCF
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -6618,17 +6671,8 @@ local function Tween(target, speedVal, callback, options)
     -- Hold position firmly at destination
     hrp.CFrame = arriveCF
 
-    -- Temporary landing confirmation plate under feet for 0.15s
-    local plate = Instance.new("Part")
-    plate.Name = "Unknown_ArrivePlate"
-    plate.Size = Vector3.new(6, 1, 6)
-    plate.CFrame = targetCF * CFrame.new(0, -3.2, 0)
-    plate.Anchored = true
-    plate.CanCollide = true
-    plate.Transparency = 1
-    plate.Parent = workspace
-    task.wait(0.15)
-    pcall(function() plate:Destroy() end)
+    -- Clean arrival (zero bouncing plates under character)
+    task.wait(0.05)
 
     if (hrp.Position - targetPos).Magnitude > 25 then
         hrp.CFrame = targetCF
