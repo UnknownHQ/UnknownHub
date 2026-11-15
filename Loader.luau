@@ -201,8 +201,8 @@ local function destroyOldCheckerGui()
 end
 
 local function safeFetchScript(url)
-    -- 1. Fast Local Workspace Fallback: Load directly from executor workspace storage if present!
-    if isfile and readfile then
+    -- 1. Optional Local Workspace Fallback: Only if explicitly requested via _G.Unknown_PreferLocal
+    if _G.Unknown_PreferLocal and isfile and readfile then
         local targetName = url:match("([^/]+%.luau)$") or url:match("([^/]+%.lua)$")
         if targetName and (isfile(targetName) or isfile("Games/" .. targetName)) then
             local localFile = isfile(targetName) and targetName or ("Games/" .. targetName)
