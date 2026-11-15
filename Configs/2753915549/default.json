@@ -1,0 +1,17 @@
+{
+  "AutoFarm": true,
+  "SelectedWeapon": "Melee",
+  "FastAttack": true,
+  "FruitFastAttack": true,
+  "FruitAttackSpeed": 0.13,
+  "TweenSpeed": 240,
+  "LinearFlight": true,
+  "ServerSyncCushionMs": 150,
+  "CollisionSafety": "RootPart_NonCollidable",
+  "AutoEquipWeapon": true,
+  "AutoQuest": true,
+  "AutoChest": false,
+  "ChestESP": true,
+  "PlayerESP": true,
+  "DynamicPursuit": true
+}

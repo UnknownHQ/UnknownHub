@@ -1,0 +1,8 @@
+{
+  "AutoPlant": true,
+  "AutoWater": true,
+  "AutoHarvest": true,
+  "AutoSell": true,
+  "WalkSpeed": 32,
+  "InfiniteWater": true
+}

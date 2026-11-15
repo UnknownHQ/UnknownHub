@@ -105,6 +105,7 @@ local Hub = result({
     subTitle = "Bee Swarm Simulator (Atlas Architecture)",
     parent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return CoreGui end) and CoreGui),
 })
+Hub.GameName = "BeeSwarm"
 
 -- =========================================================================
 -- Tab Creation (10 Complete Tabs matching Atlas Architecture)

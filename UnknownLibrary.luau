@@ -5329,36 +5329,60 @@ return function(opts)
     Hub.RegisteredElements = registeredElements
 
     -- Universal Configuration Serializer (Profiles, Auto-Save & Auto-Load)
+    local function resolveConfigFolder()
+        local gName = Hub.GameName or tostring(game.PlaceId)
+        local candidates = {
+            "Configs/" .. gName,
+            "Configs/" .. tostring(game.PlaceId),
+            "UnknownHub/Configs/" .. gName,
+            "UnknownHub/Configs/" .. tostring(game.PlaceId),
+        }
+        for _, c in ipairs(candidates) do
+            local found = false
+            pcall(function() if isfolder and isfolder(c) then found = true end end)
+            if found then return c end
+        end
+        local defaultFolder = "Configs/" .. gName
+        pcall(function()
+            if makefolder then
+                if not isfolder("Configs") then makefolder("Configs") end
+                if not isfolder(defaultFolder) then makefolder(defaultFolder) end
+            end
+        end)
+        return defaultFolder
+    end
+
+    local function resolveConfigPath(configName)
+        configName = (configName and configName ~= "") and configName or "default"
+        local gName = Hub.GameName or tostring(game.PlaceId)
+        local candidates = {
+            "Configs/" .. gName .. "/" .. configName .. ".json",
+            "Configs/" .. tostring(game.PlaceId) .. "/" .. configName .. ".json",
+            "UnknownHub/Configs/" .. gName .. "/" .. configName .. ".json",
+            "UnknownHub/Configs/" .. tostring(game.PlaceId) .. "/" .. configName .. ".json",
+        }
+        for _, p in ipairs(candidates) do
+            local exists = false
+            pcall(function() if isfile and isfile(p) then exists = true end end)
+            if exists then return p end
+        end
+        return "Configs/" .. gName .. "/" .. configName .. ".json"
+    end
 
     Hub.SaveConfig = function(configName)
-
         configName = (configName and configName ~= "") and configName or "default"
-
-        local gameName = tostring(game.PlaceId)
-
-        local folder = "UnknownHub/Configs/" .. gameName
-
-        pcall(function()
-
-            if not isfolder("UnknownHub") then makefolder("UnknownHub") end
-            if not isfolder("UnknownHub/Configs") then makefolder("UnknownHub/Configs") end
-            if not isfolder(folder) then makefolder(folder) end
-        end)
+        local folder = resolveConfigFolder()
 
         local data = {}
-
         for flagName, flagObj in pairs(registeredFlags) do
             local ok, val = pcall(flagObj.Get)
-
             if ok and val ~= nil then
                 data[flagName] = val
             end
         end
 
         local encoded = HttpService:JSONEncode(data)
-
         local path = folder .. "/" .. configName .. ".json"
-
         local ok, err = pcall(function() writefile(path, encoded) end)
 
         if ok then
@@ -5369,64 +5393,47 @@ return function(opts)
     end
 
     Hub.LoadConfig = function(configName)
-
         configName = (configName and configName ~= "") and configName or "default"
-
-        local gameName = tostring(game.PlaceId)
-
-        local path = "UnknownHub/Configs/" .. gameName .. "/" .. configName .. ".json"
-
+        local path = resolveConfigPath(configName)
         local exists = false
-
-        pcall(function() exists = isfile(path) end)
+        pcall(function() if isfile and isfile(path) then exists = true end end)
 
         if not exists then
             sendNotification("Configuration", "Config '" .. configName .. "' not found.", 2.5)
-
             return false
         end
 
         local content = readfile(path)
-
         local ok, decoded = pcall(function() return HttpService:JSONDecode(content) end)
-
         if not ok or type(decoded) ~= "table" then
             sendNotification("Config Error", "Corrupt config file.", 2.5)
-
             return false
         end
 
         for flagName, val in pairs(decoded) do
             local flagObj = registeredFlags[flagName]
-
             if flagObj and flagObj.Set then
                 pcall(flagObj.Set, val)
             end
         end
 
         sendNotification("Configuration", "Loaded config '" .. configName .. "'!", 2.5)
-
         return true
     end
 
     Hub.ListConfigs = function()
-
-        local gameName = tostring(game.PlaceId)
-
-        local folder = "UnknownHub/Configs/" .. gameName
-
+        local folder = resolveConfigFolder()
         local list = {}
-
         pcall(function()
-
-            if isfolder(folder) then
+            if isfolder and isfolder(folder) and listfiles then
                 for _, f in ipairs(listfiles(folder)) do
                     local name = f:match("([^/\\]+)%.json$")
-
                     if name then table.insert(list, name) end
                 end
             end
         end)
+        return list
+    end
 
         return list
     end

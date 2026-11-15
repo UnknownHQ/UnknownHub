@@ -1,0 +1,7 @@
+{
+  "FlightMethod": "mgTable_Noclip_SyncSpeed",
+  "EntityESP": true,
+  "AutoPuzzle": true,
+  "SilentWalk": true,
+  "ItemScanner": true
+}

@@ -1,0 +1,16 @@
+{
+  "FlightMethod": "mgTable_Noclip_SyncSpeed",
+  "FloorGroundCheckStuds": 3.2,
+  "UniversalEntityImmunity": true,
+  "CollisionGroup": "NoPlayer",
+  "CanTouch": true,
+  "CanQuery": true,
+  "PromptDebounceMs": 150,
+  "DrawerDistanceMaxStuds": 6.5,
+  "AutoPrompt": true,
+  "AutoDoor": true,
+  "Room50Solver": true,
+  "Room100Solver": true,
+  "EntityESP": true,
+  "ItemESP": true
+}
