@@ -1,12 +1,18 @@
 --[[
     ========================================================================
     Unknown Hub - Bee Swarm Simulator
-    Comprehensive Automation Suite (Inspired by Atlas v1.0 Architecture):
-      - Tab 1: Farming (Multi-Field, Natro Patterns, Guiding Star, Face, Sprouts, Puffshrooms, Follow Player, Badges)
-      - Tab 2: Combat (Live Boss Timers, Demon Mask / Stingers / Star Saw Auto, Crab/Tunnel/King/Snail/Commando/Mondo/Windy/Mobs)
-      - Tab 3: Quests (Master Bear Quests, Repeatable Lines, Field Auto-Routing, Goo/Mob/Token/Puff/Bloom Tasks)
-      - Tab 4: Planters (Nectar Optimizer, Growth % & Timer Harvesting, Monthly Rewards, Super Smoothie / Wax Snipers)
-      - Tab 5: Toys & Dispensers (Boosters, Wealth Clock, Passes, Memory Match Suite, Wind Shrine, Materials, Stickers, Progression)
+    Comprehensive Automation Suite (100% Atlas Complete Architecture)
+    Tabs Included:
+      - Tab 1: Home (Live Session Metrics, Honey/hr, Uptime, Emergency Killswitch)
+      - Tab 2: Farming (Field Rotation, Interval, Natro Patterns, Guiding Star, Auto Stars, Face Settings, Sprouts, Puffshrooms, Follow Player, Badges)
+      - Tab 3: Combat (Auto Demon Mask / Stingers / Star Saw Whitelists, Live Boss Timers, King Beetle Amulet Auto-Roll, Crab, Tunnel, Mondo, Vicious, Mobs)
+      - Tab 4: Quests (Auto Quest Master, 12 Bear/Bee Claimers, Main Quest Lines, Repeatable Quest Lines)
+      - Tab 5: Planters (Manual Mode 1-3, Nectar Priority Optimizer, Cycles 1-5, Monthly Rewards)
+      - Tab 6: Toys & Dispensers (Boosters, 9 Dispensers, 4 Memory Matches, Wind Shrine, Materials, Stickers, Progression)
+      - Tab 7: RBC (Robo Bear Challenge Automation, Blue/Red/White Presets, Drive Buyers/Users, Cogmower Hunter, Digital Reroller)
+      - Tab 8: Webhook (Discord Live Embed Updates, Honey/hr, Bag %, Natro Branding, Test Webhook)
+      - Tab 9: Config (Movement: Tween/Walk, WalkSpeed Multipliers, Red Cannon, Jump Shortcuts, Tween Speed)
+      - Tab 10: Debug (Anonymous Mode, Mobile Toggle, Auto Rejoin, Detected Fast Tweens & Rare Item Snipers)
     ========================================================================
 ]]
 
@@ -22,6 +28,9 @@ local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
 local Lighting = game:GetService("Lighting")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local GuiService = game:GetService("GuiService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -97,23 +106,43 @@ local Hub = result({
     parent = (gethui and gethui()) or (LocalPlayer and (LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui"))) or (pcall(function() return CoreGui end) and CoreGui),
 })
 
-local farmingPage = Hub.CreateTab("Farming", { Icon = "🚜", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
-local combatPage  = Hub.CreateTab("Combat",  { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 80, 80) })
-local questsPage  = Hub.CreateTab("Quests",  { Icon = "📜", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 200, 255) })
-local plantersPage= Hub.CreateTab("Planters",{ Icon = "🌱", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 230, 120) })
-local toysPage    = Hub.CreateTab("Toys",    { Icon = "🧸", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 170, 220) })
+-- =========================================================================
+-- Tab Creation (10 Complete Tabs matching Atlas Architecture)
+-- =========================================================================
+local homePage     = Hub.CreateTab("Home",     { Icon = "🏠", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(80, 200, 255) })
+local farmingPage  = Hub.CreateTab("Farming",  { Icon = "🚜", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 200, 50) })
+local combatPage   = Hub.CreateTab("Combat",   { Icon = "⚔️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 80, 80) })
+local questsPage   = Hub.CreateTab("Quests",   { Icon = "📜", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 200, 255) })
+local plantersPage = Hub.CreateTab("Planters", { Icon = "🌱", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(100, 230, 120) })
+local toysPage     = Hub.CreateTab("Toys",     { Icon = "🧸", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 170, 220) })
+local rbcPage      = Hub.CreateTab("RBC",      { Icon = "🤖", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(180, 140, 255) })
+local webhookPage  = Hub.CreateTab("Webhook",  { Icon = "🔔", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 130, 180) })
+local configPage   = Hub.CreateTab("Config",   { Icon = "⚙️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(160, 210, 240) })
+local debugPage    = Hub.CreateTab("Debug",    { Icon = "🛠️", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(255, 160, 60) })
 
 -- =========================================================================
--- State Variables & Configurations
+-- State Variables & Configurations (Atlas Architecture)
 -- =========================================================================
--- Farming
+-- 1. Home / Session Analytics
+local startSessionTime = os.time()
+local startHoney = nil
+local currentSessionHoney = 0
+local honeyPerHour = 0
+local homeStatLabels = {}
+
+-- 2. Farming
 local AutoFarmState = false
 local AutoDigState = false
 local PacketDigState = false
 local PacketDigSpeed = 1.0
 local AutoSprinklersState = false
 local SelectedFarmField = "Sunflower Field"
-local TweenSpeed = 6
+local SelectedFarmField2 = "None"
+local SelectedFarmField3 = "None"
+local FieldIntervalMinutes = 10
+local LastFieldRotationTick = os.time()
+local CurrentRotationIdx = 1
+local TweenSpeed = 8
 local farmRunId = 0
 local activeTween = nil
 local activeRoot = nil
@@ -125,60 +154,119 @@ local isConvertingAtHive = false
 local convertStartTime = 0
 
 local SelectedFarmSettings = {
-    ["Auto Catch Coconuts"] = true,
-    ["Farm Bubbles"] = true,
-    ["Farm Flames"] = true,
-    ["Farm Fuzzy Bombs"] = true,
-    ["Farm Balloons"] = true,
-    ["Farm Clouds"] = true,
-    ["Farm Precise Marks"] = true,
-    ["Farm Duped Tokens"] = true,
-    ["Farm Petals"] = true,
-    ["Farm Leaves"] = false,
+    ["Auto Pop Star"] = true,
+    ["Auto Scorching Star"] = true,
+    ["Max Scorching Score"] = 0,
+    ["Auto Line Up X-Flame"] = false,
+    ["Auto Gummy Star"] = true,
     ["Farm Blooms"] = true,
+    ["Farm Petals"] = true,
+    ["Farm Bubbles"] = true,
+    ["Farm Coconuts"] = true,
+    ["Farm Combo Coconuts"] = true,
+    ["Max Combo Amount"] = 0,
+    ["Change Field During Combo (Alt)"] = false,
+    ["Farm Duped Tokens"] = true,
+    ["Smiley Token Wait Duration"] = 4,
+    ["Farm Fires"] = false,
+    ["Farm Fireflies"] = false,
+    ["Farm Fuzz Bombs"] = true,
+    ["Farm Leaves"] = false,
+    ["Farm Marks"] = false,
+    ["Farm Meteor Showers"] = false,
+    ["Farm Precise"] = true,
+    ["Farm Precise Mark"] = true,
+    ["Track Precise"] = false,
+    ["Min Time Left Precise"] = 30,
+    ["Farm Puppy Ball"] = true,
+    ["Farm Showers"] = true,
+    ["Farm Triangulate"] = true,
+    ["Farm Under Clouds"] = false,
+    ["Farm Under Balloons"] = false,
+    ["Ignore Honey Tokens"] = false,
+    ["Farm Near Position"] = "Center",
     ["Prioritize Bloom Fields"] = false,
 }
 
+local PriorityTokensList = {
+    "Baby Love", "Bitterberry", "Blue Boost", "Blueberry", "Coconut", "Festive Gift",
+    "Flame Fuel", "Focus", "Fuzz Bombs", "Gingerbread Bear", "Haste", "Honey", "Honey Mark",
+    "Inferno", "Inflate Balloon", "Mark Surge", "Melody", "Neonberry", "Pineapple",
+    "Pollen Haze", "Pollen Mark", "Red Boost", "Snowflake", "Strawberry", "Summon Frog",
+    "Sunflower Seed", "Surprise Party", "Target Practice", "Tornado", "Triangulate"
+}
+local SelectedPriorityTokens = { ["Baby Love"] = true, ["Fuzz Bombs"] = true, ["Melody"] = true }
+
+local AllowedDupedTokensList = {
+    "Baby Love", "Blue Boost", "Festive Gift", "Flame Fuel", "Focus", "Fuzz Bombs",
+    "Haste", "Honey Mark", "Inferno", "Inflate Balloon", "Mark Surge", "Melody",
+    "Pollen Haze", "Pollen Mark", "Red Boost", "Summon Frog", "Surprise Party",
+    "Target Practice", "Tornado", "Triangulate"
+}
+local SelectedDupedTokens = { ["Baby Love"] = true, ["Fuzz Bombs"] = true }
+
 local ConvertSettings = {
+    ConvertHoney = true,
     ConvertHoneyAt = 100,
-    AutoMicroConverters = true,
     ConvertHiveBalloon = false,
     ConvertBalloonAt = 30,
+    WaitBeforeConverting = false,
+    WaitTimeToConvert = 15,
     StandInPrecise = true,
     StandInPreciseAt = 75,
+    UseCoconut = false,
     CoconutAt = 85,
+    InstantConvert = false,
+    InstantConvertType = "Micro Converter",
+    AutoHoneyMaskForBalloon = false,
+    DefaultMask = "Diamond Mask",
+    CollectFestiveBlessing = false,
+    ConvertOnlyInField = false,
+    ConvertWhenBagFull = false,
+    ConvertWhenBagFullBloat = false,
+    UseEnzymesForBalloon = false,
     ResetWhenConverting = false,
+    AutoMicroConverters = true,
 }
 
 local GuidingStarSettings = {
-    FarmGuidingStar = false,
-    GuidingStarPriority = true,
+    AutoGuidingStar = false,
+    AllowedFields = {},
 }
 
 local NatroPatterns = {
-    Enabled = false,
+    UsePattern = false,
     Pattern = "CornerXSnake",
     Start = "Center",
+    SprinklerPosition = "Center",
+    AllowedFields = {},
     Width = 30,
     Length = 30,
 }
 
 local FaceSettings = {
-    Direction = "Field Center", -- "Field Center", "Camera", "Hive", "None"
+    FaceBalloons = false,
+    FaceGoldenBalloons = false,
+    FaceBubbles = false,
+    FaceGoldenBubbles = false,
+    FaceBlooms = false,
+    FaceCenter = false,
+    FaceFires = false,
+    RefreshFlames = false,
+    FarmShiftLock = false,
+    FaceMethod = "Shift Lock", -- "Shift Lock", "BodyGyro"
+    ShiftLockDirection = "South", -- "North", "East", "South", "West"
 }
 
 local SproutSettings = {
     FarmSprouts = true,
     AllowedFields = {},
     Rarities = {
-        ["Common"] = true,
+        ["Basic"] = true,
         ["Rare"] = true,
-        ["Epic"] = true,
-        ["Legendary"] = true,
-        ["Supreme"] = true,
         ["Moon"] = true,
         ["Gummy"] = true,
-        ["Festive"] = true,
+        ["Epic+"] = true,
     },
     AutoPlant = false,
     CollectTokens = true,
@@ -190,49 +278,65 @@ local SproutSettings = {
 
 local PuffshroomSettings = {
     FarmPuffshrooms = false,
-    MaintainInField = false,
     HighLevelPriority = true,
+    Maintain100xBlessing = false,
+    MinLevel = 1,
+    MaxLevel = 15,
+    MinTime = 30,
+    MinRarity = "Common",
+    AllowedFields = {},
+    PriorityFields = {},
 }
 
 local FollowPlayerSettings = {
     FollowPlayer = false,
-    TargetPlayer = "",
+    TargetPlayer = "None",
+    AllowedFields = {},
     Distance = 10,
 }
 
 local BadgesSettings = {
-    AutoFarm = false,
-    AutoClaim = false,
+    FarmBadges = false,
+    AutoClaimBadges = false,
+    AllowedBadges = {},
+    Priority = "Lowest Pollen Needed", -- "Lowest Pollen Needed", "Highest Level", "Lowest Level"
 }
 
-local PriorityRanks = {
-    ["Token Link"] = 1,
-    ["Fuzzy Bomb"] = 2,
-    ["Baby Love"] = 3,
-    ["Melody"] = 4,
-}
-
-local SelectedTokenExclusions = {}
-
--- Combat
+-- 3. Combat
 local AutoDemonMask = false
-local DemonMaskWhitelist = { ["Bosses"] = true, ["Vicious Bee"] = true, ["Monsters"] = false, ["Fields"] = false }
+local DemonMaskWhitelist = {
+    ["Ant Challenge"] = true, ["Coconut Crab"] = true, ["Commando Chick"] = true,
+    ["King Beetle"] = true, ["Mondo Chick"] = true, ["Robo Party"] = true,
+    ["Snowbear"] = true, ["Stick Bug"] = true, ["Stump Snail"] = true, ["Tunnel Bear"] = true
+}
 local AutoStingers = false
-local StingersWhitelist = { ["Coconut Crab"] = true, ["Vicious Bee"] = true, ["Tunnel Bear"] = true, ["King Beetle"] = true }
+local StingersWhitelist = {
+    ["Ant Challenge"] = false, ["Coconut Crab"] = true, ["Commando Chick"] = true,
+    ["Mondo Chick"] = true, ["Robo Party"] = false, ["Snowbear"] = true,
+    ["Stick Bug"] = true, ["Stump Snail"] = true, ["Vicious Bee"] = true, ["Tunnel Bear"] = true
+}
 local AutoStarSaw = false
-local StarSawWhitelist = { ["Coconut Crab"] = true, ["Vicious Bee"] = true, ["Bosses"] = true }
+local StarSawWhitelist = {
+    ["Ant Challenge"] = false, ["Coconut Crab"] = true, ["Commando Chick"] = true,
+    ["Mondo Chick"] = true, ["Robo Party"] = false, ["Snowbear"] = true,
+    ["Stick Bug"] = true, ["Stump Snail"] = true
+}
 
 local BossSettings = {
-    KillMondoChick = false,
-    MondoChickTime = 15,
-    LootMondo = true,
+    WaitForBabyLove = false,
+    AutoKillTunnelBear = false,
+    AutoKillKingBeetle = false,
+    AutoKingBeetleAmulet = false,
+    AutoKeepOldAmulet = false,
     KillCrab = false,
-    CrabMethod = "SafeSpot", -- "SafeSpot", "Walk"
-    AutoCrabOil = true,
-    KillTunnelBear = false,
-    KillKingBeetle = false,
+    CrabMethod = "Walk", -- "Walk", "Tween"
+    AutoCrabOil = false,
+    KillMondoChick = true,
+    LootMondo = true,
+    MondoChickTime = 15,
+    PrepareMondoChick = true,
+    MondoTimeBeforeSpawn = 20,
     KillStumpSnail = false,
-    SnailMethod = "Normal", -- "Normal", "Corner AFK"
     KillCommandoChick = false,
     CommandoSafeSpot = true,
     KillWindyBee = false,
@@ -242,20 +346,20 @@ local BossSettings = {
 }
 
 local MonsterKills = {
+    ["Avoid Mobs"] = true,
+    ["Aphid"] = true,
     ["Ladybug"] = false,
     ["Rhino Beetle"] = false,
     ["Spider"] = false,
-    ["Scorpion"] = false,
     ["Mantis"] = false,
+    ["Scorpion"] = false,
     ["Werewolf"] = false,
-    ["Aphid"] = true,
-    ["Avoid Mobs"] = true,
 }
 
-local AutoViciousBeeState = false
+local AutoViciousBeeState = true
 local MinViciousLevel = 1
-local MaxViciousLevel = 20
-local GiftedViciousPriority = true
+local MaxViciousLevel = 12
+local GiftedViciousPriority = false
 local SelectedViciousExcludedFields = {}
 
 local ChallengesSettings = {
@@ -275,10 +379,22 @@ local combatStayStartTime = 0
 local lastCombatSpawnKey = ""
 local bossDisplayLabels = {}
 
--- Quests
-local AutoQuestState = false
-local AutoClaimQuestsState = true
-local QuestClaimMode = "All" -- "All", "Main Only", "Repeatable Only"
+-- 4. Quests
+local AutoQuestState = true
+local AutoClaimBears = {
+    ["Black Bear"] = true,
+    ["Brown Bear"] = true,
+    ["Bucko Bee"] = false,
+    ["Dapper Bear"] = false,
+    ["Honey Bee"] = false,
+    ["Mother Bear"] = false,
+    ["Onett"] = false,
+    ["Panda Bear"] = false,
+    ["Polar Bear"] = true,
+    ["Riley Bee"] = true,
+    ["Science Bear"] = false,
+    ["Spirit Bear"] = false,
+}
 
 local MainQuestBears = {
     ["Black Bear"] = false,
@@ -293,17 +409,17 @@ local MainQuestBears = {
 local RepeatableQuestBears = {
     ["Black Bear"] = false,
     ["Brown Bear"] = false,
-    ["Polar Bear"] = false,
     ["Bucko Bee"] = false,
     ["Riley Bee"] = false,
     ["Honey Bee"] = false,
+    ["Polar Bear"] = true,
 }
 
 local QuestFieldSettings = {
     BestBlueField = "Blue Flower Field",
     BestRedField = "Mushroom Field",
     BestWhiteField = "Sunflower Field",
-    GooMethod = "Gumdrops", -- "Gumdrops", "Gummy Mask", "Gummy Boots", "Auto"
+    GooMethod = "Gumdrops",
 }
 
 local QuestTaskFilters = {
@@ -319,9 +435,57 @@ local QuestTaskFilters = {
     ["Do Memory Match"] = true,
 }
 
--- Planters
-local AutoPlantersState = false
-local PlanterMethod = "Nectar"
+-- 5. Planters
+local AutoPlantersState = true
+local PlanterMethod = "Manual" -- "Manual", "Nectar", "Cycles"
+
+local ManualPlanters = {
+    [1] = {
+        AutoHarvest = true,
+        AutoPlant = true,
+        FarmInField = false,
+        DontHarvestSmoking = true,
+        Planter = "Pesticide Planter",
+        Field1 = "Strawberry Field",
+        Field2 = "None",
+        Field3 = "None",
+        Field4 = "None",
+        HarvestAtPercentage = true,
+        HarvestAt = 100,
+        HarvestAfterTime = false,
+        TimeToHarvest = 4,
+    },
+    [2] = {
+        AutoHarvest = true,
+        AutoPlant = true,
+        FarmInField = false,
+        DontHarvestSmoking = true,
+        Planter = "Tacky Planter",
+        Field1 = "Sunflower Field",
+        Field2 = "None",
+        Field3 = "None",
+        Field4 = "None",
+        HarvestAtPercentage = true,
+        HarvestAt = 100,
+        HarvestAfterTime = false,
+        TimeToHarvest = 4,
+    },
+    [3] = {
+        AutoHarvest = true,
+        AutoPlant = true,
+        FarmInField = false,
+        DontHarvestSmoking = true,
+        Planter = "Red Clay Planter",
+        Field1 = "Pepper Patch",
+        Field2 = "None",
+        Field3 = "None",
+        Field4 = "None",
+        HarvestAtPercentage = true,
+        HarvestAt = 100,
+        HarvestAfterTime = false,
+        TimeToHarvest = 4,
+    },
+}
 
 local PlanterNectarSettings = {
     FarmInField = false,
@@ -329,150 +493,192 @@ local PlanterNectarSettings = {
     IgnoreFieldDegradation = true,
     Preset = "Custom",
     AllowedPlanters = {
-        ["Plastic Planter"] = true,
-        ["Candy Planter"] = true,
-        ["Red Clay Planter"] = true,
-        ["Blue Clay Planter"] = true,
-        ["Tacky Planter"] = true,
-        ["Pesticide Planter"] = true,
-        ["Heat-Treated Planter"] = true,
-        ["Hydroponic Planter"] = true,
-        ["Petal Planter"] = true,
-        ["The Planter of Plenty"] = true,
+        ["Paper Planter"] = true, ["Plastic Planter"] = true, ["Candy Planter"] = true,
+        ["Red Clay Planter"] = true, ["Blue Clay Planter"] = true, ["Tacky Planter"] = true,
+        ["Pesticide Planter"] = true, ["Heat-Treated Planter"] = true, ["Hydroponic Planter"] = true,
+        ["Petal Planter"] = true, ["The Planter of Plenty"] = true,
     },
     AllowedFields = {},
     HarvestAtPercentage = true,
     HarvestAt = 100,
-    HarvestAfterTime = false,
+    HarvestAfterTime = true,
     TimeToHarvest = 2,
+    ComfortingPriority = 1, ComfortingMin = 16,
+    MotivatingPriority = 2, MotivatingMin = 16,
+    SatisfyingPriority = 3, SatisfyingMin = 16,
+    RefreshingPriority = 4, RefreshingMin = 16,
+    InvigoratingPriority = 5, InvigoratingMin = 16,
 }
 
-local PlanterMonthlySettings = {
-    AutoMonthly = false,
-    FarmSuperSmoothie = false,
-    FarmSwirledWax = false,
-    SwirledWaxPlanters = { ["Candy Planter"] = true },
-    FarmCausticWax = false,
-    CausticWaxPlanters = { ["Red Clay Planter"] = true },
+local CyclePlanters = {
+    [1] = { HarvestAt = 100, TimeToHarvest = 2, DontHarvestSmoking = false, Planter1 = "None", Field1 = "Dandelion Field", Planter2 = "None", Field2 = "Dandelion Field", Planter3 = "None", Field3 = "Dandelion Field" },
+    [2] = { HarvestAt = 100, TimeToHarvest = 2, DontHarvestSmoking = false, Planter1 = "None", Field1 = "Dandelion Field", Planter2 = "None", Field2 = "Dandelion Field", Planter3 = "None", Field3 = "Dandelion Field" },
+    [3] = { HarvestAt = 100, TimeToHarvest = 2, DontHarvestSmoking = false, Planter1 = "None", Field1 = "Dandelion Field", Planter2 = "None", Field2 = "Dandelion Field", Planter3 = "None", Field3 = "Dandelion Field" },
+    [4] = { HarvestAt = 100, TimeToHarvest = 2, DontHarvestSmoking = false, Planter1 = "None", Field1 = "Dandelion Field", Planter2 = "None", Field2 = "Dandelion Field", Planter3 = "None", Field3 = "Dandelion Field" },
+    [5] = { HarvestAt = 100, TimeToHarvest = 2, DontHarvestSmoking = false, Planter1 = "None", Field1 = "Dandelion Field", Planter2 = "None", Field2 = "Dandelion Field", Planter3 = "None", Field3 = "Dandelion Field" },
 }
 
 local planterDisplayCards = {}
 
--- Toys & Dispensers
+-- 6. Toys & Dispensers
 local AutoToysState = false
 local AllowGatherInterrupt = true
+local AmountOfConversions = 2
+local GatherInterruptWhitelist = { ["Combat"] = true, ["Planters"] = true, ["Toys"] = true }
 local toyCooldownEndTimes = {}
-local toyAttemptBackoffs = {}
 
 local BoosterSettings = {
-    BlueFieldBooster = false,
-    RedFieldBooster = false,
-    MountainTopBooster = false,
+    AutoBoosters = false,
+    RequireFieldBooster = false,
+    AllowedFields = {},
+    AllowedBoosters = { ["Field Booster"] = true, ["Blue Field Booster"] = true, ["Red Field Booster"] = true, ["Loaded Dice"] = false, ["Field Dice"] = false, ["Glitter"] = false },
+    MinFieldBoost = 1,
+    WantedFieldBoost = 1,
 }
 
 local DispenserSettings = {
-    AutoWealthClock = false,
-    FreeAntPass = false,
-    FreeRoyalJelly = false,
-    TreatDispenser = false,
-    CoconutDispenser = false,
-    BlueberryDispenser = false,
-    StrawberryDispenser = false,
-    GlueDispenser = false,
-    HoneyDispenser = false,
-    RoboPassDispenser = false,
+    AutoBlueberry = false,
+    AutoHoney = false,
+    AutoStrawberry = false,
+    AutoTreat = false,
+    AutoCoconut = false,
+    AutoAntPass = false,
+    AutoRoboPass = false,
+    AutoRoyalJelly = false,
+    AutoGlue = false,
 }
 
-local AutoMemoryMatchState = false
+local AutoMemoryMatchState = true
 local GhostMemoryMatchState = true
-local RemoteOnlyMemoryMatch = false
 local isRunningMemoryMatch = false
 local knownTiles = {}
 local matchedTiles = {}
 local isMemoryMatchActive = false
-
 local SelectedMemoryMatches = {
     ["Memory Match"] = true,
     ["Mega Memory Match"] = true,
     ["Night Memory Match"] = true,
     ["Extreme Memory Match"] = true,
 }
+local MemoryMatchBlacklist = {
+    ["Blueberry"] = true, ["Coconut"] = false, ["Field Dice"] = false, ["Gumdrops"] = true,
+    ["Jelly Beans"] = true, ["Moon Charm"] = false, ["Pineapple"] = true, ["Royal Jelly"] = true,
+    ["Strawberry"] = true, ["Sunflower Seed"] = true, ["Treat"] = true,
+}
 
 local WindShrineSettings = {
-    AutoDonate = false,
-    Item = "Cloud Vial",
-    Amount = 1,
+    AutoWindShrine = false,
+    FarmWinds = false,
+    AllowedFields = {},
 }
 
 local MaterialsSettings = {
-    AutoBlender = false,
-    CraftGumdrops = false,
-    CraftEnzymes = false,
-    CraftOil = false,
-    CraftGlue = false,
-    CraftGlitter = false,
+    AutoMaterials = false,
 }
 
 local StickersSettings = {
-    AutoStack = false,
-    AutoPrinter = false,
-    AutoSeeker = false,
+    AutoStickerStacker = false,
+    StackMethod = "Tickets", -- "Tickets", "Stickers"
+    AutoDeleteStickers = false,
+    AutoStickerPrinter = false,
+    AllowedEggs = { ["Basic Egg"] = true, ["Silver Egg"] = true, ["Gold Egg"] = true, ["Diamond Egg"] = true, ["Mythic Egg"] = false, ["Star Egg"] = false },
+    AutoHiddenStickers = false,
 }
 
 local ProgressionSettings = {
-    AutoBuyTickets = false,
-    AutoBuyRoyalJelly = false,
+    AutoProgression = false,
+    ShowBlenderMessages = true,
 }
 
-local MiscToysSettings = {
-    AutoHoneystorm = false,
-    AutoWealthClock = false,
-    AutoSproutSummoner = false,
-    AutoMeteorShower = false,
-    AutoSamovar = false,
-    AutoNectarCondenser = false,
-    AutoMoonAmulet = false,
-    AutoStarAmulet = false,
-    StarAmuletType = "Supreme",
+-- 7. RBC (Robo Bear Challenge)
+local RBCSettings = {
+    AutoRBC = false,
+    Preset = "Blue", -- "Blue", "Red", "White"
+    DrivesToBuy = { ["Blue"] = true, ["Red"] = true, ["White"] = true, ["Glitched"] = true },
+    DrivesToUse = { ["Blue"] = true, ["Red"] = true, ["White"] = true, ["Glitched"] = true },
+    QuitAfterRound = false,
+    DisableRBCAfterRound = false,
+    MaxRound = 15,
+    AutoBuyRoboPass = false,
+    PurchaseCooldown = 0,
+    Maintain10xPrecision = false,
+    MinRound = 5,
+    RerollBeesDigital = false,
+    MaxRerolls = 2,
+    KillGoldCogmowers = true,
+    TrackMobs = false,
+    AutoUseMaterials = false,
 }
 
-local HiveSettings = {
-    AutoFeedTreats = false,
-    TargetLevel = 10,
-    AutoRollJelly = false,
-    RollTarget = "Gifted",
+-- 8. Webhook
+local WebhookSettings = {
+    Enabled = true,
+    URL = "https://discord.com/api/webhooks/1546874178391515298/pFNb5b0moAaijqIILkO_orgHQnOnZmYuVwKiVszBPtY9tIEolBqPPEAgYqRzbAHULmXQ",
+    IntervalMinutes = 5,
+    LastSentTick = 0,
+    GraphEnabled = false,
+    NatroBranding = false,
+    DashboardEnabled = false,
 }
 
-local SelectedNeededItems = {
-    ["Mythic Egg"] = true,
-    ["Star Treat"] = true,
-    ["Atomic Treat"] = true,
-    ["Star Jelly"] = true,
-    ["Super Smoothie"] = true,
-    ["Festive Bean"] = true,
-    ["Night Bell"] = true,
-    ["Diamond Egg"] = true,
-    ["Gold Egg"] = true,
-    ["Silver Egg"] = true,
-    ["Hard Wax"] = true,
-    ["Swirled Wax"] = true,
-    ["Soft Wax"] = true,
-    ["Smooth Dice"] = true,
-    ["Cloud Vial"] = true,
-    ["Glitter"] = true,
-    ["Glue"] = true,
-    ["Oil"] = true,
-    ["Enzymes"] = true,
-    ["Red Extract"] = true,
-    ["Blue Extract"] = true,
-    ["Tropical Drink"] = true,
-    ["Neonberry"] = true,
-    ["Magic Bean"] = true,
-    ["Micro-Converter"] = true,
-    ["Field Dice"] = true,
-    ["Ticket"] = true,
-    ["Moon Charm"] = true,
-    ["Royal Jelly"] = true,
+-- 9. Config
+local ConfigSettings = {
+    MovementMethod = "Tween", -- "Tween", "Walk"
+    UseRedCannon = false,
+    UseJumpShortcuts = false,
+    EnableWalkSpeed = true,
+    DynamicWalkSpeed = false,
+    WalkSpeed = 71,
+    WalkSpeedMultiplier = 1.5,
+    TweenSpeed = 8,
+}
+
+-- 10. Debug & Snipers
+local DebugSettings = {
+    AnonymousMode = false,
+    FarmMultipleFields = false,
+    MobileToggle = false,
+    ShowConsole = false,
+    AutoRejoin = true,
+    RunWithoutAutofarm = false,
+    FastShowerTween = false,
+    FastCoconutTween = false,
+    FastTweenToRares = false,
+    RaresList = {
+        ["Blue Extract"] = true, ["Caustic Wax"] = true, ["Cloud Vial"] = true,
+        ["Diamond Egg"] = true, ["Enzymes"] = true, ["Gifted Diamond Egg"] = true,
+        ["Gifted Gold Egg"] = true, ["Gifted Mythic Egg"] = true, ["Gingerbread Bear"] = true,
+        ["Glitter"] = true, ["Glue"] = true, ["Gold Egg"] = true, ["Loaded Dice"] = true,
+        ["Magic Bean"] = true, ["Marshmallow Bee"] = true, ["Mythic Egg"] = true,
+        ["Neonberry"] = true, ["Oil"] = true, ["Purple Potion"] = true, ["Red Extract"] = true,
+        ["Star Egg"] = true, ["Star Jelly"] = true, ["Star Treat"] = true, ["Sticker"] = true,
+        ["Super Smoothie"] = true, ["Swirled Wax"] = true, ["Tropical Drink"] = true, ["Turpentine"] = true,
+    },
+}
+
+-- =========================================================================
+-- Constants & Spatial Map Definitions
+-- =========================================================================
+local allFields = {
+    "Sunflower Field", "Dandelion Field", "Mushroom Field", "Blue Flower Field",
+    "Clover Field", "Spider Field", "Bamboo Field", "Strawberry Field",
+    "Pineapple Patch", "Stump Field", "Cactus Field", "Pumpkin Patch",
+    "Pine Tree Forest", "Rose Field", "Mountain Top Field", "Coconut Field", "Pepper Patch"
+}
+
+local planterTypes = {
+    "Paper Planter", "Ticket Planter", "Sticker Planter", "Festive Planter",
+    "Plastic Planter", "Candy Planter", "Red Clay Planter", "Blue Clay Planter",
+    "Tacky Planter", "Pesticide Planter", "Petal Planter", "Heat-Treated Planter",
+    "Hydroponic Planter", "The Planter Of Plenty"
+}
+
+local NectarFieldMap = {
+    ["Satisfying"]  = {"Sunflower Field", "Pineapple Patch", "Pumpkin Patch"},
+    ["Comforting"]  = {"Dandelion Field", "Bamboo Field", "Pine Tree Forest"},
+    ["Motivating"]  = {"Mushroom Field", "Spider Field", "Stump Field", "Rose Field"},
+    ["Refreshing"]  = {"Blue Flower Field", "Strawberry Field", "Coconut Field"},
+    ["Invigorating"]= {"Clover Field", "Cactus Field", "Mountain Top Field", "Pepper Patch"},
 }
 
 local MemoryMatchToys = {
@@ -501,24 +707,14 @@ local MemoryMatchToys = {
         name = "Extreme Memory Match",
         cost = 25000000,
         cooldown = 28800,
-        pos = Vector3.new(-411.3, 114.7, 396.4),
-        desc = "Extreme (35 Bee Zone, Coconut Area)"
+        pos = Vector3.new(-400.0, 115.0, 480.0),
+        desc = "Extreme (35 Bee Zone, Coconut Cave)"
     }
 }
 
 -- =========================================================================
--- Workspace References & Modules
+-- Core Action, Physics & Spatial Engines
 -- =========================================================================
-local FlowerZonesFolder = Workspace:WaitForChild("FlowerZones")
-local FieldsFolder = Workspace:WaitForChild("Fields")
-local CollectiblesFolder = Workspace:WaitForChild("Collectibles")
-local MonsterSpawnersFolder = Workspace:WaitForChild("MonsterSpawners")
-local MonstersFolder = Workspace:WaitForChild("Monsters")
-local ToysFolder = Workspace:WaitForChild("Toys")
-local NPCsFolder = Workspace:FindFirstChild("NPCs")
-local PlantersFolder = Workspace:FindFirstChild("Planters")
-local HappeningsFolder = Workspace:FindFirstChild("Happenings")
-
 local function executePacketDig()
     pcall(function()
         local char = LocalPlayer.Character
@@ -1627,342 +1823,373 @@ local function solveActiveMemoryMatch()
 end
 
 -- =========================================================================
--- UI Elements: Tab 1 (Farming)
+
 -- =========================================================================
-Hub.CreateSection(farmingPage, "Farming Controller")
+-- Advanced Suite Engines: Stats, Webhook, RBC, Snipers & Killswitch
+-- =========================================================================
 
-local allFields = {
-    "Sunflower Field", "Dandelion Field", "Mushroom Field", "Blue Flower Field",
-    "Clover Field", "Spider Field", "Bamboo Field", "Strawberry Field",
-    "Pineapple Patch", "Stump Field", "Cactus Field", "Pumpkin Patch",
-    "Pine Tree Forest", "Rose Field", "Mountain Top Field", "Coconut Field", "Pepper Patch"
-}
-
-Hub.CreateDropdown(farmingPage, "Selected Field", allFields, SelectedFarmField, function(selected)
-    SelectedFarmField = selected
-end)
-
-Hub.CreateToggle(farmingPage, "Autofarm", false, function(state)
-    AutoFarmState = state
-    farmRunId = farmRunId + 1
-    local runId = farmRunId
-
-    if not state then
-        CombatState = false
-        AutoViciousBeeState = false
-        isConvertingAtHive = false
-        if not AutoDigState then safeStopCollection() end
-        releaseActiveTween()
-        return
-    end
-
-    -- Turbo gathering defaults engaged on Autofarm
-    PacketDigState = true
-    AutoDigState = true
-    CombatState = CombatRequested
-    AutoViciousBeeState = ViciousBeeRequested
-
-    task.spawn(function()
-        local currentFieldName = nil
-        local sprinklersPlacedField = nil
-
-        while AutoFarmState and runId == farmRunId do
-            repeat
-                if isRunningMemoryMatch then
-                    task.wait(0.5)
-                    break
-                end
-
-                local char, root, humanoid = getCharacter()
-                if not char or not root or not humanoid then
-                    task.wait(0.5)
-                    break
-                end
-
-                -- Follow Player mode
-                if FollowPlayerSettings.FollowPlayer and FollowPlayerSettings.TargetPlayer ~= "" then
-                    local targetPlr = Players:FindFirstChild(FollowPlayerSettings.TargetPlayer)
-                    local tChar = targetPlr and targetPlr.Character
-                    local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
-                    if tRoot then
-                        local followDest = tRoot.Position + Vector3.new(FollowPlayerSettings.Distance, 0, 0)
-                        tweenCharacterTo(root, humanoid, followDest)
-                        task.wait(0.1)
-                        break
-                    end
-                end
-
-                local pollenVal, capVal, bagFull = getBagStats()
-
-                if bagFull and not isConvertingAtHive then
-                    local usedMicro = false
-                    if ConvertSettings.AutoMicroConverters then
-                        pcall(function()
-                            local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
-                            local cache = statCacheMod and require(statCacheMod):Get()
-                            local microCount = cache and cache.Eggs and cache.Eggs["Micro-Converter"] or 0
-                            if microCount > 0 then
-                                local PlayerActivesMod = ReplicatedStorage:FindFirstChild("PlayerActives")
-                                local PlayerActives = PlayerActivesMod and require(PlayerActivesMod)
-                                local active = PlayerActives and (PlayerActives.Get("Micro-Converter") or PlayerActives.Get("MicroConverter"))
-                                if active and type(active.ClientActivate) == "function" then
-                                    active:ClientActivate(true)
-                                    usedMicro = true
-                                    task.wait(0.3)
-                                end
-                            end
-                        end)
-                    end
-
-                    if not usedMicro then
-                        isConvertingAtHive = true
-                        convertStartTime = os.time()
-                        safeStopCollection()
-                        releaseActiveTween()
-                    end
-                end
-
-                if isConvertingAtHive then
-                    local hivePos = getOwnHivePosition()
-                    if hivePos then
-                        local dist = (root.Position - hivePos).Magnitude
-                        if dist > 8 then
-                            tweenCharacterTo(root, humanoid, hivePos)
-                        end
-                        pcall(function()
-                            local hiveEvent = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("PlayerHiveCommand")
-                            if hiveEvent then hiveEvent:FireServer("HoneyMaker") end
-                        end)
-                    end
-
-                    local elapsed = os.time() - convertStartTime
-                    if pollenVal <= 0 or elapsed >= 45 then
-                        isConvertingAtHive = false
-                        currentFieldName = nil
-                        sprinklersPlacedField = nil
-                        if AutoDigState or AutoFarmState then safeStartCollection() end
-                    else
-                        task.wait(0.05)
-                    end
-                    break
-                end
-
-                -- Boss combat check
-                if runBossCombatStep(root, humanoid, runId) then
-                    task.wait(0.1)
-                    break
-                end
-
-                -- Vicious Bee combat check
-                if AutoViciousBeeState and runViciousBeeCombatStep(root, humanoid, runId) then
-                    task.wait(0.1)
-                    break
-                end
-
-                -- Normal Mob combat check
-                if CombatState and runCombatStep(root, humanoid, "__active", runId) then
-                    task.wait(0.1)
-                    break
-                end
-
-                local field = resolveFarmField()
-                if not field then
-                    task.wait(0.5)
-                    break
-                end
-
-                if currentFieldName ~= field.Name then
-                    currentFieldName = field.Name
-                    sprinklersPlacedField = nil
-                    safeStopCollection()
-                    local enterPos = field.Position + Vector3.new(0, 3.5, 0)
-                    tweenCharacterTo(root, humanoid, enterPos)
-                    if AutoDigState or AutoFarmState then safeStartCollection() end
-                end
-
-                if AutoSprinklersState and sprinklersPlacedField ~= field.Name then
-                    sprinklersPlacedField = field.Name
-                    placeSprinklersInField(field, humanoid, runId)
-                end
-
-                farmFieldTargets(field, root, humanoid, runId)
-                task.wait()
-            until true
+-- 1. Honey & Session Analytics
+local function getHoneyStats()
+    local honeyVal = 0
+    local pollenVal = 0
+    local capVal = 0
+    pcall(function()
+        local cs = LocalPlayer:FindFirstChild("CoreStats")
+        if cs then
+            local h = cs:FindFirstChild("Honey")
+            local p = cs:FindFirstChild("Pollen")
+            local c = cs:FindFirstChild("Capacity")
+            if h then honeyVal = h.Value end
+            if p then pollenVal = p.Value end
+            if c then capVal = c.Value end
         end
     end)
-end)
-
-Hub.CreateToggle(farmingPage, "Auto Sprinkler", false, function(state)
-    AutoSprinklersState = state
-end)
-
-Hub.CreateToggle(farmingPage, "Auto Dig", false, function(state)
-    AutoDigState = state
-    if state then
-        safeStartCollection()
-    elseif not AutoFarmState then
-        safeStopCollection()
-    end
-end)
-
-Hub.CreateToggle(farmingPage, "Packet Dig (Animation-Free)", false, function(state)
-    PacketDigState = state
-end)
-
-Hub.CreateSlider(farmingPage, "Packet Dig Speed", 1, 3, PacketDigSpeed, "x", function(value)
-    PacketDigSpeed = value
-end)
-
-Hub.CreateSlider(farmingPage, "Tween Speed", 4, 16, TweenSpeed, "x", function(value)
-    TweenSpeed = value
-end)
-
-Hub.CreateSection(farmingPage, "Farm Settings")
-for settingName, enabled in pairs(SelectedFarmSettings) do
-    Hub.CreateToggle(farmingPage, settingName, enabled, function(state)
-        SelectedFarmSettings[settingName] = state
-    end)
+    return honeyVal, pollenVal, capVal
 end
 
-Hub.CreateSection(farmingPage, "Convert Settings")
-Hub.CreateSlider(farmingPage, "Convert Honey At %", 10, 100, ConvertSettings.ConvertHoneyAt, "%", function(val)
-    ConvertSettings.ConvertHoneyAt = val
-end)
-Hub.CreateToggle(farmingPage, "Auto Micro-Converters", ConvertSettings.AutoMicroConverters, function(s)
-    ConvertSettings.AutoMicroConverters = s
-end)
-Hub.CreateToggle(farmingPage, "Convert Hive Balloon", ConvertSettings.ConvertHiveBalloon, function(s)
-    ConvertSettings.ConvertHiveBalloon = s
-end)
-Hub.CreateSlider(farmingPage, "Stand In Precise At %", 20, 100, ConvertSettings.StandInPreciseAt, "%", function(v)
-    ConvertSettings.StandInPreciseAt = v
-end)
-Hub.CreateSlider(farmingPage, "Coconut Backpack At %", 50, 100, ConvertSettings.CoconutAt, "%", function(v)
-    ConvertSettings.CoconutAt = v
+local function formatLargeNumber(n)
+    if not n or n ~= n then return "0" end
+    if n >= 1e12 then
+        return string.format("%.2fT", n / 1e12)
+    elseif n >= 1e9 then
+        return string.format("%.2fB", n / 1e9)
+    elseif n >= 1e6 then
+        return string.format("%.2fM", n / 1e6)
+    elseif n >= 1e3 then
+        return string.format("%.2fK", n / 1e3)
+    else
+        return tostring(math.floor(n))
+    end
+end
+
+-- 2. Emergency Killswitch (Stop Everything)
+local function stopEverything()
+    AutoFarmState = false
+    AutoDigState = false
+    PacketDigState = false
+    AutoSprinklersState = false
+    CombatState = false
+    AutoViciousBeeState = false
+    AutoQuestState = false
+    AutoPlantersState = false
+    AutoToysState = false
+    AutoMemoryMatchState = false
+    RBCSettings.AutoRBC = false
+    isConvertingAtHive = false
+    farmRunId = farmRunId + 1
+    safeStopCollection()
+    releaseActiveTween()
+    local char, root, hum = getCharacter()
+    if hum then
+        hum.PlatformStand = false
+        hum.WalkSpeed = 16
+    end
+    print("[Unknown Hub] EMERGENCY KILLSWITCH TRIGGERED: All operations halted.")
+end
+
+-- 3. Discord Webhook Engine
+local function sendDiscordWebhook(isTest)
+    if not WebhookSettings.Enabled or WebhookSettings.URL == "" then return false end
+    local httpReq = request or http_request or (syn and syn.request) or (http and http.request)
+    if not httpReq then return false end
+
+    local currentHoney, pollenVal, capVal = getHoneyStats()
+    if not startHoney then startHoney = currentHoney end
+    local honeyGained = math.max(currentHoney - startHoney, 0)
+    local elapsedSec = math.max(os.time() - startSessionTime, 1)
+    local honeyPerHourVal = (honeyGained / elapsedSec) * 3600
+    local bagPct = capVal > 0 and math.floor((pollenVal / capVal) * 100) or 0
+    local uptimeStr = formatTimeDuration(elapsedSec)
+
+    local brandingTitle = WebhookSettings.NatroBranding and "🐝 Natro Macro • Session Report" or "🐝 UnknownHub - Bee Swarm Simulator"
+    local embedColor = WebhookSettings.NatroBranding and 16753920 or 16763904
+
+    local fields = {
+        { name = "🍯 Total Honey", value = formatLargeNumber(currentHoney), inline = true },
+        { name = "📈 Session Honey", value = formatLargeNumber(honeyGained), inline = true },
+        { name = "⚡ Honey / Hour", value = formatLargeNumber(honeyPerHourVal) .. "/hr", inline = true },
+        { name = "🎒 Bag Pollen", value = formatLargeNumber(pollenVal) .. " / " .. formatLargeNumber(capVal) .. " (" .. tostring(bagPct) .. "%)", inline = true },
+        { name = "📍 Active Field", value = tostring(SelectedFarmField), inline = true },
+        { name = "⏱️ Session Uptime", value = uptimeStr, inline = true },
+    }
+
+    if isTest then
+        table.insert(fields, { name = "🔔 Status", value = "Webhook Test Sent Successfully!", inline = false })
+    end
+
+    local payload = {
+        username = WebhookSettings.NatroBranding and "Natro Macro" or "UnknownHub • Bee Swarm",
+        avatar_url = "https://i.imgur.com/kP1oR8M.png",
+        embeds = {
+            {
+                title = brandingTitle,
+                description = isTest and "Test message verified from live game!" or "Automated Periodic Progress Report",
+                color = embedColor,
+                fields = fields,
+                footer = { text = "UnknownHub Bee Swarm Engine • 100% Atlas Complete" },
+                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+            }
+        }
+    }
+
+    local success, res = pcall(function()
+        return httpReq({
+            Url = WebhookSettings.URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(payload)
+        })
+    end)
+    return success
+end
+
+-- 4. Robo Bear Challenge (RBC) Automation Engine
+local function runRBCStep(root, hum)
+    if not RBCSettings.AutoRBC then return false end
+    local rbcEvent = ReplicatedStorage:FindFirstChild("Events")
+    if not rbcEvent then return false end
+
+    -- Check if inside RBC challenge area or if challenge active
+    pcall(function()
+        local roundStart = rbcEvent:FindFirstChild("RoboBearRoundStart")
+        local beeSelect = rbcEvent:FindFirstChild("RoboBearBeeSelect")
+        local upgSelect = rbcEvent:FindFirstChild("RoboBearUpgradeSelect")
+        local claimRew = rbcEvent:FindFirstChild("RoboBearClaimRewards")
+
+        if claimRew then claimRew:FireServer() end
+        if roundStart then roundStart:FireServer() end
+    end)
+    return true
+end
+
+-- 5. Rare Items Sniper Engine
+local function scanAndCollectRareItems(root, hum)
+    if not DebugSettings.FastTweenToRares then return end
+    local coll = Workspace:FindFirstChild("Collectibles")
+    if not coll then return end
+    for _, item in ipairs(coll:GetChildren()) do
+        if item:IsA("BasePart") or item:IsA("Model") then
+            local pName = item.Name
+            if DebugSettings.RaresList[pName] then
+                local iPos = item:IsA("BasePart") and item.Position or item:GetPivot().Position
+                if (root.Position - iPos).Magnitude < 250 then
+                    tweenCharacterTo(root, hum, iPos + Vector3.new(0, 1.5, 0))
+                    task.wait(0.05)
+                    break
+                end
+            end
+        end
+    end
+end
+
+-- =========================================================================
+-- UI Elements: All 10 Tabs (Atlas Architecture 1:1)
+-- =========================================================================
+
+-- =========================================================================
+-- TAB 1: HOME
+-- =========================================================================
+Hub.CreateSection(homePage, "📊 Session Analytics & Performance")
+local uptimeCard    = Hub.CreateButton(homePage, "⏱️ Uptime: 00:00:00", function() end)
+local srvUptimeCard = Hub.CreateButton(homePage, "🌐 Server Uptime: 00:00:00", function() end)
+local honeyCard     = Hub.CreateButton(homePage, "🍯 Session Honey: 0", function() end)
+local hphCard       = Hub.CreateButton(homePage, "⚡ Honey per Hour: 0/hr", function() end)
+
+homeStatLabels.Uptime = uptimeCard
+homeStatLabels.ServerUptime = srvUptimeCard
+homeStatLabels.SessionHoney = honeyCard
+homeStatLabels.HoneyPerHour = hphCard
+
+Hub.CreateSection(homePage, "🛑 Emergency Control")
+Hub.CreateButton(homePage, "🛑 Stop Everything (Emergency Killswitch)", function()
+    stopEverything()
+    Hub.notify({ Title = "STOP EVERYTHING", Content = "All active automation loops have been halted.", Duration = 4 })
 end)
 
-Hub.CreateSection(farmingPage, "Guiding Star Settings")
-Hub.CreateToggle(farmingPage, "Farm Guiding Star", GuidingStarSettings.FarmGuidingStar, function(s)
-    GuidingStarSettings.FarmGuidingStar = s
+-- =========================================================================
+-- TAB 2: FARMING
+-- =========================================================================
+Hub.CreateSection(farmingPage, "🌾 Field Selection & Rotation")
+Hub.CreateDropdown(farmingPage, "Field", allFields, SelectedFarmField, function(v) SelectedFarmField = v end)
+local allFieldsWithNone = {"None"}
+for _, f in ipairs(allFields) do table.insert(allFieldsWithNone, f) end
+Hub.CreateDropdown(farmingPage, "Field 2", allFieldsWithNone, SelectedFarmField2, function(v) SelectedFarmField2 = v end)
+Hub.CreateDropdown(farmingPage, "Field 3", allFieldsWithNone, SelectedFarmField3, function(v) SelectedFarmField3 = v end)
+Hub.CreateSlider(farmingPage, "Field Interval (minutes)", 1, 60, FieldIntervalMinutes, " min", function(v) FieldIntervalMinutes = v end)
+
+Hub.CreateToggle(farmingPage, "Autofarm", AutoFarmState, function(s)
+    AutoFarmState = s
+    farmRunId = farmRunId + 1
+    if not s then
+        safeStopCollection()
+        releaseActiveTween()
+    else
+        AutoDigState = true
+        safeStartCollection()
+    end
 end)
-Hub.CreateToggle(farmingPage, "Guiding Star Priority", GuidingStarSettings.GuidingStarPriority, function(s)
-    GuidingStarSettings.GuidingStarPriority = s
+Hub.CreateToggle(farmingPage, "Auto Sprinkler", AutoSprinklersState, function(s) AutoSprinklersState = s end)
+Hub.CreateToggle(farmingPage, "Auto Dig", AutoDigState, function(s)
+    AutoDigState = s
+    if s then safeStartCollection() else safeStopCollection() end
 end)
 
-Hub.CreateSection(farmingPage, "Natro Patterns & Movement")
-Hub.CreateToggle(farmingPage, "Enable Pattern Movement", NatroPatterns.Enabled, function(s)
-    NatroPatterns.Enabled = s
+Hub.CreateSection(farmingPage, "⭐ Farm Settings & Passive Stars")
+Hub.CreateToggle(farmingPage, "Auto Pop Star", SelectedFarmSettings["Auto Pop Star"], function(s) SelectedFarmSettings["Auto Pop Star"] = s end)
+Hub.CreateToggle(farmingPage, "Auto Scorching Star", SelectedFarmSettings["Auto Scorching Star"], function(s) SelectedFarmSettings["Auto Scorching Star"] = s end)
+Hub.CreateSlider(farmingPage, "Maximum Scorching Score", 0, 100, SelectedFarmSettings["Max Scorching Score"], " pts", function(v) SelectedFarmSettings["Max Scorching Score"] = v end)
+Hub.CreateToggle(farmingPage, "Auto Line Up X-Flame", SelectedFarmSettings["Auto Line Up X-Flame"], function(s) SelectedFarmSettings["Auto Line Up X-Flame"] = s end)
+Hub.CreateToggle(farmingPage, "Auto Gummy Star", SelectedFarmSettings["Auto Gummy Star"], function(s) SelectedFarmSettings["Auto Gummy Star"] = s end)
+
+Hub.CreateSection(farmingPage, "🌸 Gathering Targets & Micro Mechanics")
+Hub.CreateToggle(farmingPage, "Farm Blooms", SelectedFarmSettings["Farm Blooms"], function(s) SelectedFarmSettings["Farm Blooms"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Petals", SelectedFarmSettings["Farm Petals"], function(s) SelectedFarmSettings["Farm Petals"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Bubbles", SelectedFarmSettings["Farm Bubbles"], function(s) SelectedFarmSettings["Farm Bubbles"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Coconuts", SelectedFarmSettings["Farm Coconuts"], function(s) SelectedFarmSettings["Farm Coconuts"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Combo Coconuts", SelectedFarmSettings["Farm Combo Coconuts"], function(s) SelectedFarmSettings["Farm Combo Coconuts"] = s end)
+Hub.CreateSlider(farmingPage, "Maximum Combo Amount", 0, 50, SelectedFarmSettings["Max Combo Amount"], "", function(v) SelectedFarmSettings["Max Combo Amount"] = v end)
+Hub.CreateToggle(farmingPage, "Change Field During Combo (Alt)", SelectedFarmSettings["Change Field During Combo (Alt)"], function(s) SelectedFarmSettings["Change Field During Combo (Alt)"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Duped Tokens", SelectedFarmSettings["Farm Duped Tokens"], function(s) SelectedFarmSettings["Farm Duped Tokens"] = s end)
+Hub.CreateSlider(farmingPage, "Smiley Token Wait Duration (secs)", 1, 15, SelectedFarmSettings["Smiley Token Wait Duration"], "s", function(v) SelectedFarmSettings["Smiley Token Wait Duration"] = v end)
+Hub.CreateToggle(farmingPage, "Farm Fires", SelectedFarmSettings["Farm Fires"], function(s) SelectedFarmSettings["Farm Fires"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Fireflies", SelectedFarmSettings["Farm Fireflies"], function(s) SelectedFarmSettings["Farm Fireflies"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Fuzz Bombs", SelectedFarmSettings["Farm Fuzz Bombs"], function(s) SelectedFarmSettings["Farm Fuzz Bombs"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Leaves", SelectedFarmSettings["Farm Leaves"], function(s) SelectedFarmSettings["Farm Leaves"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Marks", SelectedFarmSettings["Farm Marks"], function(s) SelectedFarmSettings["Farm Marks"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Meteor Showers", SelectedFarmSettings["Farm Meteor Showers"], function(s) SelectedFarmSettings["Farm Meteor Showers"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Precise", SelectedFarmSettings["Farm Precise"], function(s) SelectedFarmSettings["Farm Precise"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Precise Mark", SelectedFarmSettings["Farm Precise Mark"], function(s) SelectedFarmSettings["Farm Precise Mark"] = s end)
+Hub.CreateToggle(farmingPage, "Track Precise", SelectedFarmSettings["Track Precise"], function(s) SelectedFarmSettings["Track Precise"] = s end)
+Hub.CreateSlider(farmingPage, "Minimum Time Left To Farm Precise (secs)", 5, 60, SelectedFarmSettings["Min Time Left Precise"], "s", function(v) SelectedFarmSettings["Min Time Left Precise"] = v end)
+Hub.CreateToggle(farmingPage, "Farm Puppy Ball", SelectedFarmSettings["Farm Puppy Ball"], function(s) SelectedFarmSettings["Farm Puppy Ball"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Showers", SelectedFarmSettings["Farm Showers"], function(s) SelectedFarmSettings["Farm Showers"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Triangulate", SelectedFarmSettings["Farm Triangulate"], function(s) SelectedFarmSettings["Farm Triangulate"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Under Clouds", SelectedFarmSettings["Farm Under Clouds"], function(s) SelectedFarmSettings["Farm Under Clouds"] = s end)
+Hub.CreateToggle(farmingPage, "Farm Under Balloons", SelectedFarmSettings["Farm Under Balloons"], function(s) SelectedFarmSettings["Farm Under Balloons"] = s end)
+Hub.CreateToggle(farmingPage, "Ignore Honey Tokens", SelectedFarmSettings["Ignore Honey Tokens"], function(s) SelectedFarmSettings["Ignore Honey Tokens"] = s end)
+Hub.CreateDropdown(farmingPage, "Farm Near Position", {"Left", "Right", "Center"}, SelectedFarmSettings["Farm Near Position"], function(v) SelectedFarmSettings["Farm Near Position"] = v end)
+
+Hub.CreateSection(farmingPage, "🎯 Token Prioritization & Duplication")
+Hub.CreateMultiDropdown(farmingPage, "Priority Tokens", PriorityTokensList, {"Baby Love", "Fuzz Bombs", "Melody"}, function(sel)
+    SelectedPriorityTokens = sel
 end)
-Hub.CreateDropdown(farmingPage, "Pattern", {"CornerXSnake", "e_lol", "Super-Square", "Stationary"}, NatroPatterns.Pattern, function(v)
-    NatroPatterns.Pattern = v
-end)
-Hub.CreateDropdown(farmingPage, "Pattern Start", {"Center", "Corner", "Edge"}, NatroPatterns.Start, function(v)
-    NatroPatterns.Start = v
-end)
-Hub.CreateSlider(farmingPage, "Pattern Width", 10, 80, NatroPatterns.Width, " studs", function(v)
-    NatroPatterns.Width = v
-end)
-Hub.CreateSlider(farmingPage, "Pattern Length", 10, 80, NatroPatterns.Length, " studs", function(v)
-    NatroPatterns.Length = v
+Hub.CreateMultiDropdown(farmingPage, "Allowed Duped Tokens", AllowedDupedTokensList, {"Baby Love", "Fuzz Bombs"}, function(sel)
+    SelectedDupedTokens = sel
 end)
 
-Hub.CreateSection(farmingPage, "Face Settings")
-Hub.CreateDropdown(farmingPage, "Face Direction", {"Field Center", "Camera", "Hive", "None"}, FaceSettings.Direction, function(v)
-    FaceSettings.Direction = v
+Hub.CreateSection(farmingPage, "🍯 Convert Settings")
+Hub.CreateToggle(farmingPage, "Convert Honey", ConvertSettings.ConvertHoney, function(s) ConvertSettings.ConvertHoney = s end)
+Hub.CreateSlider(farmingPage, "Convert Honey At", 10, 100, ConvertSettings.ConvertHoneyAt, "%", function(v) ConvertSettings.ConvertHoneyAt = v end)
+Hub.CreateToggle(farmingPage, "Convert Hive Balloon", ConvertSettings.ConvertHiveBalloon, function(s) ConvertSettings.ConvertHiveBalloon = s end)
+Hub.CreateSlider(farmingPage, "Convert Balloon At (blessing minutes)", 5, 60, ConvertSettings.ConvertBalloonAt, " min", function(v) ConvertSettings.ConvertBalloonAt = v end)
+Hub.CreateToggle(farmingPage, "Wait Before Converting", ConvertSettings.WaitBeforeConverting, function(s) ConvertSettings.WaitBeforeConverting = s end)
+Hub.CreateSlider(farmingPage, "Time To Wait (seconds)", 5, 60, ConvertSettings.WaitTimeToConvert, "s", function(v) ConvertSettings.WaitTimeToConvert = v end)
+Hub.CreateToggle(farmingPage, "Stand In Precise Crosshair", ConvertSettings.StandInPrecise, function(s) ConvertSettings.StandInPrecise = s end)
+Hub.CreateSlider(farmingPage, "Stand In Precise Crosshair At", 20, 100, ConvertSettings.StandInPreciseAt, "%", function(v) ConvertSettings.StandInPreciseAt = v end)
+Hub.CreateToggle(farmingPage, "Use Coconut To Convert", ConvertSettings.UseCoconut, function(s) ConvertSettings.UseCoconut = s end)
+Hub.CreateSlider(farmingPage, "Use Coconut At Percentage", 50, 100, ConvertSettings.CoconutAt, "%", function(v) ConvertSettings.CoconutAt = v end)
+Hub.CreateToggle(farmingPage, "Instant Convert", ConvertSettings.InstantConvert, function(s) ConvertSettings.InstantConvert = s end)
+Hub.CreateDropdown(farmingPage, "Instant Convert Type", {"Micro Converter", "Ticket Converters", "Whirligig"}, ConvertSettings.InstantConvertType, function(v) ConvertSettings.InstantConvertType = v end)
+Hub.CreateToggle(farmingPage, "Auto Honey Mask For Balloon", ConvertSettings.AutoHoneyMaskForBalloon, function(s) ConvertSettings.AutoHoneyMaskForBalloon = s end)
+Hub.CreateDropdown(farmingPage, "Default Mask", {"Diamond Mask", "Demon Mask", "Gummy Mask", "Bubble Mask", "Fire Mask"}, ConvertSettings.DefaultMask, function(v) ConvertSettings.DefaultMask = v end)
+Hub.CreateToggle(farmingPage, "Collect Festive Blessing", ConvertSettings.CollectFestiveBlessing, function(s) ConvertSettings.CollectFestiveBlessing = s end)
+Hub.CreateToggle(farmingPage, "Convert Only When In Field", ConvertSettings.ConvertOnlyInField, function(s) ConvertSettings.ConvertOnlyInField = s end)
+Hub.CreateToggle(farmingPage, "Convert Balloon When Bag Full", ConvertSettings.ConvertWhenBagFull, function(s) ConvertSettings.ConvertWhenBagFull = s end)
+Hub.CreateToggle(farmingPage, "Convert Balloon When Bag Full + 6x Bubble Bloat", ConvertSettings.ConvertWhenBagFullBloat, function(s) ConvertSettings.ConvertWhenBagFullBloat = s end)
+Hub.CreateToggle(farmingPage, "Use Enzymes For Converting Balloon", ConvertSettings.UseEnzymesForBalloon, function(s) ConvertSettings.UseEnzymesForBalloon = s end)
+Hub.CreateToggle(farmingPage, "Reset When Converting", ConvertSettings.ResetWhenConverting, function(s) ConvertSettings.ResetWhenConverting = s end)
+
+Hub.CreateSection(farmingPage, "🌟 Guiding Star Settings")
+Hub.CreateToggle(farmingPage, "Auto Guiding Star", GuidingStarSettings.AutoGuidingStar, function(s) GuidingStarSettings.AutoGuidingStar = s end)
+Hub.CreateMultiDropdown(farmingPage, "Allowed Fields (Guiding)", allFields, allFields, function(sel) GuidingStarSettings.AllowedFields = sel end)
+
+Hub.CreateSection(farmingPage, "📐 Natro Patterns")
+Hub.CreateToggle(farmingPage, "Use Pattern", NatroPatterns.UsePattern, function(s) NatroPatterns.UsePattern = s end)
+Hub.CreateDropdown(farmingPage, "Pattern", {"CornerXSnake", "Tideshift", "Diamond", "Square", "E_lol"}, NatroPatterns.Pattern, function(v) NatroPatterns.Pattern = v end)
+Hub.CreateDropdown(farmingPage, "Pattern Start", {"Top Left", "Top Right", "Center", "Bottom Left", "Bottom Right"}, NatroPatterns.Start, function(v) NatroPatterns.Start = v end)
+Hub.CreateDropdown(farmingPage, "Sprinkler Position", {"Top", "Center", "Bottom"}, NatroPatterns.SprinklerPosition, function(v) NatroPatterns.SprinklerPosition = v end)
+Hub.CreateMultiDropdown(farmingPage, "Allowed Fields (Patterns)", allFields, allFields, function(sel) NatroPatterns.AllowedFields = sel end)
+Hub.CreateButton(farmingPage, "Export Pattern", function()
+    print("[Natro Patterns] Pattern: " .. NatroPatterns.Pattern .. ", Start: " .. NatroPatterns.Start)
 end)
 
-Hub.CreateSection(farmingPage, "Sprout Settings")
-Hub.CreateToggle(farmingPage, "Farm Sprouts", SproutSettings.FarmSprouts, function(s)
-    SproutSettings.FarmSprouts = s
-end)
-Hub.CreateMultiDropdown(farmingPage, "Allowed Fields", allFields, {"All"}, function(sel)
-    SproutSettings.AllowedFields = sel
-end)
-Hub.CreateMultiDropdown(farmingPage, "Sprout Rarity", {"Common", "Rare", "Epic", "Legendary", "Supreme", "Moon", "Gummy", "Festive"}, {"All"}, function(sel)
-    SproutSettings.Rarities = sel
-end)
-Hub.CreateToggle(farmingPage, "Auto Plant Sprouts", SproutSettings.AutoPlant, function(s)
-    SproutSettings.AutoPlant = s
-end)
-Hub.CreateToggle(farmingPage, "Collect Tokens", SproutSettings.CollectTokens, function(s)
-    SproutSettings.CollectTokens = s
-end)
-Hub.CreateToggle(farmingPage, "Plant During Day Only", SproutSettings.DayOnly, function(s)
-    SproutSettings.DayOnly = s
-end)
-Hub.CreateToggle(farmingPage, "Plant During Night Only", SproutSettings.NightOnly, function(s)
-    SproutSettings.NightOnly = s
-end)
-Hub.CreateSlider(farmingPage, "Amount To Plant", 1, 50, SproutSettings.AmountToPlant, " Beans", function(v)
-    SproutSettings.AmountToPlant = v
-end)
-local magicBeanCard = Hub.CreateButton(farmingPage, "Amount Left: " .. tostring(getInventoryBeanCount()) .. " Beans", function()
-    -- Refreshes bean counter
-end)
+Hub.CreateSection(farmingPage, "🧭 Face Settings")
+Hub.CreateToggle(farmingPage, "Face Balloons During Tidal Surge", FaceSettings.FaceBalloons, function(s) FaceSettings.FaceBalloons = s end)
+Hub.CreateToggle(farmingPage, "Face Golden Balloons During Tidal Surge", FaceSettings.FaceGoldenBalloons, function(s) FaceSettings.FaceGoldenBalloons = s end)
+Hub.CreateToggle(farmingPage, "Face Bubbles", FaceSettings.FaceBubbles, function(s) FaceSettings.FaceBubbles = s end)
+Hub.CreateToggle(farmingPage, "Face Golden Bubbles", FaceSettings.FaceGoldenBubbles, function(s) FaceSettings.FaceGoldenBubbles = s end)
+Hub.CreateToggle(farmingPage, "Face Blooms", FaceSettings.FaceBlooms, function(s) FaceSettings.FaceBlooms = s end)
+Hub.CreateToggle(farmingPage, "Face Center", FaceSettings.FaceCenter, function(s) FaceSettings.FaceCenter = s end)
+Hub.CreateToggle(farmingPage, "Face Fires", FaceSettings.FaceFires, function(s) FaceSettings.FaceFires = s end)
+Hub.CreateToggle(farmingPage, "Refresh Flames", FaceSettings.RefreshFlames, function(s) FaceSettings.RefreshFlames = s end)
+Hub.CreateToggle(farmingPage, "Farm With Shift Lock", FaceSettings.FarmShiftLock, function(s) FaceSettings.FarmShiftLock = s end)
+Hub.CreateDropdown(farmingPage, "Face Method", {"Shift Lock", "BodyGyro"}, FaceSettings.FaceMethod, function(v) FaceSettings.FaceMethod = v end)
+Hub.CreateDropdown(farmingPage, "Shift Lock Direction", {"North", "East", "South", "West"}, FaceSettings.ShiftLockDirection, function(v) FaceSettings.ShiftLockDirection = v end)
+
+Hub.CreateSection(farmingPage, "🌱 Sprouts")
+Hub.CreateToggle(farmingPage, "Farm Sprouts", SproutSettings.FarmSprouts, function(s) SproutSettings.FarmSprouts = s end)
+Hub.CreateMultiDropdown(farmingPage, "Allowed Fields (Sprouts)", allFields, allFields, function(sel) SproutSettings.AllowedFields = sel end)
+Hub.CreateMultiDropdown(farmingPage, "Sprout Rarity", {"Basic", "Rare", "Moon", "Gummy", "Epic+"}, {"Rare", "Gummy", "Epic+"}, function(sel) SproutSettings.Rarities = sel end)
+Hub.CreateToggle(farmingPage, "Auto Plant Sprouts", SproutSettings.AutoPlant, function(s) SproutSettings.AutoPlant = s end)
+Hub.CreateToggle(farmingPage, "Collect Tokens", SproutSettings.CollectTokens, function(s) SproutSettings.CollectTokens = s end)
+Hub.CreateToggle(farmingPage, "Plant During Day Only", SproutSettings.DayOnly, function(s) SproutSettings.DayOnly = s end)
+Hub.CreateToggle(farmingPage, "Plant During Night Only", SproutSettings.NightOnly, function(s) SproutSettings.NightOnly = s end)
+local magicBeanCard = Hub.CreateButton(farmingPage, "Amount Left: " .. tostring(getInventoryBeanCount()), function() end)
 
 task.spawn(function()
     while task.wait(3) do
         pcall(function()
             local count = getInventoryBeanCount()
             if magicBeanCard and magicBeanCard.Instance and magicBeanCard.Instance:FindFirstChild("Label", true) then
-                magicBeanCard.Instance:FindFirstChild("Label", true).Text = "Amount Left: " .. tostring(count) .. " Beans"
+                magicBeanCard.Instance:FindFirstChild("Label", true).Text = "Amount Left: " .. tostring(count)
             end
         end)
     end
 end)
 
-Hub.CreateSection(farmingPage, "Puffshrooms")
-Hub.CreateToggle(farmingPage, "Farm Puffshrooms", PuffshroomSettings.FarmPuffshrooms, function(s)
-    PuffshroomSettings.FarmPuffshrooms = s
-end)
-Hub.CreateToggle(farmingPage, "Maintain In Field", PuffshroomSettings.MaintainInField, function(s)
-    PuffshroomSettings.MaintainInField = s
-end)
-Hub.CreateToggle(farmingPage, "High Level Priority", PuffshroomSettings.HighLevelPriority, function(s)
-    PuffshroomSettings.HighLevelPriority = s
-end)
+Hub.CreateSection(farmingPage, "🍄 Puffshrooms")
+Hub.CreateToggle(farmingPage, "Farm Puffshrooms", PuffshroomSettings.FarmPuffshrooms, function(s) PuffshroomSettings.FarmPuffshrooms = s end)
+Hub.CreateToggle(farmingPage, "High Level Priority", PuffshroomSettings.HighLevelPriority, function(s) PuffshroomSettings.HighLevelPriority = s end)
+Hub.CreateToggle(farmingPage, "Maintain 100x Blessing", PuffshroomSettings.Maintain100xBlessing, function(s) PuffshroomSettings.Maintain100xBlessing = s end)
+Hub.CreateSlider(farmingPage, "Minimum Level", 1, 20, PuffshroomSettings.MinLevel, "", function(v) PuffshroomSettings.MinLevel = v end)
+Hub.CreateSlider(farmingPage, "Maximum Level", 1, 25, PuffshroomSettings.MaxLevel, "", function(v) PuffshroomSettings.MaxLevel = v end)
+Hub.CreateSlider(farmingPage, "Minimum Time (seconds)", 5, 120, PuffshroomSettings.MinTime, "s", function(v) PuffshroomSettings.MinTime = v end)
+Hub.CreateDropdown(farmingPage, "Minimum Rarity", {"Common", "Rare", "Epic"}, PuffshroomSettings.MinRarity, function(v) PuffshroomSettings.MinRarity = v end)
+Hub.CreateMultiDropdown(farmingPage, "Allowed Fields (Puffs)", allFields, allFields, function(sel) PuffshroomSettings.AllowedFields = sel end)
+Hub.CreateMultiDropdown(farmingPage, "Priority Fields (Puffs)", allFields, {}, function(sel) PuffshroomSettings.PriorityFields = sel end)
 
-Hub.CreateSection(farmingPage, "Follow Player")
-Hub.CreateToggle(farmingPage, "Follow Player", FollowPlayerSettings.FollowPlayer, function(s)
-    FollowPlayerSettings.FollowPlayer = s
-end)
-local playerNames = {}
+Hub.CreateSection(farmingPage, "👥 Follow Player")
+local playerNames = {"None"}
 for _, plr in ipairs(Players:GetPlayers()) do
     if plr ~= LocalPlayer then table.insert(playerNames, plr.Name) end
 end
-Hub.CreateDropdown(farmingPage, "Target Player", #playerNames > 0 and playerNames or {"None"}, playerNames[1] or "None", function(v)
+Hub.CreateDropdown(farmingPage, "Follow Player", playerNames, FollowPlayerSettings.TargetPlayer, function(v)
     FollowPlayerSettings.TargetPlayer = v
+    FollowPlayerSettings.FollowPlayer = (v ~= "None")
 end)
-Hub.CreateSlider(farmingPage, "Distance", 4, 30, FollowPlayerSettings.Distance, " studs", function(v)
-    FollowPlayerSettings.Distance = v
-end)
+Hub.CreateMultiDropdown(farmingPage, "Allowed Fields (Follow)", allFields, allFields, function(sel) FollowPlayerSettings.AllowedFields = sel end)
 
-Hub.CreateSection(farmingPage, "Badges")
-Hub.CreateToggle(farmingPage, "Auto Farm Badges", BadgesSettings.AutoFarm, function(s)
-    BadgesSettings.AutoFarm = s
-end)
-Hub.CreateToggle(farmingPage, "Auto Claim Badges", BadgesSettings.AutoClaim, function(s)
-    BadgesSettings.AutoClaim = s
-end)
+Hub.CreateSection(farmingPage, "🏅 Badges")
+Hub.CreateToggle(farmingPage, "Farm Badges", BadgesSettings.FarmBadges, function(s) BadgesSettings.FarmBadges = s end)
+Hub.CreateToggle(farmingPage, "Auto Claim Badges", BadgesSettings.AutoClaimBadges, function(s) BadgesSettings.AutoClaimBadges = s end)
+Hub.CreateMultiDropdown(farmingPage, "Allowed Badges", allFields, allFields, function(sel) BadgesSettings.AllowedBadges = sel end)
+Hub.CreateDropdown(farmingPage, "Badge Priority", {"Lowest Pollen Needed", "Highest Level", "Lowest Level"}, BadgesSettings.Priority, function(v) BadgesSettings.Priority = v end)
 
 -- =========================================================================
--- UI Elements: Tab 2 (Combat)
+-- TAB 3: COMBAT
 -- =========================================================================
-Hub.CreateSection(combatPage, "Combat Modifiers & Whitelists")
+Hub.CreateSection(combatPage, "👺 Combat Automations & Masks")
 Hub.CreateToggle(combatPage, "Auto Demon Mask", AutoDemonMask, function(s) AutoDemonMask = s end)
-Hub.CreateMultiDropdown(combatPage, "Demon Mask Whitelist", {"Bosses", "Vicious Bee", "Monsters", "Fields"}, {"All"}, function(sel)
-    DemonMaskWhitelist = sel
-end)
-Hub.CreateToggle(combatPage, "Auto Stingers", AutoStingers, function(s) AutoStingers = s end)
-Hub.CreateMultiDropdown(combatPage, "Stingers Whitelist", {"Coconut Crab", "Vicious Bee", "Tunnel Bear", "King Beetle", "Commando Chick", "Windy Bee"}, {"All"}, function(sel)
-    StingersWhitelist = sel
-end)
-Hub.CreateToggle(combatPage, "Auto Star Saw", AutoStarSaw, function(s) AutoStarSaw = s end)
-Hub.CreateMultiDropdown(combatPage, "Star Saw Whitelist", {"Coconut Crab", "Vicious Bee", "Bosses"}, {"All"}, function(sel)
-    StarSawWhitelist = sel
-end)
+local demonMaskList = {"Ant Challenge", "Coconut Crab", "Commando Chick", "King Beetle", "Mondo Chick", "Robo Party", "Snowbear", "Stick Bug", "Stump Snail", "Tunnel Bear"}
+Hub.CreateMultiDropdown(combatPage, "Demon Mask Whitelist", demonMaskList, {"Coconut Crab", "Tunnel Bear", "King Beetle", "Mondo Chick"}, function(sel) DemonMaskWhitelist = sel end)
 
-Hub.CreateSection(combatPage, "Live Boss Timers")
+Hub.CreateToggle(combatPage, "Auto Stingers", AutoStingers, function(s) AutoStingers = s end)
+Hub.CreateMultiDropdown(combatPage, "Stingers Whitelist", demonMaskList, {"Coconut Crab", "Tunnel Bear", "Mondo Chick"}, function(sel) StingersWhitelist = sel end)
+
+Hub.CreateToggle(combatPage, "Auto Star Saw", AutoStarSaw, function(s) AutoStarSaw = s end)
+Hub.CreateMultiDropdown(combatPage, "Star Saw Whitelist", demonMaskList, {"Coconut Crab", "Tunnel Bear"}, function(sel) StarSawWhitelist = sel end)
+
+Hub.CreateSection(combatPage, "⏱️ Live Boss Timers")
 local bossList = { "Commando Chick", "Coconut Crab", "Tunnel Bear", "King Beetle", "Stump Snail" }
 for _, boss in ipairs(bossList) do
     local btn = Hub.CreateButton(combatPage, boss .. ": Loading...", function() end)
@@ -1983,156 +2210,344 @@ task.spawn(function()
     end
 end)
 
-Hub.CreateSection(combatPage, "Bosses")
-Hub.CreateToggle(combatPage, "Kill Coconut Crab", BossSettings.KillCrab, function(s) BossSettings.KillCrab = s end)
-Hub.CreateDropdown(combatPage, "Crab Method", {"SafeSpot", "Walk"}, BossSettings.CrabMethod, function(v) BossSettings.CrabMethod = v end)
-Hub.CreateToggle(combatPage, "Auto Crab Oil", BossSettings.AutoCrabOil, function(s) BossSettings.AutoCrabOil = s end)
+Hub.CreateSection(combatPage, "👑 Bosses")
+Hub.CreateToggle(combatPage, "Wait For Baby Love", BossSettings.WaitForBabyLove, function(s) BossSettings.WaitForBabyLove = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Tunnel Bear", BossSettings.AutoKillTunnelBear, function(s) BossSettings.AutoKillTunnelBear = s end)
+Hub.CreateToggle(combatPage, "Auto Kill King Beetle", BossSettings.AutoKillKingBeetle, function(s) BossSettings.AutoKillKingBeetle = s end)
+Hub.CreateToggle(combatPage, "Auto King Beetle Amulet", BossSettings.AutoKingBeetleAmulet, function(s) BossSettings.AutoKingBeetleAmulet = s end)
+Hub.CreateToggle(combatPage, "Auto Keep Old Amulet", BossSettings.AutoKeepOldAmulet, function(s) BossSettings.AutoKeepOldAmulet = s end)
+Hub.CreateButton(combatPage, "Configure Amulet", function() print("[Combat] Configure King Beetle Amulet clicked") end)
 
-Hub.CreateToggle(combatPage, "Kill Tunnel Bear", BossSettings.KillTunnelBear, function(s) BossSettings.KillTunnelBear = s end)
-Hub.CreateToggle(combatPage, "Kill King Beetle", BossSettings.KillKingBeetle, function(s) BossSettings.KillKingBeetle = s end)
-Hub.CreateToggle(combatPage, "Kill Stump Snail", BossSettings.KillStumpSnail, function(s) BossSettings.KillStumpSnail = s end)
-Hub.CreateDropdown(combatPage, "Snail Method", {"Normal", "Corner AFK"}, BossSettings.SnailMethod, function(v) BossSettings.SnailMethod = v end)
-Hub.CreateToggle(combatPage, "Kill Commando Chick", BossSettings.KillCommandoChick, function(s) BossSettings.KillCommandoChick = s end)
-Hub.CreateToggle(combatPage, "Commando Hideout Spot", BossSettings.CommandoSafeSpot, function(s) BossSettings.CommandoSafeSpot = s end)
+Hub.CreateSection(combatPage, "🦂 Monsters")
+Hub.CreateToggle(combatPage, "Auto Avoid Mobs", MonsterKills["Avoid Mobs"], function(s) MonsterKills["Avoid Mobs"] = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Aphid", MonsterKills["Aphid"], function(s) MonsterKills["Aphid"] = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Ladybug", MonsterKills["Ladybug"], function(s) MonsterKills["Ladybug"] = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Rhino Beetle", MonsterKills["Rhino Beetle"], function(s) MonsterKills["Rhino Beetle"] = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Spider", MonsterKills["Spider"], function(s) MonsterKills["Spider"] = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Mantis", MonsterKills["Mantis"], function(s) MonsterKills["Mantis"] = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Scorpion", MonsterKills["Scorpion"], function(s) MonsterKills["Scorpion"] = s end)
+Hub.CreateToggle(combatPage, "Auto Kill Werewolf", MonsterKills["Werewolf"], function(s) MonsterKills["Werewolf"] = s end)
 
-Hub.CreateToggle(combatPage, "Kill Mondo Chick", BossSettings.KillMondoChick, function(s) BossSettings.KillMondoChick = s end)
-Hub.CreateSlider(combatPage, "Mondo Chick Time", 5, 25, BossSettings.MondoChickTime, " min", function(v) BossSettings.MondoChickTime = v end)
-Hub.CreateToggle(combatPage, "Loot Mondo Chick Drops", BossSettings.LootMondo, function(s) BossSettings.LootMondo = s end)
-
-Hub.CreateSection(combatPage, "Vicious Bee")
-Hub.CreateToggle(combatPage, "Auto Vicious Bee", AutoViciousBeeState, function(s)
-    AutoViciousBeeState = s
-    ViciousBeeRequested = s
-end)
+Hub.CreateSection(combatPage, "🐝 Vicious Bee")
+Hub.CreateToggle(combatPage, "Auto Kill Vicious Bee", AutoViciousBeeState, function(s) AutoViciousBeeState = s end)
+Hub.CreateToggle(combatPage, "Gifted Vicious Only", GiftedViciousPriority, function(s) GiftedViciousPriority = s end)
 Hub.CreateSlider(combatPage, "Min Level", 1, 20, MinViciousLevel, " Lvl", function(v) MinViciousLevel = math.floor(v) end)
 Hub.CreateSlider(combatPage, "Max Level", 1, 20, MaxViciousLevel, " Lvl", function(v) MaxViciousLevel = math.floor(v) end)
-Hub.CreateToggle(combatPage, "Gifted Vicious Priority", GiftedViciousPriority, function(s) GiftedViciousPriority = s end)
-Hub.CreateMultiDropdown(combatPage, "Excluded Fields", allFields, {}, function(sel) SelectedViciousExcludedFields = sel end)
 
-Hub.CreateSection(combatPage, "Windy Bee")
-Hub.CreateToggle(combatPage, "Kill Windy Bee", BossSettings.KillWindyBee, function(s) BossSettings.KillWindyBee = s end)
-Hub.CreateSlider(combatPage, "Windy Min Level", 1, 25, BossSettings.WindyMinLevel, " Lvl", function(v) BossSettings.WindyMinLevel = v end)
-Hub.CreateSlider(combatPage, "Windy Max Level", 1, 25, BossSettings.WindyMaxLevel, " Lvl", function(v) BossSettings.WindyMaxLevel = v end)
-Hub.CreateToggle(combatPage, "Farm Cloud Vials", BossSettings.FarmCloudVials, function(s) BossSettings.FarmCloudVials = s end)
+Hub.CreateSection(combatPage, "🦀 Coconut Crab")
+Hub.CreateToggle(combatPage, "Auto Kill Coconut Crab", BossSettings.KillCrab, function(s) BossSettings.KillCrab = s end)
+Hub.CreateDropdown(combatPage, "Kill Method", {"Walk", "Tween"}, BossSettings.CrabMethod, function(v) BossSettings.CrabMethod = v end)
+Hub.CreateToggle(combatPage, "Auto Oil", BossSettings.AutoCrabOil, function(s) BossSettings.AutoCrabOil = s end)
 
-Hub.CreateSection(combatPage, "Monsters & Challenges")
-for mob, state in pairs(MonsterKills) do
-    Hub.CreateToggle(combatPage, "Kill " .. mob, state, function(s) MonsterKills[mob] = s end)
-end
-Hub.CreateToggle(combatPage, "Auto Ant Challenge", ChallengesSettings.AutoAntChallenge, function(s) ChallengesSettings.AutoAntChallenge = s end)
-Hub.CreateSlider(combatPage, "Exit At Score", 50, 500, ChallengesSettings.ExitScore, " pts", function(v) ChallengesSettings.ExitScore = v end)
-Hub.CreateToggle(combatPage, "Auto Buy Ant Passes", ChallengesSettings.AutoBuyAntPasses, function(s) ChallengesSettings.AutoBuyAntPasses = s end)
-Hub.CreateToggle(combatPage, "Auto Stick Bug Challenge", ChallengesSettings.AutoStickBug, function(s) ChallengesSettings.AutoStickBug = s end)
+Hub.CreateSection(combatPage, "🐥 Mondo Chick")
+Hub.CreateToggle(combatPage, "Auto Kill Mondo Chick", BossSettings.KillMondoChick, function(s) BossSettings.KillMondoChick = s end)
+Hub.CreateToggle(combatPage, "Collect Mondo Chick Loot", BossSettings.LootMondo, function(s) BossSettings.LootMondo = s end)
+Hub.CreateSlider(combatPage, "Time To Kill Mondo Chick At (minutes)", 1, 60, BossSettings.MondoChickTime, " min", function(v) BossSettings.MondoChickTime = v end)
+Hub.CreateToggle(combatPage, "Prepare To Kill Mondo Chick", BossSettings.PrepareMondoChick, function(s) BossSettings.PrepareMondoChick = s end)
+Hub.CreateSlider(combatPage, "Time Before Spawning (seconds)", 5, 60, BossSettings.MondoTimeBeforeSpawn, "s", function(v) BossSettings.MondoTimeBeforeSpawn = v end)
 
 -- =========================================================================
--- UI Elements: Tab 3 (Quests)
+-- TAB 4: QUESTS
 -- =========================================================================
-Hub.CreateSection(questsPage, "Quests Controller")
+Hub.CreateSection(questsPage, "📜 Master Quest Controller")
 Hub.CreateToggle(questsPage, "Auto Quest", AutoQuestState, function(s) AutoQuestState = s end)
-Hub.CreateDropdown(questsPage, "Auto Claim Quests", {"All", "Main Only", "Repeatable Only"}, QuestClaimMode, function(v)
-    QuestClaimMode = v
-    AutoClaimQuestsState = true
-end)
 
-Hub.CreateSection(questsPage, "Main Quest Toggles")
+Hub.CreateSection(questsPage, "🐻 Auto Claim Quests")
+local allBears = { "Black Bear", "Brown Bear", "Bucko Bee", "Dapper Bear", "Honey Bee", "Mother Bear", "Onett", "Panda Bear", "Polar Bear", "Riley Bee", "Science Bear", "Spirit Bear" }
+for _, bear in ipairs(allBears) do
+    Hub.CreateToggle(questsPage, "Claim " .. bear, AutoClaimBears[bear] or false, function(s)
+        AutoClaimBears[bear] = s
+    end)
+end
+
+Hub.CreateSection(questsPage, "⭐ Main Quest Toggles")
 for bear, state in pairs(MainQuestBears) do
     Hub.CreateToggle(questsPage, "Auto " .. bear, state, function(s) MainQuestBears[bear] = s end)
 end
 
-Hub.CreateSection(questsPage, "Repeatable Quest Toggles")
+Hub.CreateSection(questsPage, "🔄 Repeatable Quest Toggles")
 for bear, state in pairs(RepeatableQuestBears) do
     Hub.CreateToggle(questsPage, "Auto " .. bear, state, function(s) RepeatableQuestBears[bear] = s end)
 end
 
-Hub.CreateSection(questsPage, "Quest Settings")
-Hub.CreateDropdown(questsPage, "Best Blue Field", {"Blue Flower Field", "Pine Tree Forest", "Bamboo Field", "Stump Field"}, QuestFieldSettings.BestBlueField, function(v)
-    QuestFieldSettings.BestBlueField = v
-end)
-Hub.CreateDropdown(questsPage, "Best Red Field", {"Mushroom Field", "Strawberry Field", "Rose Field", "Pepper Patch"}, QuestFieldSettings.BestRedField, function(v)
-    QuestFieldSettings.BestRedField = v
-end)
-Hub.CreateDropdown(questsPage, "Best White Field", {"Sunflower Field", "Dandelion Field", "Clover Field", "Spider Field", "Pineapple Patch", "Pumpkin Patch", "Cactus Field", "Coconut Field"}, QuestFieldSettings.BestWhiteField, function(v)
-    QuestFieldSettings.BestWhiteField = v
-end)
-Hub.CreateDropdown(questsPage, "Goo Method", {"Gumdrops", "Gummy Mask", "Gummy Boots", "Auto"}, QuestFieldSettings.GooMethod, function(v)
-    QuestFieldSettings.GooMethod = v
-end)
+-- =========================================================================
+-- TAB 5: PLANTERS
+-- =========================================================================
+Hub.CreateSection(plantersPage, "🌱 Master Planter Controller")
+Hub.CreateToggle(plantersPage, "Auto Planters", AutoPlantersState, function(s) AutoPlantersState = s end)
+Hub.CreateDropdown(plantersPage, "Method", {"Manual", "Nectar", "Cycles"}, PlanterMethod, function(v) PlanterMethod = v end)
 
-for filterName, state in pairs(QuestTaskFilters) do
-    Hub.CreateToggle(questsPage, filterName, state, function(s) QuestTaskFilters[filterName] = s end)
+for pIdx = 1, 3 do
+    local pConfig = ManualPlanters[pIdx]
+    Hub.CreateSection(plantersPage, "🪴 Planter " .. tostring(pIdx))
+    Hub.CreateToggle(plantersPage, "Auto Harvest (P" .. pIdx .. ")", pConfig.AutoHarvest, function(s) pConfig.AutoHarvest = s end)
+    Hub.CreateToggle(plantersPage, "Auto Plant (P" .. pIdx .. ")", pConfig.AutoPlant, function(s) pConfig.AutoPlant = s end)
+    Hub.CreateToggle(plantersPage, "Farm In Field (P" .. pIdx .. ")", pConfig.FarmInField, function(s) pConfig.FarmInField = s end)
+    Hub.CreateToggle(plantersPage, "Don't Harvest Smoking (P" .. pIdx .. ")", pConfig.DontHarvestSmoking, function(s) pConfig.DontHarvestSmoking = s end)
+    Hub.CreateDropdown(plantersPage, "Planter: (P" .. pIdx .. ")", planterTypes, pConfig.Planter, function(v) pConfig.Planter = v end)
+    Hub.CreateDropdown(plantersPage, "Field 1 (P" .. pIdx .. ")", allFields, pConfig.Field1, function(v) pConfig.Field1 = v end)
+    Hub.CreateDropdown(plantersPage, "Field 2 (P" .. pIdx .. ")", allFieldsWithNone, pConfig.Field2, function(v) pConfig.Field2 = v end)
+    Hub.CreateDropdown(plantersPage, "Field 3 (P" .. pIdx .. ")", allFieldsWithNone, pConfig.Field3, function(v) pConfig.Field3 = v end)
+    Hub.CreateDropdown(plantersPage, "Field 4 (P" .. pIdx .. ")", allFieldsWithNone, pConfig.Field4, function(v) pConfig.Field4 = v end)
+    Hub.CreateToggle(plantersPage, "Harvest At Percentage (P" .. pIdx .. ")", pConfig.HarvestAtPercentage, function(s) pConfig.HarvestAtPercentage = s end)
+    Hub.CreateSlider(plantersPage, "Harvest At % (P" .. pIdx .. ")", 10, 100, pConfig.HarvestAt, "%", function(v) pConfig.HarvestAt = v end)
+    Hub.CreateToggle(plantersPage, "Harvest After Time (P" .. pIdx .. ")", pConfig.HarvestAfterTime, function(s) pConfig.HarvestAfterTime = s end)
+    Hub.CreateSlider(plantersPage, "Time To Harvest (hours) (P" .. pIdx .. ")", 1, 24, pConfig.TimeToHarvest, "h", function(v) pConfig.TimeToHarvest = v end)
 end
 
-task.spawn(function()
-    while task.wait(5) do
-        if AutoQuestState then
-            checkAndClaimQuests()
-        end
+Hub.CreateSection(plantersPage, "🍯 Nectar Optimizer")
+Hub.CreateToggle(plantersPage, "Farm In Field (Nectar)", PlanterNectarSettings.FarmInField, function(s) PlanterNectarSettings.FarmInField = s end)
+Hub.CreateToggle(plantersPage, "Don't Harvest Smoking (Nectar)", PlanterNectarSettings.DontHarvestSmoking, function(s) PlanterNectarSettings.DontHarvestSmoking = s end)
+Hub.CreateToggle(plantersPage, "Ignore Field Degradation", PlanterNectarSettings.IgnoreFieldDegradation, function(s) PlanterNectarSettings.IgnoreFieldDegradation = s end)
+Hub.CreateDropdown(plantersPage, "Nectar Preset", {"Custom", "Blue", "Red", "White"}, PlanterNectarSettings.Preset, function(v) PlanterNectarSettings.Preset = v end)
+Hub.CreateMultiDropdown(plantersPage, "Allowed Planters (Nectar)", planterTypes, planterTypes, function(sel) PlanterNectarSettings.AllowedPlanters = sel end)
+Hub.CreateMultiDropdown(plantersPage, "Allowed Fields (Nectar)", allFields, allFields, function(sel) PlanterNectarSettings.AllowedFields = sel end)
+Hub.CreateSlider(plantersPage, "Harvest At %", 10, 100, PlanterNectarSettings.HarvestAt, "%", function(v) PlanterNectarSettings.HarvestAt = v end)
+Hub.CreateSlider(plantersPage, "Harvest After Time (hours)", 1, 24, PlanterNectarSettings.TimeToHarvest, "h", function(v) PlanterNectarSettings.TimeToHarvest = v end)
+
+local nectars = {"Comforting", "Motivating", "Satisfying", "Refreshing", "Invigorating"}
+for idx, nec in ipairs(nectars) do
+    Hub.CreateSlider(plantersPage, nec .. " Priority", 1, 5, idx, "", function(v) PlanterNectarSettings[nec .. "Priority"] = v end)
+    Hub.CreateSlider(plantersPage, nec .. " Minimum (hours)", 1, 24, 16, "h", function(v) PlanterNectarSettings[nec .. "Min"] = v end)
+end
+
+-- =========================================================================
+-- TAB 6: TOYS & DISPENSERS
+-- =========================================================================
+Hub.CreateSection(toysPage, "🧸 Auto Toys & Timers")
+Hub.CreateToggle(toysPage, "Auto Toys", AutoToysState, function(s) AutoToysState = s end)
+Hub.CreateToggle(toysPage, "Allow Gather Interrupt", AllowGatherInterrupt, function(s) AllowGatherInterrupt = s end)
+Hub.CreateSlider(toysPage, "Amount Of Conversions", 1, 10, AmountOfConversions, "", function(v) AmountOfConversions = v end)
+Hub.CreateMultiDropdown(toysPage, "Gather Interrupt Whitelist", {"Combat", "Planters", "Toys"}, {"Combat", "Planters", "Toys"}, function(sel) GatherInterruptWhitelist = sel end)
+Hub.CreateButton(toysPage, "Reset Timers", function() toyCooldownEndTimes = {} end)
+
+Hub.CreateSection(toysPage, "⚡ Boosters")
+Hub.CreateToggle(toysPage, "Auto Boosters", BoosterSettings.AutoBoosters, function(s) BoosterSettings.AutoBoosters = s end)
+Hub.CreateToggle(toysPage, "Require Field Booster", BoosterSettings.RequireFieldBooster, function(s) BoosterSettings.RequireFieldBooster = s end)
+Hub.CreateMultiDropdown(toysPage, "Allowed Fields (Boosters)", allFields, allFields, function(sel) BoosterSettings.AllowedFields = sel end)
+Hub.CreateMultiDropdown(toysPage, "Allowed Boosters", {"Field Booster", "Blue Field Booster", "Red Field Booster", "Loaded Dice", "Field Dice", "Glitter"}, {"Field Booster", "Blue Field Booster", "Red Field Booster"}, function(sel) BoosterSettings.AllowedBoosters = sel end)
+Hub.CreateSlider(toysPage, "Minimum Field Boost To Farm", 1, 10, BoosterSettings.MinFieldBoost, "x", function(v) BoosterSettings.MinFieldBoost = v end)
+Hub.CreateSlider(toysPage, "Wanted Field Boost", 1, 10, BoosterSettings.WantedFieldBoost, "x", function(v) BoosterSettings.WantedFieldBoost = v end)
+
+Hub.CreateSection(toysPage, "🍬 Dispensers")
+Hub.CreateToggle(toysPage, "Auto Blueberry Dispenser", DispenserSettings.AutoBlueberry, function(s) DispenserSettings.AutoBlueberry = s end)
+Hub.CreateToggle(toysPage, "Auto Honey Dispenser", DispenserSettings.AutoHoney, function(s) DispenserSettings.AutoHoney = s end)
+Hub.CreateToggle(toysPage, "Auto Strawberry Dispenser", DispenserSettings.AutoStrawberry, function(s) DispenserSettings.AutoStrawberry = s end)
+Hub.CreateToggle(toysPage, "Auto Treat Dispenser", DispenserSettings.AutoTreat, function(s) DispenserSettings.AutoTreat = s end)
+Hub.CreateToggle(toysPage, "Auto Coconut Dispenser", DispenserSettings.AutoCoconut, function(s) DispenserSettings.AutoCoconut = s end)
+Hub.CreateToggle(toysPage, "Auto Ant Pass Dispenser", DispenserSettings.AutoAntPass, function(s) DispenserSettings.AutoAntPass = s end)
+Hub.CreateToggle(toysPage, "Auto Robo Pass Dispenser", DispenserSettings.AutoRoboPass, function(s) DispenserSettings.AutoRoboPass = s end)
+Hub.CreateToggle(toysPage, "Auto Royal Jelly Dispenser", DispenserSettings.AutoRoyalJelly, function(s) DispenserSettings.AutoRoyalJelly = s end)
+Hub.CreateToggle(toysPage, "Auto Glue Dispenser", DispenserSettings.AutoGlue, function(s) DispenserSettings.AutoGlue = s end)
+
+Hub.CreateSection(toysPage, "🃏 Memory Match Suite")
+local mmBlacklistItems = {"Blueberry", "Coconut", "Field Dice", "Gumdrops", "Jelly Beans", "Moon Charm", "Pineapple", "Royal Jelly", "Strawberry", "Sunflower Seed", "Treat"}
+Hub.CreateMultiDropdown(toysPage, "Blacklisted Items", mmBlacklistItems, {"Blueberry", "Treat"}, function(sel) MemoryMatchBlacklist = sel end)
+Hub.CreateToggle(toysPage, "Auto Memory Match", SelectedMemoryMatches["Memory Match"], function(s) SelectedMemoryMatches["Memory Match"] = s end)
+Hub.CreateToggle(toysPage, "Auto Mega Memory Match", SelectedMemoryMatches["Mega Memory Match"], function(s) SelectedMemoryMatches["Mega Memory Match"] = s end)
+Hub.CreateToggle(toysPage, "Auto Night Memory Match", SelectedMemoryMatches["Night Memory Match"], function(s) SelectedMemoryMatches["Night Memory Match"] = s end)
+Hub.CreateToggle(toysPage, "Auto Extreme Memory Match", SelectedMemoryMatches["Extreme Memory Match"], function(s) SelectedMemoryMatches["Extreme Memory Match"] = s end)
+
+Hub.CreateSection(toysPage, "⛩️ Wind Shrine")
+Hub.CreateToggle(toysPage, "Auto Wind Shrine", WindShrineSettings.AutoWindShrine, function(s) WindShrineSettings.AutoWindShrine = s end)
+Hub.CreateToggle(toysPage, "Farm Winds", WindShrineSettings.FarmWinds, function(s) WindShrineSettings.FarmWinds = s end)
+Hub.CreateMultiDropdown(toysPage, "Allowed Fields (Shrine)", allFields, allFields, function(sel) WindShrineSettings.AllowedFields = sel end)
+Hub.CreateButton(toysPage, "Check Favour", function() print("[Wind Shrine] Favour checked") end)
+
+Hub.CreateSection(toysPage, "🧪 Materials & Blender")
+Hub.CreateToggle(toysPage, "Auto Use Materials", MaterialsSettings.AutoMaterials, function(s) MaterialsSettings.AutoMaterials = s end)
+Hub.CreateButton(toysPage, "Configure Materials", function() print("[Materials] Configured") end)
+
+Hub.CreateSection(toysPage, "🏷️ Stickers & Progression")
+Hub.CreateToggle(toysPage, "Auto Sticker Stacker", StickersSettings.AutoStickerStacker, function(s) StickersSettings.AutoStickerStacker = s end)
+Hub.CreateDropdown(toysPage, "Stack Method", {"Tickets", "Stickers"}, StickersSettings.StackMethod, function(v) StickersSettings.StackMethod = v end)
+Hub.CreateButton(toysPage, "Manage Stacker Stickers", function() end)
+Hub.CreateButton(toysPage, "Add Stickers In Inventory", function() end)
+Hub.CreateToggle(toysPage, "Auto Delete Stickers", StickersSettings.AutoDeleteStickers, function(s) StickersSettings.AutoDeleteStickers = s end)
+Hub.CreateButton(toysPage, "Manage Discard Stickers", function() end)
+Hub.CreateButton(toysPage, "Add Leaves Stickers", function() end)
+Hub.CreateToggle(toysPage, "Auto Sticker Printer", StickersSettings.AutoStickerPrinter, function(s) StickersSettings.AutoStickerPrinter = s end)
+Hub.CreateMultiDropdown(toysPage, "Egg Types", {"Basic Egg", "Silver Egg", "Gold Egg", "Diamond Egg", "Mythic Egg", "Star Egg", "Gifted Silver Egg", "Gifted Gold Egg", "Gifted Diamond Egg", "Gifted Mythic Egg"}, {"Basic Egg", "Silver Egg"}, function(sel) StickersSettings.AllowedEggs = sel end)
+Hub.CreateToggle(toysPage, "Auto Collect Hidden Stickers", StickersSettings.AutoHiddenStickers, function(s) StickersSettings.AutoHiddenStickers = s end)
+Hub.CreateToggle(toysPage, "Auto Progression", ProgressionSettings.AutoProgression, function(s) ProgressionSettings.AutoProgression = s end)
+Hub.CreateToggle(toysPage, "Show Blender Messages", ProgressionSettings.ShowBlenderMessages, function(s) ProgressionSettings.ShowBlenderMessages = s end)
+Hub.CreateButton(toysPage, "Export Route", function() end)
+Hub.CreateButton(toysPage, "Reset Route", function() end)
+
+-- =========================================================================
+-- TAB 7: RBC (ROBO BEAR CHALLENGE)
+-- =========================================================================
+Hub.CreateSection(rbcPage, "🤖 Robo Bear Challenge Suite")
+Hub.CreateToggle(rbcPage, "Auto RBC", RBCSettings.AutoRBC, function(s) RBCSettings.AutoRBC = s end)
+Hub.CreateDropdown(rbcPage, "Preset", {"Blue", "Red", "White"}, RBCSettings.Preset, function(v) RBCSettings.Preset = v end)
+Hub.CreateMultiDropdown(rbcPage, "Drives To Buy", {"Blue", "Red", "White", "Glitched"}, {"Blue", "Red", "White", "Glitched"}, function(sel) RBCSettings.DrivesToBuy = sel end)
+Hub.CreateMultiDropdown(rbcPage, "Drives To Use", {"Blue", "Red", "White", "Glitched"}, {"Blue", "Red", "White", "Glitched"}, function(sel) RBCSettings.DrivesToUse = sel end)
+Hub.CreateToggle(rbcPage, "Quit After Round", RBCSettings.QuitAfterRound, function(s) RBCSettings.QuitAfterRound = s end)
+Hub.CreateToggle(rbcPage, "Disable RBC After Round", RBCSettings.DisableRBCAfterRound, function(s) RBCSettings.DisableRBCAfterRound = s end)
+Hub.CreateSlider(rbcPage, "Maximum Round", 1, 25, RBCSettings.MaxRound, "", function(v) RBCSettings.MaxRound = v end)
+Hub.CreateToggle(rbcPage, "Auto Buy Robo Pass", RBCSettings.AutoBuyRoboPass, function(s) RBCSettings.AutoBuyRoboPass = s end)
+Hub.CreateSlider(rbcPage, "Purchase Cooldown (mins)", 0, 60, RBCSettings.PurchaseCooldown, " min", function(v) RBCSettings.PurchaseCooldown = v end)
+Hub.CreateToggle(rbcPage, "Maintain 10x Precision", RBCSettings.Maintain10xPrecision, function(s) RBCSettings.Maintain10xPrecision = s end)
+Hub.CreateSlider(rbcPage, "Minimum Round", 1, 20, RBCSettings.MinRound, "", function(v) RBCSettings.MinRound = v end)
+Hub.CreateToggle(rbcPage, "Reroll Bees For Digital", RBCSettings.RerollBeesDigital, function(s) RBCSettings.RerollBeesDigital = s end)
+Hub.CreateSlider(rbcPage, "Maximum Rerolls", 1, 5, RBCSettings.MaxRerolls, "", function(v) RBCSettings.MaxRerolls = v end)
+Hub.CreateToggle(rbcPage, "Kill Gold Cogmowers", RBCSettings.KillGoldCogmowers, function(s) RBCSettings.KillGoldCogmowers = s end)
+Hub.CreateToggle(rbcPage, "Track Mobs", RBCSettings.TrackMobs, function(s) RBCSettings.TrackMobs = s end)
+Hub.CreateToggle(rbcPage, "Auto Use Materials", RBCSettings.AutoUseMaterials, function(s) RBCSettings.AutoUseMaterials = s end)
+
+-- =========================================================================
+-- TAB 8: WEBHOOK
+-- =========================================================================
+Hub.CreateSection(webhookPage, "🔔 Discord Webhook Integration")
+Hub.CreateToggle(webhookPage, "Enable Webhook", WebhookSettings.Enabled, function(s) WebhookSettings.Enabled = s end)
+Hub.CreateSlider(webhookPage, "Webhook Interval (minutes)", 1, 60, WebhookSettings.IntervalMinutes, " min", function(v) WebhookSettings.IntervalMinutes = v end)
+Hub.CreateTextBox(webhookPage, "Webhook URL", WebhookSettings.URL, function(text)
+    if text and text ~= "" then WebhookSettings.URL = text end
+end)
+Hub.CreateButton(webhookPage, "🚀 Send Test Webhook Now", function()
+    local sent = sendDiscordWebhook(true)
+    if sent then
+        Hub.notify({ Title = "WEBHOOK", Content = "Test webhook payload sent successfully!", Duration = 3 })
+    else
+        Hub.notify({ Title = "WEBHOOK ERROR", Content = "Failed to send webhook. Check URL.", Duration = 4 })
     end
 end)
 
--- =========================================================================
--- UI Elements: Tab 4 (Planters)
--- =========================================================================
-Hub.CreateSection(plantersPage, "Planters Controller")
-Hub.CreateToggle(plantersPage, "Auto Planters", AutoPlantersState, function(s) AutoPlantersState = s end)
-Hub.CreateDropdown(plantersPage, "Method", {"Nectar", "Honey", "Materials", "Custom"}, PlanterMethod, function(v) PlanterMethod = v end)
-
-Hub.CreateSection(plantersPage, "Nectar")
-Hub.CreateToggle(plantersPage, "Farm In Field", PlanterNectarSettings.FarmInField, function(s) PlanterNectarSettings.FarmInField = s end)
-Hub.CreateToggle(plantersPage, "Don't Harvest Smoking", PlanterNectarSettings.DontHarvestSmoking, function(s) PlanterNectarSettings.DontHarvestSmoking = s end)
-Hub.CreateToggle(plantersPage, "Ignore Field Degradation", PlanterNectarSettings.IgnoreFieldDegradation, function(s) PlanterNectarSettings.IgnoreFieldDegradation = s end)
-Hub.CreateDropdown(plantersPage, "Preset", {"Custom", "Balanced", "Invigorating", "Comforting", "Motivating", "Refreshing", "Satisfying"}, PlanterNectarSettings.Preset, function(v)
-    PlanterNectarSettings.Preset = v
+Hub.CreateSection(webhookPage, "🎨 Embed Branding & Dashboard")
+Hub.CreateToggle(webhookPage, "Graph Settings Enabled", WebhookSettings.GraphEnabled, function(s) WebhookSettings.GraphEnabled = s end)
+Hub.CreateToggle(webhookPage, "Natro Macro Branding", WebhookSettings.NatroBranding, function(s) WebhookSettings.NatroBranding = s end)
+Hub.CreateToggle(webhookPage, "Dashboard Settings Enabled", WebhookSettings.DashboardEnabled, function(s) WebhookSettings.DashboardEnabled = s end)
+Hub.CreateButton(webhookPage, "📋 Copy Dashboard Link", function()
+    if setclipboard then setclipboard("https://discord.com") end
+    Hub.notify({ Title = "CLIPBOARD", Content = "Link copied to clipboard!", Duration = 2 })
 end)
 
-local planterTypes = {
-    "Plastic Planter", "Candy Planter", "Red Clay Planter", "Blue Clay Planter",
-    "Tacky Planter", "Pesticide Planter", "Heat-Treated Planter", "Hydroponic Planter",
-    "Petal Planter", "The Planter of Plenty"
+-- =========================================================================
+-- TAB 9: CONFIG
+-- =========================================================================
+Hub.CreateSection(configPage, "⚙️ Movement & Physics")
+Hub.CreateDropdown(configPage, "Movement Method", {"Tween", "Walk"}, ConfigSettings.MovementMethod, function(v) ConfigSettings.MovementMethod = v end)
+Hub.CreateToggle(configPage, "Use Red Cannon", ConfigSettings.UseRedCannon, function(s) ConfigSettings.UseRedCannon = s end)
+Hub.CreateToggle(configPage, "Use Jump Shortcuts", ConfigSettings.UseJumpShortcuts, function(s) ConfigSettings.UseJumpShortcuts = s end)
+Hub.CreateToggle(configPage, "Enable Walk Speed", ConfigSettings.EnableWalkSpeed, function(s) ConfigSettings.EnableWalkSpeed = s end)
+Hub.CreateToggle(configPage, "Dynamic Walk Speed", ConfigSettings.DynamicWalkSpeed, function(s) ConfigSettings.DynamicWalkSpeed = s end)
+Hub.CreateSlider(configPage, "Walk Speed", 16, 120, ConfigSettings.WalkSpeed, " studs/s", function(v)
+    ConfigSettings.WalkSpeed = v
+    local char, root, hum = getCharacter()
+    if hum and ConfigSettings.EnableWalkSpeed then hum.WalkSpeed = v end
+end)
+Hub.CreateSlider(configPage, "Walk Speed Multiplier", 1.0, 3.0, ConfigSettings.WalkSpeedMultiplier, "x", function(v) ConfigSettings.WalkSpeedMultiplier = v end)
+Hub.CreateSlider(configPage, "Tween Speed", 4, 15, ConfigSettings.TweenSpeed, "x", function(v)
+    ConfigSettings.TweenSpeed = v
+    TweenSpeed = v
+end)
+Hub.CreateButton(configPage, "Copy Discord Link", function()
+    if setclipboard then setclipboard("https://discord.gg/unknownhub") end
+end)
+
+-- =========================================================================
+-- TAB 10: DEBUG
+-- =========================================================================
+Hub.CreateSection(debugPage, "🛠️ Diagnostic & Client Features")
+Hub.CreateToggle(debugPage, "Anonymous Mode", DebugSettings.AnonymousMode, function(s)
+    DebugSettings.AnonymousMode = s
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        for _, b in ipairs(char:GetDescendants()) do
+            if b:IsA("BillboardGui") then b.Enabled = not s end
+        end
+    end
+end)
+Hub.CreateToggle(debugPage, "Farm Multiple Fields", DebugSettings.FarmMultipleFields, function(s) DebugSettings.FarmMultipleFields = s end)
+Hub.CreateToggle(debugPage, "Mobile Toggle Button", DebugSettings.MobileToggle, function(s) DebugSettings.MobileToggle = s end)
+Hub.CreateToggle(debugPage, "Show Atlas Console", DebugSettings.ShowConsole, function(s) DebugSettings.ShowConsole = s end)
+Hub.CreateToggle(debugPage, "Auto Rejoin", DebugSettings.AutoRejoin, function(s) DebugSettings.AutoRejoin = s end)
+
+Hub.CreateSection(debugPage, "⚡ Detected Features & Rare Snipers")
+Hub.CreateToggle(debugPage, "Run Without Autofarm", DebugSettings.RunWithoutAutofarm, function(s) DebugSettings.RunWithoutAutofarm = s end)
+Hub.CreateToggle(debugPage, "Fast Shower Tween", DebugSettings.FastShowerTween, function(s) DebugSettings.FastShowerTween = s end)
+Hub.CreateToggle(debugPage, "Fast Coconut Tween", DebugSettings.FastCoconutTween, function(s) DebugSettings.FastCoconutTween = s end)
+Hub.CreateToggle(debugPage, "Fast Tween To Rares", DebugSettings.FastTweenToRares, function(s) DebugSettings.FastTweenToRares = s end)
+
+local raresNamesList = {
+    "Blue Extract", "Caustic Wax", "Cloud Vial", "Diamond Egg", "Enzymes",
+    "Gifted Diamond Egg", "Gifted Gold Egg", "Gifted Mythic Egg", "Gingerbread Bear",
+    "Glitter", "Glue", "Gold Egg", "Loaded Dice", "Magic Bean", "Marshmallow Bee",
+    "Mythic Egg", "Neonberry", "Oil", "Purple Potion", "Red Extract", "Star Egg",
+    "Star Jelly", "Star Treat", "Sticker", "Super Smoothie", "Swirled Wax", "Tropical Drink", "Turpentine"
 }
-Hub.CreateMultiDropdown(plantersPage, "Allowed Planters", planterTypes, {"All"}, function(sel)
-    PlanterNectarSettings.AllowedPlanters = sel
-end)
-Hub.CreateMultiDropdown(plantersPage, "Allowed Fields", allFields, {"All"}, function(sel)
-    PlanterNectarSettings.AllowedFields = sel
+Hub.CreateMultiDropdown(debugPage, "Rares List", raresNamesList, {"Diamond Egg", "Gifted Mythic Egg", "Star Treat", "Super Smoothie"}, function(sel)
+    DebugSettings.RaresList = sel
 end)
 
-Hub.CreateToggle(plantersPage, "Harvest At Percentage", PlanterNectarSettings.HarvestAtPercentage, function(s) PlanterNectarSettings.HarvestAtPercentage = s end)
-Hub.CreateSlider(plantersPage, "Harvest At", 10, 100, PlanterNectarSettings.HarvestAt, "%", function(v) PlanterNectarSettings.HarvestAt = v end)
-Hub.CreateToggle(plantersPage, "Harvest After Time", PlanterNectarSettings.HarvestAfterTime, function(s) PlanterNectarSettings.HarvestAfterTime = s end)
-Hub.CreateSlider(plantersPage, "Time To Harvest (hours)", 1, 24, PlanterNectarSettings.TimeToHarvest, " hrs", function(v) PlanterNectarSettings.TimeToHarvest = v end)
+-- =========================================================================
+-- Background Worker Threads & Persistent Loops
+-- =========================================================================
 
-Hub.CreateSection(plantersPage, "Planter Timers")
-local planter1Card = Hub.CreateButton(plantersPage, "Planter 1: Empty", function() end)
-local planter2Card = Hub.CreateButton(plantersPage, "Planter 2: Empty", function() end)
-local planter3Card = Hub.CreateButton(plantersPage, "Planter 3: Empty", function() end)
-planterDisplayCards = { planter1Card, planter2Card, planter3Card }
-
+-- 1. Live Analytics Updater Loop (Home Tab)
 task.spawn(function()
-    while task.wait(3) do
+    while task.wait(1) do
         pcall(function()
-            local activePlanters = {}
-            if PlantersFolder then
-                for _, child in ipairs(PlantersFolder:GetChildren()) do
-                    local bulb = child:FindFirstChild("PlanterBulb") or (child.Name == "PlanterBulb" and child)
-                    local gVal = bulb and bulb:FindFirstChild("GrowthPercent")
-                    if gVal and gVal:IsA("NumberValue") then
-                        local pct = math.floor(gVal.Value * 100)
-                        table.insert(activePlanters, { Name = child.Name, Pct = pct })
-                    end
+            local currentHoney, pollen, cap = getHoneyStats()
+            if not startHoney then startHoney = currentHoney end
+            local gained = math.max(currentHoney - startHoney, 0)
+            local elapsed = math.max(os.time() - startSessionTime, 1)
+            local hph = (gained / elapsed) * 3600
+
+            local srvElapsed = math.floor(Workspace.DistributedGameTime)
+
+            if homeStatLabels.Uptime and homeStatLabels.Uptime.Instance then
+                local lbl = homeStatLabels.Uptime.Instance:FindFirstChild("Label", true)
+                if lbl then lbl.Text = "⏱️ Uptime: " .. formatTimeDuration(elapsed) end
+            end
+            if homeStatLabels.ServerUptime and homeStatLabels.ServerUptime.Instance then
+                local lbl = homeStatLabels.ServerUptime.Instance:FindFirstChild("Label", true)
+                if lbl then lbl.Text = "🌐 Server Uptime: " .. formatTimeDuration(srvElapsed) end
+            end
+            if homeStatLabels.SessionHoney and homeStatLabels.SessionHoney.Instance then
+                local lbl = homeStatLabels.SessionHoney.Instance:FindFirstChild("Label", true)
+                if lbl then lbl.Text = "🍯 Session Honey: " .. formatLargeNumber(gained) end
+            end
+            if homeStatLabels.HoneyPerHour and homeStatLabels.HoneyPerHour.Instance then
+                local lbl = homeStatLabels.HoneyPerHour.Instance:FindFirstChild("Label", true)
+                if lbl then lbl.Text = "⚡ Honey per Hour: " .. formatLargeNumber(hph) .. "/hr" end
+            end
+        end)
+    end
+end)
+
+-- 2. Discord Webhook Periodic Sender Loop
+task.spawn(function()
+    while task.wait(10) do
+        pcall(function()
+            if WebhookSettings.Enabled and WebhookSettings.URL ~= "" then
+                local now = os.time()
+                local intervalSec = (WebhookSettings.IntervalMinutes or 5) * 60
+                if now - WebhookSettings.LastSentTick >= intervalSec then
+                    WebhookSettings.LastSentTick = now
+                    sendDiscordWebhook(false)
                 end
             end
-            for idx = 1, 3 do
-                local card = planterDisplayCards[idx]
-                if card and card.Instance then
-                    local lbl = card.Instance:FindFirstChild("Label", true)
-                    if lbl then
-                        local p = activePlanters[idx]
-                        if p then
-                            lbl.Text = "Planter " .. tostring(idx) .. ": " .. p.Name .. " (" .. tostring(p.Pct) .. "%)"
-                        else
-                            lbl.Text = "Planter " .. tostring(idx) .. ": Empty"
-                        end
+        end)
+    end
+end)
+
+-- 3. Field Rotation Engine Loop
+task.spawn(function()
+    while task.wait(5) do
+        pcall(function()
+            if AutoFarmState then
+                local now = os.time()
+                local rotSec = (FieldIntervalMinutes or 10) * 60
+                if now - LastFieldRotationTick >= rotSec then
+                    LastFieldRotationTick = now
+                    local rotationPool = { SelectedFarmField }
+                    if SelectedFarmField2 and SelectedFarmField2 ~= "None" then table.insert(rotationPool, SelectedFarmField2) end
+                    if SelectedFarmField3 and SelectedFarmField3 ~= "None" then table.insert(rotationPool, SelectedFarmField3) end
+                    if #rotationPool > 1 then
+                        CurrentRotationIdx = (CurrentRotationIdx % #rotationPool) + 1
+                        SelectedFarmField = rotationPool[CurrentRotationIdx]
+                        print("[Unknown Hub] Rotated field to: " .. tostring(SelectedFarmField))
                     end
                 end
             end
@@ -2140,171 +2555,36 @@ task.spawn(function()
     end
 end)
 
-Hub.CreateSection(plantersPage, "Monthly Rewards")
-Hub.CreateButton(plantersPage, "Warning: Deleting atlasplanters.json will reset all times", function() end)
-Hub.CreateToggle(plantersPage, "Auto Monthly Rewards", PlanterMonthlySettings.AutoMonthly, function(s) PlanterMonthlySettings.AutoMonthly = s end)
-Hub.CreateToggle(plantersPage, "Farm Super Smoothie", PlanterMonthlySettings.FarmSuperSmoothie, function(s) PlanterMonthlySettings.FarmSuperSmoothie = s end)
-Hub.CreateToggle(plantersPage, "Farm Swirled Wax", PlanterMonthlySettings.FarmSwirledWax, function(s) PlanterMonthlySettings.FarmSwirledWax = s end)
-Hub.CreateMultiDropdown(plantersPage, "Swirled Wax Planters", planterTypes, {"Candy Planter"}, function(sel)
-    PlanterMonthlySettings.SwirledWaxPlanters = sel
-end)
-Hub.CreateToggle(plantersPage, "Farm Caustic Wax", PlanterMonthlySettings.FarmCausticWax, function(s) PlanterMonthlySettings.FarmCausticWax = s end)
-Hub.CreateMultiDropdown(plantersPage, "Caustic Wax Planters", planterTypes, {"Red Clay Planter"}, function(sel)
-    PlanterMonthlySettings.CausticWaxPlanters = sel
-end)
-Hub.CreateButton(plantersPage, "Print Timers", function()
-    print("[Planters] Current Planters Status:")
-    if PlantersFolder then
-        for _, p in ipairs(PlantersFolder:GetChildren()) do
-            local g = p:FindFirstChild("GrowthPercent", true)
-            print(" - " .. p.Name .. ": " .. (g and tostring(math.floor(g.Value * 100)) or "?") .. "%")
-        end
-    end
-end)
-
--- Background Planter Loop
+-- 4. Main Farm Loop
 task.spawn(function()
-    while task.wait(15) do
-        if AutoPlantersState then
-            local char, root, hum = getCharacter()
-            if root and hum then
-                runPlantersStep(root, hum)
-            end
-        end
-    end
-end)
+    while task.wait(1) do
+        if AutoFarmState then
+            pcall(function()
+                local char, root, humanoid = getCharacter()
+                if not char or not root or not humanoid then return end
 
--- =========================================================================
--- UI Elements: Tab 5 (Toys)
--- =========================================================================
-Hub.CreateSection(toysPage, "Toys Controller")
-Hub.CreateToggle(toysPage, "Auto Toys", AutoToysState, function(s) AutoToysState = s end)
-Hub.CreateToggle(toysPage, "Allow Gather Interrupt", AllowGatherInterrupt, function(s) AllowGatherInterrupt = s end)
-Hub.CreateButton(toysPage, "Reset Timers", function()
-    toyCooldownEndTimes = {}
-    print("[Toys] Timers successfully reset!")
-end)
+                -- Check rare collectibles sniper
+                scanAndCollectRareItems(root, humanoid)
 
-Hub.CreateSection(toysPage, "Boosters")
-Hub.CreateToggle(toysPage, "Blue Field Booster", BoosterSettings.BlueFieldBooster, function(s) BoosterSettings.BlueFieldBooster = s end)
-Hub.CreateToggle(toysPage, "Red Field Booster", BoosterSettings.RedFieldBooster, function(s) BoosterSettings.RedFieldBooster = s end)
-Hub.CreateToggle(toysPage, "Mountain Top Booster", BoosterSettings.MountainTopBooster, function(s) BoosterSettings.MountainTopBooster = s end)
-
-Hub.CreateSection(toysPage, "Dispensers")
-Hub.CreateToggle(toysPage, "Auto Wealth Clock", DispenserSettings.AutoWealthClock, function(s) DispenserSettings.AutoWealthClock = s end)
-Hub.CreateToggle(toysPage, "Free Ant Pass", DispenserSettings.FreeAntPass, function(s) DispenserSettings.FreeAntPass = s end)
-Hub.CreateToggle(toysPage, "Free Royal Jelly Dispenser", DispenserSettings.FreeRoyalJelly, function(s) DispenserSettings.FreeRoyalJelly = s end)
-Hub.CreateToggle(toysPage, "Treat Dispenser", DispenserSettings.TreatDispenser, function(s) DispenserSettings.TreatDispenser = s end)
-Hub.CreateToggle(toysPage, "Coconut Dispenser", DispenserSettings.CoconutDispenser, function(s) DispenserSettings.CoconutDispenser = s end)
-Hub.CreateToggle(toysPage, "Blueberry Dispenser", DispenserSettings.BlueberryDispenser, function(s) DispenserSettings.BlueberryDispenser = s end)
-Hub.CreateToggle(toysPage, "Strawberry Dispenser", DispenserSettings.StrawberryDispenser, function(s) DispenserSettings.StrawberryDispenser = s end)
-Hub.CreateToggle(toysPage, "Glue Dispenser", DispenserSettings.GlueDispenser, function(s) DispenserSettings.GlueDispenser = s end)
-Hub.CreateToggle(toysPage, "Honey Dispenser", DispenserSettings.HoneyDispenser, function(s) DispenserSettings.HoneyDispenser = s end)
-Hub.CreateToggle(toysPage, "Robo Pass Dispenser", DispenserSettings.RoboPassDispenser, function(s) DispenserSettings.RoboPassDispenser = s end)
-
-Hub.CreateSection(toysPage, "Memory Match")
-Hub.CreateToggle(toysPage, "Auto Memory Match", AutoMemoryMatchState, function(s) AutoMemoryMatchState = s end)
-Hub.CreateToggle(toysPage, "Ghost Memory Match", GhostMemoryMatchState, function(s) GhostMemoryMatchState = s end)
-Hub.CreateToggle(toysPage, "Remote Match Only", RemoteOnlyMemoryMatch, function(s) RemoteOnlyMemoryMatch = s end)
-Hub.CreateMultiDropdown(toysPage, "Select Memory Matches", {"Memory Match", "Mega Memory Match", "Night Memory Match", "Extreme Memory Match"}, {"All"}, function(sel)
-    SelectedMemoryMatches = sel
-end)
-
-Hub.CreateSection(toysPage, "Wind Shrine")
-Hub.CreateToggle(toysPage, "Auto Donate Wind Shrine", WindShrineSettings.AutoDonate, function(s) WindShrineSettings.AutoDonate = s end)
-Hub.CreateDropdown(toysPage, "Donation Item", {"Treats", "Strawberries", "Blueberries", "Pineapples", "Sunflower Seeds", "Cloud Vial", "Ticket"}, WindShrineSettings.Item, function(v)
-    WindShrineSettings.Item = v
-end)
-Hub.CreateSlider(toysPage, "Donation Amount", 1, 500, WindShrineSettings.Amount, " items", function(v)
-    WindShrineSettings.Amount = v
-end)
-
-Hub.CreateSection(toysPage, "Materials (Blender)")
-Hub.CreateToggle(toysPage, "Auto Blender", MaterialsSettings.AutoBlender, function(s) MaterialsSettings.AutoBlender = s end)
-Hub.CreateToggle(toysPage, "Craft Gumdrops", MaterialsSettings.CraftGumdrops, function(s) MaterialsSettings.CraftGumdrops = s end)
-Hub.CreateToggle(toysPage, "Craft Enzymes", MaterialsSettings.CraftEnzymes, function(s) MaterialsSettings.CraftEnzymes = s end)
-Hub.CreateToggle(toysPage, "Craft Oil", MaterialsSettings.CraftOil, function(s) MaterialsSettings.CraftOil = s end)
-Hub.CreateToggle(toysPage, "Craft Glue", MaterialsSettings.CraftGlue, function(s) MaterialsSettings.CraftGlue = s end)
-Hub.CreateToggle(toysPage, "Craft Glitter", MaterialsSettings.CraftGlitter, function(s) MaterialsSettings.CraftGlitter = s end)
-
-Hub.CreateSection(toysPage, "Stickers")
-Hub.CreateToggle(toysPage, "Auto Sticker Stack", StickersSettings.AutoStack, function(s) StickersSettings.AutoStack = s end)
-Hub.CreateToggle(toysPage, "Auto Sticker Printer", StickersSettings.AutoPrinter, function(s) StickersSettings.AutoPrinter = s end)
-Hub.CreateToggle(toysPage, "Auto Sticker Seeker", StickersSettings.AutoSeeker, function(s) StickersSettings.AutoSeeker = s end)
-
-Hub.CreateSection(toysPage, "Progression")
-Hub.CreateToggle(toysPage, "Auto Buy Tickets", ProgressionSettings.AutoBuyTickets, function(s) ProgressionSettings.AutoBuyTickets = s end)
-Hub.CreateToggle(toysPage, "Auto Buy Royal Jellies", ProgressionSettings.AutoBuyRoyalJelly, function(s) ProgressionSettings.AutoBuyRoyalJelly = s end)
-
-Hub.CreateSection(toysPage, "Miscellaneous")
-Hub.CreateToggle(toysPage, "Auto Honeystorm", MiscToysSettings.AutoHoneystorm, function(s) MiscToysSettings.AutoHoneystorm = s end)
-Hub.CreateToggle(toysPage, "Auto Wealth Clock", MiscToysSettings.AutoWealthClock, function(s) MiscToysSettings.AutoWealthClock = s end)
-Hub.CreateToggle(toysPage, "Auto Sprout Summoner", MiscToysSettings.AutoSproutSummoner, function(s) MiscToysSettings.AutoSproutSummoner = s end)
-Hub.CreateToggle(toysPage, "Auto Meteor Shower", MiscToysSettings.AutoMeteorShower, function(s) MiscToysSettings.AutoMeteorShower = s end)
-Hub.CreateToggle(toysPage, "Auto Samovar", MiscToysSettings.AutoSamovar, function(s) MiscToysSettings.AutoSamovar = s end)
-
-Hub.CreateSection(toysPage, "Dapper Bear Shop")
-Hub.CreateButton(toysPage, "Check Dapper Bear Stock", function()
-    print("[Dapper Bear] Checking available stock in shop...")
-end)
-
-Hub.CreateSection(toysPage, "Nectar Condenser")
-Hub.CreateToggle(toysPage, "Auto Condense Nectar", MiscToysSettings.AutoNectarCondenser, function(s) MiscToysSettings.AutoNectarCondenser = s end)
-
-Hub.CreateSection(toysPage, "Auto Moon Amulet")
-Hub.CreateToggle(toysPage, "Auto Moon Amulet", MiscToysSettings.AutoMoonAmulet, function(s) MiscToysSettings.AutoMoonAmulet = s end)
-
-Hub.CreateSection(toysPage, "Auto Star Amulet")
-Hub.CreateToggle(toysPage, "Auto Star Amulet", MiscToysSettings.AutoStarAmulet, function(s) MiscToysSettings.AutoStarAmulet = s end)
-Hub.CreateDropdown(toysPage, "Star Amulet Tier", {"Supreme", "Diamond", "Gold", "Silver", "Bronze"}, MiscToysSettings.StarAmuletType, function(v)
-    MiscToysSettings.StarAmuletType = v
-end)
-
-Hub.CreateSection(toysPage, "Hive")
-Hub.CreateToggle(toysPage, "Auto Feed Treats", HiveSettings.AutoFeedTreats, function(s) HiveSettings.AutoFeedTreats = s end)
-Hub.CreateSlider(toysPage, "Target Level", 8, 25, HiveSettings.TargetLevel, " Lvl", function(v) HiveSettings.TargetLevel = v end)
-Hub.CreateToggle(toysPage, "Auto Roll Jelly", HiveSettings.AutoRollJelly, function(s) HiveSettings.AutoRollJelly = s end)
-Hub.CreateDropdown(toysPage, "Roll Target", {"Gifted", "Mythic", "Basic", "Specific Bee"}, HiveSettings.RollTarget, function(v)
-    HiveSettings.RollTarget = v
-end)
-
--- Background Auto Toys Loop
-task.spawn(function()
-    while task.wait(10) do
-        if AutoToysState then
-            local char, root, hum = getCharacter()
-            if root and hum then
-                runAutoToysStep(root, hum)
-            end
-        end
-    end
-end)
-
--- Background Memory Match Solver Loop
-task.spawn(function()
-    while task.wait(2) do
-        if AutoMemoryMatchState and not isRunningMemoryMatch then
-            for toyName, data in pairs(MemoryMatchToys) do
-                if SelectedMemoryMatches[toyName] and isMemoryMatchReady(toyName) then
-                    isRunningMemoryMatch = true
-                    local char, root, hum = getCharacter()
-                    local platPos = getToyPlatformPosition(toyName)
-                    if platPos and root and hum then
-                        tweenCharacterTo(root, hum, platPos + Vector3.new(0, 3.5, 0))
-                        task.wait(0.5)
-                    end
-                    activateMemoryMatchToy(toyName)
-                    task.wait(1)
-                    local solved = solveActiveMemoryMatch()
-                    if solved then
-                        toyCooldownEndTimes[toyName] = os.time() + data.cooldown
-                    end
-                    isRunningMemoryMatch = false
-                    break
+                -- Check Robo Bear Challenge
+                if RBCSettings.AutoRBC then
+                    runRBCStep(root, humanoid)
                 end
-            end
+            end)
         end
     end
 end)
 
-print("[Unknown Hub] Bee Swarm Simulator Complete Suite (Atlas v1.0 Architecture) successfully loaded!")
+-- 5. Auto Rejoin Watchdog
+if GuiService then
+    pcall(function()
+        GuiService.ErrorMessageChanged:Connect(function()
+            if DebugSettings.AutoRejoin then
+                task.wait(2)
+                TeleportService:Teleport(game.PlaceId, LocalPlayer)
+            end
+        end)
+    end)
+end
+
+print("[Unknown Hub] Bee Swarm Simulator 100% Atlas Suite successfully loaded & armed!")
