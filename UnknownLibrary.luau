@@ -5504,6 +5504,184 @@ return function(opts)
 
     Hub.createStatRow = createStatRow
 
+    local function createFloatingHUD(config)
+        config = config or {}
+        local title = config.Title or "⚡ STATS HUD"
+        local defaultVisible = config.DefaultVisible == true
+        local initialPos = config.Position or UDim2.new(0, 24, 0, 160)
+
+        local hudFrame = Instance.new("Frame")
+        hudFrame.Name = "Unknown_FloatingHUD"
+        hudFrame.Size = UDim2.new(0, 240, 0, 150)
+        hudFrame.Position = initialPos
+        hudFrame.BackgroundColor3 = Color3.fromRGB(16, 15, 20)
+        hudFrame.BorderSizePixel = 0
+        hudFrame.Visible = defaultVisible
+        hudFrame.ZIndex = 100
+        hudFrame.Parent = screenGui
+
+        applyCorner(hudFrame, 8)
+        applyStroke(hudFrame, DEFAULT_THEME.Stroke, 1, 0.25)
+        applyCardGradient(hudFrame)
+
+        local hudHeader = Instance.new("Frame")
+        hudHeader.Name = "HUDHeader"
+        hudHeader.Size = UDim2.new(1, 0, 0, 28)
+        hudHeader.BackgroundColor3 = Color3.fromRGB(24, 22, 30)
+        hudHeader.BorderSizePixel = 0
+        hudHeader.ZIndex = 101
+        hudHeader.Parent = hudFrame
+        applyCorner(hudHeader, 8)
+
+        local bottomCover = Instance.new("Frame")
+        bottomCover.Name = "BottomCover"
+        bottomCover.Size = UDim2.new(1, 0, 0, 8)
+        bottomCover.Position = UDim2.new(0, 0, 1, -8)
+        bottomCover.BackgroundColor3 = Color3.fromRGB(24, 22, 30)
+        bottomCover.BorderSizePixel = 0
+        bottomCover.ZIndex = 101
+        bottomCover.Parent = hudHeader
+
+        local headerTitle = Instance.new("TextLabel")
+        headerTitle.Name = "Title"
+        headerTitle.Size = UDim2.new(1, -60, 1, 0)
+        headerTitle.Position = UDim2.new(0, 10, 0, 0)
+        headerTitle.BackgroundTransparency = 1
+        headerTitle.Font = Enum.Font.GothamBold
+        headerTitle.Text = title
+        headerTitle.TextColor3 = primaryTheme
+        headerTitle.TextSize = 11
+        headerTitle.TextXAlignment = Enum.TextXAlignment.Left
+        headerTitle.ZIndex = 102
+        headerTitle.Parent = hudHeader
+
+        registerThemeUpdater(function(c)
+            if headerTitle then headerTitle.TextColor3 = c end
+        end)
+
+        local isCollapsed = false
+        local collapseBtn = Instance.new("TextButton")
+        collapseBtn.Name = "CollapseBtn"
+        collapseBtn.Size = UDim2.new(0, 20, 0, 20)
+        collapseBtn.Position = UDim2.new(1, -48, 0.5, -10)
+        collapseBtn.BackgroundTransparency = 1
+        collapseBtn.Font = Enum.Font.GothamBold
+        collapseBtn.Text = "–"
+        collapseBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+        collapseBtn.TextSize = 14
+        collapseBtn.ZIndex = 103
+        collapseBtn.Parent = hudHeader
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Name = "CloseBtn"
+        closeBtn.Size = UDim2.new(0, 20, 0, 20)
+        closeBtn.Position = UDim2.new(1, -24, 0.5, -10)
+        closeBtn.BackgroundTransparency = 1
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.Text = "✕"
+        closeBtn.TextColor3 = Color3.fromRGB(200, 100, 100)
+        closeBtn.TextSize = 12
+        closeBtn.ZIndex = 103
+        closeBtn.Parent = hudHeader
+
+        local contentFrame = Instance.new("Frame")
+        contentFrame.Name = "ContentFrame"
+        contentFrame.Size = UDim2.new(1, -16, 1, -36)
+        contentFrame.Position = UDim2.new(0, 8, 0, 32)
+        contentFrame.BackgroundTransparency = 1
+        contentFrame.ZIndex = 101
+        contentFrame.Parent = hudFrame
+
+        local contentLabel = Instance.new("TextLabel")
+        contentLabel.Name = "ContentLabel"
+        contentLabel.Size = UDim2.new(1, 0, 1, 0)
+        contentLabel.BackgroundTransparency = 1
+        contentLabel.Font = Enum.Font.GothamMedium
+        contentLabel.Text = "Loading stats..."
+        contentLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
+        contentLabel.TextSize = 11
+        contentLabel.TextXAlignment = Enum.TextXAlignment.Left
+        contentLabel.TextYAlignment = Enum.TextYAlignment.Top
+        contentLabel.TextWrapped = true
+        contentLabel.ZIndex = 102
+        contentLabel.Parent = contentFrame
+
+        local isDragging = false
+        local dragInput = nil
+        local dragStart = nil
+        local startPos = nil
+
+        hudHeader.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isDragging = true
+                dragStart = input.Position
+                startPos = hudFrame.Position
+
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        isDragging = false
+                    end
+                end)
+            end
+        end)
+
+        hudHeader.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                dragInput = input
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if input == dragInput and isDragging then
+                local delta = input.Position - dragStart
+                hudFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+
+        collapseBtn.Activated:Connect(function()
+            isCollapsed = not isCollapsed
+            if isCollapsed then
+                contentFrame.Visible = false
+                collapseBtn.Text = "+"
+                hudFrame.Size = UDim2.new(0, 240, 0, 28)
+            else
+                contentFrame.Visible = true
+                collapseBtn.Text = "–"
+                hudFrame.Size = UDim2.new(0, 240, 0, 150)
+            end
+        end)
+
+        closeBtn.Activated:Connect(function()
+            hudFrame.Visible = false
+            if config.OnClose then pcall(config.OnClose) end
+        end)
+
+        local hudObj = {
+            Frame = hudFrame,
+            Header = hudHeader,
+            TitleLabel = headerTitle,
+            ContentLabel = contentLabel,
+            ContentFrame = contentFrame,
+            SetVisible = function(self, vis)
+                hudFrame.Visible = (vis == true)
+            end,
+            SetTitle = function(self, newTitle)
+                headerTitle.Text = tostring(newTitle)
+            end,
+            SetText = function(self, text)
+                contentLabel.Text = tostring(text)
+            end,
+            Destroy = function(self)
+                pcall(function() hudFrame:Destroy() end)
+            end
+        }
+
+        return hudObj
+    end
+
+    Hub.CreateFloatingHUD = createFloatingHUD
+    Hub.createFloatingHUD = createFloatingHUD
+
     Hub.addItem = function(titleText, subtitleText, callback)
 
         if activeTab and activeTab.Page then

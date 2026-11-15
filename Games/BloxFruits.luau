@@ -452,29 +452,33 @@ local function applyStroke(obj, color, thickness, transparency)
 end
 
 local function restoreCharacterPhysics()
-
     pcall(function()
-
         local char = LocalPlayer.Character
-
         if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = true end
-            end
-
             local hum = char:FindFirstChildOfClass("Humanoid")
-
             if hum then
                 hum.PlatformStand = false
-
                 hum.AutoRotate = true
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
             end
 
             local hrp = char:FindFirstChild("HumanoidRootPart")
-
             if hrp then
                 if removeTabBV then removeTabBV(hrp) end
+                for _, c in ipairs(hrp:GetChildren()) do
+                    if c:IsA("BodyVelocity") or c:IsA("BodyGyro") or c:IsA("AlignPosition") or c:IsA("AlignOrientation") then
+                        c:Destroy()
+                    end
+                end
                 hrp.Velocity = Vector3.zero
+                if hrp:IsA("BasePart") then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
             end
         end
     end)
@@ -491,26 +495,10 @@ _G.Unknown_CancelTween = function()
     end
 
     currentPumpkinTarget = nil
-
-    pcall(function()
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            local bv = getTabBV(hrp)
-            if bv then
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            end
-            hrp.Velocity = Vector3.zero
-            if hrp:IsA("BasePart") then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end
-        end
-    end)
+    restoreCharacterPhysics()
 
     if travelStatusLabel then
-        travelStatusLabel.Text = "Status: Flight Canceled. Stopped."
+        travelStatusLabel.Text = "Status: Idle"
     end
 end
 
@@ -674,45 +662,22 @@ local miscPage = Hub.CreateTab("Misc", { Icon = "🔮", Size = 18, Color = Color
 
 local serverPage = Hub.CreateTab("Server", { Icon = "🌐", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(0, 180, 255) })
 
--- 1000m Far Tween Automated Rigorous Test Routine
-_G.Unknown_TestFarTween = function()
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then notifyGUI("TEST", "No character found!", 3) return end
+-- [Removed Test Far Tween]
 
-    local startPos = hrp.Position
-    local targetPos = startPos + Vector3.new(700, 80, 700)
-    local targetCF = CFrame.new(targetPos)
-    local dist = (targetPos - startPos).Magnitude
-
-    notifyGUI("TWEEN TEST", string.format("Starting 1000m test flight (%.0f studs)...", dist), 3)
-
-    local wasFarmOn = isFarmOn
-    if isFarmOn and _G.Unknown_setFarmState then _G.Unknown_setFarmState(false) end
-
-    _G.Unknown_Tween(targetCF, 250, function()
-        notifyGUI("TWEEN TEST", "Arrived at 1000m target! Verifying stability...", 3)
-        task.wait(2.5)
-
-        local currentHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        local curPos = currentHRP and currentHRP.Position or Vector3.zero
-        local distToTarget = (curPos - targetPos).Magnitude
-
-        if distToTarget <= 20 then
-            notifyGUI("TWEEN TEST", string.format("✅ SUCCESS: Position verified (%.1f studs drift). ZERO RUBBERBAND!", distToTarget), 5)
-        else
-            notifyGUI("TWEEN TEST", string.format("⚠️ Drift detected (%.1f studs). Re-locking position!", distToTarget), 4)
-            if currentHRP then currentHRP.CFrame = targetCF end
+local statsHud = Hub.CreateFloatingHUD({
+    Title = "⚡ UNKNOWN HUB | STATS",
+    DefaultVisible = false,
+    OnClose = function()
+        if toggleSetters and toggleSetters["FloatingHUD"] then
+            toggleSetters["FloatingHUD"](false)
         end
-
-        task.wait(1.5)
-        notifyGUI("TWEEN TEST", "Returning smoothly back to start position...", 3)
-        _G.Unknown_Tween(CFrame.new(startPos), 250, function()
-            notifyGUI("TWEEN TEST", "✅ Test complete! Safely returned to start position.", 4)
-            if wasFarmOn and _G.Unknown_setFarmState then _G.Unknown_setFarmState(true) end
-        end)
-    end)
-end
+        isHudOn = false
+        _G.Unknown_HudOn = false
+    end
+})
+_G.Unknown_StatsHud = statsHud
+_G.Unknown_HudFrame = statsHud.Frame
+_G.Unknown_HudContent = statsHud.ContentLabel
 
 local travelPage = Hub.CreateTab("Travel" , { Icon = "📍", Size = 18, Color = Color3.fromRGB(170, 185, 210), ActiveColor = Color3.fromRGB(50, 200, 180) })
 
@@ -1365,219 +1330,8 @@ end
 
 do
     -- =========================================================================
-    -- [REMODELED] LEVEL QUESTS & AUTO PROGRESSION ENGINE
-    -- =========================================================================
-    Hub.CreateSection(questPage, "📜 LEVEL QUESTS & AUTO PROGRESSION")
-
-    local questSeaLabel = Instance.new("TextLabel")
-    questSeaLabel.Size = UDim2.new(0.98, 0, 0, 20)
-    questSeaLabel.BackgroundTransparency = 1
-    questSeaLabel.Text = "🌊 Current Sea: Checking..."
-    questSeaLabel.TextColor3 = Color3.fromRGB(0, 215, 255)
-    questSeaLabel.Font = Enum.Font.GothamBold
-    questSeaLabel.TextSize = 12
-    questSeaLabel.TextXAlignment = Enum.TextXAlignment.Left
-    pcall(function() questSeaLabel.Parent = questPage.content or questPage end)
-
-    local questLevelLabel = Instance.new("TextLabel")
-    questLevelLabel.Size = UDim2.new(0.98, 0, 0, 20)
-    questLevelLabel.BackgroundTransparency = 1
-    questLevelLabel.Text = "⭐ Player Level: Lv. 1"
-    questLevelLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
-    questLevelLabel.Font = Enum.Font.GothamMedium
-    questLevelLabel.TextSize = 12
-    questLevelLabel.TextXAlignment = Enum.TextXAlignment.Left
-    pcall(function() questLevelLabel.Parent = questPage.content or questPage end)
-
-    local questActiveLabel = Instance.new("TextLabel")
-    questActiveLabel.Size = UDim2.new(0.98, 0, 0, 22)
-    questActiveLabel.BackgroundTransparency = 1
-    questActiveLabel.Text = "📜 Active Quest: None"
-    questActiveLabel.TextColor3 = Color3.fromRGB(80, 220, 140)
-    questActiveLabel.Font = Enum.Font.GothamMedium
-    questActiveLabel.TextSize = 12
-    questActiveLabel.TextXAlignment = Enum.TextXAlignment.Left
-    pcall(function() questActiveLabel.Parent = questPage.content or questPage end)
-
-    local isAutoLevelQuestOn = false
-    local isAutoFarmQuestOn = false
-    local selectedManualQuestName = ""
-
-    local function getQuestsForCurrentSea()
-        local sea = detectCurrentSea()
-        local qList = {}
-        pcall(function()
-            local qMod = require(ReplicatedStorage:WaitForChild("Quests", 3))
-            for qGiver, list in pairs(qMod) do
-                for idx, qData in ipairs(list) do
-                    local req = qData.LevelReq or 0
-                    local isMatch = false
-                    if sea == 1 and req < 700 then
-                        isMatch = true
-                    elseif sea == 2 and req >= 700 and req < 1500 then
-                        isMatch = true
-                    elseif sea == 3 and req >= 1500 then
-                        isMatch = true
-                    end
-                    if isMatch then
-                        local mobName = "Unknown"
-                        if qData.Task then
-                            for m, _ in pairs(qData.Task) do mobName = m break end
-                        end
-                        table.insert(qList, {
-                            Giver = qGiver,
-                            Index = idx,
-                            Level = req,
-                            Name = qData.Name or mobName,
-                            Mob = mobName,
-                            Display = string.format("[Lv. %d] %s", req, qData.Name or mobName)
-                        })
-                    end
-                end
-            end
-        end)
-        table.sort(qList, function(a, b) return a.Level < b.Level end)
-        return qList
-    end
-
-    local currentSeaQuests = getQuestsForCurrentSea()
-    local questDisplayNames = {}
-    for _, q in ipairs(currentSeaQuests) do
-        table.insert(questDisplayNames, q.Display)
-    end
-    if #questDisplayNames == 0 then
-        table.insert(questDisplayNames, "[Lv. 0] Bandits")
-    end
-    selectedManualQuestName = questDisplayNames[1] or ""
-
-    local function findBestQuestForLevel(myLevel)
-        local best = nil
-        for _, q in ipairs(currentSeaQuests) do
-            if q.Level <= myLevel then
-                best = q
-            else
-                break
-            end
-        end
-        return best or currentSeaQuests[1]
-    end
-
-    createSliderToggle(questPage, "Auto Level Quest (Dynamic Best Quest)", false, function(v)
-        isAutoLevelQuestOn = v
-        if v then notifyGUI("QUESTS", "Auto Level Quest ACTIVE! Auto-selecting best quest for your level.", 3) end
-    end, "AutoLevelQuest")
-
-    createSliderToggle(questPage, "Auto Farm Level Quest (Accept & Slay Mobs)", false, function(v)
-        isAutoFarmQuestOn = v
-        if v then notifyGUI("QUESTS", "Auto Farm Level Quest ACTIVE! Tracking quest mobs.", 3) end
-    end, "AutoFarmLevelQuest")
-
-    local questDropdown = Hub.CreateList(questPage, "🎯 Select Manual Quest", questDisplayNames, function(chosen)
-        selectedManualQuestName = chosen
-    end, false)
-    if questDropdown and questDropdown.SetSelected then questDropdown:SetSelected(selectedManualQuestName) end
-
-    Hub.CreateButton(questPage, "▶️ Take Selected Quest Now", function()
-        pcall(function()
-            for _, q in ipairs(currentSeaQuests) do
-                if q.Display == selectedManualQuestName then
-                    local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-                    if commF then
-                        commF:InvokeServer("StartQuest", q.Giver, q.Index)
-                        notifyGUI("QUESTS", "Accepted quest: " .. q.Display, 3)
-                    end
-                    break
-                end
-            end
-        end)
-    end)
-
-    Hub.CreateButton(questPage, "🛑 Abandon / Cancel Current Quest", function()
-        pcall(function()
-            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-            if commF then
-                commF:InvokeServer("AbandonQuest")
-                notifyGUI("QUESTS", "Abandoned active quest!", 3)
-            end
-        end)
-    end)
-
-    -- Telemetry Updater Loop
-    task.spawn(function()
-        while true do
-            pcall(function()
-                local sea = detectCurrentSea()
-                local seaName = (sea == 1 and "1st Sea (Old World)" or (sea == 2 and "2nd Sea (Dressrosa)" or "3rd Sea (New World)"))
-                questSeaLabel.Text = "🌊 Current Sea: " .. seaName
-
-                local myLevel = getPlayerLevel()
-                questLevelLabel.Text = "⭐ Player Level: Lv. " .. tostring(myLevel)
-
-                local qGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Main") and LocalPlayer.PlayerGui.Main:FindFirstChild("Quest")
-                local qTitle = qGui and qGui:FindFirstChild("Container") and qGui.Container:FindFirstChild("QuestTitle") and qGui.Container.QuestTitle:FindFirstChild("Title")
-                if qTitle and qTitle.Text and qTitle.Text ~= "" and qGui.Visible then
-                    questActiveLabel.Text = "📜 Active Quest: " .. qTitle.Text
-                else
-                    questActiveLabel.Text = "📜 Active Quest: None"
-                end
-            end)
-            task.wait(1.5)
-        end
-    end)
-
-    -- Auto Quest Grinder Loop
-    task.spawn(function()
-        while true do
-            task.wait(1)
-            if isAutoLevelQuestOn or isAutoFarmQuestOn then
-                pcall(function()
-                    local myLevel = getPlayerLevel()
-                    local qGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Main") and LocalPlayer.PlayerGui.Main:FindFirstChild("Quest")
-                    local qTitle = qGui and qGui:FindFirstChild("Container") and qGui.Container:FindFirstChild("QuestTitle") and qGui.Container.QuestTitle:FindFirstChild("Title")
-                    local hasQuest = qGui and qGui.Visible and qTitle and qTitle.Text and qTitle.Text ~= ""
-
-                    local bestQuest = findBestQuestForLevel(myLevel)
-                    if not hasQuest and bestQuest then
-                        local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-                        if commF then
-                            commF:InvokeServer("StartQuest", bestQuest.Giver, bestQuest.Index)
-                        end
-                        task.wait(1)
-                    end
-
-                    if isAutoFarmQuestOn and bestQuest then
-                        local char = LocalPlayer.Character
-                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                        if hrp then
-                            local targetMobName = bestQuest.Mob:lower()
-                            local enemiesFolder = workspace:FindFirstChild("Enemies")
-                            if enemiesFolder then
-                                for _, mob in ipairs(enemiesFolder:GetChildren()) do
-                                    if mob.Name:lower():find(targetMobName) or targetMobName:find(mob.Name:lower()) then
-                                        local mHum = mob:FindFirstChildOfClass("Humanoid")
-                                        local mHrp = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
-                                        if mHum and mHum.Health > 0 and mHrp then
-                                            -- Hover 14 studs above mob and attack
-                                            hrp.CFrame = CFrame.new(mHrp.Position + Vector3.new(0, 14, 0), mHrp.Position)
-                                            if _G.Unknown_PerformFastAttack then
-                                                _G.Unknown_PerformFastAttack({{mob, mHrp}}, mHrp)
-                                            end
-                                            break
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end)
-            end
-        end
-    end)
-
-    -- =========================================================================
-    -- [1ST SEA] AUTOMATED SPECIAL QUESTS
-    -- =========================================================================
-    Hub.CreateSection(questPage, "🌊 1st Sea Special Quests")
+    -- [SPECIAL QUESTS ONLY: Quest Givers & Lore Progression]
+        Hub.CreateSection(questPage, "🌊 1st Sea Special Quests")
 
 local isSaberQuestOn = false
 
@@ -2712,13 +2466,12 @@ do
     end, "AntiAFK")
 
     createSliderToggle(playerPage, "Floating Stats HUD", false, function(newState)
-
         isHudOn = newState
-
         _G.Unknown_HudOn = isHudOn
-
-        if _G.Unknown_HudFrame then _G.Unknown_HudFrame.Visible = isHudOn end
-    end)
+        if _G.Unknown_StatsHud then
+            _G.Unknown_StatsHud:SetVisible(isHudOn)
+        end
+    end, "FloatingHUD")
 
     _G.Unknown_AntiAfkOn = true
 
@@ -3582,39 +3335,15 @@ do
         return nil
     end
 
-    Hub.CreateSection(travelPage, "✈️ SELECT SEA & DESTINATION ISLAND")
+    Hub.CreateSection(travelPage, "✈️ AUTOMATIC ISLAND DESTINATION")
 
-    local seaDropdownOptions = {
-        "📍 Auto-Detect (Current Sea: " .. (currentDetectedSea == 1 and "1st Sea" or (currentDetectedSea == 2 and "2nd Sea" or "3rd Sea")) .. ")",
-        "1st Sea (Old World)",
-        "2nd Sea (Dressrosa)",
-        "3rd Sea (New World)"
-    }
+    local activeSea = detectCurrentSea()
+    local islandNames = getIslandNames(activeSea)
+    local selectedTravelIslandName = islandNames[1] or ""
 
     local islandDropdownObj = nil
-    local selectedTravelIslandName = (currentIslandList[1] and currentIslandList[1].Name) or ""
-
-    islandDropdownObj = Hub.CreateDropdown(travelPage, "Destination Island", getIslandNames(selectedSeaIndex), selectedTravelIslandName, function(choice)
+    islandDropdownObj = Hub.CreateDropdown(travelPage, "Destination Island", islandNames, selectedTravelIslandName, function(choice)
         selectedTravelIslandName = choice
-    end)
-
-    Hub.CreateDropdown(travelPage, "Choose Sea / Ocean", seaDropdownOptions, seaDropdownOptions[1], function(choice)
-        local newSea = currentDetectedSea
-        if choice:find("1st Sea") then newSea = 1
-        elseif choice:find("2nd Sea") then newSea = 2
-        elseif choice:find("3rd Sea") then newSea = 3
-        else newSea = detectCurrentSea() end
-
-        selectedSeaIndex = newSea
-        currentIslandList = allIslandsBySea[selectedSeaIndex].Islands
-        local newNames = getIslandNames(selectedSeaIndex)
-        selectedTravelIslandName = newNames[1] or ""
-
-        if islandDropdownObj and islandDropdownObj.Refresh then
-            islandDropdownObj:Refresh(newNames)
-            if islandDropdownObj.Set then islandDropdownObj:Set(selectedTravelIslandName) end
-        end
-        notifyGUI("TRAVEL", "Loaded " .. allIslandsBySea[selectedSeaIndex].Title .. " (" .. #newNames .. " locations)", 2)
     end)
 
     local isAutoTravelOn = false
@@ -3625,43 +3354,162 @@ do
         isAutoTravelOn = newState
 
         if newState then
-            local activeSea = detectCurrentSea()
-            if selectedSeaIndex ~= activeSea then
-                notifyGUI("TRAVEL WARNING", "You are in " .. (activeSea == 1 and "1st Sea" or (activeSea == 2 and "2nd Sea" or "3rd Sea")) .. "! Use the Inter-Sea Teleporters below to travel between seas.", 4)
-                if setTravelState then setTravelState(false) end
-                return
-            end
-
-            local targetIsland = getTargetIslandByName(selectedTravelIslandName, selectedSeaIndex)
-            if targetIsland then
-                activeTravelIsland = targetIsland.Name
-
-                if isFarmOn then
-                    isFarmOn = false
-                    _G.Unknown_AutoFarmEnabled = false
-                    if _G.Unknown_MainFarmLoop then
-                        pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end)
-                        _G.Unknown_MainFarmLoop = nil
+            task.spawn(function()
+                local curSea = detectCurrentSea()
+                local targetIsland = getTargetIslandByName(selectedTravelIslandName, curSea)
+                if not targetIsland then
+                    local newNames = getIslandNames(curSea)
+                    if islandDropdownObj and islandDropdownObj.Refresh then
+                        islandDropdownObj:Refresh(newNames)
                     end
+                    targetIsland = getTargetIslandByName(selectedTravelIslandName, curSea) or (allIslandsBySea[curSea] and allIslandsBySea[curSea].Islands[1])
                 end
-                if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
-                travelStatusLabel.Text = "Status: Traveling to " .. targetIsland.Name .. "..."
 
-                safeTweenToIsland(targetIsland.CFrame + Vector3.new(0, 15, 0), function()
-                    isAutoTravelOn = false
+                if targetIsland then
+                    activeTravelIsland = targetIsland.Name
+
+                    if isFarmOn then
+                        isFarmOn = false
+                        _G.Unknown_AutoFarmEnabled = false
+                        if _G.Unknown_MainFarmLoop then
+                            pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end)
+                            _G.Unknown_MainFarmLoop = nil
+                        end
+                    end
+                    if _G.Unknown_setAutoBossState then _G.Unknown_setAutoBossState(false) end
+                    travelStatusLabel.Text = "Status: Traveling to " .. targetIsland.Name .. "..."
+
+                    safeTweenToIsland(targetIsland.CFrame + Vector3.new(0, 15, 0), function()
+                        isAutoTravelOn = false
+                        if setTravelState then setTravelState(false) end
+                        activeTravelIsland = nil
+                        travelStatusLabel.Text = "Status: Arrived at " .. targetIsland.Name
+                        notifyGUI("TRAVEL", "Arrived at " .. targetIsland.Name .. "!", 4)
+                    end)
+                else
+                    notifyGUI("TRAVEL", "Selected island not found!", 3)
                     if setTravelState then setTravelState(false) end
-                    activeTravelIsland = nil
-                    travelStatusLabel.Text = "Status: Arrived at " .. targetIsland.Name
-                    notifyGUI("TRAVEL", "Arrived at " .. targetIsland.Name .. "!", 4)
-                end)
-            else
-                notifyGUI("TRAVEL", "Selected island not found!", 3)
-                if setTravelState then setTravelState(false) end
-            end
+                end
+            end)
         else
             _G.Unknown_CancelTween()
             activeTravelIsland = nil
             travelStatusLabel.Text = "Status: Idle"
+        end
+    end)
+
+    Hub.CreateSection(travelPage, "👤 TRAVEL TO PLAYER")
+
+    local function getOnlinePlayerList()
+        local list = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                table.insert(list, p.DisplayName .. " (@" .. p.Name .. ")")
+            end
+        end
+        if #list == 0 then
+            table.insert(list, "No other players")
+        end
+        table.sort(list)
+        return list
+    end
+
+    local onlinePlayers = getOnlinePlayerList()
+    local selectedPlayerEntry = onlinePlayers[1] or ""
+
+    local playerDropdownObj = Hub.CreateDropdown(travelPage, "Select Player", onlinePlayers, selectedPlayerEntry, function(choice)
+        selectedPlayerEntry = choice
+    end)
+
+    local function updatePlayerDropdown()
+        local updated = getOnlinePlayerList()
+        if playerDropdownObj and playerDropdownObj.Refresh then
+            playerDropdownObj:Refresh(updated)
+            if not table.find(updated, selectedPlayerEntry) then
+                selectedPlayerEntry = updated[1] or ""
+                if playerDropdownObj.Set then playerDropdownObj:Set(selectedPlayerEntry) end
+            end
+        end
+    end
+
+    Players.PlayerAdded:Connect(function()
+        task.wait(0.5)
+        updatePlayerDropdown()
+    end)
+
+    Players.PlayerRemoving:Connect(function()
+        task.wait(0.5)
+        updatePlayerDropdown()
+    end)
+
+    local function getPlayerFromEntry(entry)
+        if not entry or entry == "" or entry == "No other players" then return nil end
+        local username = entry:match("@([%w_]+)")
+        if username then
+            return Players:FindFirstChild(username)
+        end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and (p.DisplayName == entry or p.Name == entry) then
+                return p
+            end
+        end
+        return nil
+    end
+
+    local isPlayerTravelOn = false
+    local setPlayerTravelState
+    local getPlayerTravelState
+
+    getPlayerTravelState, setPlayerTravelState = createSliderToggle(travelPage, "✈️ Travel / Fly to Selected Player", false, function(newState)
+        isPlayerTravelOn = newState
+        if newState then
+            task.spawn(function()
+                local targetPlayer = getPlayerFromEntry(selectedPlayerEntry)
+                if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    notifyGUI("PLAYER TRAVEL", "Target player not found or character not loaded!", 3)
+                    if setPlayerTravelState then setPlayerTravelState(false) end
+                    return
+                end
+
+                travelStatusLabel.Text = "Status: Traveling to " .. targetPlayer.DisplayName .. "..."
+                notifyGUI("PLAYER TRAVEL", "Flying towards " .. targetPlayer.DisplayName .. "...", 3)
+
+                while isPlayerTravelOn do
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    local targetHrp = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    if not hrp or not targetHrp or not targetPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                        break
+                    end
+
+                    local dist = (hrp.Position - targetHrp.Position).Magnitude
+                    if dist <= 18 then
+                        travelStatusLabel.Text = "Status: Near " .. targetPlayer.DisplayName
+                        task.wait(0.5)
+                    else
+                        safeTweenToIsland(targetHrp.CFrame + Vector3.new(0, 8, 0))
+                    end
+                    task.wait(0.5)
+                end
+
+                if setPlayerTravelState then setPlayerTravelState(false) end
+                _G.Unknown_CancelTween()
+            end)
+        else
+            _G.Unknown_CancelTween()
+            travelStatusLabel.Text = "Status: Idle"
+        end
+    end)
+
+    Hub.CreateButton(travelPage, "⚡ Instant Fast Teleport to Player", function()
+        local targetPlayer = getPlayerFromEntry(selectedPlayerEntry)
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local tHrp = targetPlayer.Character.HumanoidRootPart
+            safeTweenToIsland(tHrp.CFrame + Vector3.new(0, 5, 0), function()
+                notifyGUI("PLAYER TRAVEL", "Arrived at " .. targetPlayer.DisplayName .. "!", 3)
+            end)
+        else
+            notifyGUI("PLAYER TRAVEL", "Target player not found or character not loaded!", 3)
         end
     end)
 
@@ -3689,24 +3537,6 @@ do
             local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
             if commF then commF:InvokeServer("TravelZou") end
         end)
-    end)
-
-    Hub.CreateButton(travelPage, "🛑 Stop Travel / Cancel Flight", function()
-
-        _G.Unknown_CancelTween()
-
-        isAutoTravelOn = false
-
-        if setTravelState then setTravelState(false) end
-        activeTravelIsland = nil
-
-        travelStatusLabel.Text = "Status: Idle"
-    end)
-
-    Hub.CreateButton(travelPage, "🧪 Test 1000m Far Tween (Auto-Verify)", function()
-        if _G.Unknown_TestFarTween then
-            _G.Unknown_TestFarTween()
-        end
     end)
 end
 
@@ -4177,50 +4007,130 @@ end
 do
     Hub.CreateSection(fruitPage, "🍎 Devil Fruit Suite & Auto Sniper")
 
-    Hub.CreateButton(fruitPage, "🎁 Collect All Spawned Fruits", function()
+    local isAutoCollectFruitsOn = false
+    local autoCollectFruitThread = nil
 
+    local function getSpawnedFruits()
+        local list = {}
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Tool") and (string.find(string.lower(obj.Name), "fruit") or obj:FindFirstChild("Handle") or obj:GetAttribute("Fruit")) then
+                local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildWhichIsA("BasePart")
+                if handle then
+                    table.insert(list, { Tool = obj, Handle = handle })
+                end
+            end
+        end
+        return list
+    end
+
+    createSliderToggle(fruitPage, "Auto Collect Fruits", false, function(newState)
+        isAutoCollectFruitsOn = newState
+        if newState then
+            if autoCollectFruitThread then return end
+            autoCollectFruitThread = task.spawn(function()
+                notifyGUI("FRUIT COLLECTOR", "Auto Collect Fruits ACTIVATED! Monitoring world...", 3)
+                while isAutoCollectFruitsOn do
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+                    if hrp and not isTraveling then
+                        local fruits = getSpawnedFruits()
+                        if #fruits > 0 then
+                            for _, fData in ipairs(fruits) do
+                                if not isAutoCollectFruitsOn then break end
+                                local fTool = fData.Tool
+                                local fHandle = fData.Handle
+                                if fTool and fTool.Parent == workspace and fHandle then
+                                    notifyGUI("FRUIT COLLECTOR", "Collecting " .. fTool.Name .. "...", 3)
+                                    safeTweenToIsland(fHandle.CFrame)
+                                    task.wait(0.5)
+
+                                    if firetouchinterest and hrp and fHandle then
+                                        pcall(function()
+                                            firetouchinterest(hrp, fHandle, 0)
+                                            task.wait(0.1)
+                                            firetouchinterest(hrp, fHandle, 1)
+                                        end)
+                                    end
+
+                                    task.wait(1)
+                                    if isAutoStoreFruitOn then
+                                        pcall(function()
+                                            local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+                                            if commF then
+                                                commF:InvokeServer("StoreFruit", fTool.Name, fTool)
+                                                notifyGUI("FRUIT STORE", "Auto-Stored " .. fTool.Name .. "!", 3)
+                                            end
+                                        end)
+                                    end
+                                    task.wait(0.5)
+                                end
+                            end
+                        else
+                            if isAutoFruitHopOn and _G.Unknown_SmartServerHop then
+                                notifyGUI("FRUIT COLLECTOR", "No spawned fruits found. Server hopping...", 3)
+                                task.wait(3)
+                                if isAutoCollectFruitsOn then
+                                    _G.Unknown_SmartServerHop()
+                                end
+                            end
+                        end
+                    end
+                    task.wait(2.5)
+                end
+                autoCollectFruitThread = nil
+            end)
+        else
+            if autoCollectFruitThread then
+                pcall(function() task.cancel(autoCollectFruitThread) end)
+                autoCollectFruitThread = nil
+            end
+            _G.Unknown_CancelTween()
+        end
+    end)
+
+    Hub.CreateButton(fruitPage, "🎁 Collect All Spawned Fruits (Instant Run)", function()
         task.spawn(function()
-
             pcall(function()
-
                 local char = LocalPlayer.Character
-
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
-
                 if not hrp then return end
-                local found = 0
-
-                for _, obj in ipairs(workspace:GetChildren()) do
-                    if obj:IsA("Tool") and (string.find(obj.Name, "Fruit") or obj:FindFirstChild("Handle")) then
-                        local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
-
-                        if handle then
-                            found = found + 1
-
-                            safeTweenToIsland(handle.CFrame)
-
-                            task.wait(1.5)
+                local fruits = getSpawnedFruits()
+                if #fruits == 0 then
+                    notifyGUI("Fruit Collector", "No spawned fruits found in server.", 4)
+                    return
+                end
+                notifyGUI("Fruit Collector", "Found " .. #fruits .. " spawned fruit(s)! Collecting...", 3)
+                for _, fData in ipairs(fruits) do
+                    local fTool = fData.Tool
+                    local fHandle = fData.Handle
+                    if fTool and fTool.Parent == workspace and fHandle then
+                        safeTweenToIsland(fHandle.CFrame)
+                        task.wait(0.5)
+                        if firetouchinterest and hrp and fHandle then
+                            pcall(function()
+                                firetouchinterest(hrp, fHandle, 0)
+                                task.wait(0.1)
+                                firetouchinterest(hrp, fHandle, 1)
+                            end)
+                        end
+                        task.wait(1)
+                        if isAutoStoreFruitOn then
+                            pcall(function()
+                                local commF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+                                if commF then commF:InvokeServer("StoreFruit", fTool.Name, fTool) end
+                            end)
                         end
                     end
                 end
-
-                if found == 0 then
-                    notifyGUI("Fruit Collector", "No spawned fruits found in server.", 4)
-                else
-                    notifyGUI("Fruit Collector", "Collected " .. found .. " fruit(s)!", 4)
-                end
+                notifyGUI("Fruit Collector", "Collection sweep complete!", 4)
+                restoreCharacterPhysics()
             end)
         end)
     end)
 
     createSliderToggle(fruitPage, "Fruit ESP & Distance Tracker", false, function(newState)
-
         isFruitEspOn = newState
-    end)
-
-    createSliderToggle(fruitPage, "Auto Fruit Sniper", false, function(newState)
-
-        isAutoFruitSniperOn = newState
     end)
 
     createSliderToggle(fruitPage, "Auto Store Fruit", true, function(newState)
@@ -4448,6 +4358,82 @@ end
 
 local chestThread = nil
 
+local function getAllChests()
+    local chests = {}
+    local seen = {}
+
+    -- 1. Dynamic spawned chests (Sea 2 & 3: SilverChest, GoldChest, DiamondChest in workspace.ChestModels)
+    local chestModelsFolder = workspace:FindFirstChild("ChestModels")
+    if chestModelsFolder then
+        for _, model in ipairs(chestModelsFolder:GetChildren()) do
+            if model:IsA("Model") then
+                local part = model:FindFirstChild("PushBox") or model:FindFirstChild("RootPart") or model.PrimaryPart or model:FindFirstChildOfClass("BasePart")
+                if part and not seen[model] then
+                    seen[model] = true
+                    local n = model.Name
+                    local displayName = "📦 " .. n:gsub("Chest", " Chest")
+                    local cColor = Color3.fromRGB(192, 192, 210)
+                    if string.find(n, "Gold") then
+                        cColor = Color3.fromRGB(255, 215, 0)
+                    elseif string.find(n, "Diamond") then
+                        cColor = Color3.fromRGB(0, 220, 255)
+                    end
+                    table.insert(chests, { Part = part, Name = displayName, Color = cColor, Model = model, Pos = part.Position })
+                end
+            end
+        end
+    end
+
+    -- 2. Static map chests (Chest1, Chest2, Chest3 in workspace.Map or workspace)
+    local searchContainers = { workspace:FindFirstChild("Map"), workspace }
+    for _, container in ipairs(searchContainers) do
+        if container then
+            for _, obj in ipairs(container:GetDescendants()) do
+                if obj.Parent == chestModelsFolder or (obj.Parent and obj.Parent.Parent == chestModelsFolder) then
+                    continue
+                end
+
+                local n = obj.Name
+                local nLower = string.lower(n)
+
+                -- Disregard PushBox directly to prevent 'PushBox' ESP labels
+                if n == "PushBox" then continue end
+
+                if nLower:match("^chest%d+$") or nLower == "silverchest" or nLower == "goldchest" or nLower == "diamondchest" or (string.find(nLower, "chest") and (obj:IsA("Model") or obj:IsA("BasePart")) and n ~= "ChestModels") then
+                    local part = nil
+                    local key = obj
+                    if obj:IsA("Model") then
+                        part = obj:FindFirstChild("PushBox") or obj:FindFirstChild("RootPart") or obj.PrimaryPart or obj:FindFirstChildOfClass("BasePart")
+                    elseif obj:IsA("BasePart") then
+                        part = obj
+                    end
+
+                    if part and not seen[key] then
+                        seen[key] = true
+                        local displayName = "📦 Chest"
+                        local cColor = Color3.fromRGB(255, 200, 50)
+                        if n == "Chest1" or string.find(nLower, "silver") then
+                            displayName = "📦 Silver Chest (1)"
+                            cColor = Color3.fromRGB(192, 192, 210)
+                        elseif n == "Chest2" or string.find(nLower, "gold") then
+                            displayName = "📦 Gold Chest (2)"
+                            cColor = Color3.fromRGB(255, 215, 0)
+                        elseif n == "Chest3" or string.find(nLower, "diamond") then
+                            displayName = "📦 Diamond Chest (3)"
+                            cColor = Color3.fromRGB(0, 220, 255)
+                        else
+                            displayName = "📦 " .. n
+                        end
+                        table.insert(chests, { Part = part, Name = displayName, Color = cColor, Model = key, Pos = part.Position })
+                    end
+                end
+            end
+        end
+    end
+
+    return chests
+end
+
 startChestFarm = function()
 
     if chestThread then return end
@@ -4672,11 +4658,10 @@ _G.Unknown_GlobalLoop = RunService.Heartbeat:Connect(function()
 
                     local frags = data and data:FindFirstChild("Fragments") and data.Fragments.Value or 0
 
-                    _G.Unknown_HudContent.Text = string.format("⚡ FPS: %d | Ping: %dms | RAM: %dMB\n%s\n⭐ Level: %d | 💵 $%s | 🍇 %s\n🍎 Fruits: %d | 👥 Players: %d/12\n⌛ Hub Uptime: %ds",
+                    if _G.Unknown_StatsHud then _G.Unknown_StatsHud:SetText(string.format("⚡ FPS: %d | Ping: %dms | RAM: %dMB\n%s\n⭐ Level: %d | 💵 $%s | 🍇 %s\n🍎 Fruits: %d | 👥 Players: %d/12\n⌛ Hub Uptime: %ds",
 
                         fps, ping, mem, moonStr, level, tostring(beli), tostring(frags), fruitCount, playerNum, math.floor(workspace.DistributedGameTime)
-
-                    )
+                    )) end
                 end)
             end
         end)
@@ -5192,26 +5177,11 @@ _G.Unknown_EspThread = task.spawn(function()
 
             if isChestEspOn then
                 pcall(function()
-
-                    local searchRoots = {workspace:FindFirstChild("Map") or workspace, workspace}
-
-                    for _, root in ipairs(searchRoots) do
-                        for _, obj in ipairs(root:GetDescendants()) do
-                            local nameLower = string.lower(obj.Name)
-
-                            local isChest = string.find(nameLower, "chest") or ((obj:FindFirstChildOfClass("TouchTransmitter") or obj:FindFirstChild("TouchInterest")) and string.find(string.lower(obj.Parent.Name), "chest"))
-
-                            if isChest then
-                                local part = obj:IsA("BasePart") and obj or obj:FindFirstChildOfClass("BasePart") or obj:FindFirstChild("Handle")
-
-                                if part then
-                                    local id = "Chest_" .. obj:GetFullName()
-
-                                    if not newPool[id] then
-                                        newPool[id] = {Part = part, Name = "📦 " .. (obj.Name ~= "" and obj.Name or "Chest"), Color = Color3.fromRGB(255, 200, 50)}
-                                    end
-                                end
-                            end
+                    local allChestsList = getAllChests()
+                    for _, cInfo in ipairs(allChestsList) do
+                        local id = "Chest_" .. cInfo.Part:GetFullName()
+                        if not newPool[id] then
+                            newPool[id] = {Part = cInfo.Part, Name = cInfo.Name, Color = cInfo.Color}
                         end
                     end
                 end)
@@ -6444,14 +6414,7 @@ local function Tween(target, speedVal, callback, options)
         _G.Unknown_TravelTween = nil
         isTraveling = false
         _G.Unknown_TweenActive = false
-        if bv then
-            bv.Velocity = Vector3.zero
-            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-        end
-        if hrp:IsA("BasePart") then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
+        restoreCharacterPhysics()
         return false
     end
 
@@ -6467,14 +6430,6 @@ local function Tween(target, speedVal, callback, options)
 
     -- Hold position firmly at destination
     hrp.CFrame = arriveCF
-    if bv then
-        bv.Velocity = Vector3.zero
-        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-    end
-    if hrp:IsA("BasePart") then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end
 
     -- Server Landed Physics Confirmation: Spawn temporary client plate under feet for 0.15s
     local plate = Instance.new("Part")
@@ -6496,6 +6451,7 @@ local function Tween(target, speedVal, callback, options)
     _G.Unknown_TravelTween = nil
     isTraveling = false
     _G.Unknown_TweenActive = false
+    restoreCharacterPhysics()
 
     if callback then callback() end
     return true
