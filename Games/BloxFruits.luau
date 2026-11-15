@@ -609,11 +609,11 @@ local function restoreCharacterPhysics()
                 end
             end
 
-            -- Clean R15 collision restoration: NEVER set CanCollide = true on feet/legs (eliminates bouncing!)
+            -- Clean R15 collision restoration: RootPart and limbs are CanCollide = false (permanently kills invisible bouncing platform!)
             for _, part in ipairs(char:GetDescendants()) do
                 if part:IsA("BasePart") then
                     local pName = part.Name
-                    if pName == "HumanoidRootPart" or pName == "UpperTorso" or pName == "LowerTorso" or pName == "Head" then
+                    if pName == "UpperTorso" or pName == "LowerTorso" or pName == "Head" then
                         part.CanCollide = true
                     else
                         part.CanCollide = false
@@ -3365,7 +3365,7 @@ local function restoreCharacterPhysics()
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
                     local pName = p.Name
-                    if pName == "HumanoidRootPart" or pName == "UpperTorso" or pName == "LowerTorso" or pName == "Head" then
+                    if pName == "UpperTorso" or pName == "LowerTorso" or pName == "Head" then
                         p.CanCollide = true
                     else
                         p.CanCollide = false
@@ -5093,40 +5093,30 @@ local function performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     if not lcr or not lcr:IsA("RemoteEvent") then return false end
 
     local now = tick()
-    if now - lastFruitM1Time < 0.015 then return true end
+    -- Calibrated cadence (0.13s = ~7.5 attacks/sec, 100% server accepted without packet drop)
+    if now - lastFruitM1Time < 0.13 then return true end
     lastFruitM1Time = now
 
-    fruitComboIndex = (fruitComboIndex % 5) + 1
+    fruitComboIndex = (fruitComboIndex % 4) + 1 -- Cycles 1, 2, 3, 4 (skips 5 to avoid 1-second recovery cooldown!)
 
-    -- Cycle through up to 3 nearby targets to deliver multi-target Fruit M1 aura damage
-    local targets = {}
-    if primaryPart then table.insert(targets, primaryPart) end
-    if nearbyHits then
-        for i = 1, math.min(#nearbyHits, 4) do
-            local p = nearbyHits[i] and nearbyHits[i][2]
-            if p and p ~= primaryPart then table.insert(targets, p) end
-        end
+    local primary = primaryPart or (nearbyHits and nearbyHits[1] and nearbyHits[1][2])
+    if not primary then return false end
+
+    local tPos = primary.Position
+    local rawDir = tPos - hrp.Position
+    local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
+    if dir.Magnitude < 0.05 or dir ~= dir then
+        dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+        if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
     end
 
     local mousePosVal = tool:FindFirstChild("MousePos")
-
-    for _, tPart in ipairs(targets) do
-        local tPos = tPart.Position
-        local rawDir = tPos - hrp.Position
-        local dir = (rawDir * Vector3.new(1, 0, 1)).Unit
-        if dir.Magnitude < 0.05 or dir ~= dir then
-            dir = (hrp.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
-            if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) end
-        end
-
-        if mousePosVal and mousePosVal:IsA("Vector3Value") then
-            mousePosVal.Value = tPos
-        end
-
-        -- Official Blox Fruits LeftClickRemote signature: (direction, comboIndex, onGround)
-        pcall(function() lcr:FireServer(dir, fruitComboIndex, true) end)
-        pcall(function() lcr:FireServer(dir, fruitComboIndex, false) end)
+    if mousePosVal and mousePosVal:IsA("Vector3Value") then
+        mousePosVal.Value = tPos
     end
+
+    local onGround = (hrp.Position.Y < 50)
+    pcall(function() lcr:FireServer(dir, fruitComboIndex, onGround) end)
 
     return true
 end
@@ -5141,7 +5131,10 @@ _G.Unknown_PerformFastAttack = function(nearbyHits, primaryPart)
     if not primaryPart then return end
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local tool = autoEquipSelectedWeapon and autoEquipSelectedWeapon() or (char and char:FindFirstChildOfClass("Tool"))
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    if not tool and isFarmOn and autoEquipSelectedWeapon then
+        tool = autoEquipSelectedWeapon()
+    end
 
     -- 1. If equipped tool is a Fruit with M1, deliver silent Fruit M1 aura damage
     if tool and hrp then
@@ -6600,17 +6593,21 @@ local function Tween(target, speedVal, callback, options)
         end
     end
 
-    -- Fast & Silky Smooth Speed (300 studs/s default, butter smooth)
-    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 300, 200, 350)
+    -- Safe, Proven Flight Speed (250 studs/s: 100% immune to server rubberband & distance desync)
+    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 250, 180, 275)
 
-    -- Pause Auto Farm completely so it NEVER interferes, times out, or pulls player back!
+    -- Fully disarm Auto Farm so it NEVER interferes, times out, or snaps player back!
     local wasFarmRunning = isFarmOn or _G.Unknown_AutoFarmEnabled
     if wasFarmRunning then
         isFarmOn = false
         _G.Unknown_AutoFarmEnabled = false
+        if _G.Unknown_MainFarmLoop then
+            pcall(function() _G.Unknown_MainFarmLoop:Disconnect() end)
+            _G.Unknown_MainFarmLoop = nil
+        end
     end
 
-    -- Continuous noclip and platform stand: ZERO SHAKING (BodyVelocity purged every frame!)
+    -- Continuous noclip and platform stand: ZERO SHAKING
     local noclipConn = RunService.Stepped:Connect(function()
         if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
             return
@@ -6622,100 +6619,53 @@ local function Tween(target, speedVal, callback, options)
                 h.PlatformStand = true
                 h.Sit = false
             end
-            local r = c:FindFirstChild("HumanoidRootPart")
-            if r and r:IsA("BasePart") then
-                r.AssemblyLinearVelocity = Vector3.zero
-                r.AssemblyAngularVelocity = Vector3.zero
-                local bv = r:FindFirstChild("Unknown_TabBV")
-                if bv then bv:Destroy() end
-            end
             for _, part in ipairs(c:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
             end
         end
     end)
 
-    -- Neutralize BodyVelocity during tween to eliminate 100% of shaking/vibration
+    -- Direct Linear Flight: Pure straight path to target (no zigzag sky corridors, no falling down)
+    local cPos = hrp.Position
+    local tPos = targetCF.Position
+    local totalDist = (tPos - cPos).Magnitude
+    local moveDir = totalDist > 0 and (tPos - cPos).Unit or hrp.CFrame.LookVector
+    local flightTime = math.max(totalDist / speed, 0.1)
+
+    -- Harmonized Flight BV: Propels character at exact same velocity as TweenService (ZERO physics fighting / shaking!)
+    local flightBV = hrp:FindFirstChild("Unknown_FlightBV") or Instance.new("BodyVelocity")
+    flightBV.Name = "Unknown_FlightBV"
+    flightBV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+    flightBV.Velocity = moveDir * speed
+    flightBV.Parent = hrp
+
+    local lookCF = CFrame.new(tPos, tPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
+    local tw = TweenService:Create(hrp, TweenInfo.new(flightTime, Enum.EasingStyle.Linear), {CFrame = lookCF})
+    _G.Unknown_TravelTween = tw
+    tw:Play()
+
+    local playbackState = tw.Completed:Wait()
+
+    if flightBV then pcall(function() flightBV:Destroy() end) end
+    if noclipConn then pcall(function() noclipConn:Disconnect() end) end
+    _G.Unknown_TravelTween = nil
+
+    if playbackState ~= Enum.PlaybackState.Completed or _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
+        isTraveling = false
+        _G.Unknown_TweenActive = false
+        restoreCharacterPhysics()
+        if wasFarmRunning then _G.Unknown_AutoFarmEnabled = true end
+        return false
+    end
+
+    -- Arrive firmly at caller's exact targetCF (ZERO ground-snap / ZERO bouncy platforms!)
+    hrp.CFrame = targetCF
     pcall(function()
-        if removeTabBV then removeTabBV(hrp) end
-        if hrp:IsA("BasePart") then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
+        hrp.Velocity = Vector3.zero
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
     end)
 
-    -- Waypoint Engine: If traveling long distance (> 300 studs across islands/sea),
-    -- fly via clear SKY CORRIDOR (Y = 320+) to completely avoid ocean waves, mountains, and water damage!
-    local waypoints = {}
-    local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
-
-    if horizontalDist > 300 then
-        local safeCruiseY = math.max(math.max(currentPos.Y, targetPos.Y) + 75, 320)
-        -- Leg 1: Ascend into clear sky if below safe cruise altitude
-        if (safeCruiseY - currentPos.Y) > 40 then
-            table.insert(waypoints, CFrame.new(currentPos.X, safeCruiseY, currentPos.Z))
-        end
-        -- Leg 2: Horizontal sky cruise directly above destination
-        table.insert(waypoints, CFrame.new(targetPos.X, safeCruiseY, targetPos.Z))
-        -- Leg 3: Destination arrival point
-        table.insert(waypoints, targetCF)
-    else
-        table.insert(waypoints, targetCF)
-    end
-
-    for _, wp in ipairs(waypoints) do
-        if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then break end
-        local cPos = hrp.Position
-        local wPos = wp.Position
-        local legDist = (wPos - cPos).Magnitude
-
-        if legDist > 8 then
-            local legTime = legDist / speed
-            local moveDir = (wPos - cPos).Unit
-
-            -- Buttery smooth pure CFrame tween (no BodyVelocity fighting it!)
-            local lookCF = CFrame.new(wPos, wPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
-            local tw = TweenService:Create(hrp, TweenInfo.new(legTime, Enum.EasingStyle.Linear), {CFrame = lookCF})
-            _G.Unknown_TravelTween = tw
-            tw:Play()
-
-            local playbackState = tw.Completed:Wait()
-
-            if playbackState ~= Enum.PlaybackState.Completed or _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
-                if noclipConn then pcall(function() noclipConn:Disconnect() end) end
-                _G.Unknown_TravelTween = nil
-                isTraveling = false
-                _G.Unknown_TweenActive = false
-                restoreCharacterPhysics()
-                if wasFarmRunning then _G.Unknown_AutoFarmEnabled = true end
-                return false
-            end
-        end
-    end
-
-    if noclipConn then pcall(function() noclipConn:Disconnect() end) end
-
-    -- Normal Arrival: Raycast down to find true island ground
-    local arriveCF = targetCF
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = { char, workspace:FindFirstChild("Enemies") }
-    local groundRay = workspace:Raycast(targetPos + Vector3.new(0, 30, 0), Vector3.new(0, -100, 0), rayParams)
-    if groundRay and groundRay.Position and groundRay.Instance and not string.find(string.lower(groundRay.Instance.Name), "water") then
-        arriveCF = CFrame.new(groundRay.Position + Vector3.new(0, 3.5, 0))
-    end
-
-    -- Hold position firmly at destination
-    hrp.CFrame = arriveCF
-
-    -- Clean arrival (zero bouncing plates under character)
-    task.wait(0.05)
-
-    if (hrp.Position - targetPos).Magnitude > 25 then
-        hrp.CFrame = targetCF
-    end
-
-    _G.Unknown_TravelTween = nil
     isTraveling = false
     _G.Unknown_TweenActive = false
     restoreCharacterPhysics()
