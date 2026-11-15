@@ -3537,24 +3537,24 @@ return function(opts)
             updateDropdownVisuals()
         end)
 
-        local dropdownObj = {
+        local dropdownObj = {}
+        dropdownObj = {
 
             Instance = card,
 
             Value = currentSelection,
 
-            Set = function(val)
-
+            Set = function(a, b)
+                local val = (b ~= nil) and b or a
                 currentSelection = val
-
                 selectionPill.Text = tostring(val)
-
                 pcall(cb, val)
             end,
 
-            Refresh = function(newOpts)
-
-                options = newOpts or {}
+            Refresh = function(a, b)
+                local newOpts = (b ~= nil) and b or a
+                if type(newOpts) ~= "table" then newOpts = {} end
+                options = newOpts
 
                 local isTyping = searchBar and (searchBar:IsFocused() or (searchBar.Text ~= ""))
 

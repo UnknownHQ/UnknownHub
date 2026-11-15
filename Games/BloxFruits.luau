@@ -591,14 +591,14 @@ local function restoreCharacterPhysics()
             if hum then
                 hum.PlatformStand = false
                 hum.AutoRotate = true
-                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                hum.Sit = false
             end
 
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if hrp then
                 if removeTabBV then removeTabBV(hrp) end
                 for _, c in ipairs(hrp:GetChildren()) do
-                    if c:IsA("BodyVelocity") or c:IsA("BodyGyro") or c:IsA("AlignPosition") or c:IsA("AlignOrientation") then
+                    if c:IsA("BodyVelocity") or c:IsA("BodyGyro") or c:IsA("BodyPosition") or c:IsA("AlignPosition") or c:IsA("AlignOrientation") then
                         c:Destroy()
                     end
                 end
@@ -609,8 +609,16 @@ local function restoreCharacterPhysics()
                 end
             end
 
+            -- Clean R15 collision restoration: NEVER set CanCollide = true on feet/legs (eliminates bouncing!)
             for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = true end
+                if part:IsA("BasePart") then
+                    local pName = part.Name
+                    if pName == "HumanoidRootPart" or pName == "UpperTorso" or pName == "LowerTorso" or pName == "Head" then
+                        part.CanCollide = true
+                    else
+                        part.CanCollide = false
+                    end
+                end
             end
         end
     end)
@@ -3351,14 +3359,16 @@ local function restoreCharacterPhysics()
                 hum.PlatformStand = false
 
                 hum.AutoRotate = true
+                hum.Sit = false
             end
 
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if p.Name == "HumanoidRootPart" then
-                        p.CanCollide = false
-                    else
+                    local pName = p.Name
+                    if pName == "HumanoidRootPart" or pName == "UpperTorso" or pName == "LowerTorso" or pName == "Head" then
                         p.CanCollide = true
+                    else
+                        p.CanCollide = false
                     end
                 end
             end
@@ -3367,6 +3377,11 @@ local function restoreCharacterPhysics()
 
             if hrp then
                 removeTabBV(hrp)
+                for _, c in ipairs(hrp:GetChildren()) do
+                    if c:IsA("BodyVelocity") or c:IsA("BodyGyro") or c:IsA("BodyPosition") or c:IsA("AlignPosition") or c:IsA("AlignOrientation") then
+                        c:Destroy()
+                    end
+                end
 
                 hrp.Velocity = Vector3.zero
 
@@ -3667,7 +3682,7 @@ do
                         task.wait(0.2)
                     else
                         travelStatusLabel.Text = string.format("Status: Pursuing %s (%.0fm)...", targetPlayer.DisplayName, dist)
-                        local pursuitSpeed = 280
+                        local pursuitSpeed = 300
                         local destinationCF = nil
 
                         local horizontalDist = (Vector3.new(targetPos.X, 0, targetPos.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
@@ -3682,21 +3697,31 @@ do
                             destinationCF = CFrame.new(targetPos + Vector3.new(0, 6, 0))
                         end
 
-                        -- Short, responsive flight segment (max 1.5s): Re-checks live player position immediately!
-                        local segDist = (destinationCF.Position - currentPos).Magnitude
-                        local segTime = math.clamp(segDist / pursuitSpeed, 0.1, 1.5)
-                        local moveDir = (destinationCF.Position - currentPos).Unit
+                        local toDest = destinationCF.Position - currentPos
+                        local segDist = toDest.Magnitude
+                        local stepTime = 0.35
+                        local maxStepDist = pursuitSpeed * stepTime -- 105 studs per slice
+                        local stepDist = math.min(segDist, maxStepDist)
+                        local moveDir = segDist > 0 and toDest.Unit or hrp.CFrame.LookVector
+                        local stepPos = currentPos + moveDir * stepDist
+                        local actualTime = math.max(stepDist / pursuitSpeed, 0.05)
 
                         pcall(function()
+                            removeTabBV(hrp)
                             for _, part in ipairs(char:GetDescendants()) do
                                 if part:IsA("BasePart") then part.CanCollide = false end
                             end
                             local hum = char:FindFirstChildOfClass("Humanoid")
-                            if hum then hum.PlatformStand = true end
+                            if hum then
+                                hum.PlatformStand = true
+                                hum.Sit = false
+                            end
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            hrp.AssemblyAngularVelocity = Vector3.zero
                         end)
 
-                        local lookCF = CFrame.new(destinationCF.Position, destinationCF.Position + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
-                        local tw = TweenService:Create(hrp, TweenInfo.new(segTime, Enum.EasingStyle.Linear), {CFrame = lookCF})
+                        local lookCF = CFrame.new(stepPos, stepPos + (moveDir.Magnitude > 0 and moveDir or hrp.CFrame.LookVector))
+                        local tw = TweenService:Create(hrp, TweenInfo.new(actualTime, Enum.EasingStyle.Linear), {CFrame = lookCF})
                         _G.Unknown_TravelTween = tw
                         tw:Play()
                         tw.Completed:Wait()
@@ -5071,7 +5096,7 @@ local function performFruitM1Attack(tool, nearbyHits, primaryPart, hrp)
     if now - lastFruitM1Time < 0.015 then return true end
     lastFruitM1Time = now
 
-    fruitComboIndex = (fruitComboIndex % 3) + 1
+    fruitComboIndex = (fruitComboIndex % 5) + 1
 
     -- Cycle through up to 3 nearby targets to deliver multi-target Fruit M1 aura damage
     local targets = {}
@@ -6356,41 +6381,42 @@ _G.Unknown_TravelNoclip = game:GetService("RunService").Stepped:Connect(function
             end
 
             if hrp then
-                local bv = getTabBV(hrp)
-
-                if bv then
-                    bv.Velocity = Vector3.zero
-
-                    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                if isTraveling or _G.Unknown_TweenActive then
+                    -- ABSOLUTELY ZERO BODYMOVERS DURING FLIGHT! Guarantees 100% butter-smooth flight without shaking
+                    removeTabBV(hrp)
+                    for _, c in ipairs(hrp:GetChildren()) do
+                        if c:IsA("BodyVelocity") or c:IsA("BodyGyro") or c:IsA("BodyPosition") then
+                            c:Destroy()
+                        end
+                    end
+                elseif isFarmOn then
+                    -- Only when hovering at farm spawner
+                    local bv = getTabBV(hrp)
+                    if bv then
+                        bv.Velocity = Vector3.zero
+                        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+                    end
                 end
 
-                -- Always zero physics velocities to prevent gravity accumulation & PhysX rubberband conflict
-
                 hrp.Velocity = Vector3.zero
-
                 if hrp:IsA("BasePart") then
                     hrp.AssemblyLinearVelocity = Vector3.zero
-
                     hrp.AssemblyAngularVelocity = Vector3.zero
                 end
             end
         else
             if hum and hum.PlatformStand then
                 hum.PlatformStand = false
-
                 hum.AutoRotate = true
             end
 
             if hrp then
-                local rayParams = RaycastParams.new()
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                rayParams.FilterDescendantsInstances = { char }
-                local floorRay = workspace:Raycast(hrp.Position, Vector3.new(0, -12, 0), rayParams)
-                if floorRay and floorRay.Instance then
-                    removeTabBV(hrp)
-                else
-                    local bv = hrp:FindFirstChild("Unknown_TabBV")
-                    if bv then bv.Velocity = Vector3.zero end
+                -- Purge all residual body movers when standing/walking: ZERO invisible bouncy platform!
+                removeTabBV(hrp)
+                for _, c in ipairs(hrp:GetChildren()) do
+                    if c:IsA("BodyVelocity") or c:IsA("BodyGyro") or c:IsA("BodyPosition") then
+                        c:Destroy()
+                    end
                 end
             end
         end
@@ -6541,46 +6567,50 @@ local function Tween(target, speedVal, callback, options)
         _G.Unknown_TravelTween = nil
     end
 
-    -- Dimensional portal solvers (Fishman Island & Upper Skylands)
-    local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-    local commF = remotes and remotes:FindFirstChild("CommF_")
+    -- Dimensional portal solvers (ONLY IN FIRST SEA!)
+    local curSea = detectCurrentSea()
+    if curSea == 1 then
+        local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+        local commF = remotes and remotes:FindFirstChild("CommF_")
 
-    if targetPos.X > 50000 and currentPos.X < 50000 then
-        if commF then
-            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(61163.85, 11.68, 1819.78)) end)
-            task.wait(1)
+        if targetPos.X > 50000 and currentPos.X < 50000 then
+            if commF then
+                pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(61163.85, 11.68, 1819.78)) end)
+                task.wait(1)
+            end
+            return Tween(targetCF, speedVal, callback, options)
+        elseif currentPos.X > 50000 and targetPos.X < 50000 then
+            if commF then
+                pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(3864.68, 6.66, -1926.34)) end)
+                task.wait(1)
+            end
+            return Tween(targetCF, speedVal, callback, options)
+        elseif targetPos.Y > 4000 and currentPos.Y < 4000 then
+            if commF then
+                pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(-7894.62, 5547.14, -380.29)) end)
+                task.wait(1)
+            end
+            return Tween(targetCF, speedVal, callback, options)
+        elseif currentPos.Y > 4000 and targetPos.Y < 4000 then
+            if commF then
+                pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(-4607.82, 872.54, -1667.56)) end)
+                task.wait(1)
+            end
+            return Tween(targetCF, speedVal, callback, options)
         end
-        return Tween(targetCF, speedVal, callback, options)
-    elseif currentPos.X > 50000 and targetPos.X < 50000 then
-        if commF then
-            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(3864.68, 6.66, -1926.34)) end)
-            task.wait(1)
-        end
-        return Tween(targetCF, speedVal, callback, options)
-    elseif targetPos.Y > 4000 and currentPos.Y < 4000 then
-        if commF then
-            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(-7894.62, 5547.14, -380.29)) end)
-            task.wait(1)
-        end
-        return Tween(targetCF, speedVal, callback, options)
-    elseif currentPos.Y > 4000 and targetPos.Y < 4000 then
-        if commF then
-            pcall(function() commF:InvokeServer("requestEntrance", Vector3.new(-4607.82, 872.54, -1667.56)) end)
-            task.wait(1)
-        end
-        return Tween(targetCF, speedVal, callback, options)
     end
 
-    -- Fast & Silky Smooth Speed (280 studs/s, calibrated for zero rubberband)
-    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 280, 180, 320)
+    -- Fast & Silky Smooth Speed (300 studs/s default, butter smooth)
+    local speed = math.clamp(tonumber(speedVal) or tonumber(_G.Unknown_TravelSpeed) or 300, 200, 350)
 
-    -- Pause Auto Farm so it NEVER interferes, times out, or snaps the player back!
+    -- Pause Auto Farm completely so it NEVER interferes, times out, or pulls player back!
     local wasFarmRunning = isFarmOn or _G.Unknown_AutoFarmEnabled
     if wasFarmRunning then
+        isFarmOn = false
         _G.Unknown_AutoFarmEnabled = false
     end
 
-    -- Continuous noclip and platform stand: ZERO SHAKING (BodyVelocity disabled during tween!)
+    -- Continuous noclip and platform stand: ZERO SHAKING (BodyVelocity purged every frame!)
     local noclipConn = RunService.Stepped:Connect(function()
         if _G.Unknown_TravelTweenID ~= currentTweenID or not isTraveling then
             return
@@ -6591,6 +6621,13 @@ local function Tween(target, speedVal, callback, options)
             if h then
                 h.PlatformStand = true
                 h.Sit = false
+            end
+            local r = c:FindFirstChild("HumanoidRootPart")
+            if r and r:IsA("BasePart") then
+                r.AssemblyLinearVelocity = Vector3.zero
+                r.AssemblyAngularVelocity = Vector3.zero
+                local bv = r:FindFirstChild("Unknown_TabBV")
+                if bv then bv:Destroy() end
             end
             for _, part in ipairs(c:GetDescendants()) do
                 if part:IsA("BasePart") then part.CanCollide = false end
@@ -7292,7 +7329,10 @@ _G.startUnknownFarm = function()
                 -- BLOX FRUIT & WEAPON PURE MULTI-TARGET FAST ATTACK ENGINE
 
                 if activeTool then
-                    pcall(function() activeTool:Activate() end)
+                    local isFruitTool = activeTool.ToolTip == "Blox Fruit" or activeTool.ToolTip == "Demon Fruit" or activeTool:FindFirstChild("LeftClickRemote") or string.find(activeTool.Name, "Fruit")
+                    if not isFruitTool then
+                        pcall(function() activeTool:Activate() end)
+                    end
 
                     pcall(function()
 
