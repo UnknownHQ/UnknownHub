@@ -1863,6 +1863,21 @@ local function formatLargeNumber(n)
     end
 end
 
+local function updateCardText(card, newText)
+    if not card then return end
+    pcall(function()
+        local inst = (typeof(card) == "Instance" and card) or (type(card) == "table" and (card.Instance or card.Card))
+        if inst and typeof(inst) == "Instance" then
+            local lbl = inst:FindFirstChild("BtnLabel", true) or inst:FindFirstChild("Label", true) or inst:FindFirstChildWhichIsA("TextLabel", true)
+            if lbl then
+                lbl.Text = tostring(newText)
+            elseif inst:IsA("TextButton") or inst:IsA("TextLabel") then
+                inst.Text = tostring(newText)
+            end
+        end
+    end)
+end
+
 -- 2. Emergency Killswitch (Stop Everything)
 local function stopEverything()
     AutoFarmState = false
@@ -2141,9 +2156,7 @@ task.spawn(function()
     while task.wait(3) do
         pcall(function()
             local count = getInventoryBeanCount()
-            if magicBeanCard and magicBeanCard.Instance and magicBeanCard.Instance:FindFirstChild("Label", true) then
-                magicBeanCard.Instance:FindFirstChild("Label", true).Text = "Amount Left: " .. tostring(count)
-            end
+            updateCardText(magicBeanCard, "Amount Left: " .. tostring(count))
         end)
     end
 end)
@@ -2199,15 +2212,14 @@ end
 
 task.spawn(function()
     while task.wait(1) do
-        for _, boss in ipairs(bossList) do
-            local sec = getBossRemainingTime(boss)
-            local str = formatTimeDuration(sec)
-            local card = bossDisplayLabels[boss]
-            if card and card.Instance then
-                local lbl = card.Instance:FindFirstChild("Label", true)
-                if lbl then lbl.Text = boss .. ": " .. str end
+        pcall(function()
+            for _, boss in ipairs(bossList) do
+                local sec = getBossRemainingTime(boss)
+                local str = formatTimeDuration(sec)
+                local card = bossDisplayLabels[boss]
+                updateCardText(card, boss .. ": " .. str)
             end
-        end
+        end)
     end
 end)
 
@@ -2497,22 +2509,10 @@ task.spawn(function()
 
             local srvElapsed = math.floor(Workspace.DistributedGameTime)
 
-            if homeStatLabels.Uptime and homeStatLabels.Uptime.Instance then
-                local lbl = homeStatLabels.Uptime.Instance:FindFirstChild("Label", true)
-                if lbl then lbl.Text = "⏱️ Uptime: " .. formatTimeDuration(elapsed) end
-            end
-            if homeStatLabels.ServerUptime and homeStatLabels.ServerUptime.Instance then
-                local lbl = homeStatLabels.ServerUptime.Instance:FindFirstChild("Label", true)
-                if lbl then lbl.Text = "🌐 Server Uptime: " .. formatTimeDuration(srvElapsed) end
-            end
-            if homeStatLabels.SessionHoney and homeStatLabels.SessionHoney.Instance then
-                local lbl = homeStatLabels.SessionHoney.Instance:FindFirstChild("Label", true)
-                if lbl then lbl.Text = "🍯 Session Honey: " .. formatLargeNumber(gained) end
-            end
-            if homeStatLabels.HoneyPerHour and homeStatLabels.HoneyPerHour.Instance then
-                local lbl = homeStatLabels.HoneyPerHour.Instance:FindFirstChild("Label", true)
-                if lbl then lbl.Text = "⚡ Honey per Hour: " .. formatLargeNumber(hph) .. "/hr" end
-            end
+            updateCardText(homeStatLabels.Uptime, "⏱️ Uptime: " .. formatTimeDuration(elapsed))
+            updateCardText(homeStatLabels.ServerUptime, "🌐 Server Uptime: " .. formatTimeDuration(srvElapsed))
+            updateCardText(homeStatLabels.SessionHoney, "🍯 Session Honey: " .. formatLargeNumber(gained))
+            updateCardText(homeStatLabels.HoneyPerHour, "⚡ Honey per Hour: " .. formatLargeNumber(hph) .. "/hr")
         end)
     end
 end)
