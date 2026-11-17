@@ -302,7 +302,7 @@ local function getActiveStickers()
 
     -- A. PublicStickers folder (Sprout drops ONLY, ignore board!)
     local pubFolder = Workspace:FindFirstChild("PublicStickers")
-    if pubFolder and not Settings.IgnoreDonateBoard then
+    if pubFolder then
         for _, s in ipairs(pubFolder:GetChildren()) do
             local p = s:IsA("BasePart") and s or s:FindFirstChildWhichIsA("BasePart") or s.PrimaryPart
             if p and not isDonateBoardSticker(p, s) then
@@ -400,20 +400,33 @@ end
 -- =========================================================================
 local function findActiveStickerSprout()
     local sproutsFolder = Workspace:FindFirstChild("Sprouts")
-    if not sproutsFolder then return nil end
-
-    for _, s in ipairs(sproutsFolder:GetChildren()) do
-        local nameLower = string.lower(s.Name)
-        local isSticker = string.find(nameLower, "sticker")
-        if not isSticker and s:FindFirstChild("Type") then
-            local tVal = string.lower(tostring(s.Type.Value))
-            if string.find(tVal, "sticker") then isSticker = true end
-        end
-
-        if isSticker then
-            return s
+    if sproutsFolder then
+        local children = sproutsFolder:GetChildren()
+        if #children > 0 then
+            -- In Trading Hub, ANY sprout in this folder is in the Hub Field
+            for _, s in ipairs(children) do
+                local p = s:FindFirstChildWhichIsA("BasePart") or s.PrimaryPart or (s:IsA("BasePart") and s)
+                if p then return s end
+            end
         end
     end
+
+    -- Secondary check: FlowerZones or Workspace direct search for any active Sprout
+    local hubField = Workspace:FindFirstChild("FlowerZones") and Workspace.FlowerZones:FindFirstChild("Hub Field")
+    if hubField then
+        for _, obj in ipairs(hubField:GetChildren()) do
+            if string.find(string.lower(obj.Name), "sprout") then
+                return obj
+            end
+        end
+    end
+
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if string.find(string.lower(obj.Name), "sprout") and not obj:IsA("Terrain") then
+            return obj
+        end
+    end
+
     return nil
 end
 
