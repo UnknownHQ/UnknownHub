@@ -23,10 +23,30 @@ local Settings = {
     PrioritizePlanters = true,
     AutoPopSprouts = true,
     AutoServerHop = true,
+    IgnoreDonateBoard = true,
     HopDelaySeconds = 8,
     SafeHeightOffset = 1.6,
     CollectTimeout = 0.08,
 }
+
+local DONATE_BOARD_POS = Vector3.new(-210.7, 70.9, -9960.0)
+
+local function isDonateBoardSticker(part, obj)
+    if not part then return true end
+    -- 1. If anchored to a wall/board, it is a pinned donation, NOT a field drop!
+    if part.Anchored then return true end
+    -- 2. In Trading Hub, ground field is Y ~ 0.6. Canvas wall stickers are high up (Y > 15)
+    if part.Position.Y > 15 then return true end
+    -- 3. Proximity to Public Sticker Board / Donate Board
+    local distToBoard = (part.Position - DONATE_BOARD_POS).Magnitude
+    if distToBoard < 50 then return true end
+    -- 4. Inside StickerCanvases, Public Sticker Board, or HiveDeco
+    if (obj and (obj:FindFirstAncestor("StickerCanvases") or obj:FindFirstAncestor("Public Sticker Board") or obj:FindFirstAncestor("HiveDeco"))) or
+       (part:FindFirstAncestor("StickerCanvases") or part:FindFirstAncestor("Public Sticker Board") or part:FindFirstAncestor("HiveDeco")) then
+        return true
+    end
+    return false
+end
 
 local State = {
     Running = true,
@@ -145,31 +165,31 @@ local function getActiveStickers()
     local char, root = getLocalCharacter()
     local myPos = root and root.Position or Vector3.zero
 
-    -- A. PublicStickers folder (Trading Hub Sprout drops)
+    -- A. PublicStickers folder (Trading Hub Sprout drops ONLY, ignore donate board!)
     local pubFolder = Workspace:FindFirstChild("PublicStickers")
-    if pubFolder then
+    if pubFolder and not Settings.IgnoreDonateBoard then
         for _, s in ipairs(pubFolder:GetChildren()) do
             local p = s:IsA("BasePart") and s or s:FindFirstChildWhichIsA("BasePart") or s.PrimaryPart
-            if p then
+            if p and not isDonateBoardSticker(p, s) then
                 local dist = (myPos - p.Position).Magnitude
                 table.insert(targets, { Object = s, Part = p, Position = p.Position, Type = "Public", Dist = dist })
             end
         end
     end
 
-    -- B. Standard Stickers folder
+    -- B. Standard Stickers folder (Ground field drops only)
     local stFolder = Workspace:FindFirstChild("Stickers")
     if stFolder then
         for _, s in ipairs(stFolder:GetChildren()) do
             local p = s:IsA("BasePart") and s or s:FindFirstChildWhichIsA("BasePart") or s.PrimaryPart
-            if p then
+            if p and not isDonateBoardSticker(p, s) then
                 local dist = (myPos - p.Position).Magnitude
                 table.insert(targets, { Object = s, Part = p, Position = p.Position, Type = "Folder", Dist = dist })
             end
         end
     end
 
-    -- C. Collectibles folder (token items that are stickers)
+    -- C. Collectibles folder (Sprout drops & Field tokens)
     local colFolder = Workspace:FindFirstChild("Collectibles")
     if colFolder then
         for _, c in ipairs(colFolder:GetChildren()) do
@@ -180,7 +200,7 @@ local function getActiveStickers()
 
             if isStickerToken then
                 local p = c:IsA("BasePart") and c or c:FindFirstChildWhichIsA("BasePart")
-                if p then
+                if p and not isDonateBoardSticker(p, c) then
                     local dist = (myPos - p.Position).Magnitude
                     table.insert(targets, { Object = c, Part = p, Position = p.Position, Type = "Collectible", Dist = dist })
                 end
