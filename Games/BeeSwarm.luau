@@ -2036,13 +2036,131 @@ Hub.CreateSlider(farmingPage, "Field Interval (minutes)", 1, 60, FieldIntervalMi
 Hub.CreateToggle(farmingPage, "Autofarm", AutoFarmState, function(s)
     AutoFarmState = s
     farmRunId = farmRunId + 1
+    local runId = farmRunId
+
     if not s then
         safeStopCollection()
         releaseActiveTween()
-    else
-        AutoDigState = true
-        safeStartCollection()
+        isConvertingAtHive = false
+        return
     end
+
+    -- Turbo gathering defaults engaged on Autofarm
+    PacketDigState = true
+    AutoDigState = true
+    safeStartCollection()
+
+    task.spawn(function()
+        local currentFieldName = nil
+        local sprinklersPlacedField = nil
+
+        while AutoFarmState and runId == farmRunId do
+            local ok, err = pcall(function()
+                local char, root, humanoid = getCharacter()
+                if not char or not root or not humanoid then
+                    task.wait(0.5)
+                    return
+                end
+
+                -- 1. Follow Player check
+                if FollowPlayerSettings.FollowPlayer and FollowPlayerSettings.TargetPlayer ~= "" and FollowPlayerSettings.TargetPlayer ~= "None" then
+                    local targetPlr = Players:FindFirstChild(FollowPlayerSettings.TargetPlayer)
+                    local tChar = targetPlr and targetPlr.Character
+                    local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+                    if tRoot then
+                        local followDest = tRoot.Position + Vector3.new(FollowPlayerSettings.Distance or 5, 0, 0)
+                        tweenCharacterTo(root, humanoid, followDest)
+                        task.wait(0.1)
+                        return
+                    end
+                end
+
+                -- 2. Bag stats & Hive Conversion Check
+                local pollenVal, capVal, bagFull = getBagStats()
+                if bagFull and not isConvertingAtHive then
+                    local usedMicro = false
+                    if ConvertSettings.AutoMicroConverters then
+                        pcall(function()
+                            local statCacheMod = ReplicatedStorage:FindFirstChild("ClientStatCache")
+                            local cache = statCacheMod and require(statCacheMod):Get()
+                            local microCount = cache and cache.Eggs and cache.Eggs["Micro-Converter"] or 0
+                            if microCount > 0 then
+                                local PlayerActivesMod = ReplicatedStorage:FindFirstChild("PlayerActives")
+                                local PlayerActives = PlayerActivesMod and require(PlayerActivesMod)
+                                local active = PlayerActives and (PlayerActives.Get("Micro-Converter") or PlayerActives.Get("MicroConverter"))
+                                if active and type(active.ClientActivate) == "function" then
+                                    active:ClientActivate(true)
+                                    usedMicro = true
+                                    task.wait(0.3)
+                                end
+                            end
+                        end)
+                    end
+
+                    if not usedMicro then
+                        isConvertingAtHive = true
+                        convertStartTime = os.time()
+                        safeStopCollection()
+                        releaseActiveTween()
+                    end
+                end
+
+                if isConvertingAtHive then
+                    local hivePos = getOwnHivePosition()
+                    if hivePos then
+                        local dist = (root.Position - hivePos).Magnitude
+                        if dist > 8 then
+                            tweenCharacterTo(root, humanoid, hivePos)
+                        end
+                        pcall(function()
+                            local hiveEvent = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("PlayerHiveCommand")
+                            if hiveEvent then hiveEvent:FireServer("HoneyMaker") end
+                        end)
+                    end
+
+                    local elapsed = os.time() - (convertStartTime or 0)
+                    if pollenVal <= 0 or elapsed >= 45 then
+                        isConvertingAtHive = false
+                        currentFieldName = nil
+                        sprinklersPlacedField = nil
+                        safeStartCollection()
+                    else
+                        task.wait(0.1)
+                    end
+                    return
+                end
+
+                -- 3. Resolve active farming field
+                local field = resolveFarmField()
+                if not field then
+                    task.wait(0.5)
+                    return
+                end
+
+                if currentFieldName ~= field.Name then
+                    currentFieldName = field.Name
+                    sprinklersPlacedField = nil
+                    safeStopCollection()
+                    local enterPos = field.Position + Vector3.new(0, 3.5, 0)
+                    tweenCharacterTo(root, humanoid, enterPos)
+                    safeStartCollection()
+                end
+
+                if AutoSprinklersState and sprinklersPlacedField ~= field.Name then
+                    sprinklersPlacedField = field.Name
+                    placeSprinklersInField(field, humanoid, runId)
+                end
+
+                farmFieldTargets(field, root, humanoid, runId)
+            end)
+
+            if not ok then
+                task.wait(0.5)
+            else
+                task.wait()
+            end
+        end
+    end)
 end)
 Hub.CreateToggle(farmingPage, "Auto Sprinkler", AutoSprinklersState, function(s) AutoSprinklersState = s end)
 Hub.CreateToggle(farmingPage, "Auto Dig", AutoDigState, function(s)

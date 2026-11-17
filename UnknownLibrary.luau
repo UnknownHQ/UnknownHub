@@ -5432,10 +5432,29 @@ return function(opts)
                 end
             end
         end)
+        if #list == 0 then
+            table.insert(list, "default")
+        end
         return list
     end
 
-        return list
+    Hub.DeleteConfig = function(configName)
+        configName = (configName and configName ~= "") and configName or "default"
+        local path = resolveConfigPath(configName)
+        local deleted = false
+        pcall(function()
+            if isfile and isfile(path) and delfile then
+                delfile(path)
+                deleted = true
+            end
+        end)
+        if deleted then
+            sendNotification("Configuration", "Deleted config '" .. configName .. "' successfully!", 2.5)
+            return true
+        else
+            sendNotification("Config Error", "Failed to delete config '" .. configName .. "'.", 2.5)
+            return false
+        end
     end
 
     -- Tab & Component Factories
@@ -5777,24 +5796,72 @@ return function(opts)
         settingsPage = createTab("Settings", { Icon = "⚙", Size = 16 })
 
         -- Section 0: Configuration Profiles Manager
+        createSection(settingsPage, "📁 Configuration Profiles")
 
-        createSection(settingsPage, "Configuration Profiles")
+        local configDropdown = nil
+        local selectedConfig = "default"
+        local newConfigNameInput = ""
 
-        local configNameInput = "default"
+        local function getAvailableConfigs()
+            local list = Hub.ListConfigs()
+            if not list or #list == 0 then
+                return { "default" }
+            end
+            return list
+        end
 
-        createTextBox(settingsPage, "Config Profile Name", "default", function(text)
+        local initialConfigs = getAvailableConfigs()
+        selectedConfig = initialConfigs[1] or "default"
 
-            if text and text ~= "" then configNameInput = text end
+        configDropdown = createDropdown(settingsPage, "Config Profile", initialConfigs, selectedConfig, function(chosen)
+            selectedConfig = chosen
         end)
 
-        createButton(settingsPage, "Save Current Configuration", function()
-
-            Hub.SaveConfig(configNameInput)
+        createButton(settingsPage, "📥 Load Selected Config", function()
+            Hub.LoadConfig(selectedConfig)
         end)
 
-        createButton(settingsPage, "Load Selected Configuration", function()
+        createButton(settingsPage, "💾 Overwrite Selected Config", function()
+            Hub.SaveConfig(selectedConfig)
+            local refreshed = getAvailableConfigs()
+            if configDropdown and configDropdown.Refresh then
+                configDropdown:Refresh(refreshed)
+            end
+        end)
 
-            Hub.LoadConfig(configNameInput)
+        createButton(settingsPage, "🗑️ Delete Selected Config", function()
+            Hub.DeleteConfig(selectedConfig)
+            local refreshed = getAvailableConfigs()
+            selectedConfig = refreshed[1] or "default"
+            if configDropdown and configDropdown.Refresh then
+                configDropdown:Refresh(refreshed)
+                configDropdown:Set(selectedConfig)
+            end
+        end)
+
+        createTextBox(settingsPage, "New Config Name", "", function(text)
+            newConfigNameInput = text or ""
+        end)
+
+        createButton(settingsPage, "➕ Save as New Config", function()
+            local targetName = (newConfigNameInput and newConfigNameInput ~= "") and newConfigNameInput or "new_config"
+            Hub.SaveConfig(targetName)
+            local refreshed = getAvailableConfigs()
+            selectedConfig = targetName
+            if configDropdown and configDropdown.Refresh then
+                configDropdown:Refresh(refreshed)
+                configDropdown:Set(selectedConfig)
+            end
+        end)
+
+        createButton(settingsPage, "🔄 Refresh Config List", function()
+            local refreshed = getAvailableConfigs()
+            selectedConfig = refreshed[1] or "default"
+            if configDropdown and configDropdown.Refresh then
+                configDropdown:Refresh(refreshed)
+                configDropdown:Set(selectedConfig)
+            end
+            sendNotification("Configuration", "Config list refreshed (" .. #refreshed .. " found)", 2)
         end)
 
         -- Section 1: Appearance & UI
