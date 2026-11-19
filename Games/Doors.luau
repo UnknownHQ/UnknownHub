@@ -6046,23 +6046,21 @@ local function safeInstantFirePrompt(prompt)
         end
     end
 
-    if usedTool and State.Infinite_Items and State.Infinite_Lockpicks then
-        local tn = usedTool.Name:lower()
-        if tn:find("lockpick") or tn:find("skeleton") then
-            local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-            local dropRemote = rf and rf:FindFirstChild("DropItem")
-            if dropRemote and usedTool and usedTool.Parent then
-                pcall(function() dropRemote:FireServer(usedTool) end)
-            end
-            retrieveDroppedTool(usedTool.Name, 3.5)
-        end
-    end
-
     pcall(function()
         if fireproximityprompt then
             fireproximityprompt(prompt)
         end
     end)
+
+    if usedTool and State.Infinite_Items and State.Infinite_Lockpicks then
+        local tn = usedTool.Name:lower()
+        if tn:find("lockpick") or tn:find("skeleton") then
+            -- Delay drop slightly so server receives prompt trigger interaction first!
+            task.delay(0.04, function()
+                executeItemDupeDrop(usedTool, 0)
+            end)
+        end
+    end
 end
 
 -- Frame-0 Immediate Prompt Trigger: Fires the exact millisecond KeyCode.E is pressed down without double-tap cancellation!
@@ -6458,7 +6456,10 @@ pcall(function()
                 local tn = tool.Name:lower()
                 -- Strictly retain multi-use tools (lockpicks & skeleton keys). Normal room keys open doors natively without dupe clutter!
                 if tn:find("lockpick") or tn:find("skeleton") then
-                    executeItemDupeDrop(tool, 0.09)
+                    -- Drop 0.04s after prompt triggers so the server registers the lockpick use, then drops and reclaims it
+                    task.delay(0.04, function()
+                        executeItemDupeDrop(tool, 0)
+                    end)
                 end
             end
         end
@@ -6533,31 +6534,34 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 hookBackpackAndCharTools()
 
--- Crucifix Auto-Retain Watcher (Triggers during active exorcism, drops at 0.6s & reclaims)
+-- Crucifix Auto-Retain Watcher (Real-time 60Hz exorcism detection & instant retain)
 task.spawn(function()
     local isRetainingCrucifix = false
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.Infinite_Items and State.Infinite_Crucifix and not isRetainingCrucifix then
             local char = getChar()
-            local crucifix = char and char:FindFirstChild("Crucifix")
-            if crucifix then
+            local crucifix = char and (char:FindFirstChild("Crucifix") or char:FindFirstChildWhichIsA("Tool"))
+            if crucifix and crucifix.Name:lower():find("crucifix") then
                 local handle = crucifix:FindFirstChild("Handle")
                 local isExorcising = false
 
-                -- Detection 1: Attribute or Effect instance
-                if crucifix:GetAttribute("Active") == true or char:GetAttribute("CrucifixActive") == true then
+                -- Detection 1: Direct attributes or state flags
+                if crucifix:GetAttribute("Active") == true or char:GetAttribute("CrucifixActive") == true or crucifix:GetAttribute("Used") == true then
                     isExorcising = true
-                elseif crucifix:FindFirstChild("Chain") or crucifix:FindFirstChild("Chains") or crucifix:FindFirstChild("Effect") or crucifix:FindFirstChild("CrucifixEffect") then
+                -- Detection 2: Visual chains / effects spawned inside character or crucifix or camera
+                elseif crucifix:FindFirstChild("Chain") or crucifix:FindFirstChild("Chains") or crucifix:FindFirstChild("Effect") or crucifix:FindFirstChild("CrucifixEffect") or crucifix:FindFirstChild("Evil") then
+                    isExorcising = true
+                elseif char:FindFirstChild("CrucifixEffect") or char:FindFirstChild("Chains") or char:FindFirstChild("Chain") then
                     isExorcising = true
                 end
 
-                -- Detection 2: Exorcism audio playing in handle
+                -- Detection 3: Audio playing in handle or head
                 if not isExorcising and handle then
                     for _, snd in ipairs(handle:GetChildren()) do
-                        if snd:IsA("Sound") and snd.IsPlaying and snd.TimePosition > 0.1 then
+                        if snd:IsA("Sound") and snd.IsPlaying then
                             local sn = snd.Name:lower()
-                            if sn:find("hold") or sn:find("chain") or sn:find("scream") or sn:find("exorc") or sn:find("impact") then
+                            if sn:find("hold") or sn:find("chain") or sn:find("scream") or sn:find("exorc") or sn:find("impact") or sn:find("repel") or sn:find("charge") then
                                 isExorcising = true
                                 break
                             end
@@ -6565,21 +6569,46 @@ task.spawn(function()
                     end
                 end
 
-                -- Detection 3: Close entity proximity (< 14 studs) while holding Crucifix
+                -- Detection 4: Character humanoid animation tracks (Crucifix hold up / raise track)
+                if not isExorcising then
+                    local hum = char:FindFirstChildWhichIsA("Humanoid")
+                    local animator = hum and hum:FindFirstChildWhichIsA("Animator")
+                    if animator then
+                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                            local animName = track.Animation and track.Animation.Name:lower() or ""
+                            if animName:find("crucifix") or animName:find("exorc") or animName:find("holdup") or animName:find("raise") then
+                                isExorcising = true
+                                break
+                            end
+                        end
+                    end
+                end
+
+                -- Detection 5: Monster in direct attack radius while Crucifix is held
                 if not isExorcising then
                     local r = getRoot()
                     if r then
-                        local lethalNames = {"RushMoving", "AmbushMoving", "Eyes", "Screech", "Halt", "SeekMoving", "FigureRig", "Grumble", "A60", "A120"}
+                        local lethalNames = {"rush", "ambush", "eyes", "screech", "halt", "seek", "figure", "grumble", "a60", "a-60", "a120", "a-120", "dread", "blitz"}
+                        local live = Workspace:FindFirstChild("LiveEntities")
                         local curRooms = Workspace:FindFirstChild("CurrentRooms")
-                        for _, name in ipairs(lethalNames) do
-                            local inst = (curRooms and curRooms:FindFirstChild(name, true)) or Workspace:FindFirstChild(name, true)
-                            if inst then
-                                local pos = inst:GetPivot().Position
-                                if (pos - r.Position).Magnitude <= 14 then
-                                    isExorcising = true
-                                    break
+                        local scanContainers = {live, curRooms, Workspace}
+                        for _, cont in ipairs(scanContainers) do
+                            if cont then
+                                for _, inst in ipairs(cont:GetChildren()) do
+                                    local il = inst.Name:lower()
+                                    for _, ln in ipairs(lethalNames) do
+                                        if il:find(ln) then
+                                            local pos = inst:GetPivot().Position
+                                            if (pos - r.Position).Magnitude <= 16 then
+                                                isExorcising = true
+                                                break
+                                            end
+                                        end
+                                    end
+                                    if isExorcising then break end
                                 end
                             end
+                            if isExorcising then break end
                         end
                     end
                 end
@@ -6587,17 +6616,17 @@ task.spawn(function()
                 if isExorcising then
                     isRetainingCrucifix = true
                     task.spawn(function()
-                        -- Calibrated delay: wait 0.6 seconds so server chains bind entity
-                        task.wait(0.05)
+                        -- Calibrated delay: wait 0.08s for server to register crucifix hit
+                        task.wait(0.08)
                         executeItemDupeDrop(crucifix, 0)
                         Hub.Notify("Infinite Crucifix", "Crucifix dropped & ready for re-grab!", 3)
-                        task.wait(4.0)
+                        task.wait(3.0)
                         isRetainingCrucifix = false
                     end)
                 end
             end
         end
-        task.wait(0.1)
+        task.wait(0.03) -- 33Hz polling instead of slow 10Hz
     end
 end)
 
