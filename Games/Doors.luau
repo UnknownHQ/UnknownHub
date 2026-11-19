@@ -3287,10 +3287,12 @@ retrieveDroppedTool = function(toolName, maxWait)
             -- 1. Check if tool is already back in character or backpack
             local char = getChar()
             local bp = LocalPlayer:FindFirstChild("Backpack")
-            for _, item in ipairs(char and char:GetChildren() or {}) do
-                if item:IsA("Tool") and matchesToolName(item.Name, targetName) then
-                    reclaimed = true
-                    break
+            if char then
+                for _, item in ipairs(char:GetChildren()) do
+                    if item:IsA("Tool") and matchesToolName(item.Name, targetName) then
+                        reclaimed = true
+                        break
+                    end
                 end
             end
             if not reclaimed and bp then
@@ -3306,7 +3308,7 @@ retrieveDroppedTool = function(toolName, maxWait)
                 break
             end
 
-            -- 2. Search all potential drop locations (Workspace.Drops, CurrentRooms, and Workspace descendants)
+            -- 2. Search all potential drop locations (Workspace.Drops, CurrentRooms, and root Workspace)
             local candidateDrops = {}
             local drops = Workspace:FindFirstChild("Drops")
             if drops then
@@ -3320,9 +3322,16 @@ retrieveDroppedTool = function(toolName, maxWait)
             local cr = Workspace:FindFirstChild("CurrentRooms")
             if cr then
                 for _, d in ipairs(cr:GetDescendants()) do
-                    if (d:IsA("Tool") or d:IsA("Model")) and matchesToolName(d.Name, targetName) then
+                    if (d:IsA("Tool") or d:IsA("Model") or d:IsA("BasePart")) and matchesToolName(d.Name, targetName) then
                         table.insert(candidateDrops, d)
                     end
+                end
+            end
+
+            -- Also check top-level Workspace for tools dropped directly
+            for _, d in ipairs(Workspace:GetChildren()) do
+                if (d:IsA("Tool") or d:IsA("Model")) and matchesToolName(d.Name, targetName) then
+                    table.insert(candidateDrops, d)
                 end
             end
 
@@ -3342,7 +3351,7 @@ retrieveDroppedTool = function(toolName, maxWait)
                     prompt.Enabled = true
                     prompt.HoldDuration = 0
                     prompt.RequiresLineOfSight = false
-                    prompt.MaxActivationDistance = 45
+                    prompt.MaxActivationDistance = 64
                     pcall(function() fireproximityprompt(prompt) end)
                 end
 
@@ -3355,28 +3364,26 @@ retrieveDroppedTool = function(toolName, maxWait)
             end
 
             -- Also scan any ProximityPrompt whose ObjectText or ActionText mentions the tool
-            if #candidateDrops == 0 then
-                local searchContainers = { Workspace:FindFirstChild("Drops"), Workspace:FindFirstChild("CurrentRooms") }
-                for _, c in ipairs(searchContainers) do
-                    if c then
-                        for _, prompt in ipairs(c:GetDescendants()) do
-                            if prompt:IsA("ProximityPrompt") then
-                                local obj = (prompt.ObjectText or ""):lower()
-                                local act = (prompt.ActionText or ""):lower()
-                                if matchesToolName(obj, targetName) or matchesToolName(act, targetName) then
-                                    prompt.Enabled = true
-                                    prompt.HoldDuration = 0
-                                    prompt.RequiresLineOfSight = false
-                                    prompt.MaxActivationDistance = 45
-                                    pcall(function() fireproximityprompt(prompt) end)
-                                end
+            local searchContainers = { Workspace:FindFirstChild("Drops"), Workspace:FindFirstChild("CurrentRooms") }
+            for _, c in ipairs(searchContainers) do
+                if c then
+                    for _, prompt in ipairs(c:GetDescendants()) do
+                        if prompt:IsA("ProximityPrompt") then
+                            local obj = (prompt.ObjectText or ""):lower()
+                            local act = (prompt.ActionText or ""):lower()
+                            if matchesToolName(obj, targetName) or matchesToolName(act, targetName) then
+                                prompt.Enabled = true
+                                prompt.HoldDuration = 0
+                                prompt.RequiresLineOfSight = false
+                                prompt.MaxActivationDistance = 64
+                                pcall(function() fireproximityprompt(prompt) end)
                             end
                         end
                     end
                 end
             end
 
-            task.wait(0.04)
+            task.wait(0.03)
         end
     end)
 end
@@ -3387,7 +3394,8 @@ local lastDupeTime = 0
 executeItemDupeDrop = function(tool, delaySeconds)
     if not tool or not State.Infinite_Items then return end
     local now = os.clock()
-    if isDroppingAndRetrieving and (now - lastDupeTime < 0.3) then return end
+    -- Reduced debounce window from 0.3s to 0.12s so fast unlock / use sequences are never dropped
+    if isDroppingAndRetrieving and (now - lastDupeTime < 0.12) then return end
     lastDupeTime = now
     isDroppingAndRetrieving = true
 
@@ -3400,7 +3408,7 @@ executeItemDupeDrop = function(tool, delaySeconds)
         -- Ensure tool is equipped in Character so DropItem remote accepts it
         if tool.Parent == bp and hum then
             hum:EquipTool(tool)
-            task.wait(0.06)
+            task.wait(0.04)
         end
 
         -- Calibrated Delay: Allows server to validate unlock / consumption before drop executes
@@ -3417,7 +3425,7 @@ executeItemDupeDrop = function(tool, delaySeconds)
         -- Aggressive multi-frame retrieval
         retrieveDroppedTool(toolName, 3.5)
 
-        task.delay(0.35, function()
+        task.delay(0.2, function()
             isDroppingAndRetrieving = false
         end)
     end)
@@ -6477,8 +6485,16 @@ local function bindInfiniteTool(tool)
         if not State.Infinite_Items then return end
         local tName = tool.Name:lower()
         if tName:find("crucifix") then
-            -- Crucifix activation / held against monster: drop instantly before entity consumes it!
-            executeItemDupeDrop(tool, 0.05)
+            if State.Infinite_Crucifix then
+                -- Crucifix activation / held against monster: drop instantly before entity consumes it!
+                executeItemDupeDrop(tool, 0.04)
+            end
+        elseif State.Infinite_Consumables then
+            -- Consumables: Vitamins, Bandages, Herb, Batteries, etc.
+            if tName:find("vitamin") or tName:find("bandage") or tName:find("herb") or tName:find("pack") or tName:find("battery") or tName:find("bottle") or tName:find("starlight") then
+                -- Drop tool immediately upon activation so server applies buff while tool is re-claimed
+                executeItemDupeDrop(tool, 0.08)
+            end
         end
     end)
 end
