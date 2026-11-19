@@ -654,14 +654,15 @@ end
 
 local function createBillboard(adorneePart, baseText, color, offset)
     if not adorneePart or not adorneePart:IsA("BasePart") then return nil, nil end
-    offset = offset or Vector3.new(0, 1.8, 0)
+    -- Exact Center Alignment: Billboard offset is locked to center (0, 0, 0) of the highlight
+    offset = Vector3.zero
 
     local bb = Instance.new("BillboardGui")
     bb.Name = "Unknown_ESP_Billboard"
     bb.Adornee = adorneePart
     bb.AlwaysOnTop = true
     bb.Size = UDim2.new(0, 260, 0, 48)
-    bb.StudsOffset = offset
+    bb.StudsOffset = Vector3.zero
     bb.ResetOnSpawn = false
 
     local label = Instance.new("TextLabel")
@@ -673,6 +674,8 @@ local function createBillboard(adorneePart, baseText, color, offset)
     label.TextStrokeColor3 = Color3.fromRGB(15, 15, 20)
     label.Font = Enum.Font.Gotham
     label.TextSize = State.ESP_TextSize or 15
+    label.TextXAlignment = Enum.TextXAlignment.Center
+    label.TextYAlignment = Enum.TextYAlignment.Center
     label.Parent = bb
 
     local initialText = baseText
@@ -1319,11 +1322,19 @@ local function processDoor(room, doorModel)
     local signText = signLabel and signLabel.Text or nil
 
     -- Door Passability & Collision Smoothing:
-    -- When a door opens or is unlocked, disable collisions on the swinging door leaf and collision barrier
-    -- so high-speed walking never clips the door edge or frame and causes physics rebound snaps.
     local isOpened = doorModel:GetAttribute("Opened") == true 
         or doorModel:FindFirstChild("ClientOpen") ~= nil
         or doorModel:GetAttribute("Open") == true
+
+    -- Strict Anti-Previous Door Filter:
+    -- Never highlight previous doors! If a door is already opened, or belongs to a previous room, remove ESP.
+    local gd = game:GetService("ReplicatedStorage"):FindFirstChild("GameData")
+    local latestRoom = gd and gd:FindFirstChild("LatestRoom") and gd.LatestRoom.Value or 0
+    local rNum = tonumber(room and room.Name) or 0
+    if not isDupe and (isOpened or (rNum > 0 and latestRoom > 0 and rNum < latestRoom)) then
+        removeEspFor(doorModel)
+        return
+    end
 
     for _, ch in ipairs(doorModel:GetDescendants()) do
         if ch:IsA("BasePart") then
@@ -3196,19 +3207,13 @@ local function startSlide()
     slideStartTime = os.clock()
     slideDirection = moveDir.Unit
 
+    -- Let DOORS handle sliding naturally via server crouch slide state (no forced fake animation!)
     local mgTable = getMainGameTable()
     if mgTable then
-        mgTable.sliding = true
-        if mgTable.animations and mgTable.animations.Slide then
-            pcall(function() mgTable.animations.Slide:Play(0.1, 1, 1.25) end)
-        end
+        mgTable.crouching = true
     end
 
     syncServerSlide(true, true)
-    applyTeflonGlide(char)
-
-    local targetSpeed = math.max(State.WalkSpeed_Value or 35, 42)
-    root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * targetSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * targetSpeed)
 end
 
 local function stopSlide()
@@ -3218,9 +3223,6 @@ local function stopSlide()
     local mgTable = getMainGameTable()
     if mgTable then
         mgTable.sliding = false
-        if mgTable.animations and mgTable.animations.Slide then
-            pcall(function() mgTable.animations.Slide:Stop(0.25) end)
-        end
     end
 
     syncServerSlide(true, false)
@@ -3522,8 +3524,25 @@ local function processNearbyDoors(currentPos, maxReach)
                             end)
                         end
 
-                        -- Note: Doors open cleanly via Hidden touch interest and ClientOpen remote.
-                        -- ProximityPrompt interaction on doors is disabled so no interact prompt or E-spam appears!
+                        -- Side Doors & Utility Doors Trigger:
+                        -- Side doors (DoorNormal, SideroomDoor) in DOORS use ProximityPrompts or physical door touches!
+                        for _, prompt in ipairs(d:GetDescendants()) do
+                            if prompt:IsA("ProximityPrompt") and prompt.Enabled and not isDupe then
+                                prompt.HoldDuration = 0
+                                prompt.RequiresLineOfSight = false
+                                pcall(function() fireproximityprompt(prompt) end)
+                            end
+                        end
+                        local doorMesh = d:FindFirstChild("Door") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                        if doorMesh and doorMesh:IsA("BasePart") then
+                            pcall(function()
+                                doorMesh.CanTouch = true
+                                if r and firetouchinterest then
+                                    firetouchinterest(r, doorMesh, 0)
+                                    firetouchinterest(r, doorMesh, 1)
+                                end
+                            end)
+                        end
                     end
                 end
             end
@@ -5054,7 +5073,10 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         processNearbyDoors(root.Position, doorReach)
     end
 
-    -- God-Mode & Hitbox Immunity Engine: Eradicates all monster contact damage (Intangible Hitbox, Zero Teleport)
+    -- God-Mode & Adaptive Floor-Sink Hitbox Evasion Engine:
+    -- When lethal entities (Rush, Ambush, A-60, A-120, Blitz, Dread) are active,
+    -- sinks the character HipHeight into the floor ("legs cut off") so entities fly harmlessly overhead!
+    local defaultGodHipHeight = nil
     if State.God_Mode then
         local char = getChar()
         local hum = char and char:FindFirstChildWhichIsA("Humanoid")
@@ -5070,7 +5092,6 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         if char then
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    -- Preserve CanTouch & CanQuery so drawers, keys, and door prompts work flawlessly!
                     p.CanTouch = true
                     p.CanQuery = true
                     if p.CollisionGroup ~= "NoPlayer" then
@@ -5084,6 +5105,7 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         local live = Workspace:FindFirstChild("LiveEntities")
         local curRooms = Workspace:FindFirstChild("CurrentRooms")
         local scanTargets = {Workspace, live, curRooms}
+        local hasActiveThreat = false
 
         for _, container in ipairs(scanTargets) do
             if container then
@@ -5094,18 +5116,35 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
                         if el:find(ln) then isLethal = true; break end
                     end
                     if isLethal then
+                        hasActiveThreat = true
                         defuseLethalEntity(ent)
-                        if el:find("figure") then
-                            local fHit = ent:FindFirstChild("Hitbox", true)
-                            if fHit and fHit:IsA("BasePart") then
-                                fHit.CanTouch = false
-                                fHit.CanCollide = false
-                                fHit.CanQuery = false
-                            end
-                        end
                     end
                 end
             end
+        end
+
+        -- Floor-Sink Evasion Mechanism:
+        if hum and hum.Health > 0 then
+            if hasActiveThreat then
+                if not hum:GetAttribute("OriginalHipHeight") then
+                    hum:SetAttribute("OriginalHipHeight", hum.HipHeight > 0 and hum.HipHeight or 2.0)
+                end
+                -- Sinks into floor so rush/ambush hitbox misses player completely
+                hum.HipHeight = -1.6
+            else
+                local origHip = hum:GetAttribute("OriginalHipHeight")
+                if origHip then
+                    hum.HipHeight = origHip
+                    hum:SetAttribute("OriginalHipHeight", nil)
+                end
+            end
+        end
+    else
+        local char = getChar()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum and hum:GetAttribute("OriginalHipHeight") then
+            hum.HipHeight = hum:GetAttribute("OriginalHipHeight")
+            hum:SetAttribute("OriginalHipHeight", nil)
         end
     end
 
@@ -5144,85 +5183,15 @@ local hbFlightConn; hbFlightConn = RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Omnidirectional Sub-Step Micro-Phase Glide & 3D Flight Engine (100% Anti-Cheat Immune & Wall Penetrating)
-    if State.Noclip and State.Bypass_AntiCheat and not hiding and not TeleportState.isTweening and not isAutoFlying and not State.Knobs_Farm_Active and not State.Auto_Complete_100 then
-        -- 1. Strip physics collisions across all parts for buttery-smooth penetration through walls, doors & clutter
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then
-                if p.CanCollide then p.CanCollide = false end
-                p.CanTouch = true
-                p.CanQuery = true
-            end
-        end
-        if hum then hum:ChangeState(Enum.HumanoidStateType.Freefall) end
-
-        local cam = Workspace.CurrentCamera
-        local camLook = cam.CFrame.LookVector
-        local camRight = cam.CFrame.RightVector
-        local camUp = Vector3.new(0, 1, 0)
-
-        local steer = Vector3.zero
-        local hasInput = false
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            steer = steer + camLook
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            steer = steer - camLook
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            steer = steer + camRight
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            steer = steer - camRight
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            steer = steer + camUp
-            hasInput = true
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            steer = steer - camUp
-            hasInput = true
-        end
-
-        -- Fallback to Humanoid.MoveDirection for gamepad thumbsticks or mobile touch controls
-        if hum.MoveDirection.Magnitude > 0.05 then
-            steer = steer + hum.MoveDirection
-            hasInput = true
-        end
-
-        -- Pure Native Physics Velocity Replication (Active 60Hz Server Packet Transmission):
-        local speed = math.clamp(State.Noclip_Speed or 35, 4, 300)
-        local targetVel = if hasInput and steer.Magnitude > 0.01 then steer.Unit * speed else Vector3.zero
-        root.AssemblyLinearVelocity = targetVel
-        root.AssemblyAngularVelocity = Vector3.zero
-
-        -- Horizontal camera gaze alignment (rotation only, zero position teleportation)
-        local hLook = Vector3.new(camLook.X, 0, camLook.Z)
-        if hLook.Magnitude > 0.01 then
-            root.CFrame = CFrame.new(root.Position, root.Position + hLook)
-        end
-
-        -- Retain DOORS native mgTable.clipPos synchronization and eradicate body/item invisibility
+    -- DOORS Native Flight & Noclip Engine (Locked to mgTable.noclip with continuous server slide masking)
+    if State.Noclip and not hiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
         if mgTable then
-            mgTable.clipPos = root.Position
+            mgTable.noclip = true
             if mgTable.hideplayers ~= 0 then mgTable.hideplayers = 0 end
-            if mgTable.__NOBASERIG then mgTable.__NOBASERIG = false end
-            if mgTable.canUseItems == false then mgTable.canUseItems = true end
         end
-
-        local cam = Workspace.CurrentCamera
-        local baseRig = cam and cam:FindFirstChild("BaseRig")
-        if baseRig then
-            for _, bp in ipairs(baseRig:GetDescendants()) do
-                if bp:IsA("BasePart") then bp.LocalTransparencyModifier = 0 end
-            end
-        end
+        syncNativeFlightSpeed(State.Noclip_Speed or 45)
+        syncServerSlide(true, true) -- Continuous server slide keep-alive masks wall clips from anti-cheat
     elseif State.Walk_Noclip and not hiding and not TeleportState.isTweening then
         local mgTable = getMainGameTable()
         if mgTable and root then
@@ -6534,7 +6503,7 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 hookBackpackAndCharTools()
 
--- Crucifix Auto-Retain Watcher (Real-time 60Hz exorcism detection & instant retain)
+-- Crucifix Auto-Retain Watcher (Real-time 60Hz exorcism detection & instant Ambush retain)
 task.spawn(function()
     local isRetainingCrucifix = false
     while true do
@@ -6569,22 +6538,7 @@ task.spawn(function()
                     end
                 end
 
-                -- Detection 4: Character humanoid animation tracks (Crucifix hold up / raise track)
-                if not isExorcising then
-                    local hum = char:FindFirstChildWhichIsA("Humanoid")
-                    local animator = hum and hum:FindFirstChildWhichIsA("Animator")
-                    if animator then
-                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                            local animName = track.Animation and track.Animation.Name:lower() or ""
-                            if animName:find("crucifix") or animName:find("exorc") or animName:find("holdup") or animName:find("raise") then
-                                isExorcising = true
-                                break
-                            end
-                        end
-                    end
-                end
-
-                -- Detection 5: Monster in direct attack radius while Crucifix is held
+                -- Detection 4: Monster in attack velocity radius (Expanded to 32 studs for fast entities like Ambush!)
                 if not isExorcising then
                     local r = getRoot()
                     if r then
@@ -6599,7 +6553,9 @@ task.spawn(function()
                                     for _, ln in ipairs(lethalNames) do
                                         if il:find(ln) then
                                             local pos = inst:GetPivot().Position
-                                            if (pos - r.Position).Magnitude <= 16 then
+                                            local dist = (pos - r.Position).Magnitude
+                                            -- Ambush / Rush move at 70-100 studs/s, trigger drop immediately within 32 studs!
+                                            if dist <= 32 then
                                                 isExorcising = true
                                                 break
                                             end
@@ -6616,17 +6572,16 @@ task.spawn(function()
                 if isExorcising then
                     isRetainingCrucifix = true
                     task.spawn(function()
-                        -- Calibrated delay: wait 0.08s for server to register crucifix hit
-                        task.wait(0.08)
+                        -- Zero delay drop: fires DropItem right as entity hits player so tool drops before server deletes it!
                         executeItemDupeDrop(crucifix, 0)
                         Hub.Notify("Infinite Crucifix", "Crucifix dropped & ready for re-grab!", 3)
-                        task.wait(3.0)
+                        task.wait(2.5)
                         isRetainingCrucifix = false
                     end)
                 end
             end
         end
-        task.wait(0.03) -- 33Hz polling instead of slow 10Hz
+        task.wait(0.02)
     end
 end)
 
