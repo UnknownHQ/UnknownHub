@@ -5027,24 +5027,99 @@ Hub.CreateButton(miscTab, "⏱️ Time Played Standing", function()
 end)
 
 --------------------------------------------------------------------------------
--- WORM BEAR MYTH & VISUAL BOSS SIMULATOR
+-- WORM BEAR MYTH & VISUAL BOSS SIMULATOR (AUTHENTIC PINK TONGUE RAID MECHANIC)
 --------------------------------------------------------------------------------
 Hub.CreateSection(miscTab, "🐛 Worm Bear Myth & Boss Simulator")
 
 local wormVisualActive = false
 local wormVisualModel = nil
 local wormAnimThread = nil
-local wormMode = "Follow Daddy (Boss Guardian / Pet)"
+local wormMode = "Base Door Raid (Scene in Screenshot)"
 local wormSpeedVal = 26
 local wormSegmentsVal = 14
+local activeTonguePart = nil
+local bossMusicSound = nil
+
+-- Server-Authoritative Audio & Pink Tongue Mechanic Engine
+local function lashPinkTongue(mouthPos, targetPosition)
+    if not mouthPos or not targetPosition then return end
+    if activeTonguePart and activeTonguePart.Parent then
+        pcall(function() activeTonguePart:Destroy() end)
+        activeTonguePart = nil
+    end
+
+    local toTarget = targetPosition - mouthPos
+    local dist = math.clamp(toTarget.Magnitude, 6, 45)
+    local targetPos = mouthPos + (toTarget.Unit * dist)
+
+    -- Play authentic developer TongueGrab audio from WormBear assets
+    pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = "rbxassetid://128864526583649" -- Official TongueGrab audio
+        s.Volume = 1.4
+        s.Parent = Workspace
+        s:Play()
+        game:GetService("Debris"):AddItem(s, 2.5)
+    end)
+
+    -- Create the iconic bright neon magenta pink tongue (Exact match to screenshot!)
+    local tongue = Instance.new("Part")
+    tongue.Name = "WormBearPinkTongue"
+    tongue.Shape = Enum.PartType.Cylinder
+    tongue.Material = Enum.Material.Neon
+    tongue.Color = Color3.fromRGB(255, 30, 135) -- Radiant neon pink from screenshot
+    tongue.CanCollide = false
+    tongue.Anchored = true
+    tongue.CastShadow = false
+    activeTonguePart = tongue
+
+    -- Dynamic Tongue Lash-Out, Grip & Retraction Animation
+    task.spawn(function()
+        local startTime = os.clock()
+        local extendDuration = 0.12
+        local holdDuration = 0.35
+        local retractDuration = 0.14
+        local totalDuration = extendDuration + holdDuration + retractDuration
+
+        tongue.Parent = Workspace
+
+        while (os.clock() - startTime) < totalDuration and tongue and tongue.Parent do
+            local elapsed = os.clock() - startTime
+            local curReach
+            if elapsed < extendDuration then
+                curReach = dist * (elapsed / extendDuration)
+            elseif elapsed < extendDuration + holdDuration then
+                curReach = dist
+            else
+                local retElapsed = elapsed - (extendDuration + holdDuration)
+                curReach = math.max(0.1, dist * (1 - (retElapsed / retractDuration)))
+            end
+
+            if curReach > 0.5 then
+                local endP = mouthPos + (toTarget.Unit * curReach)
+                tongue.Size = Vector3.new(curReach, 1.85, 1.85)
+                tongue.CFrame = CFrame.new(mouthPos:Lerp(endP, 0.5), endP) * CFrame.Angles(0, math.rad(90), 0)
+            end
+            task.wait(0.015)
+        end
+
+        if tongue and tongue.Parent then
+            tongue:Destroy()
+        end
+        if activeTonguePart == tongue then
+            activeTonguePart = nil
+        end
+    end)
+end
 
 Hub.CreateDropdown(miscTab, "Worm Movement Mode", {
+    "Base Door Raid (Scene in Screenshot)",
     "Follow Daddy (Boss Guardian / Pet)",
     "Roam Free (Wild Woods Patrol)",
     "Circle Stalker (Menacing Orbit)"
 }, wormMode, function(val)
     wormMode = val
-    Hub.Notify("Worm Bear", "Movement mode set to: " .. val, 2)
+    Hub.Notify("Worm Bear", "Mode set to: " .. val, 2)
 end)
 
 Hub.CreateSlider(miscTab, "Worm Bear Speed", 12, 60, wormSpeedVal, " spd", function(val)
@@ -5086,14 +5161,12 @@ Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Authentic Boss)", false, func
         if not head then
             head = Instance.new("Part")
             head.Name = "Head"
-            head.Size = Vector3.new(12, 12, 10)
-            head.BrickColor = BrickColor.new("Crimson")
-            head.Material = Enum.Material.CorrodedMetal
+            head.Size = Vector3.new(13.99, 14.33, 11.00)
             head.Parent = model
         end
         model.PrimaryPart = head
 
-        -- Weld all subparts (Eyes, Jaws, BodySegment) to Head so they stay 100% attached and never fall off!
+        -- Weld all subparts (Eyes, Jaws, BodySegment) to Head so they stay 100% attached
         for _, p in ipairs(model:GetDescendants()) do
             if p:IsA("BasePart") then
                 p.CanCollide = false
@@ -5108,32 +5181,42 @@ Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Authentic Boss)", false, func
         end
         head.Anchored = true
 
-        -- CRITICAL: Burrowing = false ensures segments NEVER despawn or disappear!
+        -- Set official parameters: Burrowing = false ensures segments NEVER despawn!
         model:SetAttribute("BearID", "WormBear")
         model:SetAttribute("Segments", wormSegmentsVal or 14)
         model:SetAttribute("Spacing", 8.6)
         model:SetAttribute("Speed", wormSpeedVal or 26)
         model:SetAttribute("Burrowing", false)
 
-        -- Initial spawn position 18 studs in front of character on the real ground
-        local initSpawn = root.Position + (root.CFrame.LookVector * 18)
-        local downRay = Ray.new(initSpawn + Vector3.new(0, 30, 0), Vector3.new(0, -60, 0))
-        local hitGround, hitPos = Workspace:FindPartOnRayWithIgnoreList(downRay, {model, char})
-        local startY = hitGround and (hitPos.Y + 4.8) or initSpawn.Y
+        -- Enable atmospheric contrast
+        pcall(function()
+            local cc = game:GetService("Lighting"):FindFirstChild("WormBearContrast")
+            if cc then cc.Enabled = true; cc.Contrast = 0.22 end
+        end)
 
-        head.CFrame = CFrame.lookAt(Vector3.new(initSpawn.X, startY, initSpawn.Z), root.Position)
+        -- Play Boss Music Layer
+        pcall(function()
+            if bossMusicSound then bossMusicSound:Destroy() end
+            bossMusicSound = Instance.new("Sound")
+            bossMusicSound.SoundId = "rbxassetid://124182053646753" -- Close Boss Music Layer
+            bossMusicSound.Volume = 0.65
+            bossMusicSound.Looped = true
+            bossMusicSound.Parent = Workspace
+            bossMusicSound:Play()
+        end)
+
         model.Parent = bearsFolder
-
         CollectionService:AddTag(model, "BearEntity")
         wormVisualModel = model
 
-        Hub.Notify("Worm Bear", "Authentic Worm Bear Awakened! Real mesh head + 100% stable segments!", 4)
+        Hub.Notify("Worm Bear", "REAL WORM BEAR AWAKENED! Pink tongue mechanic & authentic boss meshes active!", 4)
 
         wormAnimThread = task.spawn(function()
             local curPos = head.Position
             local headingAngle = math.rad(root.Orientation.Y or 0)
             local orbitAngle = 0
             local undulateTime = 0
+            local lastTongueTime = os.clock()
 
             while wormVisualActive and model and model.Parent and head and head.Parent do
                 local dt = 0.02
@@ -5143,57 +5226,81 @@ Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Authentic Boss)", false, func
                 local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
                 local targetCenter = pRoot and pRoot.Position or root.Position
 
-                local moveDir = Vector3.new(0, 0, -1)
+                if wormMode == "Base Door Raid (Scene in Screenshot)" then
+                    -- EXACT SCENE IN SCREENSHOT: Loom outside base entrance doorway (Z=42) staring inside (Z=12)!
+                    local raidDoorOutside = Vector3.new(47.5, -137.2, 42.0)
+                    local raidDoorInside = Vector3.new(47.5, -137.5, 12.0)
 
-                if wormMode == "Follow Daddy (Boss Guardian / Pet)" then
-                    -- Stalk 14-22 studs behind/beside Daddy smoothly
-                    local toDaddy = targetCenter - curPos
-                    local dist = Vector3.new(toDaddy.X, 0, toDaddy.Z).Magnitude
-                    if dist > 14 then
-                        local desiredHeading = math.atan2(-toDaddy.X, -toDaddy.Z)
-                        local diff = (desiredHeading - headingAngle)
-                        diff = math.atan2(math.sin(diff), math.cos(diff))
-                        headingAngle = headingAngle + diff * math.clamp(dt * 3.0, 0, 1)
-                    else
-                        -- Gentle S-curve patrol around daddy when close
-                        headingAngle = headingAngle + math.sin(undulateTime) * 0.03
+                    -- Menacing breathing hover and gentle undulation
+                    local swayX = math.sin(undulateTime * 1.5) * 1.2
+                    local swayY = math.cos(undulateTime * 2.0) * 0.8
+                    local raidPos = raidDoorOutside + Vector3.new(swayX, swayY, 0)
+                    head.CFrame = CFrame.lookAt(raidPos, raidDoorInside)
+
+                    -- AUTOMATIC PINK TONGUE ATTACK: Lashes into the base every 3.8 seconds!
+                    if os.clock() - lastTongueTime >= 3.8 then
+                        lastTongueTime = os.clock()
+                        local mouthPos = head.CFrame * Vector3.new(0, -2.8, -4.5)
+                        local lashTarget = pRoot and pRoot.Position or raidDoorInside
+                        lashPinkTongue(mouthPos, lashTarget)
                     end
-                    moveDir = Vector3.new(-math.sin(headingAngle), 0, -math.cos(headingAngle))
-                elseif wormMode == "Roam Free (Wild Woods Patrol)" then
-                    -- Smooth undulating wander through the woods
-                    headingAngle = headingAngle + math.sin(undulateTime * 0.4) * 0.04
-                    moveDir = Vector3.new(-math.sin(headingAngle), 0, -math.cos(headingAngle))
-                else -- "Circle Stalker (Menacing Orbit)"
-                    orbitAngle = orbitAngle + dt * 0.8
-                    local orbitRad = 32
-                    local desiredX = targetCenter.X + math.cos(orbitAngle) * orbitRad
-                    local desiredZ = targetCenter.Z + math.sin(orbitAngle) * orbitRad
-                    local toOrbit = Vector3.new(desiredX, 0, desiredZ) - Vector3.new(curPos.X, 0, curPos.Z)
-                    if toOrbit.Magnitude > 0.5 then
-                        moveDir = toOrbit.Unit
-                    else
-                        moveDir = Vector3.new(-math.sin(orbitAngle), 0, math.cos(orbitAngle))
+                else
+                    -- Mobile Locomotion Modes
+                    local moveDir = Vector3.new(0, 0, -1)
+
+                    if wormMode == "Follow Daddy (Boss Guardian / Pet)" then
+                        local toDaddy = targetCenter - curPos
+                        local dist = Vector3.new(toDaddy.X, 0, toDaddy.Z).Magnitude
+                        if dist > 14 then
+                            local desiredHeading = math.atan2(-toDaddy.X, -toDaddy.Z)
+                            local diff = (desiredHeading - headingAngle)
+                            diff = math.atan2(math.sin(diff), math.cos(diff))
+                            headingAngle = headingAngle + diff * math.clamp(dt * 3.0, 0, 1)
+                        else
+                            headingAngle = headingAngle + math.sin(undulateTime) * 0.03
+                        end
+                        moveDir = Vector3.new(-math.sin(headingAngle), 0, -math.cos(headingAngle))
+                    elseif wormMode == "Roam Free (Wild Woods Patrol)" then
+                        headingAngle = headingAngle + math.sin(undulateTime * 0.4) * 0.04
+                        moveDir = Vector3.new(-math.sin(headingAngle), 0, -math.cos(headingAngle))
+                    else -- "Circle Stalker (Menacing Orbit)"
+                        orbitAngle = orbitAngle + dt * 0.8
+                        local orbitRad = 32
+                        local desiredX = targetCenter.X + math.cos(orbitAngle) * orbitRad
+                        local desiredZ = targetCenter.Z + math.sin(orbitAngle) * orbitRad
+                        local toOrbit = Vector3.new(desiredX, 0, desiredZ) - Vector3.new(curPos.X, 0, curPos.Z)
+                        if toOrbit.Magnitude > 0.5 then
+                            moveDir = toOrbit.Unit
+                        else
+                            moveDir = Vector3.new(-math.sin(orbitAngle), 0, math.cos(orbitAngle))
+                        end
+                    end
+
+                    local speed = wormSpeedVal or 26
+                    local stepDist = speed * dt
+                    local nextXZ = curPos + (moveDir * stepDist)
+
+                    -- Continuous Ground Surface Raycast (never clips inside terrain or floors!)
+                    local rayOrigin = Vector3.new(nextXZ.X, curPos.Y + 18, nextXZ.Z)
+                    local ray = Ray.new(rayOrigin, Vector3.new(0, -45, 0))
+                    local groundHit, groundPos = Workspace:FindPartOnRayWithIgnoreList(ray, {model, pChar, Workspace:FindFirstChild("WormBearSegments")})
+                    local targetGroundY = groundHit and (groundPos.Y + 4.8) or (curPos.Y)
+
+                    local nextY = curPos.Y + (targetGroundY - curPos.Y) * math.clamp(dt * 8.0, 0, 1)
+                    local waveY = math.sin(undulateTime * 2.0) * 0.6
+                    curPos = Vector3.new(nextXZ.X, nextY + waveY, nextXZ.Z)
+
+                    local lookTarget = curPos + (moveDir * 5)
+                    head.CFrame = CFrame.lookAt(curPos, lookTarget)
+
+                    -- Periodic tongue whip at nearby wild bears or targets
+                    if os.clock() - lastTongueTime >= 5.0 then
+                        lastTongueTime = os.clock()
+                        local mouthPos = head.CFrame * Vector3.new(0, -2.8, -4.5)
+                        local target = mouthPos + (head.CFrame.LookVector * 34)
+                        lashPinkTongue(mouthPos, target)
                     end
                 end
-
-                local speed = wormSpeedVal or 26
-                local stepDist = speed * dt
-                local nextXZ = curPos + (moveDir * stepDist)
-
-                -- Continuous Ground Surface Raycast (never clips inside terrain or floors!)
-                local rayOrigin = Vector3.new(nextXZ.X, curPos.Y + 18, nextXZ.Z)
-                local ray = Ray.new(rayOrigin, Vector3.new(0, -45, 0))
-                local groundHit, groundPos = Workspace:FindPartOnRayWithIgnoreList(ray, {model, pChar, Workspace:FindFirstChild("WormBearSegments")})
-                local targetGroundY = groundHit and (groundPos.Y + 4.8) or (curPos.Y)
-
-                -- Smooth vertical climb/descent
-                local nextY = curPos.Y + (targetGroundY - curPos.Y) * math.clamp(dt * 8.0, 0, 1)
-                -- Add subtle organic undulation spine wave
-                local waveY = math.sin(undulateTime * 2.0) * 0.6
-                curPos = Vector3.new(nextXZ.X, nextY + waveY, nextXZ.Z)
-
-                local lookTarget = curPos + (moveDir * 5)
-                head.CFrame = CFrame.lookAt(curPos, lookTarget)
 
                 task.wait(dt)
             end
@@ -5208,8 +5315,39 @@ Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Authentic Boss)", false, func
             wormVisualModel:Destroy()
             wormVisualModel = nil
         end
+        if bossMusicSound then
+            bossMusicSound:Stop()
+            bossMusicSound:Destroy()
+            bossMusicSound = nil
+        end
+        pcall(function()
+            local cc = game:GetService("Lighting"):FindFirstChild("WormBearContrast")
+            if cc then cc.Enabled = false end
+        end)
         Hub.Notify("Worm Bear", "Visual Worm Bear dismissed.", 2)
     end
+end)
+
+Hub.CreateButton(miscTab, "👅 Lash Pink Tongue Now (Manual Trigger)", function()
+    if not wormVisualModel or not wormVisualModel.Parent then
+        Hub.Notify("Worm Bear", "Spawn Worm Bear first!", 2)
+        return
+    end
+    local head = wormVisualModel:FindFirstChild("Head") or wormVisualModel.PrimaryPart
+    if not head then return end
+    local mouthPos = head.CFrame * Vector3.new(0, -2.8, -4.5)
+    local lp = game:GetService("Players").LocalPlayer
+    local target = mouthPos + (head.CFrame.LookVector * 38)
+    if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+        target = lp.Character.HumanoidRootPart.Position
+    end
+    lashPinkTongue(mouthPos, target)
+    Hub.Notify("Worm Bear", "Pink Tongue Lashed Out!", 1.5)
+end)
+
+Hub.CreateButton(miscTab, "🚪 Teleport to Base Door Watch Point", function()
+    -- Exact viewpoint in daddy's screenshot! Safe inside base entrance looking directly at Worm Bear!
+    safeTeleport(Vector3.new(47.5, -139.5, 14.0), "Base Entrance Hallway (Screenshot View)")
 end)
 
 Hub.CreateButton(miscTab, "Teleport to Worm Bear Burrow (Secret Lair)", function()
