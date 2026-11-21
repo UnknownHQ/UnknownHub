@@ -288,6 +288,7 @@ pcall(function()
     corner.Parent = frame
 
     local title = Instance.new("TextLabel")
+    title.Name = "Title"
     title.Size = UDim2.new(1, 0, 0, 28)
     title.BackgroundTransparency = 1
     title.Text = "рџђ› APHID EXTERMINATOR"
@@ -297,6 +298,7 @@ pcall(function()
     title.Parent = frame
 
     local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
     statusLabel.Size = UDim2.new(1, -16, 0, 18)
     statusLabel.Position = UDim2.new(0, 8, 0, 30)
     statusLabel.BackgroundTransparency = 1
@@ -308,6 +310,7 @@ pcall(function()
     statusLabel.Parent = frame
 
     local leavesLabel = Instance.new("TextLabel")
+    leavesLabel.Name = "LeavesLabel"
     leavesLabel.Size = UDim2.new(1, -16, 0, 18)
     leavesLabel.Position = UDim2.new(0, 8, 0, 50)
     leavesLabel.BackgroundTransparency = 1
@@ -319,6 +322,7 @@ pcall(function()
     leavesLabel.Parent = frame
 
     local tokensLabel = Instance.new("TextLabel")
+    tokensLabel.Name = "TokensLabel"
     tokensLabel.Size = UDim2.new(1, -16, 0, 18)
     tokensLabel.Position = UDim2.new(0, 8, 0, 70)
     tokensLabel.BackgroundTransparency = 1
@@ -330,6 +334,7 @@ pcall(function()
     tokensLabel.Parent = frame
 
     local killsLabel = Instance.new("TextLabel")
+    killsLabel.Name = "KillsLabel"
     killsLabel.Size = UDim2.new(1, -16, 0, 18)
     killsLabel.Position = UDim2.new(0, 8, 0, 90)
     killsLabel.BackgroundTransparency = 1
@@ -341,6 +346,7 @@ pcall(function()
     killsLabel.Parent = frame
 
     local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Name = "ToggleBtn"
     toggleBtn.Size = UDim2.new(0.46, 0, 0, 26)
     toggleBtn.Position = UDim2.new(0.04, 0, 0, 120)
     toggleBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 60)
