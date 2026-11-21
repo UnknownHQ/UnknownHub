@@ -177,7 +177,7 @@ local stopAutoFarmCleanly
 local State = {
     -- Auto Farm
     AutoFarm_Enabled = true,        -- Enabled for AFK farming
-    Farm_StageDelay = 0.95,         -- Stable high-speed 0.95s clearance (counts 100% of areas & chest)
+    Farm_StageDelay = 0.12,         -- Stable high-speed 0.95s clearance (counts 100% of areas & chest)
     WalkOnWater = false,
     AutoBuilder_File = "",
     AutoBuilder_Resolution = 2.0,
@@ -529,7 +529,8 @@ task.spawn(function()
                 local abort = false
                 local stageTimeout = math.clamp(State.Farm_StageDelay or 0.35, 0.15, 1.5)
 
-                -- 1. Sequential River Stage Clearance with Active Money Claim & Retry Triggering
+                                -- 1. Sequential River Stage Clearance (Ultra-Fast & Instant Stage Money)
+                local stageDwell = math.clamp(State.Farm_StageDelay or 0.12, 0.05, 1.0)
                 for stageIdx = 1, 9 do
                     if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then
                         abort = true
@@ -543,66 +544,34 @@ task.spawn(function()
 
                     if dp then
                         local stageName = stage.Name
-                        local stageVal = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("Stage" .. stageIdx)
-                        local goldVal = LocalPlayer:FindFirstChild("Data") and LocalPlayer.Data:FindFirstChild("Gold")
+                        updateStatus(string.format("Clearing Stage %d/10 (%s)...", stageIdx, stageName))
 
-                        -- Try triggering up to 3 times if it doesn't trigger / give money
-                        local confirmed = false
-                        for attempt = 1, 3 do
-                            if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
+                        -- Lightning-fast stage entry and touch (zero 3-retry blocking freeze)
+                        root.AssemblyLinearVelocity = Vector3.new(0, 0, 60)
+                        root.CFrame = dp.CFrame
+                        pcall(function() firetouchinterest(root, dp, 0) end)
+                        task.wait(stageDwell)
+                        pcall(function() firetouchinterest(root, dp, 1) end)
 
-                            local goldBefore = goldVal and goldVal.Value or 0
-                            if attempt > 1 then
-                                updateStatus(string.format("Retrying Stage %d/9 (%s) [Attempt %d/3]...", stageIdx, stageName, attempt))
-                            else
-                                updateStatus(string.format("Clearing Stage %d/9 (%s)...", stageIdx, stageName))
-                            end
+                        -- Smooth mid-stage sweep for complete volume trigger coverage
+                        local zIn = dp.Position.Z
+                        local zOut = nextDp and nextDp.Position.Z or (zIn + 770)
+                        local zMid = (zIn + zOut) / 2
+                        root.CFrame = CFrame.new(dp.Position.X, 45, zMid)
+                        task.wait(0.03)
 
-                            -- A. Touch stage entrance
-                            root.AssemblyLinearVelocity = Vector3.new(0, 0, 45)
-                            root.CFrame = dp.CFrame
-                            pcall(function() firetouchinterest(root, dp, 0) end)
+                        if nextDp then
+                            pcall(function() firetouchinterest(root, nextDp, 0) end)
+                            task.wait(0.03)
+                            pcall(function() firetouchinterest(root, nextDp, 1) end)
+                        end
 
-                            -- B. Sweep through the actual river stage volume (entrance -> mid -> exit)
-                            local zIn = dp.Position.Z
-                            local zOut = nextDp and nextDp.Position.Z or (zIn + 770)
-                            local zMid = (zIn + zOut) / 2
-
-                            task.wait(0.2)
-                            root.CFrame = CFrame.new(dp.Position.X, 45, zMid)
-                            root.AssemblyLinearVelocity = Vector3.new(0, 0, 45)
-
-                            if nextDp then
-                                task.wait(0.2)
-                                root.CFrame = nextDp.CFrame
-                                pcall(function() firetouchinterest(root, nextDp, 0) end)
-                            end
-
-                            task.wait(0.2)
-
-                            -- C. Give money immediately after trigger area as requested!
+                        -- Instant Stage Money Trigger (non-blocking)
+                        if State.Farm_InstantStageMoney or State.Farm_AutoClaim then
                             pcall(function()
                                 local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
                                 if claim then claim:FireServer() end
                             end)
-
-                            -- D. Check if registered or gave money
-                            task.wait(0.15)
-                            local goldAfter = goldVal and goldVal.Value or 0
-                            if (stageVal and stageVal.Value ~= "") or (goldAfter > goldBefore) then
-                                confirmed = true
-                                pcall(function()
-                                    firetouchinterest(root, dp, 1)
-                                    if nextDp then firetouchinterest(root, nextDp, 1) end
-                                end)
-                                break
-                            end
-
-                            pcall(function()
-                                firetouchinterest(root, dp, 1)
-                                if nextDp then firetouchinterest(root, nextDp, 1) end
-                            end)
-                            task.wait(0.1)
                         end
                     end
                 end
@@ -613,11 +582,11 @@ task.spawn(function()
                 if dp10 and not abort and State.AutoFarm_Enabled and hum.Health > 0 then
                     root.CFrame = dp10.CFrame
                     pcall(function() firetouchinterest(root, dp10, 0) end)
-                    task.wait(0.3)
+                    task.wait(stageDwell)
                     pcall(function()
+                        firetouchinterest(root, dp10, 1)
                         local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
                         if claim then claim:FireServer() end
-                        firetouchinterest(root, dp10, 1)
                     end)
                 end
 
@@ -635,20 +604,26 @@ task.spawn(function()
                 if trigger then
                     updateStatus("Opening Golden Chest & Claiming Blocks...")
 
-                    -- Stand firmly at chest trigger for reliable server validation
-                    root.Anchored = true
+                    -- Keep root UNANCHORED and physically placed inside the trigger volume
+                    root.Anchored = false
                     root.AssemblyLinearVelocity = Vector3.zero
                     root.AssemblyAngularVelocity = Vector3.zero
-                    root.CFrame = trigger.CFrame + Vector3.new(0, 2.5, 0)
+                    root.CFrame = trigger.CFrame
+
+                    -- Ensure chest is armed (TouchTransmitter) or ready
+                    local armWait = tick()
+                    while tick() - armWait < 3.0 do
+                        if trigger:FindFirstChildOfClass("TouchTransmitter") then break end
+                        task.wait(0.12)
+                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
+                    end
 
                     -- Trigger chest cleanly
                     pcall(function()
                         firetouchinterest(root, trigger, 0)
-                        task.wait(0.12)
-                        firetouchinterest(root, trigger, 1)
                     end)
 
-                    -- Quick visual cap open animation
+                    -- Visual cap open animation
                     pcall(function()
                         local cap = chest:FindFirstChild("Cap")
                         if cap then
@@ -663,11 +638,21 @@ task.spawn(function()
                         end
                     end)
 
-                    -- Magnet prizes (GoldBars & GoldBlock)
+                    -- Dwell at chest & Prize Magnet (waits until server awards chest or max 3.2s)
+                    local blockBefore = LocalPlayer.Data and LocalPlayer.Data:FindFirstChild("GoldBlock") and LocalPlayer.Data.GoldBlock.Value or 0
                     local startChest = tick()
-                    while tick() - startChest < 1.25 do
-                        task.wait(0.04)
-                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession then break end
+                    local chestRewarded = false
+                    while tick() - startChest < 3.2 do
+                        task.wait(0.05)
+                        if not State.AutoFarm_Enabled or _G.BABFT_SESSION ~= currentSession or hum.Health <= 0 then break end
+
+                        local curBlocks = LocalPlayer.Data and LocalPlayer.Data:FindFirstChild("GoldBlock") and LocalPlayer.Data.GoldBlock.Value or 0
+                        local endVal = LocalPlayer:FindFirstChild("OtherData") and LocalPlayer.OtherData:FindFirstChild("End")
+                        if curBlocks > blockBefore or (endVal and endVal.Value ~= "") then
+                            chestRewarded = true
+                        end
+
+                        -- Magnet prizes from DisplayPrizesTemp directly to character
                         pcall(function()
                             local tempPrizes = chest:FindFirstChild("DisplayPrizesTemp")
                             if tempPrizes then
@@ -684,7 +669,15 @@ task.spawn(function()
                                 end
                             end
                         end)
+
+                        if chestRewarded and (tick() - startChest > 1.2) then
+                            break
+                        end
                     end
+
+                    pcall(function()
+                        firetouchinterest(root, trigger, 1)
+                    end)
 
                     updateRuns()
 
@@ -695,18 +688,18 @@ task.spawn(function()
                         end)
                     end
 
-                    -- Conclude Voyage: Smooth teleport back to dock at 100 HP (ZERO DEATH GUARANTEED)
+                    -- Conclude Voyage: Smooth teleport back to dock
                     updateStatus("Voyage Complete! Returning to dock...")
                     workspace.Gravity = normalGravity
                     root.Anchored = false
 
-                    -- Claim river results gold immediately
+                    -- Claim final river results payout (gives all accumulated stage gold + chest reward)
                     pcall(function()
                         local claim = Workspace:FindFirstChild("ClaimRiverResultsGold")
                         if claim then claim:FireServer() end
                     end)
 
-                    -- Return smoothly to team dock at full health
+                    -- Return smoothly to team dock
                     pcall(function()
                         local team = LocalPlayer.Team
                         local teamName = team and team.TeamColor.Name
@@ -723,7 +716,7 @@ task.spawn(function()
                     end
 
                     updateStatus("Ready for next run!")
-                    task.wait(0.25)
+                    task.wait(0.2)
                 else
                     workspace.Gravity = normalGravity
                     root.Anchored = false
@@ -753,7 +746,7 @@ Hub.CreateToggle(farmTab, "Enable Gold Auto-Farm", State.AutoFarm_Enabled, funct
     end
 end)
 
-Hub.CreateSlider(farmTab, "Stage Dwell Duration (Seconds)", 0.75, 1.8, State.Farm_StageDelay or 0.95, function(val)
+Hub.CreateSlider(farmTab, "Stage Dwell Duration (Seconds)", 0.05, 0.8, State.Farm_StageDelay or 0.12, function(val)
     State.Farm_StageDelay = val
 end)
 
