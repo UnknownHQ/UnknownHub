@@ -1,6 +1,6 @@
 -- =========================================================================
 -- UNKNOWN HUB вЂ” APHID HUNTER & DAILY LEADERBOARD EXTERMINATOR
--- Fast-Sweep Leaf Teleporter + Instant Aphid Spawner/Killer + Auto Token Vacuum
+-- Fast-Sweep Leaf Teleporter + Instant Aphid Spawner/Killer + Precise Token Vacuum
 -- Goal: Top 5 Daily Aphid Exterminators Leaderboard -> Wavy Cyan Hive Skin
 -- Target: Bee Swarm Simulator (PlaceId: 1537690962)
 -- =========================================================================
@@ -22,7 +22,7 @@ _G.APHID_HUNTER_SESSION = sessionKey
 
 local State = {
     Enabled = true,
-    FastSweepDelay = 0.12,   -- Time between scoops on a leaf tile
+    FastSweepDelay = 0.12,   -- Time between scoops
     KillHoverHeight = 5.5,   -- Stay safely above Aphid hit radius (4.5 studs)
     CollectDrops = true,
     CollectLeafTokens = true,
@@ -43,9 +43,9 @@ local Stats = {
     StartTime = tick(),
 }
 
--- Leaf debounce table to prevent duplicate sweeps / 3x-5x overcounting
+-- Leaf debounce table to prevent duplicate sweeps
 local sweptDebounce = {}
-local DEBOUNCE_TIME = 14.0
+local DEBOUNCE_TIME = 15.0
 
 -- Anti-AFK
 pcall(function()
@@ -93,7 +93,7 @@ local function findActiveAphid()
     return nil, nil, nil
 end
 
--- Scan for all active LeafBurst flowers on the main mountain (debounced)
+-- Scan for all truly ACTIVE LeafBurst flowers on the main mountain (debounced)
 local function getActiveLeafFlowers()
     local flowers = Workspace:FindFirstChild("Flowers")
     if not flowers then return {} end
@@ -108,7 +108,9 @@ local function getActiveLeafFlowers()
 
     local leaves = {}
     for _, f in ipairs(flowers:GetChildren()) do
-        if f:FindFirstChild("LeafBurst") and not sweptDebounce[f.Name] then
+        local burst = f:FindFirstChild("LeafBurst")
+        -- Must have LeafBurst, must be Enabled, and Rate must be > 0 (not a dead/expiring particle)
+        if burst and burst.Enabled and burst.Rate > 0 and not sweptDebounce[f.Name] then
             local p = f.Position
             -- Validate main mountain boundaries
             if p.Y >= 0 and p.Y <= 200 and math.abs(p.X) <= 600 and math.abs(p.Z) <= 700 then
@@ -119,27 +121,27 @@ local function getActiveLeafFlowers()
     return leaves
 end
 
--- Proactive token collector with live ChildAdded listener and position tracking
-local function vacuumTokens(centerPos, radius, maxWaitTime)
+-- Vacuum leaf drops strictly at the leaf tile (18-stud radius with exact 1:1 deduplication)
+local function vacuumLeafDrops(flowerPos)
     local collectibles = Workspace:FindFirstChild("Collectibles")
     local char = getCharacter()
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not collectibles or not root or not centerPos then return 0 end
+    if not collectibles or not root or not flowerPos then return 0 end
 
-    local targetRadius = radius or 45
-    local maxWait = maxWaitTime or 1.2
-    local startT = tick()
+    local touchedTokens = {}
     local collected = 0
+    local startT = tick()
 
-    -- Event listener to intercept tokens the exact frame they appear
+    -- Reactive listener: grab token the exact frame it spawns near this flower
     local conn
     conn = collectibles.ChildAdded:Connect(function(child)
-        if child:IsA("BasePart") and child.Name == "C" then
+        if child:IsA("BasePart") and child.Name == "C" and not touchedTokens[child] then
             task.wait(0.02)
-            if child.Parent == collectibles then
-                local dist = (child.Position - centerPos).Magnitude
-                if dist <= targetRadius then
-                    root.CFrame = CFrame.new(child.Position + Vector3.new(0, 0.4, 0))
+            if child.Parent == collectibles and not touchedTokens[child] then
+                local dist = (child.Position - flowerPos).Magnitude
+                if dist <= 18 then
+                    touchedTokens[child] = true
+                    root.CFrame = CFrame.new(child.Position + Vector3.new(0, 0.35, 0))
                     root.AssemblyLinearVelocity = Vector3.zero
                     pcall(function()
                         if firetouchinterest then
@@ -153,14 +155,57 @@ local function vacuumTokens(centerPos, radius, maxWaitTime)
         end
     end)
 
-    -- Dynamic collection loop: sweep already existing tokens and wait for server eruption
+    -- Remain anchored at the flower tile for server eruption (~0.85s)
+    while (tick() - startT) < 1.05 do
+        task.wait(0.05)
+        for _, token in ipairs(collectibles:GetChildren()) do
+            if token:IsA("BasePart") and token.Name == "C" and not touchedTokens[token] then
+                local dist = (token.Position - flowerPos).Magnitude
+                if dist <= 18 then
+                    touchedTokens[token] = true
+                    root.CFrame = CFrame.new(token.Position + Vector3.new(0, 0.35, 0))
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    pcall(function()
+                        if firetouchinterest then
+                            firetouchinterest(root, token, 0)
+                            firetouchinterest(root, token, 1)
+                        end
+                    end)
+                    collected = collected + 1
+                    task.wait(0.02)
+                end
+            end
+        end
+
+        -- Finish if at least 1 token was bagged and server eruption window has elapsed
+        if collected > 0 and (tick() - startT) >= 0.85 then
+            break
+        end
+    end
+
+    if conn then conn:Disconnect() end
+    Stats.TokensCollected = Stats.TokensCollected + collected
+    return collected
+end
+
+-- Vacuum Aphid dropped loot (wide 60-stud radius with exact 1:1 deduplication)
+local function vacuumAphidLoot(centerPos)
+    local collectibles = Workspace:FindFirstChild("Collectibles")
+    local char = getCharacter()
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not collectibles or not root or not centerPos then return 0 end
+
+    local touched = {}
+    local collected = 0
+    local startT = tick()
     local emptyStreak = 0
-    while (tick() - startT) < maxWait do
+
+    while (tick() - startT) < 3.8 do
         local targets = {}
         for _, token in ipairs(collectibles:GetChildren()) do
-            if token:IsA("BasePart") and token.Name == "C" then
+            if token:IsA("BasePart") and token.Name == "C" and not touched[token] then
                 local dist = (token.Position - centerPos).Magnitude
-                if dist <= targetRadius then
+                if dist <= 60 then
                     table.insert(targets, { Token = token, Dist = dist })
                 end
             end
@@ -171,7 +216,8 @@ local function vacuumTokens(centerPos, radius, maxWaitTime)
             table.sort(targets, function(a, b) return a.Dist < b.Dist end)
             for _, item in ipairs(targets) do
                 local tPart = item.Token
-                if tPart and tPart.Parent == collectibles then
+                if tPart and tPart.Parent == collectibles and not touched[tPart] then
+                    touched[tPart] = true
                     root.CFrame = CFrame.new(tPart.Position + Vector3.new(0, 0.4, 0))
                     root.AssemblyLinearVelocity = Vector3.zero
                     pcall(function()
@@ -181,25 +227,16 @@ local function vacuumTokens(centerPos, radius, maxWaitTime)
                         end
                     end)
                     collected = collected + 1
-                    task.wait(0.025)
+                    task.wait(0.03)
                 end
-            end
-            -- If we just collected a leaf token and at least 0.75s passed, wait small grace for secondary drops then finish
-            if maxWait <= 1.5 and (tick() - startT) >= 0.75 then
-                task.wait(0.2)
-                break
             end
         else
             emptyStreak = emptyStreak + 1
-            -- Never abort prematurely: server takes 0.75s - 0.90s to drop leaf tokens
-            if emptyStreak >= 6 and (tick() - startT) >= 0.95 then
-                break
-            end
-            task.wait(0.08)
+            if emptyStreak >= 3 and (tick() - startT) >= 1.6 then break end
+            task.wait(0.1)
         end
     end
 
-    if conn then conn:Disconnect() end
     Stats.TokensCollected = Stats.TokensCollected + collected
     return collected
 end
@@ -258,7 +295,7 @@ local function executeAphidElimination(aphid, mRoot, mHum)
     -- Collect all dropped tokens unconditionally using recorded death position
     if State.CollectDrops and lastDeathPos then
         State.Status = "Vacuuming Aphid Loot..."
-        vacuumTokens(lastDeathPos, 65, 3.8)
+        vacuumAphidLoot(lastDeathPos)
     end
 end
 
@@ -504,7 +541,7 @@ task.spawn(function()
                 break
             end
 
-            -- Mark debounce immediately so this flower is never re-processed within 14s
+            -- Mark debounce immediately so this flower is never re-processed within 15s
             sweptDebounce[flower.Name] = tick() + DEBOUNCE_TIME
             Stats.LeavesChecked = Stats.LeavesChecked + 1
 
@@ -512,6 +549,14 @@ task.spawn(function()
             local flowerPos = flower.Position
             root.CFrame = CFrame.new(flowerPos + Vector3.new(0, 0.4, 0))
             root.AssemblyLinearVelocity = Vector3.zero
+
+            -- Fire touch interest on flower to register physical tile contact
+            pcall(function()
+                if firetouchinterest then
+                    firetouchinterest(root, flower, 0)
+                    firetouchinterest(root, flower, 1)
+                end
+            end)
 
             -- Synchronize with collector cooldown for maximum scoop power
             pcall(function()
@@ -524,12 +569,9 @@ task.spawn(function()
             end)
 
             -- Backup swing burst
-            for scoop = 1, 2 do
-                if tool then tool:Activate() end
-                if toolCollect then
-                    pcall(function() toolCollect:FireServer() end)
-                end
-                task.wait(State.FastSweepDelay)
+            if tool then tool:Activate() end
+            if toolCollect then
+                pcall(function() toolCollect:FireServer() end)
             end
 
             Stats.LeavesSwept = Stats.LeavesSwept + 1
@@ -541,9 +583,9 @@ task.spawn(function()
                 break
             end
 
-            -- Proactive token vacuum: waits up to 1.1s with active ChildAdded interceptor
+            -- Proactive token vacuum: stays anchored on flower tile, catches only real leaf drops (18 studs)
             if State.CollectLeafTokens then
-                vacuumTokens(flowerPos, 45, 1.15)
+                vacuumLeafDrops(flowerPos)
             end
         end
 
