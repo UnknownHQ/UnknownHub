@@ -2642,14 +2642,18 @@ flightHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
 
                 local curLvl = char:GetAttribute("BearLevel") or 1
                 local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 20))
+                if Config.StealthFarm and Config.StealthRageInterlock and isAnyOtherPlayerNear(root.Position, Config.StealthSafeRadius or 120) then
+                    isRageActive = false
+                end
                 local targetPos
                 local aimPos
 
                 if isRageActive then
-                    -- RAGE MODE: Teleport and lock DIRECTLY INSIDE target bear! (Zero standoff, zero elevation, phase inside torso)
-                    targetPos = bRoot.Position
-                    aimPos = bRoot.Position + Vector3.new(0, 0.2, 0)
-                    targetCF = CFrame.new(bRoot.Position, bRoot.Position + bRoot.CFrame.LookVector)
+                    -- RAGE MODE: Maximum hyper-DPS lock! Glue 1.8 studs behind dorsal spine and face directly into the bear's hitbox
+                    local aimPart = activeFlightOffset and activeFlightOffset.targetHitPart or bRoot
+                    aimPos = (aimPart and aimPart.Parent) and aimPart.Position or (bRoot.Position + Vector3.new(0, 0.4, 0))
+                    targetPos = bRoot.Position - (flatLook * 1.8) + Vector3.new(0, 1.4, 0)
+                    targetCF = CFrame.lookAt(targetPos, aimPos)
                 else
                     -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 75ms feedforward
                     local curStandoff = activeFlightOffset.standoff or 2.4
@@ -3215,23 +3219,21 @@ task.spawn(function()
             elevation = 3.0 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Body") or bear:FindFirstChild("HumanoidRootPart") or bearRoot
         elseif isGrizzly then
-            -- GRIZZLY MEDVED: 1.3x scale quadruped (swipe extends to Y = +6.5)
-            standoff = 3.4
-            elevation = 8.2 + damageElevationBoost
+            -- GRIZZLY MEDVED: 1.3x scale quadruped
+            standoff = 2.2
+            elevation = 5.0 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         elseif isGolden then
             -- GOLDEN MEDVED: 900 HP quadruped
-            standoff = 3.4
-            elevation = 8.2 + damageElevationBoost
+            standoff = 2.2
+            elevation = 5.0 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Hips") or bearRoot
         else
             -- STANDARD QUADRUPEDS (Medved, ClassicBear):
             -- Medved claw swipe volume is Y in [-3.0, +5.0].
-            -- Standoff 2.4 and elevation 7.4 places Boo-Boo 2.4 studs above Medved's +5.0 claw swipe ceiling!
-            -- With pitch clamp, lower body stays at Y >= +6.2 studs (> +5.0), completely immune even if Medved rears up.
-            -- Sonic scream diagonal distance is 5.69 studs (100% connect rate within 6.5 reach).
-            standoff = 2.4
-            elevation = 7.4 + (damageElevationBoost or 0)
+            -- Standoff 2.0 and elevation 4.6 gives diagonal distance of 5.01 studs (STRICTLY within 6.5 reach!)
+            standoff = 2.0
+            elevation = 4.6 + (damageElevationBoost or 0)
             targetHitPart = bear:FindFirstChild("Hitbox_Chest") or bear:FindFirstChild("Hitbox_Head") or bear:FindFirstChild("Hitbox_Pelvis") or bearRoot
         end
 
@@ -3253,7 +3255,7 @@ task.spawn(function()
 
         local curLvl = char:GetAttribute("BearLevel") or 1
         local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 20))
-        if (Config.StealthFarm or Config.StealthRageInterlock) and isAnyOtherPlayerNear(root.Position, 350) then
+        if Config.StealthFarm and Config.StealthRageInterlock and isAnyOtherPlayerNear(root.Position, Config.StealthSafeRadius or 120) then
             isRageActive = false
         end
 
@@ -3265,11 +3267,11 @@ task.spawn(function()
         local aimPos = nil
 
         if isRageActive then
-            -- RAGE MODE: Teleport DIRECTLY INTO the bear!
-            standoff = 0
-            elevation = 0
-            targetPos = bearRoot.Position
-            aimPos = bearRoot.Position + Vector3.new(0, 0.2, 0)
+            -- RAGE MODE: Tight dorsal lock glued 1.8 studs behind and 1.4 studs up, looking directly into the bear's hitbox
+            standoff = 1.8
+            elevation = 1.4
+            targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
+            aimPos = (targetHitPart and targetHitPart.Parent) and targetHitPart.Position or (bearRoot.Position + Vector3.new(0, 0.4, 0))
         elseif isMyIceBear and (Config.FarmMethod == "Bear Attack" or Config.StealthFarm) then
             -- ICE BEAR ARTIFACT: Long-Range Magic Artillery (600 studs reach)
             standoff = math.max(15.0, Config.IceBearStandoff or 35.0)
@@ -3336,7 +3338,7 @@ task.spawn(function()
             root.CFrame = highTransitCF
         elseif isRageActive or lastEngagedBear ~= bear or distToDest > 6.0 then
             lastEngagedBear = bear
-            root.CFrame = isRageActive and CFrame.new(bearRoot.Position, bearRoot.Position + bearRoot.CFrame.LookVector) or activeFlightTargetCF
+            root.CFrame = activeFlightTargetCF
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
             if root.CanCollide then root.CanCollide = false end
@@ -3368,8 +3370,8 @@ task.spawn(function()
         elseif Config.FarmMethod == "Melee" then
             canStrike = distToTargetPart <= 8.5
         elseif Config.FarmMethod == "Bear Attack" then
-            -- Screams penetrate wide cone; fire when within engagement volume
-            canStrike = distToTargetPart <= 16.0 or distToRoot <= 16.0 or (bear:FindFirstChild("BodyTop") and (root.Position - bear.BodyTop.Position).Magnitude <= 14.0)
+            -- Screams and swipes have an effective server reach of ~6.5 - 7.5 studs
+            canStrike = distToTargetPart <= 7.5 or distToRoot <= 7.5
         end
         if not canStrike then
             task.wait(0.02)
@@ -3485,16 +3487,30 @@ task.spawn(function()
                 local defaultReady = isRageActive or isAbilityReady("Default")
                 if defaultReady and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
-                    local currentAimPos = isRageActive and (bearRoot.Position + Vector3.new(0, 0.2, 0)) or ((targetHitPart and targetHitPart.Parent) and (targetHitPart.Position + Vector3.new(0, 0.2, 0)) or aimPos)
-                    if not isRageActive and isBallBear then
-                        currentAimPos = bearRoot.Position + Vector3.new(0, 1.2, 0)
+                    local hitPart = targetHitPart
+                    if not hitPart or not hitPart.Parent then
+                        hitPart = bear:FindFirstChild("Hitbox_Chest")
+                            or bear:FindFirstChild("Hitbox_Head")
+                            or bear:FindFirstChild("Hitbox_Hips")
+                            or bear:FindFirstChild("Hitbox_Body")
+                            or bearRoot
                     end
-                    local hitOffset = isRageActive and Vector3.zero or ((targetHitPart and targetHitPart.Parent) and targetHitPart.CFrame:PointToObjectSpace(currentAimPos) or Vector3.zero)
-                    local hitPart = isRageActive and bearRoot or targetHitPart
+                    local currentAimPos = hitPart.Position
+                    if isBallBear and not isRageActive then
+                        currentAimPos = hitPart.Position + Vector3.new(0, 0.5, 0)
+                    end
+                    local hitOffset = hitPart.CFrame:PointToObjectSpace(currentAimPos)
                     if bearAim and hitPart and hitPart.Parent then
                         pcall(function()
                             bearAim:FireServer(currentAimPos, hitPart, hitOffset)
                         end)
+                        -- Also multi-target Hitbox_Chest if different for 100% server registration redundancy
+                        local chestPart = bear:FindFirstChild("Hitbox_Chest")
+                        if chestPart and chestPart ~= hitPart then
+                            pcall(function()
+                                bearAim:FireServer(chestPart.Position, chestPart, Vector3.zero)
+                            end)
+                        end
                     end
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", currentAimPos)
