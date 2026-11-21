@@ -1,6 +1,6 @@
 -- =========================================================================
--- UNKNOWN HUB — APHID HUNTER & DAILY LEADERBOARD EXTERMINATOR
--- Fast-Sweep Leaf Teleporter + Instant Aphid Spawner/Killer
+-- UNKNOWN HUB вЂ” APHID HUNTER & DAILY LEADERBOARD EXTERMINATOR
+-- Fast-Sweep Leaf Teleporter + Instant Aphid Spawner/Killer + Auto Token Vacuum
 -- Goal: Top 5 Daily Aphid Exterminators Leaderboard -> Wavy Cyan Hive Skin
 -- Target: Bee Swarm Simulator (PlaceId: 1537690962)
 -- =========================================================================
@@ -22,9 +22,10 @@ _G.APHID_HUNTER_SESSION = sessionKey
 
 local State = {
     Enabled = true,
-    FastSweepDelay = 0.09,   -- Time spent on each leaf tile (fast instant check)
+    FastSweepDelay = 0.12,   -- Time between scoops on a leaf tile
     KillHoverHeight = 5.5,   -- Stay safely above Aphid hit radius (4.5 studs)
     CollectDrops = true,
+    CollectLeafTokens = true,
     AutoServerHopWhenDry = false,
     MinServerPlayers = 4,
     MaxServerPlayers = 10,
@@ -33,12 +34,18 @@ local State = {
 
 local Stats = {
     LeavesChecked = 0,
+    LeavesSwept = 0,
+    TokensCollected = 0,
     AphidsKilled = 0,
     RageAphids = 0,
     ArmoredAphids = 0,
     DiamondAphids = 0,
     StartTime = tick(),
 }
+
+-- Leaf debounce table to prevent duplicate sweeps / 3x-5x overcounting
+local sweptDebounce = {}
+local DEBOUNCE_TIME = 12.0
 
 -- Anti-AFK
 pcall(function()
@@ -52,6 +59,11 @@ pcall(function()
         end)
     end)
 end)
+
+-- Safe character getter
+local function getCharacter()
+    return Workspace:FindFirstChild(LocalPlayer.Name) or LocalPlayer.Character
+end
 
 -- Anti-ragdoll & stability
 local function stabilizeCharacter(char)
@@ -81,14 +93,22 @@ local function findActiveAphid()
     return nil, nil, nil
 end
 
--- Scan for all active LeafBurst flowers on the main mountain
+-- Scan for all active LeafBurst flowers on the main mountain (debounced)
 local function getActiveLeafFlowers()
     local flowers = Workspace:FindFirstChild("Flowers")
     if not flowers then return {} end
 
+    local now = tick()
+    -- Clean expired debounce entries
+    for name, exp in pairs(sweptDebounce) do
+        if now > exp then
+            sweptDebounce[name] = nil
+        end
+    end
+
     local leaves = {}
     for _, f in ipairs(flowers:GetChildren()) do
-        if f:FindFirstChild("LeafBurst") then
+        if f:FindFirstChild("LeafBurst") and not sweptDebounce[f.Name] then
             local p = f.Position
             -- Validate main mountain boundaries
             if p.Y >= 0 and p.Y <= 200 and math.abs(p.X) <= 600 and math.abs(p.Z) <= 700 then
@@ -99,23 +119,24 @@ local function getActiveLeafFlowers()
     return leaves
 end
 
--- Collect dropped loot around position
-local function collectLootTokens(centerPos, radius)
+-- Vacuum collectible tokens around a position
+local function vacuumTokens(centerPos, radius, maxWaitTime)
     local collectibles = Workspace:FindFirstChild("Collectibles")
-    local char = LocalPlayer.Character
+    local char = getCharacter()
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not collectibles or not root or not centerPos then return end
+    if not collectibles or not root or not centerPos then return 0 end
 
-    State.Status = "Vacuuming Aphid Loot..."
     local startT = tick()
     local emptyStreak = 0
+    local collected = 0
+    local maxWait = maxWaitTime or 1.5
 
-    while (tick() - startT) < 3.5 do
+    while (tick() - startT) < maxWait do
         local targets = {}
         for _, token in ipairs(collectibles:GetChildren()) do
             if token:IsA("BasePart") and token.Name == "C" then
                 local dist = (token.Position - centerPos).Magnitude
-                if dist <= (radius or 55) then
+                if dist <= (radius or 25) then
                     table.insert(targets, { Token = token, Dist = dist })
                 end
             end
@@ -126,7 +147,7 @@ local function collectLootTokens(centerPos, radius)
             table.sort(targets, function(a, b) return a.Dist < b.Dist end)
             for _, item in ipairs(targets) do
                 local tPart = item.Token
-                if tPart and tPart.Parent then
+                if tPart and tPart.Parent and tPart.Parent == collectibles then
                     root.CFrame = CFrame.new(tPart.Position + Vector3.new(0, 0.4, 0))
                     root.AssemblyLinearVelocity = Vector3.zero
                     pcall(function()
@@ -135,20 +156,24 @@ local function collectLootTokens(centerPos, radius)
                             firetouchinterest(root, tPart, 1)
                         end
                     end)
-                    task.wait(0.03)
+                    collected = collected + 1
+                    task.wait(0.025)
                 end
             end
         else
             emptyStreak = emptyStreak + 1
-            if emptyStreak >= 3 then break end
-            task.wait(0.12)
+            if emptyStreak >= 2 then break end
+            task.wait(0.08)
         end
     end
+
+    Stats.TokensCollected = Stats.TokensCollected + collected
+    return collected
 end
 
 -- Kill and track active Aphid
 local function executeAphidElimination(aphid, mRoot, mHum)
-    local char = LocalPlayer.Character
+    local char = getCharacter()
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root or not mRoot then return end
 
@@ -156,7 +181,9 @@ local function executeAphidElimination(aphid, mRoot, mHum)
     local lastDeathPos = mRoot.Position
     State.Status = "KILLING " .. string.upper(aphidName) .. "!"
 
-    local tool = char:FindFirstChildOfClass("Tool")
+    local tool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+    if tool and tool.Parent ~= char then tool.Parent = char end
+
     local events = ReplicatedStorage:FindFirstChild("Events")
     local toolCollect = events and events:FindFirstChild("ToolCollect")
 
@@ -190,14 +217,15 @@ local function executeAphidElimination(aphid, mRoot, mHum)
         Stats.DiamondAphids = Stats.DiamondAphids + 1
     end
 
-    print(string.format("[Aphid Hunter] 💀 %s ELIMINATED! Vacuuming loot at %s...", aphidName, tostring(lastDeathPos)))
+    print(string.format("[Aphid Hunter] рџ’Ђ %s ELIMINATED! Vacuuming loot at %s...", aphidName, tostring(lastDeathPos)))
 
     -- Wait 0.35s for server to erupt tokens into Workspace.Collectibles
     task.wait(0.35)
 
-    -- Collect all dropped tokens unconditionally using the recorded death position
+    -- Collect all dropped tokens unconditionally using recorded death position
     if State.CollectDrops and lastDeathPos then
-        collectLootTokens(lastDeathPos, 55)
+        State.Status = "Vacuuming Aphid Loot..."
+        vacuumTokens(lastDeathPos, 60, 3.0)
     end
 end
 
@@ -242,7 +270,7 @@ pcall(function()
 
     local frame = Instance.new("Frame")
     frame.Name = "MainFrame"
-    frame.Size = UDim2.new(0, 240, 0, 160)
+    frame.Size = UDim2.new(0, 250, 0, 185)
     frame.Position = UDim2.new(0, 20, 0, 200)
     frame.BackgroundColor3 = Color3.fromRGB(18, 22, 28)
     frame.BorderSizePixel = 0
@@ -262,15 +290,15 @@ pcall(function()
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 28)
     title.BackgroundTransparency = 1
-    title.Text = "🐛 APHID EXTERMINATOR"
+    title.Text = "рџђ› APHID EXTERMINATOR"
     title.TextColor3 = Color3.fromRGB(0, 220, 255)
     title.Font = Enum.Font.GothamBold
     title.TextSize = 13
     title.Parent = frame
 
     local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, -16, 0, 20)
-    statusLabel.Position = UDim2.new(0, 8, 0, 32)
+    statusLabel.Size = UDim2.new(1, -16, 0, 18)
+    statusLabel.Position = UDim2.new(0, 8, 0, 30)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Text = "Status: Initializing..."
     statusLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -281,7 +309,7 @@ pcall(function()
 
     local leavesLabel = Instance.new("TextLabel")
     leavesLabel.Size = UDim2.new(1, -16, 0, 18)
-    leavesLabel.Position = UDim2.new(0, 8, 0, 54)
+    leavesLabel.Position = UDim2.new(0, 8, 0, 50)
     leavesLabel.BackgroundTransparency = 1
     leavesLabel.Text = "Leaves Swept: 0"
     leavesLabel.TextColor3 = Color3.fromRGB(100, 255, 120)
@@ -290,9 +318,20 @@ pcall(function()
     leavesLabel.TextXAlignment = Enum.TextXAlignment.Left
     leavesLabel.Parent = frame
 
+    local tokensLabel = Instance.new("TextLabel")
+    tokensLabel.Size = UDim2.new(1, -16, 0, 18)
+    tokensLabel.Position = UDim2.new(0, 8, 0, 70)
+    tokensLabel.BackgroundTransparency = 1
+    tokensLabel.Text = "Tokens Vacuumed: 0"
+    tokensLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
+    tokensLabel.Font = Enum.Font.Gotham
+    tokensLabel.TextSize = 12
+    tokensLabel.TextXAlignment = Enum.TextXAlignment.Left
+    tokensLabel.Parent = frame
+
     local killsLabel = Instance.new("TextLabel")
     killsLabel.Size = UDim2.new(1, -16, 0, 18)
-    killsLabel.Position = UDim2.new(0, 8, 0, 74)
+    killsLabel.Position = UDim2.new(0, 8, 0, 90)
     killsLabel.BackgroundTransparency = 1
     killsLabel.Text = "Aphids Slain: 0 (Goal: Top 5)"
     killsLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
@@ -303,7 +342,7 @@ pcall(function()
 
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Size = UDim2.new(0.46, 0, 0, 26)
-    toggleBtn.Position = UDim2.new(0.04, 0, 0, 105)
+    toggleBtn.Position = UDim2.new(0.04, 0, 0, 120)
     toggleBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 60)
     toggleBtn.Text = "ACTIVE"
     toggleBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -328,7 +367,7 @@ pcall(function()
 
     local hopBtn = Instance.new("TextButton")
     hopBtn.Size = UDim2.new(0.44, 0, 0, 26)
-    hopBtn.Position = UDim2.new(0.52, 0, 0, 105)
+    hopBtn.Position = UDim2.new(0.52, 0, 0, 120)
     hopBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 180)
     hopBtn.Text = "HOP SERVER"
     hopBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -349,7 +388,8 @@ pcall(function()
             task.wait(0.3)
             pcall(function()
                 statusLabel.Text = "Status: " .. State.Status
-                leavesLabel.Text = "Leaves Swept: " .. tostring(Stats.LeavesChecked)
+                leavesLabel.Text = "Leaves Swept: " .. tostring(Stats.LeavesSwept)
+                tokensLabel.Text = "Tokens Vacuumed: " .. tostring(Stats.TokensCollected)
                 killsLabel.Text = string.format("Aphids Slain: %d (Rage: %d, Dia: %d)", Stats.AphidsKilled, Stats.RageAphids, Stats.DiamondAphids)
             end)
         end
@@ -360,7 +400,7 @@ end)
 -- Main Rapid Leaf-Sweep & Aphid Hunter Loop
 -- =========================================================================
 task.spawn(function()
-    print("[Aphid Hunter] 🚀 Hyper-Fast Leaf Teleporter & Aphid Hunter ENGAGED!")
+    print("[Aphid Hunter] рџљЂ Hyper-Fast Leaf Teleporter & Aphid Hunter ENGAGED!")
 
     while _G.APHID_HUNTER_SESSION == sessionKey do
         if not State.Enabled then
@@ -368,7 +408,7 @@ task.spawn(function()
             continue
         end
 
-        local char = LocalPlayer.Character
+        local char = getCharacter()
         local root = char and char:FindFirstChild("HumanoidRootPart")
         if not char or not root then
             task.wait(0.2)
@@ -391,7 +431,7 @@ task.spawn(function()
                 hopToFreshServer()
                 break
             end
-            task.wait(1.2)
+            task.wait(1.0)
             continue
         end
 
@@ -403,13 +443,19 @@ task.spawn(function()
             return (a.Position - myPos).Magnitude < (b.Position - myPos).Magnitude
         end)
 
-        -- 4. Rapid-Sweep through leaves
-        local tool = char:FindFirstChildOfClass("Tool")
+        -- 4. Equip tool
+        local tool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if tool and tool.Parent ~= char then tool.Parent = char end
+
         local events = ReplicatedStorage:FindFirstChild("Events")
         local toolCollect = events and events:FindFirstChild("ToolCollect")
 
+        -- 5. Sweep through leaves
         for _, flower in ipairs(leaves) do
             if _G.APHID_HUNTER_SESSION ~= sessionKey or not State.Enabled then break end
+
+            -- Skip if already swept recently (anti-duplicate guard)
+            if sweptDebounce[flower.Name] then continue end
 
             -- Interruption check: did an Aphid spawn while moving?
             local liveAphid, aRoot, aHum = findActiveAphid()
@@ -418,31 +464,41 @@ task.spawn(function()
                 break
             end
 
-            -- Teleport directly onto the leaf tile
-            local flowerPos = flower.Position
-            root.CFrame = CFrame.new(flowerPos + Vector3.new(0, 1.8, 0))
-            root.AssemblyLinearVelocity = Vector3.zero
-
-            -- Instant trigger: swing tool + ToolCollect packet
-            if tool then tool:Activate() end
-            if toolCollect then
-                pcall(function() toolCollect:FireServer() end)
-            end
-
+            -- Mark debounce immediately so this flower is never re-processed within 12s
+            sweptDebounce[flower.Name] = tick() + DEBOUNCE_TIME
             Stats.LeavesChecked = Stats.LeavesChecked + 1
 
-            -- Micro-delay: wait just enough for server to process dig and check for Aphid
-            task.wait(State.FastSweepDelay)
+            -- Teleport directly onto the flower surface (Y + 0.4)
+            local flowerPos = flower.Position
+            root.CFrame = CFrame.new(flowerPos + Vector3.new(0, 0.4, 0))
+            root.AssemblyLinearVelocity = Vector3.zero
 
-            -- Instant Aphid check right at this leaf
+            -- Multi-scoop burst to guarantee pollen harvest packet is registered
+            for scoop = 1, 3 do
+                if tool then tool:Activate() end
+                if toolCollect then
+                    pcall(function() toolCollect:FireServer() end)
+                end
+                task.wait(State.FastSweepDelay)
+            end
+
+            Stats.LeavesSwept = Stats.LeavesSwept + 1
+
+            -- Check if Aphid spawned right at this flower
             local spawnedAphid, spRoot, spHum = findActiveAphid()
             if spawnedAphid and spRoot then
                 executeAphidElimination(spawnedAphid, spRoot, spHum)
                 break
             end
+
+            -- Vacuum leaf drop token (e.g. Blueberry, Strawberry, Honey)
+            if State.CollectLeafTokens then
+                task.wait(0.18) -- allow server to drop token
+                vacuumTokens(flowerPos, 22, 0.35)
+            end
         end
 
-        task.wait(0.01)
+        task.wait(0.05)
     end
 end)
 
