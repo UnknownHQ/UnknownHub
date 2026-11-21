@@ -104,20 +104,45 @@ local function collectLootTokens(centerPos, radius)
     local collectibles = Workspace:FindFirstChild("Collectibles")
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not collectibles or not root then return end
+    if not collectibles or not root or not centerPos then return end
 
+    State.Status = "Vacuuming Aphid Loot..."
     local startT = tick()
-    while (tick() - startT) < 2.0 do
-        local foundToken = false
+    local emptyStreak = 0
+
+    while (tick() - startT) < 3.5 do
+        local targets = {}
         for _, token in ipairs(collectibles:GetChildren()) do
-            if token:IsA("BasePart") and (token.Position - centerPos).Magnitude <= (radius or 35) then
-                foundToken = true
-                root.CFrame = CFrame.new(token.Position + Vector3.new(0, 1.5, 0))
-                root.AssemblyLinearVelocity = Vector3.zero
-                task.wait(0.04)
+            if token:IsA("BasePart") and token.Name == "C" then
+                local dist = (token.Position - centerPos).Magnitude
+                if dist <= (radius or 55) then
+                    table.insert(targets, { Token = token, Dist = dist })
+                end
             end
         end
-        if not foundToken then break end
+
+        if #targets > 0 then
+            emptyStreak = 0
+            table.sort(targets, function(a, b) return a.Dist < b.Dist end)
+            for _, item in ipairs(targets) do
+                local tPart = item.Token
+                if tPart and tPart.Parent then
+                    root.CFrame = CFrame.new(tPart.Position + Vector3.new(0, 0.4, 0))
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    pcall(function()
+                        if firetouchinterest then
+                            firetouchinterest(root, tPart, 0)
+                            firetouchinterest(root, tPart, 1)
+                        end
+                    end)
+                    task.wait(0.03)
+                end
+            end
+        else
+            emptyStreak = emptyStreak + 1
+            if emptyStreak >= 3 then break end
+            task.wait(0.12)
+        end
     end
 end
 
@@ -128,6 +153,7 @@ local function executeAphidElimination(aphid, mRoot, mHum)
     if not root or not mRoot then return end
 
     local aphidName = aphid.Name
+    local lastDeathPos = mRoot.Position
     State.Status = "KILLING " .. string.upper(aphidName) .. "!"
 
     local tool = char:FindFirstChildOfClass("Tool")
@@ -138,6 +164,8 @@ local function executeAphidElimination(aphid, mRoot, mHum)
     while aphid.Parent and mRoot.Parent and (tick() - startCombat < 35) do
         if _G.APHID_HUNTER_SESSION ~= sessionKey or not State.Enabled then break end
         if mHum and mHum.Health <= 0 then break end
+
+        lastDeathPos = mRoot.Position
 
         -- Hover tightly above the Aphid (safe from 4.5-stud bite radius)
         local targetCF = CFrame.new(mRoot.Position + Vector3.new(0, State.KillHoverHeight, 0))
@@ -162,11 +190,14 @@ local function executeAphidElimination(aphid, mRoot, mHum)
         Stats.DiamondAphids = Stats.DiamondAphids + 1
     end
 
-    State.Status = "Killed " .. aphidName .. "! Collecting loot..."
+    print(string.format("[Aphid Hunter] 💀 %s ELIMINATED! Vacuuming loot at %s...", aphidName, tostring(lastDeathPos)))
 
-    -- Collect all dropped tokens
-    if State.CollectDrops and mRoot and mRoot.Parent then
-        collectLootTokens(mRoot.Position, 40)
+    -- Wait 0.35s for server to erupt tokens into Workspace.Collectibles
+    task.wait(0.35)
+
+    -- Collect all dropped tokens unconditionally using the recorded death position
+    if State.CollectDrops and lastDeathPos then
+        collectLootTokens(lastDeathPos, 55)
     end
 end
 
