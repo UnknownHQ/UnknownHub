@@ -1,6 +1,6 @@
 -- =========================================================================
 -- UNKNOWN HUB вЂ” APHID HUNTER & DAILY LEADERBOARD EXTERMINATOR
--- Fast-Sweep Leaf Teleporter + Instant Aphid Spawner/Killer + Precise Token Vacuum
+-- Fast-Sweep Leaf Teleporter + Instant Aphid Spawner/Killer + Persistent Tile Harvester
 -- Goal: Top 5 Daily Aphid Exterminators Leaderboard -> Wavy Cyan Hive Skin
 -- Target: Bee Swarm Simulator (PlaceId: 1537690962)
 -- =========================================================================
@@ -22,7 +22,6 @@ _G.APHID_HUNTER_SESSION = sessionKey
 
 local State = {
     Enabled = true,
-    FastSweepDelay = 0.12,   -- Time between scoops
     KillHoverHeight = 5.5,   -- Stay safely above Aphid hit radius (4.5 studs)
     CollectDrops = true,
     CollectLeafTokens = true,
@@ -109,7 +108,7 @@ local function getActiveLeafFlowers()
     local leaves = {}
     for _, f in ipairs(flowers:GetChildren()) do
         local burst = f:FindFirstChild("LeafBurst")
-        -- Must have LeafBurst, must be Enabled, and Rate must be > 0 (not a dead/expiring particle)
+        -- Must have LeafBurst, must be Enabled, and Rate must be > 0 (not dead/expiring particle)
         if burst and burst.Enabled and burst.Rate > 0 and not sweptDebounce[f.Name] then
             local p = f.Position
             -- Validate main mountain boundaries
@@ -156,8 +155,8 @@ local function vacuumLeafDrops(flowerPos)
     end)
 
     -- Remain anchored at the flower tile for server eruption (~0.85s)
-    while (tick() - startT) < 1.05 do
-        task.wait(0.05)
+    while (tick() - startT) < 1.1 do
+        task.wait(0.04)
         for _, token in ipairs(collectibles:GetChildren()) do
             if token:IsA("BasePart") and token.Name == "C" and not touchedTokens[token] then
                 local dist = (token.Position - flowerPos).Magnitude
@@ -270,6 +269,10 @@ local function executeAphidElimination(aphid, mRoot, mHum)
         root.AssemblyLinearVelocity = Vector3.zero
 
         -- Trigger collector swing
+        pcall(function()
+            local LocalCollect = require(ReplicatedStorage.Collectors.LocalCollect)
+            if LocalCollect and LocalCollect.Run then LocalCollect.Run() end
+        end)
         if tool then tool:Activate() end
         if toolCollect then
             pcall(function() toolCollect:FireServer() end)
@@ -520,14 +523,7 @@ task.spawn(function()
             return (a.Position - myPos).Magnitude < (b.Position - myPos).Magnitude
         end)
 
-        -- 4. Equip tool
-        local tool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-        if tool and tool.Parent ~= char then tool.Parent = char end
-
-        local events = ReplicatedStorage:FindFirstChild("Events")
-        local toolCollect = events and events:FindFirstChild("ToolCollect")
-
-        -- 5. Sweep through leaves
+        -- 4. Sweep through leaves
         for _, flower in ipairs(leaves) do
             if _G.APHID_HUNTER_SESSION ~= sessionKey or not State.Enabled then break end
 
@@ -550,28 +546,43 @@ task.spawn(function()
             root.CFrame = CFrame.new(flowerPos + Vector3.new(0, 0.4, 0))
             root.AssemblyLinearVelocity = Vector3.zero
 
-            -- Fire touch interest on flower to register physical tile contact
-            pcall(function()
-                if firetouchinterest then
-                    firetouchinterest(root, flower, 0)
-                    firetouchinterest(root, flower, 1)
-                end
-            end)
+            -- Persistent multi-scoop harvest loop until LeafBurst is consumed
+            local startHarvest = tick()
+            local scoops = 0
+            while flower:FindFirstChild("LeafBurst") and (tick() - startHarvest) < 3.2 do
+                local burst = flower:FindFirstChild("LeafBurst")
+                if not burst or not burst.Enabled or burst.Rate <= 0 then break end
 
-            -- Synchronize with collector cooldown for maximum scoop power
-            pcall(function()
-                local LocalCollect = require(ReplicatedStorage.Collectors.LocalCollect)
-                if LocalCollect and LocalCollect.GetCooldownNow then
-                    local cd = LocalCollect.GetCooldownNow()
-                    if cd and cd > 0 then task.wait(cd + 0.02) end
-                    LocalCollect.Run()
+                -- Check if Aphid spawned during harvesting
+                local liveAphid, aRoot, aHum = findActiveAphid()
+                if liveAphid and aRoot then
+                    executeAphidElimination(liveAphid, aRoot, aHum)
+                    break
                 end
-            end)
 
-            -- Backup swing burst
-            if tool then tool:Activate() end
-            if toolCollect then
-                pcall(function() toolCollect:FireServer() end)
+                pcall(function()
+                    local LocalCollect = require(ReplicatedStorage.Collectors.LocalCollect)
+                    if LocalCollect and LocalCollect.GetCooldownNow then
+                        local cd = LocalCollect.GetCooldownNow()
+                        if cd and cd > 0 then task.wait(cd + 0.02) end
+                        LocalCollect.Run()
+                    end
+                end)
+                scoops = scoops + 1
+
+                -- Micro-step across flower tile to cover the full 4x4 pollen area
+                local offset = (scoops % 2 == 0) and Vector3.new(0.8, 0.4, 0.8) or Vector3.new(-0.8, 0.4, -0.8)
+                root.CFrame = CFrame.new(flowerPos + offset)
+                root.AssemblyLinearVelocity = Vector3.zero
+
+                pcall(function()
+                    if firetouchinterest then
+                        firetouchinterest(root, flower, 0)
+                        firetouchinterest(root, flower, 1)
+                    end
+                end)
+
+                task.wait(0.18)
             end
 
             Stats.LeavesSwept = Stats.LeavesSwept + 1
