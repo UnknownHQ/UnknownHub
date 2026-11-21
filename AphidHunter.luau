@@ -1,6 +1,6 @@
 -- =========================================================================
 -- UNKNOWN HUB вЂ” APHID HUNTER & DAILY LEADERBOARD EXTERMINATOR
--- Fast-Sweep Leaf Teleporter + Instant Aphid Spawner/Killer + Persistent Tile Harvester
+-- Real-Time Dynamic Target Harvester + Instant Aphid Exterminator
 -- Goal: Top 5 Daily Aphid Exterminators Leaderboard -> Wavy Cyan Hive Skin
 -- Target: Bee Swarm Simulator (PlaceId: 1537690962)
 -- =========================================================================
@@ -44,7 +44,7 @@ local Stats = {
 
 -- Leaf debounce table to prevent duplicate sweeps
 local sweptDebounce = {}
-local DEBOUNCE_TIME = 15.0
+local DEBOUNCE_TIME = 16.0
 
 -- Anti-AFK
 pcall(function()
@@ -92,10 +92,12 @@ local function findActiveAphid()
     return nil, nil, nil
 end
 
--- Scan for all truly ACTIVE LeafBurst flowers on the main mountain (debounced)
-local function getActiveLeafFlowers()
+-- Dynamic real-time leaf picker: selects the closest genuinely active leaf at this exact millisecond
+local function getBestActiveLeaf()
     local flowers = Workspace:FindFirstChild("Flowers")
-    if not flowers then return {} end
+    local char = getCharacter()
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not flowers or not root then return nil, 0 end
 
     local now = tick()
     -- Clean expired debounce entries
@@ -105,19 +107,29 @@ local function getActiveLeafFlowers()
         end
     end
 
-    local leaves = {}
+    local myPos = root.Position
+    local best = nil
+    local bestDist = math.huge
+    local totalActive = 0
+
     for _, f in ipairs(flowers:GetChildren()) do
         local burst = f:FindFirstChild("LeafBurst")
-        -- Must have LeafBurst, must be Enabled, and Rate must be > 0 (not dead/expiring particle)
+        -- Strict validation: Must have LeafBurst, must be Enabled, and Rate > 0
         if burst and burst.Enabled and burst.Rate > 0 and not sweptDebounce[f.Name] then
             local p = f.Position
             -- Validate main mountain boundaries
             if p.Y >= 0 and p.Y <= 200 and math.abs(p.X) <= 600 and math.abs(p.Z) <= 700 then
-                table.insert(leaves, f)
+                totalActive = totalActive + 1
+                local dist = (p - myPos).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    best = f
+                end
             end
         end
     end
-    return leaves
+
+    return best, totalActive
 end
 
 -- Vacuum leaf drops strictly at the leaf tile (18-stud radius with exact 1:1 deduplication)
@@ -477,10 +489,10 @@ pcall(function()
 end)
 
 -- =========================================================================
--- Main Rapid Leaf-Sweep & Aphid Hunter Loop
+-- Main Rapid Leaf-Sweep & Aphid Hunter Loop (Dynamic Real-Time Targeting)
 -- =========================================================================
 task.spawn(function()
-    print("[Aphid Hunter] рџљЂ Hyper-Fast Leaf Teleporter & Aphid Hunter ENGAGED!")
+    print("[Aphid Hunter] рџљЂ Real-Time Leaf Harvester & Aphid Hunter ENGAGED!")
 
     while _G.APHID_HUNTER_SESSION == sessionKey do
         if not State.Enabled then
@@ -496,17 +508,17 @@ task.spawn(function()
         end
         stabilizeCharacter(char)
 
-        -- 1. PRIORITY CHECK: Is an Aphid already alive anywhere in the server?
+        -- 1. ABSOLUTE PRIORITY: Is an Aphid alive anywhere in the server?
         local aphid, mRoot, mHum = findActiveAphid()
         if aphid and mRoot then
             executeAphidElimination(aphid, mRoot, mHum)
             continue
         end
 
-        -- 2. Scan map for LeafBurst flowers
-        local leaves = getActiveLeafFlowers()
-        if #leaves == 0 then
-            State.Status = "No leaves found. Waiting for spawn..."
+        -- 2. DYNAMIC REAL-TIME LEAF PICKER (never use a stale list!)
+        local flower, totalActiveLeaves = getBestActiveLeaf()
+        if not flower then
+            State.Status = "No active leaves on mountain. Waiting for spawn..."
             if State.AutoServerHopWhenDry then
                 hopToFreshServer()
                 break
@@ -515,92 +527,78 @@ task.spawn(function()
             continue
         end
 
-        State.Status = string.format("Sweeping %d active leaves...", #leaves)
+        State.Status = string.format("Harvesting leaf (%d active on map)...", totalActiveLeaves)
 
-        -- 3. Sort leaves by distance to minimize transit time
-        local myPos = root.Position
-        table.sort(leaves, function(a, b)
-            return (a.Position - myPos).Magnitude < (b.Position - myPos).Magnitude
-        end)
+        -- 3. Mark debounce immediately
+        sweptDebounce[flower.Name] = tick() + DEBOUNCE_TIME
+        Stats.LeavesChecked = Stats.LeavesChecked + 1
 
-        -- 4. Sweep through leaves
-        for _, flower in ipairs(leaves) do
-            if _G.APHID_HUNTER_SESSION ~= sessionKey or not State.Enabled then break end
+        -- 4. Teleport directly onto the flower surface (Y + 0.4)
+        local flowerPos = flower.Position
+        root.CFrame = CFrame.new(flowerPos + Vector3.new(0, 0.4, 0))
+        root.AssemblyLinearVelocity = Vector3.zero
 
-            -- Skip if already swept recently (anti-duplicate guard)
-            if sweptDebounce[flower.Name] then continue end
+        -- 5. Verification: Did it despawn while moving?
+        local burst = flower:FindFirstChild("LeafBurst")
+        if not burst or not burst.Enabled or burst.Rate <= 0 then
+            -- Leaf was eaten by bees or expired before arrival, skip immediately (0 wasted delay)
+            continue
+        end
 
-            -- Interruption check: did an Aphid spawn while moving?
+        -- 6. Persistent multi-scoop harvest loop until LeafBurst is consumed
+        local startHarvest = tick()
+        local scoops = 0
+        while flower:FindFirstChild("LeafBurst") and (tick() - startHarvest) < 3.2 do
+            local b = flower:FindFirstChild("LeafBurst")
+            if not b or not b.Enabled or b.Rate <= 0 then break end
+
+            -- Check if Aphid spawned during harvesting
             local liveAphid, aRoot, aHum = findActiveAphid()
             if liveAphid and aRoot then
                 executeAphidElimination(liveAphid, aRoot, aHum)
                 break
             end
 
-            -- Mark debounce immediately so this flower is never re-processed within 15s
-            sweptDebounce[flower.Name] = tick() + DEBOUNCE_TIME
-            Stats.LeavesChecked = Stats.LeavesChecked + 1
+            pcall(function()
+                local LocalCollect = require(ReplicatedStorage.Collectors.LocalCollect)
+                if LocalCollect and LocalCollect.GetCooldownNow then
+                    local cd = LocalCollect.GetCooldownNow()
+                    if cd and cd > 0 then task.wait(cd + 0.02) end
+                    LocalCollect.Run()
+                end
+            end)
+            scoops = scoops + 1
 
-            -- Teleport directly onto the flower surface (Y + 0.4)
-            local flowerPos = flower.Position
-            root.CFrame = CFrame.new(flowerPos + Vector3.new(0, 0.4, 0))
+            -- Micro-step across flower tile to cover the full 4x4 pollen area
+            local offset = (scoops % 2 == 0) and Vector3.new(0.8, 0.4, 0.8) or Vector3.new(-0.8, 0.4, -0.8)
+            root.CFrame = CFrame.new(flowerPos + offset)
             root.AssemblyLinearVelocity = Vector3.zero
 
-            -- Persistent multi-scoop harvest loop until LeafBurst is consumed
-            local startHarvest = tick()
-            local scoops = 0
-            while flower:FindFirstChild("LeafBurst") and (tick() - startHarvest) < 3.2 do
-                local burst = flower:FindFirstChild("LeafBurst")
-                if not burst or not burst.Enabled or burst.Rate <= 0 then break end
-
-                -- Check if Aphid spawned during harvesting
-                local liveAphid, aRoot, aHum = findActiveAphid()
-                if liveAphid and aRoot then
-                    executeAphidElimination(liveAphid, aRoot, aHum)
-                    break
+            pcall(function()
+                if firetouchinterest then
+                    firetouchinterest(root, flower, 0)
+                    firetouchinterest(root, flower, 1)
                 end
+            end)
 
-                pcall(function()
-                    local LocalCollect = require(ReplicatedStorage.Collectors.LocalCollect)
-                    if LocalCollect and LocalCollect.GetCooldownNow then
-                        local cd = LocalCollect.GetCooldownNow()
-                        if cd and cd > 0 then task.wait(cd + 0.02) end
-                        LocalCollect.Run()
-                    end
-                end)
-                scoops = scoops + 1
-
-                -- Micro-step across flower tile to cover the full 4x4 pollen area
-                local offset = (scoops % 2 == 0) and Vector3.new(0.8, 0.4, 0.8) or Vector3.new(-0.8, 0.4, -0.8)
-                root.CFrame = CFrame.new(flowerPos + offset)
-                root.AssemblyLinearVelocity = Vector3.zero
-
-                pcall(function()
-                    if firetouchinterest then
-                        firetouchinterest(root, flower, 0)
-                        firetouchinterest(root, flower, 1)
-                    end
-                end)
-
-                task.wait(0.18)
-            end
-
-            Stats.LeavesSwept = Stats.LeavesSwept + 1
-
-            -- Check if Aphid spawned right at this flower
-            local spawnedAphid, spRoot, spHum = findActiveAphid()
-            if spawnedAphid and spRoot then
-                executeAphidElimination(spawnedAphid, spRoot, spHum)
-                break
-            end
-
-            -- Proactive token vacuum: stays anchored on flower tile, catches only real leaf drops (18 studs)
-            if State.CollectLeafTokens then
-                vacuumLeafDrops(flowerPos)
-            end
+            task.wait(0.18)
         end
 
-        task.wait(0.05)
+        Stats.LeavesSwept = Stats.LeavesSwept + 1
+
+        -- 7. Check if Aphid spawned right at this flower
+        local spawnedAphid, spRoot, spHum = findActiveAphid()
+        if spawnedAphid and spRoot then
+            executeAphidElimination(spawnedAphid, spRoot, spHum)
+            continue
+        end
+
+        -- 8. Proactive token vacuum: stays anchored on flower tile, catches only real leaf drops (18 studs)
+        if State.CollectLeafTokens then
+            vacuumLeafDrops(flowerPos)
+        end
+
+        task.wait(0.04)
     end
 end)
 
