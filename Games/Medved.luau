@@ -172,7 +172,7 @@ local Config = {
     SpawnAsBear = "booboo",
     AutoFriendlyBear = true,
     RageMode = false,
-    RageModeMinLevel = 20,
+    RageModeMinLevel = 1,
     SelectedBears = { ["All"] = true },
     SelectedBearTarget = "All",
     SafeZoneLowHP = true,
@@ -284,7 +284,8 @@ local locationRegistry = {
     { name = "Power Grid", target = "PowerGrid", fallback = Vector3.new(-555.5, -111.5, -270.0) },
     { name = "Research Facility", target = "OutsideResearchFacility", fallback = Vector3.new(-17.0, -136.0, -396.0) },
     { name = "Ruined Playground", target = "RuinedPlayground", fallback = Vector3.new(-1052.9, -111.5, 646.5) },
-    { name = "S.T.A.R. Labs", target = "STARLabs", fallback = Vector3.new(724.4, -111.5, 401.5) },
+    { name = "S.T.A.R. Labs", target = "STARLabs", fallback = Vector3.new(724.4, -99.0, 401.5) },
+    { name = "Sign Town (Abandoned Town)", target = "AbandonedTown", fallback = Vector3.new(53.0, -125.0, 245.0) },
     { name = "Signal Tower", target = "SignalTower", fallback = Vector3.new(-650.1, -111.5, 444.0) },
     { name = "Small Cave", target = "SmallCave", fallback = Vector3.new(-16.0, -139.5, 422.0) },
     { name = "South-East Cave (Corner 2)", target = "CornerCave2", fallback = Vector3.new(1154.2, -111.0, 1167.2) },
@@ -293,7 +294,7 @@ local locationRegistry = {
     { name = "The Bunker", target = "TheBunker", fallback = Vector3.new(-698.5, -111.5, -664.0) },
     { name = "The Hole", target = "TheHole", fallback = Vector3.new(-763.5, -111.5, -1198.5) },
     { name = "The Maze (Entrance)", target = "TheMazeEntrance", fallback = Vector3.new(20.0, -130.0, -185.0) },
-    { name = "The Maze (End)", target = "TheMazeEnd", fallback = Vector3.new(1140.9, -144.9, 73.1) },
+    { name = "The Maze (End)", target = "TheMazeEnd", fallback = Vector3.new(1147.8, -147.0, 73.5) },
     { name = "The Tunnel", target = "TheTunnel", fallback = Vector3.new(-1161.5, -111.5, -45.5) }
 }
 
@@ -306,28 +307,21 @@ local function resolveLocationPosition(item)
     elseif item.target == "TheBaseEntrance" then
         return Vector3.new(47.0, -141.0, 42.0)
     elseif item.target == "TheMazeEntrance" then
-        local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("TheMaze")
-        if poi then
-            return poi:GetPivot().Position + Vector3.new(0, 3.5, 0)
-        end
-        return item.fallback + Vector3.new(0, 3.5, 0)
+        return Vector3.new(20.0, -130.0, -185.0)
     elseif item.target == "TheMazeEnd" then
-        -- Final Chamber: Teleport to the end where the bells and 5 crates are located
-        local chamberPos = Vector3.new(1140.9, -144.9, 73.1)
-        local cratesFolder = Workspace:FindFirstChild("Crates")
-        if cratesFolder then
-            for _, c in ipairs(cratesFolder:GetChildren()) do
-                local cp = c:FindFirstChild("Crate") or c.PrimaryPart or c:FindFirstChildWhichIsA("BasePart")
-                if cp and (cp.Position - chamberPos).Magnitude < 75 then
-                    return cp.Position + Vector3.new(0, 3.5, 0)
-                end
-            end
-        end
-        return chamberPos + Vector3.new(0, 3.5, 0)
+        -- Final Chamber: Inside TheMaze underground chamber
+        return Vector3.new(1147.8, -147.0, 73.5)
+    elseif item.target == "STARLabs" then
+        -- Ground floor level inside STAR Labs
+        return Vector3.new(724.4, -99.0, 401.5)
+    elseif item.target == "AbandonedTown" then
+        -- Central plaza of Abandoned Town near Little Bell and Crates
+        return Vector3.new(53.0, -125.0, 245.0)
+    elseif item.target == "SignalTower" then
+        return Vector3.new(-650.1, -111.5, 444.0)
     elseif item.target == "LeninStatue" then
         local poi = Workspace:FindFirstChild("TaggedAreas") and Workspace.TaggedAreas:FindFirstChild("PointsOfInterest") and Workspace.TaggedAreas.PointsOfInterest:FindFirstChild("LeninStatue")
         if poi then
-            -- Position safely in open courtyard in front of statue
             return poi.Position + Vector3.new(0, 2.0, 21.5)
         end
         return item.fallback + Vector3.new(0, 2.0, 0)
@@ -376,14 +370,14 @@ local function safeTeleport(targetPos, locationName)
 
     -- 1. Explicit Chunk Streaming Request (Crucial for remote chunks like The Maze End 1,100 studs away)
     pcall(function()
-        LocalPlayer:RequestStreamAroundAsync(targetPos)
+        LocalPlayer:RequestStreamAroundAsync(targetPos, 5)
     end)
 
     -- 2. Spawn temporary invisible anchored safety landing pad to prevent falling into void during chunk streaming
     local pad = Instance.new("Part")
     pad.Name = "SafeLandingPad"
-    pad.Size = Vector3.new(24, 2, 24)
-    pad.CFrame = CFrame.new(targetPos - Vector3.new(0, 1.0, 0))
+    pad.Size = Vector3.new(30, 4, 30)
+    pad.CFrame = CFrame.new(targetPos - Vector3.new(0, 2.0, 0))
     pad.Anchored = true
     pad.Transparency = 1
     pad.CanCollide = true
@@ -392,13 +386,20 @@ local function safeTeleport(targetPos, locationName)
     local spawnOffset = Vector3.new(0, 2.5, 0)
     local destCFrame = CFrame.new(targetPos + spawnOffset)
 
-    -- Instant Smooth Teleport: Zero delay, zero slowdown, zero anchor lock!
+    -- Anchor briefly for 0.35s so player doesn't fall through unstreamed world geometry
+    root.Anchored = true
     char:PivotTo(destCFrame)
     root.AssemblyLinearVelocity = Vector3.zero
     root.AssemblyAngularVelocity = Vector3.zero
 
-    -- Clean up safety landing pad after 1.5 seconds
-    task.delay(1.5, function()
+    task.delay(0.35, function()
+        if root and root.Parent then
+            root.Anchored = false
+        end
+    end)
+
+    -- Clean up safety landing pad after 3.0 seconds
+    task.delay(3.0, function()
         if pad and pad.Parent then
             pad:Destroy()
         end
@@ -2641,7 +2642,7 @@ flightHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
                 end
 
                 local curLvl = char:GetAttribute("BearLevel") or 1
-                local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 20))
+                local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 1))
                 if Config.StealthFarm and Config.StealthRageInterlock and isAnyOtherPlayerNear(root.Position, Config.StealthSafeRadius or 120) then
                     isRageActive = false
                 end
@@ -2838,7 +2839,7 @@ task.spawn(function()
     while _G.MEDVED_SESSION == currentScriptSession do
         local pChar = LocalPlayer.Character
         local isHyperActive = pChar and ((pChar:GetAttribute("TransformedToBear") or ""):lower():find("hyper") ~= nil)
-        task.wait(0.02)
+        task.wait((Config.RageMode or isHyperActive) and 0.005 or 0.02)
         if not Config.AutoFarmBears and not Config.StealthFarm then
             isFleeingLowHP = false
             activeFlightBear = nil
@@ -3254,7 +3255,7 @@ task.spawn(function()
         end
 
         local curLvl = char:GetAttribute("BearLevel") or 1
-        local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 20))
+        local isRageActive = Config.RageMode and (curLvl >= (Config.RageModeMinLevel or 1))
         if Config.StealthFarm and Config.StealthRageInterlock and isAnyOtherPlayerNear(root.Position, Config.StealthSafeRadius or 120) then
             isRageActive = false
         end
@@ -3382,7 +3383,8 @@ task.spawn(function()
             if bestTool then
                 applyWeaponMods(bestTool)
                 -- Execute melee swing from tight blindspot with dual network dispatch
-                if tick() - lastMeleeSwing >= 0.16 then
+                local meleeInterval = isRageActive and 0.04 or 0.16
+                if tick() - lastMeleeSwing >= meleeInterval then
                     lastMeleeSwing = tick()
                     pcall(function()
                         bestTool:Activate()
@@ -3460,7 +3462,8 @@ task.spawn(function()
                     for step = 1, #hotbarSlots do
                         bearVariantIndex = (bearVariantIndex % #hotbarSlots) + 1
                         local candidateSlot = hotbarSlots[bearVariantIndex]
-                        if isAbilityReady(candidateSlot) and (tick() - lastBearAttack >= 0.10) then
+                        local variantDelay = isRageActive and 0.02 or 0.10
+                        if isAbilityReady(candidateSlot) and (tick() - lastBearAttack >= variantDelay) then
                             lastBearAttack = tick()
                             if bearAim and targetHitPart and targetHitPart.Parent then
                                 local hitOffset = targetHitPart.CFrame:PointToObjectSpace(aimPos)
@@ -3471,7 +3474,8 @@ task.spawn(function()
                             pcall(function()
                                 bearAbility:FireServer("Use", candidateSlot, aimPos)
                             end)
-                            abilityCooldowns[tostring(candidateSlot)] = workspace:GetServerTimeNow() + 0.85
+                            local slotCd = isRageActive and 0.10 or 0.85
+                            abilityCooldowns[tostring(candidateSlot)] = workspace:GetServerTimeNow() + slotCd
                             abilityCooldowns[candidateSlot] = abilityCooldowns[tostring(candidateSlot)]
                             dispatchedVariant = true
                             break
@@ -3480,10 +3484,10 @@ task.spawn(function()
                 end
 
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream / Hyper Sonic Scream)
-                -- Dynamic M1 Cooldown Engine: Hypersonic Boo-Boo has 0.04s attack cooldown; standard bears have ~1.5s
+                -- Dynamic M1 Cooldown Engine: Hypersonic Boo-Boo has 0.03s attack cooldown; standard bears have ~0.5s
                 local isHypersonic = myBearName:find("hyper") ~= nil
                 local isIceMage = myBearName:find("ice") ~= nil
-                local m1MinInterval = isRageActive and 0.01 or (isHypersonic and 0.04 or (isIceMage and 0.08 or (myBearName:find("boo") and 0.08 or 0.15)))
+                local m1MinInterval = isRageActive and 0.005 or (isHypersonic and 0.03 or (isIceMage and 0.08 or (myBearName:find("boo") and 0.08 or 0.15)))
                 local defaultReady = isRageActive or isAbilityReady("Default")
                 if defaultReady and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
@@ -3515,9 +3519,9 @@ task.spawn(function()
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", currentAimPos)
                     end)
-                    -- Enforce predictive cooldown floor (0.01s in Rage Mode, 0.04s for Hypersonic Boo-Boo, 0.65s for Boo-Boo)
+                    -- Enforce predictive cooldown floor (0.005s in Rage Mode, 0.03s for Hypersonic Boo-Boo, 0.50s for Boo-Boo)
                     local sTime = workspace:GetServerTimeNow()
-                    local cdFloor = isRageActive and 0.01 or (isHypersonic and 0.04 or (myBearName:find("boo") and 0.65 or 1.25))
+                    local cdFloor = isRageActive and 0.005 or (isHypersonic and 0.03 or (myBearName:find("boo") and 0.50 or 0.90))
                     abilityCooldowns["Default"] = math.max(abilityCooldowns["Default"] or 0, sTime + cdFloor)
                 end
 
@@ -4333,7 +4337,7 @@ end)
 
 Hub.CreateToggle(farmTab, "Enable Farm Rage Mode", Config.RageMode, function(val)
     Config.RageMode = val
-    Hub.Notify("Rage Mode", val and ("Farm Rage Mode: ACTIVE (At Lvl " .. tostring(Config.RageModeMinLevel) .. "+)") or "Farm Rage Mode: OFF", 2)
+    Hub.Notify("Rage Mode", val and "Farm Rage Mode: ACTIVE (Overclocked DPS & Rapid Attacks)" or "Farm Rage Mode: OFF", 2)
 end)
 
 Hub.CreateSlider(farmTab, "Rage Mode Min Level", 1, 50, Config.RageModeMinLevel, "Lvl", function(val)
@@ -4959,6 +4963,158 @@ local miscTab = Hub.CreateTab("Misc", {
     Color = Color3.fromRGB(180, 100, 255),
     ActiveColor = Color3.fromRGB(205, 130, 255)
 })
+
+--------------------------------------------------------------------------------
+-- LEADERBOARD RANKINGS & PLAYER STATS (MISC SUITE)
+--------------------------------------------------------------------------------
+Hub.CreateSection(miscTab, "🏆 Leaderboard Rankings & Stats")
+
+local function getLeaderboardStatsSummary()
+    local lp = game:GetService("Players").LocalPlayer
+    local pg = lp:FindFirstChild("PlayerGui")
+    if not pg then return "PlayerGui not loaded!" end
+
+    local killsGui = pg:FindFirstChild("Leaderboard_BearsKilled")
+    local cashGui = pg:FindFirstChild("Leaderboard_CashEarned")
+    local timeGui = pg:FindFirstChild("Leaderboard_TimePlayed")
+
+    local killsRank = killsGui and killsGui:FindFirstChild("You") and killsGui.You:FindFirstChild("Rank") and killsGui.You.Rank.Text or "Unranked"
+    local killsVal = killsGui and killsGui:FindFirstChild("You") and killsGui.You:FindFirstChild("Value") and killsGui.You.Value.Text or "0"
+
+    local cashRank = cashGui and cashGui:FindFirstChild("You") and cashGui.You:FindFirstChild("Rank") and cashGui.You.Rank.Text or "Unranked"
+    local cashVal = cashGui and cashGui:FindFirstChild("You") and cashGui.You:FindFirstChild("Value") and cashGui.You.Value.Text or "$0"
+
+    local timeRank = timeGui and timeGui:FindFirstChild("You") and timeGui.You:FindFirstChild("Rank") and timeGui.You.Rank.Text or "Unranked"
+    local timeVal = timeGui and timeGui:FindFirstChild("You") and timeGui.You:FindFirstChild("Value") and timeGui.You.Value.Text or "0m"
+
+    local ls = lp:FindFirstChild("leaderstats")
+    local currentCash = ls and ls:FindFirstChild("Cash") and tostring(ls.Cash.Value) or "N/A"
+
+    return string.format("🐻 Bears Killed: %s (Rank %s)\n💰 Cash Earned: %s (Rank %s)\n⏱️ Time Played: %s (Rank %s)\n💵 Wallet Cash: $%s",
+        killsVal, killsRank, cashVal, cashRank, timeVal, timeRank, currentCash)
+end
+
+Hub.CreateButton(miscTab, "📊 View Live Leaderboard Ranks & Stats", function()
+    local summary = getLeaderboardStatsSummary()
+    Hub.Notify("Leaderboard Standing", summary, 6)
+end)
+
+Hub.CreateButton(miscTab, "🐻 Bears Killed Standing", function()
+    local lp = game:GetService("Players").LocalPlayer
+    local pg = lp:FindFirstChild("PlayerGui")
+    local killsGui = pg and pg:FindFirstChild("Leaderboard_BearsKilled")
+    local r = killsGui and killsGui:FindFirstChild("You") and killsGui.You:FindFirstChild("Rank") and killsGui.You.Rank.Text or "Unranked"
+    local v = killsGui and killsGui:FindFirstChild("You") and killsGui.You:FindFirstChild("Value") and killsGui.You.Value.Text or "0"
+    Hub.Notify("Bears Killed", "You killed " .. v .. " bears! (Leaderboard Rank: " .. r .. ")", 4)
+end)
+
+Hub.CreateButton(miscTab, "💰 Cash Earned Standing", function()
+    local lp = game:GetService("Players").LocalPlayer
+    local pg = lp:FindFirstChild("PlayerGui")
+    local cashGui = pg and pg:FindFirstChild("Leaderboard_CashEarned")
+    local r = cashGui and cashGui:FindFirstChild("You") and cashGui.You:FindFirstChild("Rank") and cashGui.You.Rank.Text or "Unranked"
+    local v = cashGui and cashGui:FindFirstChild("You") and cashGui.You:FindFirstChild("Value") and cashGui.You.Value.Text or "$0"
+    Hub.Notify("Cash Earned", "Total Earned: " .. v .. " (Leaderboard Rank: " .. r .. ")", 4)
+end)
+
+Hub.CreateButton(miscTab, "⏱️ Time Played Standing", function()
+    local lp = game:GetService("Players").LocalPlayer
+    local pg = lp:FindFirstChild("PlayerGui")
+    local timeGui = pg and pg:FindFirstChild("Leaderboard_TimePlayed")
+    local r = timeGui and timeGui:FindFirstChild("You") and timeGui.You:FindFirstChild("Rank") and timeGui.You.Rank.Text or "Unranked"
+    local v = timeGui and timeGui:FindFirstChild("You") and timeGui.You:FindFirstChild("Value") and timeGui.You.Value.Text or "0m"
+    Hub.Notify("Time Played", "Total Playtime: " .. v .. " (Leaderboard Rank: " .. r .. ")", 4)
+end)
+
+--------------------------------------------------------------------------------
+-- WORM BEAR MYTH & VISUAL BOSS SIMULATOR
+--------------------------------------------------------------------------------
+Hub.CreateSection(miscTab, "🐛 Worm Bear Myth & Boss Simulator")
+
+local wormVisualActive = false
+local wormVisualModel = nil
+local wormAnimThread = nil
+
+Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Boss Slither)", false, function(val)
+    wormVisualActive = val
+    if val then
+        if wormVisualModel then wormVisualModel:Destroy() end
+        local lp = game:GetService("Players").LocalPlayer
+        local char = lp.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then
+            Hub.Notify("Worm Bear", "Character not found!", 2)
+            return
+        end
+
+        local CollectionService = game:GetService("CollectionService")
+        local bearsFolder = Workspace:FindFirstChild("Bears") or Workspace
+
+        local model = Instance.new("Model")
+        model.Name = "WormBear"
+        model:SetAttribute("BearID", "WormBear")
+        model:SetAttribute("Segments", 14)
+        model:SetAttribute("Spacing", 8.6)
+        model:SetAttribute("Speed", 45)
+        model:SetAttribute("Burrowing", true)
+
+        local head = Instance.new("Part")
+        head.Name = "Head"
+        head.Size = Vector3.new(6, 6, 6)
+        head.BrickColor = BrickColor.new("Crimson")
+        head.Material = Enum.Material.CorrodedMetal
+        head.CanCollide = false
+        head.Anchored = true
+        head.CFrame = root.CFrame * CFrame.new(0, 0, -20)
+        head.Parent = model
+        model.PrimaryPart = head
+        model.Parent = bearsFolder
+
+        CollectionService:AddTag(model, "BearEntity")
+        wormVisualModel = model
+
+        Hub.Notify("Worm Bear", "Worm Bear Spawned! 14-segment crawling centipede slithering around you!", 4)
+
+        wormAnimThread = task.spawn(function()
+            local angle = 0
+            local radius = 26
+            while wormVisualActive and model and model.Parent and head and head.Parent do
+                local cRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+                local center = cRoot and cRoot.Position or root.Position
+                angle = angle + 0.04
+                local x = center.X + math.cos(angle) * radius
+                local z = center.Z + math.sin(angle) * radius
+                local y = center.Y - 1.0 + math.sin(angle * 2.5) * 2.0
+                local nextPos = Vector3.new(x, y, z)
+                local lookAtPos = Vector3.new(
+                    center.X + math.cos(angle + 0.08) * radius,
+                    center.Y - 1.0 + math.sin((angle + 0.08) * 2.5) * 2.0,
+                    center.Z + math.sin(angle + 0.08) * radius
+                )
+                head.CFrame = CFrame.lookAt(nextPos, lookAtPos)
+                task.wait(0.02)
+            end
+            if model and model.Parent then
+                model:Destroy()
+            end
+        end)
+    else
+        wormVisualActive = false
+        if wormVisualModel then
+            wormVisualModel:Destroy()
+            wormVisualModel = nil
+        end
+        Hub.Notify("Worm Bear", "Visual Worm Bear dismissed.", 2)
+    end
+end)
+
+Hub.CreateButton(miscTab, "Teleport to Worm Bear Burrow (Secret Lair)", function()
+    safeTeleport(Vector3.new(-679.4, -390.0, -1090.9), "Worm Bear Burrow (Underground)")
+end)
+
+Hub.CreateButton(miscTab, "Teleport to Worm Bear Base Hole", function()
+    safeTeleport(Vector3.new(91.0, -90.0, -79.3), "Worm Bear Base Hole")
+end)
 
 Hub.CreateSection(miscTab, "Prestige & Progression")
 

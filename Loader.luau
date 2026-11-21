@@ -125,12 +125,20 @@ local SupportedGames = {
         desc = "Fast gold autofarm, stage bypass tweening, anti-void protection, chest farmer & auto-rejoin"
     },
     {
-        name = "PLS WAIT",
-        icon = "⏳",
-        placeIds = { 14212732626 },
-        gameIds = { 4851210815 },
-        scriptUrl = BASE_URL .. "/Games/PlsWait.luau",
-        desc = "Auto-spot claimer, anti-push physics lock, whale hunter, inactivity server-hopper, auto-thanker & time tracker"
+        name = "PLS DONATE",
+        icon = "💸",
+        placeIds = { 8737602449, 8943844393 },
+        gameIds = { 3317679266 },
+        scriptUrl = BASE_URL .. "/Games/PlsDonate.luau",
+        desc = "Whale hunter & Premium finder server-hopper, smart inactivity sweet-spot hopper, booth snatcher & RichText styler"
+    },
+    {
+        name = "Sell Dirt",
+        icon = "⛏️",
+        placeIds = { 138762855554319 },
+        gameIds = { 10764774187 },
+        scriptUrl = BASE_URL .. "/Games/SellDirt.luau",
+        desc = "Full auto production line (dig, mold, dry, polish, sell), crank generator, plot upgrader & teleports"
     }
 }
 
