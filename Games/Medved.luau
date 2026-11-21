@@ -5034,8 +5034,34 @@ Hub.CreateSection(miscTab, "🐛 Worm Bear Myth & Boss Simulator")
 local wormVisualActive = false
 local wormVisualModel = nil
 local wormAnimThread = nil
+local wormMode = "Follow Daddy (Boss Guardian / Pet)"
+local wormSpeedVal = 26
+local wormSegmentsVal = 14
 
-Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Boss Slither)", false, function(val)
+Hub.CreateDropdown(miscTab, "Worm Movement Mode", {
+    "Follow Daddy (Boss Guardian / Pet)",
+    "Roam Free (Wild Woods Patrol)",
+    "Circle Stalker (Menacing Orbit)"
+}, wormMode, function(val)
+    wormMode = val
+    Hub.Notify("Worm Bear", "Movement mode set to: " .. val, 2)
+end)
+
+Hub.CreateSlider(miscTab, "Worm Bear Speed", 12, 60, wormSpeedVal, " spd", function(val)
+    wormSpeedVal = val
+    if wormVisualModel and wormVisualModel.Parent then
+        wormVisualModel:SetAttribute("Speed", val)
+    end
+end)
+
+Hub.CreateSlider(miscTab, "Worm Body Segments", 8, 24, wormSegmentsVal, " segs", function(val)
+    wormSegmentsVal = val
+    if wormVisualModel and wormVisualModel.Parent then
+        wormVisualModel:SetAttribute("Segments", val)
+    end
+end)
+
+Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Authentic Boss)", false, function(val)
     wormVisualActive = val
     if val then
         if wormVisualModel then wormVisualModel:Destroy() end
@@ -5047,53 +5073,131 @@ Hub.CreateToggle(miscTab, "Spawn Visual Worm Bear (Boss Slither)", false, functi
             return
         end
 
+        local RS = game:GetService("ReplicatedStorage")
         local CollectionService = game:GetService("CollectionService")
         local bearsFolder = Workspace:FindFirstChild("Bears") or Workspace
 
-        local model = Instance.new("Model")
+        -- Clone authentic official developer model from ReplicatedStorage!
+        local template = RS:FindFirstChild("Bears") and RS.Bears:FindFirstChild("WormBear")
+        local model = template and template:Clone() or Instance.new("Model")
         model.Name = "WormBear"
-        model:SetAttribute("BearID", "WormBear")
-        model:SetAttribute("Segments", 14)
-        model:SetAttribute("Spacing", 8.6)
-        model:SetAttribute("Speed", 45)
-        model:SetAttribute("Burrowing", true)
 
-        local head = Instance.new("Part")
-        head.Name = "Head"
-        head.Size = Vector3.new(6, 6, 6)
-        head.BrickColor = BrickColor.new("Crimson")
-        head.Material = Enum.Material.CorrodedMetal
-        head.CanCollide = false
-        head.Anchored = true
-        head.CFrame = root.CFrame * CFrame.new(0, 0, -20)
-        head.Parent = model
+        local head = model:FindFirstChild("Head")
+        if not head then
+            head = Instance.new("Part")
+            head.Name = "Head"
+            head.Size = Vector3.new(12, 12, 10)
+            head.BrickColor = BrickColor.new("Crimson")
+            head.Material = Enum.Material.CorrodedMetal
+            head.Parent = model
+        end
         model.PrimaryPart = head
+
+        -- Weld all subparts (Eyes, Jaws, BodySegment) to Head so they stay 100% attached and never fall off!
+        for _, p in ipairs(model:GetDescendants()) do
+            if p:IsA("BasePart") then
+                p.CanCollide = false
+                p.Anchored = false
+                if p ~= head then
+                    local weld = Instance.new("WeldConstraint")
+                    weld.Part0 = head
+                    weld.Part1 = p
+                    weld.Parent = p
+                end
+            end
+        end
+        head.Anchored = true
+
+        -- CRITICAL: Burrowing = false ensures segments NEVER despawn or disappear!
+        model:SetAttribute("BearID", "WormBear")
+        model:SetAttribute("Segments", wormSegmentsVal or 14)
+        model:SetAttribute("Spacing", 8.6)
+        model:SetAttribute("Speed", wormSpeedVal or 26)
+        model:SetAttribute("Burrowing", false)
+
+        -- Initial spawn position 18 studs in front of character on the real ground
+        local initSpawn = root.Position + (root.CFrame.LookVector * 18)
+        local downRay = Ray.new(initSpawn + Vector3.new(0, 30, 0), Vector3.new(0, -60, 0))
+        local hitGround, hitPos = Workspace:FindPartOnRayWithIgnoreList(downRay, {model, char})
+        local startY = hitGround and (hitPos.Y + 4.8) or initSpawn.Y
+
+        head.CFrame = CFrame.lookAt(Vector3.new(initSpawn.X, startY, initSpawn.Z), root.Position)
         model.Parent = bearsFolder
 
         CollectionService:AddTag(model, "BearEntity")
         wormVisualModel = model
 
-        Hub.Notify("Worm Bear", "Worm Bear Spawned! 14-segment crawling centipede slithering around you!", 4)
+        Hub.Notify("Worm Bear", "Authentic Worm Bear Awakened! Real mesh head + 100% stable segments!", 4)
 
         wormAnimThread = task.spawn(function()
-            local angle = 0
-            local radius = 26
+            local curPos = head.Position
+            local headingAngle = math.rad(root.Orientation.Y or 0)
+            local orbitAngle = 0
+            local undulateTime = 0
+
             while wormVisualActive and model and model.Parent and head and head.Parent do
-                local cRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-                local center = cRoot and cRoot.Position or root.Position
-                angle = angle + 0.04
-                local x = center.X + math.cos(angle) * radius
-                local z = center.Z + math.sin(angle) * radius
-                local y = center.Y - 1.0 + math.sin(angle * 2.5) * 2.0
-                local nextPos = Vector3.new(x, y, z)
-                local lookAtPos = Vector3.new(
-                    center.X + math.cos(angle + 0.08) * radius,
-                    center.Y - 1.0 + math.sin((angle + 0.08) * 2.5) * 2.0,
-                    center.Z + math.sin(angle + 0.08) * radius
-                )
-                head.CFrame = CFrame.lookAt(nextPos, lookAtPos)
-                task.wait(0.02)
+                local dt = 0.02
+                undulateTime = undulateTime + dt * 3.5
+
+                local pChar = lp.Character
+                local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+                local targetCenter = pRoot and pRoot.Position or root.Position
+
+                local moveDir = Vector3.new(0, 0, -1)
+
+                if wormMode == "Follow Daddy (Boss Guardian / Pet)" then
+                    -- Stalk 14-22 studs behind/beside Daddy smoothly
+                    local toDaddy = targetCenter - curPos
+                    local dist = Vector3.new(toDaddy.X, 0, toDaddy.Z).Magnitude
+                    if dist > 14 then
+                        local desiredHeading = math.atan2(-toDaddy.X, -toDaddy.Z)
+                        local diff = (desiredHeading - headingAngle)
+                        diff = math.atan2(math.sin(diff), math.cos(diff))
+                        headingAngle = headingAngle + diff * math.clamp(dt * 3.0, 0, 1)
+                    else
+                        -- Gentle S-curve patrol around daddy when close
+                        headingAngle = headingAngle + math.sin(undulateTime) * 0.03
+                    end
+                    moveDir = Vector3.new(-math.sin(headingAngle), 0, -math.cos(headingAngle))
+                elseif wormMode == "Roam Free (Wild Woods Patrol)" then
+                    -- Smooth undulating wander through the woods
+                    headingAngle = headingAngle + math.sin(undulateTime * 0.4) * 0.04
+                    moveDir = Vector3.new(-math.sin(headingAngle), 0, -math.cos(headingAngle))
+                else -- "Circle Stalker (Menacing Orbit)"
+                    orbitAngle = orbitAngle + dt * 0.8
+                    local orbitRad = 32
+                    local desiredX = targetCenter.X + math.cos(orbitAngle) * orbitRad
+                    local desiredZ = targetCenter.Z + math.sin(orbitAngle) * orbitRad
+                    local toOrbit = Vector3.new(desiredX, 0, desiredZ) - Vector3.new(curPos.X, 0, curPos.Z)
+                    if toOrbit.Magnitude > 0.5 then
+                        moveDir = toOrbit.Unit
+                    else
+                        moveDir = Vector3.new(-math.sin(orbitAngle), 0, math.cos(orbitAngle))
+                    end
+                end
+
+                local speed = wormSpeedVal or 26
+                local stepDist = speed * dt
+                local nextXZ = curPos + (moveDir * stepDist)
+
+                -- Continuous Ground Surface Raycast (never clips inside terrain or floors!)
+                local rayOrigin = Vector3.new(nextXZ.X, curPos.Y + 18, nextXZ.Z)
+                local ray = Ray.new(rayOrigin, Vector3.new(0, -45, 0))
+                local groundHit, groundPos = Workspace:FindPartOnRayWithIgnoreList(ray, {model, pChar, Workspace:FindFirstChild("WormBearSegments")})
+                local targetGroundY = groundHit and (groundPos.Y + 4.8) or (curPos.Y)
+
+                -- Smooth vertical climb/descent
+                local nextY = curPos.Y + (targetGroundY - curPos.Y) * math.clamp(dt * 8.0, 0, 1)
+                -- Add subtle organic undulation spine wave
+                local waveY = math.sin(undulateTime * 2.0) * 0.6
+                curPos = Vector3.new(nextXZ.X, nextY + waveY, nextXZ.Z)
+
+                local lookTarget = curPos + (moveDir * 5)
+                head.CFrame = CFrame.lookAt(curPos, lookTarget)
+
+                task.wait(dt)
             end
+
             if model and model.Parent then
                 model:Destroy()
             end
