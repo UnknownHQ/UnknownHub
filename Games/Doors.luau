@@ -3948,38 +3948,31 @@ local function processNearbyDoors(currentPos, maxReach)
                 end
                 local dPos = getDoorPosition(d)
                 if dPos and (currentPos - dPos).Magnitude <= reach then
-                    -- 1. Anti-Door-Smash & Collision Defusal:
-                    -- Strip Hidden CanTouch so high-speed player collisions NEVER trigger the server door smash!
-                    local hiddenPart = d:FindFirstChild("Hidden")
-                    if hiddenPart and hiddenPart:IsA("BasePart") then
-                        hiddenPart.CanTouch = false
-                        hiddenPart.CanCollide = false
-                    end
-
-                    -- Side Doors (DoorNormal): Smoothly swing open 90 degrees around Hinge via client tween
-                    if d.Name == "DoorNormal" then
+                    -- 1. Native Door Physics & Anti-Smash:
+                    if d.Name == "DoorNormal" or d.Name == "SideDoor" or d.Name == "SideroomDoor" then
+                        -- Side Doors: 100% native physics! Preserve Door CanCollide & Hidden CanTouch so character body pushes it open naturally!
                         local doorPart = d:FindFirstChild("Door")
-                        local hingePart = d:FindFirstChild("Hinge")
-                        if doorPart and hingePart and not d:GetAttribute("ClientSideOpened") then
-                            d:SetAttribute("ClientSideOpened", true)
-                            pcall(function()
-                                local startCF = doorPart.CFrame
-                                local hingeCF = hingePart.CFrame
-                                local openCF = hingeCF * CFrame.Angles(0, math.rad(-90), 0) * (hingeCF:Inverse() * startCF)
-                                local ts = game:GetService("TweenService")
-                                ts:Create(doorPart, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = openCF }):Play()
-                            end)
+                        if doorPart and doorPart:IsA("BasePart") then
+                            if not doorPart.CanCollide then doorPart.CanCollide = true end
+                            if doorPart.Anchored then doorPart.Anchored = false end
+                            doorPart.CanTouch = true
                         end
-                    end
-
-                    for _, child in ipairs(d:GetDescendants()) do
-                        if child:IsA("BasePart") and child.Name ~= "Hinge" and child.Name ~= "Frame" and child.Name ~= "Wall" then
-                            if child.CanCollide then
-                                child.CanCollide = false
-                            end
-                        elseif child:IsA("ProximityPrompt") and child.Name == "ManualOpenPrompt" then
-                            child.Enabled = false
-                            child.MaxActivationDistance = 0
+                        local hiddenPart = d:FindFirstChild("Hidden")
+                        if hiddenPart and hiddenPart:IsA("BasePart") then
+                            if not hiddenPart.CanTouch then hiddenPart.CanTouch = true end
+                            hiddenPart.CanCollide = false
+                        end
+                        local mop = d:FindFirstChild("ManualOpenPrompt", true)
+                        if mop and mop:IsA("ProximityPrompt") then
+                            mop.Enabled = false
+                            mop.MaxActivationDistance = 0
+                        end
+                    else
+                        -- Main Exit Doors: Defuse high-speed smash trigger on Hidden while opening smoothly via ClientOpen
+                        local hiddenPart = d:FindFirstChild("Hidden")
+                        if hiddenPart and hiddenPart:IsA("BasePart") and State.WalkSpeed_Enabled then
+                            hiddenPart.CanTouch = false
+                            hiddenPart.CanCollide = false
                         end
                     end
 
