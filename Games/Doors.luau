@@ -3938,7 +3938,7 @@ local function processNearbyDoors(currentPos, maxReach)
 
     for _, rm in ipairs(curRooms:GetChildren()) do
         for _, d in ipairs(rm:GetDescendants()) do
-            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name == "SideDoor") then
+            if d:IsA("Model") and (d.Name == "Door" or d.Name == "DoorNormal" or d.Name == "SideroomDoor" or d.Name == "SideDoor" or d.Name == "BlockedDoorModel") then
                 -- Anti-Dupe Protection: NEVER strip collisions, open, or interact with Dupe doors!
                 if isDupeDoor(d, rm) then
                     if State.Anti_Dupe then
@@ -3950,13 +3950,7 @@ local function processNearbyDoors(currentPos, maxReach)
                 if dPos and (currentPos - dPos).Magnitude <= reach then
                     -- 1. Native Door Physics & Anti-Smash:
                     if d.Name == "DoorNormal" or d.Name == "SideDoor" or d.Name == "SideroomDoor" then
-                        -- Side Doors: 100% native physics! Preserve Door CanCollide & Hidden CanTouch so character body pushes it open naturally!
-                        local doorPart = d:FindFirstChild("Door")
-                        if doorPart and doorPart:IsA("BasePart") then
-                            if not doorPart.CanCollide then doorPart.CanCollide = true end
-                            if doorPart.Anchored then doorPart.Anchored = false end
-                            doorPart.CanTouch = true
-                        end
+                        -- Side Doors: 100% native server physics! Never unanchor or rotate door leaf (prevents floating doors in middle of room).
                         local hiddenPart = d:FindFirstChild("Hidden")
                         if hiddenPart and hiddenPart:IsA("BasePart") then
                             if not hiddenPart.CanTouch then hiddenPart.CanTouch = true end
@@ -3966,6 +3960,13 @@ local function processNearbyDoors(currentPos, maxReach)
                         if mop and mop:IsA("ProximityPrompt") then
                             mop.Enabled = false
                             mop.MaxActivationDistance = 0
+                        end
+                    elseif d.Name == "BlockedDoorModel" then
+                        -- Barricaded Doorways: Defuse collision barriers so player walks through standing up without crouching
+                        for _, child in ipairs(d:GetDescendants()) do
+                            if child:IsA("BasePart") and (child.Name == "Collision" or child.Name == "FakeDoor") then
+                                if child.CanCollide then child.CanCollide = false end
+                            end
                         end
                     else
                         -- Main Exit Doors: Defuse high-speed smash trigger on Hidden while opening smoothly via ClientOpen
@@ -5920,7 +5921,8 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     -- Character Collision & Prompt Interactivity Receptors:
     if char then
         local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
-        local targetGroup = "NoPlayer" -- Invariant: CollisionGroup = "NoPlayer" must ALWAYS remain active both when flying and when walking/crouching on the floor! 
+        -- Universal Door & Drawer Touch Fix: "Player" & "PlayerCrouching" collide with "TouchPlayer" (doors/drawers), whereas "NoPlayer" is completely ignored by TouchPlayer!
+        local targetGroup = (State.Noclip or State.Walk_Noclip) and "NoPlayer" or (isCrouching and "PlayerCrouching" or "Player")
         local coll = char:FindFirstChild("Collision")
         local cc = coll and coll:FindFirstChild("CollisionCrouch")
         local cp = char:FindFirstChild("CollisionPart")
@@ -6120,7 +6122,7 @@ trackConn(RunService.Stepped:Connect(function()
     else
         -- SOLID FLOOR GROUNDING & CROUCH HOLE PASSAGE:
         local isCrouching = (char:GetAttribute("Crouching") == true) or (mgTable and mgTable.crouching == true) or false
-        local targetGroup = isCrouching and "PlayerCrouching" or "NoPlayer"
+        local targetGroup = isCrouching and "PlayerCrouching" or "Player"
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 if part.CollisionGroup ~= targetGroup then
@@ -10143,7 +10145,10 @@ local function evaluateRushSafety(testPos, segments, char)
         return true, "STANDBY: CURRENTROOMS INACTIVE"
     end
 
-    if not segments or #segments == 0 then
+    if not activeSafeZoneVisuals then activeSafeZoneVisuals = {} end
+    if not activeNodeVisuals then activeNodeVisuals = {} end
+
+    if not segments or type(segments) ~= "table" or #segments == 0 then
         return false, "⚠️ SCANNING: RUSH PATH NOT YET GENERATED"
     end
 
