@@ -670,6 +670,12 @@ initPromptGateImmunity()
 
 local function configurePromptDistances(prompt)
     if not prompt or not prompt:IsA("ProximityPrompt") then return end
+    -- Suppress false ManualOpenPrompt on side doors (it's a door, not a drawer!)
+    if prompt.Name == "ManualOpenPrompt" then
+        prompt.Enabled = false
+        prompt.MaxActivationDistance = 0
+        return
+    end
     prompt.RequiresLineOfSight = false
     local pObj = (prompt.ObjectText or ""):lower()
     local pAct = (prompt.ActionText or ""):lower()
@@ -679,13 +685,10 @@ local function configurePromptDistances(prompt)
 
     local isDoorPrompt = pObj:find("door") or parentName:find("door") or grandParentName:find("door")
         or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt"
-        or prName:find("knob") or parentName == "knob" or prName == "manualopenprompt"
+        or prName:find("knob") or parentName == "knob"
 
     if isDoorPrompt then
         prompt.RequiresLineOfSight = false
-        if not prompt.Enabled then
-            prompt.Enabled = true
-        end
         prompt.MaxActivationDistance = math.max(16.0, prompt.MaxActivationDistance or 12.0)
     else
         local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or pObj:find("dresser")
@@ -3945,14 +3948,19 @@ local function processNearbyDoors(currentPos, maxReach)
                 end
                 local dPos = getDoorPosition(d)
                 if dPos and (currentPos - dPos).Magnitude <= reach then
-                    -- 1. Strip CanCollide locally ONLY on the door leaf itself and ensure DoorNormal is unanchored for smooth servo rotation
-                    local doorLeaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal") or d:FindFirstChild("Panel")
-                    if doorLeaf and doorLeaf:IsA("BasePart") then
-                        if doorLeaf.Anchored and d.Name == "DoorNormal" then
-                            doorLeaf.Anchored = false
-                        end
-                        if doorLeaf.CanCollide then
-                            doorLeaf.CanCollide = false
+                    -- 1. Side Doors & Barricades: Strip collisions on door leaf, CrossBoards planks, knobs so player walks through standing up seamlessly!
+                    for _, child in ipairs(d:GetDescendants()) do
+                        if child:IsA("BasePart") and child.Name ~= "Hidden" and child.Name ~= "Hinge" and child.Name ~= "Frame" and child.Name ~= "Wall" then
+                            if child.CanCollide then
+                                child.CanCollide = false
+                            end
+                            if child.Anchored and d.Name == "DoorNormal" then
+                                child.Anchored = false
+                            end
+                        elseif child:IsA("ProximityPrompt") and child.Name == "ManualOpenPrompt" then
+                            -- Suppress false interact prompt on side doors (it's a door, not a drawer!)
+                            child.Enabled = false
+                            child.MaxActivationDistance = 0
                         end
                     end
 
@@ -4014,14 +4022,13 @@ local function processNearbyDoors(currentPos, maxReach)
                             end)
                         end
 
-                        -- Open Side Room Doors via ProximityPrompt (DoorNormal / Knob / Door) standing up or crouched
+                        -- Open Side Room Doors via genuine ProximityPrompt only (never fire or show ManualOpenPrompt)
                         for _, p in ipairs(d:GetDescendants()) do
-                            if p:IsA("ProximityPrompt") then
-                                p.Enabled = true
+                            if p:IsA("ProximityPrompt") and p.Name ~= "ManualOpenPrompt" and p.Enabled then
                                 p.RequiresLineOfSight = false
                                 local pAct = (p.ActionText or ""):lower()
                                 local pName = p.Name:lower()
-                                if pAct:find("open") or pName:find("open") or pName:find("interact") or pName:find("knob") or pName == "manualopenprompt" then
+                                if pAct:find("open") or pName:find("open") or pName:find("knob") then
                                     safeInstantFirePrompt(p)
                                 end
                             end
@@ -6410,6 +6417,12 @@ end)
 -- =========================================================================
 local function applyPromptModifications(prompt)
     if not prompt or not prompt:IsA("ProximityPrompt") then return end
+    -- Suppress false ManualOpenPrompt on side doors (it's a door, not a drawer!)
+    if prompt.Name == "ManualOpenPrompt" then
+        prompt.Enabled = false
+        prompt.MaxActivationDistance = 0
+        return
+    end
 
     if not prompt:GetAttribute("OrigHold") then
         prompt:SetAttribute("OrigHold", prompt.HoldDuration)
@@ -6427,7 +6440,7 @@ local function applyPromptModifications(prompt)
     local prName = prompt.Name:lower()
     local isDoorPrompt = pObj:find("door") or parentName:find("door") or (prompt.Parent and prompt.Parent.Parent and prompt.Parent.Parent.Name:lower():find("door"))
         or pAct:find("open") or pAct:find("unlock") or prName:find("door") or prName == "enterprompt"
-        or prName:find("knob") or parentName == "knob" or prName == "manualopenprompt"
+        or prName:find("knob") or parentName == "knob"
 
     local isHidingSpot = prName:find("hide") or pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed")
         or parentName:find("wardrobe") or parentName:find("closet") or parentName:find("locker") or parentName:find("bed")
@@ -6461,9 +6474,6 @@ local function applyPromptModifications(prompt)
 
     if isDoorPrompt then
         prompt.RequiresLineOfSight = false
-        if not prompt.Enabled then
-            prompt.Enabled = true
-        end
         if State.DoorReach then
             prompt.MaxActivationDistance = math.max(22.0, origDist * 2.2)
         else
