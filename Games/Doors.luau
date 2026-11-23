@@ -5414,14 +5414,23 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     wasHidingState = isInsideHiding
     local hiding = isInsideHiding or (os.clock() < unhideGraceUntil)
 
-    -- mspaint v4 Instant Hiding Spot Exit (FastClosetExit)
+    -- Instant Hiding Spot Exit (FastClosetExit): Uses authentic GetOutOfHiding remote
     if State.FastClosetExit and isInsideHiding then
-        if hum and hum.MoveDirection.Magnitude > 0.05 then
+        local uis = game:GetService("UserInputService")
+        local isMoving = (hum and hum.MoveDirection.Magnitude > 0.05)
+            or uis:IsKeyDown(Enum.KeyCode.W) or uis:IsKeyDown(Enum.KeyCode.A)
+            or uis:IsKeyDown(Enum.KeyCode.S) or uis:IsKeyDown(Enum.KeyCode.D)
+            or uis:IsKeyDown(Enum.KeyCode.Space)
+        if isMoving then
             local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-            local camLock = rf and rf:FindFirstChild("CamLock")
-            if camLock then
-                camLock:FireServer()
+            local goh = rf and rf:FindFirstChild("GetOutOfHiding")
+            if goh then
+                goh:FireServer()
             end
+            pcall(function()
+                local mg = getMainGameTable()
+                if mg then mg.hiding = false end
+            end)
         end
     end
 
@@ -6390,12 +6399,16 @@ local function applyPromptModifications(prompt)
         if origLOS ~= nil then prompt.RequiresLineOfSight = origLOS end
     end
 
-    -- Instant Interact (HoldDuration = 0; Door prompts always instant for seamless opening)
-    if State.Instant_Interact or isDoorPrompt then
+    -- Instant Interact (HoldDuration = 0 strictly when State.Instant_Interact is enabled!)
+    if State.Instant_Interact then
         prompt.HoldDuration = 0
     else
         local origHold = prompt:GetAttribute("OrigHold")
-        if origHold ~= nil then prompt.HoldDuration = origHold end
+        if origHold ~= nil then
+            prompt.HoldDuration = origHold
+        elseif prompt.HoldDuration == 0 then
+            prompt.HoldDuration = 0.5
+        end
     end
 
     -- Distance Multiplier & Door Reach
@@ -6653,9 +6666,18 @@ end
 -- Frame-0 Immediate Prompt Trigger: Fires the exact millisecond KeyCode.E is pressed down without double-tap cancellation!
 pcall(function()
     local pps = game:GetService("ProximityPromptService")
+    -- Clean ProximityPrompt Interactor with Extended Distance Reach support
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
-        if (player == nil or player == LocalPlayer) and State.Instant_Interact then
+        if player ~= nil and player ~= LocalPlayer then return end
+        if State.Instant_Interact then
             safeInstantFirePrompt(prompt)
+        elseif State.Interact_DistanceMultiplier and State.Interact_DistanceMultiplier > 1 then
+            -- Extended distance interaction: fire prompt when player presses E
+            task.spawn(function()
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                end
+            end)
         end
     end)
     pps.PromptTriggered:Connect(function(prompt, player)
@@ -7207,11 +7229,8 @@ local function bindInfiniteTool(tool)
 
     tool.Activated:Connect(function()
         if not State.Infinite_Items then return end
-        local tName = tool.Name:lower()
-        if tName:find("crucifix") then
-            -- Crucifix activation / held against monster: drop instantly before entity consumes it!
-            executeItemDupeDrop(tool, 0.05)
-        end
+        -- Invariant: Retain ALL usable items in DOORS (Crucifix, Vitamins, Bandages, Batteries, Keys, Lockpicks, Candy, Shears, etc.)
+        executeItemDupeDrop(tool, 0.05)
     end)
 end
 
@@ -9593,11 +9612,10 @@ local function getOrderedRoomNodes()
         local rm = rData.Room
         local rNum = rData.Number
 
-        local intermediate = rm:FindFirstChild("PathfindNodes") or rm:FindFirstChild("Nodes") or rm:FindFirstChild("Waypoints")
-        if intermediate or not cachedRoomPathNodes[rNum] then
+        if not cachedRoomPathNodes[rNum] then
             local roomNodes = {}
-            
-            -- 1. Identify Entrance Position (RoomEntrance, Entrance, or previous room exit door)
+
+            -- 1. Entrance position
             local entPos = nil
             local entPart = rm:FindFirstChild("RoomEntrance") or rm:FindFirstChild("Entrance") or rm:FindFirstChild("Start")
             if entPart and entPart:IsA("BasePart") then
@@ -9614,7 +9632,7 @@ local function getOrderedRoomNodes()
                 end
             end
 
-            -- 2. Identify Exit Position (RoomExit, Exit, or room exit Door)
+            -- 2. Exit position
             local exitPos = nil
             local exPart = rm:FindFirstChild("RoomExit") or rm:FindFirstChild("Exit") or rm:FindFirstChild("End")
             if exPart and exPart:IsA("BasePart") then
@@ -9632,33 +9650,49 @@ local function getOrderedRoomNodes()
                 table.insert(roomNodes, { Pos = entPos, RoomNum = rNum, Name = "Entrance" })
             end
 
-            -- 3. Intermediate nodes if present, else continuous linear corridor interpolation
-            if intermediate then
-                local interList = {}
-                for _, child in ipairs(intermediate:GetChildren()) do
-                    if child:IsA("BasePart") then
-                        table.insert(interList, child)
+            -- 3. Extract ACTUAL corridor hallway modules in this room!
+            -- DOORS generates room walkway parts named after room number (e.g. child.Name == tostring(rNum))
+            local corridorParts = {}
+            for _, child in ipairs(rm:GetChildren()) do
+                if child:IsA("BasePart") and child.Name == tostring(rNum) then
+                    table.insert(corridorParts, child)
+                end
+            end
+            
+            -- If specific pathfind parts exist in room.Parts
+            local pFolder = rm:FindFirstChild("Parts") or rm:FindFirstChild("PathfindNodes")
+            if pFolder then
+                for _, child in ipairs(pFolder:GetChildren()) do
+                    if child:IsA("BasePart") and (child.Name:lower():find("path") or child.Name:lower():find("node") or child.Name:lower():find("corridor")) then
+                        table.insert(corridorParts, child)
                     end
                 end
-                table.sort(interList, function(a, b)
-                    local na = tonumber(a.Name:match("%d+")) or 0
-                    local nb = tonumber(b.Name:match("%d+")) or 0
-                    if na ~= nb then return na < nb end
-                    return a.Name < b.Name
-                end)
-                for i, p in ipairs(interList) do
-                    table.insert(roomNodes, { Pos = p.Position, RoomNum = rNum, Name = "Node " .. tostring(i) })
+            end
+
+            -- Distance-chain sort corridor segments from Entrance -> Exit
+            if #corridorParts > 0 and entPos then
+                local unvisited = table.clone(corridorParts)
+                local currentP = entPos
+                while #unvisited > 0 do
+                    local bestIdx = 1
+                    local bestDist = (unvisited[1].Position - currentP).Magnitude
+                    for idx = 2, #unvisited do
+                        local d = (unvisited[idx].Position - currentP).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            bestIdx = idx
+                        end
+                    end
+                    local nextPart = table.remove(unvisited, bestIdx)
+                    table.insert(roomNodes, { Pos = nextPart.Position, RoomNum = rNum, Name = "Corridor " .. nextPart.Name })
+                    currentP = nextPart.Position
                 end
             elseif entPos and exitPos then
-                -- Room has no intermediate nodes: Interpolate smooth points along the corridor!
+                -- Fallback: Gentle smooth curve points
                 local dir = exitPos - entPos
-                local dLen = dir.Magnitude
-                if dLen > 6 then
-                    local count = math.floor(dLen / 4.5)
-                    for i = 1, count do
-                        local stepPos = entPos + dir * (i / (count + 1))
-                        table.insert(roomNodes, { Pos = stepPos, RoomNum = rNum, Name = "InterpNode " .. tostring(i) })
-                    end
+                local count = math.clamp(math.floor(dir.Magnitude / 8), 1, 6)
+                for i = 1, count do
+                    table.insert(roomNodes, { Pos = entPos + dir * (i / (count + 1)), RoomNum = rNum, Name = "WayPoint " .. tostring(i) })
                 end
             end
 
@@ -9666,11 +9700,7 @@ local function getOrderedRoomNodes()
                 table.insert(roomNodes, { Pos = exitPos, RoomNum = rNum, Name = "Exit" })
             end
 
-            if #roomNodes > 0 then
-                if intermediate or not cachedRoomPathNodes[rNum] or #cachedRoomPathNodes[rNum] <= 2 then
-                    cachedRoomPathNodes[rNum] = roomNodes
-                end
-            end
+            cachedRoomPathNodes[rNum] = roomNodes
         end
 
         local rNodes = cachedRoomPathNodes[rNum]
@@ -10124,6 +10154,19 @@ refreshSafeZonesVisuals = function()
     for _, rm in ipairs(curRooms:GetChildren()) do
         local rNum = tonumber(rm.Name)
         if rNum and math.abs(rNum - curRoomNum) <= 1 and rm:IsA("Model") then
+            -- 0. Authentic Siderooms (Rush NEVER enters siderooms! 100% Guaranteed Safe!)
+            for _, child in ipairs(rm:GetChildren()) do
+                if child:IsA("Model") and (child.Name:lower():find("sideroom") or child.Name:lower():find("basesideroom")) then
+                    local sPivot = child:GetPivot()
+                    local sPos = sPivot.Position
+                    if not isDuplicate(sPos, 8.0) then
+                        table.insert(acceptedSpots, { Pos = sPos, Label = "SAFE: SIDEROOM" })
+                    end
+                end
+            end
+        end
+        local rNum = tonumber(rm.Name)
+        if rNum and math.abs(rNum - curRoomNum) <= 1 and rm:IsA("Model") then
             -- 1. Hiding Spots (Closets, Wardrobes, Lockers, Beds)
             for _, desc in ipairs(rm:GetDescendants()) do
                 if desc:IsA("Model") or desc:IsA("BasePart") then
@@ -10383,46 +10426,6 @@ local function addKeybindBadge(toggleCard, keyText)
     return badge
 end
 
--- =========================================================================
--- Section: 👑 Auto-Beat (Pathfinding Autopilot)
--- =========================================================================
-Hub.CreateSection(mainTab, "Auto-Beat (Pathfinding Autopilot)")
-
-State.AutoBeat.StatusLabel = createStatusLabel(mainTab, "Auto-Beat: Idle")
-
-Hub.CreateToggle(mainTab, "Auto Beat (Autonomous Completer)", State.Auto_Beat, function(v)
-    if v then
-        State.AutoBeat.Start()
-    else
-        State.AutoBeat.Stop()
-    end
-end)
-
-Hub.CreateSlider(mainTab, "Movement Speed", 30, 65, State.AutoBeat_WalkSpeed or 55, " studs/s", function(v)
-    State.AutoBeat_WalkSpeed = v
-end)
-
-Hub.CreateToggle(mainTab, "Auto-Crouch (Vents / Low Ceilings)", State.AutoBeat_AutoCrouch, function(v)
-    State.AutoBeat_AutoCrouch = v
-end)
-
-Hub.CreateToggle(mainTab, "Collect Gold & Coins", State.AutoBeat_LootGold, function(v)
-    State.AutoBeat_LootGold = v
-end)
-
-Hub.CreateToggle(mainTab, "Search Drawers & Desks", State.AutoBeat_LootDrawers, function(v)
-    State.AutoBeat_LootDrawers = v
-end)
-
-Hub.CreateToggle(mainTab, "Collect Sally Toy", State.AutoBeat_GrabSally, function(v)
-    State.AutoBeat_GrabSally = v
-end)
-
-Hub.CreateToggle(mainTab, "Smart Closet Evasion (Rush / Ambush)", State.AutoBeat_EvacuateThreat, function(v)
-    State.AutoBeat_EvacuateThreat = v
-end)
-
-createCardDivider(mainTab)
 
 -- =========================================================================
 -- Section: Movement
@@ -10586,8 +10589,8 @@ Hub.CreateToggle(mainTab, "Door Reach", State.DoorReach, function(v)
     Hub.Notify("Interaction", v and "Door Reach: Enabled (22 studs)" or "Door Reach: Disabled", 2)
 end)
 
--- Active Door Reach Daemon (mspaint v4 1:1 Implementation)
--- Continuously sweeps doors and auto-fires proximity prompt when within 22 studs!
+-- Clean, Stable Door Reach Daemon (Zero physics desync, zero remote spam!)
+-- Extends reach of upcoming exit doors without breaking door hinges or spamming ClientOpen
 task.spawn(function()
     while true do
         if _G.DOORS_SESSION ~= currentSession then break end
@@ -10599,46 +10602,20 @@ task.spawn(function()
                 local curRooms = Workspace:FindFirstChild("CurrentRooms")
                 if curRooms then
                     local rootPos = root.Position
-                    for _, room in ipairs(curRooms:GetChildren()) do
-                        -- Sweep ALL doors in room (Main Exit Doors, Side Room Doors, Lever Doors, Puzzle Doors)
-                        for _, door in ipairs(room:GetDescendants()) do
-                            if door:IsA("Model") and (door.Name == "Door" or door.Name:lower():find("door") or door.Name:lower():find("sideroom")) then
-                                if not isDupeDoor(door, room) then
-                                    local dPart = door:FindFirstChild("Door") or door:FindFirstChild("Hidden") or door.PrimaryPart or door:FindFirstChildWhichIsA("BasePart")
-                                    if dPart then
-                                        local dist = (rootPos - dPart.Position).Magnitude
-                                        -- 1. Main door ClientOpen (up to 75 studs - exact mspaint v4 reach)
-                                        if dist <= 75 then
-                                            local co = door:FindFirstChild("ClientOpen") or (door:FindFirstChild("Door") and door.Door:FindFirstChild("ClientOpen"))
-                                            if co and co:IsA("RemoteEvent") then
-                                                pcall(function() co:FireServer() end)
-                                            end
-                                        end
-                                        -- 2. ProximityPrompts for all doors (Side Doors, Lever doors, Unlock prompts) up to 22 studs
-                                        if dist <= 22 then
-                                            -- UnlockPrompt auto-unlock if locked
-                                            local lock = door:FindFirstChild("Lock")
-                                            if lock then
-                                                local up = lock:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                                if up and up.Enabled then
-                                                    safeInstantFirePrompt(up)
-                                                end
-                                            end
-                                            -- Trigger all Door ProximityPrompts (Side Doors open effortlessly!)
-                                            for _, desc in ipairs(door:GetDescendants()) do
-                                                if desc:IsA("ProximityPrompt") and desc.Enabled then
-                                                    safeInstantFirePrompt(desc)
-                                                end
-                                            end
-                                            -- Touch Hidden Trigger
-                                            local hidden = door:FindFirstChild("Hidden")
-                                            if hidden and hidden:IsA("BasePart") then
-                                                pcall(function()
-                                                    hidden.CanTouch = true
-                                                    firetouchinterest(root, hidden, 0)
-                                                    firetouchinterest(root, hidden, 1)
-                                                end)
-                                            end
+                    local curRoomNum = getCurrentRoomNumber()
+                    if curRoomNum then
+                        local curRoom = curRooms:FindFirstChild(tostring(curRoomNum))
+                        local nextDoor = curRoom and curRoom:FindFirstChild("Door")
+                        if nextDoor and not isDupeDoor(nextDoor, curRoom) then
+                            local dPart = nextDoor:FindFirstChild("Door") or nextDoor:FindFirstChild("Hidden") or nextDoor.PrimaryPart
+                            if dPart then
+                                local dist = (rootPos - dPart.Position).Magnitude
+                                if dist <= 22 then
+                                    -- Extend activation distance on door prompt cleanly
+                                    for _, desc in ipairs(nextDoor:GetDescendants()) do
+                                        if desc:IsA("ProximityPrompt") then
+                                            desc.MaxActivationDistance = math.max(desc.MaxActivationDistance or 12, 22.0)
+                                            desc.RequiresLineOfSight = false
                                         end
                                     end
                                 end
@@ -10648,10 +10625,9 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.1)
+        task.wait(0.25)
     end
 end)
-
 Hub.CreateToggle(mainTab, "Walk Through Doors", State.DoorNoclip, function(v)
     State.DoorNoclip = v
     Hub.Notify("Interaction", v and "Walk Through Doors: Enabled" or "Walk Through Doors: Disabled", 2)
@@ -10693,6 +10669,47 @@ if autoHideToggleObj and autoHideToggleObj.Instance then
     end
     addKeybindBadge(autoHideToggleObj.Instance, "Q")
 end
+
+createCardDivider(mainTab)
+
+-- =========================================================================
+-- Section: 👑 Auto-Beat (Pathfinding Autopilot)
+-- =========================================================================
+Hub.CreateSection(mainTab, "Auto-Beat (Pathfinding Autopilot)")
+
+State.AutoBeat.StatusLabel = createStatusLabel(mainTab, "Auto-Beat: Idle")
+
+Hub.CreateToggle(mainTab, "Auto Beat (Autonomous Completer)", State.Auto_Beat, function(v)
+    if v then
+        State.AutoBeat.Start()
+    else
+        State.AutoBeat.Stop()
+    end
+end)
+
+Hub.CreateSlider(mainTab, "Movement Speed", 30, 65, State.AutoBeat_WalkSpeed or 55, " studs/s", function(v)
+    State.AutoBeat_WalkSpeed = v
+end)
+
+Hub.CreateToggle(mainTab, "Auto-Crouch (Vents / Low Ceilings)", State.AutoBeat_AutoCrouch, function(v)
+    State.AutoBeat_AutoCrouch = v
+end)
+
+Hub.CreateToggle(mainTab, "Collect Gold & Coins", State.AutoBeat_LootGold, function(v)
+    State.AutoBeat_LootGold = v
+end)
+
+Hub.CreateToggle(mainTab, "Search Drawers & Desks", State.AutoBeat_LootDrawers, function(v)
+    State.AutoBeat_LootDrawers = v
+end)
+
+Hub.CreateToggle(mainTab, "Collect Sally Toy", State.AutoBeat_GrabSally, function(v)
+    State.AutoBeat_GrabSally = v
+end)
+
+Hub.CreateToggle(mainTab, "Smart Closet Evasion (Rush / Ambush)", State.AutoBeat_EvacuateThreat, function(v)
+    State.AutoBeat_EvacuateThreat = v
+end)
 
 createCardDivider(mainTab)
 
@@ -10810,17 +10827,11 @@ Hub.CreateToggle(exploitsTab, "Infinite Items", State.Infinite_Items, function(v
     Hub.Notify("Exploit", v and "Infinite Items: Enabled" or "Infinite Items: Disabled", 2)
 end)
 
-Hub.CreateToggle(exploitsTab, "Retain Lockpicks & Keys", State.Infinite_Lockpicks, function(v)
-    State.Infinite_Lockpicks = v
-end)
+-- Permanent Core Invariant: All item retainers active by default
+State.Infinite_Lockpicks = true
+State.Infinite_Crucifix = true
+State.Infinite_Consumables = true
 
-Hub.CreateToggle(exploitsTab, "Retain Crucifix", State.Infinite_Crucifix, function(v)
-    State.Infinite_Crucifix = v
-end)
-
-Hub.CreateToggle(exploitsTab, "Retain Consumables", State.Infinite_Consumables, function(v)
-    State.Infinite_Consumables = v
-end)
 
 Hub.CreateButton(exploitsTab, "Quick Dupe Held Tool", function()
     local char = getChar()
@@ -10958,10 +10969,7 @@ end
 if isHotel or isMines then
     Hub.CreateSection(floorTab, "Puzzles")
 
-    Hub.CreateToggle(floorTab, "Auto Heartbeat", State.Auto_Heartbeat, function(v)
-        State.Auto_Heartbeat = v
-        Hub.Notify("Puzzle", v and "Auto Heartbeat: Enabled" or "Auto Heartbeat: Disabled", 2)
-    end)
+    -- Duplicate Auto Heartbeat removed: Managed cleanly in Main -> Automation
 end
 
 if isHotel then
