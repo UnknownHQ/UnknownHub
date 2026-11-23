@@ -682,6 +682,10 @@ local function configurePromptDistances(prompt)
         or prName:find("knob") or parentName == "knob" or prName == "manualopenprompt"
 
     if isDoorPrompt then
+        prompt.RequiresLineOfSight = false
+        if not prompt.Enabled then
+            prompt.Enabled = true
+        end
         prompt.MaxActivationDistance = math.max(16.0, prompt.MaxActivationDistance or 12.0)
     else
         local isDrawerOrContainer = pObj:find("drawer") or pObj:find("desk") or pObj:find("dresser")
@@ -3333,6 +3337,8 @@ local lastSentCrouchState = nil
 local lastSentSlideState = nil
 local lastSlideSyncTime = 0
 local pendingCrouchState = nil
+local pendingSlideState = nil
+local lastMovementActiveTime = 0
 local unhideGraceUntil = 0
 local wasHidingState = false
 local justExitedHiding = false
@@ -3397,17 +3403,21 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     local mgTable = getMainGameTable()
     local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-    local isMoving = (char and hum and hum.MoveDirection.Magnitude > 0.05) or false
-    -- Crucial: When WalkSpeed is enabled AND player is moving, OR when actively sliding, slide state is authorized on server.
-    -- When STANDING STILL (isMoving == false), isSliding MUST BE FALSE to prevent server slide physics from pushing player backwards!
-    local isSliding = (shouldAuthorize == true) and isMoving and (State.WalkSpeed_Enabled or (isActuallySliding == true))
     local now = os.clock()
+    local isMoving = (char and hum and hum.MoveDirection.Magnitude > 0.05) or false
+    if isMoving then
+        lastMovementActiveTime = now
+    end
+    -- 0.35s Movement Grace: Prevents micro-hitches or direction turns from dropping server slide token!
+    local isMovingWithGrace = isMoving or (now - lastMovementActiveTime < 0.35)
+    local isSliding = (shouldAuthorize == true) and isMovingWithGrace and (State.WalkSpeed_Enabled or (isActuallySliding == true))
 
     if isPlayerHiding(char, mgTable) or (now < unhideGraceUntil) then
         if lastSentCrouchState ~= false or lastSentSlideState ~= false then
             lastSentCrouchState = false
             lastSentSlideState = false
             pendingCrouchState = nil
+            pendingSlideState = nil
             lastSlideSyncTime = now
             pcall(function() crouchRemote:FireServer(false, false) end)
         end
@@ -3422,23 +3432,27 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
             -- Rate-limit rapid crouch toggles to prevent server packet drop / anti-cheat desync
             if (now - lastSlideSyncTime < 0.12) then
                 pendingCrouchState = isCrouching
+                pendingSlideState = isSliding
                 return
             end
             pendingCrouchState = nil
+            pendingSlideState = nil
             lastSentCrouchState = isCrouching
             lastSentSlideState = isSliding
             lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, isSliding)
             end)
-        elseif pendingCrouchState ~= nil and (now - lastSlideSyncTime >= 0.12) then
-            local toSend = pendingCrouchState
+        elseif (pendingCrouchState ~= nil or pendingSlideState ~= nil) and (now - lastSlideSyncTime >= 0.12) then
+            local toSendCrouch = pendingCrouchState ~= nil and pendingCrouchState or isCrouching
+            local toSendSlide = pendingSlideState ~= nil and pendingSlideState or isSliding
             pendingCrouchState = nil
-            lastSentCrouchState = toSend
-            lastSentSlideState = isSliding
+            pendingSlideState = nil
+            lastSentCrouchState = toSendCrouch
+            lastSentSlideState = toSendSlide
             lastSlideSyncTime = now
             pcall(function()
-                crouchRemote:FireServer(toSend, isSliding)
+                crouchRemote:FireServer(toSendCrouch, toSendSlide)
             end)
         elseif isSliding and (now - lastSlideSyncTime >= 0.45) then
             -- Heartbeat keep-alive every 0.45s to prevent server-side slide token expiration
@@ -3452,6 +3466,7 @@ syncServerSlide = function(shouldAuthorize, isActuallySliding)
             lastSentCrouchState = isCrouching
             lastSentSlideState = false
             pendingCrouchState = nil
+            pendingSlideState = nil
             lastSlideSyncTime = now
             pcall(function()
                 crouchRemote:FireServer(isCrouching, false)
@@ -3535,10 +3550,10 @@ local function startSlide()
     if not char or not root or not hum or hum.Health <= 0 then return end
 
     local moveDir = hum.MoveDirection
-    if moveDir.Magnitude < 0.3 then return end
+    if moveDir.Magnitude < 0.55 then return end
 
     local horizVel = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
-    if horizVel.Magnitude < 11.0 and not State.WalkSpeed_Enabled then return end
+    if horizVel.Magnitude < 13.5 then return end
 
     isSlidingActive = true
     slideStartTime = os.clock()
@@ -3548,16 +3563,12 @@ local function startSlide()
     if mgTable then
         mgTable.sliding = true
         if mgTable.animations and mgTable.animations.Slide then
-            pcall(function() mgTable.animations.Slide:Play(0.15, 1, 1.1) end)
+            pcall(function() mgTable.animations.Slide:Play(0.35, 1, 0.95) end)
         end
     end
 
     syncServerSlide(true, true)
     applyTeflonGlide(char)
-
-    local curSpeed = horizVel.Magnitude
-    local targetSpeed = math.max(curSpeed, State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 20) or 22)
-    root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * targetSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * targetSpeed)
 end
 
 local function stopSlide()
@@ -3934,10 +3945,15 @@ local function processNearbyDoors(currentPos, maxReach)
                 end
                 local dPos = getDoorPosition(d)
                 if dPos and (currentPos - dPos).Magnitude <= reach then
-                    -- 1. Strip CanCollide locally ONLY on the door leaf itself (mspaint 1:1, never affects tables/props!)
+                    -- 1. Strip CanCollide locally ONLY on the door leaf itself and ensure DoorNormal is unanchored for smooth servo rotation
                     local doorLeaf = d:FindFirstChild("Door") or d:FindFirstChild("DoorNormal") or d:FindFirstChild("Panel")
-                    if doorLeaf and doorLeaf:IsA("BasePart") and doorLeaf.CanCollide then
-                        doorLeaf.CanCollide = false
+                    if doorLeaf and doorLeaf:IsA("BasePart") then
+                        if doorLeaf.Anchored and d.Name == "DoorNormal" then
+                            doorLeaf.Anchored = false
+                        end
+                        if doorLeaf.CanCollide then
+                            doorLeaf.CanCollide = false
+                        end
                     end
 
                     -- 2. Check for Lock and auto-unlock ONLY if Auto_Interact and AutoInteract_Keys are enabled!
@@ -3998,12 +4014,14 @@ local function processNearbyDoors(currentPos, maxReach)
                             end)
                         end
 
-                        -- Open Side Room Doors via ProximityPrompt (DoorNormal / Knob / Door)
+                        -- Open Side Room Doors via ProximityPrompt (DoorNormal / Knob / Door) standing up or crouched
                         for _, p in ipairs(d:GetDescendants()) do
-                            if p:IsA("ProximityPrompt") and p.Enabled then
+                            if p:IsA("ProximityPrompt") then
+                                p.Enabled = true
+                                p.RequiresLineOfSight = false
                                 local pAct = (p.ActionText or ""):lower()
                                 local pName = p.Name:lower()
-                                if pAct:find("open") or pName:find("open") or pName:find("interact") or pName:find("knob") then
+                                if pAct:find("open") or pName:find("open") or pName:find("interact") or pName:find("knob") or pName == "manualopenprompt" then
                                     safeInstantFirePrompt(p)
                                 end
                             end
@@ -4434,6 +4452,9 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 if modified then
                     return origNc(self, unpack(args))
                 end
+            elseif self.Name == "HitDoor" then
+                -- Anti-Door-Smash Invariant: Drop door damage / smash triggers so doors never shatter or detach at high speed!
+                return nil
             elseif self.Name == "Footstep" or self.Name == "FootstepRemoteThatWeNeed" then
                 if State.Anti_Figure_Hearing then
                     return nil -- Drop footstep notification packets completely
@@ -5414,23 +5435,22 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     wasHidingState = isInsideHiding
     local hiding = isInsideHiding or (os.clock() < unhideGraceUntil)
 
-    -- Instant Hiding Spot Exit (FastClosetExit): Uses authentic GetOutOfHiding remote
+    -- Instant Hiding Spot Exit (FastClosetExit): Authentically debounced GetOutOfHiding remote (zero rubberband)
     if State.FastClosetExit and isInsideHiding then
         local uis = game:GetService("UserInputService")
         local isMoving = (hum and hum.MoveDirection.Magnitude > 0.05)
             or uis:IsKeyDown(Enum.KeyCode.W) or uis:IsKeyDown(Enum.KeyCode.A)
             or uis:IsKeyDown(Enum.KeyCode.S) or uis:IsKeyDown(Enum.KeyCode.D)
             or uis:IsKeyDown(Enum.KeyCode.Space)
-        if isMoving then
+        local nowExit = os.clock()
+        if isMoving and (nowExit - (State.lastClosetExitAttempt or 0) >= 1.5) then
+            State.lastClosetExitAttempt = nowExit
+            unhideGraceUntil = nowExit + 1.2
             local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
             local goh = rf and rf:FindFirstChild("GetOutOfHiding")
             if goh then
                 goh:FireServer()
             end
-            pcall(function()
-                local mg = getMainGameTable()
-                if mg then mg.hiding = false end
-            end)
         end
     end
 
@@ -5764,7 +5784,15 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
             for _, p in ipairs(nearbyParts) do
                 if p:IsA("BasePart") then
                     local isFloor = (p.Position.Y + p.Size.Y / 2) <= (root.Position.Y - hum.HipHeight * 0.7)
-                    if not isFloor and p.CanCollide then
+                    local pName = p.Name:lower()
+                    local pParentName = p.Parent and p.Parent.Name:lower() or ""
+                    local isFurnitureOrContainer = pName:find("drawer") or pName:find("desk") or pName:find("dresser")
+                        or pName:find("table") or pName:find("chest") or pName:find("wardrobe") or pName:find("bed")
+                        or pName:find("closet") or pName:find("knob") or pName:find("prop")
+                        or pParentName:find("drawer") or pParentName:find("desk") or pParentName:find("dresser")
+                        or pParentName:find("wardrobe") or pParentName:find("chest") or pParentName:find("closet")
+                        or pParentName:find("table") or pParentName:find("bed")
+                    if not isFloor and not isFurnitureOrContainer and p.CanCollide then
                         p.CanCollide = false
                         State.activeNoclipWallParts[p] = nowClock + 0.6
                     end
@@ -6251,28 +6279,44 @@ end))
 local autoInteractToggleObj = nil
 local autoHideToggleObj = nil
 
+local lastKeybindPressTimes = {}
 trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if not input.KeyCode or input.KeyCode == Enum.KeyCode.Unknown then return end
 
-    -- Keybind Triggers for Auto Interact [R] & Auto Hide [Q]
-    if not gameProcessed then
-        if input.KeyCode == (State.Auto_Interact_Key or Enum.KeyCode.R) then
-            State.Auto_Interact = not State.Auto_Interact
-            if autoInteractToggleObj and autoInteractToggleObj.Set then
-                autoInteractToggleObj:Set(State.Auto_Interact)
-            end
-            Hub.Notify("Interaction", State.Auto_Interact and "Auto Interact: Enabled [R]" or "Auto Interact: Disabled [R]", 2)
-        elseif input.KeyCode == (State.Auto_Hide_Key or Enum.KeyCode.Q) then
-            State.Auto_Hide = not State.Auto_Hide
-            if autoHideToggleObj and autoHideToggleObj.Set then
-                autoHideToggleObj:Set(State.Auto_Hide)
-            end
-            Hub.Notify("Automation", State.Auto_Hide and "Auto Hide: Enabled [Q]" or "Auto Hide: Disabled [Q]", 2)
-        elseif input.KeyCode == Enum.KeyCode.V then
-            State.Walk_Noclip = not State.Walk_Noclip
-            if State.walkNoclipToggleObj and State.walkNoclipToggleObj.Set then
-                State.walkNoclipToggleObj:Set(State.Walk_Noclip)
-            end
-            if State.Walk_Noclip then
+    local nowInput = os.clock()
+    local lastPress = lastKeybindPressTimes[input.KeyCode] or 0
+    if (nowInput - lastPress) < 0.35 then
+        return -- Clean 350ms per-key debounce: strictly prevents double-firing
+    end
+
+    -- Keybind Triggers for Auto Interact [R], Auto Hide [Q], and Walk Noclip [V]
+    if input.KeyCode == (State.Auto_Interact_Key or Enum.KeyCode.R) then
+        lastKeybindPressTimes[input.KeyCode] = nowInput
+        local nextVal = not State.Auto_Interact
+        if autoInteractToggleObj and autoInteractToggleObj.Set then
+            autoInteractToggleObj:Set(nextVal)
+        else
+            State.Auto_Interact = nextVal
+            Hub.Notify("Interaction", nextVal and "Auto Interact: Enabled [R]" or "Auto Interact: Disabled [R]", 2)
+        end
+    elseif input.KeyCode == (State.Auto_Hide_Key or Enum.KeyCode.Q) then
+        lastKeybindPressTimes[input.KeyCode] = nowInput
+        local nextVal = not State.Auto_Hide
+        if autoHideToggleObj and autoHideToggleObj.Set then
+            autoHideToggleObj:Set(nextVal)
+        else
+            State.Auto_Hide = nextVal
+            Hub.Notify("Automation", nextVal and "Auto Hide: Enabled [Q]" or "Auto Hide: Disabled [Q]", 2)
+        end
+    elseif input.KeyCode == Enum.KeyCode.V then
+        lastKeybindPressTimes[input.KeyCode] = nowInput
+        local nextVal = not State.Walk_Noclip
+        if State.walkNoclipToggleObj and State.walkNoclipToggleObj.Set then
+            State.walkNoclipToggleObj:Set(nextVal)
+        else
+            State.Walk_Noclip = nextVal
+            if nextVal then
                 State.WalkSpeed_Enabled = true
                 if syncServerSlide then syncServerSlide(true, true) end
                 Hub.Notify("Movement", "Noclip Walk: Enabled [V] (Phase Through Walls & Doors)", 2)
@@ -6417,6 +6461,9 @@ local function applyPromptModifications(prompt)
 
     if isDoorPrompt then
         prompt.RequiresLineOfSight = false
+        if not prompt.Enabled then
+            prompt.Enabled = true
+        end
         if State.DoorReach then
             prompt.MaxActivationDistance = math.max(22.0, origDist * 2.2)
         else
