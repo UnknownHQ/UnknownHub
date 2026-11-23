@@ -3948,17 +3948,36 @@ local function processNearbyDoors(currentPos, maxReach)
                 end
                 local dPos = getDoorPosition(d)
                 if dPos and (currentPos - dPos).Magnitude <= reach then
-                    -- 1. Side Doors & Barricades: Strip collisions on door leaf, CrossBoards planks, knobs so player walks through standing up seamlessly!
+                    -- 1. Anti-Door-Smash & Collision Defusal:
+                    -- Strip Hidden CanTouch so high-speed player collisions NEVER trigger the server door smash!
+                    local hiddenPart = d:FindFirstChild("Hidden")
+                    if hiddenPart and hiddenPart:IsA("BasePart") then
+                        hiddenPart.CanTouch = false
+                        hiddenPart.CanCollide = false
+                    end
+
+                    -- Side Doors (DoorNormal): Smoothly swing open 90 degrees around Hinge via client tween
+                    if d.Name == "DoorNormal" then
+                        local doorPart = d:FindFirstChild("Door")
+                        local hingePart = d:FindFirstChild("Hinge")
+                        if doorPart and hingePart and not d:GetAttribute("ClientSideOpened") then
+                            d:SetAttribute("ClientSideOpened", true)
+                            pcall(function()
+                                local startCF = doorPart.CFrame
+                                local hingeCF = hingePart.CFrame
+                                local openCF = hingeCF * CFrame.Angles(0, math.rad(-90), 0) * (hingeCF:Inverse() * startCF)
+                                local ts = game:GetService("TweenService")
+                                ts:Create(doorPart, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = openCF }):Play()
+                            end)
+                        end
+                    end
+
                     for _, child in ipairs(d:GetDescendants()) do
-                        if child:IsA("BasePart") and child.Name ~= "Hidden" and child.Name ~= "Hinge" and child.Name ~= "Frame" and child.Name ~= "Wall" then
+                        if child:IsA("BasePart") and child.Name ~= "Hinge" and child.Name ~= "Frame" and child.Name ~= "Wall" then
                             if child.CanCollide then
                                 child.CanCollide = false
                             end
-                            if child.Anchored and d.Name == "DoorNormal" then
-                                child.Anchored = false
-                            end
                         elseif child:IsA("ProximityPrompt") and child.Name == "ManualOpenPrompt" then
-                            -- Suppress false interact prompt on side doors (it's a door, not a drawer!)
                             child.Enabled = false
                             child.MaxActivationDistance = 0
                         end
@@ -5474,7 +5493,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     local nowTime = os.clock()
     if root and not hiding and (State.AutoInteract_Doors or State.Knobs_Farm_Active) and (nowTime - (openedDoors.lastSentryCheck or 0) >= 0.15) then
         openedDoors.lastSentryCheck = nowTime
-        local doorReach = State.Knobs_Farm_Active and 35 or 16
+        local doorReach = (State.WalkSpeed_Enabled or State.Knobs_Farm_Active) and 35 or 24
         processNearbyDoors(root.Position, doorReach)
     end
 
@@ -5793,12 +5812,22 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
                     local isFloor = (p.Position.Y + p.Size.Y / 2) <= (root.Position.Y - hum.HipHeight * 0.7)
                     local pName = p.Name:lower()
                     local pParentName = p.Parent and p.Parent.Name:lower() or ""
-                    local isFurnitureOrContainer = pName:find("drawer") or pName:find("desk") or pName:find("dresser")
-                        or pName:find("table") or pName:find("chest") or pName:find("wardrobe") or pName:find("bed")
-                        or pName:find("closet") or pName:find("knob") or pName:find("prop")
-                        or pParentName:find("drawer") or pParentName:find("desk") or pParentName:find("dresser")
-                        or pParentName:find("wardrobe") or pParentName:find("chest") or pParentName:find("closet")
-                        or pParentName:find("table") or pParentName:find("bed")
+                    local isFurnitureOrContainer = false
+                    local curAncestor = p
+                    local aDepth = 0
+                    while curAncestor and curAncestor ~= Workspace and aDepth < 6 do
+                        local an = curAncestor.Name:lower()
+                        if an:find("drawer") or an:find("dresser") or an:find("desk") or an:find("table")
+                            or an:find("wardrobe") or an:find("chest") or an:find("bed") or an:find("closet")
+                            or an:find("knob") or an:find("shelf") or an:find("shelves") or an:find("bookcase")
+                            or an:find("stand") or an:find("furniture") or an:find("holder") then
+                            isFurnitureOrContainer = true
+                            break
+                        end
+                        curAncestor = curAncestor.Parent
+                        aDepth += 1
+                    end
+
                     if not isFloor and not isFurnitureOrContainer and p.CanCollide then
                         p.CanCollide = false
                         State.activeNoclipWallParts[p] = nowClock + 0.6
@@ -7185,35 +7214,75 @@ task.spawn(function()
                     setupRoomPromptMapping(curRoom)
                 end
 
-                -- Prompt sources: Current room pre-filtered prompts + Workspace.Drops
-                local promptSources = { currentRoomPrompts }
-                local drops = Workspace:FindFirstChild("Drops")
-                if drops then
-                    local dropPrompts = {}
-                    for _, d in ipairs(drops:GetChildren()) do
-                        local p = d:FindFirstChildWhichIsA("ProximityPrompt", true)
-                        if p and p.Enabled then table.insert(dropPrompts, p) end
+                -- Universal Direct Proximity Prompt Scan (CurrentRooms + Drops within 14 studs)
+                local nearbyPromptsToFire = {}
+                local playerPos = root.Position
+
+                local function evaluatePromptCandidate(prompt)
+                    if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled or not prompt.Parent then return end
+                    if prompt.Name == "ManualOpenPrompt" then return end -- Never touch fake side-door interact prompt
+
+                    local pObj = (prompt.ObjectText or ""):lower()
+                    local pAct = (prompt.ActionText or ""):lower()
+                    local pName = prompt.Name:lower()
+                    local parentName = prompt.Parent.Name:lower()
+
+                    -- Anti-Painting Invariant: Strictly ignore paintings, canvases, frames
+                    if pObj:find("painting") or pAct:find("painting") or parentName:find("painting") or parentName:find("canvas") or parentName:find("portrait") or parentName:find("picture") then
+                        return
                     end
-                    table.insert(promptSources, dropPrompts)
+
+                    -- Anti-Hiding Invariant: Never auto-enter closets/lockers/beds unless threat active
+                    if pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed") or pAct:find("hide") or pName:find("hide") then
+                        return
+                    end
+
+                    -- Fake/Dupe door guard
+                    if parentName:find("doorfake") or parentName:find("dupe") then return end
+
+                    -- Proximity distance check
+                    local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart", true)
+                    local pPos = pPart and pPart.Position
+                    if pPos then
+                        local dist = (playerPos - pPos).Magnitude
+                        local isDrawer = pObj:find("drawer") or parentName:find("knob") or parentName:find("drawer")
+                        local maxAllowed = isDrawer and 7.5 or (prompt.MaxActivationDistance or 12.0)
+                        if dist <= maxAllowed then
+                            table.insert(nearbyPromptsToFire, prompt)
+                        end
+                    end
                 end
 
-                for _, pSet in ipairs(promptSources) do
-                    for prompt, _ in pairs(pSet) do
-                        local actualPrompt = (typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt")) and prompt or _
-                        if typeof(actualPrompt) == "Instance" and actualPrompt:IsA("ProximityPrompt") and actualPrompt.Enabled and actualPrompt.Parent then
-                            -- Debounce check
-                            local lastFired = autoInteractDebounce[actualPrompt]
-                            local debounceTime = PromptDebounceObjects[actualPrompt.Parent.Name] or 0.2
-                            if not lastFired or (now - lastFired) >= debounceTime then
-                                local safe, objName = dynamicPromptCheck(actualPrompt)
-                                if safe then
-                                    autoInteractDebounce[actualPrompt] = now
-                                    safeInstantFirePrompt(actualPrompt)
-                                    local delayVal = tonumber(State.AutoInteract_Delay) or 0.05
-                                    if delayVal > 0 then task.wait(delayVal) end
+                local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                if curRooms then
+                    for _, rm in ipairs(curRooms:GetChildren()) do
+                        local rmPos = rm:FindFirstChildWhichIsA("BasePart", true)
+                        if rmPos and (rmPos.Position - playerPos).Magnitude < 75 then
+                            for _, desc in ipairs(rm:GetDescendants()) do
+                                if desc:IsA("ProximityPrompt") then
+                                    evaluatePromptCandidate(desc)
                                 end
                             end
                         end
+                    end
+                end
+
+                local drops = Workspace:FindFirstChild("Drops")
+                if drops then
+                    for _, d in ipairs(drops:GetChildren()) do
+                        local p = d:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        if p then evaluatePromptCandidate(p) end
+                    end
+                end
+
+                for _, prompt in ipairs(nearbyPromptsToFire) do
+                    local lastFired = autoInteractDebounce[prompt]
+                    local debounceTime = (prompt.Parent and PromptDebounceObjects[prompt.Parent.Name]) or 0.2
+                    if not lastFired or (now - lastFired) >= debounceTime then
+                        autoInteractDebounce[prompt] = now
+                        safeInstantFirePrompt(prompt)
+                        local delayVal = tonumber(State.AutoInteract_Delay) or 0.04
+                        if delayVal > 0 then task.wait(delayVal) end
                     end
                 end
 
@@ -9627,10 +9696,10 @@ local detectedFloor = (game.ReplicatedStorage:FindFirstChild("GameData") and gam
 -- Entity Path Nodes & Rush/Ambush Safe Zones Visualization Subsystems
 -- =========================================================================
 local refreshEntityNodesVisuals, refreshSafeZonesVisuals
-local isPlayerCrouching, getRushPathSegments, getClosestPointOnSegment, updateRushSafeHUD, clearSafeZoneVisuals
-;(function()
 local activeNodeVisuals = {}
 local activeSafeZoneVisuals = {}
+local isPlayerCrouching, getRushPathSegments, getClosestPointOnSegment, updateRushSafeHUD, clearSafeZoneVisuals
+;(function()
 local rushSafeHUD = nil
 
 local cachedRoomPathNodes = {}
@@ -9979,8 +10048,8 @@ local function checkWalkableFloor(candidatePos, ignoreList)
     end
     local drops = Workspace:FindFirstChild("Drops")
     if drops then table.insert(filter, drops) end
-    for _, vis in ipairs(activeSafeZoneVisuals) do table.insert(filter, vis) end
-    for _, vis in ipairs(activeNodeVisuals) do table.insert(filter, vis) end
+    for _, vis in ipairs(activeSafeZoneVisuals or {}) do table.insert(filter, vis) end
+    for _, vis in ipairs(activeNodeVisuals or {}) do table.insert(filter, vis) end
     rayParams.FilterDescendantsInstances = filter
 
     local downHit = Workspace:Raycast(candidatePos + Vector3.new(0, 3.5, 0), Vector3.new(0, -9.0, 0), rayParams)
@@ -10090,8 +10159,8 @@ local function evaluateRushSafety(testPos, segments, char)
     local filter = {charInst}
     local drops = Workspace:FindFirstChild("Drops")
     if drops then table.insert(filter, drops) end
-    for _, vis in ipairs(activeSafeZoneVisuals) do table.insert(filter, vis) end
-    for _, vis in ipairs(activeNodeVisuals) do table.insert(filter, vis) end
+    for _, vis in ipairs(activeSafeZoneVisuals or {}) do table.insert(filter, vis) end
+    for _, vis in ipairs(activeNodeVisuals or {}) do table.insert(filter, vis) end
     rayParams.FilterDescendantsInstances = filter
 
     -- 1. Find Closest Point on Entire Rush Path
@@ -10378,7 +10447,8 @@ task.spawn(function()
         if _G.DOORS_SESSION ~= currentSession then break end
         if State.ESP_Safe_Zones then
             local curRoom = getCurrentRoomNumber()
-            if curRoom ~= lastCheckedRoom or #activeSafeZoneVisuals == 0 then
+            local safeCount = (activeSafeZoneVisuals and #activeSafeZoneVisuals) or 0
+            if curRoom ~= lastCheckedRoom or safeCount == 0 then
                 lastCheckedRoom = curRoom
                 pcall(refreshSafeZonesVisuals)
             end
