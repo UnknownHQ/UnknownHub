@@ -1319,7 +1319,21 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
                 end
             end
         elseif modelTarget then
-            hl = createHighlight(modelTarget, color, State.ESP_FillTransparency or 0.75, State.ESP_OutlineTransparency or 0, category)
+            local fTrans = (category == "Entities") and 0.22 or (State.ESP_FillTransparency or 0.75)
+            local oTrans = (category == "Entities") and 0 or (State.ESP_OutlineTransparency or 0)
+            local hlCount = 0
+            if category ~= "Entities" then
+                for _, rec in pairs(activeEspRecords) do
+                    if rec.Highlight then hlCount += 1 end
+                end
+            end
+            if category == "Entities" or hlCount < 22 then
+                hl = createHighlight(modelTarget, color, fTrans, oTrans, category)
+                if hl and category == "Entities" then
+                    hl.OutlineColor = Color3.fromRGB(255, 220, 220)
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                end
+            end
             if hl then table.insert(visuals, hl) end
         end
     end
@@ -1654,7 +1668,9 @@ local KNOWN_ITEMS = {
     ["shakelight"]      = "Shakelight",
     ["compass"]         = "Compass",
     ["glowstick"]       = "Glowstick",
-    ["crucifixwall"]    = "Crucifix"
+    ["crucifixwall"]    = "Crucifix",
+    ["sallytoyobtain"]  = "Sally Toy",
+    ["sallytoy"]        = "Sally Toy"
 }
 
 -- Furniture and background decor blacklist to prevent false positives (bottle removed to allow drinks)
@@ -1738,7 +1754,9 @@ local VALID_ITEM_NAMES = {
     ["smoothie"]        = "Smoothie",
     ["herb"]            = "Herb",
     ["bread"]           = "Bread",
-    ["fuse"]            = "Fuse"
+    ["fuse"]            = "Fuse",
+    ["sallytoyobtain"]  = "Sally Toy",
+    ["sallytoy"]        = "Sally Toy"
 }
 
 local function isValidLootItem(model)
@@ -1746,7 +1764,7 @@ local function isValidLootItem(model)
     local lower = model.Name:lower()
 
     -- 0. Anti-Highlight & Internal Tag Guard: Never highlight door highlight models or helper parts
-    if lower:find("mspaint") or lower:find("highlight") or lower:find("frame") or lower:find("lock") then
+    if lower:find("mspaint") or lower:find("highlight") or lower:find("frame") or (lower:find("lock") and not lower:find("lockpick")) then
         return false, nil
     end
 
@@ -1991,9 +2009,11 @@ local function processChest(chestModel)
         or chestModel.PrimaryPart
         or chestModel:FindFirstChildWhichIsA("BasePart")
     if targetPart then
-        local isToolbox = chestModel.Name:lower():find("toolbox")
-        local baseText = isToolbox and "Toolbox" or "Chest"
-        local color = isToolbox and Color3.fromRGB(255, 140, 40) or Color3.fromRGB(130, 215, 255)
+        local cLower = chestModel.Name:lower()
+        local isToolbox = cLower:find("toolbox")
+        local isLockedChest = cLower:find("locked")
+        local baseText = isToolbox and "Toolbox" or (isLockedChest and "Locked Chest" or "Chest")
+        local color = isToolbox and Color3.fromRGB(255, 140, 40) or (isLockedChest and Color3.fromRGB(255, 190, 60) or Color3.fromRGB(130, 215, 255))
 
         pcall(function()
             if not chestModel:GetAttribute("__Unknown_Chest_Hooked") then
@@ -2015,7 +2035,7 @@ local OBJECTIVE_KEYWORDS = {
     "minesgenerator", "minesgatebutton", "fuseobtain", "candyvault", "waterpump",
     "gardengate", "minesanchor", "stairwellfirealarm", "depothalloween", "vineguillotine",
     "stairwellterminal", "archivesterminal", "timerlever", "gardengatebutton",
-    "leverforgate", "sallytoyobtain"
+    "leverforgate"
 }
 
 local function isObjectiveInstance(inst)
@@ -2543,15 +2563,7 @@ local function processEntity(entity)
                     weld.Part1 = cubePart
                     weld.Parent = cubePart
 
-                    local cubeHL = Instance.new("Highlight")
-                    cubeHL.Name = "__cube_outline_hl"
-                    cubeHL.Adornee = cubePart
-                    cubeHL.FillColor = entityColor
-                    cubeHL.FillTransparency = 0.25
-                    cubeHL.OutlineColor = Color3.fromRGB(255, 220, 220)
-                    cubeHL.OutlineTransparency = 0
-                    cubeHL.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    cubeHL.Parent = cubePart
+                    -- Single clean Highlight managed by registerEsp (prevents hitting Roblox 31-Highlight cap)
 
                     cubePart.Parent = entity:IsA("Model") and entity or targetPart
                     existingCube = cubePart
@@ -2907,7 +2919,7 @@ local function scanSingleRoom(room)
                     processHidingSpot(desc, room)
                 elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                     processGold(desc)
-                elseif dName == "chestbox" or dName == "toolshed_small" or dName:find("toolbox") or dName == "chest" then
+                elseif dName == "chestbox" or dName == "chestboxlocked" or dName == "toolshed_small" or dName:find("toolbox") or dName == "chest" then
                     processChest(desc)
                 elseif isObjectiveInstance(desc) then
                     processObjective(desc)
@@ -3078,7 +3090,7 @@ pcall(function()
                         processHidingSpot(desc, newRoom)
                     elseif dName == "goldpile" or dName:find("gold") or dName:find("coin") then
                         processGold(desc)
-                    elseif dName == "chestbox" or dName == "toolshed_small" or dName:find("toolbox") or dName == "chest" then
+                    elseif dName == "chestbox" or dName == "chestboxlocked" or dName == "toolshed_small" or dName:find("toolbox") or dName == "chest" then
                         processChest(desc)
                     elseif isObjectiveInstance(desc) then
                         processObjective(desc)
@@ -6528,9 +6540,13 @@ local function applyPromptModifications(prompt)
         if origLOS ~= nil then prompt.RequiresLineOfSight = origLOS end
     end
 
-    -- Instant Interact (HoldDuration = 0 strictly when State.Instant_Interact is enabled!)
+    -- Instant Interact (HoldDuration = 0, EXCEPT unlock prompts when Infinite_Items is ON so DropItem runs BEFORE server consumes lockpick!)
     if State.Instant_Interact then
-        prompt.HoldDuration = 0
+        if State.Infinite_Items and isGenuineUnlockPrompt and isGenuineUnlockPrompt(prompt) then
+            prompt.HoldDuration = math.max(prompt:GetAttribute("OrigHold") or 0.35, 0.28)
+        else
+            prompt.HoldDuration = 0
+        end
     else
         local origHold = prompt:GetAttribute("OrigHold")
         if origHold ~= nil then
@@ -6798,6 +6814,15 @@ pcall(function()
     -- Clean ProximityPrompt Interactor with Extended Distance Reach support
     pps.PromptButtonHoldBegan:Connect(function(prompt, player)
         if player ~= nil and player ~= LocalPlayer then return end
+        if State.Infinite_Items and isGenuineUnlockPrompt and isGenuineUnlockPrompt(prompt) then
+            local tool = getCompatibleToolForPrompt(prompt)
+            if tool then
+                task.spawn(function()
+                    executeInfinitePromptInteraction(prompt, tool)
+                end)
+                return
+            end
+        end
         if State.Instant_Interact then
             safeInstantFirePrompt(prompt)
         elseif State.Interact_DistanceMultiplier and State.Interact_DistanceMultiplier > 1 then
@@ -6910,6 +6935,7 @@ local ObjectAuraWhitelist = {
     ["Cabinet"] = true,
     ["Chest"] = true,
     ["ChestBox"] = true,
+    ["ChestBoxLocked"] = true,
     ["Toolbox"] = true,
     ["Wardrobe"] = true,
     ["Key"] = true,
@@ -7220,13 +7246,13 @@ local function setupRoomPromptMapping(roomModel)
 
     local prompts = setmetatable({}, {__mode = "k"})
     for _, prompt in ipairs(roomModel:GetDescendants()) do
-        if prompt:IsA("ProximityPrompt") and staticPromptCheck(prompt) then
+        if prompt:IsA("ProximityPrompt") then
             prompts[prompt] = true
         end
     end
 
     roomModel.DescendantAdded:Connect(function(desc)
-        if desc:IsA("ProximityPrompt") and staticPromptCheck(desc) then
+        if desc:IsA("ProximityPrompt") then
             prompts[desc] = true
         end
     end)
@@ -7279,6 +7305,15 @@ task.spawn(function()
                         or mName:find("note") or mName:find("letter") or mName:find("piano") or mName:find("fireplace")
                         or parentName:find("doorfake") or parentName:find("dupe") then
                         return
+                    end
+
+                    -- Bandage 100% HP Detector: Keep Bandage in list, only skip when HP is already 100%
+                    if pObj:find("bandage") or pObj:find("bandaid") or parentName:find("bandage") or mName:find("bandage") then
+                        local ch = getChar()
+                        local hm = ch and ch:FindFirstChildWhichIsA("Humanoid")
+                        if hm and hm.Health >= hm.MaxHealth then
+                            return
+                        end
                     end
 
                     -- Locked Chest / Locked Door Guard: NEVER try to unlock without an actual compatible tool!
