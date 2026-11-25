@@ -2267,7 +2267,10 @@ return function(opts)
             end
         end
 
-        setToggle = function(val)
+        setToggle = function(val, maybeVal)
+            if type(val) == "table" and maybeVal ~= nil then
+                val = maybeVal
+            end
 
             state = (val == true)
 

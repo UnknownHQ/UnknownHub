@@ -267,7 +267,7 @@ local State = {
     -- Main / Interactions (mspaint v4 Interaction Suite)
     Auto_Interact = false,
     Auto_Interact_Key = Enum.KeyCode.R,
-    AutoInteract_Delay = 0.05,
+    AutoInteract_Delay = 0.01,
     AutoInteract_IgnoreList = {
         ["Unlock w/ Shears"] = true,
         ["Jeff Items"] = true,
@@ -3543,50 +3543,32 @@ local function updateSpeedBypass(now, dt)
     end
 end
 
-local function startSlide()
+local function triggerNativeSlideMomentum()
     if not State.Enable_Sliding then return end
-    if isSlidingActive then return end
-
     local char = getChar()
     local root = getRoot()
     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
     if not char or not root or not hum or hum.Health <= 0 then return end
+    pcall(function() char:SetAttribute("CanSlide", true) end)
 
     local moveDir = hum.MoveDirection
-    if moveDir.Magnitude < 0.55 then return end
+    if moveDir.Magnitude < 0.2 then return end
 
+    -- DOORS Main_Game.Movement requires CollisionPart.Velocity.Magnitude >= 20 to trigger its native slide.
+    -- If walking slower than 20, give a 1-frame impulse so DOORS's own real slide engine activates naturally!
     local horizVel = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
-    if horizVel.Magnitude < 13.5 then return end
-
-    isSlidingActive = true
-    slideStartTime = os.clock()
-    slideDirection = moveDir.Unit
-
-    local mgTable = getMainGameTable()
-    if mgTable then
-        mgTable.sliding = true
-        if mgTable.animations and mgTable.animations.Slide then
-            pcall(function() mgTable.animations.Slide:Play(0.35, 1, 0.95) end)
-        end
+    if horizVel.Magnitude < 20.8 then
+        local unitDir = Vector3.new(moveDir.X, 0, moveDir.Z).Unit
+        root.AssemblyLinearVelocity = Vector3.new(unitDir.X * 21.5, root.AssemblyLinearVelocity.Y, unitDir.Z * 21.5)
     end
+end
 
-    syncServerSlide(true, true)
-    applyTeflonGlide(char)
+local function startSlide()
+    triggerNativeSlideMomentum()
 end
 
 local function stopSlide()
-    if not isSlidingActive then return end
     isSlidingActive = false
-
-    local mgTable = getMainGameTable()
-    if mgTable then
-        mgTable.sliding = false
-        if mgTable.animations and mgTable.animations.Slide then
-            pcall(function() mgTable.animations.Slide:Stop(0.25) end)
-        end
-    end
-
-    syncServerSlide(true, false)
 end
 
 -- =========================================================================
@@ -5455,23 +5437,32 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     wasHidingState = isInsideHiding
     local hiding = isInsideHiding or (os.clock() < unhideGraceUntil)
 
-    -- Instant Hiding Spot Exit (FastClosetExit): Authentically debounced GetOutOfHiding remote (zero rubberband)
-    if State.FastClosetExit and isInsideHiding then
+    -- Instant Hiding Spot Exit (FastClosetExit): Uses native DOORS CamLock unhide + skips AnimatingClient/camlock.last delay (zero rubberband)
+    if State.FastClosetExit and char:GetAttribute("Hiding") == true then
+        if char:GetAttribute("AnimatingClient") == true then
+            pcall(function() char:SetAttribute("AnimatingClient", false) end)
+        end
+        if mgTable and mgTable.camlock and type(mgTable.camlock) == "table" then
+            mgTable.camlock.last = 0
+        end
         local uis = game:GetService("UserInputService")
         local isMoving = (hum and hum.MoveDirection.Magnitude > 0.05)
             or uis:IsKeyDown(Enum.KeyCode.W) or uis:IsKeyDown(Enum.KeyCode.A)
             or uis:IsKeyDown(Enum.KeyCode.S) or uis:IsKeyDown(Enum.KeyCode.D)
             or uis:IsKeyDown(Enum.KeyCode.Space)
         local nowExit = os.clock()
-        if isMoving and (nowExit - (State.lastClosetExitAttempt or 0) >= 1.5) then
+        if isMoving and not State.fastExitFiredThisHide and (nowExit - (State.lastClosetExitAttempt or 0) >= 1.2) then
+            State.fastExitFiredThisHide = true
             State.lastClosetExitAttempt = nowExit
-            unhideGraceUntil = nowExit + 1.2
+            unhideGraceUntil = nowExit + 1.0
             local rf = remotesFolder or game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
-            local goh = rf and rf:FindFirstChild("GetOutOfHiding")
-            if goh then
-                goh:FireServer()
+            local camLock = rf and rf:FindFirstChild("CamLock")
+            if camLock and camLock:IsA("RemoteEvent") then
+                pcall(function() camLock:FireServer() end)
             end
         end
+    elseif char:GetAttribute("Hiding") ~= true then
+        State.fastExitFiredThisHide = false
     end
 
     -- Auto-disable Noclip if Bypass Anti-Cheat Core is disabled
@@ -5657,18 +5648,19 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     local isCutscene = (mgTable and mgTable.stopcam == true)
     if State.WalkSpeed_Enabled and not isInsideHiding and not TeleportState.isTweening and not isCutscene then
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
-        if hum.MoveDirection.Magnitude > 0.05 then
-            applyTeflonGlide(char)
-        else
-            restoreDefaultFriction(char)
-        end
+        restoreDefaultFriction(char)
         -- Always sync slide token when WalkSpeed is enabled so server displacement authorizes speeds up to 50+ studs/s!
         if State.WalkSpeed_Enabled or State.Enable_Sliding or isCrouching then
             syncServerSlide(true, isCrouching)
         end
 
         local targetSpeed = State.WalkSpeed_Value or 15
-        if hum.WalkSpeed ~= targetSpeed then
+        local baseGameSpeed = isCrouching and 10 or 15
+        local desiredExtra = math.max(0, targetSpeed - baseGameSpeed)
+        if char:GetAttribute("SpeedBoostExtra") ~= desiredExtra then
+            pcall(function() char:SetAttribute("SpeedBoostExtra", desiredExtra) end)
+        end
+        if hum.WalkSpeed ~= targetSpeed and not (mgTable and mgTable.sliding) then
             hum.WalkSpeed = targetSpeed
         end
 
@@ -5689,28 +5681,28 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         if not State.Noclip and not State.Enable_Sliding and not isTeleportImmune() then
             syncServerSlide(false, false)
         end
-        if char and char:GetAttribute("SpeedBoostExtra") then
+        if char and char:GetAttribute("SpeedBoostExtra") and char:GetAttribute("SpeedBoostExtra") ~= 0 then
             pcall(function() char:SetAttribute("SpeedBoostExtra", nil) end)
         end
-        if hum.WalkSpeed ~= 15 and not State.WalkSpeed_Enabled and not State.Noclip and not isSlidingActive then
-            hum.WalkSpeed = 15
-        end
+    end
+
+    -- Keep native CanSlide synced with toggle
+    if char and char:GetAttribute("CanSlide") ~= (State.Enable_Sliding == true) then
+        pcall(function() char:SetAttribute("CanSlide", State.Enable_Sliding == true) end)
     end
 
     -- Continuous Speed Bypass Telemetry & Massless Sync (mspaint V4)
     updateSpeedBypass(nowTime, dt)
 
-    -- Natural Walking Physics & No-Acceleration Kinematics:
-    -- Completely eradicates sliding/drifting backwards when standing still, with zero synthetic platform feeling!
-    if not State.Noclip and not hiding and not TeleportState.isTweening and not isSlidingActive and not isAtRoof and not State.Auto_Beat then
+    -- No-Acceleration Kinematics (ONLY active when State.No_Acceleration is toggled ON — normal walking stays 100% buttery smooth!):
+    if (State.No_Acceleration or State.Instant_Movement) and not State.Noclip and not hiding and not TeleportState.isTweening and not (mgTable and mgTable.sliding) and not isAtRoof and not State.Auto_Beat then
         if hum.MoveDirection.Magnitude <= 0.05 and root then
             local curHoriz = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
             if curHoriz.Magnitude > 0.05 then
                 root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
                 root.AssemblyAngularVelocity = Vector3.zero
             end
-            restoreDefaultFriction(char)
-        elseif (State.No_Acceleration or State.Instant_Movement) and not hum.Sit and root then
+        elseif not hum.Sit and root then
             local moveDir = hum.MoveDirection
             if moveDir.Magnitude > 0.05 then
                 local speed = State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 15) or (hum.WalkSpeed > 0 and hum.WalkSpeed or 15)
@@ -5735,17 +5727,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Sliding Velocity Maintenance (Smooth forward momentum with natural deceleration)
-    if isSlidingActive and not hiding then
-        local elapsed = os.clock() - slideStartTime
-        if elapsed > 1.1 or hum.MoveDirection.Magnitude < 0.1 then
-            stopSlide()
-        else
-            local baseSpeed = math.max(State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 20) or 22, 18)
-            local slideSpeed = baseSpeed * math.clamp(1 - (elapsed / 1.1) * 0.4, 0.45, 1.0)
-            root.AssemblyLinearVelocity = Vector3.new(slideDirection.X * slideSpeed, root.AssemblyLinearVelocity.Y, slideDirection.Z * slideSpeed)
-        end
-    end
+    -- Native DOORS sliding handles its own BodyVelocity/VectorForce physics cleanly.
 
     -- Pure native flight altitude maintenance during Safe Roof Evasion (zero physical brick needed)
     if isAtRoof and root then
@@ -5794,48 +5776,30 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
                 end
             end
 
-            -- 3. Phase through colliding walls/obstacles around character
+            -- 3. Phase through colliding walls/doors around character (anchored only, never break unanchored drawers/props!)
             local op = OverlapParams.new()
             op.FilterDescendantsInstances = {char}
             op.FilterType = Enum.RaycastFilterType.Exclude
-            local nearbyParts = Workspace:GetPartBoundsInRadius(root.Position, 5.0, op)
+            local nearbyParts = Workspace:GetPartBoundsInRadius(root.Position, 7.5, op)
             local nowClock = os.clock()
             State.activeNoclipWallParts = State.activeNoclipWallParts or {}
             for _, p in ipairs(nearbyParts) do
-                if p:IsA("BasePart") then
-                    local isFloor = (p.Position.Y + p.Size.Y / 2) <= (root.Position.Y - hum.HipHeight * 0.7)
-                    local pName = p.Name:lower()
-                    local pParentName = p.Parent and p.Parent.Name:lower() or ""
-                    local isFurnitureOrContainer = false
-                    local curAncestor = p
-                    local aDepth = 0
-                    while curAncestor and curAncestor ~= Workspace and aDepth < 6 do
-                        local an = curAncestor.Name:lower()
-                        if an:find("drawer") or an:find("dresser") or an:find("desk") or an:find("table")
-                            or an:find("wardrobe") or an:find("chest") or an:find("bed") or an:find("closet")
-                            or an:find("knob") or an:find("shelf") or an:find("shelves") or an:find("bookcase")
-                            or an:find("stand") or an:find("furniture") or an:find("holder") then
-                            isFurnitureOrContainer = true
-                            break
-                        end
-                        curAncestor = curAncestor.Parent
-                        aDepth += 1
-                    end
-
-                    if not isFloor and not isFurnitureOrContainer and p.CanCollide then
+                if p:IsA("BasePart") and p.Anchored and p.CanCollide then
+                    local isFloor = (p.Position.Y + p.Size.Y / 2) <= (root.Position.Y - hum.HipHeight * 0.65)
+                    if not isFloor then
                         p.CanCollide = false
-                        State.activeNoclipWallParts[p] = nowClock + 0.6
+                        State.activeNoclipWallParts[p] = nowClock + 0.5
                     end
                 end
             end
 
-            -- 4. Restore collisions for parts that player has walked past (> 6.5 studs)
+            -- 4. Restore collisions for parts that player has walked past (> 9.0 studs)
             for p, expTime in pairs(State.activeNoclipWallParts) do
                 if not p or not p.Parent or not p:IsA("BasePart") then
                     State.activeNoclipWallParts[p] = nil
                 elseif nowClock > expTime then
                     local dist = (root.Position - p.Position).Magnitude
-                    if dist > 6.5 then
+                    if dist > 9.0 then
                         p.CanCollide = true
                         State.activeNoclipWallParts[p] = nil
                     end
@@ -6268,12 +6232,32 @@ trackConn(RunService.Stepped:Connect(function()
     if _G.DOORS_SESSION ~= currentSession then return end
     if State.Noclip or State.Walk_Noclip then
         local char = getChar()
+        local root = getRoot()
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
         if char then
             for _, p in ipairs(char:GetDescendants()) do
                 if p:IsA("BasePart") then
                     if p.CanCollide then p.CanCollide = false end
                     p.CanTouch = true
                     p.CanQuery = true
+                end
+            end
+        end
+        -- Pre-physics wall & door leaf noclip so Roblox Humanoid/DOORS updatespeed() cannot block Walk_Noclip
+        if State.Walk_Noclip and not State.Noclip and root and hum then
+            local op = OverlapParams.new()
+            op.FilterDescendantsInstances = {char}
+            op.FilterType = Enum.RaycastFilterType.Exclude
+            local parts = Workspace:GetPartBoundsInRadius(root.Position, 6.5, op)
+            local nowC = os.clock()
+            State.activeNoclipWallParts = State.activeNoclipWallParts or {}
+            for _, p in ipairs(parts) do
+                if p:IsA("BasePart") and p.Anchored and p.CanCollide then
+                    local isFloor = (p.Position.Y + p.Size.Y / 2) <= (root.Position.Y - hum.HipHeight * 0.65)
+                    if not isFloor then
+                        p.CanCollide = false
+                        State.activeNoclipWallParts[p] = nowC + 0.5
+                    end
                 end
             end
         end
@@ -6317,8 +6301,8 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
     local nowInput = os.clock()
     local lastPress = lastKeybindPressTimes[input.KeyCode] or 0
-    if (nowInput - lastPress) < 0.35 then
-        return -- Clean 350ms per-key debounce: strictly prevents double-firing
+    if (nowInput - lastPress) < 0.12 then
+        return -- Snappy 120ms per-key debounce
     end
 
     -- Keybind Triggers for Auto Interact [R], Auto Hide [Q], and Walk Noclip [V]
@@ -6326,7 +6310,7 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         lastKeybindPressTimes[input.KeyCode] = nowInput
         local nextVal = not State.Auto_Interact
         if autoInteractToggleObj and autoInteractToggleObj.Set then
-            autoInteractToggleObj:Set(nextVal)
+            autoInteractToggleObj.Set(nextVal)
         else
             State.Auto_Interact = nextVal
             Hub.Notify("Interaction", nextVal and "Auto Interact: Enabled [R]" or "Auto Interact: Disabled [R]", 2)
@@ -6335,7 +6319,7 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         lastKeybindPressTimes[input.KeyCode] = nowInput
         local nextVal = not State.Auto_Hide
         if autoHideToggleObj and autoHideToggleObj.Set then
-            autoHideToggleObj:Set(nextVal)
+            autoHideToggleObj.Set(nextVal)
         else
             State.Auto_Hide = nextVal
             Hub.Notify("Automation", nextVal and "Auto Hide: Enabled [Q]" or "Auto Hide: Disabled [Q]", 2)
@@ -6344,7 +6328,7 @@ trackConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         lastKeybindPressTimes[input.KeyCode] = nowInput
         local nextVal = not State.Walk_Noclip
         if State.walkNoclipToggleObj and State.walkNoclipToggleObj.Set then
-            State.walkNoclipToggleObj:Set(nextVal)
+            State.walkNoclipToggleObj.Set(nextVal)
         else
             State.Walk_Noclip = nextVal
             if nextVal then
@@ -6448,13 +6432,13 @@ local function applyPromptModifications(prompt)
         return
     end
 
-    if not prompt:GetAttribute("OrigHold") then
+    if prompt:GetAttribute("OrigHold") == nil then
         prompt:SetAttribute("OrigHold", prompt.HoldDuration)
     end
-    if not prompt:GetAttribute("OrigLOS") then
+    if prompt:GetAttribute("OrigLOS") == nil then
         prompt:SetAttribute("OrigLOS", prompt.RequiresLineOfSight)
     end
-    if not prompt:GetAttribute("OrigMaxDist") then
+    if prompt:GetAttribute("OrigMaxDist") == nil then
         prompt:SetAttribute("OrigMaxDist", prompt.MaxActivationDistance)
     end
 
@@ -7216,32 +7200,23 @@ task.spawn(function()
                 local function evaluatePromptCandidate(prompt)
                     if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled or not prompt.Parent then return end
                     if prompt.Name == "ManualOpenPrompt" then return end -- Never touch fake side-door interact prompt
+                    if not staticPromptCheck(prompt) then return end
 
                     local pObj = (prompt.ObjectText or ""):lower()
                     local pAct = (prompt.ActionText or ""):lower()
                     local pName = prompt.Name:lower()
                     local parentName = prompt.Parent.Name:lower()
 
-                    -- Anti-Painting Invariant: Strictly ignore paintings, canvases, frames
-                    if pObj:find("painting") or pAct:find("painting") or parentName:find("painting") or parentName:find("canvas") or parentName:find("portrait") or parentName:find("picture") then
-                        return
-                    end
-
-                    -- Anti-Hiding Invariant: Never auto-enter closets/lockers/beds unless threat active
-                    if pObj:find("wardrobe") or pObj:find("closet") or pObj:find("locker") or pObj:find("bed") or pAct:find("hide") or pName:find("hide") then
-                        return
-                    end
-
                     -- Fake/Dupe door guard
                     if parentName:find("doorfake") or parentName:find("dupe") then return end
 
-                    -- Proximity distance check
+                    -- Proximity distance check (strict 6.5 stud drawer guard)
                     local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart", true)
                     local pPos = pPart and pPart.Position
                     if pPos then
                         local dist = (playerPos - pPos).Magnitude
                         local isDrawer = pObj:find("drawer") or parentName:find("knob") or parentName:find("drawer")
-                        local maxAllowed = isDrawer and 7.5 or (prompt.MaxActivationDistance or 12.0)
+                        local maxAllowed = isDrawer and 6.5 or (prompt.MaxActivationDistance or 12.0)
                         if dist <= maxAllowed then
                             table.insert(nearbyPromptsToFire, prompt)
                         end
@@ -7270,14 +7245,17 @@ task.spawn(function()
                     end
                 end
 
+                local delayVal = tonumber(State.AutoInteract_Delay) or 0.01
                 for _, prompt in ipairs(nearbyPromptsToFire) do
+                    local pName = prompt.Parent and prompt.Parent.Name:lower() or ""
+                    local isDrawer = pName:find("knob") or pName:find("drawer")
                     local lastFired = autoInteractDebounce[prompt]
-                    local debounceTime = (prompt.Parent and PromptDebounceObjects[prompt.Parent.Name]) or 0.2
-                    if not lastFired or (now - lastFired) >= debounceTime then
-                        autoInteractDebounce[prompt] = now
+                    local debounceTime = isDrawer and 0.75 or ((prompt.Parent and PromptDebounceObjects[prompt.Parent.Name]) or 0.08)
+                    local tNow = os.clock()
+                    if not lastFired or (tNow - lastFired) >= debounceTime then
+                        autoInteractDebounce[prompt] = tNow
                         safeInstantFirePrompt(prompt)
-                        local delayVal = tonumber(State.AutoInteract_Delay) or 0.04
-                        if delayVal > 0 then task.wait(delayVal) end
+                        if delayVal > 0.02 then task.wait(delayVal) end
                     end
                 end
 
@@ -7287,7 +7265,7 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.16) -- Smooth 6.5Hz loop (zero lag, zero O(N) descendant scans)
+        task.wait(0.03) -- Snappy 33Hz loop for near-instant pickup & drawer opening
     end
 end)
 -- =========================================================================
@@ -10681,7 +10659,7 @@ Hub.CreateMultiDropdown(mainTab, "Ignore List", ignoreOptions, State.AutoInterac
     State.AutoInteract_IgnoreList = selected
 end)
 
-Hub.CreateSlider(mainTab, "Auto Interact Delay", 0.01, 0.5, State.AutoInteract_Delay or 0.05, "s", function(v)
+Hub.CreateSlider(mainTab, "Auto Interact Delay", 0.01, 0.5, State.AutoInteract_Delay or 0.01, "s", function(v)
     State.AutoInteract_Delay = tonumber(v) or 0.05
 end)
 
