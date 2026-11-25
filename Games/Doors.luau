@@ -1311,30 +1311,56 @@ local function registerEsp(owner, adorneePart, baseText, color, category, partsT
     -- Exact mspaint Highlight rule: Gold is pure text-only (zero highlights); all other elements get native Highlight!
     local hl = nil
     if category ~= "Gold" then
-        if typeof(partsToHighlight) == "table" and #partsToHighlight > 1 then
-            for _, part in ipairs(partsToHighlight) do
-                if part and (part:IsA("BasePart") or part:IsA("Model")) then
-                    local p_hl = createHighlight(part, color, State.ESP_FillTransparency or 0.75, State.ESP_OutlineTransparency or 0, category)
-                    if p_hl then table.insert(visuals, p_hl) end
+        local function countActiveHighlights()
+            local c = 0
+            for _, rec in pairs(activeEspRecords) do
+                if rec.Visuals then
+                    for _, v in ipairs(rec.Visuals) do
+                        if v and v:IsA("Highlight") then c += 1 end
+                    end
+                elseif rec.Highlight then
+                    c += 1
                 end
             end
-        elseif modelTarget then
-            local fTrans = (category == "Entities") and 0.22 or (State.ESP_FillTransparency or 0.75)
-            local oTrans = (category == "Entities") and 0 or (State.ESP_OutlineTransparency or 0)
-            local hlCount = 0
-            if category ~= "Entities" then
+            return c
+        end
+
+        if category == "Entities" then
+            -- Purge distant non-entity Highlights if approaching Roblox's 31-Highlight engine limit!
+            if countActiveHighlights() >= 22 then
                 for _, rec in pairs(activeEspRecords) do
-                    if rec.Highlight then hlCount += 1 end
+                    if rec.Category ~= "Entities" and rec.Visuals then
+                        for i = #rec.Visuals, 1, -1 do
+                            local v = rec.Visuals[i]
+                            if v and v:IsA("Highlight") then
+                                pcall(function() v:Destroy() end)
+                                table.remove(rec.Visuals, i)
+                            end
+                        end
+                        rec.Highlight = nil
+                    end
                 end
             end
-            if category == "Entities" or hlCount < 22 then
+        end
+
+        local canHighlight = (category == "Entities") or (countActiveHighlights() < 18)
+        if canHighlight then
+            if typeof(partsToHighlight) == "table" and #partsToHighlight > 1 then
+                local targetSingle = (owner and owner:IsA("Model") and owner) or partsToHighlight[1]
+                if targetSingle then
+                    hl = createHighlight(targetSingle, color, State.ESP_FillTransparency or 0.75, State.ESP_OutlineTransparency or 0, category)
+                    if hl then table.insert(visuals, hl) end
+                end
+            elseif modelTarget then
+                local fTrans = (category == "Entities") and 0.22 or (State.ESP_FillTransparency or 0.75)
+                local oTrans = (category == "Entities") and 0 or (State.ESP_OutlineTransparency or 0)
                 hl = createHighlight(modelTarget, color, fTrans, oTrans, category)
                 if hl and category == "Entities" then
                     hl.OutlineColor = Color3.fromRGB(255, 220, 220)
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                 end
+                if hl then table.insert(visuals, hl) end
             end
-            if hl then table.insert(visuals, hl) end
         end
     end
 
@@ -3791,17 +3817,11 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
 
     targetPrompt.HoldDuration = 0
     targetPrompt.RequiresLineOfSight = false
+    _G.__DOORS_ACTIVE_RECLAIM_UNTIL = os.clock() + 2.5
 
-    -- Garage Key: Trigger prompt before drop (mspaint order)
-    if isGarageKey then
-        pcall(function() fireproximityprompt(targetPrompt) end)
-    end
-
-    -- Phase 1: Pre-bind the Drops listener BEFORE sending the drop remote
+    -- Pre-bind the Drops listener BEFORE triggering unlock & drop
     local droppedModel = nil
     local dropConn = nil
-    local deadline = os.clock() + 1.5
-
     dropConn = dropsFolder.ChildAdded:Connect(function(child)
         if child:IsA("Model") and (child:GetAttribute("Pickup") == pickupId or child.Name:lower():find(tn))
            and (child:GetAttribute("PlayerName") == LocalPlayer.Name or not child:GetAttribute("PlayerName")) then
@@ -3809,32 +3829,31 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end)
 
-    -- Phase 2: Drop tool via DropItem remote BEFORE server can destroy it
+    -- Phase 1: Fire unlock prompt WHILE holding the valid tool, then IMMEDIATELY DropItem before server consumes/destroys it!
+    pcall(function() fireproximityprompt(targetPrompt) end)
+    task.wait(0.02)
     pcall(function() dropRemote:FireServer(tool) end)
 
-    -- Phase 3: Await the tool landing in Workspace.Drops
+    -- Phase 2: Wait for server unlock to finish & tool to land in Workspace.Drops before reclaiming
+    local deadline = os.clock() + 1.4
     while not droppedModel and os.clock() < deadline do
-        task.wait(0.02)
+        task.wait(0.03)
     end
     if dropConn then dropConn:Disconnect() end
 
-    -- Fallback sweep if ChildAdded was early
     if not droppedModel then
         for _, ch in ipairs(dropsFolder:GetChildren()) do
             if ch:IsA("Model") and (ch:GetAttribute("Pickup") == pickupId or ch.Name:lower():find(tn))
-               and (ch:GetAttribute("PlayerName") == LocalPlayer.Name) then
+               and (ch:GetAttribute("PlayerName") == LocalPlayer.Name or not ch:GetAttribute("PlayerName")) then
                 droppedModel = ch
                 break
             end
         end
     end
 
-    -- Shears: Trigger prompt before reclaim (mspaint order)
-    if isShears then
-        pcall(function() fireproximityprompt(targetPrompt) end)
-    end
+    -- Wait a brief beat so server unlock completes cleanly before picking the tool back up
+    task.wait(0.25)
 
-    -- Phase 4: Instantly reclaim the dropped tool from the floor
     if droppedModel then
         local pickupPrompt = droppedModel:WaitForChild("ModulePrompt", 0.6) or droppedModel:FindFirstChildWhichIsA("ProximityPrompt", true)
         if pickupPrompt then
@@ -3844,15 +3863,7 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
         end
     end
 
-    -- Continuous retrieval backup daemon
-    _G.__DOORS_ACTIVE_RECLAIM_UNTIL = os.clock() + 2.2
-    retrieveDroppedTool(tn, 1.8)
-
-    -- Lockpick / Skeleton Key: Trigger unlock prompt AFTER tool is safely duplicated/re-obtained (mspaint order)
-    if isLockpickSkeleton then
-        task.wait(0.04)
-        pcall(function() fireproximityprompt(targetPrompt) end)
-    end
+    retrieveDroppedTool(tn, 1.5)
 
     task.delay(0.25, function()
         infItemsDebounce = false
@@ -5537,7 +5548,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
                     local isLocked = d:GetAttribute("Locked") == true or (lp ~= nil and lp.Enabled == true)
                     if not isLocked then
                         local dPos = getDoorPosition(d)
-                        if dPos and (root.Position - dPos).Magnitude <= 14.5 then
+                        if dPos and (root.Position - dPos).Magnitude <= 26.0 then
                             local hp = d:FindFirstChild("Hidden")
                             if hp and hp:IsA("BasePart") then hp.CanTouch = false end
                             local co = d:FindFirstChild("ClientOpen")
@@ -5713,7 +5724,7 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
     -- Native Ground Movement & Speed Boost (Zero Noclip, Zero Anti-Cheat Detection):
     local mgTable = getMainGameTable()
     local isCutscene = (mgTable and mgTable.stopcam == true)
-    if State.WalkSpeed_Enabled and not isInsideHiding and not TeleportState.isTweening and not isCutscene then
+    if State.WalkSpeed_Enabled and not hiding and not TeleportState.isTweening and not isCutscene then
         local isCrouching = (mgTable and mgTable.crouching) or (char and char:GetAttribute("Crouching")) or false
         restoreDefaultFriction(char)
         -- Always sync slide token when WalkSpeed is enabled so server displacement authorizes speeds up to 50+ studs/s!
@@ -6825,13 +6836,6 @@ pcall(function()
         end
         if State.Instant_Interact then
             safeInstantFirePrompt(prompt)
-        elseif State.Interact_DistanceMultiplier and State.Interact_DistanceMultiplier > 1 then
-            -- Extended distance interaction: fire prompt when player presses E
-            task.spawn(function()
-                if fireproximityprompt then
-                    fireproximityprompt(prompt)
-                end
-            end)
         end
     end)
     pps.PromptTriggered:Connect(function(prompt, player)
@@ -7025,14 +7029,8 @@ local function staticPromptCheck(prompt)
         return false
     end
 
-    local isWardrobe = obj:find("wardrobe") or pName:lower():find("wardrobe") or mName:lower():find("wardrobe") or prName == "enterprompt"
-    if isWardrobe then
-        local char = getChar()
-        local mgTable = getMainGameTable()
-        if isPlayerHiding(char, mgTable) then
-            return false
-        end
-    elseif prName:find("enter") or prName:find("hide") or act:find("hide") or act:find("enter") then
+    if obj:find("wardrobe") or pName:lower():find("wardrobe") or mName:lower():find("wardrobe")
+        or prName == "enterprompt" or prName:find("enter") or prName:find("hide") or act:find("hide") or act:find("enter") then
         return false
     end
 
@@ -7328,7 +7326,8 @@ task.spawn(function()
                     if pPos then
                         local dist = (playerPos - pPos).Magnitude
                         local isDrawer = pObj:find("drawer") or parentName:find("knob") or parentName:find("drawer")
-                        local maxAllowed = isDrawer and 6.5 or math.min(prompt.MaxActivationDistance or 12.0, 14.0)
+                        local isKeyPrompt = pObj:find("key") or pName:find("key") or parentName:find("key")
+                        local maxAllowed = isDrawer and 6.5 or (isKeyPrompt and 7.5 or math.min(prompt.MaxActivationDistance or 10.0, 11.0))
                         if dist <= maxAllowed then
                             table.insert(nearbyPromptsToFire, prompt)
                         end
@@ -7354,15 +7353,18 @@ task.spawn(function()
                 if drops then
                     local activeReclaim = (_G.__DOORS_ACTIVE_RECLAIM_UNTIL or 0) > now
                     for _, d in ipairs(drops:GetChildren()) do
-                        -- Never instantly pick up items the player manually dropped!
-                        local isMine = d:GetAttribute("PlayerName") == LocalPlayer.Name
-                        if isMine and not activeReclaim then
+                        if d:GetAttribute("__ManualDrop") == true then
+                            continue
+                        end
+                        local isMine = (d:GetAttribute("PlayerName") == LocalPlayer.Name) or (d:GetAttribute("PlayerName") == nil)
+                        local dpPart = d:IsA("BasePart") and d or d:FindFirstChildWhichIsA("BasePart", true)
+                        local nearPlayer = dpPart and (dpPart.Position - playerPos).Magnitude <= 10.0
+                        if (isMine or nearPlayer) and not activeReclaim then
                             if not d:GetAttribute("__DropSeenAt") then
                                 d:SetAttribute("__DropSeenAt", now)
+                                d:SetAttribute("__ManualDrop", true)
                             end
-                            if (now - d:GetAttribute("__DropSeenAt")) < 6.0 then
-                                continue
-                            end
+                            continue
                         end
                         local p = d:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if p then evaluatePromptCandidate(p) end
@@ -7463,6 +7465,23 @@ local function bindInfiniteTool(tool)
 end
 
 local function hookBackpackAndCharTools()
+
+-- Tag manually dropped items in Workspace.Drops so Auto Interact NEVER picks your dropped Candle/Vitamins back up
+pcall(function()
+    local dropsFolder = Workspace:FindFirstChild("Drops")
+    if dropsFolder and not _G.__DOORS_MANUAL_DROP_TAGGER then
+        _G.__DOORS_MANUAL_DROP_TAGGER = true
+        dropsFolder.ChildAdded:Connect(function(child)
+            local nowT = os.clock()
+            if (_G.__DOORS_ACTIVE_RECLAIM_UNTIL or 0) > nowT then return end
+            local r = getRoot()
+            local p = child:IsA("BasePart") and child or child:FindFirstChildWhichIsA("BasePart", true)
+            if child:GetAttribute("PlayerName") == LocalPlayer.Name or (r and p and (p.Position - r.Position).Magnitude <= 10.0) then
+                child:SetAttribute("__ManualDrop", true)
+            end
+        end)
+    end
+end)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then
         for _, t in ipairs(bp:GetChildren()) do
