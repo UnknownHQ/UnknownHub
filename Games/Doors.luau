@@ -2501,56 +2501,79 @@ local function processEntity(entity)
         end
 
         if is2D then
-            -- mspaint 1:1 Rounded-Corner Cube / Box Cham Engine for Eyes & 2D Entities
+            -- 3D Rounded Cube ESP Engine (rbxassetid://10535937913) for 2D Monsters (Rush, Ambush, Eyes, Blitz, A-60, A-120, etc.)
             pcall(function()
                 local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
                 local chamName = isEyes and "__mspaint_eyes_esp" or "__mspaint_cube_esp"
-                local existingCham = entity:FindFirstChild(chamName)
-                local chamGui = existingCham
-                local container = getEspContainer()
+                local existingCube = entity:FindFirstChild(chamName) or targetPart:FindFirstChild(chamName)
+                if existingCube and not existingCube:IsA("BasePart") then
+                    pcall(function() existingCube:Destroy() end)
+                    existingCube = nil
+                end
 
-                local boxSize = isEyes and UDim2.new(6.5, 0, 6.5, 0) or UDim2.new(6, 0, 6, 0)
+                local cubeSize = isEyes and Vector3.new(5.5, 5.5, 5.5) or Vector3.new(6, 6, 6)
                 if cfg.Name:lower():find("stampede") then
-                    boxSize = UDim2.new(8, 0, 8, 0)
+                    cubeSize = Vector3.new(7.5, 7.5, 7.5)
                 elseif cfg.Name:lower():find("drone") and not cfg.Name:lower():find("stampede") then
-                    boxSize = UDim2.new(3.5, 0, 6.5, 0)
+                    cubeSize = Vector3.new(3.5, 6.0, 3.5)
                 end
 
-                if not chamGui or not chamGui:IsA("BillboardGui") then
-                    chamGui = Instance.new("BillboardGui")
-                    chamGui.Name = chamName
-                    chamGui.Adornee = targetPart
-                    chamGui.Size = boxSize
-                    chamGui.AlwaysOnTop = true
-                    chamGui.ResetOnSpawn = false
-                    chamGui.LightInfluence = 0
-                    chamGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+                if not existingCube then
+                    if not _G.__DOORS_ROUNDED_CUBE_TEMPLATE then
+                        local okGet, objs = pcall(function() return game:GetObjects("rbxassetid://10535937913") end)
+                        if okGet and objs and #objs > 0 then
+                            local loaded = objs[1]
+                            local unionPart = loaded:IsA("BasePart") and loaded or loaded:FindFirstChildWhichIsA("BasePart", true)
+                            if unionPart then
+                                local tmpl = unionPart:Clone()
+                                tmpl:ClearAllChildren()
+                                tmpl.Anchored = false
+                                tmpl.CanCollide = false
+                                tmpl.CanTouch = false
+                                tmpl.CanQuery = false
+                                tmpl.Massless = true
+                                tmpl.CastShadow = false
+                                tmpl.Material = Enum.Material.SmoothPlastic
+                                if tmpl:IsA("UnionOperation") then
+                                    tmpl.UsePartColor = true
+                                end
+                                _G.__DOORS_ROUNDED_CUBE_TEMPLATE = tmpl
+                            end
+                            pcall(function() loaded:Destroy() end)
+                        end
+                    end
 
-                    local frame = Instance.new("Frame")
-                    frame.Name = "RoundedBox"
-                    frame.Size = UDim2.new(1, 0, 1, 0)
-                    frame.BackgroundColor3 = entityColor
-                    frame.BackgroundTransparency = 0.85
-                    frame.BorderSizePixel = 0
-                    frame.Parent = chamGui
+                    local cubePart
+                    if _G.__DOORS_ROUNDED_CUBE_TEMPLATE then
+                        cubePart = _G.__DOORS_ROUNDED_CUBE_TEMPLATE:Clone()
+                    else
+                        cubePart = Instance.new("Part")
+                        cubePart.Shape = Enum.PartType.Block
+                        cubePart.Material = Enum.Material.SmoothPlastic
+                    end
+                    cubePart.Name = chamName
+                    cubePart.Size = cubeSize
+                    cubePart.Color = entityColor
+                    cubePart.Transparency = 0.65
+                    cubePart.Anchored = false
+                    cubePart.CanCollide = false
+                    cubePart.CanTouch = false
+                    cubePart.CanQuery = false
+                    cubePart.Massless = true
+                    cubePart.CastShadow = false
+                    cubePart.CFrame = targetPart.CFrame
 
-                    local corner = Instance.new("UICorner")
-                    corner.CornerRadius = UDim.new(0, 8) -- Exact rounded corners!
-                    corner.Parent = frame
+                    local weld = Instance.new("WeldConstraint")
+                    weld.Part0 = targetPart
+                    weld.Part1 = cubePart
+                    weld.Parent = cubePart
 
-                    local stroke = Instance.new("UIStroke")
-                    stroke.Name = "BoxStroke"
-                    stroke.Color = entityColor
-                    stroke.Thickness = 2
-                    stroke.Transparency = 0
-                    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                    stroke.Parent = frame
-
-                    chamGui.Parent = container or entity
+                    cubePart.Parent = entity:IsA("Model") and entity or targetPart
+                    existingCube = cubePart
                 end
 
-                highlightTarget = nil -- 2D entities use the rounded box cham, eliminating crude block/ball highlights!
-                table.insert(extraVisuals, chamGui)
+                highlightTarget = existingCube -- 3D Highlight (AlwaysOnTop) wraps the 3D rounded cube!
+                table.insert(extraVisuals, existingCube)
             end)
         else
             -- 3D Monsters (Figure, Seek, Giggle, Gloombats, Bramble, Groundskeeper, Monument, Jeff, Sally, etc.):
