@@ -1484,7 +1484,10 @@ local function processDoor(room, doorModel)
         return
     end
 
-    local isLocked = doorModel:GetAttribute("Locked") == true or room:GetAttribute("RequiresKey") == true or (doorModel:FindFirstChild("Lock") and doorModel.Lock:FindFirstChildWhichIsA("ProximityPrompt", true))
+    local isSeekActive = Workspace:FindFirstChild("SeekMoving") ~= nil or Workspace:FindFirstChild("SeekMovingNewClone") ~= nil
+    local lockObj = doorModel:FindFirstChild("Lock")
+    local lockPrompt = lockObj and lockObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local isLocked = (not isSeekActive) and (doorModel:GetAttribute("Locked") == true or (lockPrompt ~= nil and lockPrompt.Enabled == true))
 
     local nextNum = (roomNumber or 0) + 1
     local doorNumberStr = string.format("%03d", nextNum) -- 1:1 mspaint 3-digit padded number
@@ -2465,43 +2468,12 @@ local function processEntity(entity)
             -- Gloombats Full Swarm Highlighting: Highlight ALL flying bats in the swarm, not just the center point!
             highlightTarget = entity
         elseif cfg.Name == "Sally" then
-            -- Sally Visibility Guardian: Group strictly Sally's character body parts, NEVER her seat/platform!
-            local sallyModel = entity:FindFirstChild("__sally_char_model")
-            if not sallyModel then
-                sallyModel = Instance.new("Model")
-                sallyModel.Name = "__sally_char_model"
-                sallyModel.Parent = entity
-            end
-
-            local sallyBodyParts = {}
-            local function enforceSallyPart(p)
-                if p:IsA("BasePart") and p.Parent ~= sallyModel then
-                    local pName = p.Name:lower()
-                    local isPlatform = pName:find("seat") or pName:find("platform") or pName:find("chair") or pName:find("stool") or pName:find("base") or pName:find("stand") or pName:find("cushion") or pName:find("pedestal")
-                    if isPlatform then
-                        p.Transparency = 1
-                        p.LocalTransparencyModifier = 1
-                    else
-                        table.insert(sallyBodyParts, p)
-                        p.Transparency = 0
-                        p.LocalTransparencyModifier = 0
-                        p.Parent = sallyModel
-                    end
-                end
-            end
-            for _, p in ipairs(entity:GetChildren()) do
-                if p:IsA("BasePart") then enforceSallyPart(p) end
-            end
-            pcall(function()
-                entity.ChildAdded:Connect(function(c)
-                    if c:IsA("BasePart") then enforceSallyPart(c) end
-                end)
-            end)
-            highlightTarget = sallyModel
+            -- Highlight Sally natively without reparenting parts or modifying part Transparencies
+            highlightTarget = entity
         end
 
         if is2D then
-            -- 3D Rounded Cube ESP Engine (rbxassetid://10535937913) for 2D Monsters (Rush, Ambush, Eyes, Blitz, A-60, A-120, etc.)
+            -- 3D Rounded Cube ESP Engine (rbxassetid://10535937913) for 2D Monsters
             pcall(function()
                 local isEyes = (cfg.Name:lower():find("eyes") or cfg.Name:lower():find("lookman"))
                 local chamName = isEyes and "__mspaint_eyes_esp" or "__mspaint_cube_esp"
@@ -2533,7 +2505,7 @@ local function processEntity(entity)
                                 tmpl.CanQuery = false
                                 tmpl.Massless = true
                                 tmpl.CastShadow = false
-                                tmpl.Material = Enum.Material.SmoothPlastic
+                                tmpl.Material = Enum.Material.Neon
                                 if tmpl:IsA("UnionOperation") then
                                     tmpl.UsePartColor = true
                                 end
@@ -2549,12 +2521,15 @@ local function processEntity(entity)
                     else
                         cubePart = Instance.new("Part")
                         cubePart.Shape = Enum.PartType.Block
-                        cubePart.Material = Enum.Material.SmoothPlastic
                     end
                     cubePart.Name = chamName
                     cubePart.Size = cubeSize
+                    cubePart.Material = Enum.Material.Neon
+                    if cubePart:IsA("UnionOperation") then
+                        cubePart.UsePartColor = true
+                    end
                     cubePart.Color = entityColor
-                    cubePart.Transparency = 0.65
+                    cubePart.Transparency = 0.28
                     cubePart.Anchored = false
                     cubePart.CanCollide = false
                     cubePart.CanTouch = false
@@ -2568,11 +2543,21 @@ local function processEntity(entity)
                     weld.Part1 = cubePart
                     weld.Parent = cubePart
 
+                    local cubeHL = Instance.new("Highlight")
+                    cubeHL.Name = "__cube_outline_hl"
+                    cubeHL.Adornee = cubePart
+                    cubeHL.FillColor = entityColor
+                    cubeHL.FillTransparency = 0.25
+                    cubeHL.OutlineColor = Color3.fromRGB(255, 220, 220)
+                    cubeHL.OutlineTransparency = 0
+                    cubeHL.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    cubeHL.Parent = cubePart
+
                     cubePart.Parent = entity:IsA("Model") and entity or targetPart
                     existingCube = cubePart
                 end
 
-                highlightTarget = existingCube -- 3D Highlight (AlwaysOnTop) wraps the 3D rounded cube!
+                highlightTarget = existingCube
                 table.insert(extraVisuals, existingCube)
             end)
         else
@@ -3848,6 +3833,7 @@ executeInfinitePromptInteraction = function(targetPrompt, overrideTool)
     end
 
     -- Continuous retrieval backup daemon
+    _G.__DOORS_ACTIVE_RECLAIM_UNTIL = os.clock() + 2.2
     retrieveDroppedTool(tn, 1.8)
 
     -- Lockpick / Skeleton Key: Trigger unlock prompt AFTER tool is safely duplicated/re-obtained (mspaint order)
@@ -3952,7 +3938,8 @@ local function processNearbyDoors(currentPos, maxReach)
                     continue
                 end
                 local dPos = getDoorPosition(d)
-                if dPos and (currentPos - dPos).Magnitude <= reach then
+                local doorDist = dPos and (currentPos - dPos).Magnitude or 999
+                if dPos and doorDist <= reach then
                     -- 1. Native Door Physics & Anti-Smash:
                     if d.Name == "DoorNormal" or d.Name == "SideDoor" or d.Name == "SideroomDoor" then
                         -- Side Doors: 100% native server physics! Never unanchor or rotate door leaf (prevents floating doors in middle of room).
@@ -3989,7 +3976,7 @@ local function processNearbyDoors(currentPos, maxReach)
                         local up = lock:FindFirstChild("UnlockPrompt", true) or lock:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if up and up.Enabled then
                             isLocked = true
-                            if State.Auto_Interact and State.AutoInteract_Keys then
+                            if State.Auto_Interact and State.AutoInteract_Keys and doorDist <= 9.0 then
                                 up.HoldDuration = 0
                                 up.RequiresLineOfSight = false
                                 up.MaxActivationDistance = math.max(up.MaxActivationDistance or 0, 14)
@@ -4493,16 +4480,39 @@ if hookmetamethod and not _G.DOORS_UIS_KEY_HOOKED then
                 local args = {...}
                 args[2] = true -- mspaint v4 ClutchHeartbeat spoof: forces 100% perfect heartbeat score
                 return origNc(self, unpack(args))
-            elseif (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and (State.Auto_Heartbeat or State.Anti_Figure) then
-                return nil -- Drop Figure kill/hide signal cleanly without freezing calling threads!
+            elseif self.Name == "HideMonster" and State.Anti_Figure then
+                return nil
             end
         elseif method == "InvokeServer" then
-            if (self.Name == "HideMonster" or self.Name == "StopHeartbeat") and (State.Auto_Heartbeat or State.Anti_Figure) then
+            if self.Name == "HideMonster" and State.Anti_Figure then
                 return nil
             end
         end
         return origNc(self, ...)
     end))
+
+    -- Direct Auto Heartbeat Responder: automatically sends ClutchHeartbeat:FireServer(token, true) on every beat!
+    pcall(function()
+        local rf = game:GetService("ReplicatedStorage"):FindFirstChild("RemotesFolder")
+        local ch = rf and rf:FindFirstChild("ClutchHeartbeat")
+        if ch and ch:IsA("RemoteEvent") and not _G.__AUTO_HEARTBEAT_CONNECTED then
+            _G.__AUTO_HEARTBEAT_CONNECTED = true
+            ch.OnClientEvent:Connect(function(beatTime, beatToken)
+                if not State.Auto_Heartbeat then return end
+                local delayT = (type(beatTime) == "number" and beatTime > 0) and math.max(0.15, beatTime - 0.12) or 1.4
+                task.delay(delayT, function()
+                    if State.Auto_Heartbeat and ch then
+                        pcall(function() ch:FireServer(beatToken, true) end)
+                    end
+                end)
+                pcall(function()
+                    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                    local hb = pg and pg:FindFirstChild("MainUI") and pg.MainUI:FindFirstChild("MainFrame") and pg.MainUI.MainFrame:FindFirstChild("Heartbeat")
+                    if hb then hb.Visible = false end
+                end)
+            end)
+        end
+    end)
 
     local origIdx
     origIdx = hookmetamethod(game, "__index", newcclosure(function(self, idx)
@@ -5497,12 +5507,34 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         Hub.Notify("Movement", "Fly-Noclip disabled: Bypass Anti-Cheat Core is required!", 2)
     end
 
-    -- Door Sentry: ONLY runs when Auto Doors is explicitly enabled or during Knobs Farm (NEVER auto-opens in manual flight!)
+    -- Door Sentry: runs when Auto Doors / Knobs Farm is on, AND anti-door-smash pre-opens closed exit doors when WalkSpeed > 20
     local nowTime = os.clock()
     if root and not hiding and (State.AutoInteract_Doors or State.Knobs_Farm_Active) and (nowTime - (openedDoors.lastSentryCheck or 0) >= 0.15) then
         openedDoors.lastSentryCheck = nowTime
         local doorReach = (State.WalkSpeed_Enabled or State.Knobs_Farm_Active) and 35 or 24
         processNearbyDoors(root.Position, doorReach)
+    elseif root and not hiding and State.WalkSpeed_Enabled and (State.WalkSpeed_Value or 15) > 20 and (nowTime - (openedDoors.lastSentryCheck or 0) >= 0.08) then
+        openedDoors.lastSentryCheck = nowTime
+        local cr = Workspace:FindFirstChild("CurrentRooms")
+        if cr then
+            for _, rm in ipairs(cr:GetChildren()) do
+                local d = rm:FindFirstChild("Door")
+                if d and d:IsA("Model") and d:GetAttribute("Opened") ~= true and not isDupeDoor(d, rm) then
+                    local lockObj = d:FindFirstChild("Lock")
+                    local lp = lockObj and lockObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    local isLocked = d:GetAttribute("Locked") == true or (lp ~= nil and lp.Enabled == true)
+                    if not isLocked then
+                        local dPos = getDoorPosition(d)
+                        if dPos and (root.Position - dPos).Magnitude <= 14.5 then
+                            local hp = d:FindFirstChild("Hidden")
+                            if hp and hp:IsA("BasePart") then hp.CanTouch = false end
+                            local co = d:FindFirstChild("ClientOpen")
+                            if co and co:IsA("RemoteEvent") then pcall(function() co:FireServer() end) end
+                        end
+                    end
+                end
+            end
+        end
     end
 
     -- mspaint v4 Walk Through Doors (DoorNoclip) - strictly only door leaf, frames & walls remain solid!
@@ -5678,6 +5710,15 @@ trackConn(RunService.Heartbeat:Connect(function(dt)
         end
 
         local targetSpeed = State.WalkSpeed_Value or 15
+        -- Figure Room Safe Speed Cap (Room 50/100 or active FigureRig): prevents server anti-cheat rubberbanding
+        local inFigureRoom = false
+        local curRm = getObjectRoom(root)
+        if curRm and (curRm.Name == "50" or curRm.Name == "100" or curRm:FindFirstChild("FigureSetup") or curRm:FindFirstChild("FigureRagdoll", true)) then
+            inFigureRoom = true
+        end
+        if inFigureRoom then
+            targetSpeed = math.min(targetSpeed, 23)
+        end
         local baseGameSpeed = isCrouching and 10 or 15
         local desiredExtra = math.max(0, targetSpeed - baseGameSpeed)
         if char:GetAttribute("SpeedBoostExtra") ~= desiredExtra then
@@ -7216,53 +7257,78 @@ task.spawn(function()
                     setupRoomPromptMapping(curRoom)
                 end
 
-                -- Universal Direct Proximity Prompt Scan (CurrentRooms + Drops within 14 studs)
+                -- Cached Room Prompt Scan (zero O(N) descendant lag!) + Drops
                 local nearbyPromptsToFire = {}
                 local playerPos = root.Position
 
                 local function evaluatePromptCandidate(prompt)
                     if not prompt or not prompt:IsA("ProximityPrompt") or not prompt.Enabled or not prompt.Parent then return end
-                    if prompt.Name == "ManualOpenPrompt" then return end -- Never touch fake side-door interact prompt
+                    if prompt.Name == "ManualOpenPrompt" then return end
                     if not staticPromptCheck(prompt) then return end
 
                     local pObj = (prompt.ObjectText or ""):lower()
                     local pAct = (prompt.ActionText or ""):lower()
                     local pName = prompt.Name:lower()
                     local parentName = prompt.Parent.Name:lower()
+                    local model = prompt.Parent:IsA("Model") and prompt.Parent or prompt.Parent:FindFirstAncestorOfClass("Model")
+                    local mName = model and model.Name:lower() or ""
 
-                    -- Fake/Dupe door guard
-                    if parentName:find("doorfake") or parentName:find("dupe") then return end
+                    -- Filter useless props/notes/clocks/radios/furniture
+                    if pObj:find("note") or pObj:find("letter") or pObj:find("paper") or pObj:find("radio")
+                        or pObj:find("piano") or pObj:find("bell") or pObj:find("clock") or pObj:find("alarm")
+                        or mName:find("note") or mName:find("letter") or mName:find("piano") or mName:find("fireplace")
+                        or parentName:find("doorfake") or parentName:find("dupe") then
+                        return
+                    end
 
-                    -- Proximity distance check (strict 6.5 stud drawer guard)
+                    -- Locked Chest / Locked Door Guard: NEVER try to unlock without an actual compatible tool!
+                    if isGenuineUnlockPrompt(prompt) or pAct:find("unlock") or pObj:find("locked") or mName:find("locked") then
+                        if not getCompatibleToolForPrompt(prompt) then
+                            return
+                        end
+                    end
+
                     local pPart = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart", true)
                     local pPos = pPart and pPart.Position
                     if pPos then
                         local dist = (playerPos - pPos).Magnitude
                         local isDrawer = pObj:find("drawer") or parentName:find("knob") or parentName:find("drawer")
-                        local maxAllowed = isDrawer and 6.5 or (prompt.MaxActivationDistance or 12.0)
+                        local maxAllowed = isDrawer and 6.5 or math.min(prompt.MaxActivationDistance or 12.0, 14.0)
                         if dist <= maxAllowed then
                             table.insert(nearbyPromptsToFire, prompt)
                         end
                     end
                 end
 
-                local curRooms = Workspace:FindFirstChild("CurrentRooms")
-                if curRooms then
-                    for _, rm in ipairs(curRooms:GetChildren()) do
-                        local rmPos = rm:FindFirstChildWhichIsA("BasePart", true)
-                        if rmPos and (rmPos.Position - playerPos).Magnitude < 75 then
-                            for _, desc in ipairs(rm:GetDescendants()) do
-                                if desc:IsA("ProximityPrompt") then
-                                    evaluatePromptCandidate(desc)
-                                end
-                            end
+                if curRoom and activeRoomCache[curRoom] then
+                    for prompt, _ in pairs(activeRoomCache[curRoom]) do
+                        evaluatePromptCandidate(prompt)
+                    end
+                end
+                if curNum then
+                    local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                    local prevRm = curRooms and curRooms:FindFirstChild(tostring(curNum - 1))
+                    if prevRm and activeRoomCache[prevRm] then
+                        for prompt, _ in pairs(activeRoomCache[prevRm]) do
+                            evaluatePromptCandidate(prompt)
                         end
                     end
                 end
 
                 local drops = Workspace:FindFirstChild("Drops")
                 if drops then
+                    local activeReclaim = (_G.__DOORS_ACTIVE_RECLAIM_UNTIL or 0) > now
                     for _, d in ipairs(drops:GetChildren()) do
+                        -- Never instantly pick up items the player manually dropped!
+                        local isMine = d:GetAttribute("PlayerName") == LocalPlayer.Name
+                        if isMine and not activeReclaim then
+                            if not d:GetAttribute("__DropSeenAt") then
+                                d:SetAttribute("__DropSeenAt", now)
+                            end
+                            if (now - d:GetAttribute("__DropSeenAt")) < 6.0 then
+                                continue
+                            end
+                        end
                         local p = d:FindFirstChildWhichIsA("ProximityPrompt", true)
                         if p then evaluatePromptCandidate(p) end
                     end
@@ -7282,13 +7348,12 @@ task.spawn(function()
                     end
                 end
 
-                -- Check nearby doors to trigger smooth opening
                 if curRoom and (State.AutoInteract_Doors or State.Knobs_Farm_Active) then
                     processNearbyDoors(root.Position, 16)
                 end
             end
         end
-        task.wait(0.03) -- Snappy 33Hz loop for near-instant pickup & drawer opening
+        task.wait(0.06) -- Smooth zero-lag cached scan
     end
 end)
 -- =========================================================================
@@ -7319,7 +7384,7 @@ pcall(function()
                         hum:EquipTool(tool)
                     end
                 end
-                if State.Infinite_Items and State.Infinite_Lockpicks and not infItemsDebounce then
+                if State.Infinite_Items and State.Infinite_Lockpicks and not State.Instant_Interact and not infItemsDebounce then
                     local tn = tool.Name:lower()
                     if tn:find("lockpick") or tn:find("skeleton") or tn:find("shear") then
                         task.spawn(function()
@@ -7351,7 +7416,13 @@ local function bindInfiniteTool(tool)
 
     tool.Activated:Connect(function()
         if not State.Infinite_Items then return end
-        -- Invariant: Retain ALL usable items in DOORS (Crucifix, Vitamins, Bandages, Batteries, Keys, Lockpicks, Candy, Shears, etc.)
+        local tn = tool.Name:lower()
+        -- Only click-consumables dupe on Activated; lockpicks/shears/keys dupe via ProximityPrompt, clocks/lights never drop on click!
+        if tn:find("lockpick") or tn:find("skeleton") or tn:find("key") or tn:find("shear")
+            or tn:find("clock") or tn:find("alarm") or tn:find("lighter") or tn:find("flashlight")
+            or tn:find("candle") or tn:find("crucifix") or tn:find("scanner") or tn:find("tablet") then
+            return
+        end
         executeItemDupeDrop(tool, 0.05)
     end)
 end
@@ -7544,40 +7615,47 @@ task.spawn(function()
                 local r = getRoot()
                 local refPos = camPos or (r and r.Position)
 
-                if not lastHidingModel then
-                    local curRooms = Workspace:FindFirstChild("CurrentRooms")
-                    if curRooms then
-                        for _, rm in ipairs(curRooms:GetChildren()) do
-                            for _, desc in ipairs(rm:GetDescendants()) do
-                                if desc:IsA("Model") then
-                                    local nl = desc.Name:lower()
-                                    if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
-                                        local isTarget = false
-                                        local hp = desc:FindFirstChild("HiddenPlayer")
-                                        if hp and hp:IsA("ObjectValue") and hp.Value == LocalPlayer then
-                                            isTarget = true
-                                        elseif refPos and (desc:GetPivot().Position - refPos).Magnitude <= 12 then
-                                            isTarget = true
-                                        end
-
-                                        if isTarget then
-                                            lastHidingModel = desc
-                                            lastHidingOriginalTrans = {}
-                                            for _, p in ipairs(desc:GetDescendants()) do
-                                                if p:IsA("BasePart") then
-                                                    lastHidingOriginalTrans[p] = p.Transparency
-                                                    p.Transparency = 0.75
-                                                elseif p:IsA("Decal") then
-                                                    lastHidingOriginalTrans[p] = p.Transparency
-                                                    p.Transparency = 0.75
-                                                end
-                                            end
-                                            break
+                local bestTarget = nil
+                local bestDist = 14
+                local curRooms = Workspace:FindFirstChild("CurrentRooms")
+                if curRooms then
+                    for _, rm in ipairs(curRooms:GetChildren()) do
+                        for _, desc in ipairs(rm:GetDescendants()) do
+                            if desc:IsA("Model") then
+                                local nl = desc.Name:lower()
+                                if nl:find("wardrobe") or nl:find("closet") or nl:find("bed") or nl:find("locker") then
+                                    local hp = desc:FindFirstChild("HiddenPlayer")
+                                    if hp and hp:IsA("ObjectValue") and (hp.Value == char or hp.Value == LocalPlayer) then
+                                        bestTarget = desc
+                                        break
+                                    elseif refPos then
+                                        local d = (desc:GetPivot().Position - refPos).Magnitude
+                                        if d < bestDist then
+                                            bestDist = d
+                                            bestTarget = desc
                                         end
                                     end
                                 end
                             end
-                            if lastHidingModel then break end
+                        end
+                        if bestTarget and bestTarget:FindFirstChild("HiddenPlayer") and (bestTarget.HiddenPlayer.Value == char or bestTarget.HiddenPlayer.Value == LocalPlayer) then
+                            break
+                        end
+                    end
+                end
+
+                if bestTarget and bestTarget ~= lastHidingModel then
+                    if lastHidingModel then
+                        for p, origT in pairs(lastHidingOriginalTrans) do
+                            if p and p.Parent then pcall(function() p.Transparency = origT end) end
+                        end
+                    end
+                    lastHidingModel = bestTarget
+                    lastHidingOriginalTrans = {}
+                    for _, p in ipairs(bestTarget:GetDescendants()) do
+                        if p:IsA("BasePart") or p:IsA("Decal") then
+                            lastHidingOriginalTrans[p] = p.Transparency
+                            p.Transparency = 0.75
                         end
                     end
                 end
