@@ -2660,33 +2660,27 @@ flightHeartbeatConn = RunService.Heartbeat:Connect(function(dt)
                 local aimPos
 
                 if isRageActive then
-                    -- RAGE MODE: Maximum hyper-DPS lock! Glue 1.8 studs behind dorsal spine and face directly into the bear's hitbox
+                    -- RAGE MODE: Tight dorsal apex lock above bite/claw arc, aiming directly into bear's crown/head hitbox
                     local aimPart = activeFlightOffset and activeFlightOffset.targetHitPart or bRoot
                     aimPos = (aimPart and aimPart.Parent) and aimPart.Position or (bRoot.Position + Vector3.new(0, 0.4, 0))
-                    targetPos = bRoot.Position - (flatLook * 1.8) + Vector3.new(0, 1.4, 0)
+                    local rageElev = (Config.FarmMethod == "Bear Attack") and 5.6 or 2.8
+                    targetPos = bRoot.Position - (flatLook * 1.8) + Vector3.new(0, rageElev, 0)
                     targetCF = CFrame.lookAt(targetPos, aimPos)
                 else
-                    -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 75ms feedforward
-                    local curStandoff = activeFlightOffset.standoff or 2.4
+                    -- Dynamic Pursuit Adjustment: When bear is running/sprinting, tighten standoff and lead with 85ms feedforward
+                    local curStandoff = activeFlightOffset.standoff or 1.8
                     if not isBallBear and flatVel.Magnitude > 1.0 then
-                        curStandoff = math.max(1.8, curStandoff - math.clamp(flatVel.Magnitude * 0.035, 0, 0.7))
+                        curStandoff = math.max(1.2, curStandoff - math.clamp(flatVel.Magnitude * 0.035, 0, 0.7))
                     end
 
                     targetPos = bRoot.Position - (flatLook * curStandoff) + Vector3.new(0, activeElevation, 0)
-                    -- Dynamic Velocity Feedforward: 75ms predictive lead glued to running bears (prevents enraged bears from escaping scream cone!)
+                    -- Dynamic Velocity Feedforward: 85ms predictive lead glued to running bears (prevents escaping hit cone)
                     if flatVel.Magnitude > 0.5 then
-                        targetPos = targetPos + (flatVel * 0.075)
-                    end
-
-                    -- Dynamic Evasive Dorsal Orbit Core: Weaves laterally across the rear spine to disrupt bear tracking & turning attacks!
-                    local rightVec = flatLook:Cross(Vector3.yAxis)
-                    if rightVec.Magnitude > 0.05 then
-                        local sway = math.sin(os.clock() * 4.0) * 1.4
-                        targetPos = targetPos + (rightVec.Unit * sway)
+                        targetPos = targetPos + (flatVel * 0.085)
                     end
 
                     local aimPart = activeFlightOffset.targetHitPart or bRoot
-                    aimPos = (aimPart and aimPart.Parent) and (aimPart.Position + Vector3.new(0, 0.2, 0)) or (bRoot.Position + Vector3.new(0, 0.5, 0))
+                    aimPos = (aimPart and aimPart.Parent) and aimPart.Position or (bRoot.Position + Vector3.new(0, 0.4, 0))
                     targetCF = buildCombatFlightCF(targetPos, aimPos)
                 end
             else
@@ -3278,9 +3272,9 @@ task.spawn(function()
         local aimPos = nil
 
         if isRageActive then
-            -- RAGE MODE: Tight dorsal lock glued 1.8 studs behind and 1.4 studs up, looking directly into the bear's hitbox
+            -- RAGE MODE: Tight dorsal apex lock above claw/bite height, looking directly into the bear's hitbox
             standoff = 1.8
-            elevation = 1.4
+            elevation = (Config.FarmMethod == "Bear Attack") and 5.6 or 2.8
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
             aimPos = (targetHitPart and targetHitPart.Parent) and targetHitPart.Position or (bearRoot.Position + Vector3.new(0, 0.4, 0))
         elseif isMyIceBear and (Config.FarmMethod == "Bear Attack" or Config.StealthFarm) then
@@ -3308,6 +3302,15 @@ task.spawn(function()
             elevation = 12.0
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
             aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
+        elseif Config.FarmMethod == "Bear Attack" then
+            -- Dorsal overhead blindspot: safe above bear's ground swipe/bite arc while aiming straight into crown/head
+            standoff = 1.8
+            elevation = math.max(elevation or 5.4, 7.0) + (damageElevationBoost or 0)
+            targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
+            aimPos = (targetHitPart and targetHitPart.Parent) and targetHitPart.Position or (bearRoot.Position + Vector3.new(0, 0.4, 0))
+            if isBallBear then
+                aimPos = bearRoot.Position + Vector3.new(0, 0.6, 0)
+            end
         else
             targetPos = bearRoot.Position - (flatLook * standoff) + Vector3.new(0, elevation, 0)
             aimPos = targetHitPart.Position + Vector3.new(0, 0.4, 0)
@@ -3381,8 +3384,8 @@ task.spawn(function()
         elseif Config.FarmMethod == "Melee" then
             canStrike = distToTargetPart <= 8.5
         elseif Config.FarmMethod == "Bear Attack" then
-            -- Screams and swipes have an effective server reach of ~6.5 - 7.5 studs
-            canStrike = distToTargetPart <= 7.5 or distToRoot <= 7.5
+            -- Allow full dorsal overhead reach (7-10 studs above bear root) without skipping swings
+            canStrike = distToTargetPart <= 11.5 or distToRoot <= 13.0
         end
         if not canStrike then
             task.wait(0.02)
@@ -3472,7 +3475,7 @@ task.spawn(function()
                     for step = 1, #hotbarSlots do
                         bearVariantIndex = (bearVariantIndex % #hotbarSlots) + 1
                         local candidateSlot = hotbarSlots[bearVariantIndex]
-                        local variantDelay = isRageActive and 0.02 or 0.10
+                        local variantDelay = isRageActive and 0.02 or 0.04
                         if isAbilityReady(candidateSlot) and (tick() - lastBearAttack >= variantDelay) then
                             lastBearAttack = tick()
                             if bearAim and targetHitPart and targetHitPart.Parent then
@@ -3484,7 +3487,7 @@ task.spawn(function()
                             pcall(function()
                                 bearAbility:FireServer("Use", candidateSlot, aimPos)
                             end)
-                            local slotCd = isRageActive and 0.10 or 0.85
+                            local slotCd = isRageActive and 0.10 or 0.25
                             abilityCooldowns[tostring(candidateSlot)] = workspace:GetServerTimeNow() + slotCd
                             abilityCooldowns[candidateSlot] = abilityCooldowns[tostring(candidateSlot)]
                             dispatchedVariant = true
@@ -3494,44 +3497,33 @@ task.spawn(function()
                 end
 
                 -- 3. Dispatch Default M1 Skill (Primary Swipe / Slam / Sonic Scream / Hyper Sonic Scream)
-                -- Dynamic M1 Cooldown Engine: Hypersonic Boo-Boo has 0.03s attack cooldown; standard bears have ~0.5s
                 local isHypersonic = myBearName:find("hyper") ~= nil
                 local isIceMage = myBearName:find("ice") ~= nil
-                local m1MinInterval = isRageActive and 0.005 or (isHypersonic and 0.03 or (isIceMage and 0.08 or (myBearName:find("boo") and 0.08 or 0.15)))
+                local m1MinInterval = isRageActive and 0.005 or (isHypersonic and 0.03 or (isIceMage and 0.06 or (myBearName:find("boo") and 0.06 or 0.10)))
                 local defaultReady = isRageActive or isAbilityReady("Default")
                 if defaultReady and (tick() - lastDefaultM1Attack >= m1MinInterval) then
                     lastDefaultM1Attack = tick()
                     local hitPart = targetHitPart
                     if not hitPart or not hitPart.Parent then
-                        hitPart = bear:FindFirstChild("Hitbox_Chest")
-                            or bear:FindFirstChild("Hitbox_Head")
+                        hitPart = bear:FindFirstChild("Hitbox_Head")
+                            or bear:FindFirstChild("Hitbox_Crown")
+                            or bear:FindFirstChild("Hitbox_Chest")
                             or bear:FindFirstChild("Hitbox_Hips")
                             or bear:FindFirstChild("Hitbox_Body")
                             or bearRoot
                     end
                     local currentAimPos = hitPart.Position
-                    if isBallBear and not isRageActive then
-                        currentAimPos = hitPart.Position + Vector3.new(0, 0.5, 0)
-                    end
                     local hitOffset = hitPart.CFrame:PointToObjectSpace(currentAimPos)
                     if bearAim and hitPart and hitPart.Parent then
                         pcall(function()
                             bearAim:FireServer(currentAimPos, hitPart, hitOffset)
                         end)
-                        -- Also multi-target Hitbox_Chest if different for 100% server registration redundancy
-                        local chestPart = bear:FindFirstChild("Hitbox_Chest")
-                        if chestPart and chestPart ~= hitPart then
-                            pcall(function()
-                                bearAim:FireServer(chestPart.Position, chestPart, Vector3.zero)
-                            end)
-                        end
                     end
                     pcall(function()
                         bearAbility:FireServer("Use", "Default", currentAimPos)
                     end)
-                    -- Enforce predictive cooldown floor (0.005s in Rage Mode, 0.03s for Hypersonic Boo-Boo, 0.50s for Boo-Boo)
                     local sTime = workspace:GetServerTimeNow()
-                    local cdFloor = isRageActive and 0.005 or (isHypersonic and 0.03 or (myBearName:find("boo") and 0.50 or 0.90))
+                    local cdFloor = isRageActive and 0.005 or (isHypersonic and 0.03 or (myBearName:find("boo") and 0.14 or 0.22))
                     abilityCooldowns["Default"] = math.max(abilityCooldowns["Default"] or 0, sTime + cdFloor)
                 end
 
@@ -5113,40 +5105,6 @@ Hub.CreateToggle(miscTab, "Tornado Spinbot", false, function(val)
     end
 end)
 
-Hub.CreateButton(miscTab, "Check / Show Bearshroom Gamepass", function()
-    local MarketplaceService = game:GetService("MarketplaceService")
-    local passId = 1067866275 -- Original Bearshroom / "Become a Bear" gamepass (GamepassTable.NormalBear)
-    pcall(function()
-        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
-        local gpMod = dataFolder and dataFolder:FindFirstChild("GamepassTable")
-        if gpMod then
-            local gpData = require(gpMod)
-            if type(gpData) == "table" and gpData.Gamepasses and gpData.Gamepasses.NormalBear then
-                passId = gpData.Gamepasses.NormalBear
-            end
-        end
-    end)
-
-    local infoOk, info = pcall(function()
-        return MarketplaceService:GetProductInfo(passId, Enum.InfoType.GamePass)
-    end)
-    local ownsOk, owns = pcall(function()
-        return MarketplaceService:UserOwnsGamePassAsync(LocalPlayer.UserId, passId)
-    end)
-
-    pcall(function()
-        MarketplaceService:PromptGamePassPurchase(LocalPlayer, passId)
-    end)
-
-    if infoOk and type(info) == "table" then
-        local name = tostring(info.Name or "Become a Bear")
-        local saleText = info.IsForSale and ("For Sale (" .. tostring(info.PriceInRobux or "?") .. " R$)") or "OFF-SALE by dev"
-        local ownText = (ownsOk and owns) and " | OWNED" or ""
-        Hub.Notify("Bearshroom Pass", name .. " [" .. tostring(passId) .. "] — " .. saleText .. ownText, 4.5)
-    else
-        Hub.Notify("Bearshroom Pass", "Prompted Gamepass ID " .. tostring(passId), 3.5)
-    end
-end)
 
 Hub.CreateSection(miscTab, "Security & Doors Override")
 
