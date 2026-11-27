@@ -486,6 +486,16 @@ local function triggerRemotePrestige()
         return
     end
 
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local screen = pc:FindFirstChild("ComputerScreen")
+    if root and screen and (root.Position - screen.Position).Magnitude > 18 then
+        silenceTelemetry()
+        root.CFrame = screen.CFrame * CFrame.new(0, 0, -4)
+        root.AssemblyLinearVelocity = Vector3.zero
+        task.wait(0.18)
+    end
+
     local ok, res = pcall(function() return pRemote:InvokeServer() end)
     if ok and res == true then
         Hub.Notify("Prestige", "PRESTIGE GRANTED! Resetting with prestige rewards 🌟", 4)
@@ -597,7 +607,7 @@ local function processCrateComplete(crate, mode)
     local targetCFrame = cratePart.CFrame + Vector3.new(0, 4.0, 0)
     root.CFrame = targetCFrame
     root.AssemblyLinearVelocity = Vector3.zero
-    task.wait(0.12)
+    task.wait(0.18)
 
     -- Dynamic GhostBear evasion check
     if isGhostBearNearPosition(root.Position, 28) then
@@ -617,7 +627,7 @@ local function processCrateComplete(crate, mode)
         if openPrompt and openPrompt.Enabled then
             triggerPrompt(openPrompt)
         end
-        task.wait(0.08)
+        task.wait(0.1)
     end
 
     -- 2. Direct Network Fast-Loot Invocations for Slots 1, 2, 3
@@ -5105,29 +5115,36 @@ end)
 
 Hub.CreateButton(miscTab, "Check / Show Bearshroom Gamepass", function()
     local MarketplaceService = game:GetService("MarketplaceService")
-    local found = false
-    for _, desc in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-        local n = desc.Name:lower()
-        if n:find("bearshroom") or n:find("shroom") then
-            found = true
-            Hub.Notify("Bearshroom", "Found reference: " .. desc.Name, 4)
-            if desc:IsA("IntValue") or desc:IsA("NumberValue") then
-                pcall(function()
-                    MarketplaceService:PromptGamePassPurchase(LocalPlayer, desc.Value)
-                end)
+    local passId = 1067866275 -- Original Bearshroom / "Become a Bear" gamepass (GamepassTable.NormalBear)
+    pcall(function()
+        local dataFolder = ReplicatedStorage:FindFirstChild("Data")
+        local gpMod = dataFolder and dataFolder:FindFirstChild("GamepassTable")
+        if gpMod then
+            local gpData = require(gpMod)
+            if type(gpData) == "table" and gpData.Gamepasses and gpData.Gamepasses.NormalBear then
+                passId = gpData.Gamepasses.NormalBear
             end
         end
-    end
-    for _, obj in ipairs({game:GetService("ReplicatedStorage"), workspace, LocalPlayer}) do
-        for attr, val in pairs(obj:GetAttributes()) do
-            if attr:lower():find("bearshroom") or attr:lower():find("shroom") then
-                found = true
-                Hub.Notify("Bearshroom", "Found attribute: " .. attr .. " = " .. tostring(val), 4)
-            end
-        end
-    end
-    if not found then
-        Hub.Notify("Bearshroom", "Bearshroom gamepass is not yet registered in this place version!", 3)
+    end)
+
+    local infoOk, info = pcall(function()
+        return MarketplaceService:GetProductInfo(passId, Enum.InfoType.GamePass)
+    end)
+    local ownsOk, owns = pcall(function()
+        return MarketplaceService:UserOwnsGamePassAsync(LocalPlayer.UserId, passId)
+    end)
+
+    pcall(function()
+        MarketplaceService:PromptGamePassPurchase(LocalPlayer, passId)
+    end)
+
+    if infoOk and type(info) == "table" then
+        local name = tostring(info.Name or "Become a Bear")
+        local saleText = info.IsForSale and ("For Sale (" .. tostring(info.PriceInRobux or "?") .. " R$)") or "OFF-SALE by dev"
+        local ownText = (ownsOk and owns) and " | OWNED" or ""
+        Hub.Notify("Bearshroom Pass", name .. " [" .. tostring(passId) .. "] — " .. saleText .. ownText, 4.5)
+    else
+        Hub.Notify("Bearshroom Pass", "Prompted Gamepass ID " .. tostring(passId), 3.5)
     end
 end)
 
